@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -229,6 +230,93 @@ def _relative_output(output: Path, path: Path) -> str:
     return path.resolve().relative_to(output.resolve()).as_posix()
 
 
+def _supports_process_tree_supervisor() -> bool:
+    """Whether timeout execution can own and stop a complete process tree."""
+    return (
+        os.name == "posix"
+        and hasattr(os, "setsid")
+        and hasattr(os, "killpg")
+    )
+
+
+def _terminate_process_tree(proc: subprocess.Popen[str]) -> bool:
+    """Boundedly terminate a case-owned POSIX process group and reap its leader."""
+    if not _supports_process_tree_supervisor():
+        return False
+    group_id = proc.pid
+    confirmed = True
+    try:
+        os.killpg(group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        confirmed = False
+    leader_reaped = False
+    grace_deadline = time.monotonic() + 0.5
+    while time.monotonic() < grace_deadline:
+        if not leader_reaped:
+            try:
+                proc.wait(timeout=0.02)
+                leader_reaped = True
+            except subprocess.TimeoutExpired:
+                pass
+        else:
+            time.sleep(0.02)
+    # A cooperative leader can exit while a descendant ignores SIGTERM.
+    # Always target the original group after the grace period.
+    try:
+        os.killpg(group_id, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        confirmed = False
+    if not leader_reaped:
+        try:
+            proc.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            confirmed = False
+    return confirmed
+
+
+def _stream_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _bounded_timeout_drain(
+    proc: subprocess.Popen[str],
+    initial: subprocess.TimeoutExpired,
+) -> tuple[str, str, bool]:
+    """Drain timeout output without ever waiting indefinitely on inherited pipes."""
+    try:
+        stdout, stderr = proc.communicate(timeout=0.5)
+        return _stream_text(stdout), _stream_text(stderr), True
+    except subprocess.TimeoutExpired as exc:
+        stdout = _stream_text(
+            exc.stdout if exc.stdout is not None else initial.stdout
+        )
+        stderr = _stream_text(
+            exc.stderr if exc.stderr is not None else initial.stderr
+        )
+    except (OSError, ValueError):
+        stdout = _stream_text(initial.stdout)
+        stderr = _stream_text(initial.stderr)
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+    try:
+        proc.wait(timeout=0.1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return stdout, stderr, False
+
+
 def run_case(
     case: dict[str, Any],
     *,
@@ -271,6 +359,26 @@ def run_case(
             "not_run_reasons": [f"missing_capability:{value}" for value in missing],
         }
 
+    if timeout is not None and (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or float(timeout) <= 0
+    ):
+        raise ValueError("timeout must be positive")
+    if timeout is not None and not _supports_process_tree_supervisor():
+        return {
+            **common,
+            "completed_at": _utc_now(),
+            "duration_seconds": 0.0,
+            "status": "NOT_RUN",
+            "returncode": None,
+            "stdout_path": None,
+            "stderr_path": None,
+            "artifact_hashes": {},
+            "not_run_reasons": ["process_tree_supervisor_unsupported"],
+        }
+
     case_dir = out / "cases" / case_id
     stdout_path = case_dir / "stdout.log"
     stderr_path = case_dir / "stderr.log"
@@ -279,38 +387,37 @@ def run_case(
     if env:
         process_env.update({str(key): str(value) for key, value in env.items()})
     started = time.perf_counter()
-    if timeout is not None and (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(float(timeout))
-        or float(timeout) <= 0
-    ):
-        raise ValueError("timeout must be positive")
+    process_kwargs: dict[str, Any] = {}
+    if os.name == "posix":
+        process_kwargs["start_new_session"] = True
+    elif hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        process_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             list(case.get("command") or []),
             cwd=repo,
             env=process_env,
             text=True,
-            capture_output=True,
-            check=False,
-            timeout=timeout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            **process_kwargs,
         )
-        returncode: int | None = completed.returncode
-        stdout = completed.stdout
-        stderr = completed.stderr
-        status = "PASS" if completed.returncode == 0 else "FAIL"
-        reasons: list[str] = []
-    except subprocess.TimeoutExpired as exc:
-        returncode = None
-        stdout = exc.stdout or ""
-        stderr = exc.stderr or ""
-        if isinstance(stdout, bytes):
-            stdout = stdout.decode("utf-8", errors="replace")
-        if isinstance(stderr, bytes):
-            stderr = stderr.decode("utf-8", errors="replace")
-        status = "NOT_RUN"
-        reasons = ["execution_timeout"]
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            tree_terminated = _terminate_process_tree(process)
+            stdout, stderr, output_drained = _bounded_timeout_drain(process, exc)
+            returncode: int | None = None
+            status = "NOT_RUN"
+            reasons = ["execution_timeout"]
+            if not tree_terminated:
+                reasons.append("process_tree_termination_unconfirmed")
+            if not output_drained:
+                reasons.append("process_output_drain_timeout")
+        else:
+            returncode = process.returncode
+            status = "PASS" if returncode == 0 else "FAIL"
+            reasons = []
     except OSError as exc:
         returncode = None
         stdout = ""

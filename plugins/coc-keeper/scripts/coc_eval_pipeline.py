@@ -146,12 +146,27 @@ def _limited_matrix_plan(plan: dict[str, Any], limit: int | None) -> dict[str, A
     return limited
 
 
+def _reject_symlink_components(path: Path | str, *, label: str) -> Path:
+    """Return an absolute lexical path after checking every component."""
+    raw = Path(path).absolute()
+    for component in reversed((raw, *raw.parents)):
+        if component.is_symlink():
+            raise ValueError(f"{label} path component must not be a symlink: {component}")
+    return raw
+
+
 def _baseline_matrix_dir(baseline: Path | str | None) -> Path | None:
     if baseline is None:
         return None
-    root = Path(baseline).resolve()
+    root = _reject_symlink_components(baseline, label="baseline")
     nested = root / "lanes" / "matrix"
-    if (nested / "matrix-plan.json").is_file():
+    plan = nested / "matrix-plan.json"
+    _reject_symlink_components(plan, label="baseline")
+    try:
+        nested.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError("nested baseline matrix escapes supplied baseline run") from exc
+    if plan.is_file():
         return nested
     return root
 
@@ -216,6 +231,22 @@ def _continuity_lane(root: Path, lane_id: str) -> dict[str, Any]:
     raise ValueError(f"continuity lane missing: {lane_id}")
 
 
+def _safe_execution_directory(
+    value: Path | str,
+    *,
+    label: str,
+    require_empty: bool,
+) -> Path:
+    raw = _reject_symlink_components(value, label=label)
+    if raw.exists() and not raw.is_dir():
+        raise ValueError(f"{label} must be a directory")
+    raw.mkdir(parents=True, exist_ok=True)
+    _reject_symlink_components(raw, label=label)
+    if require_empty and any(raw.iterdir()):
+        raise ValueError(f"{label} must be new or empty")
+    return raw.resolve()
+
+
 def run_continuity(
     lane_id: str,
     *,
@@ -227,6 +258,16 @@ def run_continuity(
     """Execute one exact GLM/Luna continuity lane through the canonical runner."""
     timeout_s = _positive_number(timeout, label="timeout")
     lane = _continuity_lane(Path(root).resolve(), lane_id)
+    lane_output = _safe_execution_directory(
+        output,
+        label="continuity output",
+        require_empty=False,
+    )
+    workspace_root = _safe_execution_directory(
+        workspace,
+        label="continuity workspace",
+        require_empty=True,
+    )
     if not hasattr(os, "fork") or not hasattr(os, "setsid"):
         return {
             "schema_version": 1,
@@ -247,8 +288,8 @@ def run_continuity(
             os.setsid()
             result = longrun.run_continuity_lane(
                 lane=lane,
-                workspace=workspace,
-                output=output,
+                workspace=workspace_root,
+                output=lane_output,
                 model_roles=copy.deepcopy(MODEL_ROLES),
             )
             _write_json_atomic(sidecar, {"ok": True, "result": result})
@@ -419,6 +460,34 @@ def _safe_lane_root(out: Path, lane_id: str, *, create: bool) -> Path:
     return lane_root
 
 
+def _safe_workspace_root(out: Path, lane_id: str, *, create: bool) -> Path:
+    if not lane_id or Path(lane_id).name != lane_id:
+        raise ValueError(f"unsafe lane id: {lane_id}")
+    out = out.resolve()
+    workspaces_root = out / "workspaces"
+    if workspaces_root.is_symlink():
+        raise ValueError("workspace root must not be a symlink")
+    if workspaces_root.exists() and not workspaces_root.is_dir():
+        raise ValueError("workspace root must be a directory")
+    workspace_root = workspaces_root / lane_id
+    if workspace_root.is_symlink():
+        raise ValueError(f"workspace root must not be a symlink: {lane_id}")
+    if workspace_root.exists() and not workspace_root.is_dir():
+        raise ValueError(f"workspace root must be a directory: {lane_id}")
+    resolved = workspace_root.resolve()
+    try:
+        resolved.relative_to(out)
+    except ValueError as exc:
+        raise ValueError(f"workspace root escapes output: {lane_id}") from exc
+    if create:
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        if workspaces_root.is_symlink() or workspace_root.is_symlink():
+            raise ValueError(f"workspace root must not be a symlink: {lane_id}")
+        if any(workspace_root.iterdir()):
+            raise ValueError(f"workspace root must be new or empty: {lane_id}")
+    return workspace_root
+
+
 def _lane_files(out: Path, lane_id: str) -> dict[str, str]:
     lane_root = _safe_lane_root(out, lane_id, create=False)
     resolved_lane_root = lane_root.resolve()
@@ -578,6 +647,10 @@ def run_extended_suite(
     ):
         raise ValueError("matrix_limit must be a positive integer")
     repo = Path(root).resolve()
+    # Reject an unsafe comparison source before creating candidate artifacts or
+    # dispatching any model-backed lane.  run_matrix validates again at its own
+    # boundary so a path swap between orchestration and execution still fails.
+    _baseline_matrix_dir(baseline)
     out = Path(output).resolve()
     out.mkdir(parents=True, exist_ok=True)
     lanes: dict[str, dict[str, Any]] = {
@@ -590,6 +663,10 @@ def run_extended_suite(
     }
 
     if lanes["registered-cases"].get("status") != "FAIL":
+        workspace_roots = {
+            lane_id: _safe_workspace_root(out, lane_id, create=True)
+            for lane_id in CONTINUITY_LANES
+        }
         matrix_output = _safe_lane_root(out, "matrix", create=True)
         lanes["matrix"] = _call_lane(
             "matrix",
@@ -609,7 +686,7 @@ def run_extended_suite(
                 lambda **kwargs: run_continuity(lane_id, **kwargs),
                 root=repo,
                 output=lane_output,
-                workspace=out / "workspaces" / lane_id,
+                workspace=workspace_roots[lane_id],
                 timeout=timeout,
             )
             lane_artifacts[lane_id] = _persist_lane(out, lane_id, lanes[lane_id])

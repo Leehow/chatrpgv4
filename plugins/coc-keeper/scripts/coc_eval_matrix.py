@@ -729,6 +729,14 @@ def _invoke_fake_or_script_runner(
     cell_dir: Path,
     timeout_s: float,
 ) -> dict[str, Any]:
+    if not _supports_process_tree_supervisor():
+        return {
+            "status": "NOT_RUN",
+            "not_run_reasons": ["process_tree_supervisor_unsupported"],
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+        }
     process_kwargs: dict[str, Any] = {}
     if os.name == "posix":
         process_kwargs["start_new_session"] = True
@@ -744,14 +752,23 @@ def _invoke_fake_or_script_runner(
     timed_out = False
     try:
         raw_stdout, raw_stderr = proc.communicate(timeout=timeout_s)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         timed_out = True
-        _terminate_process_tree(proc)
-        raw_stdout, raw_stderr = proc.communicate()
+        tree_terminated = _terminate_process_tree(proc)
+        raw_stdout, raw_stderr, output_drained = _bounded_timeout_drain(proc, exc)
     stdout = (raw_stdout or "").strip()
     payload: dict[str, Any]
     if timed_out:
-        payload = {"status": "NOT_RUN", "timed_out": True}
+        reasons = ["execution_timeout"]
+        if not tree_terminated:
+            reasons.append("process_tree_termination_unconfirmed")
+        if not output_drained:
+            reasons.append("process_output_drain_timeout")
+        payload = {
+            "status": "NOT_RUN",
+            "timed_out": True,
+            "not_run_reasons": reasons,
+        }
     elif stdout:
         try:
             payload = json.loads(stdout.splitlines()[-1])
@@ -767,59 +784,91 @@ def _invoke_fake_or_script_runner(
     return payload
 
 
-def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
-    """Terminate a runner-owned process group and reap its leader."""
-    if os.name == "posix":
-        group_id = proc.pid
-        try:
-            os.killpg(group_id, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        leader_reaped = False
-        grace_deadline = time.monotonic() + 0.5
-        while time.monotonic() < grace_deadline:
-            if not leader_reaped:
-                try:
-                    proc.wait(timeout=0.02)
-                    leader_reaped = True
-                except subprocess.TimeoutExpired:
-                    pass
-            else:
-                time.sleep(0.02)
-        # The leader may have exited while a descendant ignored SIGTERM.
-        # Always target the original group after the grace period.
-        try:
-            os.killpg(group_id, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        if not leader_reaped:
-            proc.wait()
-        return
-    if proc.poll() is not None:
-        return
-    if os.name == "nt":
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                capture_output=True,
-                check=False,
-                timeout=1,
-            )
-        except (OSError, subprocess.SubprocessError):
-            proc.terminate()
-    else:
-        proc.terminate()
+def _supports_process_tree_supervisor() -> bool:
+    """Whether timeout execution can own and stop a complete process tree."""
+    return (
+        os.name == "posix"
+        and hasattr(os, "setsid")
+        and hasattr(os, "killpg")
+    )
+
+
+def _terminate_process_tree(proc: subprocess.Popen[str]) -> bool:
+    """Boundedly terminate a runner-owned POSIX process group."""
+    if not _supports_process_tree_supervisor():
+        return False
+    group_id = proc.pid
+    confirmed = True
     try:
-        proc.wait(timeout=0.5)
-        return
-    except subprocess.TimeoutExpired:
+        os.killpg(group_id, signal.SIGTERM)
+    except ProcessLookupError:
         pass
-    proc.kill()
+    except OSError:
+        confirmed = False
+    leader_reaped = False
+    grace_deadline = time.monotonic() + 0.5
+    while time.monotonic() < grace_deadline:
+        if not leader_reaped:
+            try:
+                proc.wait(timeout=0.02)
+                leader_reaped = True
+            except subprocess.TimeoutExpired:
+                pass
+        else:
+            time.sleep(0.02)
+    # The leader may have exited while a descendant ignored SIGTERM.
+    # Always target the original group after the grace period.
     try:
-        proc.wait(timeout=0.5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        os.killpg(group_id, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        confirmed = False
+    if not leader_reaped:
+        try:
+            proc.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            confirmed = False
+    return confirmed
+
+
+def _stream_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _bounded_timeout_drain(
+    proc: subprocess.Popen[str],
+    initial: subprocess.TimeoutExpired,
+) -> tuple[str, str, bool]:
+    """Drain timeout output without waiting indefinitely on inherited pipes."""
+    try:
+        stdout, stderr = proc.communicate(timeout=0.5)
+        return _stream_text(stdout), _stream_text(stderr), True
+    except subprocess.TimeoutExpired as exc:
+        stdout = _stream_text(
+            exc.stdout if exc.stdout is not None else initial.stdout
+        )
+        stderr = _stream_text(
+            exc.stderr if exc.stderr is not None else initial.stderr
+        )
+    except (OSError, ValueError):
+        stdout = _stream_text(initial.stdout)
+        stderr = _stream_text(initial.stderr)
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+    try:
+        proc.wait(timeout=0.1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return stdout, stderr, False
 
 
 def _positive_timeout(value: Any, *, label: str) -> float:
@@ -878,6 +927,15 @@ def _paths_overlap(first: Path, second: Path) -> bool:
     return first == second or first in second.parents or second in first.parents
 
 
+def _reject_symlink_components(path: Path | str, *, label: str) -> Path:
+    """Return an absolute lexical path after checking every component."""
+    raw = Path(path).absolute()
+    for component in reversed((raw, *raw.parents)):
+        if component.is_symlink():
+            raise ValueError(f"{label} path component must not be a symlink: {component}")
+    return raw
+
+
 def _validated_matrix_paths(
     output: Path | str, baseline_dir: Path | str | None
 ) -> tuple[Path, Path | None]:
@@ -887,9 +945,7 @@ def _validated_matrix_paths(
     resolved_output = raw_output.resolve()
     if baseline_dir is None:
         return resolved_output, None
-    raw_baseline = Path(baseline_dir).absolute()
-    if raw_baseline.is_symlink():
-        raise ValueError("baseline root must not be a symlink")
+    raw_baseline = _reject_symlink_components(baseline_dir, label="baseline")
     raw_cells = raw_baseline / "cells"
     if raw_cells.is_symlink():
         raise ValueError("baseline cells must not be a symlink")
@@ -1328,14 +1384,22 @@ def execute_matrix_plan(
             _write_json_atomic(kp_request_path, kp_request)
 
         if runner_result.get("timed_out") is True:
+            timeout_reasons = [
+                reason
+                for reason in runner_result.get("not_run_reasons") or []
+                if isinstance(reason, str) and reason
+            ]
+            if not timeout_reasons:
+                timeout_reasons = ["execution_timeout"]
             result.update(
                 {
                     "status": "NOT_RUN",
-                    "not_run_reasons": ["execution_timeout"],
+                    "not_run_reasons": timeout_reasons,
                     "runner_result": {
                         "status": "NOT_RUN",
                         "returncode": runner_result.get("returncode"),
                         "timed_out": True,
+                        "not_run_reasons": timeout_reasons,
                     },
                     "timeout_phase": "matrix_runner",
                     "timeout_seconds": runner_timeout_s,
@@ -1353,7 +1417,7 @@ def execute_matrix_plan(
                     "eval_spec": EVAL_SPEC,
                     "status": "NOT_RUN",
                     "evidence_eligible": False,
-                    "not_run_reasons": ["execution_timeout"],
+                    "not_run_reasons": timeout_reasons,
                     "timeout_phase": "matrix_runner",
                     "timeout_seconds": runner_timeout_s,
                 },

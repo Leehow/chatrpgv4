@@ -784,6 +784,34 @@ def test_matrix_rejects_symlinked_baseline_paths_before_candidate_writes(
     assert sentinel.read_text(encoding="utf-8") == "baseline unchanged\n"
 
 
+def test_matrix_rejects_symlinked_baseline_ancestor_before_candidate_writes(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="ancestor-symlink")
+    outside = tmp_path / "outside-lanes"
+    _write_baseline_matrix(outside / "matrix", plan)
+    baseline_run = tmp_path / "baseline-run"
+    baseline_run.mkdir()
+    (baseline_run / "lanes").symlink_to(outside, target_is_directory=True)
+    output = tmp_path / "candidate"
+    monkeypatch.setattr(
+        matrix,
+        "_invoke_fake_or_script_runner",
+        lambda **kwargs: pytest.fail("ancestor symlink must fail before runner"),
+    )
+
+    with pytest.raises(ValueError, match="baseline.*symlink"):
+        matrix.execute_matrix_plan(
+            plan,
+            root=REPO,
+            output=output,
+            baseline_dir=baseline_run / "lanes" / "matrix",
+        )
+
+    assert not output.exists()
+
+
 @pytest.mark.parametrize("relationship", ("same", "output_child", "output_parent"))
 def test_matrix_rejects_overlapping_baseline_and_output_before_mutation(
     tmp_path: Path, relationship: str
@@ -2139,6 +2167,129 @@ def test_judged_matrix_marks_missing_baseline_not_run(tmp_path: Path, monkeypatc
     )
     assert judged["cells"][0]["status"] == "PASS"
     assert (tmp_path / "judged" / "cells" / cell["cell_id"] / "judge-result.json").is_file()
+
+
+def test_matrix_runner_timeout_does_not_start_without_process_tree_supervisor(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    monkeypatch.setattr(
+        matrix, "_supports_process_tree_supervisor", lambda: False, raising=False
+    )
+    monkeypatch.setattr(
+        matrix.subprocess,
+        "Popen",
+        lambda *args, **kwargs: pytest.fail("unsupported timeout must not start"),
+    )
+
+    result = matrix._invoke_fake_or_script_runner(
+        runner_path=tmp_path / "runner.py",
+        cell_input=tmp_path / "cell-input.json",
+        cell_dir=tmp_path / "cell",
+        timeout_s=0.1,
+    )
+
+    assert result["status"] == "NOT_RUN"
+    assert result["not_run_reasons"] == ["process_tree_supervisor_unsupported"]
+    assert result["returncode"] is None
+
+
+def test_matrix_runner_timeout_cleanup_and_pipe_drain_are_bounded(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+
+    class Pipe:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class Process:
+        pid = 4343
+        returncode = 0
+
+        def __init__(self):
+            self.stdout = Pipe()
+            self.stderr = Pipe()
+            self.communicate_calls = 0
+
+        def communicate(self, timeout=None):
+            self.communicate_calls += 1
+            raise matrix.subprocess.TimeoutExpired(
+                ["fixture"], timeout, output="partial-out", stderr="partial-err"
+            )
+
+        def wait(self, timeout=None):
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(matrix.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        matrix, "_supports_process_tree_supervisor", lambda: True, raising=False
+    )
+    monkeypatch.setattr(matrix, "_terminate_process_tree", lambda candidate: False)
+
+    result = matrix._invoke_fake_or_script_runner(
+        runner_path=tmp_path / "runner.py",
+        cell_input=tmp_path / "cell-input.json",
+        cell_dir=tmp_path / "cell",
+        timeout_s=0.1,
+    )
+
+    assert result["status"] == "NOT_RUN"
+    assert result["timed_out"] is True
+    assert result["not_run_reasons"] == [
+        "execution_timeout",
+        "process_tree_termination_unconfirmed",
+        "process_output_drain_timeout",
+    ]
+    assert result["stdout"] == "partial-out"
+    assert result["stderr"] == "partial-err"
+    assert process.stdout.closed
+    assert process.stderr.closed
+
+
+def test_matrix_runner_timeout_reasons_propagate_to_cell_manifest(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="runner-cleanup-timeout")
+    reasons = [
+        "execution_timeout",
+        "process_tree_termination_unconfirmed",
+        "process_output_drain_timeout",
+    ]
+    monkeypatch.setattr(
+        matrix,
+        "_invoke_fake_or_script_runner",
+        lambda **kwargs: {
+            "status": "NOT_RUN",
+            "timed_out": True,
+            "not_run_reasons": reasons,
+            "returncode": None,
+            "stdout": "partial-out",
+            "stderr": "partial-err",
+        },
+    )
+
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "out",
+        runner_timeout_s=0.1,
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "NOT_RUN"
+    assert cell["not_run_reasons"] == reasons
+    manifest = json.loads(
+        (
+            tmp_path / "out" / "cells" / cell["cell_id"] / "run-manifest.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["not_run_reasons"] == reasons
 
 
 def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Path):

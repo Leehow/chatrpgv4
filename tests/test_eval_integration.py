@@ -299,6 +299,102 @@ def test_continuity_lane_rejects_symlinked_output_before_dispatch(
     assert not (outside / "escaped.txt").exists()
 
 
+def test_pipeline_rejects_symlinked_baseline_ancestor(tmp_path: Path):
+    pipeline = _load_pipeline()
+    outside = tmp_path / "outside-lanes"
+    _write_json(outside / "matrix" / "matrix-plan.json", {"cells": []})
+    baseline_run = tmp_path / "baseline-run"
+    baseline_run.mkdir()
+    (baseline_run / "lanes").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="baseline.*symlink"):
+        pipeline._baseline_matrix_dir(baseline_run)
+
+
+def test_pipeline_rejects_symlinked_baseline_before_any_model_lane_dispatch(
+    tmp_path: Path, monkeypatch
+):
+    pipeline = _load_pipeline()
+    outside = tmp_path / "outside-lanes"
+    _write_json(outside / "matrix" / "matrix-plan.json", {"cells": []})
+    baseline_run = tmp_path / "baseline-run"
+    baseline_run.mkdir()
+    (baseline_run / "lanes").symlink_to(outside, target_is_directory=True)
+    out = tmp_path / "nightly"
+    monkeypatch.setattr(
+        pipeline,
+        "run_matrix",
+        lambda **kwargs: pytest.fail("unsafe baseline must fail before matrix"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_continuity",
+        lambda *args, **kwargs: pytest.fail(
+            "unsafe baseline must fail before continuity"
+        ),
+    )
+
+    with pytest.raises(ValueError, match="baseline.*symlink"):
+        pipeline.run_extended_suite(
+            root=REPO,
+            suite="nightly",
+            output=out,
+            case_results={
+                "schema_version": 1,
+                "eval_spec": "eval-spec-v1",
+                "suite": "nightly",
+                "status": "PASS",
+                "cases": [],
+            },
+            baseline=baseline_run,
+        )
+
+    assert not out.exists()
+
+
+def test_continuity_workspace_rejects_symlink_before_dispatch(
+    tmp_path: Path, monkeypatch
+):
+    pipeline = _load_pipeline()
+    out = tmp_path / "nightly"
+    outside = tmp_path / "outside-workspace"
+    outside.mkdir()
+    (out / "workspaces").mkdir(parents=True)
+    (out / "workspaces" / "continuity-25").symlink_to(
+        outside, target_is_directory=True
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_matrix",
+        lambda **kwargs: {"status": "PASS", "cells": [{"status": "PASS"}]},
+    )
+
+    def unsafe_continuity(lane_id, **kwargs):
+        Path(kwargs["workspace"], "escaped.txt").write_text(
+            "escaped", encoding="utf-8"
+        )
+        raise AssertionError("workspace rejection must happen before dispatch")
+
+    monkeypatch.setattr(pipeline, "run_continuity", unsafe_continuity)
+
+    with pytest.raises(ValueError, match="workspace.*symlink"):
+        pipeline.run_extended_suite(
+            root=REPO,
+            suite="nightly",
+            output=out,
+            case_results={
+                "schema_version": 1,
+                "eval_spec": "eval-spec-v1",
+                "suite": "nightly",
+                "status": "PASS",
+                "cases": [],
+            },
+            baseline=tmp_path / "baseline",
+        )
+
+    assert not (outside / "escaped.txt").exists()
+
+
 def test_supplied_missing_baseline_reason_is_promoted_to_aggregate(
     tmp_path: Path, monkeypatch
 ):
@@ -540,6 +636,32 @@ def test_continuity_timeout_kills_descendants_and_returns_not_run(
     assert result["timeout_phase"] == "continuity_lane"
     time.sleep(1.0)
     assert not sentinel.exists()
+
+
+def test_run_continuity_rejects_symlinked_workspace_before_fork(
+    tmp_path: Path, monkeypatch
+):
+    pipeline = _load_pipeline()
+    outside = tmp_path / "outside-workspace"
+    outside.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(
+        pipeline.longrun,
+        "run_continuity_lane",
+        lambda **kwargs: pytest.fail("workspace must be rejected before fork"),
+    )
+
+    with pytest.raises(ValueError, match="continuity workspace.*symlink"):
+        pipeline.run_continuity(
+            "continuity-25",
+            root=REPO,
+            output=tmp_path / "lane",
+            workspace=workspace,
+            timeout=1,
+        )
+
+    assert not any(outside.iterdir())
 
 
 def test_nightly_without_baseline_captures_lanes_but_cannot_pass(
