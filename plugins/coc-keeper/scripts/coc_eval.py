@@ -230,9 +230,24 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     )
     lanes = manifest.get("lanes") if isinstance(manifest, dict) else None
     manifest_suite = manifest.get("suite") if isinstance(manifest, dict) else None
-    if manifest_suite == "nightly" and not (
-        isinstance(lanes, dict) and lanes
-    ):
+    artifact_hashes = manifest.get("artifact_hashes")
+    aggregate_summary_path = directory / "aggregate-summary.json"
+    has_aggregate_contract = bool(
+        manifest_suite == "nightly"
+        or manifest.get("case_id") == "suite:nightly"
+        or "lanes" in manifest
+        or "lane_artifacts" in manifest
+        or "aggregation_inputs" in manifest
+        or (
+            isinstance(artifact_hashes, dict)
+            and "aggregate-summary.json" in artifact_hashes
+        )
+        or aggregate_summary_path.exists()
+        or aggregate_summary_path.is_symlink()
+    )
+    if not has_aggregate_contract:
+        return payload
+    if not (isinstance(lanes, dict) and lanes):
         payload["status"] = "FAIL"
         payload["lane_artifact_verification"] = {
             "schema_version": 1,
@@ -241,9 +256,7 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "findings": [{"code": "lane_contract_missing"}],
         }
         return payload
-    if manifest_suite == "nightly" and not (
-        isinstance(lane_artifacts, dict) and lane_artifacts
-    ):
+    if not (isinstance(lane_artifacts, dict) and lane_artifacts):
         payload["status"] = "FAIL"
         payload["lane_artifact_verification"] = {
             "schema_version": 1,
@@ -251,17 +264,6 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "status": "FAIL",
             "findings": [{"code": "lane_receipts_missing"}],
         }
-        return payload
-    if isinstance(lanes, dict) and lanes and not isinstance(lane_artifacts, dict):
-        payload["status"] = "FAIL"
-        payload["lane_artifact_verification"] = {
-            "schema_version": 1,
-            "eval_spec": "eval-spec-v1",
-            "status": "FAIL",
-            "findings": [{"code": "lane_receipts_missing"}],
-        }
-        return payload
-    if lane_artifacts is None:
         return payload
     required_owned_artifacts: dict[str, dict[str, str]] = {}
     contract_findings: list[dict[str, Any]] = []
@@ -271,18 +273,9 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             _registered_case_projection_findings(manifest, lanes)
         )
         contract_findings.extend(projection_findings)
-    has_aggregate_contract = bool(
-        isinstance(lanes, dict)
-        or isinstance(lane_artifacts, dict)
-        or (
-            isinstance(manifest.get("artifact_hashes"), dict)
-            and "aggregate-summary.json" in manifest["artifact_hashes"]
-        )
+    contract_findings.extend(
+        _aggregate_contract_findings(directory, manifest, lanes)
     )
-    if has_aggregate_contract and isinstance(lanes, dict):
-        contract_findings.extend(
-            _aggregate_contract_findings(directory, manifest, lanes)
-        )
     if (
         manifest_suite == "nightly"
         and isinstance(lanes, dict)

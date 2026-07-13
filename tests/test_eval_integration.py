@@ -996,6 +996,36 @@ def test_canonical_verify_rejects_aggregate_input_contradictions(
     )
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ("remove_lanes", "remove_lane_maps", "filesystem_marker_only"),
+)
+def test_canonical_verify_rejects_downgraded_aggregate_without_lane_contract(
+    tmp_path: Path, monkeypatch, mutation: str
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+
+    def mutate(manifest):
+        manifest["suite"] = "diagnostic"
+        manifest.pop("lanes", None)
+        if mutation in {"remove_lane_maps", "filesystem_marker_only"}:
+            manifest.pop("lane_artifacts", None)
+        if mutation == "filesystem_marker_only":
+            manifest["case_id"] = "suite:diagnostic"
+            manifest.pop("aggregation_inputs", None)
+            manifest.get("artifact_hashes", {}).pop(
+                "aggregate-summary.json", None
+            )
+
+    _rewrite_manifest(out, mutate)
+    payload = cli.verify_run_contract(out)
+
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert {"code": "lane_contract_missing"} in payload[
+        "lane_artifact_verification"
+    ]["findings"]
+
+
 def test_canonical_verify_fails_when_nightly_receipts_are_removed(
     tmp_path: Path, capsys
 ):
