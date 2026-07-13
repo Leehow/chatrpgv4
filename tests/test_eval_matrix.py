@@ -2589,6 +2589,42 @@ def test_semantic_judge_timeout_is_distinct_not_run_evidence(
     assert "execution_timeout" in cell["not_run_reasons"]
     assert "judge_unavailable_or_invalid" not in cell["not_run_reasons"]
     assert cell["timeout_phase"] == "semantic_judge"
+    assert cell["judge_failure"] == {
+        "error_type": "RuntimeError",
+        "error_code": "judge_unavailable_or_invalid",
+        "message": "judge request failed",
+    }
+
+
+def test_semantic_judge_schema_failure_preserves_safe_diagnostic(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="judge-schema")
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+
+    monkeypatch.setattr(
+        matrix.judge,
+        "invoke_sol_judge",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ValueError("score for player_agency must be numeric")
+        ),
+    )
+    results = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "candidate",
+        baseline_dir=baseline,
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "NOT_RUN"
+    assert cell["not_run_reasons"] == ["judge_unavailable_or_invalid"]
+    assert cell["judge_failure"] == {
+        "error_type": "ValueError",
+        "error_code": "judge_unavailable_or_invalid",
+        "message": "score for player_agency must be numeric",
+    }
 
 
 def test_public_turn_loader_never_falls_back_to_unfiltered_transcript(tmp_path: Path):

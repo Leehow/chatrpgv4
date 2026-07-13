@@ -327,17 +327,26 @@ def run_continuity(
         except BaseException as exc:
             try:
                 message = " ".join(str(exc).split())[:500]
+                is_contract_error = isinstance(exc, ValueError)
                 _write_json_atomic(
                     sidecar,
                     {
                         "ok": False,
                         "error_type": (
                             "ValueError"
-                            if isinstance(exc, ValueError)
+                            if is_contract_error
                             else type(exc).__name__
                         ),
                         "error_code": str(
-                            getattr(exc, "code", "continuity_contract_error")
+                            getattr(
+                                exc,
+                                "code",
+                                (
+                                    "continuity_contract_error"
+                                    if is_contract_error
+                                    else "continuity_lane_unavailable"
+                                ),
+                            )
                         ),
                         "error_message": message,
                     },
@@ -388,24 +397,34 @@ def run_continuity(
                 if isinstance(payload, dict)
                 else "RuntimeError"
             )
+            error_code = str(payload.get("error_code") or (
+                "continuity_contract_error"
+                if error_type == "ValueError"
+                else "continuity_lane_unavailable"
+            ))
+            error_message = str(payload.get("error_message") or "")
+            failure = {
+                "error_type": error_type,
+                "error_code": error_code,
+                "message": error_message,
+            }
             if error_type == "ValueError":
-                error_code = str(
-                    payload.get("error_code") or "continuity_contract_error"
-                )
-                error_message = str(payload.get("error_message") or "")
                 return {
                     "schema_version": 1,
                     "eval_spec": EVAL_SPEC,
                     "lane_id": lane_id,
                     "status": "FAIL",
                     "findings": ["lane_contract_error"],
-                    "failure": {
-                        "error_type": error_type,
-                        "error_code": error_code,
-                        "message": error_message,
-                    },
+                    "failure": failure,
                 }
-            raise RuntimeError(f"continuity lane failed: {lane_id}")
+            return {
+                "schema_version": 1,
+                "eval_spec": EVAL_SPEC,
+                "lane_id": lane_id,
+                "status": "NOT_RUN",
+                "not_run_reasons": [f"lane_unavailable:{error_type}"],
+                "failure": failure,
+            }
         return dict(payload["result"])
     finally:
         sidecar.unlink(missing_ok=True)

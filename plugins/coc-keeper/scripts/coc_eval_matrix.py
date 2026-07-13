@@ -1056,6 +1056,15 @@ def _is_timeout_exception(exc: BaseException) -> bool:
     return False
 
 
+def _safe_failure(exc: BaseException, *, default_code: str) -> dict[str, str]:
+    """Preserve bounded public diagnostics without serializing exception state."""
+    return {
+        "error_type": type(exc).__name__,
+        "error_code": str(getattr(exc, "code", default_code)),
+        "message": " ".join(str(exc).split())[:500],
+    }
+
+
 def _contained_cell_dir(output: Path, cell_id: str) -> Path:
     safe_cell_id = _safe_identifier(cell_id, label="cell_id")
     cells_path = output / "cells"
@@ -1800,6 +1809,9 @@ def execute_matrix_plan(
                                 )
                             except (RuntimeError, ValueError) as exc:
                                 result["status"] = "NOT_RUN"
+                                result["judge_failure"] = _safe_failure(
+                                    exc, default_code="judge_unavailable_or_invalid"
+                                )
                                 if _is_timeout_exception(exc):
                                     _append_reason(result, "execution_timeout")
                                     result["timeout_phase"] = "semantic_judge"

@@ -1379,6 +1379,34 @@ def test_continuity_contract_failure_preserves_safe_child_diagnostics(
     }
 
 
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires POSIX process groups")
+def test_continuity_runtime_failure_preserves_safe_child_diagnostics(
+    tmp_path: Path, monkeypatch
+):
+    pipeline = _load_pipeline()
+
+    def unavailable_lane(**kwargs):
+        raise RuntimeError("adapter worker timed out")
+
+    monkeypatch.setattr(pipeline.longrun, "run_continuity_lane", unavailable_lane)
+
+    result = pipeline.run_continuity(
+        "continuity-25",
+        root=REPO,
+        output=tmp_path / "lane",
+        workspace=tmp_path / "workspace",
+        timeout=1,
+    )
+
+    assert result["status"] == "NOT_RUN"
+    assert result["not_run_reasons"] == ["lane_unavailable:RuntimeError"]
+    assert result["failure"] == {
+        "error_type": "RuntimeError",
+        "error_code": "continuity_lane_unavailable",
+        "message": "adapter worker timed out",
+    }
+
+
 def test_run_continuity_rejects_symlinked_workspace_before_fork(
     tmp_path: Path, monkeypatch
 ):

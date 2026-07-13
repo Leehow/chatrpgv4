@@ -457,6 +457,20 @@ def test_sol_judge_uses_chat_completions_and_exact_identity(monkeypatch):
 
     assert calls[0][0].endswith("/chat/completions")
     assert calls[0][1]["model"] == "gpt-5.6-sol"
+    system_prompt = calls[0][1]["messages"][0]["content"]
+    prompt_body = json.loads(calls[0][1]["messages"][1]["content"])
+    assert "Never return nested per-side A/B scores" in system_prompt
+    assert prompt_body["result_contract"]["dimension_scores"] == {
+        item["dimension_id"]: {
+            "required_type": "one JSON number (never an A/B object)",
+            "minimum": item["min_score"],
+            "maximum": item["max_score"],
+            "meaning": (
+                "holistic score for this rubric dimension across the compared pair"
+            ),
+        }
+        for item in rubric["dimensions"]
+    }
     assert result["evaluator"] == {
         "provider": "coding-relay",
         "id": "gpt-5.6-sol",

@@ -123,18 +123,31 @@ def build_chat_payload(
         "dimensions": rubric.get("dimensions"),
         "finding_codes": rubric.get("finding_codes"),
     }
+    dimension_scores = {
+        str(dimension["dimension_id"]): {
+            "required_type": "one JSON number (never an A/B object)",
+            "minimum": dimension["min_score"],
+            "maximum": dimension["max_score"],
+            "meaning": (
+                "holistic score for this rubric dimension across the compared pair"
+            ),
+        }
+        for dimension in rubric_payload["dimensions"]
+    }
     result_contract = {
         "request_sha256": request.get("request_sha256"),
         "winner": "A | B | tie | uncertain",
-        "dimension_scores": "object keyed by declared dimension_id",
+        "dimension_scores": dimension_scores,
         "findings": [
             {
-                "label": "one declared finding code",
-                "turn_id": "one supplied turn_id",
+                "label": {"one_of": rubric_payload["finding_codes"]},
+                "turn_id": {"one_of": request["turn_ids"]},
                 "side": "A | B",
                 "evidence_span": {
-                    "start": "zero-based inclusive character offset",
-                    "end": "zero-based exclusive character offset",
+                    "start": "integer >= 0",
+                    "end": (
+                        "integer > start and <= cited turn text length"
+                    ),
                 },
                 "reason": "public evidence only",
             }
@@ -159,7 +172,10 @@ def build_chat_payload(
                 "content": (
                     "Evaluate the supplied blinded A/B public turns under the "
                     "declared rubric. Use only supplied public evidence and return "
-                    "exactly one JSON object matching result_contract."
+                    "exactly one JSON object matching result_contract. CRITICAL: "
+                    "dimension_scores must contain exactly one numeric scalar for "
+                    "each declared dimension. Never return nested per-side A/B "
+                    "scores. Do not add keys."
                 ),
             },
             {"role": "user", "content": content},
