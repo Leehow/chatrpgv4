@@ -2284,12 +2284,36 @@ def test_matrix_runner_timeout_reasons_propagate_to_cell_manifest(
     cell = results["cells"][0]
     assert cell["status"] == "NOT_RUN"
     assert cell["not_run_reasons"] == reasons
+    cell_dir = tmp_path / "out" / "cells" / cell["cell_id"]
+    stdout_path = cell_dir / "runner-timeout-stdout.log"
+    stderr_path = cell_dir / "runner-timeout-stderr.log"
+    assert stdout_path.read_text(encoding="utf-8") == "partial-out"
+    assert stderr_path.read_text(encoding="utf-8") == "partial-err"
+    assert cell["runner_result"]["stdout_path"] == stdout_path.name
+    assert cell["runner_result"]["stderr_path"] == stderr_path.name
+    assert "stdout" not in cell["runner_result"]
+    assert "stderr" not in cell["runner_result"]
+    assert cell["artifact_hashes"][stdout_path.name] == _sha256(stdout_path)
+    assert cell["artifact_hashes"][stderr_path.name] == _sha256(stderr_path)
     manifest = json.loads(
         (
             tmp_path / "out" / "cells" / cell["cell_id"] / "run-manifest.json"
         ).read_text(encoding="utf-8")
     )
     assert manifest["not_run_reasons"] == reasons
+    assert manifest["artifact_hashes"][stdout_path.name] == _sha256(stdout_path)
+    assert manifest["artifact_hashes"][stderr_path.name] == _sha256(stderr_path)
+
+
+def test_timeout_stream_bound_is_exact_for_split_utf8_codepoint():
+    matrix = _load()
+    limit = matrix._TIMEOUT_STREAM_LIMIT_BYTES
+
+    bounded, truncated = matrix._bounded_stream_evidence("x" * (limit - 1) + "€")
+
+    assert truncated is True
+    assert bounded == "x" * (limit - 1)
+    assert len(bounded.encode("utf-8")) <= limit
 
 
 def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Path):

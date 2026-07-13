@@ -102,11 +102,26 @@ def test_official_suite_routes_through_coc_eval_with_registry_evidence(tmp_path:
 
 
 def _fake_registered_cases(out: Path, *, status: str = "PASS"):
+    case_dir = out / "cases" / "deterministic-foundation"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    stdout = case_dir / "stdout.log"
+    stderr = case_dir / "stderr.log"
+    stdout.write_text("controlled case stdout\n", encoding="utf-8")
+    stderr.write_text("controlled case stderr\n", encoding="utf-8")
     case = {
         "case_id": "deterministic-foundation",
         "gate": "hard",
         "status": status,
-        "artifact_hashes": {"cases/deterministic-foundation/stdout.log": "a" * 64},
+        "stdout_path": "cases/deterministic-foundation/stdout.log",
+        "stderr_path": "cases/deterministic-foundation/stderr.log",
+        "artifact_hashes": {
+            "cases/deterministic-foundation/stdout.log": hashlib.sha256(
+                stdout.read_bytes()
+            ).hexdigest(),
+            "cases/deterministic-foundation/stderr.log": hashlib.sha256(
+                stderr.read_bytes()
+            ).hexdigest(),
+        },
     }
     payload = {
         "schema_version": 1,
@@ -473,6 +488,301 @@ def test_canonical_verify_recomputes_lane_receipts(
     assert payload["lane_artifact_verification"]["status"] == "FAIL"
     assert any(
         finding["code"] == "lane_artifact_hash_mismatch"
+        for finding in payload["lane_artifact_verification"]["findings"]
+    )
+
+
+def test_canonical_verify_binds_registered_case_artifacts_outside_lane_root(
+    tmp_path: Path, monkeypatch
+):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    monkeypatch.setattr(
+        cli,
+        "_run_registered_cases",
+        lambda **kwargs: _fake_registered_cases(kwargs["out"]),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_matrix",
+        lambda **kwargs: {"status": "PASS", "cells": [{"status": "PASS"}]},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "run_continuity",
+        lambda lane_id, **kwargs: {"status": "PASS", "lane_id": lane_id},
+    )
+    monkeypatch.setattr(pipeline, "run_completion_audit", _pass_completion_audit)
+    out = tmp_path / "nightly"
+
+    result = cli.run_suite(
+        root=REPO,
+        suite="nightly",
+        output=out,
+        host_id="local",
+        baseline=tmp_path / "baseline",
+    )
+
+    receipt = result["lane_artifacts"]["registered-cases"]
+    expected_owned = {
+        "case-results.json",
+        "cases/deterministic-foundation/stdout.log",
+        "cases/deterministic-foundation/stderr.log",
+    }
+    assert set(receipt["owned_artifacts"]) == expected_owned
+    assert expected_owned <= set(receipt["artifacts"])
+    before = cli.verify_run_contract(out)
+    assert before["lane_artifact_verification"]["status"] == "PASS"
+
+    extra_log = out / "cases/unbound-case/stdout.log"
+    extra_log.parent.mkdir(parents=True)
+    extra_log.write_text("unbound evidence\n", encoding="utf-8")
+    with_extra_log = cli.verify_run_contract(out)
+    assert with_extra_log["status"] == "FAIL"
+    assert {
+        "code": "lane_artifact_unbound",
+        "lane_id": "registered-cases",
+        "path": "cases/unbound-case/stdout.log",
+    } in with_extra_log["lane_artifact_verification"]["findings"]
+    extra_log.unlink()
+
+    stdout = out / "cases/deterministic-foundation/stdout.log"
+    stdout.write_text("tampered case stdout\n", encoding="utf-8")
+    after = cli.verify_run_contract(out)
+
+    assert after["status"] == "FAIL"
+    assert after["lane_artifact_verification"]["status"] == "FAIL"
+    assert any(
+        finding["code"] == "lane_artifact_hash_mismatch"
+        and finding.get("lane_id") == "registered-cases"
+        and finding.get("path")
+        == "cases/deterministic-foundation/stdout.log"
+        for finding in after["lane_artifact_verification"]["findings"]
+    )
+
+
+@pytest.mark.parametrize("malformation", ("pass_without_logs", "foreign_case_path"))
+def test_registered_case_artifact_contract_rejects_semantic_bypasses(
+    tmp_path: Path, malformation: str
+):
+    pipeline = _load_pipeline()
+    case_results = tmp_path / "case-results.json"
+    case_results.write_text("{}\n", encoding="utf-8")
+    case_results_hash = hashlib.sha256(case_results.read_bytes()).hexdigest()
+    case = {
+        "case_id": "expected-case",
+        "status": "PASS",
+        "stdout_path": None,
+        "stderr_path": None,
+        "artifact_hashes": {},
+    }
+    outer_hashes = {"case-results.json": case_results_hash}
+    if malformation == "foreign_case_path":
+        foreign = "cases/expected-case/nested/stdout.log"
+        case.update({"stdout_path": foreign, "stderr_path": foreign})
+        case["artifact_hashes"] = {foreign: "a" * 64}
+        outer_hashes[foreign] = "a" * 64
+    manifest = {
+        "case_results_path": "case-results.json",
+        "artifact_hashes": outer_hashes,
+    }
+    lanes = {"registered-cases": {"cases": [case]}}
+
+    with pytest.raises(ValueError, match="registered case"):
+        pipeline.declared_registered_case_artifacts(manifest, lanes)
+
+
+def test_registered_case_artifact_contract_allows_explicit_unexecuted_not_run(
+    tmp_path: Path,
+):
+    pipeline = _load_pipeline()
+    case_results = tmp_path / "case-results.json"
+    case_results.write_text("{}\n", encoding="utf-8")
+    digest = hashlib.sha256(case_results.read_bytes()).hexdigest()
+    manifest = {
+        "case_results_path": "case-results.json",
+        "artifact_hashes": {"case-results.json": digest},
+    }
+    lanes = {
+        "registered-cases": {
+            "cases": [
+                {
+                    "case_id": "not-run-case",
+                    "status": "NOT_RUN",
+                    "stdout_path": None,
+                    "stderr_path": None,
+                    "artifact_hashes": {},
+                    "not_run_reasons": ["missing_capability:model-backed-eval"],
+                }
+            ]
+        }
+    }
+
+    assert pipeline.declared_registered_case_artifacts(manifest, lanes) == {
+        "case-results.json": digest
+    }
+
+
+def test_lane_verifier_binds_case_results_payload_to_registered_lane(tmp_path: Path):
+    pipeline = _load_pipeline()
+    out = tmp_path / "nightly"
+    lane_payload = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "status": "PASS",
+        "cases": [],
+    }
+    case_results = out / "case-results.json"
+    _write_json(case_results, {**lane_payload, "status": "FAIL"})
+    digest = hashlib.sha256(case_results.read_bytes()).hexdigest()
+    receipt = pipeline._persist_lane(
+        out,
+        "registered-cases",
+        lane_payload,
+        owned_artifacts={"case-results.json": digest},
+    )
+
+    verification = pipeline.verify_lane_artifacts(
+        out,
+        {"registered-cases": receipt},
+        expected_lanes={"registered-cases": lane_payload},
+        required_owned_artifacts={
+            "registered-cases": {"case-results.json": digest}
+        },
+    )
+
+    assert verification["status"] == "FAIL"
+    assert any(
+        finding["code"] == "lane_owned_payload_mismatch"
+        and finding.get("path") == "case-results.json"
+        for finding in verification["findings"]
+    )
+
+
+def test_canonical_verify_binds_manifest_lane_payload_to_primary_result(
+    tmp_path: Path,
+):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    out = tmp_path / "nightly"
+    lane_payload = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "status": "PASS",
+    }
+    receipt = pipeline._persist_lane(out, "matrix", lane_payload)
+    _write_json(
+        out / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "suite": "nightly",
+            "status": "PASS",
+            "lanes": {"matrix": {**lane_payload, "status": "FAIL"}},
+            "lane_artifacts": {"matrix": receipt},
+        },
+    )
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["status"] == "FAIL"
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert {
+        "code": "lane_primary_payload_mismatch",
+        "lane_id": "matrix",
+    } in payload["lane_artifact_verification"]["findings"]
+
+
+def test_canonical_verify_requires_registered_cases_lane_for_nightly(tmp_path: Path):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    out = tmp_path / "nightly"
+    matrix_lane = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "status": "PASS",
+    }
+    matrix_receipt = pipeline._persist_lane(out, "matrix", matrix_lane)
+    _write_json(
+        out / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "suite": "nightly",
+            "status": "PASS",
+            "lanes": {"matrix": matrix_lane},
+            "lane_artifacts": {"matrix": matrix_receipt},
+        },
+    )
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["status"] == "FAIL"
+    assert payload["lane_artifact_verification"]["status"] == "FAIL"
+    assert {
+        "code": "registered_cases_lane_missing",
+    } in payload["lane_artifact_verification"]["findings"]
+    assert {
+        "code": "registered_cases_receipt_missing",
+    } in payload["lane_artifact_verification"]["findings"]
+
+
+@pytest.mark.parametrize("mutation", ("drop_lane_pair", "add_forged_lane_pair"))
+def test_canonical_verify_requires_exact_nightly_lane_topology(
+    tmp_path: Path, mutation: str
+):
+    cli = _load_cli()
+    pipeline = sys.modules["coc_eval_pipeline"]
+    out = tmp_path / mutation
+    lane_ids = {
+        "registered-cases",
+        "matrix",
+        "continuity-25",
+        "continuity-50",
+        "completion-audit",
+    }
+    lanes = {
+        lane_id: {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "PASS",
+        }
+        for lane_id in lane_ids
+    }
+    receipts = {
+        lane_id: pipeline._persist_lane(out, lane_id, payload)
+        for lane_id, payload in lanes.items()
+    }
+    if mutation == "drop_lane_pair":
+        lanes.pop("continuity-50")
+        receipts.pop("continuity-50")
+    else:
+        forged = {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "status": "PASS",
+        }
+        lanes["forged-lane"] = forged
+        receipts["forged-lane"] = pipeline._persist_lane(
+            out, "forged-lane", forged
+        )
+    _write_json(
+        out / "run-manifest.json",
+        {
+            "schema_version": 1,
+            "eval_spec": "eval-spec-v1",
+            "suite": "nightly",
+            "status": "PASS",
+            "lanes": lanes,
+            "lane_artifacts": receipts,
+        },
+    )
+
+    payload = cli.verify_run_contract(out)
+
+    assert payload["status"] == "FAIL"
+    assert any(
+        finding["code"] == "nightly_lane_topology_mismatch"
         for finding in payload["lane_artifact_verification"]["findings"]
     )
 

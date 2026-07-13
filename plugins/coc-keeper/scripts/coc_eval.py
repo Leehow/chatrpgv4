@@ -34,6 +34,16 @@ EXIT_BY_STATUS = {
     "NOT_RUN": 2,
     "NON_COMPARABLE": 2,
 }
+NIGHTLY_FULL_LANE_IDS = frozenset(
+    {
+        "registered-cases",
+        "matrix",
+        "continuity-25",
+        "continuity-50",
+        "completion-audit",
+    }
+)
+NIGHTLY_SHORT_CIRCUIT_LANE_IDS = frozenset({"registered-cases"})
 
 
 def _utc_now() -> str:
@@ -158,17 +168,61 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
         return payload
     if lane_artifacts is None:
         return payload
+    required_owned_artifacts: dict[str, dict[str, str]] = {}
+    contract_findings: list[dict[str, Any]] = []
+    if (
+        manifest_suite == "nightly"
+        and isinstance(lanes, dict)
+        and isinstance(lane_artifacts, dict)
+    ):
+        registered_lane = lanes.get("registered-cases")
+        if "registered-cases" not in lanes:
+            contract_findings.append({"code": "registered_cases_lane_missing"})
+        if "registered-cases" not in lane_artifacts:
+            contract_findings.append({"code": "registered_cases_receipt_missing"})
+        expected_topology = (
+            NIGHTLY_SHORT_CIRCUIT_LANE_IDS
+            if isinstance(registered_lane, dict)
+            and registered_lane.get("status") == "FAIL"
+            else NIGHTLY_FULL_LANE_IDS
+        )
+        lane_ids = set(lanes)
+        receipt_ids = set(lane_artifacts)
+        if lane_ids != expected_topology or receipt_ids != expected_topology:
+            contract_findings.append(
+                {
+                    "code": "nightly_lane_topology_mismatch",
+                    "expected_lane_ids": sorted(expected_topology),
+                    "lane_ids": sorted(str(lane_id) for lane_id in lane_ids),
+                    "receipt_ids": sorted(
+                        str(lane_id) for lane_id in receipt_ids
+                    ),
+                }
+            )
+    if isinstance(lanes, dict) and "registered-cases" in lanes:
+        try:
+            required_owned_artifacts["registered-cases"] = (
+                pipeline.declared_registered_case_artifacts(manifest, lanes)
+            )
+        except ValueError:
+            contract_findings.append(
+                {"code": "registered_case_artifact_contract_malformed"}
+            )
     lane_verification = pipeline.verify_lane_artifacts(
-        directory, lane_artifacts
+        directory,
+        lane_artifacts,
+        expected_lanes=lanes if isinstance(lanes, dict) else None,
+        required_owned_artifacts=required_owned_artifacts,
     )
+    lane_verification["findings"].extend(contract_findings)
     if isinstance(lanes, dict) and isinstance(lane_artifacts, dict):
         expected_lanes = set(lanes)
         received_lanes = set(lane_artifacts)
-        for lane_id in sorted(expected_lanes - received_lanes):
+        for lane_id in sorted(expected_lanes - received_lanes, key=str):
             lane_verification["findings"].append(
                 {"code": "lane_receipt_missing", "lane_id": lane_id}
             )
-        for lane_id in sorted(received_lanes - expected_lanes):
+        for lane_id in sorted(received_lanes - expected_lanes, key=str):
             lane_verification["findings"].append(
                 {"code": "lane_receipt_unbound", "lane_id": lane_id}
             )
@@ -384,6 +438,7 @@ def run_suite(
                 suite=suite,
                 output=out,
                 case_results=case_payload,
+                registered_case_artifacts=dict(artifact_hashes),
                 baseline=baseline,
                 matrix_limit=matrix_limit,
                 timeout=timeout,

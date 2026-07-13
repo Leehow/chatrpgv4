@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -32,6 +33,8 @@ MODEL_ROLES = {
 VALID_STATUSES = frozenset(
     {"PASS", "FAIL", "INELIGIBLE", "NOT_RUN", "NON_COMPARABLE"}
 )
+REGISTERED_CASE_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+REGISTERED_CASE_STATUSES = frozenset({"PASS", "FAIL", "NOT_RUN"})
 STATUS_RANK = {
     "FAIL": 5,
     "INELIGIBLE": 4,
@@ -504,17 +507,203 @@ def _lane_files(out: Path, lane_id: str) -> dict[str, str]:
     return artifacts
 
 
-def _persist_lane(out: Path, lane_id: str, result: dict[str, Any]) -> dict[str, Any]:
+def _owned_artifact_relative(lane_id: str, relative: Any) -> str:
+    if lane_id != "registered-cases" or not isinstance(relative, str):
+        raise ValueError("only registered-cases may own top-level artifacts")
+    path = Path(relative)
+    normalized = path.as_posix()
+    if (
+        not relative
+        or path.is_absolute()
+        or normalized != relative
+        or ".." in path.parts
+        or not (
+            normalized == "case-results.json"
+            or (
+                len(path.parts) == 3
+                and path.parts[0] == "cases"
+                and path.name in {"stdout.log", "stderr.log"}
+            )
+        )
+    ):
+        raise ValueError(f"unsafe owned artifact path: {relative}")
+    return normalized
+
+
+def _owned_artifact_path(out: Path, lane_id: str, relative: Any) -> Path:
+    normalized = _owned_artifact_relative(lane_id, relative)
+    candidate = out / normalized
+    current = candidate
+    while current != out:
+        if current.is_symlink():
+            raise ValueError(f"owned artifact must not be a symlink: {normalized}")
+        current = current.parent
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(out)
+    except ValueError as exc:
+        raise ValueError(f"owned artifact escapes output: {normalized}") from exc
+    if not candidate.is_file():
+        raise ValueError(f"owned artifact missing: {normalized}")
+    return candidate
+
+
+def _owned_lane_files(
+    out: Path, lane_id: str, relatives: list[Any]
+) -> dict[str, str]:
+    if len(relatives) != len(set(relatives)):
+        raise ValueError("owned artifact paths must be unique")
+    artifacts: dict[str, str] = {}
+    for relative in relatives:
+        normalized = _owned_artifact_relative(lane_id, relative)
+        artifacts[normalized] = _sha256_file(
+            _owned_artifact_path(out, lane_id, normalized)
+        )
+    return artifacts
+
+
+def _registered_case_log_files(out: Path) -> dict[str, str]:
+    """Enumerate every physical case log while ignoring non-evidence result files."""
+    cases_root = out / "cases"
+    if not cases_root.exists():
+        return {}
+    if cases_root.is_symlink() or not cases_root.is_dir():
+        raise ValueError("registered case evidence root must be a real directory")
+    resolved_root = cases_root.resolve()
+    artifacts: dict[str, str] = {}
+    for path in sorted(cases_root.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("registered case evidence must not contain symlinks")
+        try:
+            path.resolve().relative_to(resolved_root)
+        except ValueError as exc:
+            raise ValueError("registered case evidence escapes cases root") from exc
+        if path.is_file() and path.name in {"stdout.log", "stderr.log"}:
+            relative = path.relative_to(out).as_posix()
+            normalized = _owned_artifact_relative("registered-cases", relative)
+            artifacts[normalized] = _sha256_file(path)
+    return artifacts
+
+
+def _persist_lane(
+    out: Path,
+    lane_id: str,
+    result: dict[str, Any],
+    *,
+    owned_artifacts: dict[str, str] | None = None,
+) -> dict[str, Any]:
     lane_root = _safe_lane_root(out, lane_id, create=True)
     path = lane_root / "lane-result.json"
     _write_json_atomic(path, result)
     artifacts = _lane_files(out, lane_id)
+    owned_paths: list[str] = []
+    if owned_artifacts is not None:
+        if not isinstance(owned_artifacts, dict):
+            raise ValueError("owned_artifacts must be an object")
+        owned_paths = sorted(owned_artifacts)
+        actual_owned = _owned_lane_files(out, lane_id, owned_paths)
+        for relative, actual_hash in actual_owned.items():
+            expected_hash = owned_artifacts.get(relative)
+            if (
+                not isinstance(expected_hash, str)
+                or len(expected_hash) != 64
+                or expected_hash != actual_hash
+            ):
+                raise ValueError(f"owned artifact hash mismatch: {relative}")
+        artifacts.update(actual_owned)
     relative = path.relative_to(out).as_posix()
-    return {
+    receipt = {
         "path": relative,
         "sha256": artifacts[relative],
         "artifacts": artifacts,
     }
+    if owned_artifacts is not None:
+        receipt["owned_artifacts"] = owned_paths
+    return receipt
+
+
+def declared_registered_case_artifacts(
+    manifest: dict[str, Any], lanes: dict[str, Any]
+) -> dict[str, str]:
+    """Return the exact top-level case artifacts declared by a nightly run."""
+    lane = lanes.get("registered-cases")
+    outer_hashes = manifest.get("artifact_hashes")
+    case_results_path = manifest.get("case_results_path")
+    if not isinstance(lane, dict) or not isinstance(outer_hashes, dict):
+        raise ValueError("registered case artifact contract missing")
+    if case_results_path != "case-results.json":
+        raise ValueError("registered case_results_path must be case-results.json")
+    expected: dict[str, str] = {}
+
+    def bind(relative: Any, digest: Any) -> None:
+        normalized = _owned_artifact_relative("registered-cases", relative)
+        if (
+            not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or outer_hashes.get(normalized) != digest
+            or (normalized in expected and expected[normalized] != digest)
+        ):
+            raise ValueError(f"registered case artifact declaration mismatch: {normalized}")
+        expected[normalized] = digest
+
+    bind(case_results_path, outer_hashes.get(case_results_path))
+    case_rows = lane.get("cases")
+    if not isinstance(case_rows, list):
+        raise ValueError("registered case rows missing")
+    seen_case_ids: set[str] = set()
+    expected_case_paths: set[str] = set()
+    for case in case_rows:
+        if not isinstance(case, dict):
+            raise ValueError("registered case row malformed")
+        case_id = case.get("case_id")
+        if (
+            not isinstance(case_id, str)
+            or REGISTERED_CASE_ID_RE.fullmatch(case_id) is None
+            or case_id in seen_case_ids
+        ):
+            raise ValueError(f"registered case_id invalid or duplicate: {case_id!r}")
+        seen_case_ids.add(case_id)
+        status = case.get("status")
+        if status not in REGISTERED_CASE_STATUSES:
+            raise ValueError(f"registered case status invalid: {case_id}")
+        stdout_path = case.get("stdout_path")
+        stderr_path = case.get("stderr_path")
+        hashes = case.get("artifact_hashes")
+        if not isinstance(hashes, dict):
+            raise ValueError("registered case artifact hashes malformed")
+        if stdout_path is None and stderr_path is None:
+            reasons = case.get("not_run_reasons")
+            if (
+                status != "NOT_RUN"
+                or hashes
+                or not isinstance(reasons, list)
+                or not reasons
+                or not all(isinstance(reason, str) and reason for reason in reasons)
+            ):
+                raise ValueError(
+                    f"registered case without logs must be explicit NOT_RUN: {case_id}"
+                )
+            continue
+        expected_stdout = f"cases/{case_id}/stdout.log"
+        expected_stderr = f"cases/{case_id}/stderr.log"
+        required_paths = {expected_stdout, expected_stderr}
+        if (
+            stdout_path != expected_stdout
+            or stderr_path != expected_stderr
+            or set(hashes) != required_paths
+        ):
+            raise ValueError(f"registered case log declaration mismatch: {case_id}")
+        expected_case_paths.update(required_paths)
+        for relative in sorted(required_paths):
+            bind(relative, hashes[relative])
+    declared_case_paths = {
+        relative
+        for relative in outer_hashes
+        if isinstance(relative, str) and relative.startswith("cases/")
+    }
+    if declared_case_paths != expected_case_paths:
+        raise ValueError("registered case artifact set contains unbound paths")
+    return expected
 
 
 def run_completion_audit(
@@ -555,7 +744,11 @@ def _nested_not_run_reasons(lanes: dict[str, dict[str, Any]]) -> list[str]:
 
 
 def verify_lane_artifacts(
-    output: Path | str, lane_artifacts: dict[str, Any]
+    output: Path | str,
+    lane_artifacts: dict[str, Any],
+    *,
+    expected_lanes: dict[str, Any] | None = None,
+    required_owned_artifacts: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Recompute outer lane receipts and detect missing, changed, or extra files."""
     out = Path(output).resolve()
@@ -574,12 +767,27 @@ def verify_lane_artifacts(
             or Path(lane_id).name != lane_id
             or not isinstance(receipt, dict)
             or not isinstance(receipt.get("artifacts"), dict)
+            or not all(
+                isinstance(relative, str) and isinstance(digest, str)
+                for relative, digest in (receipt.get("artifacts") or {}).items()
+            )
         ):
             findings.append({"code": "lane_receipt_malformed", "lane_id": lane_id})
             continue
         expected = receipt["artifacts"]
+        owned_paths = receipt.get("owned_artifacts", [])
+        if not isinstance(owned_paths, list) or not all(
+            isinstance(relative, str) for relative in owned_paths
+        ):
+            findings.append(
+                {"code": "lane_owned_artifacts_malformed", "lane_id": lane_id}
+            )
+            continue
         try:
             actual = _lane_files(out, lane_id)
+            actual.update(_owned_lane_files(out, lane_id, owned_paths))
+            if lane_id == "registered-cases":
+                actual.update(_registered_case_log_files(out))
         except (OSError, ValueError):
             findings.append({"code": "lane_artifact_unsafe", "lane_id": lane_id})
             continue
@@ -610,14 +818,94 @@ def verify_lane_artifacts(
                         "path": relative,
                     }
                 )
+        required_owned = (
+            (required_owned_artifacts or {}).get(lane_id)
+            if required_owned_artifacts is not None
+            else None
+        )
+        if required_owned is not None:
+            required_paths = set(required_owned)
+            received_owned = set(owned_paths)
+            for relative in sorted(required_paths - received_owned):
+                findings.append(
+                    {
+                        "code": "lane_owned_artifact_missing",
+                        "lane_id": lane_id,
+                        "path": relative,
+                    }
+                )
+            for relative in sorted(received_owned - required_paths):
+                findings.append(
+                    {
+                        "code": "lane_owned_artifact_unbound",
+                        "lane_id": lane_id,
+                        "path": relative,
+                    }
+                )
+            for relative in sorted(required_paths & received_owned):
+                if expected.get(relative) != required_owned[relative]:
+                    findings.append(
+                        {
+                            "code": "lane_owned_artifact_contract_mismatch",
+                            "lane_id": lane_id,
+                            "path": relative,
+                        }
+                    )
         primary = receipt.get("path")
+        expected_primary = f"lanes/{lane_id}/lane-result.json"
         if (
-            not isinstance(primary, str)
+            primary != expected_primary
             or receipt.get("sha256") != expected.get(primary)
         ):
             findings.append(
                 {"code": "lane_primary_receipt_mismatch", "lane_id": lane_id}
             )
+        elif expected_lanes is not None and lane_id in expected_lanes:
+            expected_text = (
+                json.dumps(
+                    expected_lanes[lane_id],
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            try:
+                actual_text = (out / expected_primary).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                findings.append(
+                    {"code": "lane_primary_unreadable", "lane_id": lane_id}
+                )
+            else:
+                if actual_text != expected_text:
+                    findings.append(
+                        {
+                            "code": "lane_primary_payload_mismatch",
+                            "lane_id": lane_id,
+                        }
+                    )
+            if lane_id == "registered-cases" and "case-results.json" in owned_paths:
+                try:
+                    case_results_text = (out / "case-results.json").read_text(
+                        encoding="utf-8"
+                    )
+                except (OSError, UnicodeError):
+                    findings.append(
+                        {
+                            "code": "lane_owned_payload_unreadable",
+                            "lane_id": lane_id,
+                            "path": "case-results.json",
+                        }
+                    )
+                else:
+                    if case_results_text != expected_text:
+                        findings.append(
+                            {
+                                "code": "lane_owned_payload_mismatch",
+                                "lane_id": lane_id,
+                                "path": "case-results.json",
+                            }
+                        )
     return {
         "schema_version": 1,
         "eval_spec": EVAL_SPEC,
@@ -632,6 +920,7 @@ def run_extended_suite(
     suite: str,
     output: Path | str,
     case_results: dict[str, Any],
+    registered_case_artifacts: dict[str, str] | None = None,
     baseline: Path | str | None = None,
     matrix_limit: int | None = None,
     timeout: float = 120.0,
@@ -658,7 +947,10 @@ def run_extended_suite(
     }
     lane_artifacts = {
         "registered-cases": _persist_lane(
-            out, "registered-cases", lanes["registered-cases"]
+            out,
+            "registered-cases",
+            lanes["registered-cases"],
+            owned_artifacts=registered_case_artifacts,
         )
     }
 

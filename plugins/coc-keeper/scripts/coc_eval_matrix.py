@@ -33,6 +33,7 @@ EVAL_SPEC = "eval-spec-v1"
 MATRIX_SUITES = frozenset({"nightly", "release"})
 ModelPreflight = Callable[[str, str], bool]
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
+_TIMEOUT_STREAM_LIMIT_BYTES = 64 * 1024
 _JUDGE_IDENTITY_KEYS = (
     "persona_id",
     "seed",
@@ -871,6 +872,40 @@ def _bounded_timeout_drain(
     return stdout, stderr, False
 
 
+def _bounded_stream_evidence(value: Any) -> tuple[str, bool]:
+    text = _stream_text(value if isinstance(value, (str, bytes)) else None)
+    encoded = text.encode("utf-8")
+    if len(encoded) <= _TIMEOUT_STREAM_LIMIT_BYTES:
+        return text, False
+    return (
+        encoded[:_TIMEOUT_STREAM_LIMIT_BYTES].decode("utf-8", errors="ignore"),
+        True,
+    )
+
+
+def _persist_timeout_streams(
+    cell_dir: Path, runner_result: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Persist bounded runner streams as cell-local, hash-bound evidence."""
+    stdout, stdout_truncated = _bounded_stream_evidence(runner_result.get("stdout"))
+    stderr, stderr_truncated = _bounded_stream_evidence(runner_result.get("stderr"))
+    stdout_path = _write_text_atomic(cell_dir / "runner-timeout-stdout.log", stdout)
+    stderr_path = _write_text_atomic(cell_dir / "runner-timeout-stderr.log", stderr)
+    artifact_hashes = {
+        stdout_path.name: _sha256_file(stdout_path),
+        stderr_path.name: _sha256_file(stderr_path),
+    }
+    return (
+        {
+            "stdout_path": stdout_path.name,
+            "stderr_path": stderr_path.name,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
+        },
+        artifact_hashes,
+    )
+
+
 def _positive_timeout(value: Any, *, label: str) -> float:
     if (
         isinstance(value, bool)
@@ -1391,6 +1426,9 @@ def execute_matrix_plan(
             ]
             if not timeout_reasons:
                 timeout_reasons = ["execution_timeout"]
+            timeout_streams, timeout_stream_hashes = _persist_timeout_streams(
+                cell_dir, runner_result
+            )
             result.update(
                 {
                     "status": "NOT_RUN",
@@ -1400,6 +1438,8 @@ def execute_matrix_plan(
                         "returncode": runner_result.get("returncode"),
                         "timed_out": True,
                         "not_run_reasons": timeout_reasons,
+                        **timeout_streams,
+                        "artifact_hashes": dict(timeout_stream_hashes),
                     },
                     "timeout_phase": "matrix_runner",
                     "timeout_seconds": runner_timeout_s,
@@ -1420,10 +1460,13 @@ def execute_matrix_plan(
                     "not_run_reasons": timeout_reasons,
                     "timeout_phase": "matrix_runner",
                     "timeout_seconds": runner_timeout_s,
+                    "timeout_streams": timeout_streams,
+                    "artifact_hashes": timeout_stream_hashes,
                 },
             )
             result["artifact_hashes"].update(
                 {
+                    **timeout_stream_hashes,
                     "run-manifest.json": _sha256_file(manifest_path),
                     "player-request.json": _sha256_file(player_request_path),
                     "kp-request.json": _sha256_file(kp_request_path),
