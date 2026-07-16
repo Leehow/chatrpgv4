@@ -1061,7 +1061,7 @@ def _run_live_match_impl(
     """
     _ = resolve_player_actions  # legacy no-op: keeper agent interprets actions
     started_at = _utc_timestamp()
-    ws = Path(workspace)
+    ws = Path(workspace).absolute()
     camp = _campaign_dir(ws, campaign_id)
     if not camp.is_dir():
         raise FileNotFoundError(f"campaign not found: {camp}")
@@ -1126,7 +1126,7 @@ def _run_live_match_impl(
             _ACTIVE_RUN_HANDLES.append(run_handle)
             run_handle.assert_parent_binding()
             published_out = run_handle.final_path
-            out = run_handle.staging_path
+            out = run_handle.activate()
         else:
             out = Path(allocated)
         playtest_driver.preflight_artifact_investigator_target(
@@ -1815,6 +1815,7 @@ def _run_live_match_impl(
         generate_report=False,
         investigator_snapshot=investigator_snapshot,
         artifact_location_path=published_out,
+        artifact_root_fd=(run_handle.staging_fd if run_handle is not None else None),
     )
     partial_rows = _read_jsonl_rows(partial_transcript_path)
     final_transcript_rows = _read_jsonl_rows(out / "transcript.jsonl")
@@ -1892,7 +1893,7 @@ def _run_live_match_impl(
     invocation_ledger_path = _write_invocation_ledger(out, combined_invocations)
     target_log_dir = out / "sandbox" / ".coc" / "campaigns" / campaign_id / "logs"
     event_log_paths = [
-        path.resolve().relative_to(out.resolve()).as_posix()
+        path.relative_to(out).as_posix()
         for path in sorted(target_log_dir.glob("*.jsonl"))
         if path.is_file()
     ]
@@ -2057,7 +2058,8 @@ def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
     start = len(_ACTIVE_WORKER_POOLS)
     run_start = len(_ACTIVE_RUN_HANDLES)
     try:
-        return _run_live_match_impl(*args, **kwargs)
+        with coc_run_identity.process_cwd_guard():
+            return _run_live_match_impl(*args, **kwargs)
     finally:
         for pool in _ACTIVE_WORKER_POOLS[start:]:
             try:

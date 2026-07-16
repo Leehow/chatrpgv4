@@ -10,11 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import stat
-import tempfile
+import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,14 @@ RUN_IDENTITY_SCHEMA_VERSION = 2
 LEGACY_RUN_IDENTITY_SCHEMA_VERSION = 1
 RUN_IDENTITY_FILENAME = "run-identity.json"
 RUN_ID_PREFIX = "coc-run-v1:"
+_PROCESS_CWD_LOCK = threading.RLock()
+
+
+@contextmanager
+def process_cwd_guard():
+    """Serialize in-process playtest entry while a default run owns cwd."""
+    with _PROCESS_CWD_LOCK:
+        yield
 
 
 class RunIdentityError(ValueError):
@@ -41,13 +49,90 @@ class AnchoredRunDirectory:
     """
 
     def __init__(
-        self, final_path: Path, staging_path: Path, parent_fd: int
+        self,
+        final_path: Path,
+        staging_path: Path,
+        parent_fd: int,
+        source_parent_fd: int,
+        source_name: str,
+        staging_fd: int,
     ) -> None:
         self.final_path = final_path
         self.staging_path = staging_path
         self.parent_fd = parent_fd
+        self.source_parent_fd = source_parent_fd
+        self.source_name = source_name
+        self.staging_fd = staging_fd
         self._committed = False
         self._closed = False
+        self._cwd_fd: int | None = None
+        self._cwd_lock_held = False
+
+    def activate(self) -> Path:
+        """Make relative run paths resolve from the retained staging inode."""
+        if self._closed or self._cwd_fd is not None:
+            raise RunIdentityError("playtest staging activation is invalid")
+        _PROCESS_CWD_LOCK.acquire()
+        self._cwd_lock_held = True
+        try:
+            self._cwd_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+            info = os.fstat(self.staging_fd)
+            if not stat.S_ISDIR(info.st_mode):
+                raise RunIdentityError("playtest staging inode is not a directory")
+            os.fchdir(self.staging_fd)
+            return Path(".")
+        except Exception:
+            if self._cwd_fd is not None:
+                os.close(self._cwd_fd)
+                self._cwd_fd = None
+            self._cwd_lock_held = False
+            _PROCESS_CWD_LOCK.release()
+            raise
+
+    def _deactivate(self) -> None:
+        if self._cwd_fd is not None:
+            os.fchdir(self._cwd_fd)
+            os.close(self._cwd_fd)
+            self._cwd_fd = None
+        if self._cwd_lock_held:
+            self._cwd_lock_held = False
+            _PROCESS_CWD_LOCK.release()
+
+    def _current_source_name(self) -> str:
+        expected = os.fstat(self.staging_fd)
+        if not stat.S_ISDIR(expected.st_mode):
+            raise RunIdentityError("playtest staging inode is not a directory")
+        for name in os.listdir(self.source_parent_fd):
+            try:
+                current = os.stat(
+                    name,
+                    dir_fd=self.source_parent_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                continue
+            if (
+                stat.S_ISDIR(current.st_mode)
+                and (current.st_dev, current.st_ino)
+                == (expected.st_dev, expected.st_ino)
+            ):
+                return name
+        raise RunIdentityError("playtest staging inode left its trusted parent")
+
+    def _remove_replacement_source_name(self) -> None:
+        try:
+            info = os.stat(
+                self.source_name,
+                dir_fd=self.source_parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return
+        expected = os.fstat(self.staging_fd)
+        if (info.st_dev, info.st_ino) == (expected.st_dev, expected.st_ino):
+            return
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            os.unlink(self.source_name, dir_fd=self.source_parent_fd)
 
     def assert_parent_binding(self) -> None:
         try:
@@ -67,26 +152,67 @@ class AnchoredRunDirectory:
         if self._committed:
             return self.final_path
         self.assert_parent_binding()
+        source_name = self._current_source_name()
         try:
             os.rename(
-                self.staging_path,
+                source_name,
                 self.final_path.name,
+                src_dir_fd=self.source_parent_fd,
                 dst_dir_fd=self.parent_fd,
             )
         except FileExistsError as exc:
             raise RunIdentityError("allocated playtest destination already exists") from exc
         os.fsync(self.parent_fd)
         self._committed = True
+        published = os.stat(
+            self.final_path.name,
+            dir_fd=self.parent_fd,
+            follow_symlinks=False,
+        )
+        original = os.fstat(self.staging_fd)
+        if (
+            not stat.S_ISDIR(published.st_mode)
+            or (published.st_dev, published.st_ino)
+            != (original.st_dev, original.st_ino)
+        ):
+            raise RunIdentityError("published playtest is not the staging inode")
+        self._remove_replacement_source_name()
         self.assert_parent_binding()
         return self.final_path
 
     def close(self) -> None:
         if self._closed:
             return
+        self._deactivate()
         if not self._committed:
-            shutil.rmtree(self.staging_path, ignore_errors=True)
+            try:
+                source_name = self._current_source_name()
+                _remove_tree_at(self.source_parent_fd, source_name)
+                self._remove_replacement_source_name()
+            except (FileNotFoundError, RunIdentityError):
+                pass
+        os.close(self.staging_fd)
+        os.close(self.source_parent_fd)
         os.close(self.parent_fd)
         self._closed = True
+
+
+def _remove_tree_at(parent_fd: int, name: str) -> None:
+    directory_fd = os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        dir_fd=parent_fd,
+    )
+    try:
+        for child in os.listdir(directory_fd):
+            info = os.stat(child, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                _remove_tree_at(directory_fd, child)
+            else:
+                os.unlink(child, dir_fd=directory_fd)
+    finally:
+        os.close(directory_fd)
+    os.rmdir(name, dir_fd=parent_fd)
 
 
 def normalize_run_id(value: Any) -> str:
@@ -366,13 +492,24 @@ def allocate_default_run_dir(
             try:
                 os.stat(basename, dir_fd=current_fd, follow_symlinks=False)
             except FileNotFoundError:
-                staging = Path(
-                    tempfile.mkdtemp(
-                        prefix=f".coc-run-stage-{basename}-", dir=anchor
-                    )
+                source_name = f".coc-run-stage-{basename}-{uuid.uuid4().hex}"
+                try:
+                    os.mkdir(source_name, mode=0o700, dir_fd=opened[0])
+                except FileExistsError:
+                    continue
+                staging_fd = os.open(
+                    source_name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=opened[0],
                 )
-                parent_fd = os.dup(current_fd)
-                return AnchoredRunDirectory(root / basename, staging, parent_fd)
+                return AnchoredRunDirectory(
+                    root / basename,
+                    anchor / source_name,
+                    os.dup(current_fd),
+                    os.dup(opened[0]),
+                    source_name,
+                    staging_fd,
+                )
             else:
                 continue
         raise RunIdentityError("could not allocate a unique playtest run directory")

@@ -6,8 +6,8 @@ import copy
 import hashlib
 import json
 import os
-import tempfile
 import importlib.util
+import secrets
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -71,31 +71,42 @@ def _write_fixed_artifact_atomic(
     basename = _FIXED_ARTIFACT_BASENAMES[artifact_kind]
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
-    root = root.resolve(strict=True)
-    output = root / basename
-    temp_path: Path | None = None
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    temp_name: str | None = None
+    temp_fd: int | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=root,
-            prefix=f".{basename}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temp_path = Path(handle.name)
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, output)
-        temp_path = None
+        temp_name = f".{basename}.{secrets.token_hex(12)}.tmp"
+        temp_fd = os.open(
+            temp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=root_fd,
+        )
+        payload = text.encode("utf-8")
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(temp_fd, view):]
+        os.fsync(temp_fd)
+        os.close(temp_fd)
+        temp_fd = None
+        os.replace(
+            temp_name,
+            basename,
+            src_dir_fd=root_fd,
+            dst_dir_fd=root_fd,
+        )
+        temp_name = None
+        os.fsync(root_fd)
     finally:
-        if temp_path is not None:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        if temp_name is not None:
             try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
+                os.unlink(temp_name, dir_fd=root_fd)
+            except FileNotFoundError:
                 pass
-    return output
+        os.close(root_fd)
+    return root / basename
 
 
 def write_invocation_ledger_artifact(run_dir: Path, text: str) -> Path:
@@ -110,6 +121,8 @@ def _finding(findings: list[dict[str, str]], code: str, field: str) -> None:
 
 
 def _inside_run_dir(run_dir: Path, path: Path) -> bool:
+    if run_dir == Path(".") and not path.is_absolute():
+        return ".." not in path.parts
     try:
         path.resolve().relative_to(run_dir.resolve())
     except ValueError:
@@ -123,6 +136,10 @@ def _artifact_path(run_dir: Path, raw_path: Any) -> tuple[Path | None, str | Non
     candidate = Path(raw_path)
     if not candidate.is_absolute():
         candidate = run_dir / candidate
+        if run_dir == Path("."):
+            if ".." in candidate.parts:
+                return candidate, str(raw_path)
+            return candidate, candidate.as_posix().removeprefix("./")
     resolved = candidate.resolve()
     if not _inside_run_dir(run_dir, resolved):
         return resolved, str(raw_path)
@@ -976,7 +993,6 @@ def _invalid_receipt(code: str) -> dict[str, Any]:
 def write_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> Path:
     root = Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
-    root = root.resolve(strict=True)
     validated = validate_evidence_receipt(root, receipt)
     return _write_fixed_artifact_atomic(
         root,

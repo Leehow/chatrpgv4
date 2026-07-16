@@ -136,14 +136,14 @@ def _write_report_artifact_atomic(
     for sibling in siblings:
         if sibling not in allowed:
             raise ValueError("unsupported report artifact sibling")
-    root = Path(run_dir).resolve(strict=True)
+    root = Path(run_dir)
     artifacts = root / "artifacts"
     try:
         artifacts.mkdir(mode=0o755, exist_ok=True)
         named = os.stat(artifacts, follow_symlinks=False)
     except OSError as exc:
         raise RuntimeError("unsafe playtest artifacts directory") from exc
-    if not stat.S_ISDIR(named.st_mode) or artifacts.resolve(strict=True) != artifacts:
+    if not stat.S_ISDIR(named.st_mode):
         raise RuntimeError("unsafe playtest artifacts directory")
     directory_flag = getattr(os, "O_DIRECTORY", None)
     nofollow_flag = getattr(os, "O_NOFOLLOW", None)
@@ -163,7 +163,6 @@ def _write_report_artifact_atomic(
             or not stat.S_ISDIR(current.st_mode)
             or (opened.st_dev, opened.st_ino) != identity
             or (current.st_dev, current.st_ino) != identity
-            or artifacts.resolve(strict=True) != artifacts
         ):
             raise RuntimeError("playtest artifacts directory changed during report write")
 

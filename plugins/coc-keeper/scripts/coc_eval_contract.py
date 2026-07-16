@@ -14,8 +14,8 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import sys
-import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -80,28 +80,44 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_text_atomic(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
+    parent_fd = os.open(
+        path.parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    )
+    temp_name: str | None = None
+    temp_fd: int | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temp_path = Path(handle.name)
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, path)
-        temp_path = None
+        temp_name = f".{path.name}.{secrets.token_hex(12)}.tmp"
+        temp_fd = os.open(
+            temp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent_fd,
+        )
+        payload = text.encode("utf-8")
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(temp_fd, view):]
+        os.fsync(temp_fd)
+        os.close(temp_fd)
+        temp_fd = None
+        os.replace(
+            temp_name,
+            path.name,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+        temp_name = None
+        os.fsync(parent_fd)
     finally:
-        if temp_path is not None:
+        if temp_fd is not None:
+            os.close(temp_fd)
+        if temp_name is not None:
             try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
+                os.unlink(temp_name, dir_fd=parent_fd)
+            except FileNotFoundError:
                 pass
+        os.close(parent_fd)
     return path
 
 

@@ -1456,6 +1456,53 @@ def test_default_run_publishes_complete_staging_directory_once(
     assert not list(workspace.glob(".coc-run-stage-*"))
 
 
+def test_default_run_stage_swap_after_identity_stays_on_original_inode(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "stage-swap-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    _install_keeper(monkeypatch, texts=["锁眼里卡着新鲜木屑。"])
+    outside = tmp_path / "stage-swap-outside"
+    outside.mkdir()
+    displaced = workspace / ".displaced-real-stage"
+    captured = {}
+    real_allocate = match._allocate_default_run_dir
+    real_identity = match._ensure_artifact_run_identity
+
+    def capture_handle(*args, **kwargs):
+        handle = real_allocate(*args, **kwargs)
+        captured["handle"] = handle
+        return handle
+
+    def swap_after_identity(*args, **kwargs):
+        run_id = real_identity(*args, **kwargs)
+        handle = captured["handle"]
+        handle.staging_path.rename(displaced)
+        handle.staging_path.symlink_to(outside, target_is_directory=True)
+        return run_id
+
+    monkeypatch.setattr(match, "_allocate_default_run_dir", capture_handle)
+    monkeypatch.setattr(match, "_ensure_artifact_run_identity", swap_after_identity)
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+    )
+
+    run_dir = Path(result["run_dir"])
+    assert run_dir.is_dir()
+    assert not run_dir.is_symlink()
+    assert (run_dir / "run-identity.json").is_file()
+    assert Path(result["battle_report_path"]).is_file()
+    assert list(outside.iterdir()) == []
+    assert not displaced.exists()
+    assert not captured["handle"].staging_path.exists()
+
+
 def test_resume_helpers_ignore_system_rows_and_renumber_append():
     prior = [
         {"turn": 1, "role": "player_simulator", "text": "我检查门锁。"},

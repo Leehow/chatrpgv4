@@ -929,12 +929,17 @@ def _publish_investigator_snapshot_no_follow(
     investigator_id: str,
     character: dict[str, Any],
     creation: dict[str, Any] | None,
+    *,
+    artifact_root_fd: int | None = None,
 ) -> None:
     """Publish through trusted directory handles after the narrative copy phase."""
-    artifact_root = Path(run_dir).absolute()
-    root_fd = os.open(
-        artifact_root,
-        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    root_fd = (
+        os.dup(artifact_root_fd)
+        if artifact_root_fd is not None
+        else os.open(
+            Path(run_dir).absolute(),
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
     )
     opened = [root_fd]
     stage_name = f".snapshot-stage-{investigator_id}-{os.getpid()}-{time.time_ns()}"
@@ -1059,6 +1064,7 @@ def write_playtest_artifacts(
     character_snapshot: dict[str, Any] | None = None,
     investigator_snapshot: dict[str, Any] | None = None,
     artifact_location_path: Path | None = None,
+    artifact_root_fd: int | None = None,
 ) -> Path:
     """Write a reportable driver playtest artifact and return battle-report.md.
 
@@ -1208,6 +1214,7 @@ def write_playtest_artifacts(
         investigator_id,
         character_snapshot,
         creation_snapshot,
+        artifact_root_fd=artifact_root_fd,
     )
 
     transcript = _transcript_from_driver_result(
