@@ -94,6 +94,7 @@ function rejection(errorCode, result, requestSha, modelIdentity, extra = {}) {
     schema_version: 1,
     phase: "epistemic_compile",
     error_code: errorCode,
+    diagnostic_subject: "rejected_result",
     epistemic_request_sha256: requestSha,
     expected_key_names: [...RESULT_ROOT_KEYS].sort(),
     present_expected_key_names: safeKeyNames(result).filter((key) => RESULT_ROOT_KEYS.includes(key)),
@@ -102,6 +103,39 @@ function rejection(errorCode, result, requestSha, modelIdentity, extra = {}) {
     ...rejectedFingerprint(result),
     model_identity: modelIdentity,
     ...extra,
+  };
+}
+
+function protocolDiagnostic(errorCode, requestSha, modelIdentity, extra = {}) {
+  return {
+    schema_version: 1,
+    phase: "epistemic_compile",
+    error_code: errorCode,
+    diagnostic_subject: "none",
+    epistemic_request_sha256: requestSha,
+    expected_key_names: [...RESULT_ROOT_KEYS].sort(),
+    present_expected_key_names: [],
+    missing_key_names: [],
+    unexpected_key_count: 0,
+    unexpected_key_sha256: [],
+    model_identity: modelIdentity,
+    ...extra,
+  };
+}
+
+function neutralResult(requestSha) {
+  return {
+    schema_version: EPISTEMIC_CONTRACT.schema_version,
+    evaluator_id: EPISTEMIC_CONTRACT.evaluator_id,
+    evaluation_provenance: {
+      kind: EPISTEMIC_CONTRACT.provenance.kind,
+      request_sha256: requestSha,
+      reviewed_artifact: EPISTEMIC_CONTRACT.provenance.reviewed_artifact,
+    },
+    epistemic_graph: {},
+    reveal_contracts: {},
+    compile_confidence: {},
+    reasons: {},
   };
 }
 
@@ -192,36 +226,93 @@ function resolveModel(agentDir, provider, modelId) {
 }
 
 export function buildSubmissionTool(envelope, holder, modelIdentity) {
+  holder.rawAttempts = holder.rawAttempts || 0;
+  holder.validatedCandidates = holder.validatedCandidates || 0;
+  holder.acceptedResults = holder.acceptedResults || 0;
+  holder.rejectedRawAttempts = holder.rejectedRawAttempts || 0;
+  holder.duplicateValidCandidates = holder.duplicateValidCandidates || 0;
+  holder.pendingExecutions = holder.pendingExecutions || [];
   return defineTool({
     name: "coc_submit_epistemic_result",
     label: "Submit COC Epistemic Sidecars",
     description: "Submit the exact seven-key provenance-bound epistemic compile result.",
     promptGuidelines: ["Call exactly once.", "After the tool returns, stop."],
+    executionMode: "sequential",
     parameters: buildResultParameters(envelope.request_sha256),
     prepareArguments(args) {
-      holder.submissions = (holder.submissions || 0) + 1;
-      if (holder.submissions > 1) {
-        holder.protocolViolation = true;
-        throw new Error("epistemic_submission_limit_exceeded");
+      holder.rawAttempts += 1;
+      const submissionAttempt = holder.rawAttempts;
+      if (holder.result || holder.validatedCandidateReserved) {
+        holder.duplicateValidCandidates += 1;
+        holder.pendingExecutions.push({ kind: "duplicate" });
+        return neutralResult(envelope.request_sha256);
+      }
+      if (holder.rejection) {
+        holder.pendingExecutions.push({ kind: "halted", diagnostic: holder.rejection });
+        return neutralResult(envelope.request_sha256);
       }
       // pi 0.79.9 applies Value.Convert before TypeBox validation. Reject raw
-      // values here so true can never be converted to numeric literal 1, and
-      // so pi never formats model-controlled arguments into an error message.
+      // values here so true can never be converted to numeric literal 1. An
+      // invalid raw call is carried to execute through a private neutral value,
+      // allowing this tool to terminate the session with a bounded diagnostic.
       try {
         validateResult(args, envelope.request_sha256, modelIdentity);
-      } catch {
-        throw new Error("epistemic_arguments_rejected");
+      } catch (diagnostic) {
+        const safe = diagnostic && diagnostic.error_code
+          ? {
+            ...diagnostic,
+            submission_attempt: submissionAttempt,
+            accepted_result_count: holder.acceptedResults,
+            failure_class: "raw_validation",
+          }
+          : rejection(
+            "compile_result_validation_failed", args, envelope.request_sha256, modelIdentity,
+            {
+              submission_attempt: submissionAttempt,
+              accepted_result_count: holder.acceptedResults,
+              failure_class: "raw_validation",
+            },
+          );
+        holder.rejectedRawAttempts += 1;
+        holder.rejection ||= safe;
+        holder.pendingExecutions.push({ kind: "rejection", diagnostic: safe });
+        return neutralResult(envelope.request_sha256);
       }
+      holder.validatedCandidates += 1;
+      holder.validatedCandidateReserved = true;
+      holder.pendingExecutions.push({ kind: "candidate", candidate: args });
       return args;
     },
     async execute(_id, params) {
+      const pending = holder.pendingExecutions.shift();
+      if (pending?.kind === "rejection" || pending?.kind === "halted") {
+        return {
+          content: [{ type: "text", text: JSON.stringify({
+            ok: false, error_code: "epistemic_arguments_rejected",
+          }) }],
+          details: { diagnostic: pending.diagnostic },
+          terminate: true,
+        };
+      }
+      if (pending?.kind === "duplicate" || holder.result) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ ok: true, already_received: true }) }],
+          details: { ok: true, already_received: true },
+          terminate: true,
+        };
+      }
+      const candidate = pending?.kind === "candidate" ? pending.candidate : params;
       try {
-        holder.result = validateResult(params, envelope.request_sha256, modelIdentity);
+        const validated = validateResult(candidate, envelope.request_sha256, modelIdentity);
+        if (!holder.result) {
+          holder.result = validated;
+          holder.acceptedResults = 1;
+        }
       } catch (diagnostic) {
         holder.rejection = diagnostic && diagnostic.error_code
           ? diagnostic
           : rejection(
-            "compile_result_validation_failed", params, envelope.request_sha256, modelIdentity,
+            "compile_result_validation_failed", candidate, envelope.request_sha256, modelIdentity,
           );
       }
       return {
@@ -257,7 +348,11 @@ export async function run(envelope, dependencies = {}) {
     : resolveModel(agentDir, provider, modelId);
   const { model, registry } = resolved;
   const modelIdentity = { provider: model.provider, id: model.id };
-  const holder = { result: null, rejection: null, submissions: 0, protocolViolation: false };
+  const holder = {
+    result: null, rejection: null, rawAttempts: 0, validatedCandidates: 0,
+    acceptedResults: 0, rejectedRawAttempts: 0, duplicateValidCandidates: 0,
+    validatedCandidateReserved: false, pendingExecutions: [],
+  };
   const tool = buildSubmissionTool(envelope, holder, modelIdentity);
   let created;
   if (dependencies.sessionFactory) {
@@ -288,14 +383,27 @@ export async function run(envelope, dependencies = {}) {
   ].join("\n\n");
   try { await created.session.prompt(prompt); }
   finally { created.session.dispose(); }
-  if (holder.protocolViolation) {
-    throw rejection("compile_result_submission_limit_exceeded", null, requestSha, modelIdentity);
+  if (holder.result) {
+    return {
+      ok: true,
+      compile_result: holder.result,
+      model_identity: modelIdentity,
+      submission_audit: {
+        raw_attempts: holder.rawAttempts,
+        validated_candidates: holder.validatedCandidates,
+        accepted_results: holder.acceptedResults,
+        rejected_raw_attempts: holder.rejectedRawAttempts,
+        duplicate_valid_candidates: holder.duplicateValidCandidates,
+      },
+    };
   }
   if (holder.rejection) throw holder.rejection;
   if (!holder.result) {
-    throw rejection("compile_result_not_submitted", null, envelope.request_sha256, modelIdentity);
+    throw protocolDiagnostic(
+      "compile_result_not_submitted", envelope.request_sha256, modelIdentity,
+      { accepted_result_count: 0, failure_class: "not_submitted" },
+    );
   }
-  return { ok: true, compile_result: holder.result, model_identity: modelIdentity };
 }
 
 export async function cliMain() {

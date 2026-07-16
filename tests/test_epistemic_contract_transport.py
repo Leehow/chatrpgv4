@@ -173,11 +173,11 @@ def test_real_pi_path_runs_raw_prepare_before_converting_typebox_validator():
     script = r"""
 import {validateToolArguments} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/validation.js';
 import {buildSubmissionTool} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
-const sha='a'.repeat(64); const holder={result:null,rejection:null,submissions:0}; const tool=buildSubmissionTool({request_sha256:sha},holder,{provider:'fixture',id:'terra'});
+const sha='a'.repeat(64); const holder={result:null,rejection:null}; const tool=buildSubmissionTool({request_sha256:sha},holder,{provider:'fixture',id:'terra'});
 const base={schema_version:1,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{},reveal_contracts:{},compile_confidence:{},reasons:{}};
 const prepared=tool.prepareArguments(base); const accepted=validateToolArguments(tool,{name:tool.name,arguments:prepared});
-let booleanRejected=false; const boolHolder={result:null,rejection:null,submissions:0}; const boolTool=buildSubmissionTool({request_sha256:sha},boolHolder,{provider:'fixture',id:'terra'}); try{const converted=boolTool.prepareArguments({...base,schema_version:true});validateToolArguments(boolTool,{name:boolTool.name,arguments:converted});}catch(error){booleanRejected=String(error)==='Error: epistemic_arguments_rejected';}
-process.stdout.write(JSON.stringify({accepted,booleanRejected,submissions:holder.submissions}));
+const boolHolder={result:null,rejection:null}; const boolTool=buildSubmissionTool({request_sha256:sha},boolHolder,{provider:'fixture',id:'terra'}); const converted=boolTool.prepareArguments({...base,schema_version:true}); const neutral=validateToolArguments(boolTool,{name:boolTool.name,arguments:converted}); const outcome=await boolTool.execute('boolean',neutral);
+process.stdout.write(JSON.stringify({accepted,holder,boolHolder,outcome}));
 """
     proc = subprocess.run(
         ["node", "--input-type=module", "-e", script], cwd=ROOT,
@@ -185,18 +185,27 @@ process.stdout.write(JSON.stringify({accepted,booleanRejected,submissions:holder
     )
     found = json.loads(proc.stdout)
     assert found["accepted"]["schema_version"] == 1
-    assert found["booleanRejected"] is True
-    assert found["submissions"] == 1
+    assert found["holder"]["rawAttempts"] == 1
+    assert found["boolHolder"]["rawAttempts"] == 1
+    assert found["boolHolder"]["acceptedResults"] == 0
+    assert found["boolHolder"]["rejection"]["error_code"] == "compile_result_identity_invalid"
+    assert found["boolHolder"]["rejection"]["rejected_result_bytes"] != 4
+    assert found["boolHolder"]["rejection"]["rejected_result_sha256"] != hashlib.sha256(b"null").hexdigest()
+    assert found["outcome"]["terminate"] is True
+    assert json.loads(found["outcome"]["content"][0]["text"]) == {
+        "ok": False,
+        "error_code": "epistemic_arguments_rejected",
+    }
 
 
-def test_runner_fake_session_uses_actual_tool_and_rejects_second_submission():
+def test_runner_fake_session_terminates_raw_invalid_and_accepts_one_valid_result():
     script = r"""
 import {validateToolArguments} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/validation.js';
 import {run} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
 const compile_request_json=JSON.stringify({kind:'coc_epistemic_compile_request',unicode:'树',nested:{b:2,a:1}}); const dependencies={provider:'fixture',modelId:'terra',agentDir:'.',resolveModel:()=>({model:{provider:'fixture',id:'terra'},registry:{}})};
-async function invoke(mode){return run({compile_request_json},{...dependencies,sessionFactory:async({tool})=>({session:{prompt:async()=>{const sha=tool.parameters.properties.evaluation_provenance.properties.request_sha256.const;const base={schema_version:1,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{},reveal_contracts:{},compile_confidence:{},reasons:{}};if(mode==='double'){try{tool.prepareArguments({...base,schema_version:true});}catch{};try{tool.prepareArguments(base);}catch{};return;}const prepared=tool.prepareArguments(base);const converted=validateToolArguments(tool,{name:tool.name,arguments:prepared});await tool.execute('id',converted);},dispose:()=>{}}})});}
-const success=await invoke('success');let doubleCode;try{await invoke('double');}catch(error){doubleCode=error.error_code;}
-process.stdout.write(JSON.stringify({success,doubleCode}));
+async function invoke(mode){return run({compile_request_json},{...dependencies,sessionFactory:async({tool})=>({session:{prompt:async()=>{const sha=tool.parameters.properties.evaluation_provenance.properties.request_sha256.const;const base={schema_version:1,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{},reveal_contracts:{},compile_confidence:{},reasons:{}};const raw=mode==='invalid'?{...base,schema_version:true}:base;const prepared=tool.prepareArguments(raw);const converted=validateToolArguments(tool,{name:tool.name,arguments:prepared});await tool.execute('id',converted);},dispose:()=>{}}})});}
+const success=await invoke('success');let invalid;try{await invoke('invalid');}catch(error){invalid=error;}
+process.stdout.write(JSON.stringify({success,invalid}));
 """
     proc = subprocess.run(
         ["node", "--input-type=module", "-e", script], cwd=ROOT,
@@ -205,7 +214,138 @@ process.stdout.write(JSON.stringify({success,doubleCode}));
     found = json.loads(proc.stdout)
     assert found["success"]["ok"] is True
     assert found["success"]["compile_result"]["schema_version"] == 1
-    assert found["doubleCode"] == "compile_result_submission_limit_exceeded"
+    assert found["success"]["submission_audit"] == {
+        "raw_attempts": 1,
+        "validated_candidates": 1,
+        "accepted_results": 1,
+        "rejected_raw_attempts": 0,
+        "duplicate_valid_candidates": 0,
+    }
+    assert found["invalid"]["error_code"] == "compile_result_identity_invalid"
+    assert found["invalid"]["diagnostic_subject"] == "rejected_result"
+    assert found["invalid"]["submission_attempt"] == 1
+    assert found["invalid"]["accepted_result_count"] == 0
+
+
+def test_real_pi_loop_invalid_raw_call_terminates_before_same_session_correction():
+    script = r"""
+import {runAgentLoop} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js';
+import {createAssistantMessageEventStream} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js';
+import {buildSubmissionTool} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
+const sha='a'.repeat(64); const holder={result:null,rejection:null}; const tool=buildSubmissionTool({request_sha256:sha},holder,{provider:'fixture',id:'terra'});
+const invalid={schema_version:true,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{},reveal_contracts:{},compile_confidence:{},reasons:{}};
+const usage={input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
+const assistant={role:'assistant',content:[{type:'toolCall',id:'bad',name:tool.name,arguments:invalid}],api:'openai-completions',provider:'fixture',model:'terra',usage,stopReason:'toolUse',timestamp:1};
+let modelCalls=0; const streamFn=()=>{modelCalls+=1;const stream=createAssistantMessageEventStream();stream.push({type:'done',reason:'toolUse',message:assistant});return stream;};
+const messages=await runAgentLoop([{role:'user',content:'compile',timestamp:0}],{systemPrompt:'test',messages:[],tools:[tool]},{model:{provider:'fixture',id:'terra',api:'openai-completions'},convertToLlm:(items)=>items},()=>{},undefined,streamFn);
+const toolResults=messages.filter((message)=>message.role==='toolResult');
+process.stdout.write(JSON.stringify({modelCalls,holder,toolResults}));
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    )
+    found = json.loads(proc.stdout)
+    assert found["modelCalls"] == 1
+    assert found["holder"]["rawAttempts"] == 1
+    assert found["holder"]["acceptedResults"] == 0
+    assert found["holder"]["rejection"]["error_code"] == "compile_result_identity_invalid"
+    assert len(found["toolResults"]) == 1
+    assert json.loads(found["toolResults"][0]["content"][0]["text"]) == {
+        "ok": False,
+        "error_code": "epistemic_arguments_rejected",
+    }
+
+
+def test_real_pi_loop_two_valid_calls_is_sequential_first_result_wins():
+    script = r"""
+import {runAgentLoop} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js';
+import {createAssistantMessageEventStream} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js';
+import {buildSubmissionTool} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
+const sha='a'.repeat(64); const holder={result:null,rejection:null}; const tool=buildSubmissionTool({request_sha256:sha},holder,{provider:'fixture',id:'terra'});
+const base={schema_version:1,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{winner:'first'},reveal_contracts:{},compile_confidence:{},reasons:{}};
+const usage={input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
+const assistant={role:'assistant',content:[{type:'toolCall',id:'first',name:tool.name,arguments:base},{type:'toolCall',id:'second',name:tool.name,arguments:{...base,epistemic_graph:{winner:'second'}}}],api:'openai-completions',provider:'fixture',model:'terra',usage,stopReason:'toolUse',timestamp:1};
+const streamFn=()=>{const stream=createAssistantMessageEventStream();stream.push({type:'done',reason:'toolUse',message:assistant});return stream;};
+const messages=await runAgentLoop([{role:'user',content:'compile',timestamp:0}],{systemPrompt:'test',messages:[],tools:[tool]},{model:{provider:'fixture',id:'terra',api:'openai-completions'},convertToLlm:(items)=>items},()=>{},undefined,streamFn);
+process.stdout.write(JSON.stringify({executionMode:tool.executionMode,holder,toolResults:messages.filter((message)=>message.role==='toolResult')}));
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    )
+    found = json.loads(proc.stdout)
+    assert found["executionMode"] == "sequential"
+    assert found["holder"]["rawAttempts"] == 2
+    assert found["holder"]["acceptedResults"] == 1
+    assert found["holder"]["duplicateValidCandidates"] == 1
+    assert found["holder"]["result"]["epistemic_graph"] == {"winner": "first"}
+    assert len(found["toolResults"]) == 2
+    assert found["toolResults"][1]["details"] == {"ok": True, "already_received": True}
+
+
+def test_real_pi_loop_invalid_then_valid_batch_cannot_correct_in_same_session():
+    script = r"""
+import {runAgentLoop} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js';
+import {createAssistantMessageEventStream} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js';
+import {buildSubmissionTool} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
+const sha='a'.repeat(64);const holder={result:null,rejection:null};const tool=buildSubmissionTool({request_sha256:sha},holder,{provider:'fixture',id:'terra'});const valid={schema_version:1,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{},reveal_contracts:{},compile_confidence:{},reasons:{}};const usage={input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};const assistant={role:'assistant',content:[{type:'toolCall',id:'bad',name:tool.name,arguments:{...valid,schema_version:true}},{type:'toolCall',id:'later',name:tool.name,arguments:valid}],api:'openai-completions',provider:'fixture',model:'terra',usage,stopReason:'toolUse',timestamp:1};const streamFn=()=>{const stream=createAssistantMessageEventStream();stream.push({type:'done',reason:'toolUse',message:assistant});return stream;};const messages=await runAgentLoop([{role:'user',content:'compile',timestamp:0}],{systemPrompt:'test',messages:[],tools:[tool]},{model:{provider:'fixture',id:'terra',api:'openai-completions'},convertToLlm:(items)=>items},()=>{},undefined,streamFn);process.stdout.write(JSON.stringify({holder,toolResults:messages.filter((message)=>message.role==='toolResult')}));
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    )
+    found = json.loads(proc.stdout)
+    assert found["holder"]["rawAttempts"] == 2
+    assert found["holder"]["validatedCandidates"] == 0
+    assert found["holder"]["acceptedResults"] == 0
+    assert found["holder"]["result"] is None
+    assert found["holder"]["rejection"]["error_code"] == "compile_result_identity_invalid"
+    assert len(found["toolResults"]) == 2
+    assert all(
+        json.loads(result["content"][0]["text"])["error_code"]
+        == "epistemic_arguments_rejected"
+        for result in found["toolResults"]
+    )
+
+
+def test_runner_not_submitted_diagnostic_has_no_synthetic_null_fingerprint():
+    script = r"""
+import {run} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
+const compile_request_json=JSON.stringify({kind:'coc_epistemic_compile_request'});const dependencies={provider:'fixture',modelId:'terra',agentDir:'.',resolveModel:()=>({model:{provider:'fixture',id:'terra'},registry:{}}),sessionFactory:async()=>({session:{prompt:async()=>{},dispose:()=>{}}})};
+let diagnostic;try{await run({compile_request_json},dependencies);}catch(error){diagnostic=error;}
+process.stdout.write(JSON.stringify(diagnostic));
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    )
+    diagnostic = json.loads(proc.stdout)
+    assert diagnostic["error_code"] == "compile_result_not_submitted"
+    assert diagnostic["diagnostic_subject"] == "none"
+    assert "rejected_result_sha256" not in diagnostic
+    assert "rejected_result_bytes" not in diagnostic
+
+
+def test_manual_duplicate_preparations_cannot_overwrite_first_valid_candidate():
+    script = r"""
+import {validateToolArguments} from './runtime/adapters/compiler/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/utils/validation.js';
+import {buildSubmissionTool} from './runtime/adapters/compiler/run_epistemic_compile.mjs';
+const sha='a'.repeat(64);const holder={result:null,rejection:null};const tool=buildSubmissionTool({request_sha256:sha},holder,{provider:'fixture',id:'terra'});const base={schema_version:1,evaluator_id:'codex-epistemic-compiler-v1',evaluation_provenance:{kind:'llm',request_sha256:sha,reviewed_artifact:'epistemic-compile-request.json'},epistemic_graph:{winner:'first'},reveal_contracts:{},compile_confidence:{},reasons:{}};
+const first=validateToolArguments(tool,{name:tool.name,arguments:tool.prepareArguments(base)});const second=validateToolArguments(tool,{name:tool.name,arguments:tool.prepareArguments({...base,epistemic_graph:{winner:'second'}})});const firstResult=await tool.execute('first',first);const secondResult=await tool.execute('second',second);process.stdout.write(JSON.stringify({holder,firstResult,secondResult}));
+"""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    )
+    found = json.loads(proc.stdout)
+    assert found["holder"]["rawAttempts"] == 2
+    assert found["holder"]["validatedCandidates"] == 1
+    assert found["holder"]["acceptedResults"] == 1
+    assert found["holder"]["duplicateValidCandidates"] == 1
+    assert found["holder"]["result"]["epistemic_graph"] == {"winner": "first"}
+    assert found["firstResult"]["terminate"] is True
+    assert found["secondResult"]["details"] == {"ok": True, "already_received": True}
 
 
 def test_adapter_retries_once_with_safe_feedback_and_preserves_diagnostic(tmp_path):
@@ -216,6 +356,94 @@ def test_adapter_retries_once_with_safe_feedback_and_preserves_diagnostic(tmp_pa
     assert response["epistemic_attempts"] == 2
     assert len(response["rejected_attempts"]) == 1
     assert response["rejected_attempts"][0]["error_code"] == "compile_result_root_keys_mismatch"
+
+
+def test_adapter_fresh_correction_reuses_exact_request_and_stops_at_two_processes(
+    monkeypatch,
+):
+    request = epistemic.build_compile_request(HAUNTING)
+    envelopes = []
+
+    def invoke(_runner, envelope, *, timeout_s):
+        assert timeout_s == 900
+        envelopes.append(json.loads(json.dumps(envelope)))
+        digest = hashlib.sha256(envelope["compile_request_json"].encode()).hexdigest()
+        if len(envelopes) == 1:
+            diagnostic = {
+                "schema_version": 1,
+                "phase": "epistemic_compile",
+                "error_code": "compile_result_root_keys_mismatch",
+                "diagnostic_subject": "rejected_result",
+                "epistemic_request_sha256": digest,
+                "rejected_result_sha256": hashlib.sha256(b"{}").hexdigest(),
+                "rejected_result_bytes": 2,
+                "model_identity": {"provider": "fixture", "id": "terra"},
+            }
+            return 1, json.dumps({"ok": False, "diagnostic": diagnostic})
+        result = {
+            "schema_version": 1,
+            "evaluator_id": "codex-epistemic-compiler-v1",
+            "evaluation_provenance": {
+                "kind": "llm",
+                "request_sha256": digest,
+                "reviewed_artifact": "epistemic-compile-request.json",
+            },
+            "epistemic_graph": {},
+            "reveal_contracts": {},
+            "compile_confidence": {},
+            "reasons": {},
+        }
+        return 0, json.dumps({
+            "ok": True,
+            "compile_result": result,
+            "model_identity": {"provider": "fixture", "id": "terra"},
+        })
+
+    monkeypatch.setattr(adapter, "_invoke_runner", invoke)
+    response = adapter.compile_epistemic(request, runner_path=RUNNER)
+
+    assert response["ok"] is True
+    assert response["epistemic_attempts"] == 2
+    assert len(envelopes) == 2
+    assert envelopes[0]["compile_request_json"] == envelopes[1]["compile_request_json"]
+    assert set(envelopes[0]) == {"compile_request_json"}
+    assert set(envelopes[1]) == {"compile_request_json", "correction_feedback"}
+    assert envelopes[1]["correction_feedback"]["process_attempt"] == 1
+    assert "KEEPER_SENTINEL_SECRET_PROSE" not in json.dumps(
+        envelopes[1]["correction_feedback"]
+    )
+
+
+def test_adapter_duplicate_valid_protocol_diagnostic_never_starts_fresh_process(
+    monkeypatch,
+):
+    request = epistemic.build_compile_request(HAUNTING)
+    calls = 0
+
+    def invoke(_runner, envelope, *, timeout_s):
+        nonlocal calls
+        calls += 1
+        digest = hashlib.sha256(envelope["compile_request_json"].encode()).hexdigest()
+        diagnostic = {
+            "schema_version": 1,
+            "phase": "epistemic_compile",
+            "error_code": "compile_result_duplicate_valid_candidate",
+            "diagnostic_subject": "none",
+            "epistemic_request_sha256": digest,
+            "accepted_result_count": 1,
+            "failure_class": "duplicate_valid_candidate",
+            "model_identity": {"provider": "fixture", "id": "terra"},
+        }
+        return 1, json.dumps({"ok": False, "diagnostic": diagnostic})
+
+    monkeypatch.setattr(adapter, "_invoke_runner", invoke)
+    with pytest.raises(adapter.EpistemicCompileRejected) as exc_info:
+        adapter.compile_epistemic(request, runner_path=RUNNER)
+
+    assert calls == 1
+    assert exc_info.value.diagnostics[0]["error_code"] == (
+        "compile_result_duplicate_valid_candidate"
+    )
 
 
 def test_adapter_drops_forged_diagnostic_fields_and_model_controlled_key_names():
@@ -237,6 +465,43 @@ def test_adapter_drops_forged_diagnostic_fields_and_model_controlled_key_names()
     serialized = json.dumps(diagnostic)
     assert "KEEPER_SECRET_SENTINEL" not in serialized
     assert "unknown" not in diagnostic
+
+
+def test_adapter_accepts_payload_free_not_submitted_diagnostic_without_sha_null():
+    digest = "a" * 64
+    diagnostic = adapter._safe_diagnostic({
+        "error_code": "compile_result_not_submitted",
+        "diagnostic_subject": "none",
+        "epistemic_request_sha256": digest,
+        "accepted_result_count": 0,
+        "failure_class": "not_submitted",
+        "model_identity": {"provider": "fixture", "id": "terra"},
+    }, digest)
+    assert diagnostic == {
+        "schema_version": 1,
+        "phase": "epistemic_compile",
+        "error_code": "compile_result_not_submitted",
+        "diagnostic_subject": "none",
+        "epistemic_request_sha256": digest,
+        "expected_key_names": [],
+        "present_expected_key_names": [],
+        "missing_key_names": [],
+        "provenance_expected_key_names": [],
+        "provenance_present_expected_key_names": [],
+        "provenance_missing_key_names": [],
+        "unexpected_key_sha256": [],
+        "provenance_unexpected_key_sha256": [],
+        "unexpected_key_count": 0,
+        "provenance_unexpected_key_count": 0,
+        "model_identity": {"provider": "fixture", "id": "terra"},
+        "accepted_result_count": 0,
+        "failure_class": "not_submitted",
+    }
+    assert adapter._safe_diagnostic({
+        **diagnostic,
+        "rejected_result_sha256": hashlib.sha256(b"null").hexdigest(),
+        "rejected_result_bytes": 4,
+    }, digest) is None
 
 
 def test_hydration_correction_reuses_base_stage_and_records_safe_receipt(tmp_path, monkeypatch):

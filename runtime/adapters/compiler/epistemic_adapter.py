@@ -21,6 +21,7 @@ _CORRECTABLE_CODES = {
 }
 _SAFE_REJECTION_CODES = _CORRECTABLE_CODES | {
     "compile_result_submission_limit_exceeded",
+    "compile_result_duplicate_valid_candidate",
 }
 _DIGEST_LIST_FIELDS = {
     "unexpected_key_sha256",
@@ -106,25 +107,37 @@ def _safe_diagnostic(value: Any, expected_request_sha: str) -> dict[str, Any] | 
     request_sha = value.get("epistemic_request_sha256")
     result_sha = value.get("rejected_result_sha256")
     result_bytes = value.get("rejected_result_bytes")
+    diagnostic_subject = value.get("diagnostic_subject")
+    if diagnostic_subject is None:
+        diagnostic_subject = "rejected_result"
     if (
         not isinstance(code, str)
         or code not in _SAFE_REJECTION_CODES
         or request_sha != expected_request_sha
-        or not isinstance(result_sha, str)
-        or not _SHA256_RE.fullmatch(result_sha)
-        or not isinstance(result_bytes, int)
-        or isinstance(result_bytes, bool)
-        or result_bytes < 0
+        or diagnostic_subject not in {"rejected_result", "none"}
     ):
+        return None
+    if diagnostic_subject == "rejected_result":
+        if (
+            not isinstance(result_sha, str)
+            or not _SHA256_RE.fullmatch(result_sha)
+            or not isinstance(result_bytes, int)
+            or isinstance(result_bytes, bool)
+            or result_bytes < 0
+        ):
+            return None
+    elif result_sha is not None or result_bytes is not None:
         return None
     safe: dict[str, Any] = {
         "schema_version": 1,
         "phase": "epistemic_compile",
         "error_code": code,
+        "diagnostic_subject": diagnostic_subject,
         "epistemic_request_sha256": request_sha,
-        "rejected_result_sha256": result_sha,
-        "rejected_result_bytes": result_bytes,
     }
+    if diagnostic_subject == "rejected_result":
+        safe["rejected_result_sha256"] = result_sha
+        safe["rejected_result_bytes"] = result_bytes
     for field in ("expected_key_names", "present_expected_key_names", "missing_key_names"):
         safe[field] = _safe_key_list(value.get(field), _ROOT_KEYS)
     for field in (
@@ -149,6 +162,25 @@ def _safe_diagnostic(value: Any, expected_request_sha: str) -> dict[str, Any] | 
     if identity is None:
         return None
     safe["model_identity"] = identity
+    submission_attempt = value.get("submission_attempt")
+    if (
+        isinstance(submission_attempt, int)
+        and not isinstance(submission_attempt, bool)
+        and 1 <= submission_attempt <= 2
+    ):
+        safe["submission_attempt"] = submission_attempt
+    accepted_result_count = value.get("accepted_result_count")
+    if (
+        isinstance(accepted_result_count, int)
+        and not isinstance(accepted_result_count, bool)
+        and 0 <= accepted_result_count <= 1
+    ):
+        safe["accepted_result_count"] = accepted_result_count
+    failure_class = value.get("failure_class")
+    if failure_class in {
+        "raw_validation", "duplicate_valid_candidate", "not_submitted"
+    }:
+        safe["failure_class"] = failure_class
     return safe
 
 
@@ -214,6 +246,7 @@ def compile_epistemic(
             if diagnostic is None:
                 raise RuntimeError("epistemic compiler failed without a safe diagnostic")
             diagnostic["attempt"] = attempt
+            diagnostic["process_attempt"] = attempt
             if bound_model_identity is None:
                 bound_model_identity = diagnostic["model_identity"]
             elif diagnostic["model_identity"] != bound_model_identity:
