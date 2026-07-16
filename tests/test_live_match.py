@@ -1401,6 +1401,61 @@ def test_default_run_directory_allocation_survives_concurrent_name_collision(
     assert all(path.is_dir() for path in paths)
 
 
+def test_default_run_post_allocation_parent_swap_never_writes_replacement(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    outside = tmp_path / "outside-playtests"
+    outside.mkdir()
+    original_allocate = match._allocate_default_run_dir
+
+    def allocate_then_swap(*args, **kwargs):
+        handle = original_allocate(*args, **kwargs)
+        assert isinstance(handle, match.coc_run_identity.AnchoredRunDirectory)
+        playtests = workspace / ".coc" / "playtests"
+        displaced = workspace / ".coc" / "playtests-displaced"
+        playtests.rename(displaced)
+        playtests.symlink_to(outside, target_is_directory=True)
+        return handle
+
+    monkeypatch.setattr(match, "_allocate_default_run_dir", allocate_then_swap)
+    with pytest.raises(match.RunIdentityError, match="binding"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=tmp_path / "unused-player",
+            max_turns=1,
+        )
+
+    assert list(outside.iterdir()) == []
+    assert not list(workspace.glob(".coc-run-stage-*"))
+
+
+def test_default_run_publishes_complete_staging_directory_once(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "default-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    _install_keeper(monkeypatch, texts=["锁眼里卡着新鲜木屑。"])
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+    )
+
+    run_dir = Path(result["run_dir"])
+    assert run_dir.parent == workspace / ".coc" / "playtests"
+    assert (run_dir / "run-identity.json").is_file()
+    assert Path(result["battle_report_path"]).is_file()
+    assert Path(result["evidence_path"]).is_file()
+    assert not list(workspace.glob(".coc-run-stage-*"))
+
+
 def test_resume_helpers_ignore_system_rows_and_renumber_append():
     prior = [
         {"turn": 1, "role": "player_simulator", "text": "我检查门锁。"},

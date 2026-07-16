@@ -10,7 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -27,6 +29,64 @@ class RunIdentityError(ValueError):
     """A play artifact cannot be bound to one unambiguous campaign run."""
 
     code = "run_identity_conflict"
+
+
+class AnchoredRunDirectory:
+    """A default run staged outside the swappable playtests pathname.
+
+    The destination directory descriptor remains open until the complete run
+    is atomically renamed into place.  Intermediate writers use
+    ``staging_path``; no post-allocation pathname lookup can redirect them into
+    a replacement ``.coc/playtests`` tree.
+    """
+
+    def __init__(
+        self, final_path: Path, staging_path: Path, parent_fd: int
+    ) -> None:
+        self.final_path = final_path
+        self.staging_path = staging_path
+        self.parent_fd = parent_fd
+        self._committed = False
+        self._closed = False
+
+    def assert_parent_binding(self) -> None:
+        try:
+            by_name = os.stat(self.final_path.parent, follow_symlinks=False)
+            by_fd = os.fstat(self.parent_fd)
+        except OSError as exc:
+            raise RunIdentityError("playtest parent binding was lost") from exc
+        if not stat.S_ISDIR(by_name.st_mode) or (
+            by_name.st_dev,
+            by_name.st_ino,
+        ) != (by_fd.st_dev, by_fd.st_ino):
+            raise RunIdentityError("playtest parent binding was replaced")
+
+    def commit(self) -> Path:
+        if self._closed:
+            raise RunIdentityError("playtest allocation is already closed")
+        if self._committed:
+            return self.final_path
+        self.assert_parent_binding()
+        try:
+            os.rename(
+                self.staging_path,
+                self.final_path.name,
+                dst_dir_fd=self.parent_fd,
+            )
+        except FileExistsError as exc:
+            raise RunIdentityError("allocated playtest destination already exists") from exc
+        os.fsync(self.parent_fd)
+        self._committed = True
+        self.assert_parent_binding()
+        return self.final_path
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        if not self._committed:
+            shutil.rmtree(self.staging_path, ignore_errors=True)
+        os.close(self.parent_fd)
+        self._closed = True
 
 
 def normalize_run_id(value: Any) -> str:
@@ -47,7 +107,12 @@ def mint_run_id() -> str:
 def _artifact_location_sha256(run_dir: Path | str) -> str:
     """Hash the canonical current-artifact location without persisting its path."""
     try:
-        canonical = Path(run_dir).resolve(strict=True)
+        raw = Path(run_dir)
+        canonical = (
+            raw.resolve(strict=True)
+            if raw.exists()
+            else raw.parent.resolve(strict=True) / raw.name
+        )
     except OSError as exc:
         raise RunIdentityError(
             "artifact location cannot be resolved"
@@ -176,6 +241,7 @@ def ensure_artifact_run_identity(
     campaign_id: str,
     *,
     requested_run_id: str | None = None,
+    artifact_location_path: Path | str | None = None,
 ) -> str:
     """Atomically create or validate one physical artifact's identity.
 
@@ -193,11 +259,12 @@ def ensure_artifact_run_identity(
         else None
     )
 
+    location_directory = Path(artifact_location_path or directory)
     existing = read_artifact_run_identity(directory)
     if existing is not None:
         return _validate_current_identity(
             existing,
-            directory,
+            location_directory,
             campaign,
             requested,
         )
@@ -206,7 +273,7 @@ def ensure_artifact_run_identity(
     body = _identity_body(
         campaign,
         candidate,
-        artifact_location_sha256=_artifact_location_sha256(directory),
+        artifact_location_sha256=_artifact_location_sha256(location_directory),
     )
     encoded = (
         json.dumps(body, ensure_ascii=False, indent=2) + "\n"
@@ -236,7 +303,7 @@ def ensure_artifact_run_identity(
                 )
             return _validate_current_identity(
                 existing,
-                directory,
+                location_directory,
                 campaign,
                 requested,
             )
@@ -252,7 +319,7 @@ def allocate_default_run_dir(
     *,
     stamp: str | None = None,
     trusted_root: Path | str | None = None,
-) -> Path:
+) -> Path | AnchoredRunDirectory:
     """Atomically allocate a unique default artifact directory."""
     root = Path(parent).absolute()
     timestamp = stamp or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -297,10 +364,17 @@ def allocate_default_run_dir(
         for _attempt in range(128):
             basename = f"live-match-{timestamp}-{uuid.uuid4().hex[:12]}"
             try:
-                os.mkdir(basename, mode=0o700, dir_fd=current_fd)
-            except FileExistsError:
+                os.stat(basename, dir_fd=current_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                staging = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".coc-run-stage-{basename}-", dir=anchor
+                    )
+                )
+                parent_fd = os.dup(current_fd)
+                return AnchoredRunDirectory(root / basename, staging, parent_fd)
+            else:
                 continue
-            return root / basename
         raise RunIdentityError("could not allocate a unique playtest run directory")
     finally:
         for directory_fd in reversed(opened):

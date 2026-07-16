@@ -120,6 +120,7 @@ NON_LIVE_EVIDENCE_DISCLAIMER = (
     "Playtest Battle Report Evidence Standard."
 )
 _ACTIVE_WORKER_POOLS: list[Any] = []
+_ACTIVE_RUN_HANDLES: list[Any] = []
 
 # Narrow aliases keep the artifact-identity contract directly probeable without
 # duplicating it in this harness.
@@ -1114,10 +1115,20 @@ def _run_live_match_impl(
     if not keeper_path.is_file():
         raise FileNotFoundError(f"keeper runner not found: {keeper_path}")
 
+    run_handle = None
+    published_out: Path | None = None
     if run_dir is None:
-        out = _allocate_default_run_dir(
+        allocated = _allocate_default_run_dir(
             coc_root / "playtests", trusted_root=ws
         )
+        if isinstance(allocated, coc_run_identity.AnchoredRunDirectory):
+            run_handle = allocated
+            _ACTIVE_RUN_HANDLES.append(run_handle)
+            run_handle.assert_parent_binding()
+            published_out = run_handle.final_path
+            out = run_handle.staging_path
+        else:
+            out = Path(allocated)
         playtest_driver.preflight_artifact_investigator_target(
             out,
             investigator_id,
@@ -1133,7 +1144,11 @@ def _run_live_match_impl(
         out.mkdir(parents=True, exist_ok=True)
     # Persist the physical artifact identity before any player, Keeper, or
     # toolbox-driven turn can run. Directory names never carry provenance.
-    run_id = _ensure_artifact_run_identity(out, campaign_id)
+    run_id = _ensure_artifact_run_identity(
+        out,
+        campaign_id,
+        artifact_location_path=published_out,
+    )
 
     prior_run: Path | None = resume_source
     prior_transcript_rows: list[dict[str, Any]] = []
@@ -1799,6 +1814,7 @@ def _run_live_match_impl(
         metadata=metadata,
         generate_report=False,
         investigator_snapshot=investigator_snapshot,
+        artifact_location_path=published_out,
     )
     partial_rows = _read_jsonl_rows(partial_transcript_path)
     final_transcript_rows = _read_jsonl_rows(out / "transcript.jsonl")
@@ -1998,6 +2014,21 @@ def _run_live_match_impl(
     if isinstance(contract_report, str) and contract_report:
         battle_path = Path(contract_report)
 
+    if run_handle is not None:
+        staging_out = out
+        final_out = run_handle.commit()
+        battle_path = final_out / battle_path.relative_to(staging_out)
+        evidence_path = final_out / evidence_path.relative_to(staging_out)
+        report_path_value = report_contract.get("report_path")
+        if isinstance(report_path_value, str):
+            try:
+                report_contract["report_path"] = str(
+                    final_out / Path(report_path_value).relative_to(staging_out)
+                )
+            except ValueError:
+                pass
+        out = final_out
+
     if player_worker_pool is not None:
         player_worker_pool.close()
     return {
@@ -2024,6 +2055,7 @@ def _run_live_match_impl(
 def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """Run a match and always clean persistent adapter workers on exit."""
     start = len(_ACTIVE_WORKER_POOLS)
+    run_start = len(_ACTIVE_RUN_HANDLES)
     try:
         return _run_live_match_impl(*args, **kwargs)
     finally:
@@ -2033,6 +2065,12 @@ def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
             finally:
                 if pool in _ACTIVE_WORKER_POOLS:
                     _ACTIVE_WORKER_POOLS.remove(pool)
+        for handle in _ACTIVE_RUN_HANDLES[run_start:]:
+            try:
+                handle.close()
+            finally:
+                if handle in _ACTIVE_RUN_HANDLES:
+                    _ACTIVE_RUN_HANDLES.remove(handle)
 
 
 def _main() -> int:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import stat
 import tempfile
 import time
 from contextlib import contextmanager
@@ -58,6 +59,79 @@ def advisory_file_lock(
             fcntl.flock(descriptor, fcntl.LOCK_UN)
     finally:
         os.close(descriptor)
+
+
+@contextmanager
+def advisory_file_lock_at(
+    root_fd: int,
+    directory_components: tuple[str, ...],
+    lock_name: str,
+    *,
+    display_path: Path,
+    wait_seconds: float = 5.0,
+    poll_seconds: float = 0.01,
+) -> Iterator[Path]:
+    """Acquire a lock through one already trusted directory descriptor."""
+    components = (*directory_components, lock_name)
+    if any(
+        not isinstance(item, str)
+        or not item
+        or item in {".", ".."}
+        or "/" in item
+        for item in components
+    ):
+        raise ValueError("descriptor lock path contains an unsafe component")
+    opened = [os.dup(root_fd)]
+    descriptor: int | None = None
+    try:
+        current_fd = opened[0]
+        for component in directory_components:
+            try:
+                child_fd = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+            except FileNotFoundError:
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+                child_fd = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+            opened.append(child_fd)
+            current_fd = child_fd
+        descriptor = os.open(
+            lock_name,
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=current_fd,
+        )
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"shared resource lock is not regular: {display_path}")
+        deadline = time.monotonic() + max(0.0, float(wait_seconds))
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise CampaignLockError(
+                        f"shared resource lock busy at {display_path}"
+                    ) from None
+                time.sleep(max(0.001, float(poll_seconds)))
+        try:
+            yield display_path
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        for directory_fd in reversed(opened):
+            os.close(directory_fd)
 
 
 def write_text_atomic(path: Path, text: str, encoding: str = "utf-8") -> None:

@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ctypes
 import importlib.util
 import json
 import os
@@ -862,27 +863,30 @@ def read_artifact_investigator_snapshot(
     if not coc_investigator_guard.is_safe_investigator_id(investigator_id):
         raise ValueError("investigator ids must be stable safe ids")
     artifact_root = Path(run_dir).absolute()
-    investigator_root = (
-        artifact_root / "sandbox" / ".coc" / "investigators" / investigator_id
+    root_fd = os.open(
+        artifact_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     )
-    character_path = investigator_root / "character.json"
-    creation_path = investigator_root / "creation.json"
-    for path in (character_path, creation_path):
-        coc_investigator_guard.validate_contained_path_parents(
-            artifact_root, path
+    try:
+        investigator_fd = coc_investigator_guard._open_directory_chain(
+            root_fd,
+            ("sandbox", ".coc", "investigators", investigator_id),
         )
-        if path.is_symlink():
-            raise ValueError(f"historical investigator evidence is unsafe: {path}")
-    character = coc_investigator_guard._read_json_object(
-        character_path, "historical character sheet"
-    )
-    creation = (
-        coc_investigator_guard._read_json_object(
-            creation_path, "historical creation record"
-        )
-        if creation_path.exists()
-        else None
-    )
+        try:
+            character = coc_investigator_guard._read_json_object_at(
+                investigator_fd,
+                "character.json",
+                "historical character sheet",
+            )
+            creation = coc_investigator_guard._read_json_object_at(
+                investigator_fd,
+                "creation.json",
+                "historical creation record",
+                optional=True,
+            )
+        finally:
+            os.close(investigator_fd)
+    finally:
+        os.close(root_fd)
     return coc_investigator_guard.validate_investigator_snapshot(
         investigator_id, character, creation
     )
@@ -933,47 +937,113 @@ def _publish_investigator_snapshot_no_follow(
         os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
     )
     opened = [root_fd]
-    staged: list[tuple[str, str]] = []
+    stage_name = f".snapshot-stage-{investigator_id}-{os.getpid()}-{time.time_ns()}"
+    parent_fd: int | None = None
+    published = False
     try:
         current_fd = root_fd
-        for component in ("sandbox", ".coc", "investigators", investigator_id):
+        for component in ("sandbox", ".coc", "investigators"):
             current_fd = _open_directory_at(current_fd, component)
             opened.append(current_fd)
+        parent_fd = current_fd
+        os.mkdir(stage_name, mode=0o700, dir_fd=parent_fd)
+        stage_fd = os.open(
+            stage_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent_fd,
+        )
+        opened.append(stage_fd)
         payloads = [("character.json", character)]
         if creation is not None:
             payloads.append(("creation.json", creation))
-        elif _entry_exists_no_follow(current_fd, "creation.json"):
-            raise ValueError(
-                "artifact target contains creation evidence absent from snapshot"
-            )
         for name, payload in payloads:
-            staged.append((name, _stage_json_at(current_fd, name, payload)))
-        for name, temporary in staged:
+            temporary = _stage_json_at(stage_fd, name, payload)
             os.replace(
                 temporary,
                 name,
-                src_dir_fd=current_fd,
-                dst_dir_fd=current_fd,
+                src_dir_fd=stage_fd,
+                dst_dir_fd=stage_fd,
             )
-        os.fsync(current_fd)
+        os.fsync(stage_fd)
+        try:
+            target_info = os.stat(
+                investigator_id, dir_fd=parent_fd, follow_symlinks=False
+            )
+        except FileNotFoundError:
+            target_info = None
+        if target_info is None:
+            os.rename(
+                stage_name,
+                investigator_id,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+            published = True
+        elif not stat.S_ISDIR(target_info.st_mode):
+            raise OSError("artifact investigator target is unsafe")
+        else:
+            _atomic_exchange_directories(
+                parent_fd, stage_name, investigator_id
+            )
+            published = True
+            _remove_tree_at(parent_fd, stage_name)
+        os.fsync(parent_fd)
     finally:
-        if opened:
-            current_fd = opened[-1]
-            for _name, temporary in staged:
-                try:
-                    os.unlink(temporary, dir_fd=current_fd)
-                except FileNotFoundError:
-                    pass
+        if parent_fd is not None and not published:
+            try:
+                _remove_tree_at(parent_fd, stage_name)
+            except FileNotFoundError:
+                pass
         for directory_fd in reversed(opened):
             os.close(directory_fd)
 
 
-def _entry_exists_no_follow(directory_fd: int, name: str) -> bool:
+def _atomic_exchange_directories(
+    parent_fd: int, left: str, right: str
+) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin" and hasattr(libc, "renameatx_np"):
+        rename_exchange = libc.renameatx_np
+    elif hasattr(libc, "renameat2"):
+        rename_exchange = libc.renameat2
+    else:
+        raise OSError("atomic directory exchange is unavailable")
+    rename_exchange.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename_exchange.restype = ctypes.c_int
+    result = rename_exchange(
+        parent_fd,
+        os.fsencode(left),
+        parent_fd,
+        os.fsencode(right),
+        0x00000002,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _remove_tree_at(parent_fd: int, name: str) -> None:
+    directory_fd = os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        dir_fd=parent_fd,
+    )
     try:
-        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return False
-    return True
+        for child in os.listdir(directory_fd):
+            info = os.stat(child, dir_fd=directory_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                _remove_tree_at(directory_fd, child)
+            else:
+                os.unlink(child, dir_fd=directory_fd)
+    finally:
+        os.close(directory_fd)
+    os.rmdir(name, dir_fd=parent_fd)
 
 
 def write_playtest_artifacts(
@@ -988,6 +1058,7 @@ def write_playtest_artifacts(
     generate_report: bool = True,
     character_snapshot: dict[str, Any] | None = None,
     investigator_snapshot: dict[str, Any] | None = None,
+    artifact_location_path: Path | None = None,
 ) -> Path:
     """Write a reportable driver playtest artifact and return battle-report.md.
 
@@ -1070,6 +1141,7 @@ def write_playtest_artifacts(
             if requested_run_id is not None
             else None
         ),
+        artifact_location_path=artifact_location_path,
     )
     metadata["run_id"] = artifact_run_id
     result_cumulative = result.get("cumulative_run_ids")

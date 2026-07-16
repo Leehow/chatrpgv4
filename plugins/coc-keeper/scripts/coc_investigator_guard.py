@@ -12,7 +12,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import re
+import stat
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -211,12 +213,16 @@ def read_active_marker(
 
 
 def assert_reusable_investigator_idle(
-    coc_root: Path, investigator_id: str
+    coc_root: Path, investigator_id: str, *, root_fd: int | None = None
 ) -> None:
     """Check one already-locked reusable investigator without writing state."""
     marker_path = development_active_marker_path(coc_root, investigator_id)
     try:
-        marker = read_active_marker(coc_root, investigator_id)
+        marker = (
+            _read_active_marker_at(root_fd, investigator_id)
+            if root_fd is not None
+            else read_active_marker(coc_root, investigator_id)
+        )
     except ValueError as exc:
         raise ReusableInvestigatorRecoveryConflict(
             "development-reader",
@@ -250,35 +256,52 @@ def guard_reusable_investigators(
     if any(not is_safe_investigator_id(item) for item in raw_ids):
         raise ValueError("investigator ids must be stable safe ids")
     ids = sorted(set(raw_ids))
-    with ExitStack() as locks:
-        for investigator_id in ids:
-            lock_path = reusable_investigator_lock_path(root, investigator_id)
-            validate_contained_path_parents(root, lock_path)
-            if lock_path.is_symlink():
-                raise ValueError(f"investigator lock is unsafe: {lock_path}")
-            locks.enter_context(
-                coc_fileio.advisory_file_lock(
-                    lock_path,
-                    wait_seconds=wait_seconds,
+    try:
+        root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ValueError(f"investigator root is unsafe: {root}") from exc
+    try:
+        with ExitStack() as locks:
+            for investigator_id in ids:
+                lock_path = reusable_investigator_lock_path(root, investigator_id)
+                locks.enter_context(
+                    coc_fileio.advisory_file_lock_at(
+                        root_fd,
+                        ("locks", "investigators", investigator_id),
+                        ".investigator.lock",
+                        display_path=lock_path,
+                        wait_seconds=wait_seconds,
+                    )
                 )
-            )
-        for investigator_id in ids:
-            assert_reusable_investigator_idle(root, investigator_id)
-        yield
+            for investigator_id in ids:
+                assert_reusable_investigator_idle(
+                    root, investigator_id, root_fd=root_fd
+                )
+            yield root_fd
+    finally:
+        os.close(root_fd)
 
 
 def read_reusable_character(
     coc_root: Path, investigator_id: str, character_path: Path
 ) -> dict[str, Any]:
     """Read one character object while excluding settlement partial images."""
-    with guard_reusable_investigators(coc_root, [investigator_id]):
+    root = Path(coc_root).absolute()
+    canonical = root / "investigators" / investigator_id / "character.json"
+    if Path(character_path).absolute() != canonical:
+        raise ValueError("character_path must name the selected canonical investigator")
+    with guard_reusable_investigators(root, [investigator_id]) as root_fd:
+        investigator_fd = _open_directory_chain(
+            root_fd, ("investigators", investigator_id)
+        )
         try:
-            value = json.loads(Path(character_path).read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"character sheet is unreadable: {character_path}") from exc
-        if not isinstance(value, dict):
-            raise ValueError(f"character sheet must be an object: {character_path}")
-        return value
+            value = _read_json_object_at(
+                investigator_fd, "character.json", "character sheet"
+            )
+        finally:
+            os.close(investigator_fd)
+    assert value is not None
+    return value
 
 
 def validate_contained_path_parents(root: Path, target: Path) -> None:
@@ -318,6 +341,87 @@ def _read_json_object(path: Path, label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or not value:
         raise ValueError(f"{label} must be a non-empty object: {path}")
     return value
+
+
+def _open_directory_chain(root_fd: int, components: tuple[str, ...]) -> int:
+    current_fd = os.dup(root_fd)
+    try:
+        for component in components:
+            following = os.open(
+                component,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = following
+        return current_fd
+    except Exception:
+        os.close(current_fd)
+        raise
+
+
+def _read_json_object_at(
+    directory_fd: int,
+    name: str,
+    label: str,
+    *,
+    optional: bool = False,
+) -> dict[str, Any] | None:
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW,
+            dir_fd=directory_fd,
+        )
+    except FileNotFoundError:
+        if optional:
+            return None
+        raise ValueError(f"{label} is missing or not a file") from None
+    except OSError as exc:
+        raise ValueError(f"{label} is unsafe or unreadable") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError(f"{label} is unsafe or not a regular file")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        try:
+            value = json.loads(b"".join(chunks).decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{label} is unreadable") from exc
+        if not isinstance(value, dict) or not value:
+            raise ValueError(f"{label} must be a non-empty object")
+        return value
+    finally:
+        os.close(descriptor)
+
+
+def _read_active_marker_at(
+    root_fd: int, investigator_id: str
+) -> dict[str, Any] | None:
+    try:
+        investigator_fd = _open_directory_chain(
+            root_fd, ("investigators", investigator_id)
+        )
+    except FileNotFoundError:
+        return None
+    try:
+        marker = _read_json_object_at(
+            investigator_fd,
+            _MARKER_NAME,
+            "development active transaction marker",
+            optional=True,
+        )
+    finally:
+        os.close(investigator_fd)
+    return (
+        validate_active_marker(marker, investigator_id)
+        if marker is not None
+        else None
+    )
 
 
 def _validate_character_identity(
@@ -433,30 +537,35 @@ def read_reusable_investigator_snapshot(
 ) -> dict[str, Any]:
     """Read canonical character and optional creation evidence under one guard."""
     root = Path(coc_root).absolute()
-    with guard_reusable_investigators(root, [investigator_id]):
-        investigator_root = root / "investigators" / investigator_id
-        canonical_character = investigator_root / "character.json"
-        supplied_character = (
-            Path(character_path).absolute()
-            if character_path is not None
-            else canonical_character
+    investigator_root = root / "investigators" / investigator_id
+    canonical_character = investigator_root / "character.json"
+    supplied_character = (
+        Path(character_path).absolute()
+        if character_path is not None
+        else canonical_character
+    )
+    validate_contained_path_parents(root, canonical_character)
+    validate_contained_path_parents(root, supplied_character)
+    if supplied_character != canonical_character:
+        raise ValueError(
+            "character_path must name the selected canonical investigator"
         )
-        validate_contained_path_parents(root, canonical_character)
-        validate_contained_path_parents(root, supplied_character)
-        if supplied_character != canonical_character:
-            raise ValueError(
-                "character_path must name the selected canonical investigator"
+    with guard_reusable_investigators(root, [investigator_id]) as root_fd:
+        investigator_fd = _open_directory_chain(
+            root_fd, ("investigators", investigator_id)
+        )
+        try:
+            character = _read_json_object_at(
+                investigator_fd, "character.json", "character sheet"
             )
-        character = _read_json_object(canonical_character, "character sheet")
-
-        creation_path = investigator_root / "creation.json"
-        validate_contained_path_parents(root, creation_path)
-        if creation_path.is_symlink():
-            raise ValueError(f"creation record is unsafe: {creation_path}")
-        if creation_path.exists():
-            creation = _read_json_object(creation_path, "creation record")
-        else:
-            creation = None
+            creation = _read_json_object_at(
+                investigator_fd,
+                "creation.json",
+                "creation record",
+                optional=True,
+            )
+        finally:
+            os.close(investigator_fd)
         return validate_investigator_snapshot(
             investigator_id,
             character,

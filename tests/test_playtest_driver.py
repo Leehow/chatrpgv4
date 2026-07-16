@@ -1,6 +1,7 @@
 """Tests for coc_playtest_driver: multi-turn session runner."""
 import importlib.util
 import json
+import os
 import random
 import re
 import shutil
@@ -542,6 +543,188 @@ def test_artifact_writer_rejects_parent_swap_during_final_publication(
             generate_report=False,
         )
     assert list(outside.iterdir()) == []
+
+
+def test_reusable_lock_parent_swap_stays_on_anchored_lock_domain(
+    tmp_path, monkeypatch,
+):
+    camp, _char_path = _build_mini_campaign(tmp_path)
+    coc_root = camp.parents[1]
+    locks = coc_root / "locks"
+    displaced = coc_root / "locks-displaced"
+    outside = tmp_path / "outside-locks"
+    outside.mkdir()
+    real_open = os.open
+    swapped = False
+
+    def swap_after_locks_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if path == "investigators" and dir_fd is not None and not swapped:
+            swapped = True
+            locks.rename(displaced)
+            locks.symlink_to(outside, target_is_directory=True)
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(
+        driver.coc_investigator_guard.coc_fileio.os,
+        "open",
+        swap_after_locks_open,
+    )
+    with driver.coc_investigator_guard.guard_reusable_investigators(
+        coc_root, ["inv1"]
+    ):
+        assert swapped
+        assert (
+            displaced
+            / "investigators"
+            / "inv1"
+            / ".investigator.lock"
+        ).is_file()
+        assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("leaf", ["character.json", "creation.json"])
+def test_reusable_snapshot_swap_at_read_rejects_outside_symlink(
+    tmp_path, monkeypatch, leaf,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    creation_path = char_path.with_name("creation.json")
+    creation_path.write_text(json.dumps(_creation_evidence()), encoding="utf-8")
+    source = char_path if leaf == "character.json" else creation_path
+    outside = tmp_path / f"outside-{leaf}"
+    outside.write_text(
+        json.dumps(
+            {"id": "inv1", "name": "OUTSIDE"}
+            if leaf == "character.json"
+            else {"investigator_id": "inv1", "name": "OUTSIDE"}
+        ),
+        encoding="utf-8",
+    )
+    real_open = os.open
+    swapped = False
+
+    def swap_before_leaf_open(path, flags, mode=0o777, *, dir_fd=None):
+        nonlocal swapped
+        if path == leaf and dir_fd is not None and not swapped:
+            swapped = True
+            source.unlink()
+            source.symlink_to(outside)
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(driver.coc_investigator_guard.os, "open", swap_before_leaf_open)
+    with pytest.raises(ValueError, match="unsafe|unreadable"):
+        driver.coc_investigator_guard.read_reusable_investigator_snapshot(
+            camp.parents[1], "inv1", char_path
+        )
+    assert swapped
+    assert json.loads(outside.read_text())["name"] == "OUTSIDE"
+
+
+def test_fresh_snapshot_failure_before_directory_commit_leaves_no_partial_pair(
+    tmp_path, monkeypatch,
+):
+    run_dir = tmp_path / "fresh-snapshot"
+    run_dir.mkdir()
+    real_rename = os.rename
+
+    def fail_commit(src, dst, *args, **kwargs):
+        if str(src).startswith(".snapshot-stage-") and dst == "inv1":
+            raise OSError("injected pre-commit failure")
+        return real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(driver.os, "rename", fail_commit)
+    with pytest.raises(OSError, match="injected"):
+        driver._publish_investigator_snapshot_no_follow(
+            run_dir,
+            "inv1",
+            {"id": "inv1", "name": "NEW"},
+            {"investigator_id": "inv1", "name": "NEW"},
+        )
+    target = run_dir / "sandbox" / ".coc" / "investigators" / "inv1"
+    assert not target.exists()
+
+
+def test_fresh_snapshot_failure_after_directory_commit_leaves_complete_new_pair(
+    tmp_path, monkeypatch,
+):
+    run_dir = tmp_path / "fresh-post-commit"
+    run_dir.mkdir()
+    real_fsync = os.fsync
+
+    def fail_parent_fsync(descriptor):
+        try:
+            names = os.listdir(descriptor)
+        except OSError:
+            names = []
+        if "inv1" in names:
+            raise OSError("injected post-commit death")
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr(driver.os, "fsync", fail_parent_fsync)
+    with pytest.raises(OSError, match="post-commit death"):
+        driver._publish_investigator_snapshot_no_follow(
+            run_dir,
+            "inv1",
+            {"id": "inv1", "name": "NEW"},
+            {"investigator_id": "inv1", "name": "NEW"},
+        )
+    target = run_dir / "sandbox" / ".coc" / "investigators" / "inv1"
+    assert json.loads((target / "character.json").read_text())["name"] == "NEW"
+    assert json.loads((target / "creation.json").read_text())["name"] == "NEW"
+
+
+def test_existing_snapshot_exchange_failure_preserves_complete_old_pair(
+    tmp_path, monkeypatch,
+):
+    run_dir = tmp_path / "existing-snapshot"
+    target = run_dir / "sandbox" / ".coc" / "investigators" / "inv1"
+    target.mkdir(parents=True)
+    driver._write_json(target / "character.json", {"id": "inv1", "name": "OLD"})
+    driver._write_json(
+        target / "creation.json",
+        {"investigator_id": "inv1", "name": "OLD"},
+    )
+    monkeypatch.setattr(
+        driver,
+        "_atomic_exchange_directories",
+        lambda *_args: (_ for _ in ()).throw(OSError("injected exchange failure")),
+    )
+    with pytest.raises(OSError, match="exchange"):
+        driver._publish_investigator_snapshot_no_follow(
+            run_dir,
+            "inv1",
+            {"id": "inv1", "name": "NEW"},
+            {"investigator_id": "inv1", "name": "NEW"},
+        )
+    assert json.loads((target / "character.json").read_text())["name"] == "OLD"
+    assert json.loads((target / "creation.json").read_text())["name"] == "OLD"
+
+
+def test_existing_snapshot_cleanup_failure_leaves_complete_new_pair(
+    tmp_path, monkeypatch,
+):
+    run_dir = tmp_path / "post-exchange-snapshot"
+    target = run_dir / "sandbox" / ".coc" / "investigators" / "inv1"
+    target.mkdir(parents=True)
+    driver._write_json(target / "character.json", {"id": "inv1", "name": "OLD"})
+    driver._write_json(
+        target / "creation.json",
+        {"investigator_id": "inv1", "name": "OLD"},
+    )
+    monkeypatch.setattr(
+        driver,
+        "_remove_tree_at",
+        lambda *_args: (_ for _ in ()).throw(OSError("injected cleanup death")),
+    )
+    with pytest.raises(OSError, match="cleanup death"):
+        driver._publish_investigator_snapshot_no_follow(
+            run_dir,
+            "inv1",
+            {"id": "inv1", "name": "NEW"},
+            {"investigator_id": "inv1", "name": "NEW"},
+        )
+    assert json.loads((target / "character.json").read_text())["name"] == "NEW"
+    assert json.loads((target / "creation.json").read_text())["name"] == "NEW"
 
 
 def test_artifact_writer_rejects_non_directory_parent_and_unsafe_id(tmp_path):

@@ -312,6 +312,8 @@ def _load_characters(run_dir: Path, party: dict[str, Any]) -> list[dict[str, Any
         return characters
 
     for path in sorted(sandbox_investigators.glob("*/character.json")):
+        if path.parent.name.startswith("."):
+            continue
         character = _read_json(path, {})
         if character:
             character["_creation"] = _read_json(path.parent / "creation.json", {})

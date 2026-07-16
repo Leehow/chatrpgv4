@@ -426,6 +426,8 @@ def _actor_names(run_dir: Path, terms: dict[str, str]) -> dict[str, str]:
     if not investigator_root.is_dir():
         return result
     for path in sorted(investigator_root.glob("*/character.json")):
+        if path.parent.name.startswith("."):
+            continue
         character = _read_json(path, {})
         if not isinstance(character, dict):
             continue
@@ -972,6 +974,8 @@ def _creation_linked_roll_requirements(
 
     if investigator_root.is_dir():
         for path in sorted(investigator_root.glob("*/creation.json")):
+            if path.parent.name.startswith("."):
+                continue
             creation = _read_json(path, None)
             if isinstance(creation, dict):
                 visit(creation)
