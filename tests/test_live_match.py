@@ -425,6 +425,114 @@ def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
     assert all(row["narrator_method"] == "keeper_agent" for row in partial)
 
 
+@pytest.mark.parametrize(
+    "invalid_kind",
+    ["malformed_creation", "mismatched_creation", "mismatched_character", "stale_target"],
+)
+def test_live_match_rejects_invalid_investigator_evidence_before_any_turn_or_write(
+    tmp_path, monkeypatch, invalid_kind,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    investigator = workspace / ".coc" / "investigators" / investigator_id
+    creation = investigator / "creation.json"
+    run_dir = tmp_path / f"preflight-{invalid_kind}"
+    if invalid_kind == "malformed_creation":
+        creation.write_text("{not-json", encoding="utf-8")
+    elif invalid_kind == "mismatched_creation":
+        _write_json(creation, {"investigator_id": "inv2"})
+    elif invalid_kind == "mismatched_character":
+        character = json.loads((investigator / "character.json").read_text())
+        character["id"] = "inv2"
+        _write_json(investigator / "character.json", character)
+    else:
+        stale = (
+            run_dir
+            / "sandbox"
+            / ".coc"
+            / "investigators"
+            / investigator_id
+            / "creation.json"
+        )
+        _write_json(stale, {"investigator_id": investigator_id})
+
+    player = tmp_path / f"preflight-player-{invalid_kind}"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    keeper_calls = _install_keeper(monkeypatch)
+    campaign_before = _tree_snapshot(campaign)
+    artifact_before = _tree_snapshot(run_dir) if run_dir.exists() else None
+
+    with pytest.raises(ValueError):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=player,
+            max_turns=1,
+            run_dir=run_dir,
+        )
+
+    assert keeper_calls == []
+    assert not player.with_suffix(".state").exists()
+    assert _tree_snapshot(campaign) == campaign_before
+    if artifact_before is None:
+        assert not run_dir.exists()
+    else:
+        assert _tree_snapshot(run_dir) == artifact_before
+
+
+def test_live_match_packages_startup_creation_snapshot_when_source_changes_midrun(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    creation_path = (
+        workspace
+        / ".coc"
+        / "investigators"
+        / investigator_id
+        / "creation.json"
+    )
+    initial = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "method": "startup-snapshot",
+    }
+    _write_json(creation_path, initial)
+    player = tmp_path / "snapshot-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+
+    def mutate(_request, _index):
+        _write_json(
+            creation_path,
+            {
+                "schema_version": 1,
+                "investigator_id": investigator_id,
+                "method": "changed-during-run",
+            },
+        )
+
+    _install_keeper(monkeypatch, mutation=mutate)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "snapshot-run",
+    )
+
+    packaged = (
+        Path(result["run_dir"])
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / investigator_id
+        / "creation.json"
+    )
+    assert json.loads(packaged.read_text()) == initial
+    assert json.loads(creation_path.read_text())["method"] == "changed-during-run"
+
+
 def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     tmp_path, monkeypatch,
 ):
@@ -749,6 +857,19 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
     second_player = tmp_path / "second-player"
     _write_scripted_player_runner(first_player, ["我检查门锁。"])
     _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+    creation_path = (
+        workspace
+        / ".coc"
+        / "investigators"
+        / investigator_id
+        / "creation.json"
+    )
+    creation = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "method": "standard_rulebook_chapter_3",
+    }
+    _write_json(creation_path, creation)
 
     _install_keeper(monkeypatch, texts=["锁眼里有新鲜木屑。"])
     first = match.run_live_match(
@@ -779,6 +900,16 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
     ]
     assert second["metadata"]["continuation_of"] == first_run_id
     assert second["metadata"]["transcript_scope"] == "campaign_cumulative"
+    for live_result in (first, second):
+        packaged_creation = (
+            Path(live_result["run_dir"])
+            / "sandbox"
+            / ".coc"
+            / "investigators"
+            / investigator_id
+            / "creation.json"
+        )
+        assert json.loads(packaged_creation.read_text()) == creation
     assert second["player_requests"][0]["transcript_tail"][-2:] == [
         {"role": "player", "text": "我检查门锁。"},
         {"role": "keeper", "text": "锁眼里有新鲜木屑。"},

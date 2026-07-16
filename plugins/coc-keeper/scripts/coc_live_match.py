@@ -1067,14 +1067,12 @@ def _run_live_match_impl(
     char_path = (
         Path(character_path) if character_path else _default_character_path(ws, investigator_id)
     )
-    if not char_path.is_file():
-        raise FileNotFoundError(f"character sheet not found: {char_path}")
-
-    character_card = coc_investigator_guard.read_reusable_character(
-        ws / ".coc",
-        investigator_id,
-        char_path,
+    investigator_snapshot = (
+        coc_investigator_guard.read_reusable_investigator_snapshot(
+            ws / ".coc", investigator_id, char_path
+        )
     )
+    character_card = investigator_snapshot["character"]
     if operator_long_play and player_runner is not None:
         raise ValueError("operator_long_play cannot use an AI player_runner")
     if not operator_long_play and player_runner is None:
@@ -1088,8 +1086,18 @@ def _run_live_match_impl(
 
     if run_dir is None:
         out = _allocate_default_run_dir(ws / ".coc" / "playtests")
+        playtest_driver.preflight_artifact_investigator_target(
+            out,
+            investigator_id,
+            creation_present=investigator_snapshot["creation"] is not None,
+        )
     else:
         out = Path(run_dir)
+        playtest_driver.preflight_artifact_investigator_target(
+            out,
+            investigator_id,
+            creation_present=investigator_snapshot["creation"] is not None,
+        )
         out.mkdir(parents=True, exist_ok=True)
     # Persist the physical artifact identity before any player, Keeper, or
     # toolbox-driven turn can run. Directory names never carry provenance.
@@ -1765,7 +1773,7 @@ def _run_live_match_impl(
         session_result,
         metadata=metadata,
         generate_report=False,
-        character_snapshot=character_card,
+        investigator_snapshot=investigator_snapshot,
     )
     partial_rows = _read_jsonl_rows(partial_transcript_path)
     final_transcript_rows = _read_jsonl_rows(out / "transcript.jsonl")

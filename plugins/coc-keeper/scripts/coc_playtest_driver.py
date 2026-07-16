@@ -824,37 +824,32 @@ def _ensure_campaign_report_files(
     _write_json(campaign_dir / "scenario" / "scenario.json", scenario)
 
 
-def _read_reusable_creation_snapshot(
-    coc_root: Path,
+def preflight_artifact_investigator_target(
+    run_dir: Path,
     investigator_id: str,
-) -> dict[str, Any] | None:
-    """Read real creation evidence without manufacturing a missing record."""
-    creation_path = (
-        Path(coc_root) / "investigators" / investigator_id / "creation.json"
+    *,
+    creation_present: bool,
+) -> Path:
+    """Validate the selected sandbox destination without creating it."""
+    if not coc_investigator_guard.is_safe_investigator_id(investigator_id):
+        raise ValueError("investigator id must be a stable safe id")
+    artifact_root = Path(run_dir).absolute()
+    target_investigator = (
+        artifact_root / "sandbox" / ".coc" / "investigators" / investigator_id
     )
-    with coc_investigator_guard.guard_reusable_investigators(
-        coc_root, [investigator_id]
-    ):
-        if creation_path.is_symlink():
-            raise ValueError(f"creation record is unsafe: {creation_path}")
-        if not creation_path.exists():
-            return None
-        if not creation_path.is_file():
-            raise ValueError(f"creation record must be a file: {creation_path}")
-        try:
-            value = json.loads(creation_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError(f"creation record is unreadable: {creation_path}") from exc
-        if not isinstance(value, dict) or not value:
-            raise ValueError(
-                f"creation record must be a non-empty object: {creation_path}"
-            )
-        if value.get("investigator_id") != investigator_id:
-            raise ValueError(
-                "creation record investigator_id does not match selected investigator: "
-                f"{creation_path}"
-            )
-        return json.loads(json.dumps(value))
+    target_character = target_investigator / "character.json"
+    target_creation = target_investigator / "creation.json"
+    for target in (target_character, target_creation):
+        coc_investigator_guard.validate_contained_path_parents(
+            artifact_root, target
+        )
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError(f"artifact target is unsafe: {target}")
+    if not creation_present and target_creation.exists():
+        raise ValueError(
+            "artifact target contains creation evidence absent from reusable investigator"
+        )
+    return target_investigator
 
 
 def write_playtest_artifacts(
@@ -868,6 +863,7 @@ def write_playtest_artifacts(
     *,
     generate_report: bool = True,
     character_snapshot: dict[str, Any] | None = None,
+    investigator_snapshot: dict[str, Any] | None = None,
 ) -> Path:
     """Write a reportable driver playtest artifact and return battle-report.md.
 
@@ -878,31 +874,52 @@ def write_playtest_artifacts(
     """
     metadata = dict(metadata or {})
     result = dict(result)
-    reusable_coc_root = coc_investigator_guard.coc_root_for_campaign(campaign_dir)
-    if character_snapshot is None:
-        character_snapshot = coc_investigator_guard.read_reusable_character(
+    if not coc_investigator_guard.is_safe_investigator_id(investigator_id):
+        raise ValueError("investigator ids must be stable safe ids")
+    reusable_coc_root = coc_investigator_guard.coc_root_for_campaign(
+        campaign_dir
+    )
+    canonical_character_path = (
+        Path(reusable_coc_root)
+        / "investigators"
+        / investigator_id
+        / "character.json"
+    ).absolute()
+    if Path(character_path).absolute() != canonical_character_path:
+        raise ValueError(
+            "character_path must name the selected canonical investigator"
+        )
+    if investigator_snapshot is None:
+        canonical_snapshot = coc_investigator_guard.read_reusable_investigator_snapshot(
             reusable_coc_root,
             investigator_id,
             character_path,
         )
+        if character_snapshot is None:
+            character_snapshot = canonical_snapshot["character"]
+        elif character_snapshot != canonical_snapshot["character"]:
+            raise ValueError(
+                "supplied character snapshot disagrees with canonical investigator"
+            )
+        creation_snapshot = canonical_snapshot["creation"]
     else:
-        character_snapshot = json.loads(json.dumps(character_snapshot))
-    creation_snapshot = _read_reusable_creation_snapshot(
-        reusable_coc_root,
+        if set(investigator_snapshot) != {"character", "creation"}:
+            raise ValueError("investigator snapshot has an invalid shape")
+        character_snapshot = investigator_snapshot["character"]
+        creation_snapshot = investigator_snapshot["creation"]
+    bound_snapshot = coc_investigator_guard.validate_investigator_snapshot(
         investigator_id,
+        character_snapshot,
+        creation_snapshot,
     )
-    target_investigator_dir = (
-        run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+    character_snapshot = bound_snapshot["character"]
+    creation_snapshot = bound_snapshot["creation"]
+    target_investigator_dir = preflight_artifact_investigator_target(
+        run_dir,
+        investigator_id,
+        creation_present=creation_snapshot is not None,
     )
     target_creation = target_investigator_dir / "creation.json"
-    if target_creation.is_symlink() or (
-        target_creation.exists() and not target_creation.is_file()
-    ):
-        raise ValueError("artifact target creation record is unsafe")
-    if creation_snapshot is None and target_creation.exists():
-        raise ValueError(
-            "artifact target contains creation evidence absent from reusable investigator"
-        )
     run_dir.mkdir(parents=True, exist_ok=True)
     source_campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
     campaign_id = str(metadata.get("campaign_id") or source_campaign.get("campaign_id") or campaign_dir.name)

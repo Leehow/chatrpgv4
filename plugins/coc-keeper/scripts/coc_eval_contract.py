@@ -859,12 +859,16 @@ def build_report_completeness(
     rendered: dict[str, Any],
     *,
     play_language: str,
+    linked_required_roll_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     marker_counts = Counter(ROLL_MARKER_RE.findall(report_text))
     source_ids = list(rendered["source_roll_ids"])
     source_counts = Counter(source_ids)
     source_id_set = set(source_ids)
-    required_ids = list(rendered["required_public_roll_ids"])
+    linked_ids = list(dict.fromkeys(linked_required_roll_ids or []))
+    required_ids = list(
+        dict.fromkeys([*rendered["required_public_roll_ids"], *linked_ids])
+    )
     required_set = set(required_ids)
     incomplete_set = set(rendered["incomplete_roll_ids"])
     source_comment_presence = _marker_source_comments(report_text)
@@ -916,6 +920,7 @@ def build_report_completeness(
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "source_roll_count": len(source_ids),
         "required_public_roll_count": len(required_ids),
+        "linked_required_roll_ids": linked_ids,
         "rendered_public_roll_count": rendered_public_count,
         "keeper_only_roll_count": len(rendered["keeper_only_roll_ids"]),
         "missing_roll_ids": missing,
@@ -937,6 +942,29 @@ def build_report_completeness(
         "zero_public_roll_statement_present": zero_statement_present,
         "passed": passed,
     }
+
+
+def _creation_linked_roll_ids(run_dir: Path) -> list[str]:
+    investigator_root = run_dir / "sandbox" / ".coc" / "investigators"
+    linked: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            roll_id = value.get("roll_id")
+            if isinstance(roll_id, str) and roll_id:
+                linked.append(_safe_marker_id(roll_id))
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    if investigator_root.is_dir():
+        for path in sorted(investigator_root.glob("*/creation.json")):
+            creation = _read_json(path, None)
+            if isinstance(creation, dict):
+                visit(creation)
+    return list(dict.fromkeys(linked))
 
 
 def _find_report_path(run_dir: Path) -> Path | None:
@@ -1181,6 +1209,7 @@ def compile_report_contract(
         roll_source,
         rendered,
         play_language=language,
+        linked_required_roll_ids=_creation_linked_roll_ids(root),
     )
     return _finalize_report_result(
         root=root,
@@ -1211,6 +1240,7 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
         roll_source,
         rendered,
         play_language=language,
+        linked_required_roll_ids=_creation_linked_roll_ids(root),
     )
     evidence = _evidence_status(root)
     evaluation_report = root / "artifacts" / "evaluation-report.md"

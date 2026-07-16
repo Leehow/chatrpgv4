@@ -23,6 +23,10 @@ coc_playtest_audit = _load(
     "coc_playtest_audit_task2",
     "plugins/coc-keeper/scripts/coc_playtest_audit.py",
 )
+coc_eval_contract = _load(
+    "coc_eval_contract_task2",
+    "plugins/coc-keeper/scripts/coc_eval_contract.py",
+)
 
 
 def _build_mini_campaign(tmp_path):
@@ -119,6 +123,56 @@ def _creation_evidence(investigator_id: str = "inv1") -> dict:
     }
 
 
+def _creation_roll_rows() -> list[dict]:
+    return [
+        {
+            "roll_id": "creation-luck",
+            "type": "character_creation",
+            "actor": "inv1",
+            "visibility": "public",
+            "decision_id": "creation-luck",
+            "payload": {
+                "roll_id": "creation-luck",
+                "die": "3D6",
+                "die_rolls": [3, 4, 4],
+                "roll": 11,
+                "source": "investigator.create:LUCK",
+            },
+        },
+        {
+            "roll_id": "creation-edu",
+            "type": "character_creation",
+            "actor": "inv1",
+            "visibility": "public",
+            "decision_id": "creation-edu",
+            "payload": {
+                "roll_id": "creation-edu",
+                "die": "2D6+6",
+                "die_rolls": [3, 4],
+                "flat_modifier": 6,
+                "roll": 13,
+                "source": "investigator.create:EDU",
+            },
+        },
+        {
+            "roll_id": "creation-edu-improvement",
+            "type": "roll",
+            "actor": "inv1",
+            "visibility": "public",
+            "decision_id": "creation-edu-improvement",
+            "payload": {
+                "roll_id": "creation-edu-improvement",
+                "characteristic": "EDU",
+                "roll": 77,
+                "effective_target": 65,
+                "difficulty": "regular",
+                "outcome": "improved",
+                "source": "investigator.create:age-adjustment",
+            },
+        },
+    ]
+
+
 def test_artifact_writer_packages_selected_reusable_creation_evidence(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
     creation = _creation_evidence()
@@ -130,23 +184,11 @@ def test_artifact_writer_packages_selected_reusable_creation_evidence(tmp_path):
     (other_dir / "creation.json").write_text(
         json.dumps(_creation_evidence("inv2")), encoding="utf-8"
     )
-    roll_ids = {
-        "creation-luck",
-        "creation-edu",
-        "creation-edu-improvement",
-    }
     (camp / "logs" / "rolls.jsonl").write_text(
         "".join(
-            json.dumps(
-                {
-                    "type": "character_creation",
-                    "actor": "inv1",
-                    "visibility": "public",
-                    "payload": {"roll_id": roll_id},
-                }
-            )
+            json.dumps(row)
             + "\n"
-            for roll_id in sorted(roll_ids)
+            for row in _creation_roll_rows()
         ),
         encoding="utf-8",
     )
@@ -190,7 +232,30 @@ def test_artifact_writer_packages_selected_reusable_creation_evidence(tmp_path):
         creation["age"]["edu_improvement_checks"][0]["roll_id"],
     }
     assert creation_rolls <= packaged_rolls
-    assert "EDU 65, LUCK 55" in report_path.read_text(encoding="utf-8")
+    compiled = coc_eval_contract.compile_report_contract(
+        run_dir, generate_base_report=False
+    )
+    receipt = compiled["report_completeness"]
+    assert receipt["passed"] is True
+    persisted_receipt = json.loads(
+        (run_dir / "artifacts" / "report-completeness.json").read_text()
+    )
+    assert persisted_receipt["passed"] is True
+    assert receipt["linked_required_roll_ids"] == [
+        "creation-luck",
+        "creation-edu",
+        "creation-edu-improvement",
+    ]
+    verified = coc_eval_contract.verify_report_contract(run_dir)
+    assert verified["report_completeness"]["passed"] is True
+    report_text = Path(compiled["report_path"]).read_text(encoding="utf-8")
+    assert "EDU 65, LUCK 55" in report_text
+    assert "3D6" in report_text
+    assert "2D6+6" in report_text
+    assert "77 / 65" in report_text
+    for roll_id in creation_rolls:
+        assert report_text.count(f"[roll-id: {roll_id}]") == 1
+        assert f"source: sandbox/.coc/campaigns/drive/logs/rolls.jsonl" in report_text
     audit = coc_playtest_audit.audit_run(run_dir)
     creation_findings = [
         finding
@@ -291,6 +356,248 @@ def test_artifact_writer_fails_closed_for_invalid_creation_evidence(
         )
 
     assert not run_dir.exists()
+
+
+def test_artifact_writer_rejects_alternate_character_path_and_snapshot(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char_path.with_name("creation.json").write_text(
+        json.dumps(_creation_evidence()), encoding="utf-8"
+    )
+    alternate = char_path.parents[1] / "inv2" / "character.json"
+    alternate.parent.mkdir()
+    alternate.write_text(
+        json.dumps({**json.loads(char_path.read_text()), "id": "inv2"}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="canonical investigator"):
+        driver.write_playtest_artifacts(
+            tmp_path / "alternate-run",
+            camp,
+            alternate,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+    with pytest.raises(ValueError, match="canonical investigator"):
+        driver.write_playtest_artifacts(
+            tmp_path / "snapshot-run",
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+            character_snapshot={**json.loads(char_path.read_text()), "id": "inv2"},
+        )
+
+
+def test_artifact_writer_rejects_character_creation_fact_mismatch(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    creation = _creation_evidence()
+    creation["characteristics"]["LUCK"]["final"] = 60
+    char_path.with_name("creation.json").write_text(
+        json.dumps(creation), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="characteristic LUCK"):
+        driver.write_playtest_artifacts(
+            tmp_path / "mismatch-run",
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+
+
+@pytest.mark.parametrize("leaf", ["character.json", "creation.json"])
+def test_artifact_writer_rejects_source_file_symlink(tmp_path, leaf):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    creation_path = char_path.with_name("creation.json")
+    creation_path.write_text(json.dumps(_creation_evidence()), encoding="utf-8")
+    source = char_path if leaf == "character.json" else creation_path
+    outside = tmp_path / f"outside-{leaf}"
+    source.replace(outside)
+    source.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unsafe"):
+        driver.write_playtest_artifacts(
+            tmp_path / "source-link-run",
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+
+
+def test_artifact_writer_rejects_source_and_target_parent_symlinks(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    creation_path = char_path.with_name("creation.json")
+    creation_path.write_text(json.dumps(_creation_evidence()), encoding="utf-8")
+    investigator_dir = char_path.parent
+    outside_source = tmp_path / "outside-source"
+    investigator_dir.replace(outside_source)
+    investigator_dir.symlink_to(outside_source, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="parent is a symlink"):
+        driver.write_playtest_artifacts(
+            tmp_path / "source-parent-run",
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+
+    investigator_dir.unlink()
+    outside_source.replace(investigator_dir)
+    run_dir = tmp_path / "target-parent-run"
+    target_parent = run_dir / "sandbox" / ".coc" / "investigators"
+    target_parent.mkdir(parents=True)
+    outside_target = tmp_path / "outside-target"
+    outside_target.mkdir()
+    (target_parent / "inv1").symlink_to(outside_target, target_is_directory=True)
+    with pytest.raises(ValueError, match="parent is a symlink"):
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+    assert list(outside_target.iterdir()) == []
+
+
+@pytest.mark.parametrize("leaf", ["character.json", "creation.json"])
+def test_artifact_writer_rejects_target_file_symlink(tmp_path, leaf):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char_path.with_name("creation.json").write_text(
+        json.dumps(_creation_evidence()), encoding="utf-8"
+    )
+    run_dir = tmp_path / f"target-file-link-{leaf}"
+    target = (
+        run_dir
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / "inv1"
+        / leaf
+    )
+    target.parent.mkdir(parents=True)
+    outside = tmp_path / f"outside-target-{leaf}"
+    outside.write_text("untouched", encoding="utf-8")
+    target.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unsafe|escapes canonical root"):
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+    assert outside.read_text() == "untouched"
+
+
+def test_artifact_writer_rejects_non_directory_parent_and_unsafe_id(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    run_dir = tmp_path / "non-directory-run"
+    bad_parent = run_dir / "sandbox" / ".coc"
+    bad_parent.parent.mkdir(parents=True)
+    bad_parent.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(ValueError, match="not a directory"):
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+    with pytest.raises(ValueError, match="stable safe ids"):
+        driver.write_playtest_artifacts(
+            tmp_path / "unsafe-id-run",
+            camp,
+            char_path,
+            "../escape",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+
+
+@pytest.mark.parametrize("failure_kind", ["missing", "duplicate", "malformed", "untraced"])
+def test_creation_roll_report_completeness_fails_closed(tmp_path, failure_kind):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char_path.with_name("creation.json").write_text(
+        json.dumps(_creation_evidence()), encoding="utf-8"
+    )
+    (camp / "logs" / "rolls.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in _creation_roll_rows()),
+        encoding="utf-8",
+    )
+    run_dir = tmp_path / f"contract-{failure_kind}"
+    report_path = driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        _artifact_result(),
+    )
+    packaged_rolls = (
+        run_dir
+        / "sandbox"
+        / ".coc"
+        / "campaigns"
+        / "drive"
+        / "logs"
+        / "rolls.jsonl"
+    )
+    if failure_kind == "missing":
+        rows = packaged_rolls.read_text().splitlines()
+        packaged_rolls.write_text("\n".join(rows[1:]) + "\n", encoding="utf-8")
+    elif failure_kind == "duplicate":
+        first = packaged_rolls.read_text().splitlines()[0]
+        packaged_rolls.write_text(
+            packaged_rolls.read_text() + first + "\n", encoding="utf-8"
+        )
+    elif failure_kind == "malformed":
+        packaged_rolls.write_text(
+            packaged_rolls.read_text() + "{not-json\n", encoding="utf-8"
+        )
+
+    compiled = coc_eval_contract.compile_report_contract(
+        run_dir, generate_base_report=False
+    )
+    if failure_kind == "untraced":
+        report_path = Path(compiled["report_path"])
+        report_path.write_text(
+            report_path.read_text() + "\n[roll-id: fabricated-creation]\n",
+            encoding="utf-8",
+        )
+    verified = coc_eval_contract.verify_report_contract(run_dir)
+    receipt = verified["report_completeness"]
+    assert receipt["passed"] is False
+    if failure_kind == "missing":
+        assert receipt["missing_roll_ids"] == ["creation-luck"]
+    elif failure_kind == "duplicate":
+        assert receipt["duplicate_source_roll_ids"] == ["creation-luck"]
+    elif failure_kind == "malformed":
+        assert receipt["parse_errors"]
+    else:
+        assert receipt["untraced_roll_ids"] == ["fabricated-creation"]
 
 
 def test_artifact_writer_rejects_active_reusable_transaction_before_run_writes(

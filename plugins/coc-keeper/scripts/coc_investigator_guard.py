@@ -53,6 +53,10 @@ _MARKER_V2_FIELDS = _MARKER_BASE_FIELDS | {
 }
 
 
+def is_safe_investigator_id(value: Any) -> bool:
+    return isinstance(value, str) and _SAFE_ID.fullmatch(value) is not None
+
+
 class ReusableInvestigatorRecoveryConflict(ValueError):
     """A reusable investigator is owned by an incomplete settlement."""
 
@@ -243,10 +247,7 @@ def guard_reusable_investigators(
     """
     root = Path(coc_root)
     raw_ids = list(investigator_ids)
-    if any(
-        not isinstance(item, str) or _SAFE_ID.fullmatch(item) is None
-        for item in raw_ids
-    ):
+    if any(not is_safe_investigator_id(item) for item in raw_ids):
         raise ValueError("investigator ids must be stable safe ids")
     ids = sorted(set(raw_ids))
     with ExitStack() as locks:
@@ -274,3 +275,186 @@ def read_reusable_character(
         if not isinstance(value, dict):
             raise ValueError(f"character sheet must be an object: {character_path}")
         return value
+
+
+def validate_contained_path_parents(root: Path, target: Path) -> None:
+    """Reject lexical escapes and unsafe existing components below ``root``."""
+    root_path = Path(root).absolute()
+    target_path = Path(target).absolute()
+    try:
+        relative = target_path.relative_to(root_path)
+    except ValueError as exc:
+        raise ValueError(f"path escapes canonical root: {target}") from exc
+    components = [root_path]
+    current = root_path
+    for part in relative.parts[:-1]:
+        current = current / part
+        components.append(current)
+    for component in components:
+        if component.is_symlink():
+            raise ValueError(f"path parent is a symlink: {component}")
+        if component.exists() and not component.is_dir():
+            raise ValueError(f"path parent is not a directory: {component}")
+    resolved_root = root_path.resolve(strict=False)
+    try:
+        target_path.resolve(strict=False).relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValueError(f"resolved path escapes canonical root: {target}") from exc
+
+
+def _read_json_object(path: Path, label: str) -> dict[str, Any]:
+    if path.is_symlink():
+        raise ValueError(f"{label} is unsafe: {path}")
+    if not path.is_file():
+        raise ValueError(f"{label} is missing or not a file: {path}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label} is unreadable: {path}") from exc
+    if not isinstance(value, dict) or not value:
+        raise ValueError(f"{label} must be a non-empty object: {path}")
+    return value
+
+
+def _validate_character_identity(
+    character: dict[str, Any], investigator_id: str
+) -> None:
+    identities = [
+        character[key]
+        for key in ("id", "investigator_id")
+        if character.get(key) not in (None, "")
+    ]
+    if not identities or any(value != investigator_id for value in identities):
+        raise ValueError("character sheet identity does not match selected investigator")
+
+
+def validate_investigator_snapshot(
+    investigator_id: str,
+    character: dict[str, Any],
+    creation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Bind character and optional creation records to one immutable identity."""
+    if not isinstance(character, dict) or not character:
+        raise ValueError("character snapshot must be a non-empty object")
+    _validate_character_identity(character, investigator_id)
+    if creation is None:
+        return {
+            "character": json.loads(json.dumps(character)),
+            "creation": None,
+        }
+    if not isinstance(creation, dict) or not creation:
+        raise ValueError("creation record must be a non-empty object")
+    if creation.get("investigator_id") != investigator_id:
+        raise ValueError(
+            "creation record investigator_id does not match selected investigator"
+        )
+
+    for field in ("name", "era"):
+        if (
+            creation.get(field) not in (None, "")
+            and character.get(field) not in (None, "")
+            and creation[field] != character[field]
+        ):
+            raise ValueError(f"character and creation {field} values disagree")
+    occupation = creation.get("occupation")
+    creation_occupation = (
+        occupation.get("name") if isinstance(occupation, dict) else occupation
+    )
+    character_occupation = character.get("occupation")
+    if isinstance(character_occupation, dict):
+        character_occupation = character_occupation.get("name")
+    if (
+        creation_occupation not in (None, "")
+        and character_occupation not in (None, "")
+        and creation_occupation != character_occupation
+    ):
+        raise ValueError("character and creation occupation values disagree")
+
+    character_characteristics = character.get("characteristics")
+    creation_characteristics = creation.get("characteristics")
+    if isinstance(character_characteristics, dict) and isinstance(
+        creation_characteristics, dict
+    ):
+        for key in set(character_characteristics) & set(creation_characteristics):
+            creation_value = creation_characteristics[key]
+            final = (
+                creation_value.get("final")
+                if isinstance(creation_value, dict)
+                else creation_value
+            )
+            if final not in (None, "") and character_characteristics[key] != final:
+                raise ValueError(
+                    f"character and creation characteristic {key} values disagree"
+                )
+
+    character_derived = character.get("derived")
+    creation_derived = creation.get("derived")
+    if isinstance(character_derived, dict) and isinstance(creation_derived, dict):
+        for key in set(character_derived) & set(creation_derived):
+            creation_value = creation_derived[key]
+            value = (
+                creation_value.get("value")
+                if isinstance(creation_value, dict)
+                else creation_value
+            )
+            if value not in (None, "") and character_derived[key] != value:
+                raise ValueError(
+                    f"character and creation derived {key} values disagree"
+                )
+
+    allocation = creation.get("skill_allocation")
+    allocation_skills = (
+        allocation.get("skills") if isinstance(allocation, dict) else None
+    )
+    character_skills = character.get("skills")
+    if isinstance(allocation_skills, dict) and isinstance(character_skills, dict):
+        for skill in set(allocation_skills) & set(character_skills):
+            entry = allocation_skills[skill]
+            final = entry.get("final") if isinstance(entry, dict) else None
+            if final not in (None, "") and character_skills[skill] != final:
+                raise ValueError(
+                    f"character and creation skill {skill} values disagree"
+                )
+
+    return {
+        "character": json.loads(json.dumps(character)),
+        "creation": json.loads(json.dumps(creation)),
+    }
+
+
+def read_reusable_investigator_snapshot(
+    coc_root: Path,
+    investigator_id: str,
+    character_path: Path | None = None,
+) -> dict[str, Any]:
+    """Read canonical character and optional creation evidence under one guard."""
+    root = Path(coc_root).absolute()
+    with guard_reusable_investigators(root, [investigator_id]):
+        investigator_root = root / "investigators" / investigator_id
+        canonical_character = investigator_root / "character.json"
+        supplied_character = (
+            Path(character_path).absolute()
+            if character_path is not None
+            else canonical_character
+        )
+        validate_contained_path_parents(root, canonical_character)
+        validate_contained_path_parents(root, supplied_character)
+        if supplied_character != canonical_character:
+            raise ValueError(
+                "character_path must name the selected canonical investigator"
+            )
+        character = _read_json_object(canonical_character, "character sheet")
+
+        creation_path = investigator_root / "creation.json"
+        validate_contained_path_parents(root, creation_path)
+        if creation_path.is_symlink():
+            raise ValueError(f"creation record is unsafe: {creation_path}")
+        if creation_path.exists():
+            creation = _read_json_object(creation_path, "creation record")
+        else:
+            creation = None
+        return validate_investigator_snapshot(
+            investigator_id,
+            character,
+            creation,
+        )
