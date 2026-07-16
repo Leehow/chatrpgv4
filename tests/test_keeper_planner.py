@@ -275,7 +275,7 @@ def _campaign(tmp_path: Path) -> tuple[Path, Path]:
         "route_completion_receipts": [],
         "unlocked_scene_ids": ["archive"],
     })
-    character = tmp_path / "character.json"
+    character = tmp_path / "investigators" / "investigator" / "character.json"
     _write_json(character, {
         "id": "investigator",
         "name": "Investigator",

@@ -173,7 +173,7 @@ def test_pressure_selects_structurally_relevant_clock_with_reason(tmp_path):
                      "scene_tags_any": ["archive"]}]},
     ]}))
     ctx = coc_story_director.build_director_context(
-        camp, character, "wait", "wait", "idle", rng=random.Random(1)
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
     )
     move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
     assert move["clock_id"] == "archive-alarm"

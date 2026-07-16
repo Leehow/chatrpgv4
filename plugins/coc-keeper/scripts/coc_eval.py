@@ -436,9 +436,65 @@ def report_run_contract(run_dir: Path | str) -> dict[str, Any]:
     return dict(contract.compile_report_contract(directory, generate_base_report=True))
 
 
+def _is_canonical_gameplay_path(path: Path) -> bool:
+    parts = path.absolute().parts
+    return any(
+        parts[index : index + 2] == (".coc", "playtests")
+        and len(parts[index + 2 :]) == 1
+        for index in range(len(parts) - 2)
+    )
+
+
+def _has_playtest_entry(directory: Path) -> bool:
+    """Classify by directory entry kind without following the metadata leaf."""
+    try:
+        directory_fd = os.open(
+            directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+    except OSError:
+        try:
+            os.lstat(directory / "playtest.json")
+        except OSError:
+            return False
+        return True
+    try:
+        try:
+            os.stat("playtest.json", dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        return True
+    finally:
+        os.close(directory_fd)
+
+
+def _has_coherent_aggregate_identity(
+    directory: Path, manifest: dict[str, Any]
+) -> bool:
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("eval_spec") != "eval-spec-v1"
+    ):
+        return False
+    declared_identity = (
+        manifest.get("suite") == "nightly"
+        or manifest.get("case_id") == "suite:nightly"
+    )
+    persisted_identity = (
+        isinstance(manifest.get("run_id"), str)
+        and (
+            manifest["run_id"] == "nightly"
+            or str(manifest["run_id"]).startswith("nightly-")
+        )
+        and (directory / "aggregate-summary.json").is_file()
+        and (directory / "case-results.json").is_file()
+    )
+    return declared_identity or persisted_identity
+
+
 def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     """Verify the report contract plus any aggregate nightly lane receipts."""
-    directory = Path(run_dir).resolve()
+    lexical_directory = Path(run_dir).absolute()
+    directory = lexical_directory.resolve()
     manifest_path = directory / "run-manifest.json"
     if not manifest_path.is_file():
         return dict(contract.verify_report_contract(directory))
@@ -464,6 +520,10 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "findings": [{"code": "run_manifest_malformed"}],
         }
         return payload
+    gameplay_run = (
+        _is_canonical_gameplay_path(lexical_directory)
+        or _has_playtest_entry(directory)
+    )
     lane_artifacts = (
         manifest.get("lane_artifacts") if isinstance(manifest, dict) else None
     )
@@ -472,17 +532,8 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     artifact_hashes = manifest.get("artifact_hashes")
     aggregate_summary_path = directory / "aggregate-summary.json"
     has_aggregate_contract = bool(
-        manifest_suite == "nightly"
-        or manifest.get("case_id") == "suite:nightly"
-        or "lanes" in manifest
-        or "lane_artifacts" in manifest
-        or "aggregation_inputs" in manifest
-        or (
-            isinstance(artifact_hashes, dict)
-            and "aggregate-summary.json" in artifact_hashes
-        )
-        or aggregate_summary_path.exists()
-        or aggregate_summary_path.is_symlink()
+        not gameplay_run
+        and _has_coherent_aggregate_identity(directory, manifest)
     )
     # Aggregate evaluation directories are not gameplay-run artifacts and do
     # not carry playtest.json.  Verify their declared aggregate contract first;

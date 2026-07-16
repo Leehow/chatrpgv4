@@ -3572,6 +3572,8 @@ def test_bout_id_is_bounded_for_maximum_investigator_id(tmp_path):
     sheet["id"] = investigator_id
     sheet["characteristics"].update({"POW": 99, "INT": 99})
     sheet["derived"]["SAN"] = 99
+    character = tmp_path / "investigators" / investigator_id / "character.json"
+    character.parent.mkdir(parents=True)
     character.write_text(json.dumps(sheet))
 
     result = executor.execute_commands(

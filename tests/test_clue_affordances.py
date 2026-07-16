@@ -241,7 +241,8 @@ def _make_minimal_campaign(tmp_path):
     (camp / "scenario").mkdir(parents=True)
     (camp / "logs").mkdir(parents=True)
     (camp / "save" / "investigator-state").mkdir()
-    char_path = camp / "character.json"
+    char_path = tmp_path / "investigators" / "inv1" / "character.json"
+    char_path.parent.mkdir(parents=True)
     char_path.write_text(json.dumps({
         "schema_version": 1,
         "investigator_id": "inv1",

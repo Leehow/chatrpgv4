@@ -146,8 +146,8 @@ def _campaign_and_char_for_san(tmp_path: Path):
     (camp / "scenario").mkdir(parents=True)
     (camp / "save" / "investigator-state").mkdir(parents=True)
     (camp / "logs").mkdir(parents=True)
-    char_dir = tmp_path / "inv"
-    char_dir.mkdir()
+    char_dir = tmp_path / "investigators" / "inv1"
+    char_dir.mkdir(parents=True)
     char = {
         "schema_version": 1, "id": "inv1", "name": "Test", "era": "1920s",
         "characteristics": {"STR": 50, "CON": 50, "SIZ": 50, "DEX": 50, "APP": 50,

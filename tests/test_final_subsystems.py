@@ -321,7 +321,8 @@ def test_build_director_context_includes_engine_signals(tmp_path):
         "conditions": [], "daily_san_lost": 0,
     }))
     (campaign / "scenario").mkdir(parents=True)
-    char_path = tmp_path / "char.json"
+    char_path = tmp_path / "investigators" / "inv1" / "character.json"
+    char_path.parent.mkdir(parents=True)
     char_path.write_text(json.dumps({
         "derived": {"HP": 12, "Luck": 50, "SAN": 60},
         "characteristics": {"APP": 50},

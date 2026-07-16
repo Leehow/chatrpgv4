@@ -1043,6 +1043,55 @@ def test_canonical_verify_recomputes_registered_lane_status(
     ]["findings"]
 
 
+def test_gameplay_run_with_stray_aggregate_keys_stays_gameplay(tmp_path: Path):
+    cli = _load_cli()
+    run = tmp_path / ".coc" / "playtests" / "gameplay-run"
+    _write_json(run / "playtest.json", {
+        "schema_version": 1,
+        "run_id": "gameplay-run",
+        "campaign_id": "gameplay-campaign",
+    })
+    _write_json(run / "run-manifest.json", {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "suite": "diagnostic",
+        "case_id": "gameplay-case",
+        "lanes": {},
+    })
+
+    payload = cli.verify_run_contract(run)
+
+    assert payload.get("report_scope") != "suite"
+    assert "lane_artifact_verification" not in payload
+
+
+@pytest.mark.parametrize("canonical", [True, False])
+def test_malformed_gameplay_metadata_cannot_masquerade_as_aggregate(
+    tmp_path: Path, canonical: bool,
+):
+    cli = _load_cli()
+    run = (
+        tmp_path / ".coc" / "playtests" / "malformed-gameplay"
+        if canonical
+        else tmp_path / "historical-malformed-gameplay"
+    )
+    target = tmp_path / "outside-playtest.json"
+    _write_json(target, {"run_id": "malformed-gameplay"})
+    run.mkdir(parents=True)
+    (run / "playtest.json").symlink_to(target)
+    _write_json(run / "run-manifest.json", {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "suite": "diagnostic",
+        "case_id": "suite:diagnostic",
+        "lanes": {},
+        "lane_artifacts": {},
+    })
+
+    with pytest.raises(ValueError, match="published final playtest run"):
+        cli.verify_run_contract(run)
+
+
 @pytest.mark.parametrize(
     "mutation",
     ("missing_inputs", "matrix_limit_mismatch", "suite_downgrade"),
