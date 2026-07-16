@@ -57,6 +57,10 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     prepared = dict(request)
     prepared["workspace"] = str(Path(prepared["workspace"]).resolve())
     prepared["campaign_id"] = str(prepared["campaign_id"])
+    if "run_id" in prepared:
+        prepared["run_id"] = str(prepared["run_id"]).strip()
+        if not prepared["run_id"]:
+            raise ValueError("keeper_send_turn run_id must be non-empty when supplied")
     prepared["player_input"] = str(prepared.get("player_input") or "")
     prepared["play_language"] = str(prepared.get("play_language") or "zh-Hans")
     run_policy = str(prepared.get("run_policy") or "single_session")

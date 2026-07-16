@@ -4914,6 +4914,10 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "exact identity_ref returned by npc.query/scene.context when the authored identity was portrayed",
         },
+        "run_id": {
+            "type": "string",
+            "desc": "current play/report segment run id; live play hosts supply this automatically",
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
@@ -4923,6 +4927,10 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     requested_npc_id = str(args["npc_id"])
     requested_interaction_kind = str(args["interaction_kind"]).strip()
     supplied_identity_ref = str(args.get("identity_ref") or "").strip()
+    campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+    run_id = coc_npc_event_chain.resolve_run_id(
+        ctx.campaign_dir, structured_source=args
+    )
     operation = {
         "npc_id": requested_npc_id,
         "interaction_kind": requested_interaction_kind,
@@ -4940,6 +4948,11 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
                 f"{tool_name} decision_id '{decision_id}' has multiple source receipts",
             )
         receipt = prior_receipts[0]
+        if receipt.get("run_id") != run_id:
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' was already applied in a different play run",
+            )
         if receipt.get("operation_digest") != coc_npc_event_chain.canonical_digest(
             operation
         ):
@@ -4978,8 +4991,6 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     )
     binding_status = str(identity_binding["status"])
     binding_reasons = list(identity_binding.get("reasons") or [])
-    campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
-    run_id = coc_npc_event_chain.resolve_run_id(ctx.campaign_dir)
     event_id = coc_npc_event_chain.stable_event_id(
         producer=tool_name,
         campaign_id=campaign_id,

@@ -708,6 +708,24 @@ def test_public_raw_rows_cannot_enter_trusted_adherence_path():
         )
 
 
+def test_npc_receipt_run_resolution_prefers_structured_identity_then_host_env(
+    tmp_path: Path, monkeypatch,
+):
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    (campaign / "campaign.json").write_text(
+        json.dumps({"campaign_id": "run-resolution"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("COC_PLAYTEST_RUN_ID", "host-run")
+
+    assert coc_adherence.coc_npc_event_chain.resolve_run_id(campaign) == (
+        "host-run"
+    )
+    assert coc_adherence.coc_npc_event_chain.resolve_run_id(
+        campaign, structured_source={"run_id": "structured-run"}
+    ) == "structured-run"
+
+
 def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
     tmp_path: Path,
 ):
@@ -722,7 +740,7 @@ def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
     event_id = coc_adherence.coc_npc_event_chain.stable_event_id(
         producer=producer,
         campaign_id="capability-test",
-        run_id="run-test",
+        run_id="artifact-run-test",
         decision_id="decision-test",
         scene_id="scene-test",
         npc_id="npc-steven-knott",
@@ -734,13 +752,13 @@ def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
         "source_receipt_schema_version": 1,
         "producer": producer,
         "campaign_id": "capability-test",
-        "run_id": "run-test",
+        "run_id": "artifact-run-test",
         "decision_id": "decision-test",
     })
     receipt = coc_adherence.coc_npc_event_chain.new_receipt(
         producer=producer,
         campaign_id="capability-test",
-        run_id="run-test",
+        run_id="artifact-run-test",
         decision_id="decision-test",
         scene_id="scene-test",
         npc_id="npc-steven-knott",
@@ -775,6 +793,164 @@ def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
     result = coc_adherence.compute_adherence_for_campaign(
         HAUNTING,
         play,
+        campaign_dir=campaign,
+    )
+
+    assert result is not None
+    row = next(
+        item for item in result["statements"]
+        if item["criterion"].get("npc_id") == "npc-steven-knott"
+    )
+    assert row["satisfied"] is True
+    assert result["npc_engagement_evidence"]["authored_attested_npc_ids"] == [
+        "npc-steven-knott"
+    ]
+
+
+def test_campaign_loader_excludes_same_campaign_receipt_outside_artifact_run_scope(
+    tmp_path: Path,
+):
+    campaign = tmp_path / "campaign"
+    (campaign / "save").mkdir(parents=True)
+    (campaign / "logs").mkdir(parents=True)
+    (campaign / "campaign.json").write_text(
+        json.dumps({"campaign_id": "same-campaign"}), encoding="utf-8"
+    )
+    event = _attested_npc_event("npc-steven-knott")
+    producer = "state.record_npc_engagement"
+    event_id = coc_adherence.coc_npc_event_chain.stable_event_id(
+        producer=producer,
+        campaign_id="same-campaign",
+        run_id="receipt-run-B",
+        decision_id="decision-B",
+        scene_id="scene-test",
+        npc_id="npc-steven-knott",
+        event_type="npc_engagement",
+        ordinal=0,
+    )
+    event.update({
+        "event_id": event_id,
+        "source_receipt_schema_version": 1,
+        "producer": producer,
+        "campaign_id": "same-campaign",
+        "run_id": "receipt-run-B",
+        "decision_id": "decision-B",
+    })
+    receipt = coc_adherence.coc_npc_event_chain.new_receipt(
+        producer=producer,
+        campaign_id="same-campaign",
+        run_id="receipt-run-B",
+        decision_id="decision-B",
+        scene_id="scene-test",
+        npc_id="npc-steven-knott",
+        event_type="npc_engagement",
+        ordinal=0,
+        operation={"npc_id": "npc-steven-knott"},
+        event=event,
+    )
+    document = coc_adherence.coc_npc_event_chain.empty_document(
+        "same-campaign"
+    )
+    coc_adherence.coc_npc_event_chain.put_receipt(document, receipt)
+    (campaign / "save" / "npc-engagement-receipts.json").write_text(
+        json.dumps(document), encoding="utf-8"
+    )
+    (campaign / "logs" / "events.jsonl").write_text(
+        json.dumps(event) + "\n", encoding="utf-8"
+    )
+
+    binding = coc_adherence.coc_npc_event_chain.build_artifact_binding(
+        campaign,
+        artifact_run_id="artifact-run-A",
+        cumulative_run_ids=["artifact-run-A"],
+    )
+    result = coc_adherence.compute_adherence_for_campaign(
+        HAUNTING,
+        {
+            "campaign_id": "same-campaign",
+            "run_id": "artifact-run-A",
+            "cumulative_run_ids": ["artifact-run-A"],
+            "npc_event_chain_binding": binding,
+            "events": [event],
+        },
+        campaign_dir=campaign,
+    )
+
+    assert result is not None
+    row = next(
+        item for item in result["statements"]
+        if item["criterion"].get("npc_id") == "npc-steven-knott"
+    )
+    assert row["satisfied"] is False
+    assert result["npc_engagement_evidence"]["status"] == "NON_COMPARABLE"
+    assert result["npc_engagement_evidence"]["authored_attested_npc_ids"] == []
+
+
+def test_campaign_loader_accepts_receipt_from_declared_cumulative_prior_run(
+    tmp_path: Path,
+):
+    campaign = tmp_path / "campaign"
+    (campaign / "save").mkdir(parents=True)
+    (campaign / "logs").mkdir(parents=True)
+    (campaign / "campaign.json").write_text(
+        json.dumps({"campaign_id": "cumulative-campaign"}), encoding="utf-8"
+    )
+    event = _attested_npc_event("npc-steven-knott")
+    producer = "state.record_npc_engagement"
+    event_id = coc_adherence.coc_npc_event_chain.stable_event_id(
+        producer=producer,
+        campaign_id="cumulative-campaign",
+        run_id="prior-run",
+        decision_id="prior-decision",
+        scene_id="scene-test",
+        npc_id="npc-steven-knott",
+        event_type="npc_engagement",
+        ordinal=0,
+    )
+    event.update({
+        "event_id": event_id,
+        "source_receipt_schema_version": 1,
+        "producer": producer,
+        "campaign_id": "cumulative-campaign",
+        "run_id": "prior-run",
+        "decision_id": "prior-decision",
+    })
+    receipt = coc_adherence.coc_npc_event_chain.new_receipt(
+        producer=producer,
+        campaign_id="cumulative-campaign",
+        run_id="prior-run",
+        decision_id="prior-decision",
+        scene_id="scene-test",
+        npc_id="npc-steven-knott",
+        event_type="npc_engagement",
+        ordinal=0,
+        operation={"npc_id": "npc-steven-knott"},
+        event=event,
+    )
+    document = coc_adherence.coc_npc_event_chain.empty_document(
+        "cumulative-campaign"
+    )
+    coc_adherence.coc_npc_event_chain.put_receipt(document, receipt)
+    (campaign / "save" / "npc-engagement-receipts.json").write_text(
+        json.dumps(document), encoding="utf-8"
+    )
+    (campaign / "logs" / "events.jsonl").write_text(
+        json.dumps(event) + "\n", encoding="utf-8"
+    )
+    binding = coc_adherence.coc_npc_event_chain.build_artifact_binding(
+        campaign,
+        artifact_run_id="current-run",
+        cumulative_run_ids=["prior-run", "current-run"],
+    )
+
+    result = coc_adherence.compute_adherence_for_campaign(
+        HAUNTING,
+        {
+            "campaign_id": "cumulative-campaign",
+            "run_id": "current-run",
+            "cumulative_run_ids": ["prior-run", "current-run"],
+            "npc_event_chain_binding": binding,
+        },
         campaign_dir=campaign,
     )
 

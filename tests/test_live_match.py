@@ -374,6 +374,7 @@ def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
         "我追查木屑。",
         "我检查相邻窗框。",
     ]
+    assert [call["run_id"] for call in keeper_calls] == ["run", "run", "run"]
     partial = _read_jsonl(Path(result["run_dir"]) / "partial-transcript.jsonl")
     assert len(partial) == 3
     assert all(row["grounding_receipt"] == {

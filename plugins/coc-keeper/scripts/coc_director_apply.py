@@ -1395,13 +1395,83 @@ def _freeze_director_npc_operation_set(
     ]
     if legacy_rows:
         error = coc_npc_event_chain.NpcOperationSetConflict(
-            f"decision_id '{decision_id}' has legacy NPC event receipts without a pre-event operation-set receipt"
+            f"decision_id '{decision_id}' has legacy NPC event receipts without a pre-event operation-set receipt",
+            code="legacy_recovery_unverifiable",
         )
-        error.code = "legacy_recovery_unverifiable"
         raise error
     coc_npc_event_chain.put_decision_set_receipt(document, candidate)
     _save_npc_receipt_document(campaign_dir, document)
     return deepcopy(candidate)
+
+
+def _recover_completed_legacy_director_npc_operation_set(
+    campaign_dir: Path,
+    document: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate and migrate one already-applied pre-operation-set decision.
+
+    A completed applied-ledger row proves that every source-first NPC event
+    receipt from the original decision should already be durable.  We migrate
+    only when those receipts form one contiguous, fully reconstructable ordered
+    set.  Missing/ambiguous history cannot distinguish an identical retry from
+    reuse of the same idempotency key, so both cases fail closed.
+    """
+    decision_id = str(candidate["decision_id"])
+    legacy_rows = [
+        deepcopy(receipt)
+        for receipt in (document.get("receipts") or {}).values()
+        if isinstance(receipt, dict)
+        and receipt.get("producer") == candidate.get("producer")
+        and receipt.get("campaign_id") == candidate.get("campaign_id")
+        and receipt.get("run_id") == candidate.get("run_id")
+        and receipt.get("decision_id") == decision_id
+    ]
+    legacy_rows.sort(key=lambda row: int(row.get("ordinal", -1)))
+    reconstructable = bool(legacy_rows) and [
+        row.get("ordinal") for row in legacy_rows
+    ] == list(range(len(legacy_rows)))
+    reconstructed: list[dict[str, Any]] = []
+    if reconstructable:
+        for ordinal, receipt in enumerate(legacy_rows):
+            operation = receipt.get("operation")
+            if (
+                not coc_npc_event_chain.valid_receipt(receipt)
+                or not isinstance(operation, dict)
+                or set(operation) != {"event_type", "ordinal", "payload"}
+                or operation.get("event_type") != receipt.get("event_type")
+                or operation.get("ordinal") != ordinal
+                or not isinstance(operation.get("payload"), dict)
+            ):
+                reconstructable = False
+                break
+            reconstructed.append({
+                "event_type": str(receipt["event_type"]),
+                "ordinal": ordinal,
+                "scene_id": str(receipt["scene_id"]),
+                "npc_id": str(receipt["npc_id"]),
+                "payload": deepcopy(operation["payload"]),
+            })
+    if not reconstructable:
+        raise coc_npc_event_chain.NpcOperationSetConflict(
+            f"decision_id '{decision_id}' has no unambiguous complete legacy NPC operation-set evidence",
+            code="legacy_recovery_unverifiable",
+        )
+
+    recovered = coc_npc_event_chain.new_decision_set_receipt(
+        producer=str(candidate["producer"]),
+        campaign_id=str(candidate["campaign_id"]),
+        run_id=str(candidate["run_id"]),
+        decision_id=decision_id,
+        operations=reconstructed,
+    )
+    if recovered != candidate:
+        raise coc_npc_event_chain.NpcOperationSetConflict(
+            f"decision_id '{decision_id}' was already applied to a different ordered NPC operation set"
+        )
+    coc_npc_event_chain.put_decision_set_receipt(document, recovered)
+    _save_npc_receipt_document(campaign_dir, document)
+    return deepcopy(recovered)
 
 
 def _apply_npc_state_and_agency(
@@ -3645,13 +3715,6 @@ def apply_plan(
     previous_recorder = _ACTIVE_JSONL_RECORDER
     _ACTIVE_JSONL_RECORDER = recorder
     try:
-        # A source receipt can survive any event/ledger append interruption.
-        # The same all-family preflight is used by toolbox reads and the live
-        # turn boundary, so a later plan never skips an older flag, marker, or
-        # NPC operation.
-        coc_toolbox_continuity.reconcile_campaign_continuity(
-            Path(campaign_dir)
-        )
         (
             npc_receipt_document,
             npc_operation_set_candidate,
@@ -3660,6 +3723,18 @@ def apply_plan(
             Path(campaign_dir), plan, investigator_id
         )
         if _decision_already_applied(save_dir, decision_id):
+            if not npc_operation_set_exists:
+                _recover_completed_legacy_director_npc_operation_set(
+                    Path(campaign_dir),
+                    npc_receipt_document,
+                    npc_operation_set_candidate,
+                )
+            # Only an exact, validated retry may enter the campaign-wide
+            # recovery boundary.  An incompatible idempotency replay fails
+            # before a recorder lock or any repair write can be created.
+            coc_toolbox_continuity.reconcile_campaign_continuity(
+                Path(campaign_dir)
+            )
             if recorder is not None:
                 pending_batch = recorder.commit()
                 if pending_batch is not None and flush_policy == "background":
@@ -3669,6 +3744,14 @@ def apply_plan(
                 "skipped": "duplicate_decision_id",
                 "decision_id": decision_id,
             }]
+
+        # A source receipt can survive any event/ledger append interruption.
+        # New decisions run the same all-family preflight before rule
+        # settlement or state mutation, so an older interrupted operation is
+        # finished before this one begins.
+        coc_toolbox_continuity.reconcile_campaign_continuity(
+            Path(campaign_dir)
+        )
 
         expected_commands = coc_subsystem_executor.commands_from_rules_requests(plan)
         settled_rule_results = coc_subsystem_executor.normalize_rule_results(

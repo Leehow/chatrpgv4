@@ -2500,6 +2500,7 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
         "npc_id": "npc-kim-debrun",
         "interaction_kind": "dialogue",
         "identity_ref": identity_ref,
+        "run_id": "toolbox-live-segment",
         "decision_id": "kim-engagement-once",
     }
     state_path = campaign_ws["campaign_dir"] / "save" / "npc-state.json"
@@ -2507,10 +2508,18 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
 
     first = _run(campaign_ws, "state.record_npc_engagement", args)
     replay = _run(campaign_ws, "state.record_npc_engagement", args)
+    cross_run = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {**args, "run_id": "different-live-segment"},
+    )
 
     assert first["ok"] is True
     assert replay["data"] == first["data"]
+    assert cross_run["ok"] is False
+    assert cross_run["error"]["code"] == "idempotency_conflict"
     assert first["data"]["event_type"] == "npc_engagement"
+    assert first["data"]["run_id"] == "toolbox-live-segment"
     assert first["data"]["interaction_kind"] == "dialogue"
     assert first["data"]["identity_binding"]["status"] == "authored_bound"
     assert first["data"]["identity_binding"]["authored_identity_attested"] is True

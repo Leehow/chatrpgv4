@@ -905,6 +905,117 @@ def test_director_npc_operation_set_is_frozen_before_events_and_conflicts_typed(
     ] == [row["event_id"] for row in produced]
 
 
+def _campaign_bytes(camp: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(camp).as_posix(): path.read_bytes()
+        for path in camp.rglob("*")
+        if path.is_file() and ".locks" not in path.parts
+    }
+
+
+def test_completed_schema1_director_decision_validates_changed_set_before_skip(
+    tmp_path,
+):
+    camp = _campaign(tmp_path)
+    original_plan = {
+        "decision_id": "legacy-completed-decision",
+        "run_id": "legacy-run",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-a",
+            "agency_moves": [{"move_id": "legacy-a", "reason": "first"}],
+        }],
+    }
+    coc_director_apply.apply_plan(camp, original_plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": source["campaign_id"],
+        "receipts": source["receipts"],
+    }), encoding="utf-8")
+    before = _campaign_bytes(camp)
+
+    changed_plan = {
+        **original_plan,
+        "npc_moves": [{
+            "npc_id": "npc-b",
+            "agency_moves": [{"move_id": "legacy-b", "reason": "changed"}],
+        }],
+    }
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, changed_plan, investigator_id="inv1"
+        )
+
+    assert exc_info.value.code == "idempotency_conflict"
+    assert _campaign_bytes(camp) == before
+
+    replay = coc_director_apply.apply_plan(
+        camp, original_plan, investigator_id="inv1"
+    )
+    assert replay == [{
+        "event_type": "apply_skipped",
+        "skipped": "duplicate_decision_id",
+        "decision_id": original_plan["decision_id"],
+    }]
+    migrated = json.loads(source_path.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == 2
+    assert len(migrated["decision_sets"]) == 1
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_completed_schema1_director_decision_without_receipts_fails_closed(
+    tmp_path, changed,
+):
+    camp = _campaign(tmp_path)
+    original_plan = {
+        "decision_id": "legacy-unverifiable-decision",
+        "run_id": "legacy-unverifiable-run",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [],
+    }
+    coc_director_apply.apply_plan(camp, original_plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": source["campaign_id"],
+        "receipts": source["receipts"],
+    }), encoding="utf-8")
+    before = _campaign_bytes(camp)
+    replay_plan = {
+        **original_plan,
+        "npc_moves": (
+            [{"npc_id": "npc-new", "agency_moves": []}]
+            if changed
+            else []
+        ),
+    }
+
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, replay_plan, investigator_id="inv1"
+        )
+
+    assert exc_info.value.code == "legacy_recovery_unverifiable"
+    assert _campaign_bytes(camp) == before
+
+
 def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     tmp_path,
 ):
@@ -931,6 +1042,7 @@ def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     )
     plan = {
         "decision_id": "d-npc-producer-consumer-contract",
+        "run_id": "producer-consumer-run",
         "scene_action": "CHARACTER",
         "turn_input": {"active_scene_id": "scene-1", "turn_number": 2},
         "clue_policy": {"reveal": []},

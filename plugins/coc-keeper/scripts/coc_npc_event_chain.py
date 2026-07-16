@@ -15,6 +15,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,10 @@ class NpcOperationSetConflict(ValueError):
     """One run/decision attempted a different immutable NPC operation set."""
 
     code = "idempotency_conflict"
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code or type(self).code
 
 
 def canonical_digest(value: Any) -> str:
@@ -77,6 +82,7 @@ def resolve_run_id(
         source.get("session_id"),
         turn_input.get("run_id"),
         turn_input.get("session_id"),
+        os.environ.get("COC_PLAYTEST_RUN_ID"),
     ):
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
@@ -477,6 +483,8 @@ def capability_rows(
 
 def _canonical_chain_material(
     campaign_dir: Path,
+    *,
+    allowed_run_ids: set[str] | None = None,
 ) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
@@ -525,8 +533,10 @@ def _canonical_chain_material(
             raise ValueError(
                 f"NPC engagement receipt '{event_id}' has missing, duplicate, or conflicting canonical event evidence"
             )
-        trusted_rows.append(deepcopy(matches[0]))
-        bound_run_ids.add(str(receipt["run_id"]))
+        receipt_run_id = str(receipt["run_id"])
+        if allowed_run_ids is None or receipt_run_id in allowed_run_ids:
+            trusted_rows.append(deepcopy(matches[0]))
+            bound_run_ids.add(receipt_run_id)
 
     receipt_path = campaign / "save" / RECEIPT_FILENAME
     try:
@@ -589,6 +599,7 @@ def _artifact_binding_body(binding: Any) -> dict[str, Any] | None:
         or not isinstance(event_runs, list)
         or any(not isinstance(value, str) or not value for value in event_runs)
         or event_runs != sorted(set(event_runs))
+        or not set(event_runs).issubset(set(cumulative))
     ):
         return None
     for key in (
@@ -625,7 +636,9 @@ def build_artifact_binding(
         or cumulative[-1] != run_id
     ):
         raise ValueError("artifact run binding is invalid")
-    _rows, _trusted, source = _canonical_chain_material(Path(campaign_dir))
+    _rows, _trusted, source = _canonical_chain_material(
+        Path(campaign_dir), allowed_run_ids=set(cumulative)
+    )
     body = {
         "schema_version": ARTIFACT_BINDING_SCHEMA_VERSION,
         **source,
@@ -645,12 +658,27 @@ def capability_matches_artifact_binding(
     body = _artifact_binding_body(binding)
     if body is None:
         return False
-    _rows, _trusted, manifest = capability_rows(capability)
+    _rows, trusted_rows, manifest = capability_rows(capability)
+    cumulative = set(body["cumulative_run_ids"])
+    out_of_scope = manifest.get("out_of_scope_receipt_run_ids")
     return (
         manifest.get("schema_version") == 2
         and manifest.get("artifact_binding") == body
         and manifest.get("binding_integrity_digest")
         == binding.get("integrity_digest")
+        and isinstance(out_of_scope, list)
+        and out_of_scope == sorted(set(out_of_scope))
+        and all(
+            isinstance(run_id, str)
+            and run_id
+            and run_id not in cumulative
+            for run_id in out_of_scope
+        )
+        and all(
+            isinstance(row.get("run_id"), str)
+            and row["run_id"] in cumulative
+            for row in trusted_rows
+        )
     )
 
 
@@ -672,6 +700,9 @@ def load_canonical_chain(
         or not expected_campaign
         or not expected_run
         or not expected_cumulative
+        or any(not value for value in expected_cumulative)
+        or expected_cumulative != list(dict.fromkeys(expected_cumulative))
+        or expected_cumulative[-1] != expected_run
         or binding_body.get("campaign_id") != expected_campaign
         or binding_body.get("artifact_run_id") != expected_run
         or binding_body.get("cumulative_run_ids") != expected_cumulative
@@ -680,8 +711,16 @@ def load_canonical_chain(
             "NPC event-chain binding does not match the evaluated play identity"
         )
     rows, trusted_rows, source_manifest = _canonical_chain_material(
-        Path(campaign_dir)
+        Path(campaign_dir), allowed_run_ids=set(expected_cumulative)
     )
+    if any(
+        not isinstance(row.get("run_id"), str)
+        or row["run_id"] not in set(expected_cumulative)
+        for row in trusted_rows
+    ):
+        raise NpcCapabilityBindingError(
+            "NPC event-chain trusted receipt run is outside the evaluated artifact scope"
+        )
     if any(
         binding_body.get(key) != value
         for key, value in source_manifest.items()
@@ -689,10 +728,17 @@ def load_canonical_chain(
         raise NpcCapabilityBindingError(
             "NPC event-chain source path, digest, cardinality, campaign, or run binding changed"
         )
+    receipt_document = load_receipt_document(Path(campaign_dir))
+    out_of_scope_receipt_run_ids = sorted({
+        str(receipt["run_id"])
+        for receipt in receipt_document["receipts"].values()
+        if str(receipt["run_id"]) not in set(expected_cumulative)
+    })
     manifest = {
         "schema_version": 2,
         "artifact_binding": deepcopy(binding_body),
         "binding_integrity_digest": expected_binding["integrity_digest"],
+        "out_of_scope_receipt_run_ids": out_of_scope_receipt_run_ids,
     }
     return _CanonicalNpcEventChain(
         _CAPABILITY_TOKEN,

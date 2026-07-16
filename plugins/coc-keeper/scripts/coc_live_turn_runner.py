@@ -1052,6 +1052,9 @@ def _run_one_turn(
             "requests_deferred": max(0, repair_count - 1),
             "attempts_this_turn": 1,
         }
+    run_id = choice.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        plan["run_id"] = run_id.strip()
     plan = narrative_enrichment.enrich_director_plan(plan, ctx)
     _bind_roll_resolution_context(plan)
     _recording_defaults(plan, recording_mode, recording_flush)
@@ -1353,6 +1356,7 @@ def run_live_turn(
     investigator_id: str,
     player_text: str,
     *,
+    run_id: str | None = None,
     intent_class: str | None = None,
     player_intent_rich: dict[str, Any] | None = None,
     pending_choice_response: dict[str, Any] | None = None,
@@ -1384,6 +1388,8 @@ def run_live_turn(
     low-agency progress directive and no interrupt has appeared yet.
 
     Injection points for deterministic / scripted callers (playtest driver):
+    * ``run_id`` — exact play/report segment identity propagated into every
+      Director-owned NPC source receipt produced by this turn.
     * ``intent_class`` / ``player_intent_rich`` — pre-routed semantic intent
       (skips the intent router).
     * ``rng`` — shared ``random.Random`` across multi-turn sessions; preferred
@@ -1393,6 +1399,8 @@ def run_live_turn(
     """
     started = time.perf_counter()
     campaign = Path(campaign_dir)
+    if run_id is not None and (not isinstance(run_id, str) or not run_id.strip()):
+        raise ValueError("run_id must be a non-empty string when supplied")
     with coc_fileio.campaign_lock(campaign):
         coc_toolbox_continuity.reconcile_campaign_continuity(campaign)
         # Production resolution boundary: the Keeper-only resolver reuses or
@@ -1404,6 +1412,7 @@ def run_live_turn(
             character_path,
             investigator_id,
             player_text,
+            run_id=run_id,
             intent_class=intent_class,
             player_intent_rich=player_intent_rich,
             pending_choice_response=pending_choice_response,
@@ -1806,6 +1815,7 @@ def _run_pending_choice_response(
     player_text: str,
     response: dict[str, Any],
     *,
+    run_id: str | None = None,
     recording_mode: str,
     recording_flush: str,
     rng: random.Random | None,
@@ -1830,6 +1840,8 @@ def _run_pending_choice_response(
             campaign, investigator_id, response
         )
     )
+    if isinstance(run_id, str) and run_id.strip():
+        plan["run_id"] = run_id.strip()
     _recording_defaults(plan, mode, flush_policy)
     decision_id = str(plan["decision_id"])
     rules_started = time.perf_counter()
@@ -2075,6 +2087,7 @@ def _consume_compound_action_capsule(
     investigator_id: str,
     capsule: dict[str, Any],
     *,
+    run_id: str | None = None,
     rng: random.Random,
     recording_mode: str,
     recording_flush: str,
@@ -2190,6 +2203,8 @@ def _consume_compound_action_capsule(
         "intent_class": action["primary_intent"],
         "player_intent_rich": rich,
     }
+    if isinstance(run_id, str) and run_id.strip():
+        choice["run_id"] = run_id.strip()
     try:
         turn = _run_one_turn(
             campaign_dir=campaign,
@@ -2241,6 +2256,7 @@ def _run_live_turn_impl(
     investigator_id: str,
     player_text: str,
     *,
+    run_id: str | None = None,
     intent_class: str | None = None,
     player_intent_rich: dict[str, Any] | None = None,
     pending_choice_response: dict[str, Any] | None = None,
@@ -2290,6 +2306,7 @@ def _run_live_turn_impl(
             }
             return _run_pending_choice_response(
                 campaign, Path(character_path), investigator_id, player_text, {},
+                run_id=run_id,
                 recording_mode=recording_mode, recording_flush=recording_flush,
                 rng=rng, rng_seed=rng_seed, max_auto_advance=max_auto_advance,
                 auto_advance_low_agency=auto_advance_low_agency,
@@ -2303,6 +2320,7 @@ def _run_live_turn_impl(
             investigator_id,
             player_text,
             pending_choice_response,
+            run_id=run_id,
             recording_mode=recording_mode,
             recording_flush=recording_flush,
             rng=rng,
@@ -2320,6 +2338,7 @@ def _run_live_turn_impl(
             investigator_id,
             player_text,
             {},
+            run_id=run_id,
             recording_mode=recording_mode,
             recording_flush=recording_flush,
             rng=rng,
@@ -2348,6 +2367,7 @@ def _run_live_turn_impl(
                 "choice_id": pending_choice["choice_id"], "responder": "player",
                 "revision": pending_choice["revision"], "action": legacy.get("kind"),
             },
+            run_id=run_id,
             max_auto_advance=max_auto_advance,
             auto_advance_low_agency=auto_advance_low_agency,
             recording_mode=recording_mode, recording_flush=recording_flush,
@@ -2416,6 +2436,7 @@ def _run_live_turn_impl(
                 investigator_id,
                 player_text,
                 {},
+                run_id=run_id,
                 recording_mode=mode,
                 recording_flush=flush_policy,
                 rng=turn_rng,
@@ -2453,6 +2474,8 @@ def _run_live_turn_impl(
         "intent_class": resolved_intent_class,
         "player_intent_rich": _copy_jsonable(resolved_intent_rich) if resolved_intent_rich else None,
     }
+    if isinstance(run_id, str) and run_id.strip():
+        choice["run_id"] = run_id.strip()
     # P0-4b: 在 auto-advance 循环替换 choice 之前，先捕获玩家本轮原始的结构化意图。
     # 循环内 _semantic_low_agency_choice 会把 player_intent_rich 换成合成版
     # (action_atoms:[])，而 turn_focus 依赖 action_atoms[].topic；用原始 rich 才能让
@@ -2525,6 +2548,7 @@ def _run_live_turn_impl(
                 character,
                 investigator_id,
                 compound_capsule,
+                run_id=run_id,
                 rng=turn_rng,
                 recording_mode=mode,
                 recording_flush=flush_policy,

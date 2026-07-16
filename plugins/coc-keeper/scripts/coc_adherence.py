@@ -521,9 +521,32 @@ def _harvest_npc_engagement_evidence(
         )
     )
     if trusted_chain:
-        canonical_rows, trusted_rows, _manifest = (
+        canonical_rows, trusted_rows, manifest = (
             coc_npc_event_chain.capability_rows(canonical_chain)
         )
+        cumulative_scope = {
+            value
+            for value in canonical_binding.get("cumulative_run_ids", [])
+            if isinstance(value, str) and value
+        }
+        if (
+            not cumulative_scope
+            or any(
+                not isinstance(row.get("run_id"), str)
+                or row["run_id"] not in cumulative_scope
+                for row in trusted_rows
+            )
+        ):
+            # Defense in depth: the loader owns capability construction, but
+            # adherence still refuses any row whose source run is not declared
+            # by the evaluated cumulative artifact.
+            trusted_chain = False
+            trusted_rows = []
+        if manifest.get("out_of_scope_receipt_run_ids"):
+            # A source-receipted row from another run in the same campaign is
+            # real history, but it is not comparable evidence for this artifact.
+            trusted_chain = False
+            trusted_rows = []
         # Canonical but unreceipted rows remain visible as legacy/unverified
         # evidence; only receipt-matched rows may be promoted below.
         event_rows.extend(canonical_rows)

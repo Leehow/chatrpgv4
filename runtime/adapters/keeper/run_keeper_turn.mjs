@@ -12,6 +12,7 @@
  *   {
  *     workspace,            // project root containing .coc/
  *     campaign_id,
+ *     run_id?,              // current play/report segment identity
  *     investigator_id?,     // optional focus investigator
  *     player_input,         // raw player prose for this turn
  *     play_language,        // e.g. "zh-Hans"
@@ -108,6 +109,12 @@ function keeperSystemPrompt(request) {
     "Canonical behavior contract: the coc-keeper-play skill (already loaded).",
     "Your toolbox is the CLI at:",
     `  python3 ${request.toolbox_path} <tool> --root . --campaign ${request.campaign_id} --json '<args>'`,
+    ...(request.run_id
+      ? [
+          `The current play/report segment run_id is ${request.run_id}.`,
+          "The host exports it to toolbox subprocesses; preserve it when a tool exposes run_id.",
+        ]
+      : []),
     `Run \`python3 ${request.toolbox_path} list\` to see all tools;`,
     "`describe <tool>` shows parameters.",
     "",
@@ -198,6 +205,13 @@ export async function runKeeperTurn(request) {
   }
   const cwd = path.resolve(String(request.workspace));
   const agentDir = getAgentDir();
+  if (request.run_id !== undefined) {
+    const runId = String(request.run_id).trim();
+    if (!runId) throw new Error("run_id must be non-empty when supplied");
+    process.env.COC_PLAYTEST_RUN_ID = runId;
+  } else {
+    delete process.env.COC_PLAYTEST_RUN_ID;
+  }
 
   // Same experience as other coding hosts: load the canonical keeper skill
   // tree; keep project context files and unrelated extensions out.

@@ -1311,6 +1311,7 @@ def _run_live_match_impl(
         keeper_request = {
             "workspace": str(ws),
             "campaign_id": campaign_id,
+            "run_id": out.name,
             "investigator_id": investigator_id,
             "player_input": player_text,
             "play_language": play_language,
