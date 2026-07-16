@@ -17,6 +17,7 @@ def _load(name, rel):
 
 
 coc_director_apply = _load("coc_director_apply", "plugins/coc-keeper/scripts/coc_director_apply.py")
+coc_adherence = _load("coc_adherence_for_director", "plugins/coc-keeper/scripts/coc_adherence.py")
 
 
 def _clue_roll_contract(clue_id="clue-A"):
@@ -732,6 +733,617 @@ def test_apply_records_npc_engagement_without_agency_moves(tmp_path):
         if line.strip()
     ]
     assert any(e.get("event_type") == "npc_engagement" for e in events)
+
+
+@pytest.mark.parametrize("recording_mode", ["sync", "fast"])
+@pytest.mark.parametrize("crash_stage", ["after_source", "before_apply_ledger"])
+def test_director_npc_receipt_recovers_exactly_once_before_different_plan(
+    tmp_path, monkeypatch, crash_stage, recording_mode
+):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": f"director-npc-crash-{crash_stage}",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{"npc_id": "npc-recover", "agency_moves": []}],
+    }
+    real_ensure = coc_director_apply._ensure_npc_receipt_targets
+    real_record = coc_director_apply._record_applied_decision
+
+    def crash_ensure(campaign_dir, receipt):
+        if (
+            crash_stage == "after_source"
+            and receipt.get("decision_id") == plan["decision_id"]
+        ):
+            raise RuntimeError("synthetic director NPC crash after source")
+        return real_ensure(campaign_dir, receipt)
+
+    def crash_record(save_dir, decision_id):
+        if (
+            crash_stage == "before_apply_ledger"
+            and decision_id == plan["decision_id"]
+        ):
+            raise RuntimeError("synthetic director NPC crash before apply ledger")
+        return real_record(save_dir, decision_id)
+
+    with monkeypatch.context() as crash:
+        crash.setattr(
+            coc_director_apply, "_ensure_npc_receipt_targets", crash_ensure
+        )
+        crash.setattr(coc_director_apply, "_record_applied_decision", crash_record)
+        with pytest.raises(RuntimeError, match="synthetic director NPC crash"):
+            coc_director_apply.apply_plan(
+                camp,
+                plan,
+                investigator_id="inv1",
+                recording_mode=recording_mode,
+            )
+
+    later_plan = {
+        "decision_id": f"later-plan-after-{crash_stage}",
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    coc_director_apply.apply_plan(
+        camp,
+        later_plan,
+        investigator_id="inv1",
+        recording_mode=recording_mode,
+    )
+    if recording_mode == "fast":
+        coc_director_apply.flush_pending_records(camp)
+
+    rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    recovered = [
+        row for row in rows
+        if row.get("event_type") == "npc_engagement"
+        and row.get("decision_id") == plan["decision_id"]
+    ]
+    assert len(recovered) == 1
+    assert recovered[0]["event_id"].startswith("npc-engagement-v1:")
+    receipts = json.loads((
+        camp / "save" / "npc-engagement-receipts.json"
+    ).read_text(encoding="utf-8"))["receipts"]
+    assert [
+        receipt for receipt in receipts.values()
+        if receipt["decision_id"] == plan["decision_id"]
+    ]
+
+
+def test_director_npc_operation_set_is_frozen_before_events_and_conflicts_typed(
+    tmp_path, monkeypatch,
+):
+    camp = _campaign(tmp_path)
+    decision_id = "director-npc-immutable-operation-set"
+    original_plan = {
+        "decision_id": decision_id,
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-a",
+            "agency_moves": [{"move_id": "move-a", "reason": "first"}],
+        }],
+    }
+    real_save = coc_director_apply._save_npc_receipt_document
+    tripped = {"value": False}
+
+    def crash_after_operation_set(campaign_dir, document):
+        real_save(campaign_dir, document)
+        if (
+            not tripped["value"]
+            and document.get("decision_sets")
+            and not document.get("receipts")
+        ):
+            tripped["value"] = True
+            raise RuntimeError("synthetic crash after NPC operation-set source")
+
+    with monkeypatch.context() as crash:
+        crash.setattr(
+            coc_director_apply,
+            "_save_npc_receipt_document",
+            crash_after_operation_set,
+        )
+        with pytest.raises(RuntimeError, match="operation-set source"):
+            coc_director_apply.apply_plan(
+                camp, original_plan, investigator_id="inv1"
+            )
+    assert tripped["value"] is True
+    source_after_crash = json.loads((
+        camp / "save" / "npc-engagement-receipts.json"
+    ).read_text(encoding="utf-8"))
+    assert len(source_after_crash["decision_sets"]) == 1
+    assert source_after_crash["receipts"] == {}
+
+    changed_plan = {
+        **original_plan,
+        "npc_moves": [{
+            "npc_id": "npc-b",
+            "agency_moves": [{"move_id": "move-b", "reason": "changed"}],
+        }],
+    }
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, changed_plan, investigator_id="inv1"
+        )
+    assert exc_info.value.code == "idempotency_conflict"
+
+    events = coc_director_apply.apply_plan(
+        camp, original_plan, investigator_id="inv1"
+    )
+    produced = [
+        row for row in events
+        if row.get("event_type") in {"npc_engagement", "npc_agency"}
+    ]
+    assert [row["npc_id"] for row in produced] == ["npc-a", "npc-a"]
+    event_rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert [
+        row.get("event_id") for row in event_rows
+        if row.get("decision_id") == decision_id and row.get("event_id")
+    ] == [row["event_id"] for row in produced]
+
+
+def _campaign_bytes(camp: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(camp).as_posix(): path.read_bytes()
+        for path in camp.rglob("*")
+        if path.is_file() and ".locks" not in path.parts
+    }
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_completed_schema1_director_decision_is_unverifiable_even_with_full_receipts(
+    tmp_path, changed,
+):
+    camp = _campaign(tmp_path)
+    original_plan = {
+        "decision_id": "legacy-completed-decision",
+        "run_id": "legacy-run",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-a",
+            "agency_moves": [{"move_id": "legacy-a", "reason": "first"}],
+        }],
+    }
+    coc_director_apply.apply_plan(camp, original_plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": source["campaign_id"],
+        "receipts": source["receipts"],
+    }), encoding="utf-8")
+    before = _campaign_bytes(camp)
+
+    replay_plan = original_plan if not changed else {
+        **original_plan,
+        "npc_moves": [{
+            "npc_id": "npc-b",
+            "agency_moves": [{"move_id": "legacy-b", "reason": "changed"}],
+        }],
+    }
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, replay_plan, investigator_id="inv1"
+        )
+
+    assert exc_info.value.code == "legacy_recovery_unverifiable"
+    assert _campaign_bytes(camp) == before
+
+
+@pytest.mark.parametrize(
+    "receipt_shape",
+    ["missing_tail", "missing_middle", "only_zero", "extra_event"],
+)
+@pytest.mark.parametrize("changed", [False, True])
+def test_completed_schema1_partial_receipts_always_fail_closed_before_writes(
+    tmp_path, receipt_shape, changed,
+):
+    camp = _campaign(tmp_path)
+    original_plan = {
+        "decision_id": f"legacy-partial-{receipt_shape}",
+        "run_id": "legacy-partial-run",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-a",
+            "agency_moves": [
+                {"move_id": "legacy-a", "reason": "first"},
+                {"move_id": "legacy-b", "reason": "second"},
+            ],
+        }],
+    }
+    coc_director_apply.apply_plan(camp, original_plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    rows = sorted(
+        source["receipts"].values(), key=lambda row: row["ordinal"]
+    )
+    if receipt_shape == "missing_tail":
+        rows = rows[:-1]
+    elif receipt_shape == "missing_middle":
+        rows = [rows[0], rows[-1]]
+    elif receipt_shape == "only_zero":
+        rows = rows[:1]
+    receipts = {row["event_id"]: row for row in rows}
+    source_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": source["campaign_id"],
+        "receipts": receipts,
+    }), encoding="utf-8")
+    if receipt_shape == "extra_event":
+        with (camp / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "event_type": "npc_agency",
+                "campaign_id": "test",
+                "run_id": "legacy-partial-run",
+                "decision_id": original_plan["decision_id"],
+                "event_id": "unreceipted-extra-event",
+            }) + "\n")
+    before = _campaign_bytes(camp)
+
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp,
+            (
+                {
+                    **original_plan,
+                    "npc_moves": [{"npc_id": "npc-changed", "agency_moves": []}],
+                }
+                if changed
+                else original_plan
+            ),
+            investigator_id="inv1",
+        )
+
+    assert exc_info.value.code == "legacy_recovery_unverifiable"
+    assert _campaign_bytes(camp) == before
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_campaign_global_decision_id_rejects_cross_run_reuse_without_writes(
+    tmp_path, changed,
+):
+    camp = _campaign(tmp_path)
+    original = {
+        "decision_id": "campaign-global-npc-decision",
+        "run_id": "run-A",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{"npc_id": "npc-a", "agency_moves": []}],
+    }
+    coc_director_apply.apply_plan(camp, original, investigator_id="inv1")
+    before = _campaign_bytes(camp)
+    replay = {
+        **original,
+        "run_id": "run-B",
+        "npc_moves": (
+            [{"npc_id": "npc-b", "agency_moves": []}]
+            if changed
+            else original["npc_moves"]
+        ),
+    }
+
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(camp, replay, investigator_id="inv1")
+
+    assert exc_info.value.code == "idempotency_conflict"
+    assert _campaign_bytes(camp) == before
+
+
+def _downgrade_decision_set_to_legacy_run_scoped(receipt: dict) -> dict:
+    chain = coc_director_apply.coc_npc_event_chain
+    legacy = json.loads(json.dumps(receipt))
+    legacy["schema_version"] = chain.LEGACY_DECISION_SET_RECEIPT_SCHEMA_VERSION
+    legacy["receipt_id"] = chain.legacy_decision_set_receipt_id(
+        producer=legacy["producer"],
+        campaign_id=legacy["campaign_id"],
+        run_id=legacy["run_id"],
+        decision_id=legacy["decision_id"],
+    )
+    body = {key: value for key, value in legacy.items() if key != "integrity_digest"}
+    legacy["integrity_digest"] = chain.canonical_digest(body)
+    assert chain.valid_decision_set_receipt(legacy)
+    return legacy
+
+
+def test_unique_legacy_run_scoped_operation_set_migrates_only_on_exact_retry(
+    tmp_path,
+):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "legacy-run-scoped-exact",
+        "run_id": "run-A",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{"npc_id": "npc-a", "agency_moves": []}],
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text())
+    current = next(iter(source["decision_sets"].values()))
+    legacy = _downgrade_decision_set_to_legacy_run_scoped(current)
+    source["decision_sets"] = {legacy["receipt_id"]: legacy}
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+
+    replay = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    assert replay[0]["event_type"] == "apply_skipped"
+    migrated = json.loads(source_path.read_text())
+    assert list(migrated["decision_sets"].values())[0]["schema_version"] == 2
+    assert list(migrated["decision_sets"].values())[0]["run_id"] == "run-A"
+
+
+def test_legacy_run_scoped_operation_set_rejects_cross_run_before_migration(
+    tmp_path,
+):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "legacy-run-scoped-cross-run",
+        "run_id": "run-A",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{"npc_id": "npc-a", "agency_moves": []}],
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text())
+    current = next(iter(source["decision_sets"].values()))
+    legacy = _downgrade_decision_set_to_legacy_run_scoped(current)
+    source["decision_sets"] = {legacy["receipt_id"]: legacy}
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+    before = _campaign_bytes(camp)
+
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, {**plan, "run_id": "run-B"}, investigator_id="inv1"
+        )
+
+    assert exc_info.value.code == "idempotency_conflict"
+    assert _campaign_bytes(camp) == before
+
+
+def test_multiple_legacy_run_scoped_operation_sets_fail_closed(tmp_path):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": "legacy-run-scoped-multiple",
+        "run_id": "run-A",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{"npc_id": "npc-a", "agency_moves": []}],
+    }
+    coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text())
+    current = next(iter(source["decision_sets"].values()))
+    first = _downgrade_decision_set_to_legacy_run_scoped(current)
+    second_current = {
+        **current,
+        "run_id": "run-B",
+    }
+    second_current["receipt_id"] = (
+        coc_director_apply.coc_npc_event_chain.decision_set_receipt_id(
+            producer=second_current["producer"],
+            campaign_id=second_current["campaign_id"],
+            decision_id=second_current["decision_id"],
+        )
+    )
+    second_current["integrity_digest"] = (
+        coc_director_apply.coc_npc_event_chain.canonical_digest({
+            key: value for key, value in second_current.items()
+            if key != "integrity_digest"
+        })
+    )
+    second = _downgrade_decision_set_to_legacy_run_scoped(second_current)
+    source["decision_sets"] = {
+        first["receipt_id"]: first,
+        second["receipt_id"]: second,
+    }
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+    before = _campaign_bytes(camp)
+
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+
+    assert exc_info.value.code == "idempotency_conflict"
+    assert _campaign_bytes(camp) == before
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_completed_schema1_director_decision_without_receipts_fails_closed(
+    tmp_path, changed,
+):
+    camp = _campaign(tmp_path)
+    original_plan = {
+        "decision_id": "legacy-unverifiable-decision",
+        "run_id": "legacy-unverifiable-run",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [],
+    }
+    coc_director_apply.apply_plan(camp, original_plan, investigator_id="inv1")
+    source_path = camp / "save" / "npc-engagement-receipts.json"
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": source["campaign_id"],
+        "receipts": source["receipts"],
+    }), encoding="utf-8")
+    before = _campaign_bytes(camp)
+    replay_plan = {
+        **original_plan,
+        "npc_moves": (
+            [{"npc_id": "npc-new", "agency_moves": []}]
+            if changed
+            else []
+        ),
+    }
+
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, replay_plan, investigator_id="inv1"
+        )
+
+    assert exc_info.value.code == "legacy_recovery_unverifiable"
+    assert _campaign_bytes(camp) == before
+
+
+def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
+    tmp_path,
+):
+    """A real apply_plan event uses the same versioned identity binding."""
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "npc-agendas.json").write_text(
+        json.dumps(
+            {
+                "npcs": [{
+                    "npc_id": "npc-authority",
+                    "name": "Structured Authority",
+                    "origin": "module",
+                    "agenda": "Keep the scene safe",
+                    "voice": "Direct and concise",
+                    "relationship_to_investigators": "scene authority",
+                    "social_role": {"authority_scope": ["scene_safety"]},
+                    "schedule": [{"scene_ids": ["scene-1"]}],
+                    "source_refs": ["npc-agendas.json#npc-authority"],
+                }]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    plan = {
+        "decision_id": "d-npc-producer-consumer-contract",
+        "run_id": "producer-consumer-run",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 2},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-authority",
+            "interaction_kind": "assistance",
+            "agency_moves": [{
+                "move_id": "secure-scene",
+                "reason": "structured authority move",
+            }],
+        }],
+    }
+
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    produced = [
+        row
+        for row in events
+        if row.get("event_type") in {"npc_engagement", "npc_agency"}
+    ]
+    assert {row["event_type"] for row in produced} == {
+        "npc_engagement", "npc_agency",
+    }
+    assert all(row["schema_version"] == 2 for row in produced)
+    assert all(
+        row["identity_contract"]["schema_version"] == 1 for row in produced
+    )
+    assert all(
+        row["identity_binding"]["status"] == "authored_bound"
+        and row["identity_binding"]["attestation_source"]
+        == "director_apply.npc_move"
+        for row in produced
+    )
+    assert coc_adherence.project_engaged_npc_ids(produced) == {"npc-authority"}
+    evidence = coc_adherence.project_npc_engagement_evidence(produced)
+    assert evidence["status"] == "PASS"
+    assert evidence["legacy_unverifiable_npc_ids"] == []
+    binding = coc_adherence.coc_npc_event_chain.build_artifact_binding(
+        camp,
+        artifact_run_id="producer-consumer-run",
+        cumulative_run_ids=["producer-consumer-run"],
+    )
+    capability = coc_adherence.coc_npc_event_chain.load_canonical_chain(
+        camp,
+        expected_campaign_id=camp.name,
+        expected_artifact_run_id="producer-consumer-run",
+        expected_cumulative_run_ids=["producer-consumer-run"],
+        expected_binding=binding,
+    )
+    consumed = coc_adherence._evaluate_adherence(
+        [{
+            "statement_id": "npc:npc-authority",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-authority"},
+            "description": "Engage the structured authority",
+        }],
+        {"events": produced},
+        canonical_npc_event_chain=capability,
+        canonical_npc_binding=binding,
+    )
+    assert consumed["statements"][0]["satisfied"] is True
+    assert consumed["npc_engagement_evidence"][
+        "authored_attested_npc_ids"
+    ] == ["npc-authority"]
 
 
 def test_apply_persists_npc_stat_upgrade_log(tmp_path):
@@ -2838,3 +3450,142 @@ def test_apply_plan_flags_set_unlocks_and_cuts(tmp_path):
     flags = json.loads((camp / "save" / "flags.json").read_text())
     assert flags["flags"]["expedition_departs_lima"] is True
     assert flags["flags"]["arrived_puno"] is True
+
+
+@pytest.mark.parametrize(
+    ("recording_mode", "fail_stage"),
+    [
+        ("sync", "source"),
+        ("sync", "event"),
+        ("sync", "apply_ledger"),
+        ("fast", "source"),
+        ("fast", "event"),
+        ("fast", "recorder"),
+        ("fast", "apply_ledger"),
+    ],
+)
+def test_director_flag_receipt_repairs_every_commit_boundary_exactly_once(
+    tmp_path, monkeypatch, recording_mode, fail_stage,
+):
+    camp = _campaign(tmp_path)
+    decision_id = f"director-flag-{recording_mode}-{fail_stage}"
+    flag_id = "receipt-bound-flag"
+    event_id = coc_director_apply.coc_flag_state.director_flag_event_id(
+        decision_id, flag_id
+    )
+    plan = {
+        "decision_id": decision_id,
+        "scene_action": "CHARACTER",
+        "flags_set": [flag_id],
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    tripped = {"value": False}
+
+    if fail_stage == "source":
+        original = coc_director_apply._write_json
+
+        def fail_source(path, payload):
+            if (
+                not tripped["value"]
+                and Path(path).name == "flags.json"
+                and payload.get(
+                    coc_director_apply.coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+                )
+            ):
+                tripped["value"] = True
+                raise RuntimeError("source failpoint")
+            return original(path, payload)
+
+        monkeypatch.setattr(coc_director_apply, "_write_json", fail_source)
+    elif fail_stage == "event":
+        original = coc_director_apply._append_jsonl
+
+        def fail_event(path, record):
+            if not tripped["value"] and record.get("event_id") == event_id:
+                tripped["value"] = True
+                raise RuntimeError("event failpoint")
+            return original(path, record)
+
+        monkeypatch.setattr(coc_director_apply, "_append_jsonl", fail_event)
+    elif fail_stage == "recorder":
+        recorder_cls = coc_director_apply.coc_async_recorder.JsonlRecorder
+        original = recorder_cls.commit
+
+        def fail_recorder(self):
+            if not tripped["value"]:
+                tripped["value"] = True
+                raise RuntimeError("recorder failpoint")
+            return original(self)
+
+        monkeypatch.setattr(recorder_cls, "commit", fail_recorder)
+    else:
+        original = coc_director_apply._record_applied_decision
+
+        def fail_ledger(save, current_decision):
+            if not tripped["value"] and current_decision == decision_id:
+                tripped["value"] = True
+                raise RuntimeError("apply ledger failpoint")
+            return original(save, current_decision)
+
+        monkeypatch.setattr(
+            coc_director_apply, "_record_applied_decision", fail_ledger
+        )
+
+    with pytest.raises(RuntimeError):
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            recording_mode=recording_mode,
+    )
+    assert tripped["value"] is True
+
+    if fail_stage != "source":
+        # Recovery is global: a host may choose another plan instead of
+        # replaying the interrupted decision first.
+        coc_director_apply.apply_plan(
+            camp,
+            {
+                "decision_id": f"later-after-{decision_id}",
+                "scene_action": "PRESSURE",
+                "clue_policy": {"reveal": []},
+                "pressure_moves": [],
+                "memory_writes": [],
+                "rule_signals": {},
+            },
+            investigator_id="inv1",
+            recording_mode=recording_mode,
+        )
+
+    coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        recording_mode=recording_mode,
+    )
+    if recording_mode == "fast":
+        coc_director_apply.coc_async_recorder.flush_pending_records(camp)
+
+    flags = json.loads((camp / "save" / "flags.json").read_text())
+    assert flags["flags"][flag_id] is True
+    receipt_key = coc_director_apply.coc_flag_state.director_flag_receipt_key(
+        decision_id, flag_id
+    )
+    receipt = flags[
+        coc_director_apply.coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+    ][receipt_key]
+    assert coc_director_apply.coc_flag_state.valid_director_flag_receipt(
+        receipt, decision_id=decision_id, flag_id=flag_id
+    )
+    event_rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    matching = [row for row in event_rows if row.get("event_id") == event_id]
+    assert matching == [receipt["event"]]
+    ledger = json.loads((camp / "save" / "apply-ledger.json").read_text())
+    assert decision_id in ledger["applied_decision_ids"]

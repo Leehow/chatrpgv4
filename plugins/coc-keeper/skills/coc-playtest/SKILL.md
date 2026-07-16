@@ -113,6 +113,15 @@ hand or reconstruct missing dice from prose.
 
 Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/campaigns/` or `.coc/investigators/` data.
 
+A current playtest artifact is bound to its canonical resolved directory by a
+SHA-256 location witness in `run-identity.json`. Do not copy or move a current
+artifact and then continue it in place: start a new output directory and pass
+the completed copy as `resume_run_dir` instead. Historical resume sources are
+portable and retain their opaque prior `run_id`; the new current output always
+mints a different identity. Legacy completed artifacts without an identity file
+remain valid historical resume sources, but a schema-1 identity cannot be
+reopened as a current artifact because it has no location witness.
+
 ## Roles
 
 - `keeper_under_test`: runs the COC mode behavior being tested.

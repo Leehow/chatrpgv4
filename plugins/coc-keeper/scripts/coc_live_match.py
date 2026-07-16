@@ -82,6 +82,7 @@ def _load_runtime_module(name: str, rel: str):
 playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 playtest_evidence = _load_sibling("coc_playtest_evidence", "coc_playtest_evidence.py")
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
+coc_run_identity = _load_sibling("coc_run_identity", "coc_run_identity.py")
 coc_eval_contract = _load_sibling(
     "coc_eval_contract_live_match", "coc_eval_contract.py"
 )
@@ -119,6 +120,12 @@ NON_LIVE_EVIDENCE_DISCLAIMER = (
     "Playtest Battle Report Evidence Standard."
 )
 _ACTIVE_WORKER_POOLS: list[Any] = []
+
+# Narrow aliases keep the artifact-identity contract directly probeable without
+# duplicating it in this harness.
+_ensure_artifact_run_identity = coc_run_identity.ensure_artifact_run_identity
+_allocate_default_run_dir = coc_run_identity.allocate_default_run_dir
+RunIdentityError = coc_run_identity.RunIdentityError
 
 
 def _read_json(path: Path, fallback: Any) -> Any:
@@ -1080,16 +1087,20 @@ def _run_live_match_impl(
         raise FileNotFoundError(f"keeper runner not found: {keeper_path}")
 
     if run_dir is None:
-        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-        out = ws / ".coc" / "playtests" / f"live-match-{stamp}"
+        out = _allocate_default_run_dir(ws / ".coc" / "playtests")
     else:
         out = Path(run_dir)
-    out.mkdir(parents=True, exist_ok=True)
+        out.mkdir(parents=True, exist_ok=True)
+    # Persist the physical artifact identity before any player, Keeper, or
+    # toolbox-driven turn can run. Directory names never carry provenance.
+    run_id = _ensure_artifact_run_identity(out, campaign_id)
 
     prior_run: Path | None = None
     prior_transcript_rows: list[dict[str, Any]] = []
     prior_invocation_rows: list[dict[str, Any]] = []
     prior_metadata: dict[str, Any] = {}
+    prior_run_ids: list[str] = []
+    prior_current_run_id: str | None = None
     if resume_run_dir is not None:
         if initial_transcript_tail is not None or initial_narration is not None:
             raise ValueError(
@@ -1112,10 +1123,52 @@ def _run_live_match_impl(
         prior_metadata = (
             prior_metadata_value if isinstance(prior_metadata_value, dict) else {}
         )
+        prior_identity = coc_run_identity.read_artifact_run_identity(prior_run)
+        prior_metadata_run = prior_metadata.get("run_id")
+        if prior_identity is not None:
+            if prior_identity["campaign_id"] != campaign_id:
+                raise RunIdentityError(
+                    "resume artifact belongs to a different campaign"
+                )
+            if (
+                prior_metadata_run is not None
+                and prior_metadata_run != prior_identity["run_id"]
+            ):
+                raise RunIdentityError(
+                    "resume artifact metadata conflicts with its run identity"
+                )
+            prior_metadata_run = prior_identity["run_id"]
+        prior_current_run_id = coc_run_identity.normalize_run_id(
+            prior_metadata_run
+        )
+        raw_prior_ids = prior_metadata.get("cumulative_run_ids")
+        if raw_prior_ids is None:
+            raw_prior_ids = [prior_current_run_id]
+        if not isinstance(raw_prior_ids, list):
+            raise RunIdentityError(
+                "resume artifact cumulative_run_ids must be a list"
+            )
+        prior_run_ids = [
+            coc_run_identity.normalize_run_id(value) for value in raw_prior_ids
+        ]
+        if (
+            not prior_run_ids
+            or len(set(prior_run_ids)) != len(prior_run_ids)
+            or prior_run_ids[-1] != prior_current_run_id
+        ):
+            raise RunIdentityError(
+                "resume artifact has an invalid cumulative run chain"
+            )
         initial_transcript_tail, initial_narration = _resume_tail_from_transcript(
             prior_transcript_rows,
             limit=transcript_tail_limit,
         )
+
+    if run_id in prior_run_ids:
+        raise RunIdentityError(
+            "current artifact run_id already appears in the prior cumulative chain"
+        )
+    cumulative_run_ids = [*prior_run_ids, run_id]
 
     partial_transcript_path = out / "partial-transcript.jsonl"
     if partial_transcript_path.is_symlink():
@@ -1126,7 +1179,7 @@ def _run_live_match_impl(
         if operator_issue_ledger_path.is_symlink():
             operator_issue_ledger_path.unlink()
         operator_issue_ledger_path.write_text("", encoding="utf-8")
-    match_id = out.name
+    match_id = run_id
 
     def _server_pool(path: Path | None):
         if path is None or path.suffix.lower() not in {".mjs", ".js"}:
@@ -1331,6 +1384,7 @@ def _run_live_match_impl(
         keeper_request = {
             "workspace": str(ws),
             "campaign_id": campaign_id,
+            "run_id": run_id,
             "investigator_id": investigator_id,
             "player_input": player_text,
             "play_language": play_language,
@@ -1511,6 +1565,9 @@ def _run_live_match_impl(
             if isinstance(cl, dict) and cl.get("clue_id"):
                 total_clues.add(str(cl["clue_id"]))
     session_result: dict[str, Any] = {
+        "campaign_id": campaign_id,
+        "run_id": run_id,
+        "cumulative_run_ids": cumulative_run_ids,
         "turns": turns,
         "final_state": {
             "active_scene": world_final.get("active_scene_id"),
@@ -1547,16 +1604,35 @@ def _run_live_match_impl(
         list(discovered_final) if isinstance(discovered_final, list) else []
     )
     if coc_adherence is not None:
-        # Adherence needs positively attested authored NPC IDs, not raw IDs or
-        # keeper-only identity payloads. Preserve only that narrow projection
-        # so a resumed/cumulative run does not silently forget prior evidence.
-        session_result["engaged_npc_ids"] = sorted(
-            coc_adherence.project_engaged_npc_ids(final_event_rows)
+        session_result["npc_event_chain_binding"] = (
+            coc_adherence.coc_npc_event_chain.build_artifact_binding(
+                camp,
+                artifact_run_id=run_id,
+                cumulative_run_ids=cumulative_run_ids,
+            )
         )
+        # Preserve positively attested IDs plus a separate narrow legacy
+        # projection.  Raw event payloads can contain keeper-only identity and
+        # agenda data, so they are never copied into this public result.
+        npc_evidence = coc_adherence.project_npc_engagement_evidence(
+            final_event_rows
+        )
+        session_result["engaged_npc_ids"] = list(
+            npc_evidence["authored_attested_npc_ids"]
+        )
+        session_result["npc_engagement_evidence"] = npc_evidence
         session_result["npc_engagement_coverage_contract"] = {
-            "schema_version": 1,
+            "schema_version": 4,
             "semantics": "authored_identity_attestation",
+            "producer": "coc_live_match",
+            "projection_schema_version": 1,
+            "usage": "display_only",
+            "coverage_eligible": False,
             "legacy_raw_ids_included": False,
+            "legacy_status": npc_evidence["status"],
+            "evidence_digest": coc_adherence.coc_npc_identity.engagement_evidence_digest(
+                npc_evidence
+            ),
         }
     threat_state = _read_json(camp / "save" / "threat-state.json", {})
     if isinstance(threat_state, dict) and isinstance(threat_state.get("clocks"), dict):
@@ -1570,8 +1646,10 @@ def _run_live_match_impl(
     scenario_dir = camp / "scenario"
     if coc_adherence is not None and scenario_dir.is_dir():
         try:
-            narrative_adherence = coc_adherence.compute_adherence_for_scenario(
-                scenario_dir, session_result
+            narrative_adherence = coc_adherence.compute_adherence_for_campaign(
+                scenario_dir,
+                session_result,
+                campaign_dir=camp,
             )
         except Exception:
             narrative_adherence = None
@@ -1585,7 +1663,8 @@ def _run_live_match_impl(
         [str(value) for value in [*prior_coverage, *scene_path] if value]
     ))
     metadata_extra: dict[str, Any] = {
-        "run_id": out.name,
+        "run_id": run_id,
+        "cumulative_run_ids": cumulative_run_ids,
         "stop_reason": stop_reason,
         "module_coverage": cumulative_coverage,
         "scenario": (
@@ -1611,7 +1690,7 @@ def _run_live_match_impl(
             OPERATOR_LONG_PLAY_PROTOCOL if operator_long_play else None
         ),
         "operator_review_status": "pending" if operator_long_play else "not_required",
-        "continuation_of": prior_run.name if prior_run is not None else None,
+        "continuation_of": prior_current_run_id,
         "transcript_scope": (
             "campaign_cumulative" if prior_run is not None else "run_local"
         ),
@@ -1748,7 +1827,7 @@ def _run_live_match_impl(
                     if value
                 ]
             ))
-            merged_driver["continuation_of"] = prior_run.name
+            merged_driver["continuation_of"] = prior_current_run_id
             _write_json_atomic(out / "driver-result.json", merged_driver)
 
     _ = evidence_provenance

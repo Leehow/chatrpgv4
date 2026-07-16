@@ -11,7 +11,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import stat
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -37,6 +39,10 @@ def _load(name: str, path: Path):
 
 
 match = _load("coc_live_match", SCRIPT)
+npc_identity = _load(
+    "coc_npc_identity_live_test",
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_npc_identity.py",
+)
 
 
 def _write_json(path: Path, value) -> None:
@@ -55,6 +61,22 @@ def _read_jsonl(path: Path) -> list[dict]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def _tree_snapshot(root: Path) -> dict[str, object]:
+    """Capture artifact bytes and directory shape for zero-write assertions."""
+    return {
+        "directories": sorted(
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_dir()
+        ),
+        "files": {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        },
+    }
 
 
 def _write_scripted_player_runner(
@@ -370,6 +392,29 @@ def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
         "我追查木屑。",
         "我检查相邻窗框。",
     ]
+    run_id = result["metadata"]["run_id"]
+    assert run_id.startswith("coc-run-v1:")
+    assert [call["run_id"] for call in keeper_calls] == [run_id] * 3
+    identity = json.loads(
+        (Path(result["run_dir"]) / "run-identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert identity == {
+        "schema_version": 2,
+        "campaign_id": campaign_id,
+        "run_id": run_id,
+        "artifact_location_sha256": hashlib.sha256(
+            str(Path(result["run_dir"]).resolve()).encode("utf-8")
+        ).hexdigest(),
+    }
+    assert str(Path(result["run_dir"]).resolve()) not in json.dumps(identity)
+    assert result["result"]["run_id"] == run_id
+    assert result["result"]["cumulative_run_ids"] == [run_id]
+    assert (
+        result["result"]["npc_event_chain_binding"]["artifact_run_id"]
+        == run_id
+    )
     partial = _read_jsonl(Path(result["run_dir"]) / "partial-transcript.jsonl")
     assert len(partial) == 3
     assert all(row["grounding_receipt"] == {
@@ -389,22 +434,29 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     _write_scripted_player_runner(player, ["我向向导问路。"])
 
     def mutate(_request, _index):
-        match._append_jsonl_fsync(
-            campaign / "logs" / "events.jsonl",
+        identity_contract = npc_identity.identity_contract(
             {
-                "event_type": "npc_engagement",
+                "npc_id": "npc-guide",
+                "name": "Guide",
+                "agenda": "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC",
+                "schedule": [],
+                "source_refs": [],
+            },
+            "scene-1",
+        )
+        match._append_jsonl_fsync(
+                campaign / "logs" / "events.jsonl",
+                {
+                    "schema_version": npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION,
+                    "event_type": "npc_engagement",
                 "npc_id": "npc-guide",
                 "scene_id": "scene-1",
                 "interaction_kind": "dialogue",
-                "identity_binding": {
-                    "status": "authored_bound",
-                    "authored_identity_attested": True,
-                    "coverage_eligible": True,
-                },
-                "identity_contract": {
-                    "keeper_only": True,
-                    "agenda": "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC",
-                },
+                "identity_binding": npc_identity.identity_binding(
+                    identity_contract,
+                    structured_producer="director_apply.npc_move",
+                ),
+                "identity_contract": identity_contract,
                 "keeper_only_detail": "SENTINEL_EVENT_DETAIL_MUST_NOT_BE_PUBLIC",
             },
         )
@@ -415,6 +467,22 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
                 "flag_id": "keeper-only-continuity-flag",
                 "value": True,
                 "reason": "SENTINEL_FLAG_REASON_MUST_NOT_BE_PUBLIC",
+            },
+        )
+        match._append_jsonl_fsync(
+            campaign / "logs" / "events.jsonl",
+            {
+                "event_type": "npc_engagement",
+                "npc_id": "npc-legacy-guide",
+                "keeper_only_detail": "SENTINEL_LEGACY_NPC_DETAIL_MUST_NOT_BE_PUBLIC",
+            },
+        )
+        match._append_jsonl_fsync(
+            campaign / "logs" / "events.jsonl",
+            {
+                "event_type": "time_marker_changed",
+                "marker_id": "keeper-deadline",
+                "reason": "SENTINEL_TIME_MARKER_REASON_MUST_NOT_BE_PUBLIC",
             },
         )
 
@@ -431,9 +499,25 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     session = result["result"]
     assert session["engaged_npc_ids"] == ["npc-guide"]
     assert session["npc_engagement_coverage_contract"] == {
+        "schema_version": 4,
+        "semantics": "authored_identity_attestation",
+        "producer": "coc_live_match",
+        "projection_schema_version": 1,
+        "usage": "display_only",
+        "coverage_eligible": False,
+        "legacy_raw_ids_included": False,
+        "legacy_status": "NON_COMPARABLE",
+        "evidence_digest": npc_identity.engagement_evidence_digest(
+            session["npc_engagement_evidence"]
+        ),
+    }
+    assert session["npc_engagement_evidence"] == {
         "schema_version": 1,
         "semantics": "authored_identity_attestation",
-        "legacy_raw_ids_included": False,
+        "status": "NON_COMPARABLE",
+        "authored_attested_npc_ids": ["npc-guide"],
+        "legacy_unverifiable_npc_ids": ["npc-legacy-guide"],
+        "unverified_npc_ids": [],
     }
     assert "events" not in session
     public_artifacts = json.dumps(
@@ -443,12 +527,17 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     assert "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC" not in public_artifacts
     assert "SENTINEL_EVENT_DETAIL_MUST_NOT_BE_PUBLIC" not in public_artifacts
     assert "SENTINEL_FLAG_REASON_MUST_NOT_BE_PUBLIC" not in public_artifacts
+    assert "SENTINEL_LEGACY_NPC_DETAIL_MUST_NOT_BE_PUBLIC" not in public_artifacts
+    assert "SENTINEL_TIME_MARKER_REASON_MUST_NOT_BE_PUBLIC" not in public_artifacts
     npc_statement = next(
         row
         for row in result["metadata"]["narrative_adherence"]["statements"]
         if row["criterion"].get("npc_id") == "npc-guide"
     )
-    assert npc_statement["satisfied"] is True
+    # Display projection may still show the structured identity, but a raw
+    # caller-appended row has no source receipt and cannot count as adherence
+    # coverage through the internal campaign capability.
+    assert npc_statement["satisfied"] is False
 
 
 def test_keeper_turn_persistence_is_visible_before_next_player_call(
@@ -681,7 +770,14 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
         resume_run_dir=first["run_dir"],
     )
 
-    assert second["metadata"]["continuation_of"] == "first-run"
+    first_run_id = first["metadata"]["run_id"]
+    second_run_id = second["metadata"]["run_id"]
+    assert first_run_id != second_run_id
+    assert second["metadata"]["cumulative_run_ids"] == [
+        first_run_id,
+        second_run_id,
+    ]
+    assert second["metadata"]["continuation_of"] == first_run_id
     assert second["metadata"]["transcript_scope"] == "campaign_cumulative"
     assert second["player_requests"][0]["transcript_tail"][-2:] == [
         {"role": "player", "text": "我检查门锁。"},
@@ -703,6 +799,355 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
         (Path(second["run_dir"]) / "driver-result.json").read_text(encoding="utf-8")
     )
     assert len(driver["turns"]) == 2
+
+
+def test_distinct_same_basename_artifacts_get_distinct_run_ids_with_resume(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "same-name-first-player"
+    second_player = tmp_path / "same-name-second-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+
+    _install_keeper(monkeypatch, texts=["锁眼里有新鲜木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "parent-a" / "same-run",
+    )
+    second_calls = _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "parent-b" / "same-run",
+        resume_run_dir=first["run_dir"],
+    )
+
+    first_run_id = first["metadata"]["run_id"]
+    second_run_id = second["metadata"]["run_id"]
+    assert first_run_id != second_run_id
+    assert second["metadata"]["cumulative_run_ids"] == [
+        first_run_id,
+        second_run_id,
+    ]
+    driver = json.loads(
+        (Path(second["run_dir"]) / "driver-result.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert second["metadata"]["continuation_of"] == first_run_id
+    assert driver["continuation_of"] == first_run_id
+    assert [row["run_id"] for row in second_calls] == [second_run_id]
+
+
+def test_distinct_same_basename_nonresume_artifacts_do_not_alias_run_id(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "same-basename-nonresume-player"
+    _write_scripted_player_runner(player, ["我检查门锁。", "我检查门轴。"])
+    _install_keeper(monkeypatch)
+
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "left" / "same-run",
+    )
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "right" / "same-run",
+    )
+
+    assert first["metadata"]["run_id"] != second["metadata"]["run_id"]
+
+
+def test_artifact_run_identity_reentry_reuses_atomic_persisted_id(tmp_path):
+    run_dir = tmp_path / "artifact"
+    run_dir.mkdir()
+
+    first = match._ensure_artifact_run_identity(run_dir, "campaign-a")
+    second = match._ensure_artifact_run_identity(run_dir, "campaign-a")
+
+    assert first == second
+    assert first.startswith("coc-run-v1:")
+
+
+def test_current_artifact_rejects_schema1_identity_without_location_witness(
+    tmp_path,
+):
+    run_dir = tmp_path / "legacy-current"
+    _write_json(
+        run_dir / "run-identity.json",
+        {
+            "schema_version": 1,
+            "campaign_id": "campaign-a",
+            "run_id": "coc-run-v1:legacy-current",
+        },
+    )
+    before = _tree_snapshot(run_dir)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match._ensure_artifact_run_identity(run_dir, "campaign-a")
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert _tree_snapshot(run_dir) == before
+
+
+def test_concurrent_artifact_identity_reentry_converges_on_one_id(tmp_path):
+    run_dir = tmp_path / "concurrent-artifact"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        run_ids = list(pool.map(
+            lambda _index: match._ensure_artifact_run_identity(
+                run_dir, "campaign-a"
+            ),
+            range(16),
+        ))
+
+    assert len(set(run_ids)) == 1
+    persisted = json.loads((run_dir / "run-identity.json").read_text())
+    assert persisted["run_id"] == run_ids[0]
+
+
+def test_resume_rejects_current_identity_already_in_prior_chain_before_keeper(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "identity-collision-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "prior" / "run",
+    )
+    current = tmp_path / "current" / "run"
+    current.mkdir(parents=True)
+    (current / "run-identity.json").write_bytes(
+        (Path(first["run_dir"]) / "run-identity.json").read_bytes()
+    )
+    calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=player,
+            max_turns=1,
+            run_dir=current,
+            resume_run_dir=first["run_dir"],
+        )
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert calls == []
+
+
+def test_nonresume_rejects_identity_only_copy_before_any_turn_or_state_write(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "identity-source-player"
+    copied_player = tmp_path / "identity-copy-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(copied_player, ["我检查门轴。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "identity-source",
+    )
+    copied = tmp_path / "identity-copy"
+    copied.mkdir()
+    (copied / "run-identity.json").write_bytes(
+        (Path(first["run_dir"]) / "run-identity.json").read_bytes()
+    )
+    artifact_before = _tree_snapshot(copied)
+    workspace_before = _tree_snapshot(workspace)
+    calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=copied_player,
+            max_turns=1,
+            run_dir=copied,
+        )
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert calls == []
+    assert not copied_player.with_suffix(".state").exists()
+    assert _tree_snapshot(copied) == artifact_before
+    assert _tree_snapshot(workspace) == workspace_before
+
+
+def test_nonresume_rejects_whole_artifact_copy_before_any_turn_or_state_write(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "whole-source-player"
+    copied_player = tmp_path / "whole-copy-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(copied_player, ["我检查门轴。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "whole-source",
+    )
+    copied = tmp_path / "whole-copy"
+    shutil.copytree(Path(first["run_dir"]), copied)
+    artifact_before = _tree_snapshot(copied)
+    workspace_before = _tree_snapshot(workspace)
+    calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=copied_player,
+            max_turns=1,
+            run_dir=copied,
+        )
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert calls == []
+    assert not copied_player.with_suffix(".state").exists()
+    assert _tree_snapshot(copied) == artifact_before
+    assert _tree_snapshot(workspace) == workspace_before
+
+
+@pytest.mark.parametrize("transport", ["copy", "move"])
+def test_completed_artifact_is_portable_as_historical_resume_source(
+    tmp_path, monkeypatch, transport,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "portable-source-player"
+    second_player = tmp_path / "portable-current-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+    _install_keeper(monkeypatch, texts=["锁眼里有木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "portable-source",
+    )
+    historical_copy = tmp_path / "moved" / "portable-history"
+    if transport == "copy":
+        shutil.copytree(Path(first["run_dir"]), historical_copy)
+    else:
+        historical_copy.parent.mkdir(parents=True)
+        shutil.move(Path(first["run_dir"]), historical_copy)
+    _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "portable-current",
+        resume_run_dir=historical_copy,
+    )
+
+    assert second["metadata"]["continuation_of"] == first["metadata"]["run_id"]
+    assert second["metadata"]["run_id"] != first["metadata"]["run_id"]
+
+
+@pytest.mark.parametrize("legacy_identity_mode", ["missing", "schema1"])
+def test_legacy_historical_artifact_remains_resume_compatible(
+    tmp_path, monkeypatch, legacy_identity_mode,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "identityless-source-player"
+    second_player = tmp_path / "identityless-current-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+    _install_keeper(monkeypatch, texts=["锁眼里有木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "identityless-source",
+    )
+    prior_id = first["metadata"]["run_id"]
+    identity_path = Path(first["run_dir"]) / "run-identity.json"
+    if legacy_identity_mode == "missing":
+        identity_path.unlink()
+    else:
+        _write_json(
+            identity_path,
+            {
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "run_id": prior_id,
+            },
+        )
+    _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "identityless-current",
+        resume_run_dir=first["run_dir"],
+    )
+
+    assert second["metadata"]["continuation_of"] == prior_id
+    assert second["metadata"]["cumulative_run_ids"] == [
+        prior_id,
+        second["metadata"]["run_id"],
+    ]
+
+
+def test_default_run_directory_allocation_survives_concurrent_name_collision(
+    tmp_path,
+):
+    parent = tmp_path / "playtests"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        paths = list(pool.map(
+            lambda _index: match._allocate_default_run_dir(
+                parent, stamp="20260716T120000Z"
+            ),
+            range(16),
+        ))
+
+    assert len({path.resolve() for path in paths}) == 16
+    assert all(path.is_dir() for path in paths)
 
 
 def test_resume_helpers_ignore_system_rows_and_renumber_append():

@@ -27,6 +27,12 @@ def _load_sibling(name: str, filename: str):
 coc_event_contract = _load_sibling(
     "coc_event_contract_adherence", "coc_event_contract.py"
 )
+coc_npc_identity = _load_sibling(
+    "coc_npc_identity_adherence", "coc_npc_identity.py"
+)
+coc_npc_event_chain = _load_sibling(
+    "coc_npc_event_chain_adherence", "coc_npc_event_chain.py"
+)
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -292,12 +298,41 @@ def _engagement_coverage_eligible(event: dict[str, Any]) -> bool:
     was portrayed.  We do not inspect narration, summaries, names, or role
     prose.
     """
+    raw_npc_id = coc_event_contract.value(event, "npc_id")
+    npc_id = (
+        raw_npc_id
+        if isinstance(raw_npc_id, str)
+        and raw_npc_id
+        and raw_npc_id == raw_npc_id.strip()
+        else None
+    )
+    contract = coc_event_contract.value(event, "identity_contract")
     binding = coc_event_contract.value(event, "identity_binding")
+    body = coc_event_contract.payload(event)
+    scene_present = "scene_id" in event or "scene_id" in body
+    event_scene = coc_event_contract.value(event, "scene_id")
+    raw_schema = coc_event_contract.value(event, "schema_version")
+    event_schema = (
+        raw_schema
+        if isinstance(raw_schema, int) and not isinstance(raw_schema, bool)
+        else None
+    )
     return bool(
-        isinstance(binding, dict)
-        and binding.get("status") == "authored_bound"
-        and binding.get("authored_identity_attested") is True
-        and binding.get("coverage_eligible") is True
+        npc_id
+        and coc_npc_identity.validate_authored_attestation(
+            npc_id,
+            contract if isinstance(contract, dict) else None,
+            binding if isinstance(binding, dict) else None,
+            event_scene_id=(
+                event_scene
+                if isinstance(event_scene, str)
+                and event_scene
+                and event_scene == event_scene.strip()
+                else None
+            ),
+            event_scene_present=scene_present,
+            event_schema_version=event_schema,
+        )
     )
 
 
@@ -309,19 +344,49 @@ def project_engaged_npc_ids(events: list[dict[str, Any]]) -> set[str]:
     projection lets the adherence consumer receive the semantic IDs it needs
     without losing the producer events or leaking their remaining payload.
     """
-    found: set[str] = set()
+    evidence = project_npc_engagement_evidence(events)
+    return set(evidence["authored_attested_npc_ids"])
+
+
+def project_npc_engagement_evidence(
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project attested, legacy, and explicitly unverified NPC evidence.
+
+    Legacy event existence is retained as ``NON_COMPARABLE`` evidence rather
+    than silently promoted to coverage or silently erased.  Psych-state
+    updates remain outside this projection.
+    """
+    attested: set[str] = set()
+    legacy: set[str] = set()
+    unverified: set[str] = set()
     for event in events:
-        if not isinstance(event, dict) or not any(
-            coc_event_contract.matches(event, event_type)
-            for event_type in _NPC_ENGAGEMENT_EVENT_TYPES
-        ):
+        if not isinstance(event, dict):
             continue
-        if not _engagement_coverage_eligible(event):
+        # Identity coverage deliberately consumes only raw canonical
+        # engagement/agency records.  The broader semantic compatibility
+        # layer aliases npc_update for other consumers, but a psych-state
+        # mutation is never identity evidence in any bucket.
+        if coc_event_contract.event_type(event) not in _NPC_ENGAGEMENT_EVENT_TYPES:
             continue
         npc_id = _text(coc_event_contract.value(event, "npc_id"))
-        if npc_id:
-            found.add(npc_id)
-    return found
+        if not npc_id:
+            continue
+        event_schema = coc_event_contract.value(event, "schema_version")
+        if _engagement_coverage_eligible(event):
+            attested.add(npc_id)
+        elif event_schema is None:
+            legacy.add(npc_id)
+        else:
+            unverified.add(npc_id)
+    return {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE" if legacy else "PASS",
+        "authored_attested_npc_ids": sorted(attested),
+        "legacy_unverifiable_npc_ids": sorted(legacy),
+        "unverified_npc_ids": sorted(unverified),
+    }
 
 
 def _bonus_clue_id_from_request(request: dict[str, Any]) -> str | None:
@@ -391,36 +456,181 @@ def _harvest_bonus_rolls_engaged(raw: dict[str, Any], final_state: dict[str, Any
     return found
 
 
-def _harvest_engaged_npc_ids(raw: dict[str, Any], final_state: dict[str, Any]) -> set[str]:
-    """Collect NPC ids engaged during play from turns / engagement events."""
-    explicit = (
-        raw.get("engaged_npc_ids")
-        or raw.get("npc_interactions")
-        or final_state.get("engaged_npc_ids")
-        or []
+def _supported_npc_projection(evidence: Any) -> bool:
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "schema_version",
+        "semantics",
+        "status",
+        "authored_attested_npc_ids",
+        "legacy_unverifiable_npc_ids",
+        "unverified_npc_ids",
+    }:
+        return False
+    if (
+        evidence.get("schema_version") != 1
+        or evidence.get("semantics") != "authored_identity_attestation"
+    ):
+        return False
+    for key in (
+        "authored_attested_npc_ids",
+        "legacy_unverifiable_npc_ids",
+        "unverified_npc_ids",
+    ):
+        values = evidence.get(key)
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) or not value for value in values
+        ) or values != sorted(set(values)):
+            return False
+    expected_status = (
+        "NON_COMPARABLE"
+        if evidence["legacy_unverifiable_npc_ids"]
+        else "PASS"
     )
-    found = _as_str_set(explicit)
+    return evidence.get("status") == expected_status
 
+
+def _harvest_npc_engagement_evidence(
+    raw: dict[str, Any],
+    final_state: dict[str, Any],
+    *,
+    canonical_chain: Any = None,
+    canonical_binding: dict[str, Any] | None = None,
+    canonical_binding_invalid: bool = False,
+) -> dict[str, Any]:
+    """Collect coverage only from a loader-owned canonical capability.
+
+    Public projections and play-record event arrays are display evidence.  A
+    caller can construct both them and their ordinary content digest, so raw
+    rows never promote authored coverage on their own.
+    """
+    event_rows = _iter_play_events(raw)
     for turn in raw.get("turns") or []:
         if not isinstance(turn, dict):
             continue
         for move in turn.get("npc_moves") or []:
             if not isinstance(move, dict):
                 continue
-            if not _engagement_coverage_eligible(
-                {"event_type": "npc_engagement", **move}
-            ):
-                continue
-            npc_id = _text(move.get("npc_id"))
-            if npc_id:
-                found.add(npc_id)
+            event_rows.append({"event_type": "npc_engagement", **move})
 
-    found.update(project_engaged_npc_ids(_iter_play_events(raw)))
+    trusted_rows: list[dict[str, Any]] = []
+    trusted_chain = (
+        coc_npc_event_chain.is_canonical_capability(canonical_chain)
+        and isinstance(canonical_binding, dict)
+        and coc_npc_event_chain.capability_matches_artifact_binding(
+            canonical_chain, canonical_binding
+        )
+    )
+    if trusted_chain:
+        canonical_rows, trusted_rows, manifest = (
+            coc_npc_event_chain.capability_rows(canonical_chain)
+        )
+        cumulative_scope = {
+            value
+            for value in canonical_binding.get("cumulative_run_ids", [])
+            if isinstance(value, str) and value
+        }
+        if (
+            not cumulative_scope
+            or any(
+                not isinstance(row.get("run_id"), str)
+                or row["run_id"] not in cumulative_scope
+                for row in trusted_rows
+            )
+        ):
+            # Defense in depth: the loader owns capability construction, but
+            # adherence still refuses any row whose source run is not declared
+            # by the evaluated cumulative artifact.
+            trusted_chain = False
+            trusted_rows = []
+        if manifest.get("out_of_scope_receipt_run_ids"):
+            # A source-receipted row from another run in the same campaign is
+            # real history, but it is not comparable evidence for this artifact.
+            trusted_chain = False
+            trusted_rows = []
+        # Canonical but unreceipted rows remain visible as legacy/unverified
+        # evidence; only receipt-matched rows may be promoted below.
+        event_rows.extend(canonical_rows)
 
-    return found
+    untrusted_projection = project_npc_engagement_evidence(event_rows)
+    trusted_projection = project_npc_engagement_evidence(trusted_rows)
+    attested = set(trusted_projection["authored_attested_npc_ids"])
+    legacy = set(trusted_projection["legacy_unverifiable_npc_ids"])
+    unverified = set(trusted_projection["unverified_npc_ids"])
+    unverified.update(untrusted_projection["authored_attested_npc_ids"])
+    legacy.update(untrusted_projection["legacy_unverifiable_npc_ids"])
+    unverified.update(untrusted_projection["unverified_npc_ids"])
+
+    explicit = (
+        raw.get("engaged_npc_ids")
+        or raw.get("npc_interactions")
+        or final_state.get("engaged_npc_ids")
+        or []
+    )
+    explicit_ids = _as_str_set(explicit)
+    contract = raw.get("npc_engagement_coverage_contract")
+    if not isinstance(contract, dict):
+        contract = final_state.get("npc_engagement_coverage_contract")
+    prior_projection = raw.get("npc_engagement_evidence")
+    if not isinstance(prior_projection, dict):
+        candidate_projection = final_state.get("npc_engagement_evidence")
+        prior_projection = (
+            candidate_projection if isinstance(candidate_projection, dict) else None
+        )
+    claimed_attested = _as_str_set(
+        (prior_projection or {}).get("authored_attested_npc_ids")
+    )
+    if isinstance(contract, dict):
+        unverified.update(explicit_ids)
+    else:
+        legacy.update(explicit_ids)
+
+    if isinstance(prior_projection, dict):
+        if _supported_npc_projection(prior_projection):
+            unverified.update(claimed_attested)
+            legacy.update(
+                _as_str_set(prior_projection.get("legacy_unverifiable_npc_ids"))
+            )
+            unverified.update(
+                _as_str_set(prior_projection.get("unverified_npc_ids"))
+            )
+        else:
+            unverified.update(claimed_attested)
+            unverified.update(
+                _as_str_set(prior_projection.get("legacy_unverifiable_npc_ids"))
+            )
+            unverified.update(
+                _as_str_set(prior_projection.get("unverified_npc_ids"))
+            )
+
+    # A strict canonical event-chain attestation supersedes a matching public
+    # display claim; unrelated or conflicting IDs remain unverified.
+    unverified.difference_update(attested)
+    return {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": (
+            "NON_COMPARABLE"
+            if legacy
+            or canonical_binding_invalid
+            or (
+                not trusted_chain
+                and bool(explicit_ids or prior_projection or event_rows)
+            )
+            else "PASS"
+        ),
+        "authored_attested_npc_ids": sorted(attested),
+        "legacy_unverifiable_npc_ids": sorted(legacy),
+        "unverified_npc_ids": sorted(unverified),
+    }
 
 
-def _normalize_play_record(play: dict[str, Any] | None) -> dict[str, Any]:
+def _normalize_play_record(
+    play: dict[str, Any] | None,
+    *,
+    canonical_npc_event_chain: Any = None,
+    canonical_npc_binding: dict[str, Any] | None = None,
+    canonical_binding_invalid: bool = False,
+) -> dict[str, Any]:
     """Normalize session_result / campaign world-state shapes into one record."""
     raw = play if isinstance(play, dict) else {}
     final_state = raw.get("final_state") if isinstance(raw.get("final_state"), dict) else {}
@@ -447,12 +657,20 @@ def _normalize_play_record(play: dict[str, Any] | None) -> dict[str, Any]:
         if not clocks and isinstance(final_state.get("clocks"), dict):
             clocks = final_state["clocks"]
 
+    npc_evidence = _harvest_npc_engagement_evidence(
+        raw,
+        final_state,
+        canonical_chain=canonical_npc_event_chain,
+        canonical_binding=canonical_npc_binding,
+        canonical_binding_invalid=canonical_binding_invalid,
+    )
     return {
         "discovered_clue_ids": _as_str_set(discovered),
         "visited_scene_ids": _as_str_set(visited),
         "clocks": clocks if isinstance(clocks, dict) else {},
         "bonus_rolls_engaged": _harvest_bonus_rolls_engaged(raw, final_state),
-        "engaged_npc_ids": _harvest_engaged_npc_ids(raw, final_state),
+        "engaged_npc_ids": set(npc_evidence["authored_attested_npc_ids"]),
+        "npc_engagement_evidence": npc_evidence,
     }
 
 
@@ -528,13 +746,22 @@ def _statement_satisfied(statement: dict[str, Any], play: dict[str, Any]) -> boo
     return False
 
 
-def evaluate_adherence(
+def _evaluate_adherence(
     checklist: list[dict[str, Any]] | None,
     playtest_result_or_campaign_state: dict[str, Any] | None,
+    *,
+    canonical_npc_event_chain: Any = None,
+    canonical_npc_binding: dict[str, Any] | None = None,
+    canonical_binding_invalid: bool = False,
 ) -> dict[str, Any]:
     """Mark each checklist statement satisfied/unsatisfied from structured play data."""
     statements_in = list(checklist or [])
-    play = _normalize_play_record(playtest_result_or_campaign_state)
+    play = _normalize_play_record(
+        playtest_result_or_campaign_state,
+        canonical_npc_event_chain=canonical_npc_event_chain,
+        canonical_npc_binding=canonical_npc_binding,
+        canonical_binding_invalid=canonical_binding_invalid,
+    )
     evaluated: list[dict[str, Any]] = []
     required_total = 0
     required_hit = 0
@@ -563,7 +790,16 @@ def evaluate_adherence(
         "required_coverage": coverage,
         "required_satisfied": required_hit,
         "required_total": required_total,
+        "npc_engagement_evidence": play["npc_engagement_evidence"],
     }
+
+
+def evaluate_adherence(
+    checklist: list[dict[str, Any]] | None,
+    playtest_result_or_campaign_state: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Public display-only evaluation; raw event arrays are never trusted."""
+    return _evaluate_adherence(checklist, playtest_result_or_campaign_state)
 
 
 def compute_adherence_for_scenario(
@@ -575,6 +811,67 @@ def compute_adherence_for_scenario(
         checklist = generate_adherence_checklist(scenario_dir)
         if not checklist:
             return None
-        return evaluate_adherence(checklist, playtest_result_or_campaign_state)
+        return evaluate_adherence(
+            checklist,
+            playtest_result_or_campaign_state,
+        )
+    except Exception:
+        return None
+
+
+def compute_adherence_for_campaign(
+    scenario_dir: Path | str,
+    playtest_result_or_campaign_state: dict[str, Any] | None,
+    *,
+    campaign_dir: Path | str,
+) -> dict[str, Any] | None:
+    """Internal canonical path using a verified on-disk chain capability."""
+    try:
+        checklist = generate_adherence_checklist(scenario_dir)
+        if not checklist:
+            return None
+        play = (
+            playtest_result_or_campaign_state
+            if isinstance(playtest_result_or_campaign_state, dict)
+            else {}
+        )
+        campaign_id = play.get("campaign_id")
+        run_id = play.get("run_id")
+        cumulative_run_ids = play.get("cumulative_run_ids")
+        binding = play.get("npc_event_chain_binding")
+        if (
+            not isinstance(campaign_id, str)
+            or not campaign_id.strip()
+            or not isinstance(run_id, str)
+            or not run_id.strip()
+            or not isinstance(cumulative_run_ids, list)
+            or not cumulative_run_ids
+            or not isinstance(binding, dict)
+        ):
+            return _evaluate_adherence(
+                checklist,
+                playtest_result_or_campaign_state,
+                canonical_binding_invalid=True,
+            )
+        try:
+            capability = coc_npc_event_chain.load_canonical_chain(
+                Path(campaign_dir),
+                expected_campaign_id=campaign_id,
+                expected_artifact_run_id=run_id,
+                expected_cumulative_run_ids=cumulative_run_ids,
+                expected_binding=binding,
+            )
+        except (ValueError, TypeError):
+            return _evaluate_adherence(
+                checklist,
+                playtest_result_or_campaign_state,
+                canonical_binding_invalid=True,
+            )
+        return _evaluate_adherence(
+            checklist,
+            playtest_result_or_campaign_state,
+            canonical_npc_event_chain=capability,
+            canonical_npc_binding=binding,
+        )
     except Exception:
         return None

@@ -36,7 +36,6 @@ import random
 import re
 import sys
 import time
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -58,10 +57,18 @@ def _load_sibling(name: str, filename: str):
 
 coc_state = _load_sibling("coc_state", "coc_state.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_flag_state = _load_sibling("coc_flag_state_toolbox", "coc_flag_state.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_npc_identity = _load_sibling("coc_npc_identity_toolbox", "coc_npc_identity.py")
+coc_npc_event_chain = _load_sibling(
+    "coc_npc_event_chain_toolbox", "coc_npc_event_chain.py"
+)
+coc_async_recorder = _load_sibling(
+    "coc_async_recorder_toolbox", "coc_async_recorder.py"
+)
 coc_time = _load_sibling("coc_time", "coc_time.py")
 coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
@@ -169,14 +176,67 @@ class Ctx:
 
     def flags(self) -> dict[str, Any]:
         path = self.campaign_dir / "save" / "flags.json"
-        if path.is_file():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    return data
-            except (json.JSONDecodeError, OSError):
-                pass
-        return {"schema_version": 1, "clues_found": {}, "decisions": [], "spoiler_reveals": [], "flags": {}}
+        if not path.is_file():
+            return {"schema_version": 1, "clues_found": {}, "decisions": [], "spoiler_reveals": [], "flags": {}}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+            raise ToolError(
+                "state_corrupt",
+                "save/flags.json exists but is unreadable or invalid JSON; refusing to replace canonical flag state",
+            ) from exc
+        if not isinstance(data, dict):
+            raise ToolError(
+                "state_corrupt",
+                "save/flags.json must contain a JSON object; refusing to replace canonical flag state",
+            )
+        if data.get("schema_version") not in (None, 1, 2, 3):
+            raise ToolError("state_corrupt", "save/flags.json has an unsupported schema_version")
+        for key in (
+            "flags",
+            "flag_provenance",
+            "flag_heads",
+            _SOURCE_RECEIPTS_KEY,
+            coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY,
+        ):
+            if key in data and not isinstance(data[key], dict):
+                raise ToolError(
+                    "state_corrupt",
+                    f"save/flags.json has an invalid {key} map",
+                )
+        receipts = data.get(_SOURCE_RECEIPTS_KEY) or {}
+        for tool_name, tool_receipts in receipts.items():
+            if not isinstance(tool_receipts, dict) or any(
+                not isinstance(receipt, dict)
+                for receipt in tool_receipts.values()
+            ):
+                raise ToolError(
+                    "state_corrupt",
+                    f"save/flags.json has invalid receipts for {tool_name}",
+                )
+        for flag_id, head in (data.get("flag_heads") or {}).items():
+            if not coc_flag_state.valid_entity_head(
+                head, entity_kind="flag", entity_id=str(flag_id)
+            ):
+                raise ToolError(
+                    "state_corrupt",
+                    f"save/flags.json has an invalid live head for flag '{flag_id}'",
+                )
+        director_receipts = data.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY)
+        if director_receipts is not None and not (
+            coc_flag_state.valid_director_flag_receipt_map(director_receipts)
+        ):
+            raise ToolError(
+                "state_corrupt",
+                "save/flags.json has an invalid director flag receipt map",
+            )
+        cutover = data.get(coc_flag_state.FLAG_EVENT_CUTOVER_KEY)
+        if cutover is not None and not coc_flag_state.valid_flag_event_cutover(cutover):
+            raise ToolError(
+                "state_corrupt",
+                "save/flags.json has an invalid flag event cutover boundary",
+            )
+        return data
 
     def save_flags(self, flags: dict[str, Any]) -> None:
         coc_state.write_json_atomic(self.campaign_dir / "save" / "flags.json", flags)
@@ -320,7 +380,14 @@ class Ctx:
             return legacy
         return None
 
-    def ledger_record(self, decision_id: str | None, tool: str, data: Any) -> None:
+    def ledger_record(
+        self,
+        decision_id: str | None,
+        tool: str,
+        data: Any,
+        *,
+        source_receipt_manifest: dict[str, Any] | None = None,
+    ) -> None:
         if not decision_id:
             return
         path = self._ledger_path()
@@ -334,12 +401,19 @@ class Ctx:
                 pass
         ledger["schema_version"] = 2
         entries = ledger["entries"]
-        entries[self._ledger_key(tool, str(decision_id))] = {
+        entry = {
+            "entry_schema_version": 3 if source_receipt_manifest is not None else 2,
             "tool": tool,
             "decision_id": str(decision_id),
             "ts": _now_iso(),
             "data": data,
         }
+        if source_receipt_manifest is not None:
+            entry["source_receipt_required"] = True
+            entry["source_receipt_manifest"] = deepcopy(
+                source_receipt_manifest
+            )
+        entries[self._ledger_key(tool, str(decision_id))] = entry
         if len(entries) > _LEDGER_MAX_ENTRIES:
             ordered = sorted(entries.items(), key=lambda kv: str(kv[1].get("ts", "")))
             for key, _ in ordered[: len(entries) - _LEDGER_MAX_ENTRIES]:
@@ -463,6 +537,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
+            if spec["needs_campaign"] and ctx.campaign_dir is not None:
+                reconcile_campaign_continuity(ctx.campaign_dir, ctx=ctx)
             data, warnings, hints = spec["handler"](ctx, args)
             envelope = {
                 "ok": True,
@@ -624,102 +700,15 @@ def _clue_by_id(clue_graph: dict[str, Any], clue_id: str) -> dict[str, Any] | No
     return None
 
 
-def _entity_key(value: Any) -> str:
-    normalized = unicodedata.normalize("NFKC", str(value)).casefold()
-    return " ".join(
-        "".join(character if character.isalnum() else " " for character in normalized).split()
-    )
-
-
 def _npc_by_id(npc_agendas: dict[str, Any], npc_id: str) -> dict[str, Any] | None:
-    """Resolve a structured NPC id/name/alias, allowing only unambiguous short ids."""
-    query = _entity_key(npc_id)
-    if not query:
-        return None
-    npcs = [npc for npc in (npc_agendas.get("npcs") or []) if isinstance(npc, dict)]
-    exact: list[dict[str, Any]] = []
-    short: list[dict[str, Any]] = []
-    ignored_tokens = {"npc", "mr", "mrs", "ms", "miss", "dr", "the", "of"}
-    for npc in npcs:
-        aliases = npc.get("aliases") or []
-        if isinstance(aliases, str):
-            aliases = [aliases]
-        values = [npc.get("npc_id"), npc.get("name"), *aliases]
-        keys = {_entity_key(value) for value in values if value not in (None, "")}
-        if query in keys:
-            exact.append(npc)
-            continue
-        tokens: set[str] = set()
-        for key in keys:
-            tokens.update(token for token in key.split() if token not in ignored_tokens)
-        if query in tokens:
-            short.append(npc)
-    matches = exact or short
-    return matches[0] if len(matches) == 1 else None
+    return coc_npc_identity.resolve_authored_npc(npc_agendas, npc_id)
 
 
 def _npc_identity_contract(
     npc: dict[str, Any],
     active_scene_id: str | None,
 ) -> dict[str, Any]:
-    """Project one stable authored identity without interpreting free prose.
-
-    ``identity_ref`` binds the exact structured producer fields returned to the
-    Keeper.  It is evidence that the consumer selected this authored identity,
-    not an audit of the narration itself.
-    """
-    schedule = deepcopy(npc.get("schedule") or [])
-    schedule_rows = schedule if isinstance(schedule, list) else [schedule]
-    authored_scene_ids: set[str] = set()
-    for row in schedule_rows:
-        if not isinstance(row, dict):
-            continue
-        for scene_id in row.get("scene_ids") or []:
-            if scene_id not in (None, ""):
-                authored_scene_ids.add(str(scene_id))
-    identity_source = {
-        "npc_id": npc.get("npc_id"),
-        "name": npc.get("name"),
-        "origin": npc.get("origin"),
-        "agenda": npc.get("agenda"),
-        "voice": npc.get("voice"),
-        "relationship_to_investigators": npc.get("relationship_to_investigators"),
-        "social_role": deepcopy(npc.get("social_role")),
-        "schedule": schedule,
-        "source_refs": deepcopy(npc.get("source_refs") or []),
-    }
-    encoded = json.dumps(
-        identity_source,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    identity_ref = f"npc-identity-v1:{hashlib.sha256(encoded).hexdigest()[:24]}"
-    active = str(active_scene_id) if active_scene_id not in (None, "") else None
-    scene_match: bool | None = None
-    if authored_scene_ids:
-        scene_match = bool(active and active in authored_scene_ids)
-    return {
-        "keeper_only": True,
-        "npc_id": npc.get("npc_id"),
-        "name": npc.get("name"),
-        "origin": npc.get("origin"),
-        "identity_ref": identity_ref,
-        "role": {
-            "relationship_to_investigators": npc.get("relationship_to_investigators"),
-            "social_role": deepcopy(npc.get("social_role")),
-        },
-        "agenda": npc.get("agenda"),
-        "voice": npc.get("voice"),
-        "schedule": schedule,
-        "location_provenance": {
-            "active_scene_id": active,
-            "authored_scene_ids": sorted(authored_scene_ids),
-            "active_scene_matches_schedule": scene_match,
-        },
-        "source_refs": deepcopy(npc.get("source_refs") or []),
-    }
+    return coc_npc_identity.identity_contract(npc, active_scene_id)
 
 
 def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
@@ -837,73 +826,1553 @@ def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _npc_receipt_path(ctx: Ctx) -> Path:
+    return ctx.campaign_dir / "save" / coc_npc_event_chain.RECEIPT_FILENAME
+
+
+def _save_npc_receipt_document(ctx: Ctx, document: dict[str, Any]) -> None:
+    coc_state.write_json_atomic(_npc_receipt_path(ctx), document)
+
+
+def _npc_receipts_for_decision(
+    document: dict[str, Any], *, producer: str, decision_id: str
+) -> list[dict[str, Any]]:
+    receipts = document.get("receipts")
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "NPC engagement receipt map is invalid")
+    found = [
+        receipt
+        for receipt in receipts.values()
+        if isinstance(receipt, dict)
+        and receipt.get("producer") == producer
+        and receipt.get("decision_id") == decision_id
+    ]
+    if any(not coc_npc_event_chain.valid_receipt(receipt) for receipt in found):
+        raise ToolError("state_corrupt", "NPC engagement source receipt is invalid")
+    return sorted(found, key=lambda receipt: int(receipt["ordinal"]))
+
+
+def _npc_receipt_warnings(receipt: dict[str, Any]) -> list[str]:
+    """Rebuild the original advisory warnings from immutable receipt data."""
+    event = receipt.get("event") or {}
+    operation = receipt.get("operation") or {}
+    npc_id = str(event.get("npc_id") or "")
+    requested_npc_id = str(operation.get("npc_id") or "")
+    identity_contract = event.get("identity_contract")
+    identity_binding = event.get("identity_binding") or {}
+    binding_status = str(identity_binding.get("status") or "")
+    binding_reasons = list(identity_binding.get("reasons") or [])
+    warnings: list[str] = []
+    if not isinstance(identity_contract, dict):
+        warnings.append(
+            f"npc '{npc_id}' is not in the authored agendas — recorded as an improvised NPC"
+        )
+    elif binding_status == "unverified":
+        warnings.append(
+            f"authored npc '{npc_id}' engagement was recorded, but identity_ref is missing; it is not authored-NPC coverage"
+        )
+    elif binding_status == "mismatch" and "identity_ref_mismatch" in binding_reasons:
+        warnings.append(
+            f"supplied identity_ref does not match authored npc '{npc_id}'; engagement was recorded without authored-NPC coverage"
+        )
+    elif binding_status == "mismatch":
+        warnings.append(
+            f"authored npc '{npc_id}' is outside its structured scene schedule; engagement was recorded without authored-NPC coverage"
+        )
+    if requested_npc_id and requested_npc_id != npc_id:
+        warnings.append(
+            f"resolved NPC alias '{requested_npc_id}' to authored id '{npc_id}'"
+        )
+    requested_kind = str(operation.get("interaction_kind") or "")
+    if event.get("interaction_label") is not None:
+        warnings.append(
+            f"unrecognized interaction_kind '{requested_kind}' was preserved as interaction_label and normalized to 'other'"
+        )
+    return warnings
+
+
+def _materialize_stable_receipt_event(
+    ctx: Ctx,
+    *,
+    event: dict[str, Any],
+    event_id: str,
+    relative_path: str = "logs/events.jsonl",
+    inspect_pending: bool = True,
+) -> bool:
+    """Materialize a receipt-owned stable row in the recorder lock domain."""
+    try:
+        with coc_async_recorder.recorder_lock(ctx.campaign_dir):
+            if inspect_pending:
+                pending = _pending_jsonl_rows(ctx, relative_path, event_id)
+            else:
+                pending = []
+            if any(row != event for row in pending) or len(pending) > 1:
+                raise ToolError(
+                    "state_corrupt",
+                    f"pending stable event '{event_id}' conflicts with its source receipt",
+                )
+            target = ctx.campaign_dir / relative_path
+            append_record = None
+            if relative_path == "logs/events.jsonl":
+                append_record = lambda _path, row: ctx.log_event(deepcopy(row))
+            return coc_async_recorder.ensure_stable_jsonl_record_locked(
+                target,
+                deepcopy(event),
+                append_record=append_record,
+            )
+    except coc_async_recorder.RecorderLockError as exc:
+        raise ToolError("campaign_busy", str(exc)) from exc
+    except coc_async_recorder.StableRecordError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _ensure_npc_receipt_event(ctx: Ctx, receipt: dict[str, Any]) -> bool:
+    if not coc_npc_event_chain.valid_receipt(receipt):
+        raise ToolError("state_corrupt", "NPC engagement source receipt is invalid")
+    return _materialize_stable_receipt_event(
+        ctx,
+        event=receipt["event"],
+        event_id=str(receipt["event_id"]),
+    )
+
+
+def _reconcile_all_npc_source_receipts(ctx: Ctx) -> dict[str, Any]:
+    try:
+        document = coc_npc_event_chain.load_receipt_document(ctx.campaign_dir)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    receipts = document.get("receipts") or {}
+    ordered = sorted(
+        receipts.values(),
+        key=lambda receipt: (
+            str(receipt.get("run_id") or ""),
+            str(receipt.get("decision_id") or ""),
+            int(receipt.get("ordinal") or 0),
+            str(receipt.get("event_id") or ""),
+        ),
+    )
+    for receipt in ordered:
+        if not coc_npc_event_chain.valid_receipt(receipt):
+            raise ToolError("state_corrupt", "NPC engagement source receipt is invalid")
+        _ensure_npc_receipt_event(ctx, receipt)
+        if receipt.get("producer") == "director_apply.npc_move":
+            secondary = (
+                "logs/npc-engagement.jsonl"
+                if receipt.get("event_type") == "npc_engagement"
+                else "logs/npc-agency.jsonl"
+            )
+            _materialize_stable_receipt_event(
+                ctx,
+                event=receipt["event"],
+                event_id=str(receipt["event_id"]),
+                relative_path=secondary,
+            )
+        if receipt.get("producer") == "state.record_npc_engagement":
+            decision_id = str(receipt["decision_id"])
+            data = deepcopy(receipt["event"])
+            prior = ctx.ledger_lookup("state.record_npc_engagement", decision_id)
+            if prior is None or prior.get("data") != data:
+                ctx.ledger_record(
+                    decision_id, "state.record_npc_engagement", data
+                )
+    return document
+
+
+_SOURCE_RECEIPTS_KEY = "operation_receipts"
+_SOURCE_RECEIPT_SCHEMA_VERSION = 3
+_SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS = frozenset({2, 3})
+_SOURCE_RECEIPT_INTEGRITY_KEY = "integrity_digest"
+_SOURCE_RECEIPT_FIELDS_V2 = frozenset({
+    "schema_version",
+    "tool",
+    "decision_id",
+    "fingerprint",
+    "operation",
+    "event_id",
+    "event",
+    "data",
+    "warnings",
+    "hints",
+    _SOURCE_RECEIPT_INTEGRITY_KEY,
+})
+_SOURCE_RECEIPT_FIELDS = frozenset({
+    *_SOURCE_RECEIPT_FIELDS_V2,
+    "entity_head",
+})
+
+
+def _operation_fingerprint(tool_name: str, operation: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {"tool": str(tool_name), "operation": operation},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _canonical_digest(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _source_receipt_integrity(receipt: dict[str, Any]) -> str:
+    """Bind every immutable receipt field except the digest itself."""
+    body = {
+        key: deepcopy(value)
+        for key, value in receipt.items()
+        if key != _SOURCE_RECEIPT_INTEGRITY_KEY
+    }
+    return _canonical_digest(body)
+
+
+def _source_receipt_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
+    """Small ledger marker distinguishing receipt-era writes from legacy rows."""
+    return {
+        "schema_version": 1,
+        "receipt_schema_version": receipt.get("schema_version"),
+        "tool": receipt.get("tool"),
+        "decision_id": receipt.get("decision_id"),
+        "integrity_digest": receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY),
+    }
+
+
+def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    entry_schema = entry.get("entry_schema_version")
+    explicitly_receipt_era = bool(
+        entry.get("source_receipt_required") is True
+        or (
+            isinstance(entry_schema, int)
+            and not isinstance(entry_schema, bool)
+            and entry_schema >= 3
+        )
+    )
+    if "source_receipt_manifest" not in entry:
+        if explicitly_receipt_era:
+            raise ToolError(
+                "state_corrupt",
+                "receipt-era toolbox ledger entry is missing its source receipt manifest",
+            )
+        return False
+    manifest = entry.get("source_receipt_manifest")
+    digest = str((manifest or {}).get("integrity_digest") or "") if isinstance(manifest, dict) else ""
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or manifest.get("receipt_schema_version")
+        not in _SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS
+        or str(manifest.get("tool")) != str(entry.get("tool"))
+        or str(manifest.get("decision_id")) != str(entry.get("decision_id"))
+        or not digest.startswith("sha256:")
+        or len(digest) != len("sha256:") + 64
+    ):
+        raise ToolError(
+            "state_corrupt",
+            "toolbox ledger has an invalid source receipt manifest",
+        )
+    return True
+
+
+def _operation_event_id(tool_name: str, decision_id: str) -> str:
+    encoded = json.dumps(
+        [str(tool_name), str(decision_id)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"tool-operation-v1:{hashlib.sha256(encoded).hexdigest()[:32]}"
+
+
+def _source_receipt(
+    source: dict[str, Any],
+    tool_name: str,
+    decision_id: str,
+) -> dict[str, Any] | None:
+    all_receipts = source.get(_SOURCE_RECEIPTS_KEY)
+    if all_receipts is None:
+        return None
+    if not isinstance(all_receipts, dict):
+        raise ToolError(
+            "state_corrupt",
+            f"canonical source has invalid {_SOURCE_RECEIPTS_KEY}",
+        )
+    tool_receipts = all_receipts.get(str(tool_name))
+    if tool_receipts is None:
+        return None
+    if not isinstance(tool_receipts, dict):
+        raise ToolError(
+            "state_corrupt",
+            f"canonical source has invalid receipts for {tool_name}",
+        )
+    receipt = tool_receipts.get(str(decision_id))
+    if receipt is None:
+        return None
+    if not isinstance(receipt, dict):
+        raise ToolError(
+            "state_corrupt",
+            f"canonical source receipt for {tool_name} decision_id '{decision_id}' is not an object",
+        )
+    return receipt
+
+
+def _put_source_receipt(
+    source: dict[str, Any],
+    receipt: dict[str, Any],
+) -> None:
+    all_receipts = source.get(_SOURCE_RECEIPTS_KEY)
+    if all_receipts is None:
+        all_receipts = {}
+    elif not isinstance(all_receipts, dict):
+        raise ToolError(
+            "state_corrupt",
+            f"canonical source has invalid {_SOURCE_RECEIPTS_KEY}; refusing to overwrite it",
+        )
+    tool_name = str(receipt["tool"])
+    tool_receipts = all_receipts.get(tool_name)
+    if tool_receipts is None:
+        tool_receipts = {}
+    elif not isinstance(tool_receipts, dict):
+        raise ToolError(
+            "state_corrupt",
+            f"canonical source has invalid receipts for {tool_name}; refusing to overwrite them",
+        )
+    tool_receipts[str(receipt["decision_id"])] = deepcopy(receipt)
+    all_receipts[tool_name] = tool_receipts
+    source[_SOURCE_RECEIPTS_KEY] = all_receipts
+
+
+def _new_source_receipt(
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+    event: dict[str, Any],
+    data: dict[str, Any],
+    warnings: list[str] | None = None,
+    hints: list[str] | None = None,
+    entity_head: dict[str, Any],
+) -> dict[str, Any]:
+    receipt = {
+        "schema_version": _SOURCE_RECEIPT_SCHEMA_VERSION,
+        "tool": str(tool_name),
+        "decision_id": str(decision_id),
+        "fingerprint": _operation_fingerprint(tool_name, operation),
+        "operation": deepcopy(operation),
+        "event_id": event.get("event_id"),
+        "event": deepcopy(event),
+        "data": deepcopy(data),
+        "warnings": list(warnings or []),
+        "hints": list(hints or []),
+        "entity_head": deepcopy(entity_head),
+    }
+    receipt[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(receipt)
+    return receipt
+
+
+def _validate_source_receipt(
+    receipt: dict[str, Any],
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+) -> None:
+    # Validate the complete immutable receipt before comparing the requested
+    # operation or performing any event/world/ledger repair.
+    receipt_schema = receipt.get("schema_version")
+    expected_fields = (
+        _SOURCE_RECEIPT_FIELDS
+        if receipt_schema == _SOURCE_RECEIPT_SCHEMA_VERSION
+        else _SOURCE_RECEIPT_FIELDS_V2
+    )
+    if (
+        receipt_schema not in _SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS
+        or set(receipt) != set(expected_fields)
+        or not isinstance(receipt.get("operation"), dict)
+        or not isinstance(receipt.get("event"), dict)
+        or not isinstance(receipt.get("data"), dict)
+        or not isinstance(receipt.get("warnings"), list)
+        or not isinstance(receipt.get("hints"), list)
+        or str(receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY) or "")
+        != _source_receipt_integrity(receipt)
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"source receipt for {tool_name} decision_id '{decision_id}' failed full integrity validation",
+        )
+    stored_operation = receipt.get("operation")
+    stored_fingerprint = str(receipt.get("fingerprint") or "")
+    stored_event = receipt.get("event")
+    stable_event_id = _operation_event_id(tool_name, decision_id)
+    if (
+        str(receipt.get("tool")) != str(tool_name)
+        or str(receipt.get("decision_id")) != str(decision_id)
+        or stored_fingerprint
+        != _operation_fingerprint(tool_name, stored_operation)
+        or str(receipt.get("event_id") or "") != stable_event_id
+        or not isinstance(stored_event, dict)
+        or str(stored_event.get("event_id") or "") != stable_event_id
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"source receipt for {tool_name} decision_id '{decision_id}' is inconsistent",
+        )
+    expected = _operation_fingerprint(tool_name, operation)
+    if stored_fingerprint != expected:
+        raise ToolError(
+            "idempotency_conflict",
+            f"decision_id '{decision_id}' was already applied to a different {tool_name} payload",
+        )
+    if receipt_schema == _SOURCE_RECEIPT_SCHEMA_VERSION:
+        head = receipt.get("entity_head")
+        if (
+            not coc_flag_state.valid_entity_head(head)
+            or str(head.get("decision_id")) != str(decision_id)
+            or str((receipt.get("event") or {}).get("live_head_digest") or "")
+            != coc_flag_state.canonical_digest(head)
+        ):
+            raise ToolError(
+                "state_corrupt",
+                f"source receipt for {tool_name} decision_id '{decision_id}' has an invalid entity head",
+            )
+
+
+def _operation_event_present(ctx: Ctx, receipt: dict[str, Any]) -> bool:
+    """Validate exact event cardinality without mutating the append-only log."""
+    event = receipt.get("event")
+    event_id = str(receipt.get("event_id") or "")
+    if not isinstance(event, dict) or not event_id:
+        raise ToolError("state_corrupt", "source receipt has no stable event payload")
+    matches = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
+        if str(row.get("event_id") or "") == event_id
+    ]
+    if matches:
+        if len(matches) != 1 or matches[0] != event:
+            raise ToolError(
+                "state_corrupt",
+                f"event '{event_id}' is duplicated or conflicts with its source receipt",
+            )
+        return True
+    return False
+
+
+def _pending_jsonl_rows(
+    ctx: Ctx, relative_path: str, event_id: str
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    pending_dir = ctx.campaign_dir / "logs" / "pending-turns"
+    if not pending_dir.is_dir():
+        return rows
+    for path in sorted(pending_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ToolError(
+                "state_corrupt", f"pending recorder batch '{path.name}' is unreadable"
+            ) from exc
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            raise ToolError(
+                "state_corrupt", f"pending recorder batch '{path.name}' is invalid"
+            )
+        for entry in entries:
+            if (
+                isinstance(entry, dict)
+                and entry.get("relative_path") == relative_path
+                and isinstance(entry.get("record"), dict)
+                and str(entry["record"].get("event_id") or "") == event_id
+            ):
+                rows.append(entry["record"])
+    return rows
+
+
+def _pending_event_rows(ctx: Ctx, event_id: str) -> list[dict[str, Any]]:
+    return _pending_jsonl_rows(ctx, "logs/events.jsonl", event_id)
+
+
+def _ensure_operation_event(
+    ctx: Ctx,
+    receipt: dict[str, Any],
+    *,
+    inspect_pending: bool = False,
+) -> bool:
+    """Append a receipt-owned event once, repairing a pre-ledger crash."""
+    if not _stored_toolbox_receipt_valid(receipt):
+        raise ToolError("state_corrupt", "source receipt integrity failed")
+    event = receipt.get("event")
+    assert isinstance(event, dict)
+    return _materialize_stable_receipt_event(
+        ctx,
+        event=event,
+        event_id=str(receipt.get("event_id") or ""),
+        inspect_pending=inspect_pending,
+    )
+
+
+def _replay_source_receipt(
+    ctx: Ctx,
+    receipt: dict[str, Any],
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Repair append/ledger stages while preserving the original result."""
+    _ensure_operation_event(ctx, receipt)
+    data = deepcopy(receipt.get("data") or {})
+    ledger_entry = ctx.ledger_lookup(
+        str(receipt["tool"]), str(receipt["decision_id"])
+    )
+    manifest = _source_receipt_manifest(receipt)
+    if (
+        ledger_entry is None
+        or ledger_entry.get("data") != data
+        or ledger_entry.get("source_receipt_manifest") != manifest
+    ):
+        ctx.ledger_record(
+            str(receipt["decision_id"]),
+            str(receipt["tool"]),
+            data,
+            source_receipt_manifest=manifest,
+        )
+    warnings = list(receipt.get("warnings") or [])
+    warnings.append(
+        "duplicate decision_id: recovered the original source-of-truth receipt"
+    )
+    return data, warnings, list(receipt.get("hints") or [])
+
+
+def _validated_receipt_entity_head(
+    receipt: dict[str, Any],
+    *,
+    entity_kind: str,
+    entity_id: str,
+) -> dict[str, Any] | None:
+    """Return a v3 receipt head; v2 receipts remain read-compatible."""
+    if receipt.get("schema_version") == 2:
+        return None
+    head = receipt.get("entity_head")
+    if not coc_flag_state.valid_entity_head(
+        head, entity_kind=entity_kind, entity_id=entity_id
+    ):
+        raise ToolError("state_corrupt", "source receipt has an invalid entity head")
+    return deepcopy(head)
+
+
+def _migrate_v2_source_receipt(
+    ctx: Ctx,
+    source: dict[str, Any],
+    receipt: dict[str, Any],
+    *,
+    tool_name: str,
+    entity_kind: str,
+    entity_id: str,
+) -> dict[str, Any]:
+    """Atomically promote v2 only when live state and the stable event prove v3.
+
+    A schema-v2 receipt has no frozen entity head.  It can therefore never
+    repair a missing live entity.  Migration is allowed only when an exact
+    canonical event and the complete current live record independently rebuild
+    the digest already bound by that event.
+    """
+    if receipt.get("schema_version") != 2:
+        return receipt
+    if not _operation_event_present(ctx, receipt):
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"schema-v2 {tool_name} receipt has no exact canonical event; state was not changed",
+        )
+    event = receipt.get("event") or {}
+    operation = receipt.get("operation") or {}
+    sequence = _positive_source_sequence(event.get("source_sequence"))
+    if sequence is None:
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"schema-v2 {tool_name} receipt has no causal sequence",
+        )
+    if entity_kind == "flag":
+        live_record = coc_flag_state.flag_live_record(source, entity_id)
+        provenance = live_record.get("provenance")
+        if (
+            event.get("event_type") != "flag_set"
+            or str(event.get("flag_id") or "") != entity_id
+            or type(operation.get("value")) is not bool
+            or event.get("value") is not operation.get("value")
+            or live_record.get("present") is not True
+            or live_record.get("value") is not operation.get("value")
+            or not isinstance(provenance, dict)
+            or str(provenance.get("decision_id") or "")
+            != str(receipt.get("decision_id") or "")
+            or str(provenance.get("producer") or "") != tool_name
+            or _positive_source_sequence(provenance.get("source_sequence"))
+            != sequence
+            or provenance != (receipt.get("data") or {}).get("provenance")
+        ):
+            raise ToolError(
+                "legacy_recovery_unverifiable",
+                "schema-v2 flag receipt lacks complete matching live evidence",
+            )
+        head_map = source.setdefault("flag_heads", {})
+    else:
+        live_record = _marker_live_record(source, entity_id)
+        marker = live_record.get("marker")
+        action = str(operation.get("action") or "")
+        if (
+            event.get("event_type") != "time_marker_changed"
+            or str(event.get("marker_id") or "") != entity_id
+            or str(event.get("action") or "") != action
+        ):
+            raise ToolError(
+                "legacy_recovery_unverifiable",
+                "schema-v2 marker receipt has inconsistent event evidence",
+            )
+        if live_record.get("present") is True:
+            if (
+                not isinstance(marker, dict)
+                or str(marker.get("decision_id") or "")
+                != str(receipt.get("decision_id") or "")
+                or _positive_source_sequence(marker.get("source_sequence"))
+                != sequence
+                or marker.get("status") != event.get("status")
+            ):
+                raise ToolError(
+                    "legacy_recovery_unverifiable",
+                    "schema-v2 marker receipt lacks complete matching live evidence",
+                )
+        elif not (
+            action == "clear"
+            and event.get("status") == "absent"
+            and (receipt.get("data") or {}).get("marker") is None
+        ):
+            raise ToolError(
+                "legacy_recovery_unverifiable",
+                "schema-v2 marker receipt cannot prove a missing live entity",
+            )
+        head_map = source.setdefault("marker_heads", {})
+    if not isinstance(head_map, dict):
+        raise ToolError("state_corrupt", "canonical entity head map is invalid")
+    head = coc_flag_state.entity_head(
+        entity_kind=entity_kind,
+        entity_id=entity_id,
+        decision_id=str(receipt.get("decision_id") or ""),
+        source_sequence=sequence,
+        producer=tool_name,
+        live_record=live_record,
+    )
+    if str(event.get("live_head_digest") or "") != coc_flag_state.canonical_digest(head):
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"schema-v2 {tool_name} receipt cannot bind the current live record",
+        )
+    current_head = head_map.get(entity_id)
+    if current_head is not None and current_head != head:
+        raise ToolError(
+            "state_corrupt",
+            f"schema-v2 {tool_name} migration conflicts with the current entity head",
+        )
+    migrated = deepcopy(receipt)
+    migrated["schema_version"] = _SOURCE_RECEIPT_SCHEMA_VERSION
+    migrated["entity_head"] = deepcopy(head)
+    migrated[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(migrated)
+    head_map[entity_id] = deepcopy(head)
+    _put_source_receipt(source, migrated)
+    if entity_kind == "flag":
+        source["schema_version"] = max(int(source.get("schema_version") or 1), 3)
+        source["flag_source_sequence"] = max(
+            int(source.get("flag_source_sequence") or 0), sequence
+        )
+        ctx.save_flags(source)
+    else:
+        source["schema_version"] = max(int(source.get("schema_version") or 1), 3)
+        source["marker_source_sequence"] = max(
+            int(source.get("marker_source_sequence") or 0), sequence
+        )
+        _save_time_markers(ctx, source)
+    return migrated
+
+
+def _stored_toolbox_receipt_valid(receipt: Any) -> bool:
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION
+        or set(receipt) != set(_SOURCE_RECEIPT_FIELDS)
+        or str(receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY) or "")
+        != _source_receipt_integrity(receipt)
+        or not isinstance(receipt.get("operation"), dict)
+    ):
+        return False
+    head = receipt.get("entity_head")
+    event = receipt.get("event")
+    return bool(
+        coc_flag_state.valid_entity_head(head)
+        and isinstance(event, dict)
+        and str(receipt.get("event_id") or "")
+        == _operation_event_id(
+            str(receipt.get("tool") or ""), str(receipt.get("decision_id") or "")
+        )
+        and str(event.get("event_id") or "") == str(receipt.get("event_id") or "")
+        and str(event.get("live_head_digest") or "")
+        == coc_flag_state.canonical_digest(head)
+        and str(head.get("decision_id") or "")
+        == str(receipt.get("decision_id") or "")
+    )
+
+
+def _director_receipt_event_present(
+    ctx: Ctx, receipt: dict[str, Any]
+) -> bool:
+    expected = receipt.get("event")
+    event_id = str(receipt.get("event_id") or "")
+    matches = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
+        if str(row.get("event_id") or "") == event_id
+    ]
+    if matches and (len(matches) != 1 or matches[0] != expected):
+        raise ToolError(
+            "state_corrupt",
+            f"director flag event '{event_id}' is duplicated or conflicts with its source receipt",
+        )
+    return bool(matches)
+
+
+def _unique_max_head(
+    heads: list[dict[str, Any]],
+    *,
+    entity_kind: str,
+    entity_id: str,
+) -> dict[str, Any] | None:
+    if not heads:
+        return None
+    if any(
+        not coc_flag_state.valid_entity_head(
+            head, entity_kind=entity_kind, entity_id=entity_id
+        )
+        for head in heads
+    ):
+        raise ToolError("state_corrupt", "anchored entity head is invalid")
+    maximum = max(int(head["source_sequence"]) for head in heads)
+    candidates = [head for head in heads if int(head["source_sequence"]) == maximum]
+    unique = {
+        coc_flag_state.canonical_digest(head): deepcopy(head) for head in candidates
+    }
+    if len(unique) != 1:
+        raise ToolError(
+            "state_corrupt",
+            f"{entity_kind} '{entity_id}' has conflicting source heads at sequence {maximum}",
+        )
+    return next(iter(unique.values()))
+
+
+def _anchored_flag_heads(
+    ctx: Ctx,
+    flags: dict[str, Any],
+    *,
+    flag_id: str,
+    require_event: bool = True,
+) -> list[dict[str, Any]]:
+    heads: list[dict[str, Any]] = []
+    receipts = ((flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {})
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical flag receipt map is invalid")
+    for receipt in receipts.values():
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical flag receipt is invalid")
+        if receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION:
+            continue
+        if not _stored_toolbox_receipt_valid(receipt) or receipt.get("tool") != "state.set_flag":
+            raise ToolError("state_corrupt", "canonical flag receipt integrity failed")
+        head = receipt["entity_head"]
+        if str(head.get("entity_id") or "") != flag_id:
+            continue
+        present = _operation_event_present(ctx, receipt)
+        if require_event and not present:
+            continue
+        heads.append(deepcopy(head))
+    director_receipts = flags.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director_receipts):
+        raise ToolError("state_corrupt", "canonical director flag receipt map is invalid")
+    for receipt in director_receipts.values():
+        if str(receipt.get("flag_id") or "") != flag_id:
+            continue
+        present = _director_receipt_event_present(ctx, receipt)
+        if require_event and not present:
+            continue
+        heads.append(deepcopy(receipt["entity_head"]))
+    return heads
+
+
+def _anchored_marker_heads(
+    ctx: Ctx,
+    payload: dict[str, Any],
+    *,
+    marker_id: str,
+    require_event: bool = True,
+) -> list[dict[str, Any]]:
+    heads: list[dict[str, Any]] = []
+    receipts = (
+        (payload.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.time_marker") or {}
+    )
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical marker receipt map is invalid")
+    for receipt in receipts.values():
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical marker receipt is invalid")
+        if receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION:
+            continue
+        if not _stored_toolbox_receipt_valid(receipt) or receipt.get("tool") != "state.time_marker":
+            raise ToolError("state_corrupt", "canonical marker receipt integrity failed")
+        head = receipt["entity_head"]
+        if str(head.get("entity_id") or "") != marker_id:
+            continue
+        present = _operation_event_present(ctx, receipt)
+        if require_event and not present:
+            continue
+        heads.append(deepcopy(head))
+    return heads
+
+
+def _latest_anchored_flag_head(
+    ctx: Ctx, flags: dict[str, Any], flag_id: str, *, require_event: bool = True
+) -> dict[str, Any] | None:
+    return _unique_max_head(
+        _anchored_flag_heads(
+            ctx, flags, flag_id=flag_id, require_event=require_event
+        ),
+        entity_kind="flag",
+        entity_id=flag_id,
+    )
+
+
+def _latest_anchored_marker_head(
+    ctx: Ctx, payload: dict[str, Any], marker_id: str, *, require_event: bool = True
+) -> dict[str, Any] | None:
+    return _unique_max_head(
+        _anchored_marker_heads(
+            ctx, payload, marker_id=marker_id, require_event=require_event
+        ),
+        entity_kind="time_marker",
+        entity_id=marker_id,
+    )
+
+
+def _flag_head_is_source_anchored(
+    ctx: Ctx, flags: dict[str, Any], head: dict[str, Any]
+) -> bool:
+    receipts = ((flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {})
+    if isinstance(receipts, dict):
+        for receipt in receipts.values():
+            if (
+                _stored_toolbox_receipt_valid(receipt)
+                and receipt.get("tool") == "state.set_flag"
+                and receipt.get("entity_head") == head
+            ):
+                _operation_event_present(ctx, receipt)
+                return True
+    director_receipts = flags.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director_receipts):
+        return False
+    for receipt in director_receipts.values():
+        if receipt.get("entity_head") == head:
+            _director_receipt_event_present(ctx, receipt)
+            return True
+    return False
+
+
+def _flag_event_is_source_anchored(
+    ctx: Ctx, flags: dict[str, Any], event: dict[str, Any]
+) -> bool:
+    receipts = ((flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {})
+    if isinstance(receipts, dict):
+        for receipt in receipts.values():
+            if (
+                _stored_toolbox_receipt_valid(receipt)
+                and receipt.get("tool") == "state.set_flag"
+                and receipt.get("event") == event
+            ):
+                _operation_event_present(ctx, receipt)
+                return True
+    director_receipts = flags.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director_receipts):
+        return False
+    for receipt in director_receipts.values():
+        if receipt.get("event") == event:
+            _director_receipt_event_present(ctx, receipt)
+            return True
+    return False
+
+
+def _marker_head_is_source_anchored(
+    ctx: Ctx, payload: dict[str, Any], head: dict[str, Any]
+) -> bool:
+    receipts = (
+        (payload.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.time_marker") or {}
+    )
+    if not isinstance(receipts, dict):
+        return False
+    for receipt in receipts.values():
+        if (
+            _stored_toolbox_receipt_valid(receipt)
+            and receipt.get("tool") == "state.time_marker"
+            and receipt.get("entity_head") == head
+        ):
+            _operation_event_present(ctx, receipt)
+            return True
+    return False
+
+
+def _repair_flag_live_head(
+    ctx: Ctx,
+    flags: dict[str, Any],
+    receipt: dict[str, Any],
+) -> None:
+    operation = receipt.get("operation") or {}
+    flag_id = str(operation.get("flag_id") or "")
+    target = _validated_receipt_entity_head(
+        receipt, entity_kind="flag", entity_id=flag_id
+    )
+    if target is None:
+        return
+    if (
+        str(target.get("producer")) != "state.set_flag"
+        or str(target.get("decision_id")) != str(receipt.get("decision_id"))
+        or (target.get("live_record") or {}).get("value")
+        != bool(operation.get("value"))
+    ):
+        raise ToolError("state_corrupt", "flag receipt head is inconsistent")
+
+    head_map = flags.get("flag_heads")
+    if head_map is None:
+        head_map = {}
+        flags["flag_heads"] = head_map
+    if not isinstance(head_map, dict):
+        raise ToolError("state_corrupt", "canonical flag head map is invalid")
+    expected_head = _latest_anchored_flag_head(
+        ctx, flags, flag_id, require_event=False
+    )
+    if expected_head is None:
+        expected_head = target
+    causal_sequence = int(expected_head["source_sequence"])
+    current_head = head_map.get(flag_id)
+    if current_head is not None and current_head != expected_head:
+        raise ToolError(
+            "state_corrupt",
+            f"flag '{flag_id}' live head does not equal its unique latest source receipt",
+        )
+
+    expected_record = deepcopy(expected_head["live_record"])
+    actual_record = coc_flag_state.flag_live_record(flags, flag_id)
+    changed = False
+    if actual_record != expected_record:
+        if actual_record.get("present") is True:
+            raise ToolError(
+                "state_corrupt", f"flag '{flag_id}' live value conflicts with its causal head"
+            )
+        try:
+            coc_flag_state.apply_live_record(flags, expected_record)
+        except ValueError as exc:
+            raise ToolError("state_corrupt", str(exc)) from exc
+        changed = True
+    if current_head != expected_head:
+        head_map[flag_id] = deepcopy(expected_head)
+        changed = True
+    if changed:
+        flags["schema_version"] = max(int(flags.get("schema_version") or 1), 3)
+        flags["flag_source_sequence"] = max(
+            int(flags.get("flag_source_sequence") or 0), causal_sequence
+        )
+        ctx.save_flags(flags)
+
+
+def _marker_live_record(payload: dict[str, Any], marker_id: str) -> dict[str, Any]:
+    markers = payload.get("markers")
+    markers = markers if isinstance(markers, dict) else {}
+    present = str(marker_id) in markers
+    marker = markers.get(str(marker_id))
+    return {
+        "schema_version": 1,
+        "marker_id": str(marker_id),
+        "present": present,
+        "marker": deepcopy(marker) if isinstance(marker, dict) else None,
+    }
+
+
+def _apply_marker_live_record(
+    payload: dict[str, Any], record: dict[str, Any]
+) -> None:
+    marker_id = str(record.get("marker_id") or "")
+    if not marker_id or record.get("schema_version") != 1:
+        raise ToolError("state_corrupt", "invalid marker live record")
+    markers = payload.get("markers")
+    if not isinstance(markers, dict):
+        raise ToolError("state_corrupt", "canonical marker map is invalid")
+    if record.get("present") is True and isinstance(record.get("marker"), dict):
+        markers[marker_id] = deepcopy(record["marker"])
+    elif record.get("present") is False and record.get("marker") is None:
+        markers.pop(marker_id, None)
+    else:
+        raise ToolError("state_corrupt", "invalid marker live record presence")
+
+
+def _repair_marker_live_head(
+    ctx: Ctx,
+    payload: dict[str, Any],
+    receipt: dict[str, Any],
+) -> None:
+    operation = receipt.get("operation") or {}
+    marker_id = str(operation.get("marker_id") or "")
+    target = _validated_receipt_entity_head(
+        receipt, entity_kind="time_marker", entity_id=marker_id
+    )
+    if target is None:
+        return
+    if (
+        str(target.get("producer")) != "state.time_marker"
+        or str(target.get("decision_id")) != str(receipt.get("decision_id"))
+    ):
+        raise ToolError("state_corrupt", "time marker receipt head is inconsistent")
+
+    head_map = payload.get("marker_heads")
+    if not isinstance(head_map, dict):
+        raise ToolError("state_corrupt", "canonical marker head map is invalid")
+    expected_head = _latest_anchored_marker_head(
+        ctx, payload, marker_id, require_event=False
+    )
+    if expected_head is None:
+        expected_head = target
+    causal_sequence = int(expected_head["source_sequence"])
+    current_head = head_map.get(marker_id)
+    if current_head is not None and current_head != expected_head:
+        raise ToolError(
+            "state_corrupt",
+            f"time marker '{marker_id}' live head does not equal its unique latest source receipt",
+        )
+
+    expected_record = deepcopy(expected_head["live_record"])
+    actual_record = _marker_live_record(payload, marker_id)
+    changed = False
+    if actual_record != expected_record:
+        if actual_record.get("present") is True:
+            raise ToolError(
+                "state_corrupt",
+                f"time marker '{marker_id}' live record conflicts with its causal head",
+            )
+        _apply_marker_live_record(payload, expected_record)
+        changed = True
+    if current_head != expected_head:
+        head_map[marker_id] = deepcopy(expected_head)
+        changed = True
+    if changed:
+        payload["schema_version"] = max(int(payload.get("schema_version") or 1), 3)
+        payload["marker_source_sequence"] = max(
+            int(payload.get("marker_source_sequence") or 0), causal_sequence
+        )
+        _save_time_markers(ctx, payload)
+
+
+def _flag_receipt_rows(flags: dict[str, Any]) -> list[tuple[int, str, dict[str, Any]]]:
+    rows: list[tuple[int, str, dict[str, Any]]] = []
+    toolbox = ((flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {})
+    if not isinstance(toolbox, dict):
+        raise ToolError("state_corrupt", "canonical flag receipt map is invalid")
+    for receipt in toolbox.values():
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical flag receipt is invalid")
+        if receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION:
+            continue
+        if not _stored_toolbox_receipt_valid(receipt):
+            raise ToolError("state_corrupt", "canonical flag receipt integrity failed")
+        rows.append(
+            (int(receipt["entity_head"]["source_sequence"]), "toolbox", receipt)
+        )
+    director = flags.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director):
+        raise ToolError("state_corrupt", "canonical director flag receipt map is invalid")
+    for receipt in director.values():
+        rows.append(
+            (int(receipt["entity_head"]["source_sequence"]), "director", receipt)
+        )
+    return sorted(rows, key=lambda item: (item[0], str(item[2].get("event_id") or "")))
+
+
+def _ensure_flag_event_cutover(ctx: Ctx, flags: dict[str, Any]) -> bool:
+    existing = flags.get(coc_flag_state.FLAG_EVENT_CUTOVER_KEY)
+    if existing is not None:
+        if not coc_flag_state.valid_flag_event_cutover(existing):
+            raise ToolError("state_corrupt", "flag event cutover boundary is invalid")
+        return False
+    receipt_rows = _flag_receipt_rows(flags)
+    if not receipt_rows:
+        return False
+    events = _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
+    event_lines = {
+        str(row.get("event_id") or ""): line
+        for line, row in enumerate(events, start=1)
+        if str(row.get("event_id") or "")
+    }
+    anchored_lines = [
+        event_lines[str(receipt.get("event_id") or "")]
+        for _sequence, _kind, receipt in receipt_rows
+        if str(receipt.get("event_id") or "") in event_lines
+    ]
+    boundary = min(anchored_lines) - 1 if anchored_lines else len(events)
+    first_sequence, _kind, first_receipt = receipt_rows[0]
+    flags[coc_flag_state.FLAG_EVENT_CUTOVER_KEY] = (
+        coc_flag_state.new_flag_event_cutover(
+            events_line_count_before=boundary,
+            first_source_sequence=first_sequence,
+            first_event_id=str(first_receipt["event_id"]),
+        )
+    )
+    ctx.save_flags(flags)
+    return True
+
+
+def _reconcile_all_flag_source_receipts(ctx: Ctx, flags: dict[str, Any]) -> None:
+    """Repair every older flag receipt before a new decision can allocate."""
+    _ensure_flag_event_cutover(ctx, flags)
+    entity_ids: set[str] = set()
+    for _sequence, kind, receipt in _flag_receipt_rows(flags):
+        if kind == "toolbox":
+            _ensure_operation_event(ctx, receipt, inspect_pending=True)
+            manifest = _source_receipt_manifest(receipt)
+            prior = ctx.ledger_lookup("state.set_flag", str(receipt["decision_id"]))
+            if (
+                prior is None
+                or prior.get("data") != receipt.get("data")
+                or prior.get("source_receipt_manifest") != manifest
+            ):
+                ctx.ledger_record(
+                    str(receipt["decision_id"]),
+                    "state.set_flag",
+                    deepcopy(receipt.get("data") or {}),
+                    source_receipt_manifest=manifest,
+                )
+            entity_ids.add(str(receipt["entity_head"]["entity_id"]))
+            continue
+        event = receipt["event"]
+        event_id = str(receipt["event_id"])
+        _materialize_stable_receipt_event(
+            ctx,
+            event=event,
+            event_id=event_id,
+        )
+        entity_ids.add(str(receipt["entity_head"]["entity_id"]))
+
+    for flag_id in entity_ids:
+        expected = _latest_anchored_flag_head(ctx, flags, flag_id)
+        current = (flags.get("flag_heads") or {}).get(flag_id)
+        if expected is None or current != expected:
+            raise ToolError(
+                "state_corrupt",
+                f"flag '{flag_id}' current head does not match its unique latest anchored receipt",
+            )
+        actual = coc_flag_state.flag_live_record(flags, flag_id)
+        if actual != expected["live_record"]:
+            if actual.get("present") is True:
+                raise ToolError(
+                    "state_corrupt",
+                    f"flag '{flag_id}' current value does not match its anchored head",
+                )
+            try:
+                coc_flag_state.apply_live_record(flags, expected["live_record"])
+            except ValueError as exc:
+                raise ToolError("state_corrupt", str(exc)) from exc
+            ctx.save_flags(flags)
+
+
+def _reconcile_all_marker_source_receipts(
+    ctx: Ctx, payload: dict[str, Any]
+) -> None:
+    receipts = (
+        (payload.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.time_marker") or {}
+    )
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical marker receipt map is invalid")
+    ordered: list[dict[str, Any]] = []
+    for receipt in receipts.values():
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical marker receipt is invalid")
+        if receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION:
+            continue
+        if not _stored_toolbox_receipt_valid(receipt):
+            raise ToolError("state_corrupt", "canonical marker receipt integrity failed")
+        ordered.append(receipt)
+    ordered.sort(
+        key=lambda receipt: (
+            int(receipt["entity_head"]["source_sequence"]),
+            str(receipt.get("event_id") or ""),
+        )
+    )
+    entity_ids: set[str] = set()
+    for receipt in ordered:
+        _ensure_operation_event(ctx, receipt, inspect_pending=True)
+        manifest = _source_receipt_manifest(receipt)
+        prior = ctx.ledger_lookup("state.time_marker", str(receipt["decision_id"]))
+        if (
+            prior is None
+            or prior.get("data") != receipt.get("data")
+            or prior.get("source_receipt_manifest") != manifest
+        ):
+            ctx.ledger_record(
+                str(receipt["decision_id"]),
+                "state.time_marker",
+                deepcopy(receipt.get("data") or {}),
+                source_receipt_manifest=manifest,
+            )
+        entity_ids.add(str(receipt["entity_head"]["entity_id"]))
+    for marker_id in entity_ids:
+        expected = _latest_anchored_marker_head(ctx, payload, marker_id)
+        current = (payload.get("marker_heads") or {}).get(marker_id)
+        if expected is None or current != expected:
+            raise ToolError(
+                "state_corrupt",
+                f"time marker '{marker_id}' current head does not match its unique latest anchored receipt",
+            )
+        actual = _marker_live_record(payload, marker_id)
+        if actual != expected["live_record"]:
+            if actual.get("present") is True:
+                raise ToolError(
+                    "state_corrupt",
+                    f"time marker '{marker_id}' current record does not match its anchored head",
+                )
+            _apply_marker_live_record(payload, expected["live_record"])
+            _save_time_markers(ctx, payload)
+
+
+def _reconcile_all_canonical_source_receipts(ctx: Ctx) -> None:
+    """Finish every durable source receipt before any later mutation.
+
+    A host is allowed to continue after a tool failure.  Consequently recovery
+    cannot depend on it retrying the same decision id: the next mutating tool
+    repairs all receipt-owned event and ledger stages while the campaign lock
+    is held.  This is transactional integrity, not a narration gate.
+    """
+    flags = ctx.flags()
+    if (
+        ((flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {})
+        or (flags.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY) or {})
+    ):
+        _reconcile_all_flag_source_receipts(ctx, flags)
+
+    if _time_markers_path(ctx).is_file():
+        markers = _load_time_markers(ctx)
+        if ((markers.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.time_marker") or {}):
+            _reconcile_all_marker_source_receipts(ctx, markers)
+
+    if _npc_receipt_path(ctx).is_file():
+        _reconcile_all_npc_source_receipts(ctx)
+
+
+def reconcile_campaign_continuity(
+    campaign_dir: Path | str,
+    *,
+    ctx: Ctx | None = None,
+) -> None:
+    """Complete every durable continuity receipt at a turn/read boundary.
+
+    Callers must hold the campaign lock.  Toolbox dispatch passes its existing
+    context; the live-turn and Director apply entrypoints construct an
+    equivalent context for the same canonical preflight.  Repair is limited to
+    already-committed source receipts and therefore does not impose a
+    narrative eligibility gate.
+    """
+    campaign = Path(campaign_dir)
+    if ctx is None:
+        ctx = object.__new__(Ctx)
+        ctx.root = campaign.parent
+        ctx.coc_root = (
+            campaign.parents[1]
+            if campaign.parent.name == "campaigns"
+            else campaign.parent
+        )
+        ctx.campaign_id = coc_npc_event_chain.resolve_campaign_id(campaign)
+        ctx.campaign_dir = campaign
+        ctx._scenario_cache = {}
+        ctx._roll_ids = None
+        ctx._roll_sequence = 0
+    elif Path(ctx.campaign_dir) != campaign:
+        raise ToolError(
+            "state_corrupt",
+            "continuity preflight context does not match its campaign directory",
+        )
+    _reconcile_all_canonical_source_receipts(ctx)
+
+
 def _flag_change_projection(
     row: dict[str, Any],
     *,
     source_ref: str,
 ) -> dict[str, Any]:
-    return {
-        "flag_id": str(row.get("flag_id")),
-        "value": bool(row.get("value")),
-        "provenance": {
-            "source": "state.set_flag",
-            "source_ref": source_ref,
-            "decision_id": row.get("decision_id"),
-            "changed_at": row.get("ts"),
-            "reason": row.get("reason"),
-            "previous_value": row.get("previous_value"),
-        },
-    }
+    return coc_flag_state.project_flag_event(row, source_ref=source_ref)
+
+
+def _positive_source_sequence(value: Any) -> int | None:
+    return coc_flag_state.positive_sequence(value)
+
+
+def _validated_iso_timestamp(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    candidate = value.strip()
+    try:
+        parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
+
+
+def _next_flag_source_sequence(ctx: Ctx, flags: dict[str, Any]) -> int:
+    """Allocate a source-owned causal order before the append stage."""
+    stored = flags.get("flag_source_sequence", 0)
+    if stored not in (None, 0) and _positive_source_sequence(stored) is None:
+        raise ToolError("state_corrupt", "invalid flag_source_sequence counter")
+    anchored: list[int] = []
+    toolbox_receipts = (
+        (flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {}
+    )
+    if not isinstance(toolbox_receipts, dict):
+        raise ToolError("state_corrupt", "canonical flag receipt map is invalid")
+    for receipt in toolbox_receipts.values():
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical flag receipt is invalid")
+        if receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION:
+            continue
+        if (
+            not _stored_toolbox_receipt_valid(receipt)
+            or receipt.get("tool") != "state.set_flag"
+        ):
+            raise ToolError("state_corrupt", "canonical flag receipt integrity failed")
+        _operation_event_present(ctx, receipt)
+        anchored.append(int(receipt["entity_head"]["source_sequence"]))
+    director_receipts = flags.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director_receipts):
+        raise ToolError("state_corrupt", "canonical director flag receipt map is invalid")
+    for receipt in director_receipts.values():
+        if not coc_flag_state.valid_director_flag_receipt(receipt):
+            raise ToolError("state_corrupt", "canonical director flag receipt is invalid")
+        _director_receipt_event_present(ctx, receipt)
+        anchored.append(int(receipt["entity_head"]["source_sequence"]))
+    if anchored:
+        anchored_max = max(anchored)
+        if int(stored or 0) != anchored_max:
+            raise ToolError(
+                "state_corrupt",
+                "flag source counter is not anchored to the latest valid receipt",
+            )
+        return anchored_max + 1
+    flag_events = [
+        row
+        for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
+        if row.get("event_type") == "flag_set"
+    ]
+    # One-time compatibility cutover: before the first receipt exists, retain
+    # the old counter/event maximum solely to avoid colliding with legacy rows.
+    return coc_flag_state.next_source_sequence(flags, flag_events)
 
 
 def _world_flag_continuity(ctx: Ctx) -> dict[str, list[dict[str, Any]]]:
     flags_doc = ctx.flags()
     flag_map = flags_doc.get("flags") or {}
-    provenance_map = flags_doc.get("flag_provenance") or {}
+    head_map = flags_doc.get("flag_heads") or {}
     if not isinstance(flag_map, dict):
         flag_map = {}
-    if not isinstance(provenance_map, dict):
-        provenance_map = {}
+    if not isinstance(head_map, dict):
+        head_map = {}
+
+    all_event_records = _read_jsonl_records(
+        ctx.campaign_dir / "logs" / "events.jsonl"
+    )
+    event_rows: list[tuple[int, dict[str, Any]]] = []
+    for line_number, row in enumerate(all_event_records, start=1):
+        if row.get("event_type") != "flag_set" or row.get("flag_id") in (None, ""):
+            continue
+        event_rows.append((line_number, row))
+
+    # Legacy and sequenced events occupy distinct order domains.  The persisted
+    # canonical-line cutover is what distinguishes a genuine old row from an
+    # unanchored row emitted by a stale producer after the receipt era began.
+    timestamp_order = {
+        line_number: rank
+        for rank, (line_number, _row) in enumerate(
+            sorted(
+                event_rows,
+                key=lambda item: (
+                    _validated_iso_timestamp(item[1].get("ts")) is None,
+                    _validated_iso_timestamp(item[1].get("ts")) or 0.0,
+                    item[0],
+                ),
+            ),
+            start=1,
+        )
+    }
+    anchored_event = {
+        line_number: _flag_event_is_source_anchored(ctx, flags_doc, row)
+        for line_number, row in event_rows
+    }
+    cutover = flags_doc.get(coc_flag_state.FLAG_EVENT_CUTOVER_KEY)
+    if cutover is not None and not coc_flag_state.valid_flag_event_cutover(cutover):
+        raise ToolError("state_corrupt", "flag event cutover boundary is invalid")
+    if isinstance(cutover, dict):
+        cutover_line = int(cutover["events_line_count_before"])
+        receipt_rows = _flag_receipt_rows(flags_doc)
+        if not receipt_rows:
+            raise ToolError(
+                "state_corrupt", "flag event cutover has no source receipt anchor"
+            )
+        first_sequence, _kind, first_receipt = receipt_rows[0]
+        if (
+            int(cutover["first_source_sequence"]) != first_sequence
+            or str(cutover["first_event_id"])
+            != str(first_receipt.get("event_id") or "")
+            or cutover_line > len(all_event_records)
+        ):
+            raise ToolError(
+                "state_corrupt", "flag event cutover does not match its first source receipt"
+            )
+        first_line = next(
+            (
+                line
+                for line, row in enumerate(all_event_records, start=1)
+                if str(row.get("event_id") or "")
+                == str(first_receipt.get("event_id") or "")
+            ),
+            None,
+        )
+        if first_line is not None and cutover_line >= first_line:
+            raise ToolError(
+                "state_corrupt", "flag event cutover overlaps its first anchored event"
+            )
+    else:
+        anchored_lines = [line for line, anchored in anchored_event.items() if anchored]
+        cutover_line = (
+            min(anchored_lines) - 1
+            if anchored_lines
+            else len(all_event_records)
+        )
+
+    def order_domain(line_number: int) -> int:
+        if anchored_event[line_number]:
+            return 1
+        return 0 if line_number <= cutover_line else 2
+
+    ordered_rows = sorted(
+        event_rows,
+        key=lambda item: (
+            order_domain(item[0]),
+            (
+                _positive_source_sequence(item[1].get("source_sequence")) or 0
+                if anchored_event[item[0]]
+                else item[0]
+            ),
+            timestamp_order[item[0]],
+            _validated_iso_timestamp(item[1].get("ts")) is None,
+            _validated_iso_timestamp(item[1].get("ts")) or 0.0,
+            item[0],
+        ),
+    )
 
     event_changes: list[dict[str, Any]] = []
     latest_event_by_id: dict[str, dict[str, Any]] = {}
-    for line_number, row in enumerate(
-        _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl"),
-        start=1,
-    ):
-        if row.get("event_type") != "flag_set" or row.get("flag_id") in (None, ""):
-            continue
+    post_cutover_unverified_ids: set[str] = set()
+    for line_number, row in ordered_rows:
         projected = _flag_change_projection(
             row,
             source_ref=f"logs/events.jsonl#{line_number}",
         )
+        anchored = anchored_event[line_number]
+        domain = order_domain(line_number)
+        projected["provenance"]["order_epoch"] = (
+            "sequenced-v1"
+            if anchored
+            else "legacy-pre-cutover"
+            if domain == 0
+            else "unverified-post-cutover"
+        )
+        projected["provenance"]["integrity_status"] = (
+            "source_anchored"
+            if anchored
+            else "legacy_unverifiable" if domain == 0
+            else "unverified"
+        )
         event_changes.append(projected)
-        latest_event_by_id[projected["flag_id"]] = projected["provenance"]
+        if anchored or domain == 0:
+            latest_event_by_id[projected["flag_id"]] = projected
+        elif domain == 2:
+            post_cutover_unverified_ids.add(projected["flag_id"])
 
     live: list[dict[str, Any]] = []
+    unverified_live: list[dict[str, Any]] = []
     for flag_id, value in sorted(flag_map.items(), key=lambda pair: str(pair[0])):
-        if not value:
+        if type(value) is not bool:
             continue
         stable_id = str(flag_id)
-        provenance = provenance_map.get(stable_id)
-        if not isinstance(provenance, dict):
-            provenance = latest_event_by_id.get(stable_id)
-        if not isinstance(provenance, dict):
-            provenance = {
-                "source": "save.flags",
-                "source_ref": f"save/flags.json#flags/{stable_id}",
-                "decision_id": None,
-                "changed_at": None,
-                "reason": None,
-                "previous_value": None,
+        live_record = coc_flag_state.flag_live_record(flags_doc, stable_id)
+        head = head_map.get(stable_id)
+        expected = _latest_anchored_flag_head(ctx, flags_doc, stable_id)
+        if expected is None:
+            if head is not None:
+                raise ToolError(
+                    "state_corrupt",
+                    f"flag '{stable_id}' has a typed current head without an exact source receipt/event anchor",
+                )
+            legacy_event = latest_event_by_id.get(stable_id)
+            legacy_provenance = (
+                deepcopy(legacy_event.get("provenance"))
+                if isinstance(legacy_event, dict)
+                and legacy_event.get("value") is value
+                and isinstance(legacy_event.get("provenance"), dict)
+                else {
+                    "source": "save.flags",
+                    "producer": "save.flags",
+                    "source_ref": f"save/flags.json#flags/{stable_id}",
+                    "decision_id": None,
+                    "changed_at": None,
+                    "reason": None,
+                    "previous_value": None,
+                }
+            )
+            legacy_provenance["integrity_status"] = "legacy_unverifiable"
+            legacy_row = {
+                "flag_id": stable_id,
+                "value": value,
+                "present": True,
+                "provenance": legacy_provenance,
             }
+            if stable_id in post_cutover_unverified_ids:
+                legacy_row["provenance"]["integrity_status"] = "unverified"
+                unverified_live.append(legacy_row)
+                continue
+            # Preserve historical current-state compatibility while clearly
+            # separating it from source-attested state.
+            live.append(deepcopy(legacy_row))
+            unverified_live.append(legacy_row)
+            continue
+        if head != expected or expected.get("live_record") != live_record:
+            raise ToolError(
+                "state_corrupt",
+                f"flag '{stable_id}' current record does not equal its unique latest anchored receipt head",
+            )
+        provenance = deepcopy(expected["live_record"].get("provenance"))
+        if not isinstance(provenance, dict):
+            raise ToolError("state_corrupt", f"flag '{stable_id}' anchored provenance is missing")
+        provenance["integrity_status"] = "source_anchored"
         live.append({
             "flag_id": stable_id,
-            "value": True,
+            "value": value,
+            "present": True,
             "provenance": deepcopy(provenance),
         })
     return {
         "live_world_flags": live,
+        "unverified_world_flags": unverified_live,
         "recent_world_flag_changes": event_changes[-12:],
     }
 
@@ -913,15 +2382,137 @@ def _time_markers_path(ctx: Ctx) -> Path:
 
 
 def _load_time_markers(ctx: Ctx) -> dict[str, Any]:
-    payload = _read_object(_time_markers_path(ctx))
+    path = _time_markers_path(ctx)
+    if not path.is_file():
+        payload: dict[str, Any] = {}
+    else:
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ToolError(
+                "state_corrupt",
+                "save/time-markers.json exists but is unreadable or invalid JSON; refusing legacy replay or overwrite",
+            ) from exc
+        if not isinstance(loaded, dict):
+            raise ToolError(
+                "state_corrupt",
+                "save/time-markers.json must contain a JSON object; refusing legacy replay or overwrite",
+            )
+        payload = loaded
+    if payload.get("schema_version") not in (None, 1, 2, 3):
+        raise ToolError(
+            "state_corrupt",
+            "save/time-markers.json has an unsupported schema_version",
+        )
     markers = payload.get("markers")
-    if not isinstance(markers, dict):
+    if markers is None:
         markers = {}
-    return {"schema_version": 1, "markers": markers}
+    elif not isinstance(markers, dict):
+        raise ToolError(
+            "state_corrupt",
+            "save/time-markers.json has an invalid markers map",
+        )
+    marker_heads = payload.get("marker_heads")
+    if marker_heads is None:
+        marker_heads = {}
+    elif not isinstance(marker_heads, dict):
+        raise ToolError(
+            "state_corrupt",
+            "save/time-markers.json has an invalid marker_heads map",
+        )
+    for marker_id, head in marker_heads.items():
+        if not coc_flag_state.valid_entity_head(
+            head, entity_kind="time_marker", entity_id=str(marker_id)
+        ):
+            raise ToolError(
+                "state_corrupt",
+                f"save/time-markers.json has an invalid live head for marker '{marker_id}'",
+            )
+    marker_sequence = payload.get("marker_source_sequence", 0)
+    if marker_sequence not in (None, 0) and _positive_source_sequence(
+        marker_sequence
+    ) is None:
+        raise ToolError(
+            "state_corrupt",
+            "save/time-markers.json has an invalid marker_source_sequence",
+        )
+    receipts = payload.get(_SOURCE_RECEIPTS_KEY)
+    if receipts is None:
+        receipts = {}
+    elif not isinstance(receipts, dict):
+        raise ToolError(
+            "state_corrupt",
+            f"save/time-markers.json has an invalid {_SOURCE_RECEIPTS_KEY} map",
+        )
+    for tool_name, tool_receipts in receipts.items():
+        if not isinstance(tool_receipts, dict) or any(
+            not isinstance(receipt, dict) for receipt in tool_receipts.values()
+        ):
+            raise ToolError(
+                "state_corrupt",
+                f"save/time-markers.json has invalid receipts for {tool_name}",
+            )
+    payload["schema_version"] = max(int(payload.get("schema_version") or 1), 3)
+    payload["markers"] = markers
+    payload["marker_heads"] = marker_heads
+    payload["marker_source_sequence"] = int(marker_sequence or 0)
+    payload[_SOURCE_RECEIPTS_KEY] = receipts
+    return payload
 
 
 def _save_time_markers(ctx: Ctx, payload: dict[str, Any]) -> None:
     coc_state.write_json_atomic(_time_markers_path(ctx), payload)
+
+
+def _next_marker_source_sequence(ctx: Ctx, payload: dict[str, Any]) -> int:
+    stored = payload.get("marker_source_sequence", 0)
+    if stored not in (None, 0) and _positive_source_sequence(stored) is None:
+        raise ToolError("state_corrupt", "invalid marker_source_sequence counter")
+    # Collect every receipt head because this is one global marker allocator.
+    anchored: list[int] = []
+    receipts = ((payload.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.time_marker") or {})
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical marker receipt map is invalid")
+    for receipt in receipts.values():
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical marker receipt is invalid")
+        if receipt.get("schema_version") != _SOURCE_RECEIPT_SCHEMA_VERSION:
+            continue
+        if (
+            not _stored_toolbox_receipt_valid(receipt)
+            or receipt.get("tool") != "state.time_marker"
+        ):
+            raise ToolError("state_corrupt", "canonical marker receipt integrity failed")
+        _operation_event_present(ctx, receipt)
+        anchored.append(int(receipt["entity_head"]["source_sequence"]))
+    if anchored:
+        anchored_max = max(anchored)
+        if int(stored or 0) != anchored_max:
+            raise ToolError(
+                "state_corrupt",
+                "marker source counter is not anchored to the latest valid receipt",
+            )
+        return anchored_max + 1
+    event_max = max(
+        (
+            _positive_source_sequence(row.get("source_sequence")) or 0
+            for row in _read_jsonl_records(
+                ctx.campaign_dir / "logs" / "events.jsonl"
+            )
+            if row.get("event_type") == "time_marker_changed"
+        ),
+        default=0,
+    )
+    head_map = payload.get("marker_heads") or {}
+    head_max = max(
+        (
+            _positive_source_sequence(head.get("source_sequence")) or 0
+            for head in head_map.values()
+            if isinstance(head, dict)
+        ),
+        default=0,
+    ) if isinstance(head_map, dict) else 0
+    return max(int(stored or 0), event_max, head_max) + 1
 
 
 def _deadline_due_at(current: dict[str, Any], minutes_from_now: int) -> dict[str, Any]:
@@ -985,10 +2576,13 @@ def _project_time_marker(
         "timing_state": timing_state,
         "provenance": {
             "source": "state.time_marker",
+            "producer": marker.get("producer"),
             "decision_id": marker.get("decision_id"),
+            "source_sequence": marker.get("source_sequence"),
             "created_at": marker.get("created_at"),
             "updated_at": marker.get("updated_at"),
             "reason": marker.get("reason"),
+            "integrity_status": "source_anchored",
         },
     }
 
@@ -996,9 +2590,52 @@ def _project_time_marker(
 def _active_time_markers(ctx: Ctx) -> list[dict[str, Any]]:
     current = coc_time.current_stamp(ctx.campaign_dir)
     payload = _load_time_markers(ctx)
+    markers = payload.get("markers") or {}
+    heads = payload.get("marker_heads") or {}
+    if not isinstance(markers, dict) or not isinstance(heads, dict):
+        raise ToolError("state_corrupt", "canonical time marker maps are invalid")
+    active: list[dict[str, Any]] = []
+    for marker_id, marker in markers.items():
+        if not isinstance(marker, dict) or marker.get("status") != "active":
+            continue
+        stable_id = str(marker_id)
+        expected = _latest_anchored_marker_head(ctx, payload, stable_id)
+        current_head = heads.get(stable_id)
+        if expected is None:
+            if current_head is not None:
+                raise ToolError(
+                    "state_corrupt",
+                    f"time marker '{stable_id}' has a typed head without an exact source receipt/event anchor",
+                )
+            # Genuine pre-receipt markers remain stored for migration/audit but
+            # are not presented as canonical deadline truth.
+            continue
+        live_record = _marker_live_record(payload, stable_id)
+        if current_head != expected or expected.get("live_record") != live_record:
+            raise ToolError(
+                "state_corrupt",
+                f"time marker '{stable_id}' current deadline does not equal its unique latest anchored receipt head",
+            )
+        active.append(_project_time_marker(marker, current))
+    return sorted(
+        active,
+        key=lambda marker: (
+            int((marker.get("due_at") or {}).get("elapsed_minutes") or 0),
+            str(marker.get("marker_id") or ""),
+        ),
+    )
+
+
+def _project_active_time_markers(
+    payload: dict[str, Any],
+    current: dict[str, Any],
+) -> list[dict[str, Any]]:
+    markers = payload.get("markers")
+    if not isinstance(markers, dict):
+        markers = {}
     active = [
         _project_time_marker(marker, current)
-        for marker in payload["markers"].values()
+        for marker in markers.values()
         if isinstance(marker, dict) and marker.get("status") == "active"
     ]
     return sorted(
@@ -3198,50 +4835,147 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_state_set_flag(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("state.set_flag", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    tool_name = "state.set_flag"
+    decision_id = str(args["decision_id"])
     flag_id = str(args["flag_id"])
     value = bool(args.get("value", True))
-    flags = ctx.flags()
-    flag_map = flags.get("flags") or {}
-    previous_value = flag_map.get(flag_id)
-    flag_map[flag_id] = value
-    flags["flags"] = flag_map
-    changed_at = _now_iso()
-    provenance_map = flags.get("flag_provenance") or {}
-    if not isinstance(provenance_map, dict):
-        provenance_map = {}
-    provenance_map[flag_id] = {
-        "source": "state.set_flag",
-        "source_ref": f"save/flags.json#flag_provenance/{flag_id}",
-        "decision_id": args.get("decision_id"),
-        "changed_at": changed_at,
-        "reason": args.get("reason"),
-        "previous_value": previous_value,
-    }
-    flags["flag_provenance"] = provenance_map
-    ctx.save_flags(flags)
-    world = ctx.world()
-    newly_unlocked = _evaluate_and_apply_unlocks(ctx, world)
-    if newly_unlocked:
-        ctx.save_world(world)
-    ctx.log_event({
-        "event_type": "flag_set",
+    reason = str(args["reason"]) if args.get("reason") is not None else None
+    operation = {
         "flag_id": flag_id,
         "value": value,
-        "previous_value": previous_value,
-        "reason": args.get("reason"),
-        "decision_id": args.get("decision_id"),
-        "ts": changed_at,
-    })
+        "reason": reason,
+    }
+    flags = ctx.flags()
+    _reconcile_all_flag_source_receipts(ctx, flags)
+    receipt = _source_receipt(flags, tool_name, decision_id)
+    if receipt is not None:
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        receipt = _migrate_v2_source_receipt(
+            ctx,
+            flags,
+            receipt,
+            tool_name=tool_name,
+            entity_kind="flag",
+            entity_id=flag_id,
+        )
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        _operation_event_present(ctx, receipt)
+        _repair_flag_live_head(ctx, flags, receipt)
+        # Verify/repair the immutable event before any additive world repair;
+        # a duplicate or conflicting stable ID must leave world/ledger intact.
+        _ensure_operation_event(ctx, receipt)
+        # Unlocks are additive.  Repair only the exact IDs frozen in the
+        # original receipt, preserving any later, unrelated world writes.
+        frozen_unlocks = (receipt.get("data") or {}).get(
+            "newly_unlocked_scenes"
+        ) or []
+        world = ctx.world()
+        repaired = coc_scene_graph.apply_unlocks_to_world(
+            world, [str(value) for value in frozen_unlocks if value]
+        )
+        if repaired:
+            ctx.save_world(world)
+        return _replay_source_receipt(ctx, receipt)
+
+    # Compatibility for ledgers written before source receipts existed.
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        if _ledger_requires_source_receipt(prior):
+            raise ToolError(
+                "state_corrupt",
+                f"receipt-era ledger entry for {tool_name} decision_id '{decision_id}' has no canonical source receipt",
+            )
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"legacy ledger entry for {tool_name} decision_id '{decision_id}' has no matching source receipt; state was not changed",
+        )
+
+    flag_map = flags.get("flags")
+    if flag_map is None:
+        flag_map = {}
+    elif not isinstance(flag_map, dict):
+        raise ToolError(
+            "state_corrupt",
+            "save/flags.json has an invalid flags map; refusing to overwrite it",
+        )
+    flags["flags"] = flag_map
+    current_head = (flags.get("flag_heads") or {}).get(flag_id)
+    if current_head is not None and not _flag_head_is_source_anchored(
+        ctx, flags, current_head
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"flag '{flag_id}' has an unanchored live head; refusing to overwrite it",
+        )
+    changed_at = _now_iso()
+    source_sequence = _next_flag_source_sequence(ctx, flags)
+    try:
+        event, provenance, entity_head = coc_flag_state.commit_flag_mutation(
+            flags,
+            flag_id=flag_id,
+            value=value,
+            decision_id=decision_id,
+            producer="state.set_flag",
+            changed_at=changed_at,
+            reason=reason,
+            source_ref=f"save/flags.json#flag_provenance/{flag_id}",
+            source_sequence=source_sequence,
+            event_id=_operation_event_id(tool_name, decision_id),
+        )
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    flag_map = flags["flags"]
+
+    # Freeze the unlock result from this exact source transition before any
+    # append/ledger stage.  A replay repairs these IDs additively and never
+    # recalculates previous_value/provenance from later state.
+    world = ctx.world()
+    projected_world = deepcopy(world)
+    unlock_candidates = coc_scene_graph.evaluate_unlocks(
+        ctx.story_graph,
+        projected_world,
+        clock_reached=_clock_reached(ctx),
+        flags_set={str(key) for key, enabled in flag_map.items() if enabled},
+    )
+    newly_unlocked = coc_scene_graph.apply_unlocks_to_world(
+        projected_world, unlock_candidates
+    )
     data = {
         "flag_id": flag_id,
         "value": value,
-        "provenance": deepcopy(provenance_map[flag_id]),
-        "newly_unlocked_scenes": newly_unlocked,
+        "provenance": deepcopy(provenance),
+        "newly_unlocked_scenes": list(newly_unlocked),
     }
-    ctx.ledger_record(args.get("decision_id"), "state.set_flag", data)
+    receipt = _new_source_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        event=event,
+        data=data,
+        entity_head=entity_head,
+    )
+    _put_source_receipt(flags, receipt)
+    _ensure_flag_event_cutover(ctx, flags)
+    ctx.save_flags(flags)
+    if newly_unlocked:
+        ctx.save_world(projected_world)
+    _ensure_operation_event(ctx, receipt)
+    ctx.ledger_record(
+        decision_id,
+        tool_name,
+        data,
+        source_receipt_manifest=_source_receipt_manifest(receipt),
+    )
     return data, [], []
 
 
@@ -3327,73 +5061,108 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "exact identity_ref returned by npc.query/scene.context when the authored identity was portrayed",
         },
+        "run_id": {
+            "type": "string",
+            "desc": "current play/report segment run id; live play hosts supply this automatically",
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
 def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup(
-        "state.record_npc_engagement", args.get("decision_id")
+    tool_name = "state.record_npc_engagement"
+    decision_id = str(args["decision_id"])
+    requested_npc_id = str(args["npc_id"])
+    requested_interaction_kind = str(args["interaction_kind"]).strip()
+    supplied_identity_ref = str(args.get("identity_ref") or "").strip()
+    campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+    run_id = coc_npc_event_chain.resolve_run_id(
+        ctx.campaign_dir, structured_source=args
     )
-    if prior is not None:
-        return prior.get("data"), [
-            "duplicate decision_id: returning the previously settled result"
+    operation = {
+        "npc_id": requested_npc_id,
+        "interaction_kind": requested_interaction_kind,
+        "identity_ref": supplied_identity_ref or None,
+    }
+
+    document = _reconcile_all_npc_source_receipts(ctx)
+    prior_receipts = _npc_receipts_for_decision(
+        document, producer=tool_name, decision_id=decision_id
+    )
+    if prior_receipts:
+        if len(prior_receipts) != 1:
+            raise ToolError(
+                "state_corrupt",
+                f"{tool_name} decision_id '{decision_id}' has multiple source receipts",
+            )
+        receipt = prior_receipts[0]
+        if receipt.get("run_id") != run_id:
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' was already applied in a different play run",
+            )
+        if receipt.get("operation_digest") != coc_npc_event_chain.canonical_digest(
+            operation
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' was already applied to a different NPC engagement payload",
+            )
+        _ensure_npc_receipt_event(ctx, receipt)
+        return deepcopy(receipt["event"]), [
+            *_npc_receipt_warnings(receipt),
+            "duplicate decision_id: recovered the source-owned NPC engagement receipt",
         ], []
 
-    requested_npc_id = str(args["npc_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"legacy ledger entry for {tool_name} decision_id '{decision_id}' has no source receipt",
+        )
+
     authored_npc = _npc_by_id(ctx.npc_agendas, requested_npc_id)
     npc_id = str(authored_npc.get("npc_id")) if authored_npc else requested_npc_id
-    requested_interaction_kind = str(args["interaction_kind"]).strip()
     interaction_kind = requested_interaction_kind
     allowed = {
         "dialogue", "assistance", "opposition", "accompaniment", "witness", "other",
     }
     if interaction_kind not in allowed:
         interaction_kind = "other"
-    scene_id = ctx.world().get("active_scene_id")
+    scene_id = str(ctx.world().get("active_scene_id") or "scene:unknown")
     identity_contract = (
         _npc_identity_contract(authored_npc, scene_id) if authored_npc else None
     )
-    supplied_identity_ref = str(args.get("identity_ref") or "").strip()
-    expected_identity_ref = (
-        str(identity_contract.get("identity_ref")) if identity_contract else None
+    identity_binding = coc_npc_identity.identity_binding(
+        identity_contract,
+        supplied_identity_ref=supplied_identity_ref,
     )
-    schedule_match = (
-        (identity_contract.get("location_provenance") or {}).get(
-            "active_scene_matches_schedule"
-        )
-        if identity_contract
-        else None
+    binding_status = str(identity_binding["status"])
+    binding_reasons = list(identity_binding.get("reasons") or [])
+    event_id = coc_npc_event_chain.stable_event_id(
+        producer=tool_name,
+        campaign_id=campaign_id,
+        run_id=run_id,
+        decision_id=decision_id,
+        scene_id=scene_id,
+        npc_id=npc_id,
+        event_type="npc_engagement",
+        ordinal=0,
     )
-    binding_reasons: list[str] = []
-    if authored_npc is None:
-        binding_status = "improvised"
-        binding_reasons.append("npc_id_not_in_authored_agendas")
-    elif not supplied_identity_ref:
-        binding_status = "unverified"
-        binding_reasons.append("identity_ref_missing")
-    elif supplied_identity_ref != expected_identity_ref:
-        binding_status = "mismatch"
-        binding_reasons.append("identity_ref_mismatch")
-    elif schedule_match is False:
-        binding_status = "mismatch"
-        binding_reasons.append("active_scene_outside_authored_schedule")
-    else:
-        binding_status = "authored_bound"
-    coverage_eligible = binding_status == "authored_bound"
     event = {
+        "schema_version": coc_npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION,
         "event_type": "npc_engagement",
+        "event_id": event_id,
+        "source_receipt_schema_version": coc_npc_event_chain.RECEIPT_SCHEMA_VERSION,
+        "producer": tool_name,
+        "campaign_id": campaign_id,
+        "run_id": run_id,
+        "decision_id": decision_id,
         "npc_id": npc_id,
         "scene_id": scene_id,
+        "ts": _now_iso(),
         "interaction_kind": interaction_kind,
         "identity_contract": identity_contract,
-        "identity_binding": {
-            "status": binding_status,
-            "authored_identity_attested": coverage_eligible,
-            "coverage_eligible": coverage_eligible,
-            "supplied_identity_ref": supplied_identity_ref or None,
-            "expected_identity_ref": expected_identity_ref,
-            "reasons": binding_reasons,
-        },
+        "identity_binding": identity_binding,
     }
     warnings: list[str] = []
     if authored_npc is None:
@@ -3421,11 +5190,28 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         warnings.append(
             f"unrecognized interaction_kind '{requested_interaction_kind}' was preserved as interaction_label and normalized to 'other'"
         )
-    ctx.log_event(event)
-    data = deepcopy(event)
-    ctx.ledger_record(
-        args.get("decision_id"), "state.record_npc_engagement", data
+    receipt = coc_npc_event_chain.new_receipt(
+        producer=tool_name,
+        campaign_id=campaign_id,
+        run_id=run_id,
+        decision_id=decision_id,
+        scene_id=scene_id,
+        npc_id=npc_id,
+        event_type="npc_engagement",
+        ordinal=0,
+        operation=operation,
+        event=event,
     )
+    try:
+        coc_npc_event_chain.put_receipt(document, receipt)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    # Source first: a crash before event/ledger is repaired by the next
+    # mutating tool, even if the host chooses a different decision id.
+    _save_npc_receipt_document(ctx, document)
+    _ensure_npc_receipt_event(ctx, receipt)
+    data = deepcopy(event)
+    ctx.ledger_record(decision_id, tool_name, data)
     return data, warnings, []
 
 
@@ -3497,12 +5283,8 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.time_marker"
     decision_id = str(args["decision_id"])
-    prior = ctx.ledger_lookup("state.time_marker", decision_id)
-    if prior is not None:
-        return prior.get("data"), [
-            "duplicate decision_id: returning the previously settled result"
-        ], []
     action = str(args["action"]).strip().lower()
     if action not in {"set", "reset", "clear"}:
         raise ToolError("invalid_param", "action must be set, reset, or clear")
@@ -3510,15 +5292,7 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
     if not marker_id:
         raise ToolError("invalid_param", "marker_id must be non-empty")
 
-    payload = _load_time_markers(ctx)
-    markers = payload["markers"]
-    existing = markers.get(marker_id)
-    existing = deepcopy(existing) if isinstance(existing, dict) else None
-    warnings: list[str] = []
-    now_wall = _now_iso()
-    current = coc_time.current_stamp(ctx.campaign_dir)
-    projected_marker: dict[str, Any] | None
-
+    minutes_from_now: int | None = None
     if action in {"set", "reset"}:
         if args.get("minutes_from_now") is None:
             raise ToolError(
@@ -3529,6 +5303,77 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             raise ToolError(
                 "invalid_param", "minutes_from_now must be >= 0 (time is monotonic)"
             )
+    label = str(args["label"]) if args.get("label") is not None else None
+    reason = str(args["reason"]) if args.get("reason") is not None else None
+    operation = {
+        "action": action,
+        "marker_id": marker_id,
+        "minutes_from_now": minutes_from_now,
+        "label": label if action in {"set", "reset"} else None,
+        "reason": reason,
+    }
+
+    payload = _load_time_markers(ctx)
+    _reconcile_all_marker_source_receipts(ctx, payload)
+    receipt = _source_receipt(payload, tool_name, decision_id)
+    if receipt is not None:
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        receipt = _migrate_v2_source_receipt(
+            ctx,
+            payload,
+            receipt,
+            tool_name=tool_name,
+            entity_kind="time_marker",
+            entity_id=marker_id,
+        )
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        _operation_event_present(ctx, receipt)
+        _repair_marker_live_head(ctx, payload, receipt)
+        return _replay_source_receipt(ctx, receipt)
+
+    # Compatibility for ledgers written before source receipts existed.
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        if _ledger_requires_source_receipt(prior):
+            raise ToolError(
+                "state_corrupt",
+                f"receipt-era ledger entry for {tool_name} decision_id '{decision_id}' has no canonical source receipt",
+            )
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"legacy ledger entry for {tool_name} decision_id '{decision_id}' has no matching source receipt; time-relative state was not reapplied",
+        )
+
+    markers = payload["markers"]
+    existing = markers.get(marker_id)
+    existing = deepcopy(existing) if isinstance(existing, dict) else None
+    current_head = payload["marker_heads"].get(marker_id)
+    if current_head is not None and not _marker_head_is_source_anchored(
+        ctx, payload, current_head
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"time marker '{marker_id}' has an unanchored live head; refusing to overwrite it",
+        )
+    warnings: list[str] = []
+    now_wall = _now_iso()
+    current = coc_time.current_stamp(ctx.campaign_dir)
+    projected_marker: dict[str, Any] | None
+    source_sequence = _next_marker_source_sequence(ctx, payload)
+    payload["marker_source_sequence"] = source_sequence
+
+    if action in {"set", "reset"}:
+        assert minutes_from_now is not None
         if action == "reset" and existing is None:
             warnings.append(
                 f"time marker '{marker_id}' did not exist; reset created it"
@@ -3539,9 +5384,10 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             )
         revision = int((existing or {}).get("revision") or 0) + 1
         marker = {
+            "schema_version": coc_flag_state.TIME_MARKER_SCHEMA_VERSION,
             "marker_id": marker_id,
             "label": str(
-                args.get("label")
+                label
                 or (existing or {}).get("label")
                 or marker_id
             ),
@@ -3551,10 +5397,11 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             "created_at": (existing or {}).get("created_at") or now_wall,
             "updated_at": now_wall,
             "decision_id": decision_id,
-            "reason": args.get("reason"),
+            "reason": reason,
+            "source_sequence": source_sequence,
+            "producer": "state.time_marker",
         }
         markers[marker_id] = marker
-        _save_time_markers(ctx, payload)
         projected_marker = _project_time_marker(marker, current)
     else:
         if existing is None:
@@ -3563,36 +5410,72 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             )
             projected_marker = None
         else:
+            existing["schema_version"] = coc_flag_state.TIME_MARKER_SCHEMA_VERSION
             existing["status"] = "cleared"
             existing["revision"] = int(existing.get("revision") or 0) + 1
             existing["updated_at"] = now_wall
             existing["cleared_at"] = now_wall
             existing["decision_id"] = decision_id
-            existing["reason"] = args.get("reason")
+            existing["reason"] = reason
+            existing["source_sequence"] = source_sequence
+            existing["producer"] = "state.time_marker"
             markers[marker_id] = existing
-            _save_time_markers(ctx, payload)
             projected_marker = _project_time_marker(existing, current)
 
-    ctx.log_event({
+    event = {
+        "time_marker_schema_version": coc_flag_state.TIME_MARKER_SCHEMA_VERSION,
         "event_type": "time_marker_changed",
+        "event_id": _operation_event_id(tool_name, decision_id),
         "action": action,
         "marker_id": marker_id,
         "decision_id": decision_id,
-        "reason": args.get("reason"),
+        "reason": reason,
         "previous_due_at": deepcopy((existing or {}).get("due_at")),
         "due_at": deepcopy((markers.get(marker_id) or {}).get("due_at")),
         "status": (markers.get(marker_id) or {}).get("status", "absent"),
-    })
+        "ts": now_wall,
+        "source_sequence": source_sequence,
+    }
     data = {
         "action": action,
         "marker": projected_marker,
         "current_time": current,
-        "active_time_markers": _active_time_markers(ctx),
+        "active_time_markers": _project_active_time_markers(payload, current),
     }
-    ctx.ledger_record(decision_id, "state.time_marker", data)
-    return data, warnings, [
+    hints = [
         "time markers are deterministic bookkeeping only; due/overdue status does not auto-trigger rescue, scene movement, or any narrative gate"
     ]
+    marker_live_record = _marker_live_record(payload, marker_id)
+    entity_head = coc_flag_state.entity_head(
+        entity_kind="time_marker",
+        entity_id=marker_id,
+        decision_id=decision_id,
+        source_sequence=source_sequence,
+        producer="state.time_marker",
+        live_record=marker_live_record,
+    )
+    event["live_head_digest"] = coc_flag_state.canonical_digest(entity_head)
+    payload["marker_heads"][marker_id] = deepcopy(entity_head)
+    receipt = _new_source_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        event=event,
+        data=data,
+        warnings=warnings,
+        hints=hints,
+        entity_head=entity_head,
+    )
+    _put_source_receipt(payload, receipt)
+    _save_time_markers(ctx, payload)
+    _ensure_operation_event(ctx, receipt)
+    ctx.ledger_record(
+        decision_id,
+        tool_name,
+        data,
+        source_receipt_manifest=_source_receipt_manifest(receipt),
+    )
+    return data, warnings, hints
 
 
 @tool(

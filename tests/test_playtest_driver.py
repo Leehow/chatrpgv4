@@ -1169,6 +1169,72 @@ class _StaticLiveRunner:
         }
 
 
+class _RunIdCapturingLiveRunner(_StaticLiveRunner):
+    def __init__(self, scene_id):
+        super().__init__(scene_id)
+        self.run_ids = []
+
+    def run_live_turn(self, *_args, **kwargs):
+        self.run_ids.append(kwargs.get("run_id"))
+        return super().run_live_turn(*_args, **kwargs)
+
+
+def test_driver_mints_run_id_before_first_turn_and_artifact_reuses_it(
+    tmp_path, monkeypatch,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    runner = _RunIdCapturingLiveRunner("scene-1")
+    monkeypatch.setattr(driver, "_live_turn_runner", lambda: runner)
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[{"intent": "检查房间", "intent_class": "search"}],
+        max_turns=1,
+    )
+    assert result["run_id"].startswith("coc-run-v1:")
+    assert runner.run_ids == [result["run_id"]]
+
+    run_dir = tmp_path / "driver-artifact"
+    driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        result,
+        generate_report=False,
+    )
+    metadata = json.loads((run_dir / "playtest.json").read_text())
+    identity = json.loads((run_dir / "run-identity.json").read_text())
+    assert metadata["run_id"] == result["run_id"]
+    assert identity["run_id"] == result["run_id"]
+
+
+def test_driver_explicit_run_id_reaches_every_top_level_live_turn(
+    tmp_path, monkeypatch,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    runner = _RunIdCapturingLiveRunner("scene-1")
+    monkeypatch.setattr(driver, "_live_turn_runner", lambda: runner)
+
+    result = driver.run_full_session(
+        camp,
+        char_path,
+        "inv1",
+        player_choices=[
+            {"intent": "检查房间", "intent_class": "search"},
+            {"intent": "继续检查", "intent_class": "search"},
+        ],
+        max_turns=2,
+        run_id="explicit-driver-run",
+    )
+
+    assert result["run_id"] == "explicit-driver-run"
+    assert runner.run_ids == ["explicit-driver-run", "explicit-driver-run"]
+
+
 def _write_branching_terminal_graph(camp, active_scene_id):
     story = {
         "scenes": [

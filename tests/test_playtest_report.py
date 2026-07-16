@@ -217,6 +217,33 @@ def test_tool_reliability_is_diagnostic_and_tracks_same_decision_recovery():
     assert "不是叙事合法性门控" in text
 
 
+def test_report_state_projection_does_not_render_keeper_continuity_reasons():
+    marker_reason = "SENTINEL_TIME_MARKER_REASON_MUST_NOT_ENTER_REPORT"
+    flag_reason = "SENTINEL_FLAG_REASON_MUST_NOT_ENTER_REPORT"
+    rendered = "\n".join([
+        coc_playtest_report._format_state_event(
+            {
+                "event_type": "time_marker_changed",
+                "marker_id": "police-check-in",
+                "reason": marker_reason,
+            },
+            {},
+            "zh-Hans",
+        ),
+        coc_playtest_report._format_state_event(
+            {
+                "event_type": "flag_set",
+                "flag_id": "side-door-unlatched",
+                "reason": flag_reason,
+            },
+            {},
+            "zh-Hans",
+        ),
+    ])
+    assert marker_reason not in rendered
+    assert flag_reason not in rendered
+
+
 def test_combat_tracker_renders_all_event_encounters_and_only_latest_snapshot():
     events = [
         {

@@ -396,6 +396,7 @@ def test_development_skill_owns_structured_synchronous_settlement():
     adapter = Path("runtime/adapters/keeper/run_keeper_turn.mjs").read_text()
     assert "synchronously finish every rules.* resource change" in adapter
     assert "Only append-only JSONL audit/mirror flushing may happen" in adapter
+    assert "COC_PLAYTEST_RUN_ID" in adapter
 
 
 def test_reference_documents_exist_and_use_ascii_system_markers():

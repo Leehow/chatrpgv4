@@ -7,6 +7,7 @@ an out-of-band worker, a later turn, or a manual command.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -14,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -25,6 +26,74 @@ import coc_fileio
 SUPPORTED_MODES = {"sync", "fast", "minimal"}
 ASYNC_MODES = {"fast", "minimal"}
 SUPPORTED_FLUSH_POLICIES = {"manual", "background"}
+
+
+class RecorderLockError(RuntimeError):
+    """The recorder serialization domain did not become available in time."""
+
+
+class StableRecordError(RuntimeError):
+    """A stable-id JSONL target is malformed, duplicated, or conflicting."""
+
+
+@contextmanager
+def recorder_lock(campaign_dir: Path, *, wait_seconds: float = 10.0):
+    """Cross-process/thread kernel lock for pending recorder batches.
+
+    The lock file is intentionally persistent.  Kernel ownership disappears
+    automatically when a process exits, avoiding the unsafe stale-lock
+    deletion race where two recovery workers can each remove the other's
+    newly acquired ``O_EXCL`` file.
+    """
+    lock_path = Path(campaign_dir) / "logs" / ".recorder.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + max(0.0, float(wait_seconds))
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    locked = False
+    try:
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    if os.fstat(fd).st_size < 1:
+                        os.write(fd, b"\0")
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+            except (BlockingIOError, OSError):
+                if time.monotonic() >= deadline:
+                    raise RecorderLockError(
+                        f"recorder lock remained busy at {lock_path}"
+                    ) from None
+                time.sleep(0.01)
+                continue
+            break
+        payload = json.dumps({
+            "pid": os.getpid(),
+            "acquired_at": time.time(),
+        }).encode("utf-8")
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, payload)
+        os.fsync(fd)
+        yield lock_path
+    finally:
+        if locked:
+            if os.name == "nt":
+                import msvcrt
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 def normalize_recording_mode(value: str | None) -> str:
@@ -85,6 +154,70 @@ def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def ensure_stable_jsonl_record_locked(
+    target: Path,
+    record: dict[str, Any],
+    *,
+    existing_by_id: dict[str, dict[str, Any]] | None = None,
+    append_record: Callable[[Path, dict[str, Any]], None] | None = None,
+) -> bool:
+    """Validate/materialize one stable-id row while ``recorder_lock`` is held.
+
+    Every producer that can race a pending-batch flusher uses this exact
+    check/append primitive.  The caller owns the surrounding recorder lock so
+    a whole batch can reuse one kernel-lock acquisition and one canonical-id
+    cache.  Rows without an ``event_id`` remain ordinary append-only records.
+    """
+    target = Path(target)
+    append = append_record or _append_jsonl_sync
+    event_id = str(record.get("event_id") or "")
+    if not event_id:
+        append(target, record)
+        return True
+
+    stable = existing_by_id
+    if stable is None:
+        stable = {}
+        if target.is_file():
+            try:
+                lines = target.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeError) as exc:
+                raise StableRecordError(
+                    f"stable event target is unreadable: {target}"
+                ) from exc
+            for line_number, line in enumerate(lines, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise StableRecordError(
+                        f"stable event target has malformed JSON at line {line_number}: {target}"
+                    ) from exc
+                if not isinstance(row, dict):
+                    continue
+                stable_id = str(row.get("event_id") or "")
+                if not stable_id:
+                    continue
+                prior = stable.get(stable_id)
+                if prior is not None:
+                    raise StableRecordError(
+                        f"duplicate stable event id '{stable_id}' in {target}"
+                    )
+                stable[stable_id] = row
+
+    existing = stable.get(event_id)
+    if existing is not None:
+        if existing != record:
+            raise StableRecordError(
+                f"stable event id '{event_id}' conflicts in {target}"
+            )
+        return False
+    append(target, record)
+    stable[event_id] = record
+    return True
 
 
 class JsonlRecorder:
@@ -201,41 +334,86 @@ def pending_stuck_check(
 
 
 def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> dict[str, int]:
-    """Replay queued JSONL batches into their target logs, then remove them."""
+    """Replay queued JSONL batches exactly once, then remove them.
+
+    Background flushers are deliberately independent from the campaign turn
+    lock: a turn may spawn one while it still owns that lock.  They do,
+    however, share one recorder lock, so listing a batch, checking stable
+    event ids, appending, and unlinking the batch are one serialization
+    domain.  This prevents two detached flushers from both observing the same
+    event as absent and appending it twice.
+    """
     campaign = Path(campaign_dir)
-    files = _pending_files(campaign)
-    if limit is not None:
-        files = files[:max(0, int(limit))]
+    with recorder_lock(campaign):
+        files = _pending_files(campaign)
+        if limit is not None:
+            files = files[:max(0, int(limit))]
 
-    flushed_files = 0
-    flushed_entries = 0
-    for pending in files:
-        payload = json.loads(pending.read_text(encoding="utf-8"))
-        entries = payload.get("entries", [])
-        if not isinstance(entries, list):
-            entries = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            relative = entry.get("relative_path")
-            record = entry.get("record")
-            if not isinstance(relative, str) or not isinstance(record, dict):
-                continue
-            target = (campaign / relative).resolve()
-            try:
-                target.relative_to(campaign.resolve())
-            except ValueError:
-                continue
-            _append_jsonl_sync(target, record)
-            flushed_entries += 1
-        pending.unlink()
-        flushed_files += 1
+        flushed_files = 0
+        flushed_entries = 0
+        existing_by_target: dict[Path, dict[str, dict[str, Any]]] = {}
 
-    return {
-        "flushed_files": flushed_files,
-        "flushed_entries": flushed_entries,
-        "remaining_files": pending_record_count(campaign),
-    }
+        def stable_events(target: Path) -> dict[str, dict[str, Any]]:
+            cached = existing_by_target.get(target)
+            if cached is not None:
+                return cached
+            cached = {}
+            if target.is_file():
+                for line in target.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    if not isinstance(row, dict):
+                        continue
+                    event_id = str(row.get("event_id") or "")
+                    if not event_id:
+                        continue
+                    if event_id in cached:
+                        raise RuntimeError(
+                            f"duplicate stable event id '{event_id}' in {target}"
+                        )
+                    cached[event_id] = row
+            existing_by_target[target] = cached
+            return cached
+
+        for pending in files:
+            payload = json.loads(pending.read_text(encoding="utf-8"))
+            entries = payload.get("entries", [])
+            if not isinstance(entries, list):
+                entries = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                relative = entry.get("relative_path")
+                record = entry.get("record")
+                if not isinstance(relative, str) or not isinstance(record, dict):
+                    continue
+                target = (campaign / relative).resolve()
+                try:
+                    target.relative_to(campaign.resolve())
+                except ValueError:
+                    continue
+                event_id = str(record.get("event_id") or "")
+                if event_id:
+                    if not ensure_stable_jsonl_record_locked(
+                        target,
+                        record,
+                        existing_by_id=stable_events(target),
+                    ):
+                        # A source receipt may have repaired the event while
+                        # this durable batch was waiting.
+                        continue
+                else:
+                    ensure_stable_jsonl_record_locked(target, record)
+                flushed_entries += 1
+            pending.unlink()
+            flushed_files += 1
+
+        return {
+            "flushed_files": flushed_files,
+            "flushed_entries": flushed_entries,
+            "remaining_files": len(_pending_files(campaign)),
+        }
 
 
 def spawn_background_flush(campaign_dir: Path, *, limit: int | None = None) -> dict[str, Any]:
