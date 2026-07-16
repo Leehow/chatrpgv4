@@ -82,6 +82,21 @@ def _make_run(tmp_path: Path) -> Path:
     return run_dir
 
 
+def test_canonical_report_localization_bounds_short_characteristic_terms():
+    contract = _contract()
+    terms = contract._localized_terms(
+        {"localized_terms": {"zh-Hans": {"CON": "耐力"}}},
+        "zh-Hans",
+    )
+
+    assert contract._localize(
+        "STR CON SIZ DEX APP INT POW EDU",
+        terms,
+    ) == "力量 耐力 体型 敏捷 外貌 智力 意志 教育"
+    embedded = "STRONG CONCLUSION RESIZE INDEX APPEARANCE INTERVIEW POWER EDUCATION"
+    assert contract._localize(embedded, terms) == embedded
+
+
 def test_compile_injects_report_schema_and_run_identity_once(tmp_path):
     contract = _contract()
     run_dir = _make_run(tmp_path)

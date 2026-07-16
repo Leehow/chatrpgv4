@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
 
 DEFAULT_PLAY_LANGUAGE = "zh-Hans"
+
+# These machine-facing abbreviations are valid visible labels on their own,
+# but ordinary prose may contain the same byte sequence inside a larger word.
+# ASCII boundaries keep table-label localization exact without classifying prose.
+BOUNDARY_SAFE_ASCII_TERMS = frozenset({
+    "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "SAN", "LUCK",
+})
 
 _LANGUAGE_ALIASES = {
     "de": "german",
@@ -992,6 +1000,14 @@ DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
         "Throw": "投掷",
         "flesh_ward": "血肉防护术",
         "Flesh Ward": "血肉防护术",
+        "STR": "力量",
+        "CON": "体质",
+        "SIZ": "体型",
+        "DEX": "敏捷",
+        "APP": "外貌",
+        "INT": "智力",
+        "POW": "意志",
+        "EDU": "教育",
         "SAN": "理智",
         "LUCK": "幸运",
         "Thomas Hayes": "托马斯·海斯",
@@ -1010,6 +1026,7 @@ DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
         "Boston hospital day physician": "波士顿医院日班医生",
         "hospital doctor": "医院医生",
         "same hospital doctor": "同一位医院医生",
+        "hospital doctor same": "同一位医院医生",
         "Eleanor attending physician": "埃莉诺的主治医生",
         "ambulance medic 1920 10 24": "1920年10月24日救护员",
     },
@@ -1019,6 +1036,26 @@ DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
 def default_localized_terms(play_language: str | None = None) -> dict[str, str]:
     """Built-in table vocabulary; run metadata may override any entry."""
     return deepcopy(DEFAULT_LOCALIZED_TERMS.get(play_language or DEFAULT_PLAY_LANGUAGE, {}))
+
+
+def localize_terms(value: Any, terms: dict[str, str]) -> str:
+    """Apply table vocabulary with ASCII boundaries for mechanical abbreviations."""
+    localized = str(value)
+    for canonical, replacement in sorted(
+        terms.items(),
+        key=lambda item: len(str(item[0])),
+        reverse=True,
+    ):
+        canonical_text = str(canonical)
+        replacement_text = str(replacement)
+        if canonical_text in BOUNDARY_SAFE_ASCII_TERMS:
+            pattern = re.compile(
+                rf"(?<![A-Za-z0-9_]){re.escape(canonical_text)}(?![A-Za-z0-9_])"
+            )
+            localized = pattern.sub(lambda _match: replacement_text, localized)
+        else:
+            localized = localized.replace(canonical_text, replacement_text)
+    return localized
 
 
 def language_profile(play_language: str | None = None) -> dict[str, Any]:

@@ -850,6 +850,55 @@ def test_campaign_busy_retries_before_handler_and_records_attempts(
     assert [row["will_retry"] for row in receipts] == [True, True, False]
 
 
+def test_transient_retry_exhaustion_is_bounded_and_actionable(
+    campaign_ws,
+    monkeypatch,
+):
+    name = "state.retry_exhaustion_probe"
+    attempts = 0
+
+    def handler(ctx, args):
+        nonlocal attempts
+        attempts += 1
+        raise coc_toolbox.ToolError(
+            "subsystem_transaction_failed",
+            "synthetic persistent transient failure",
+        )
+
+    coc_toolbox.TOOLS[name] = {
+        "name": name,
+        "summary": "test-only bounded retry probe",
+        "params": {"decision_id": {"type": "string", "required": True}},
+        "needs_campaign": True,
+        "handler": handler,
+    }
+    monkeypatch.setattr(coc_toolbox, "_TOOL_TRANSIENT_RETRY_DELAY_SECONDS", 0)
+    try:
+        envelope = _run(campaign_ws, name, {"decision_id": "retry-exhaustion-once"})
+    finally:
+        coc_toolbox.TOOLS.pop(name, None)
+
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "subsystem_transaction_failed"
+    assert envelope["attempts"] == 3
+    assert envelope["max_attempts"] == 3
+    assert envelope["retryable"] is True
+    assert envelope["retry_exhausted"] is True
+    assert envelope["recovered_after_retry"] is False
+    assert attempts == 3
+    assert any("same decision_id" in hint for hint in envelope["hints"])
+    receipts = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == name
+    ]
+    assert [row["attempt"] for row in receipts] == [1, 2, 3]
+    assert [row["will_retry"] for row in receipts] == [True, True, False]
+    assert receipts[-1]["retry_exhausted"] is True
+
+
 def test_invalid_payload_is_not_retried_and_returns_recovery_hint(
     campaign_ws,
     monkeypatch,

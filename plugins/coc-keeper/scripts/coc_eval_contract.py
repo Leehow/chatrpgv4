@@ -25,7 +25,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from coc_language import default_localized_terms
+from coc_language import default_localized_terms, localize_terms
 
 REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC_DIR = Path("evaluation/spec/v1")
@@ -417,12 +417,7 @@ def _localized_terms(metadata: dict[str, Any], language: str) -> dict[str, str]:
 
 
 def _localize(value: Any, terms: dict[str, str]) -> str:
-    text = str(value)
-    for canonical, display in sorted(
-        terms.items(), key=lambda item: len(item[0]), reverse=True
-    ):
-        text = text.replace(canonical, display)
-    return text
+    return localize_terms(value, terms)
 
 
 def _actor_names(run_dir: Path, terms: dict[str, str]) -> dict[str, str]:

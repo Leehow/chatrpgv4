@@ -19,6 +19,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from coc_language import BASE_REPORT_LABELS
 from coc_language import default_localized_terms
 from coc_language import language_profile as build_language_profile
+from coc_language import localize_terms
 from coc_playtest_evidence import read_evidence_receipt
 from coc_roll import format_percentile_result
 import coc_epistemic_metrics
@@ -735,13 +736,23 @@ def _format_tool_reliability(
             return [heading, "- 未发现工具调用日志；这是可观察性缺口，不会阻断战报生成。", ""]
         return [heading, "- No tool-call log was found; this is an observability gap and does not block report generation.", ""]
 
+    def failure_code(row: dict[str, Any]) -> str:
+        error = row.get("error_code") or row.get("error")
+        if isinstance(error, dict):
+            error = error.get("code") or error.get("error_code") or error.get("type")
+        return str(error or "unknown")
+
     failures = [row for row in records if row.get("ok") is not True]
-    errors = Counter(str(row.get("error") or "unknown") for row in failures)
+    errors = Counter(failure_code(row) for row in failures)
     calls = Counter(str(row.get("tool") or "unknown") for row in records)
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for index, row in enumerate(records):
         args = row.get("args") if isinstance(row.get("args"), dict) else {}
-        decision_id = str(args.get("decision_id") or f"__receipt_{index}")
+        decision_id = str(
+            row.get("decision_id")
+            or args.get("decision_id")
+            or f"__receipt_{index}"
+        )
         grouped.setdefault((str(row.get("tool") or "unknown"), decision_id), []).append(row)
     recovered = sum(
         1
@@ -1841,9 +1852,7 @@ def _format_localized_terms_summary(terms: dict[str, str], language_profile: dic
 
 
 def _localize_text(text: Any, terms: dict[str, str]) -> str:
-    localized = str(text)
-    for canonical, replacement in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
-        localized = localized.replace(canonical, replacement)
+    localized = localize_terms(text, terms)
     localized = CJK_BOUNDARY_SPACE.sub("", localized)
     return CJK_SENTENCE_PERIOD.sub("。", localized)
 
@@ -3122,10 +3131,10 @@ def _format_combat_tracker(
 
 
 def _combat_id_from_event(event: dict[str, Any]) -> str:
-    combat_id = event.get("combat_id")
+    combat_id = _event_value(event, "combat_id")
     if combat_id not in (None, ""):
         return str(combat_id)
-    roll_id = str(event.get("roll_id") or "")
+    roll_id = str(_event_value(event, "roll_id", "") or "")
     if ":cr" in roll_id:
         return roll_id.rsplit(":cr", 1)[0]
     return ""
@@ -3160,14 +3169,26 @@ def _format_combat_history_trackers(
             },
         )
         if event_type == "combat_started":
-            history["initiative_order"] = list(event.get("initiative_order") or [])
-        elif event_type == "combat_turn_resolved" and isinstance(event.get("turn"), dict):
-            history["turns"].append(dict(event["turn"]))
-        elif event_type == "combat_roll" and isinstance(event.get("combat_damage_receipt"), dict):
-            history["damage_chain"].append(dict(event["combat_damage_receipt"]))
+            history["initiative_order"] = list(_event_value(event, "initiative_order", []) or [])
+        elif event_type == "combat_turn_resolved" and isinstance(_event_value(event, "turn"), dict):
+            history["turns"].append(dict(_event_value(event, "turn")))
+        elif event_type == "combat_roll" and isinstance(_event_value(event, "combat_damage_receipt"), dict):
+            history["damage_chain"].append(dict(_event_value(event, "combat_damage_receipt")))
         elif event_type == "combat_ended":
             history["status"] = "concluded"
-            history["outcome"] = event.get("outcome")
+            history["outcome"] = _event_value(event, "outcome")
+
+    current_id = str(current_state.get("combat_id") or "")
+    if current_id and current_state.get("participants") and current_id not in histories:
+        histories[current_id] = {
+            "combat_id": current_id,
+            "status": current_state.get("status") or "active",
+            "outcome": current_state.get("outcome"),
+            "initiative_order": [],
+            "turns": [],
+            "damage_chain": [],
+            "snapshot_only": True,
+        }
 
     if not histories:
         return _format_combat_tracker(
@@ -3180,15 +3201,40 @@ def _format_combat_history_trackers(
 
     zh = play_language == "zh-Hans"
     lines: list[str] = []
-    current_id = str(current_state.get("combat_id") or "")
     for index, history in enumerate(histories.values(), start=1):
         combat_id = str(history["combat_id"])
+        status = str(history["status"] or "unknown")
+        outcome = str(history.get("outcome") or "unknown")
+        status_display = {
+            "active": "进行中",
+            "concluded": "已结束",
+            "ended": "已结束",
+        }.get(status, _localize_text(status.replace("_", " "), localized_terms)) if zh else status.replace("_", " ")
+        outcome_display = (
+            _COMBAT_OUTCOME_LABELS_ZH.get(
+                outcome,
+                _localize_text(outcome.replace("_", " "), localized_terms),
+            )
+            if zh else outcome.replace("_", " ")
+        )
+        if zh:
+            evidence_source = (
+                "证据来源：最新战斗快照（事件收据缺失）"
+                if history.get("snapshot_only")
+                else "证据来源：结构化事件回放"
+            )
+        else:
+            evidence_source = (
+                "Evidence source: latest combat snapshot (event receipt unavailable)"
+                if history.get("snapshot_only")
+                else "Evidence source: structured event replay"
+            )
         lines.extend([
-            f"### {'遭遇' if zh else 'Encounter'} {index}: `{combat_id}`",
+            f"### {'遭遇' if zh else 'Encounter'} {index}",
             _html_anchor("combat-id", combat_id),
-            f"- {'状态' if zh else 'Status'}: {history['status']}",
-            f"- {'结果' if zh else 'Outcome'}: {history.get('outcome') or 'unknown'}",
-            f"- {'证据来源：结构化事件回放' if zh else 'Evidence source: structured event replay'}",
+            f"- {'状态' if zh else 'Status'}: {status_display}",
+            f"- {'结果' if zh else 'Outcome'}: {outcome_display}",
+            f"- {evidence_source}",
         ])
         initiative = history.get("initiative_order") or []
         if initiative:
@@ -3209,13 +3255,29 @@ def _format_combat_history_trackers(
             for turn in turns:
                 actor = _display_roll_actor(turn.get("actor_id"), actor_names)
                 target = _display_roll_actor(turn.get("target_actor_id"), actor_names)
-                lines.append(
-                    f"  - {actor} → {target}: {turn.get('action', '?')} / "
-                    f"{turn.get('outcome', '?')}"
-                    + (
-                        f" / damage={turn['damage_roll_id']}"
-                        if turn.get("damage_roll_id") else ""
+                action = str(turn.get("action") or "unknown")
+                outcome = str(turn.get("outcome") or "unknown")
+                action_display = (
+                    _COMBAT_ACTION_LABELS_ZH.get(
+                        action,
+                        _localize_text(action.replace("_", " "), localized_terms),
                     )
+                    if zh else action.replace("_", " ")
+                )
+                outcome_display = (
+                    _COMBAT_OUTCOME_LABELS_ZH.get(
+                        outcome,
+                        _localize_text(outcome.replace("_", " "), localized_terms),
+                    )
+                    if zh else outcome.replace("_", " ")
+                )
+                damage_roll_id = turn.get("damage_roll_id")
+                damage_note = (
+                    " / 已记录伤害" if zh else " / damage recorded"
+                ) if damage_roll_id else ""
+                lines.append(
+                    f"  - {actor} → {target}: {action_display} / {outcome_display}{damage_note}"
+                    + (_html_anchor("damage-roll-id", damage_roll_id) if damage_roll_id else "")
                 )
         damage_chain = history.get("damage_chain") or []
         if damage_chain:
@@ -3233,9 +3295,11 @@ def _format_combat_history_trackers(
                 if not isinstance(participant, dict):
                     continue
                 actor = _display_roll_actor(participant.get("actor_id"), actor_names)
+                separator = "；" if zh else "; "
                 lines.append(
-                    f"  - {actor}: HP {participant.get('hp_current', '?')}/{participant.get('hp_max', '?')}; "
-                    f"DEX {participant.get('dex', '?')}; armor {participant.get('armor', 0)}"
+                    f"  - {actor}: HP {participant.get('hp_current', '?')}/{participant.get('hp_max', '?')}{separator}"
+                    f"{'敏捷' if zh else 'DEX'} {participant.get('dex', '?')}{separator}"
+                    f"{'护甲' if zh else 'armor'} {participant.get('armor', 0)}"
                 )
             lines.append(_html_anchor("combat-state-file", "save/combat.json"))
         lines.append("")
@@ -3623,7 +3687,6 @@ def generate_battle_report(run_dir: Path) -> Path:
         run_dir / "transcript.jsonl",
         str(play_language),
     )
-    transcript_lines: list[str] = []
     actual_play_lines: list[str] = []
     roll_cursor = 0
     for event in transcript:
@@ -3633,14 +3696,6 @@ def generate_battle_report(run_dir: Path) -> Path:
             recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
             rendered_text = _format_roll_transcript_text(event, recaps, localized_terms, str(play_language))
             roll_cursor += roll_count
-        transcript_lines.extend(_format_transcript_event(
-            event,
-            rendered_text,
-            profile_labels,
-            language_profile,
-            localized_terms,
-            str(play_language),
-        ))
         actual_play_lines.extend(_format_actual_play_event(
             event,
             rendered_text,

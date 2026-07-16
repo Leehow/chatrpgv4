@@ -343,7 +343,11 @@ Before generating reports, record the run context:
 - `## Scene-by-Scene Replay`
 - `## Actual Play Replay`
 - `## Session Transcript`
+- `## Tool Reliability` (diagnostic only)
+- `## Rules & Rolls Recap` (aggregate only)
 - `## Mechanical Log`
+- `### Important Rolls` (high-signal subset only)
+- one canonical `## Rules & Dice` ledger in the compiled report
 - `## Chase Tracker`
 - `## Story Recap`
 - `## Player Feedback On KP`
@@ -351,6 +355,25 @@ Before generating reports, record the run context:
 `## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, `疯狂发作` (`bout_of_madness`), combat, chase, `item_transfer`, `resource_change`, status, and session-ending events. Status events include final HP, final SAN, rewards, chase outcome, and other durable end-state summaries. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
 
 `## Actual Play Replay` must render non-system source `transcript.jsonl` turns with visible speaker attribution and preserve source turn order. `## Session Transcript` is a compact source receipt (record count, role counts, and transcript hash) that points back to that single full rendering instead of duplicating the whole conversation. Source-dialogue findings inspect the complete Actual Play Replay; the receipt itself is not a second dialogue copy and is not required to repeat speaker lines.
+
+Tool reliability and narrative-enrichment coverage are diagnostic-only report
+signals. Record toolbox call counts, bounded retries, recovered transient
+failures, and nonretryable failure classes when available. Likewise record
+whether `director.advise` or `storylets.suggest` was observed, but zero calls
+is not a failed run and must not become a narrative gate: a scene may already
+have enough momentum, or no suggested beat may fit. After a nonretryable tool
+failure, prefer a corrected structured payload or another fictionally valid
+route and preserve the failure as diagnostic evidence rather than requiring
+the same call to succeed.
+
+The actual-play recording boundary remains synchronous for authoritative
+dice, resource/state mutations, clue and NPC receipts, journals, structured
+session endings, and development settlement. Do not start the next play turn
+on the assumption that one of those writes will eventually appear. Only
+append-only audit copies or mirror flushing may be deferred. A transient
+failure may be retried with the same `decision_id` under the bounded retry
+policy; exhausting that retry budget calls for an explicit alternative or a
+recorded limitation, not a new blocking narrative state machine.
 
 `## Investigator Creation` should render sandbox `creation.json` before `## Character Dossier`, proving that the playtest followed the rulebook Chapter 3 creation workflow before play began and did not only invent a finished character sheet. The section must include structured age evidence: chosen age, age modifier bracket, EDU improvement check count and rolls, characteristic reductions, APP reduction, and MOV penalty; otherwise emit `investigator_age_step_missing`. Character source `derived.MOV` and creation `derived.MOV.value` must match the rulebook Movement Rate table from STR, DEX, SIZ, and age MOV penalty; otherwise emit `derived_movement_rate_mismatch`. It must also include full, half, and fifth characteristic values from `creation.json` and reusable `character.json`; otherwise emit `characteristic_half_fifth_missing`. The section must also include `skill_allocation` evidence: occupation points spent, personal-interest points spent, unallocated totals, base values, final skill values, and skill half/fifth values. It must render rulebook Table II finance evidence derived from Credit Rating and period: living standard, cash, assets, and spending level. Requirement: skill_allocation final values must match character.json skills so the creation workflow, character dossier, and roll targets describe one investigator. Reusable `character.json` must persist `skill_thresholds` for skill full/half/fifth values, and visible Investigator Creation plus Character Dossier must render them; otherwise emit `skill_half_fifth_missing`.
 

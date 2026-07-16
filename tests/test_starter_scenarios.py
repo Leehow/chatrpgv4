@@ -85,9 +85,34 @@ def test_basement_dagger_discovery_preserves_player_knowledge_boundary():
     assert "float" not in physical.lower()
     assert "spell" not in physical.lower()
     assert "ash" not in physical.lower()
+    physical_zh = clues["clue-rusted-basement-dagger"]["localized_text"]["zh-Hans"]["player_safe_summary"]
+    assert all(term not in physical_zh for term in ("漂浮", "法术", "灰烬", "破解"))
     finale = next(scene for scene in graph["scenes"] if scene["scene_id"] == "corbitt-confrontation")
     attack = next(row for row in finale["affordances"] if row["id"] == "strike-with-his-dagger")
     assert "法术" not in attack["cue"]
+
+
+def test_haunting_player_safe_clues_have_simplified_chinese_summaries():
+    graph = json.loads((
+        PLUGIN_ROOT / "references" / "starter-scenarios" / "the-haunting"
+        / "clue-graph.json"
+    ).read_text("utf-8"))
+    clues = [
+        clue
+        for conclusion in graph["conclusions"]
+        for clue in conclusion.get("clues", [])
+        if clue.get("visibility") == "player-safe"
+    ]
+
+    assert clues
+    assert all(
+        str(
+            clue.get("localized_text", {})
+            .get("zh-Hans", {})
+            .get("player_safe_summary", "")
+        ).strip()
+        for clue in clues
+    )
 
 
 def test_haunting_location5_and_chapel_are_source_bound_module_locations():

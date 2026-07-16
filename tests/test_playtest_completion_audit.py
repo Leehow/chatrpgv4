@@ -3766,9 +3766,88 @@ def test_completion_audit_fails_when_battle_report_dialogue_is_out_of_order(tmp_
     assert audit["result"] == "fail"
     finding = next(finding for finding in audit["findings"] if finding["code"] == "battle_report_source_dialogue_order_mismatch")
     assert finding["run_id"] == "v2-haunting-module"
-    assert "Actual Play Replay" in finding["out_of_order_sections"]
-    assert "Session Transcript" in finding["out_of_order_sections"]
+    assert finding["out_of_order_sections"] == ["Actual Play Replay"]
     assert "turn 2 before turn 1" in finding["out_of_order_dialogue_samples"]
+
+
+def test_completion_dialogue_checks_accept_compact_session_transcript_receipt(tmp_path):
+    run_id = "v2-haunting-module"
+    write_run(tmp_path, run_id, "haunting_module")
+    run_dir = tmp_path / ".coc" / "playtests" / run_id
+    metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
+    full_session = (
+        "## Session Transcript <!-- report-anchor: Session Transcript -->\n"
+        + battle_report_dialogue_fixture_text()
+    )
+    compact_session = (
+        "## Session Transcript <!-- report-anchor: Session Transcript -->\n"
+        "- 完整逐轮内容已在上方回放中呈现；本节只保留来源收据。\n"
+        "- 来源：transcript.jsonl；记录数：13；SHA-256：`fixture`"
+    )
+    report = battle_report_fixture(run_id, "haunting_module").replace(
+        full_session,
+        compact_session,
+    )
+
+    assert coc_completion_audit._battle_report_source_dialogue_findings(
+        run_id,
+        run_dir,
+        report,
+    ) == []
+    assert coc_completion_audit._battle_report_source_dialogue_speaker_findings(
+        run_id,
+        run_dir,
+        metadata,
+        report,
+    ) == []
+    assert coc_completion_audit._battle_report_source_dialogue_order_findings(
+        run_id,
+        run_dir,
+        metadata,
+        report,
+    ) == []
+    assert "fixture keeper turn" not in compact_session
+
+
+def test_completion_roll_checks_accept_canonical_rules_and_dice_ledger(tmp_path):
+    run_id = "v2-haunting-module"
+    write_run(tmp_path, run_id, "haunting_module")
+    run_dir = tmp_path / ".coc" / "playtests" / run_id
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
+    metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
+    roll_path = campaign_dir / "logs" / "rolls.jsonl"
+    rolls = read_jsonl(roll_path)
+    rolls[0]["payload"]["roll_id"] = "fixture-roll-1"
+    rolls[1]["payload"]["roll_id"] = "fixture-roll-2"
+    write_jsonl(roll_path, rolls)
+    legacy_section = (
+        "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
+        + battle_report_mechanical_fixture_text()
+    )
+    canonical_section = (
+        "## Rules & Dice <!-- report-anchor: rules-and-dice -->\n"
+        "- [roll-id: fixture-roll-1] 侦查（艾达·金）：掷骰 33 / 目标 55。\n"
+        "- [roll-id: fixture-roll-2] 侦查（艾达·金）：掷骰 22 / 目标 55。\n"
+        + "\n\n## Mechanical Log <!-- report-anchor: Mechanical Log -->\n"
+        "- Important rolls only; full ledger is above."
+    )
+    report = battle_report_fixture(run_id, "haunting_module").replace(
+        legacy_section,
+        canonical_section,
+    )
+
+    assert coc_completion_audit._battle_report_mechanical_log_findings(
+        run_id,
+        run_dir,
+        campaign_dir,
+        metadata,
+        report,
+    ) == []
+    assert coc_completion_audit._battle_report_rule_ref_findings(
+        run_id,
+        campaign_dir,
+        report,
+    ) == []
 
 
 def test_completion_audit_accepts_protocol_wrapped_dialogue_rendered_without_wrappers(tmp_path):

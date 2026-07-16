@@ -65,7 +65,9 @@ No step is mandatory except honesty; this is the natural rhythm:
    consider `director.advise` (pacing signals + suggested beats) and
    `storylets.suggest` (scored side beats). Both are optional advisory tools:
    skip them when the current fiction already has momentum or no suggestion
-   fits, and never treat their absence as a failed turn.
+   fits, and never treat their absence as a failed turn. A playtest may count
+   whether they were observed as a diagnostic coverage signal, but zero calls
+   never requires injecting a beat or blocking scene progress.
 5. Render every player-visible string in the active campaign's
    `play_language`, honoring the Style and Horror Craft sections below. This
    includes names and setting terms taken from source modules: people, places,
@@ -86,10 +88,11 @@ No step is mandatory except honesty; this is the natural rhythm:
    `state.record_npc_engagement` once with a structured `interaction_kind`,
    even if no trust/fear/fact value changed; this is the authoritative
    adherence receipt. Then close the finalized turn with `state.journal`
-   (summary, intent class, tension) before emitting the narration. Invoke authoritative mutating tool
-   calls in the decided order, never in parallel. Dice, resources, critical
-   state, journal, ending, and development settlement are never background
-   work; only append-only audit or mirror flushing may be deferred.
+   (summary, intent class, tension) before emitting the narration. Invoke
+   authoritative mutating tool calls in the decided order, never in parallel.
+   Dice, resources, critical state, journal, ending, and development
+   settlement are never background work; only append-only audit or mirror
+   flushing may be deferred.
 
 If a tool reports a transient transaction or lock failure, retry the same
 call with the same `decision_id` within the toolbox's bounded retry policy.

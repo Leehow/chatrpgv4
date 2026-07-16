@@ -28,6 +28,7 @@ from coc_playtest_report import (
     _localized_report_value,
     _selected_language_profile,
 )
+from coc_language import localize_terms
 from coc_validate import validate_rules
 from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
 from coc_eval_packs import load_benchmark_pack_registry
@@ -322,9 +323,7 @@ def _metadata_player_profile_labels(metadata: dict[str, Any]) -> dict[str, str]:
 
 
 def _localize_text(text: str, localized_terms: dict[str, str]) -> str:
-    localized = text
-    for canonical, display in sorted(localized_terms.items(), key=lambda item: len(item[0]), reverse=True):
-        localized = localized.replace(canonical, display)
+    localized = localize_terms(text, localized_terms)
     return CJK_BOUNDARY_SPACE.sub("", localized)
 
 
@@ -1394,10 +1393,7 @@ def _battle_report_field_value_findings(
 
 
 def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_report: str) -> list[dict[str, Any]]:
-    replay_sections = "\n".join([
-        _battle_report_anchor_section(battle_report, "Actual Play Replay"),
-        _battle_report_anchor_section(battle_report, "Session Transcript"),
-    ])
+    replay_section = _battle_report_anchor_section(battle_report, "Actual Play Replay")
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     metadata = _read_json(run_dir / "playtest.json", {})
     localized_terms = _metadata_localized_terms(metadata)
@@ -1421,7 +1417,7 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
     missing_dialogue = [
         candidates[0]
         for candidates in required_dialogue
-        if not _any_candidate_rendered(candidates, replay_sections, localized_terms)
+        if not _any_candidate_rendered(candidates, replay_section, localized_terms)
     ]
     if not missing_dialogue:
         return []
@@ -1429,7 +1425,7 @@ def _battle_report_source_dialogue_findings(run_id: str, run_dir: Path, battle_r
         "battle_report_source_dialogue_missing",
         "report_gap",
         f"{run_id} battle-report.md omits {len(missing_dialogue)} of {len(required_dialogue)} source dialogue turns from transcript.jsonl.",
-        "Regenerate battle-report.md so Actual Play Replay or Session Transcript renders the visible non-system transcript source text.",
+        "Regenerate battle-report.md so Actual Play Replay renders the visible non-system transcript source text; Session Transcript is only a compact source receipt.",
         run_id=run_id,
         missing_dialogue_count=len(missing_dialogue),
         required_dialogue_count=len(required_dialogue),
@@ -1443,10 +1439,10 @@ def _battle_report_source_dialogue_speaker_findings(
     metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
-    replay_lines = "\n".join([
-        _battle_report_anchor_section(battle_report, "Actual Play Replay"),
-        _battle_report_anchor_section(battle_report, "Session Transcript"),
-    ]).splitlines()
+    replay_lines = _battle_report_anchor_section(
+        battle_report,
+        "Actual Play Replay",
+    ).splitlines()
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     language_profile = metadata.get("language_profile", {})
     if not isinstance(language_profile, dict):
@@ -1476,7 +1472,7 @@ def _battle_report_source_dialogue_speaker_findings(
         "battle_report_source_dialogue_speaker_missing",
         "report_gap",
         f"{run_id} battle-report.md omits speaker attribution for {len(missing)} source dialogue turns.",
-        "Regenerate battle-report.md so Actual Play Replay or Session Transcript renders each non-system transcript turn with the visible speaker and dialogue text on the same line.",
+        "Regenerate battle-report.md so Actual Play Replay renders each non-system transcript turn with the visible speaker and dialogue text on the same line; Session Transcript is only a compact source receipt.",
         run_id=run_id,
         missing_speaker_dialogue_count=len(missing),
         missing_speaker_dialogue_samples=missing[:5],
@@ -1520,7 +1516,7 @@ def _battle_report_source_dialogue_order_findings(
 
     out_of_order_sections: list[str] = []
     samples: list[str] = []
-    for section_name in ("Actual Play Replay", "Session Transcript"):
+    for section_name in ("Actual Play Replay",):
         lines = _battle_report_anchor_section(battle_report, section_name).splitlines()
         matched: list[dict[str, Any]] = []
         for line in lines:
@@ -1543,7 +1539,7 @@ def _battle_report_source_dialogue_order_findings(
         "battle_report_source_dialogue_order_mismatch",
         "report_gap",
         f"{run_id} battle-report.md renders source dialogue out of transcript order in {', '.join(out_of_order_sections)}.",
-        "Regenerate battle-report.md so Actual Play Replay and Session Transcript preserve the non-system transcript turn order.",
+        "Regenerate battle-report.md so Actual Play Replay preserves non-system transcript turn order; Session Transcript is only a compact source receipt.",
         run_id=run_id,
         out_of_order_sections=out_of_order_sections,
         out_of_order_dialogue_samples=samples[:5],
@@ -1569,8 +1565,13 @@ def _battle_report_mechanical_log_findings(
     metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
+    rules_and_dice = (
+        _battle_report_anchor_section(battle_report, "rules-and-dice")
+        or _battle_report_anchor_section(battle_report, "Rules & Dice")
+    )
+    visible_rules_and_dice = _visible_markdown_text(rules_and_dice)
     mechanical_evidence = _visible_markdown_text("\n".join([
-        _battle_report_anchor_section(battle_report, "Rules & Dice"),
+        rules_and_dice,
         _battle_report_anchor_section(battle_report, "Mechanical Log"),
     ]))
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
@@ -1587,6 +1588,10 @@ def _battle_report_mechanical_log_findings(
         if not canonical_line:
             continue
         required_roll_lines.append(canonical_line)
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        roll_id = payload.get("roll_id") or row.get("roll_id")
+        if roll_id not in (None, "") and f"[roll-id: {roll_id}]" in visible_rules_and_dice:
+            continue
         localized_roll = _format_roll_recap(row, actor_names, localized_terms, play_language, language_profile)
         localized_summary = localized_roll.splitlines()[0].removeprefix("- ").strip() if localized_roll.splitlines() else ""
         visible_candidates = [canonical_line, localized_summary]
@@ -1612,8 +1617,13 @@ def _battle_report_rule_ref_findings(
     battle_report: str,
 ) -> list[dict[str, Any]]:
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+    rules_and_dice = (
+        _battle_report_anchor_section(battle_report, "rules-and-dice")
+        or _battle_report_anchor_section(battle_report, "Rules & Dice")
+    )
+    visible_rules_and_dice = _visible_markdown_text(rules_and_dice)
     report_sections = "\n".join([
-        _battle_report_anchor_section(battle_report, "Rules & Dice"),
+        rules_and_dice,
         _battle_report_anchor_section(battle_report, "Rules & Rolls Recap"),
         _battle_report_anchor_section(battle_report, "Mechanical Log"),
     ])
@@ -1624,6 +1634,12 @@ def _battle_report_rule_ref_findings(
             continue
         refs = [ref for ref in payload["rule_refs"] if isinstance(ref, str) and ref.strip()]
         if refs:
+            roll_id = payload.get("roll_id") or row.get("roll_id")
+            if (
+                roll_id not in (None, "")
+                and f"[roll-id: {roll_id}]" in visible_rules_and_dice
+            ):
+                continue
             required_ref_lines.append(", ".join(refs))
     missing_ref_lines = [
         refs

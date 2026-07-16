@@ -145,6 +145,170 @@ def visible_markdown_text(markdown: str) -> str:
     return re.sub(r"<!--.*?-->", "", markdown, flags=re.DOTALL)
 
 
+def test_builtin_glossary_merges_with_run_overrides():
+    terms = coc_playtest_report._localized_terms({
+        "play_language": "zh-Hans",
+        "localized_terms": {
+            "zh-Hans": {
+                "Law": "法务",
+                "Walter Corbitt": "科比特先生",
+                "CON": "耐力",
+            },
+        },
+    })
+
+    assert terms["Law"] == "法务"
+    assert terms["Walter Corbitt"] == "科比特先生"
+    assert terms["Medicine"] == "医学"
+    assert terms["POW"] == "意志"
+    assert coc_playtest_report._localize_text(
+        "STR CON SIZ DEX APP INT POW EDU SAN LUCK",
+        terms,
+    ) == "力量耐力体型敏捷外貌智力意志教育理智幸运"
+    embedded = "STRONG CONCLUSION RESIZE INDEX APPEARANCE INTERVIEW POWER EDUCATION SAND LUCKY"
+    assert coc_playtest_report._localize_text(embedded, terms) == embedded
+
+
+def test_clue_raw_source_notice_only_marks_untranslated_source_language():
+    lookup = coc_playtest_report._clue_lookup_from_records(
+        {
+            "english-clue": {"player_safe_summary": "The cellar wall is hollow."},
+            "chinese-clue": {"player_safe_summary": "地下室墙后传来空洞回声。"},
+            "mixed-clue": {"player_safe_summary": "科比特 Corbitt 的契约仍在。"},
+        },
+        {},
+        "zh-Hans",
+    )
+
+    assert lookup["english-clue"].startswith("［源数据未提供中文，显示原文］")
+    assert lookup["chinese-clue"] == "地下室墙后传来空洞回声。"
+    assert lookup["mixed-clue"] == "科比特 Corbitt 的契约仍在。"
+
+
+def test_tool_reliability_is_diagnostic_and_tracks_same_decision_recovery():
+    lines = coc_playtest_report._format_tool_reliability(
+        [
+            {
+                "tool": "state.advance_time",
+                "ok": False,
+                "args": {"decision_id": "turn-7"},
+                "error": {"code": "subsystem_transaction_failed"},
+            },
+            {
+                "tool": "state.advance_time",
+                "ok": True,
+                "decision_id": "turn-7",
+                "args": {},
+            },
+            {"tool": "npc.query", "ok": False, "args": {}, "error_code": "unknown_npc"},
+            {"tool": "director.advise", "ok": True, "args": {}},
+            {"tool": "storylets.suggest", "ok": True, "args": {}},
+        ],
+        "zh-Hans",
+        {"report_heading_labels": {"Tool Reliability": "工具可靠性（诊断）"}},
+    )
+    text = "\n".join(lines)
+
+    assert "调用收据：5；成功：3；失败尝试：2；同一决策重试后恢复：1" in text
+    assert "subsystem_transaction_failed×1" in text
+    assert "unknown_npc×1" in text
+    assert "director.advise=1" in text
+    assert "storylets.suggest=1" in text
+    assert "不是叙事合法性门控" in text
+
+
+def test_combat_tracker_renders_all_event_encounters_and_only_latest_snapshot():
+    events = [
+        {
+            "type": "combat_started",
+            "payload": {
+                "combat_id": "combat-archive",
+                "initiative_order": [
+                    {"actor_id": "ada", "dex": 60},
+                    {"actor_id": "cultist", "dex": 40},
+                ],
+            },
+        },
+        {
+            "type": "combat_turn_resolved",
+            "payload": {
+                "combat_id": "combat-archive",
+                "turn": {
+                    "turn_id": "t1-1",
+                    "actor_id": "ada",
+                    "target_actor_id": "cultist",
+                    "action": "opposed_melee",
+                    "outcome": "hit",
+                    "damage_roll_id": "combat-archive:cr3",
+                },
+            },
+        },
+        {
+            "type": "combat_roll",
+            "payload": {
+                "roll_id": "combat-archive:cr3",
+                "combat_damage_receipt": {
+                    "source_actor_id": "ada",
+                    "target_actor_id": "cultist",
+                    "die": "1D4",
+                    "raw_damage": 3,
+                    "hp_before": 8,
+                    "hp_after": 5,
+                },
+            },
+        },
+        {"type": "combat_ended", "payload": {"combat_id": "combat-archive", "outcome": "investigators_win"}},
+        {
+            "event_type": "combat_started",
+            "combat_id": "combat-cellar",
+            "initiative_order": [{"actor_id": "corbitt", "dex": 35}],
+        },
+        {
+            "event_type": "combat_turn_resolved",
+            "combat_id": "combat-cellar",
+            "turn": {
+                "turn_id": "t1-1",
+                "actor_id": "corbitt",
+                "target_actor_id": "ada",
+                "action": "attack",
+                "outcome": "miss",
+            },
+        },
+        {"event_type": "combat_ended", "combat_id": "combat-cellar", "outcome": "fled"},
+    ]
+    current_state = {
+        "combat_id": "combat-cellar",
+        "status": "concluded",
+        "outcome": "fled",
+        "participants": [
+            {"actor_id": "ada", "hp_current": 4, "hp_max": 10, "dex": 60, "armor": 0},
+            {"actor_id": "corbitt", "hp_current": 12, "hp_max": 16, "dex": 35, "armor": 6},
+        ],
+    }
+
+    lines = coc_playtest_report._format_combat_history_trackers(
+        events,
+        current_state,
+        {},
+        "zh-Hans",
+        {"ada": "艾达", "cultist": "邪教徒", "corbitt": "科比特"},
+        {},
+    )
+    rendered = "\n".join(lines)
+    visible = visible_markdown_text(rendered)
+
+    assert rendered.count("<!-- combat-id:") == 2
+    assert "<!-- combat-id: combat-archive -->" in rendered
+    assert "<!-- combat-id: combat-cellar -->" in rendered
+    assert "### 遭遇 1" in visible and "### 遭遇 2" in visible
+    assert "combat-archive" not in visible and "combat-cellar" not in visible
+    assert "调查员获胜" in visible and "调查员撤退" in visible
+    assert "近战对抗 / 命中 / 已记录伤害" in visible
+    assert "伤害链" in visible
+    assert rendered.count("最终快照参与者") == 1
+    assert "艾达: HP 4/10；敏捷 60；护甲 0" in visible
+
+
 def test_report_orders_structurally_linked_roll_before_keeper_consequence(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "ordered-roll"
     campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "ordered-roll"
@@ -424,6 +588,11 @@ def test_report_consumes_canonical_toolbox_event_vocabulary(tmp_path):
         "outcome": "fled",
     }, {
         "event_type": "session_ending",
+        "scene_id": "cellar-stairs",
+        "kind": "cliffhanger",
+        "summary": "楼梯下方传来第二阵刮擦声。",
+    }, {
+        "event_type": "session_ending",
         "scene_id": "cellar",
         "kind": "retreat",
         "summary": "调查员带伤撤离，威胁仍未解决。",
@@ -463,6 +632,8 @@ def test_report_consumes_canonical_toolbox_event_vocabulary(tmp_path):
     assert "战斗结束：调查员撤退" in combat
     assert "本轮没有触发战斗场面" not in combat
     assert "退场：调查员带伤撤离，威胁仍未解决。" in ending
+    assert "楼梯下方传来第二阵刮擦声" not in ending
+    assert "悬念收束：楼梯下方传来第二阵刮擦声。" in replay
     assert "旧消费端占位结局" not in ending
     assert "旧消费端占位结局" not in replay
     assert "调查员带伤撤离，威胁仍未解决。" in recap
