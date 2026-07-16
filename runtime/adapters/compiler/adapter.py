@@ -15,6 +15,9 @@ REQUIRED_REQUEST_KEYS = (
     "required_files",
     "compile_contract",
 )
+MAX_REVISION_ATTEMPT = 5
+MAX_FEEDBACK_FINDINGS = 256
+MAX_FEEDBACK_BYTES = 1_000_000
 
 
 def _adapter_dir() -> Path:
@@ -29,6 +32,67 @@ def _runner_cmd(path: Path) -> list[str]:
     if path.suffix.lower() in {".mjs", ".js"}:
         return ["node", str(path)]
     return [str(path)]
+
+
+def _validate_revision_feedback(request: dict[str, Any]) -> None:
+    revision_attempt = request.get("revision_attempt")
+    if revision_attempt is None:
+        return
+    if type(revision_attempt) is not int or not 2 <= revision_attempt <= MAX_REVISION_ATTEMPT:
+        raise ValueError("revision_attempt must be an integer from 2 through 5")
+    for key in ("parent_attempt", "best_attempt"):
+        value = request.get(key)
+        if value is not None and (
+            type(value) is not int or not 1 <= value < revision_attempt
+        ):
+            raise ValueError(f"{key} must identify an earlier attempt")
+    digest = request.get("parent_bundle_sha256")
+    if digest is not None and (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(char not in "0123456789abcdef" for char in digest)
+    ):
+        raise ValueError("parent_bundle_sha256 must be a lowercase sha256 digest")
+    previous = request.get("previous_scenario_bundle")
+    if previous is not None and not isinstance(previous, dict):
+        raise ValueError("previous_scenario_bundle must be an object")
+    for key in ("validation_findings", "regression_findings"):
+        findings = request.get(key)
+        if findings is None:
+            continue
+        if not isinstance(findings, list) or len(findings) > MAX_FEEDBACK_FINDINGS:
+            raise ValueError(f"{key} must contain at most {MAX_FEEDBACK_FINDINGS} findings")
+        for finding in findings:
+            if not isinstance(finding, dict):
+                raise ValueError(f"{key} entries must be objects")
+            if not isinstance(finding.get("code"), str):
+                raise ValueError(f"{key} entries require code")
+            if finding.get("severity") not in {"error", "warning"}:
+                raise ValueError(f"{key} entries require error or warning severity")
+            if not isinstance(finding.get("path", ""), str):
+                raise ValueError(f"{key} entries require string path")
+            if "details" in finding and not isinstance(finding["details"], dict):
+                raise ValueError(f"{key} details must be an object")
+    for key in ("reference_snapshot", "regression_reference_snapshot"):
+        value = request.get(key)
+        if value is not None and not isinstance(value, dict):
+            raise ValueError(f"{key} must be an object")
+    lineage = request.get("revision_lineage")
+    if lineage is not None and (
+        not isinstance(lineage, list) or len(lineage) > MAX_REVISION_ATTEMPT
+        or not all(isinstance(item, dict) for item in lineage)
+    ):
+        raise ValueError("revision_lineage must contain at most five objects")
+    feedback = {
+        key: request.get(key)
+        for key in (
+            "validation_findings", "regression_findings", "reference_snapshot",
+            "regression_reference_snapshot", "revision_lineage",
+        )
+        if key in request
+    }
+    if len(json.dumps(feedback, ensure_ascii=False).encode("utf-8")) > MAX_FEEDBACK_BYTES:
+        raise ValueError("structured revision feedback exceeds size limit")
 
 
 def prepare_compile_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -47,6 +111,7 @@ def prepare_compile_request(request: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("scenario compile page requires integer pdf_index")
         if not isinstance(page.get("text"), str) or not page["text"].strip():
             raise ValueError("scenario compile page requires extracted text")
+    _validate_revision_feedback(request)
     return json.loads(json.dumps(request, ensure_ascii=False))
 
 

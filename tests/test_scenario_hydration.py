@@ -53,6 +53,32 @@ def _retarget_source_refs(value):
     return result
 
 
+def _source_fixture():
+    return ({
+        "source_id": "pdf:keeper-rulebook",
+        "path": "/private/local/module.pdf",
+        "title": "Keeper Rulebook",
+        "file_sha256": "a" * 64,
+        "page_count": 465,
+        "pdf_index_start": 446,
+        "pdf_index_end": 446,
+    }, [{
+        "pdf_index": 446,
+        "text": "Keeper-only source text for a local module.",
+        "text_sha256": "b" * 64,
+    }])
+
+
+def _bundle_with_dangling_refs(count: int, prefix: str) -> dict[str, dict]:
+    bundle = _retarget_source_refs(_haunting_bundle())
+    scene = bundle["story-graph.json"]["scenes"][0]
+    scene["available_clues"] = [
+        *(scene.get("available_clues") or []),
+        *(f"{prefix}-{index}" for index in range(count)),
+    ]
+    return bundle
+
+
 def test_valid_campaign_is_warm_hit_without_compiler(tmp_path):
     campaign = _campaign(tmp_path)
     for name in hydration.REQUIRED_FILES:
@@ -245,7 +271,8 @@ def test_invalid_compiler_bundle_is_rejected_without_partial_install(tmp_path, m
 
     with pytest.raises(hydration.ScenarioHydrationError, match="bundle keys"):
         hydration.ensure_scenario_ready(
-            campaign, compiler=lambda _request: {"ok": True, "scenario_bundle": bad}
+            campaign, compiler=lambda _request: {"ok": True, "scenario_bundle": bad},
+            max_compile_attempts=1,
         )
 
     assert json.loads(marker.read_text(encoding="utf-8"))["scenario_id"] == "unknown-module"
@@ -305,13 +332,157 @@ def test_compiler_scene_edge_aliases_normalize_without_prose_matching():
     assert scenes[1]["scene_edges"] == []
 
 
-def test_new_compile_promotes_unreachable_and_untraceable_warnings():
-    promoted = hydration._blocking_compile_warnings([
-        "scene 'orphan' is unreachable from start 'intro' (orphan/dead node)",
-        "entry missing origin (expected source|inferred|improvised)",
-        "clue 'c' has delivery_kind=skill_check but no skill",
-        "scene 'intro' has fewer than 2 affordances",
+def test_new_compile_promotes_structured_unreachable_and_untraceable_warnings():
+    promoted = hydration._blocking_compile_findings([
+        {"code": "unreachable_scene", "severity": "warning", "path": "scene/a"},
+        {"code": "missing_origin", "severity": "warning", "path": "scene/b"},
+        {"code": "missing_delivery_skill", "severity": "warning", "path": "clue/c"},
+        {"code": "thin_affordances", "severity": "warning", "path": "scene/d"},
     ])
 
     assert len(promoted) == 3
-    assert all("fewer than 2 affordances" not in item for item in promoted)
+    assert {item["code"] for item in promoted} == {
+        "unreachable_scene", "missing_origin", "missing_delivery_skill",
+    }
+
+
+def test_base_revision_uses_best_parent_after_regression_and_then_passes(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    (campaign / "scenario" / "scenario.json").write_text(json.dumps({
+        "scenario_id": "best-parent",
+        "resolution_policy": "source_first",
+        "source": {"path": "/private/local/module.pdf", "pdf_index_start": 446},
+    }), encoding="utf-8")
+    monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
+    candidates = [
+        _bundle_with_dangling_refs(13, "attempt-1"),
+        _bundle_with_dangling_refs(1, "attempt-2"),
+        _bundle_with_dangling_refs(2, "attempt-3"),
+    ]
+    calls = []
+
+    def compile_source(request):
+        calls.append(request)
+        if len(calls) <= 3:
+            return {"ok": True, "scenario_bundle": candidates[len(calls) - 1]}
+        parent = json.loads(json.dumps(request["previous_scenario_bundle"]))
+        defined = {
+            clue["clue_id"]
+            for conclusion in parent["clue-graph.json"]["conclusions"]
+            for clue in conclusion.get("clues") or []
+        }
+        for scene in parent["story-graph.json"]["scenes"]:
+            scene["available_clues"] = [
+                clue_id for clue_id in scene.get("available_clues") or []
+                if clue_id in defined
+            ]
+        return {"ok": True, "scenario_bundle": parent}
+
+    receipt = hydration.ensure_scenario_ready(campaign, compiler=compile_source)
+
+    assert receipt["status"] == "PASS"
+    assert receipt["compile_attempts"] == 4
+    assert len(calls) == 4
+    assert calls[3]["parent_attempt"] == 2
+    assert calls[3]["best_attempt"] == 2
+    assert calls[3]["previous_scenario_bundle"] == candidates[1]
+    assert calls[3]["parent_bundle_sha256"] == hydration._json_digest(candidates[1])
+    assert any(
+        item.get("details", {}).get("ref_id") == "attempt-2-0"
+        and item.get("details", {}).get("owner_id")
+        for item in calls[3]["validation_findings"]
+    )
+    assert [
+        item["candidate_score"]["blocking_count"]
+        for item in receipt["revision_lineage"]
+    ] == [13, 1, 2, 0]
+    assert receipt["revision_lineage"][2]["best_attempt_after"] == 2
+    assert calls[3]["reference_snapshot"]["available_clue_reference_count"] > 0
+    assert any(
+        not item["resolves"]
+        for item in calls[3]["reference_snapshot"]["available_clue_references"]
+    )
+
+
+def test_repeated_missing_origin_findings_keep_exact_distinct_paths():
+    findings = hydration.coc_scenario_compile.validate_compiled_scenario({
+        "story_graph": {"scenes": [
+            {"scene_id": "first"},
+            {"scene_id": "second"},
+        ]},
+    })
+    missing = [item for item in findings if item.get("code") == "missing_origin"]
+
+    assert [item["path"] for item in missing] == [
+        "story_graph.scenes[0]", "story_graph.scenes[1]",
+    ]
+    assert [item["details"]["entry_path"] for item in missing] == [
+        "story_graph.scenes[0]", "story_graph.scenes[1]",
+    ]
+    assert len({hydration._finding_identity(item) for item in missing}) == 2
+
+
+def test_duplicate_clue_finding_keeps_id_and_all_definition_paths():
+    findings = hydration.coc_scenario_compile.validate_compiled_scenario({
+        "clue_graph": {"conclusions": [{
+            "conclusion_id": "first",
+            "clues": [{"clue_id": "same"}],
+        }, {
+            "conclusion_id": "second",
+            "clues": [{"clue_id": "same"}],
+        }]},
+    })
+    duplicate = next(item for item in findings if item.get("code") == "duplicate_id")
+
+    assert duplicate["details"] == {
+        "entity_kind": "clue",
+        "entity_id": "same",
+        "definition_paths": [
+            "clue_graph.conclusions[first].clues[same]",
+            "clue_graph.conclusions[second].clues[same]",
+        ],
+    }
+
+
+def test_base_revision_exhausts_all_five_attempts_without_publish_or_epistemic(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    original = {}
+    for name in hydration.REQUIRED_FILES:
+        shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
+        original[name] = (campaign / "scenario" / name).read_bytes()
+    monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
+    calls = []
+
+    def compile_source(request):
+        calls.append(request)
+        return {
+            "ok": True,
+            "scenario_bundle": _bundle_with_dangling_refs(
+                1 if len(calls) != 3 else 2,
+                f"attempt-{len(calls)}",
+            ),
+        }
+
+    with pytest.raises(hydration.ScenarioHydrationError, match="canonical validation"):
+        hydration.ensure_scenario_ready(
+            campaign,
+            compiler=compile_source,
+            epistemic_compiler=lambda _request: pytest.fail(
+                "epistemic compile must not run for an invalid base bundle"
+            ),
+            compile_epistemic_sidecars=True,
+            force_recompile=True,
+        )
+
+    assert len(calls) == 5
+    assert all(
+        (campaign / "scenario" / name).read_bytes() == original[name]
+        for name in hydration.REQUIRED_FILES
+    )
+    evidence = sorted((campaign / "logs/scenario-resolution").glob("*.rejected-*.json"))
+    assert len(evidence) == 5
+    records = [json.loads(path.read_text(encoding="utf-8")) for path in evidence]
+    assert [record["attempt"] for record in records] == [1, 2, 3, 4, 5]
+    assert all(record["scenario_bundle"] for record in records)
+    assert all(record["normalized_bundle_sha256"] for record in records)
+    assert records[-1]["revision_lineage"][-1]["attempt"] == 5

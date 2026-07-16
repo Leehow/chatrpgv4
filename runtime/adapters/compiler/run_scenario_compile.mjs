@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /** Keeper-only semantic compiler: extracted module pages -> seven-file scenario IR. */
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { parseSingleJsonObject } from "./single_json_object.mjs";
+import { buildPrompt } from "./scenario_compile_prompt.mjs";
 import {
   AuthStorage,
   createAgentSession,
@@ -81,33 +82,7 @@ function validateBundle(bundle, requiredFiles) {
   return bundle;
 }
 
-function buildPrompt(request) {
-  const safe = {
-    module_identity: request.module_identity,
-    source: request.source,
-    required_files: request.required_files,
-    compile_contract: request.compile_contract,
-    pages: request.pages,
-  };
-  if (request.source_resolution_request) {
-    safe.source_resolution_request = request.source_resolution_request;
-    safe.previous_scenario_bundle = request.previous_scenario_bundle;
-  }
-  if (request.validation_feedback) {
-    safe.validation_feedback = request.validation_feedback;
-    safe.previous_scenario_bundle = request.previous_scenario_bundle;
-    safe.revision_attempt = request.revision_attempt;
-  }
-  return [
-    request.validation_feedback
-      ? "Revise the previous scenario bundle to fix every canonical validator error. Preserve correct source-derived content."
-      : "Compile this Keeper-only source bundle into the exact requested scenario IR.",
-    "Do not include markdown fences. Submit JSON through the tool.",
-    JSON.stringify(safe, null, 2),
-  ].join("\n\n");
-}
-
-async function run(request) {
+export async function run(request) {
   const required = ["module_identity", "source", "pages", "required_files", "compile_contract"];
   for (const key of required) if (!(key in request)) throw new Error(`request missing ${key}`);
   const holder = { result: null, error: null };
@@ -164,11 +139,17 @@ async function run(request) {
   };
 }
 
-try {
-  const result = await run(await readStdinJson());
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-} catch (error) {
-  const message = error && error.message ? error.message : String(error);
-  process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-  process.exitCode = 1;
+async function cliMain() {
+  try {
+    const result = await run(await readStdinJson());
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+    process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await cliMain();
 }

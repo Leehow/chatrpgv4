@@ -93,8 +93,18 @@ def _finding(
     severity: str,
     message: str,
     path: str = "",
-) -> dict[str, str]:
-    return {"code": code, "severity": severity, "path": path, "message": message}
+    *,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    finding: dict[str, Any] = {
+        "code": code,
+        "severity": severity,
+        "path": path,
+        "message": message,
+    }
+    if details:
+        finding["details"] = details
+    return finding
 
 
 VALID_BONUS_DIFFICULTIES = {"regular", "hard", "extreme"}
@@ -513,6 +523,11 @@ def _check_id_uniqueness(id_maps: dict[str, dict[str, list[str]]]) -> list[dict[
                         "error",
                         f"duplicate {kind} id '{eid}' at {', '.join(paths)}",
                         path=paths[0],
+                        details={
+                            "entity_kind": kind,
+                            "entity_id": eid,
+                            "definition_paths": list(paths),
+                        },
                     )
                 )
     return findings
@@ -555,6 +570,13 @@ def _check_reference_integrity(
                         "error",
                         f"available_clues entry '{clue_id}' does not resolve to a clue_id",
                         path=f"{base}.available_clues",
+                        details={
+                            "reference_kind": "available_clue",
+                            "ref_id": clue_id,
+                            "owner_kind": "scene",
+                            "owner_id": scene.get("scene_id"),
+                            "definition_kind": "clue",
+                        },
                     )
                 )
         for j, affordance in enumerate(scene.get("affordances") or []):
@@ -1093,9 +1115,18 @@ def _check_clue_affordances(compiled: dict[str, Any]) -> list[dict[str, str]]:
         if not isinstance(concl, dict):
             continue
         for j, clue in enumerate(concl.get("clues") or []):
-            if not isinstance(clue, dict) or "affordance" not in clue:
+            if not isinstance(clue, dict):
                 continue
             path = f"clue_graph.conclusions[{i}].clues[{clue.get('clue_id') or j}]"
+            if clue.get("delivery_kind") == "skill_check" and not clue.get("skill"):
+                findings.append(_finding(
+                    "missing_delivery_skill", "warning",
+                    "skill_check delivery requires a skill",
+                    path=path,
+                    details={"clue_id": clue.get("clue_id")},
+                ))
+            if "affordance" not in clue:
+                continue
             block = clue.get("affordance")
             if not isinstance(block, dict):
                 findings.append(_finding(
@@ -1193,6 +1224,7 @@ def _check_provenance(compiled: dict[str, Any]) -> list[dict[str, str]]:
                     "warning",
                     "entry missing origin (expected source|inferred|improvised)",
                     path=path,
+                    details={"entry_path": path},
                 )
             )
         elif origin not in VALID_ORIGINS:

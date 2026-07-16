@@ -71,23 +71,34 @@ REQUIRED_FILES = tuple(coc_scenario_compile.REQUIRED_FILES)
 EPISTEMIC_FILES = tuple(coc_epistemic_compile.SIDECAR_FILES)
 MAX_SOURCE_PAGES = 32
 MAX_SOURCE_CHARACTERS = 300_000
+MAX_BASE_COMPILE_ATTEMPTS = 5
+MAX_FEEDBACK_FINDINGS = 256
+MAX_REFERENCE_ENTRIES = 4096
+PROMOTED_COMPILE_WARNING_CODES = frozenset({
+    "unreachable_scene",
+    "missing_origin",
+    "missing_delivery_skill",
+})
 
 
-def _blocking_compile_warnings(warnings: list[str]) -> list[str]:
-    """Promote new-compile warnings that make a module unusable or untraceable."""
+def _blocking_compile_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return structured blockers without classifying validator prose."""
     return [
-        warning
-        for warning in warnings
-        if (
-            "unreachable from start" in warning
-            or "delivery_kind=skill_check but no skill" in warning
-            or warning.startswith("entry missing origin")
+        finding for finding in findings
+        if finding.get("severity") == "error"
+        or (
+            finding.get("severity") == "warning"
+            and finding.get("code") in PROMOTED_COMPILE_WARNING_CODES
         )
     ]
 
 
 class ScenarioHydrationError(RuntimeError):
     """The campaign has no validated playable IR and resolution failed."""
+
+    def __init__(self, message: str, *, validation: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.validation = validation
 
 
 def _now() -> str:
@@ -133,7 +144,38 @@ def _validation(scenario_dir: Path, *, deep: bool = False) -> dict[str, Any]:
         findings = coc_scenario_compile.validate_compiled_scenario(
             coc_scenario_compile.load_compiled_from_dir(scenario_dir)
         )
-    errors = list(disk.get("errors") or []) + [
+    disk_errors = list(disk.get("errors") or [])
+    disk_warnings = list(disk.get("warnings") or [])
+    structured = [
+        {
+            "code": "disk_validation_error",
+            "severity": "error",
+            "path": "",
+            "message": str(message),
+            "details": {
+                "diagnostic_index": index,
+                "diagnostic_sha256": hashlib.sha256(
+                    str(message).encode("utf-8")
+                ).hexdigest(),
+            },
+        }
+        for index, message in enumerate(disk_errors)
+    ] + [
+        {
+            "code": "disk_validation_warning",
+            "severity": "warning",
+            "path": "",
+            "message": str(message),
+            "details": {
+                "diagnostic_index": index,
+                "diagnostic_sha256": hashlib.sha256(
+                    str(message).encode("utf-8")
+                ).hexdigest(),
+            },
+        }
+        for index, message in enumerate(disk_warnings)
+    ] + findings
+    errors = disk_errors + [
         str(item.get("message") or item.get("code"))
         for item in findings
         if item.get("severity") == "error"
@@ -141,12 +183,135 @@ def _validation(scenario_dir: Path, *, deep: bool = False) -> dict[str, Any]:
     return {
         "ok": not errors,
         "errors": errors,
-        "warnings": list(disk.get("warnings") or []) + [
+        "warnings": disk_warnings + [
             str(item.get("message") or item.get("code"))
             for item in findings
             if item.get("severity") == "warning"
         ],
+        "findings": structured,
     }
+
+
+def _json_digest(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _bounded_json(value: Any, *, depth: int = 0) -> Any:
+    """Bound feedback size while preserving structured IDs and paths."""
+    if depth >= 6:
+        return None
+    if isinstance(value, str):
+        return value[:1000]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, list):
+        return [_bounded_json(item, depth=depth + 1) for item in value[:128]]
+    if isinstance(value, dict):
+        return {
+            str(key)[:128]: _bounded_json(item, depth=depth + 1)
+            for key, item in list(value.items())[:32]
+        }
+    return str(value)[:1000]
+
+
+def _feedback_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
+    for finding in findings[:MAX_FEEDBACK_FINDINGS]:
+        item = {
+            "code": str(finding.get("code") or "unknown")[:128],
+            "severity": str(finding.get("severity") or "error")[:32],
+            "path": str(finding.get("path") or "")[:1000],
+            "message": str(finding.get("message") or finding.get("code") or "")[:1000],
+        }
+        details = finding.get("details")
+        if isinstance(details, dict):
+            item["details"] = _bounded_json(details)
+        projected.append(item)
+    return projected
+
+
+def _finding_identity(finding: dict[str, Any]) -> str:
+    return _json_digest({
+        "code": finding.get("code"),
+        "severity": finding.get("severity"),
+        "path": finding.get("path"),
+        "details": finding.get("details"),
+    })
+
+
+def _reference_snapshot(bundle: dict[str, Any]) -> dict[str, Any]:
+    graph = bundle.get("clue-graph.json")
+    conclusions = graph.get("conclusions") if isinstance(graph, dict) else []
+    definitions: list[dict[str, Any]] = []
+    for ci, conclusion in enumerate(conclusions or []):
+        if not isinstance(conclusion, dict):
+            continue
+        for cj, clue in enumerate(conclusion.get("clues") or []):
+            if isinstance(clue, dict) and isinstance(clue.get("clue_id"), str):
+                definitions.append({
+                    "clue_id": clue["clue_id"],
+                    "path": f"clue_graph.conclusions[{ci}].clues[{cj}]",
+                })
+    story = bundle.get("story-graph.json")
+    scenes = story.get("scenes") if isinstance(story, dict) else []
+    references: list[dict[str, Any]] = []
+    defined_ids = {item["clue_id"] for item in definitions}
+    for si, scene in enumerate(scenes or []):
+        if not isinstance(scene, dict):
+            continue
+        for ri, clue_id in enumerate(scene.get("available_clues") or []):
+            references.append({
+                "scene_id": scene.get("scene_id"),
+                "clue_id": clue_id,
+                "path": f"story_graph.scenes[{si}].available_clues[{ri}]",
+                "resolves": isinstance(clue_id, str) and clue_id in defined_ids,
+            })
+    definitions.sort(key=lambda item: (str(item["clue_id"]), item["path"]))
+    references.sort(key=lambda item: (str(item["scene_id"]), str(item["clue_id"]), item["path"]))
+    return {
+        "clue_definitions": definitions[:MAX_REFERENCE_ENTRIES],
+        "available_clue_references": references[:MAX_REFERENCE_ENTRIES],
+        "definition_count": len(definitions),
+        "available_clue_reference_count": len(references),
+        "truncated": (
+            len(definitions) > MAX_REFERENCE_ENTRIES
+            or len(references) > MAX_REFERENCE_ENTRIES
+        ),
+    }
+
+
+def _candidate_score(
+    findings: list[dict[str, Any]],
+    *,
+    parent_findings: list[dict[str, Any]] | None,
+) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    blockers = _blocking_compile_findings(findings)
+    parent_identities = {
+        _finding_identity(item) for item in (parent_findings or [])
+    }
+    regressions = [
+        item for item in blockers
+        if _finding_identity(item) not in parent_identities
+    ] if parent_findings is not None else []
+    score = {
+        "blocking_count": len(blockers),
+        "error_count": sum(item.get("severity") == "error" for item in blockers),
+        "promoted_warning_count": sum(
+            item.get("severity") == "warning" for item in blockers
+        ),
+        "new_regression_count": len(regressions),
+    }
+    return score, regressions
+
+
+def _score_key(score: dict[str, int], attempt: int) -> tuple[int, int, int]:
+    return (
+        score["blocking_count"],
+        score["new_regression_count"],
+        attempt,
+    )
 
 
 def _campaign_coc_root(campaign_dir: Path) -> Path | None:
@@ -493,8 +658,19 @@ def _stage_bundle(
     pages: list[dict[str, Any]],
 ) -> Path:
     if set(bundle) != set(REQUIRED_FILES):
+        validation = {"findings": [{
+            "code": "invalid_bundle_keys",
+            "severity": "error",
+            "path": "scenario_bundle",
+            "message": "compiler bundle keys must exactly equal the canonical seven files",
+            "details": {
+                "required_files": list(REQUIRED_FILES),
+                "actual_files": sorted(str(key) for key in bundle),
+            },
+        }]}
         raise ScenarioHydrationError(
-            "compiler bundle keys must exactly equal the canonical seven files"
+            "compiler bundle keys must exactly equal the canonical seven files",
+            validation=validation,
         )
     staging_root = Path(tempfile.mkdtemp(prefix=".scenario-compile-", dir=parent))
     staging = staging_root / "scenario"
@@ -503,18 +679,31 @@ def _stage_bundle(
         for name in REQUIRED_FILES:
             payload = bundle[name]
             if not isinstance(payload, dict):
-                raise ScenarioHydrationError(f"compiler output {name} must be an object")
+                validation = {"findings": [{
+                    "code": "invalid_bundle_document",
+                    "severity": "error",
+                    "path": name,
+                    "message": f"compiler output {name} must be an object",
+                    "details": {"filename": name},
+                }]}
+                raise ScenarioHydrationError(
+                    f"compiler output {name} must be an object",
+                    validation=validation,
+                )
             _write_json(staging / name, payload)
         # Validate structure and source evidence against one isolated staged
         # campaign. Never inherit an older campaign/index while judging a new
         # compiler result.
         _persist_source_bundle(staging_root, seed, source, pages)
         check = _validation(staging, deep=True)
-        promoted = _blocking_compile_warnings(check["warnings"])
-        if not check["ok"] or promoted:
+        blockers = _blocking_compile_findings(check["findings"])
+        if blockers:
             raise ScenarioHydrationError(
                 "compiler output failed canonical validation: "
-                + "; ".join([*check["errors"], *promoted])
+                + "; ".join(
+                    str(item.get("message") or item.get("code")) for item in blockers
+                ),
+                validation=check,
             )
         return staging
     except Exception:
@@ -816,7 +1005,7 @@ def ensure_scenario_ready(
     runner_path: Path | str | None = None,
     epistemic_runner_path: Path | str | None = None,
     compiler_timeout_s: float = 900,
-    max_compile_attempts: int = 3,
+    max_compile_attempts: int = MAX_BASE_COMPILE_ATTEMPTS,
     compile_epistemic_sidecars: bool | None = None,
     force_recompile: bool = False,
     resolution_request: dict[str, Any] | None = None,
@@ -829,7 +1018,10 @@ def ensure_scenario_ready(
     current = _validation(scenario_dir)
     if current["ok"] and not force_recompile:
         deep = _validation(scenario_dir, deep=True)
-        promoted = _blocking_compile_warnings(deep["warnings"])
+        promoted = [
+            finding for finding in _blocking_compile_findings(deep["findings"])
+            if finding.get("severity") == "warning"
+        ]
         if seed["resolution_policy"] not in {"source_first", "repair_invalid"} or not promoted:
             return _warm_receipt(campaign, {
                 "status": "PASS",
@@ -840,7 +1032,11 @@ def ensure_scenario_ready(
             })
         current = {
             "ok": False,
-            "errors": [f"promoted compile warning: {warning}" for warning in promoted],
+            "errors": [
+                "promoted compile warning: "
+                + str(finding.get("message") or finding.get("code"))
+                for finding in promoted
+            ],
             "warnings": deep["warnings"],
         }
     # Presence and correctness are separate concerns. Do not silently replace
@@ -893,22 +1089,38 @@ def ensure_scenario_ready(
         invoke = lambda payload: compiler_adapter.compile_scenario(
             payload, runner_path=runner_path, timeout_s=compiler_timeout_s
         )
-    attempts = max(1, int(max_compile_attempts or 1))
+    attempts = min(
+        MAX_BASE_COMPILE_ATTEMPTS,
+        max(1, int(max_compile_attempts or 1)),
+    )
     response: dict[str, Any] = {}
     staging: Path | None = None
     compile_payload = request
     validation_errors: list[str] = []
+    best_bundle: dict[str, Any] | None = None
+    best_findings: list[dict[str, Any]] | None = None
+    best_all_findings: list[dict[str, Any]] | None = None
+    best_score: dict[str, int] | None = None
+    best_attempt: int | None = None
+    best_bundle_sha256: str | None = None
+    lineage: list[dict[str, Any]] = []
+    accepted_bundle_sha256: str | None = None
     for attempt in range(1, attempts + 1):
+        parent_attempt = compile_payload.get("parent_attempt")
+        parent_bundle_sha256 = compile_payload.get("parent_bundle_sha256")
         response = invoke(compile_payload)
         if not isinstance(response, dict) or response.get("ok") is not True:
             raise ScenarioHydrationError(
                 str((response or {}).get("error") or "scenario compiler returned no result")
             )
         try:
+            raw_bundle = response.get("scenario_bundle") or {}
+            raw_bundle_sha256 = _json_digest(raw_bundle)
             normalized_bundle = _normalize_compiler_bundle(
-                response.get("scenario_bundle") or {}
+                raw_bundle
             )
             response["scenario_bundle"] = normalized_bundle
+            normalized_bundle_sha256 = _json_digest(normalized_bundle)
             staging = _stage_bundle(
                 normalized_bundle,
                 scenario_dir.parent,
@@ -916,27 +1128,107 @@ def ensure_scenario_ready(
                 source=source,
                 pages=pages,
             )
+            accepted_check = _validation(staging, deep=True)
+            accepted_score, _ = _candidate_score(
+                accepted_check.get("findings") or [],
+                parent_findings=best_all_findings,
+            )
+            accepted_bundle_sha256 = normalized_bundle_sha256
+            lineage.append({
+                "attempt": attempt,
+                "parent_attempt": parent_attempt,
+                "parent_bundle_sha256": parent_bundle_sha256,
+                "raw_bundle_sha256": raw_bundle_sha256,
+                "normalized_bundle_sha256": normalized_bundle_sha256,
+                "candidate_score": accepted_score,
+                "accepted": True,
+            })
             break
         except ScenarioHydrationError as exc:
             validation_errors.append(str(exc))
+            validation = exc.validation or {"findings": [{
+                "code": "scenario_hydration_error",
+                "severity": "error",
+                "path": "scenario_bundle",
+                "message": str(exc),
+            }]}
+            candidate_all_findings = validation.get("findings") or []
+            candidate_findings = _feedback_findings(candidate_all_findings)
+            candidate_score, all_regressions = _candidate_score(
+                candidate_all_findings,
+                parent_findings=best_all_findings,
+            )
+            regressions = _feedback_findings(all_regressions)
+            if (
+                best_score is None
+                or _score_key(candidate_score, attempt)
+                < _score_key(best_score, best_attempt or attempt)
+            ):
+                best_bundle = response.get("scenario_bundle")
+                best_findings = candidate_findings
+                best_all_findings = candidate_all_findings
+                # Once selected, the best candidate is the comparison baseline;
+                # by definition it has no regression relative to itself. This
+                # keeps equal-but-churned later candidates from replacing it.
+                best_score = {**candidate_score, "new_regression_count": 0}
+                best_attempt = attempt
+                best_bundle_sha256 = normalized_bundle_sha256
+            lineage.append({
+                "attempt": attempt,
+                "parent_attempt": parent_attempt,
+                "parent_bundle_sha256": parent_bundle_sha256,
+                "raw_bundle_sha256": raw_bundle_sha256,
+                "normalized_bundle_sha256": normalized_bundle_sha256,
+                "candidate_score": candidate_score,
+                "best_attempt_after": best_attempt,
+                "best_bundle_sha256_after": best_bundle_sha256,
+            })
+            candidate_snapshot = _reference_snapshot(response.get("scenario_bundle") or {})
             _write_json(
                 campaign / "logs" / "scenario-resolution"
                 / f"{request_digest}.rejected-{attempt}.json",
                 {
                     "schema_version": 1,
                     "attempt": attempt,
+                    "parent_attempt": parent_attempt,
+                    "parent_bundle_sha256": parent_bundle_sha256,
+                    "raw_bundle_sha256": raw_bundle_sha256,
+                    "normalized_bundle_sha256": normalized_bundle_sha256,
+                    "candidate_score": candidate_score,
+                    "best_attempt": best_attempt,
+                    "best_bundle_sha256": best_bundle_sha256,
+                    "revision_lineage": lineage,
                     "validation_error": str(exc),
+                    "validation_findings": candidate_findings,
+                    "regression_findings": regressions,
+                    "reference_snapshot": candidate_snapshot,
                     "scenario_bundle": response.get("scenario_bundle"),
                     "model_identity": response.get("model_identity"),
                 },
             )
             if attempt >= attempts:
                 raise
+            assert best_bundle is not None
+            assert best_findings is not None
+            assert best_attempt is not None
+            assert best_bundle_sha256 is not None
+            feedback = "; ".join(
+                str(item.get("message") or item.get("code"))
+                for item in _blocking_compile_findings(best_findings)
+            )
             compile_payload = {
                 **request,
                 "revision_attempt": attempt + 1,
-                "validation_feedback": str(exc),
-                "previous_scenario_bundle": response.get("scenario_bundle"),
+                "parent_attempt": best_attempt,
+                "parent_bundle_sha256": best_bundle_sha256,
+                "best_attempt": best_attempt,
+                "validation_feedback": feedback,
+                "validation_findings": best_findings,
+                "regression_findings": regressions,
+                "reference_snapshot": _reference_snapshot(best_bundle),
+                "regression_reference_snapshot": candidate_snapshot,
+                "revision_lineage": lineage,
+                "previous_scenario_bundle": best_bundle,
             }
     if staging is None:
         raise ScenarioHydrationError("scenario compiler exhausted without staged output")
@@ -1013,5 +1305,7 @@ def ensure_scenario_ready(
         "epistemic_sidecars": epistemic_receipt,
         "compile_attempts": 1 + len(validation_errors),
         "rejected_validation_errors": validation_errors,
+        "accepted_normalized_bundle_sha256": accepted_bundle_sha256,
+        "revision_lineage": lineage,
         "warnings": final["warnings"],
     })
