@@ -54,7 +54,11 @@ No step is mandatory except honesty; this is the natural rhythm:
    `scene.map` for deeper reference. Resolve each witnessed
    `pending_san_triggers` entry with `rules.sanity_check(trigger_id=...)`;
    fields under `keeper_only` / `keeper_mechanics` are execution reference and
-   must never be quoted as player-facing knowledge.
+   must never be quoted as player-facing knowledge. The context's
+   `continuity.live_world_flags` is current campaign truth and supersedes an
+   authored scene's initial description when they differ. Read structured
+   `active_time_markers` for remaining/overdue arithmetic instead of
+   recalculating remembered deadlines in prose.
 3. If the action is risky and failure is interesting, call `rules.roll`
    (or `rules.opposed`, `rules.sanity_check`, `rules.damage`). Offer
    `rules.push` after failures when the player changes method — announce the
@@ -84,10 +88,17 @@ No step is mandatory except honesty; this is the natural rhythm:
    machine-facing fields, stable IDs, and hidden audit data.
 6. Synchronously record what changed: `state.record_clue`, `state.move_scene`,
    `state.set_flag`, `state.npc_update`, `state.advance_time` as applicable.
+   Use `state.time_marker` to set/reset/clear meaningful in-fiction agreements
+   such as a police check-in deadline; it is bookkeeping only and never
+   auto-triggers rescue or blocks narration.
    Whenever an authored NPC materially participates, also call
    `state.record_npc_engagement` once with a structured `interaction_kind`,
-   even if no trust/fear/fact value changed; this is the authoritative
-   adherence receipt. Then close the finalized turn with `state.journal`
+   even if no trust/fear/fact value changed. Pass the exact `identity_ref`
+   returned by `npc.query` or `scene.context` when that authored identity was
+   actually portrayed. A missing or mismatched reference still records the
+   interaction with a warning, but does not count as authored-NPC coverage;
+   use a new stable improvised NPC ID when the fiction introduces a different
+   person or social role. Then close the finalized turn with `state.journal`
    (summary, intent class, tension) before emitting the narration. Invoke
    authoritative mutating tool calls in the decided order, never in parallel.
    Dice, resources, critical state, journal, ending, and development

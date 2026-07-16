@@ -298,6 +298,10 @@ def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
             {"npc_id": "npc-steven-knott", "interaction_kind": "dialogue"},
         ),
         ("state.npc_update", {"npc_id": "npc-steven-knott", "trust_delta": 1}),
+        (
+            "state.time_marker",
+            {"action": "set", "marker_id": "police-check-in", "minutes_from_now": 10},
+        ),
     ],
 )
 def test_mutating_tools_require_decision_id(campaign_ws, tool_name, args):
@@ -554,14 +558,25 @@ def test_same_decision_id_is_scoped_by_tool_name(campaign_ws):
         "state.record_clue",
         {"clue_id": clue_id, "method": "test", "decision_id": decision_id},
     )
+    marker = _run(
+        campaign_ws,
+        "state.time_marker",
+        {
+            "action": "set",
+            "marker_id": "shared-decision-marker",
+            "minutes_from_now": 5,
+            "decision_id": decision_id,
+        },
+    )
     repeated = _run(
         campaign_ws,
         "state.record_clue",
         {"clue_id": clue_id, "method": "test", "decision_id": decision_id},
     )
-    assert moved["ok"] and recorded["ok"] and repeated["ok"]
+    assert moved["ok"] and recorded["ok"] and marker["ok"] and repeated["ok"]
     assert recorded["data"]["clue_id"] == clue_id
     assert "to_scene_id" not in recorded["data"]
+    assert marker["data"]["marker"]["marker_id"] == "shared-decision-marker"
     assert repeated["data"] == recorded["data"]
     ledger = json.loads(
         (campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json").read_text(
@@ -576,6 +591,7 @@ def test_same_decision_id_is_scoped_by_tool_name(campaign_ws):
     assert {entry["tool"] for entry in scoped} == {
         "state.move_scene",
         "state.record_clue",
+        "state.time_marker",
     }
 
 
@@ -710,6 +726,178 @@ def test_state_flag_and_npc_updates_are_idempotent(campaign_ws):
         if row.get("event_type") == "npc_update" and row.get("npc_id") == npc_id
     ]
     assert len(npc_events) == 1
+
+
+def test_scene_context_projects_live_flag_truth_over_stale_authored_description(
+    campaign_ws,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    story_path = campaign_dir / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    world = json.loads(
+        (campaign_dir / "save" / "world-state.json").read_text(encoding="utf-8")
+    )
+    active_scene = next(
+        scene
+        for scene in story["scenes"]
+        if scene.get("scene_id") == world.get("active_scene_id")
+    )
+    active_scene["pressure_moves"] = ["The side door is still locked (initial description)."]
+    _write_json(story_path, story)
+
+    flag = _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "corbitt-house-side-door-unlatched",
+            "value": True,
+            "reason": "Hayes opened every inside lock and left the door ajar",
+            "decision_id": "side-door-unlatched-once",
+        },
+    )
+    assert flag["ok"] is True
+
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is True
+    assert "still locked" in context["data"]["scene"]["pressure_moves"][0]
+    continuity = context["data"]["continuity"]
+    assert continuity["keeper_only"] is True
+    assert continuity["state_precedence"] == "live_over_authored_initial"
+    live = {
+        row["flag_id"]: row for row in continuity["live_world_flags"]
+    }
+    side_door = live["corbitt-house-side-door-unlatched"]
+    assert side_door["value"] is True
+    assert side_door["provenance"]["decision_id"] == "side-door-unlatched-once"
+    assert side_door["provenance"]["reason"].startswith("Hayes opened")
+    assert continuity["recent_world_flag_changes"][-1]["flag_id"] == (
+        "corbitt-house-side-door-unlatched"
+    )
+    assert any("live_world_flags" in hint for hint in context["hints"])
+
+
+def test_time_marker_set_reset_clear_and_advance_projection_are_idempotent(
+    campaign_ws,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    time_path = campaign_dir / "save" / "time-state.json"
+    time_state = json.loads(time_path.read_text(encoding="utf-8"))
+    time_state["clock"].update(
+        {
+            "elapsed_minutes": 93,
+            "calendar_mode": "gregorian",
+            "local_datetime": "1920-10-15T11:33:00",
+            "display": "1920-10-15 11:33",
+        }
+    )
+    _write_json(time_path, time_state)
+
+    set_args = {
+        "action": "set",
+        "marker_id": "police-check-in",
+        "minutes_from_now": 10,
+        "label": "Police check-in",
+        "reason": "Police enter if Hayes misses the report",
+        "decision_id": "police-check-in-set-1",
+    }
+    first = _run(campaign_ws, "state.time_marker", set_args)
+    replay = _run(campaign_ws, "state.time_marker", set_args)
+    assert first["ok"] is True
+    assert replay["data"] == first["data"]
+    assert any("duplicate decision_id" in warning for warning in replay["warnings"])
+    marker = first["data"]["marker"]
+    assert marker["due_at"]["display"] == "1920-10-15 11:43"
+    assert marker["remaining_minutes"] == 10
+    assert marker["timing_state"] == "pending"
+
+    advanced = _run(
+        campaign_ws,
+        "state.advance_time",
+        {
+            "minutes": 6,
+            "reason": "Hayes searches the first basement platform",
+            "decision_id": "advance-to-1139",
+        },
+    )
+    assert advanced["ok"] is True
+    assert advanced["data"]["current_time"]["display"] == "1920-10-15 11:39"
+    active = advanced["data"]["active_time_markers"]
+    assert len(active) == 1
+    assert active[0]["due_at"]["display"] == "1920-10-15 11:43"
+    assert active[0]["remaining_minutes"] == 4
+    assert active[0]["overdue"] is False
+
+    context = _run(campaign_ws, "scene.context")
+    assert context["data"]["continuity"]["active_time_markers"] == active
+
+    reset = _run(
+        campaign_ws,
+        "state.time_marker",
+        {
+            "action": "reset",
+            "marker_id": "police-check-in",
+            "minutes_from_now": 10,
+            "reason": "Hayes reported and renewed the ten-minute agreement",
+            "decision_id": "police-check-in-reset-1",
+        },
+    )
+    assert reset["ok"] is True
+    assert reset["data"]["marker"]["due_at"]["display"] == "1920-10-15 11:49"
+    assert reset["data"]["marker"]["revision"] == 2
+
+    trigger_path = campaign_dir / "save" / "time-triggers.json"
+    triggers_before = json.loads(trigger_path.read_text(encoding="utf-8"))
+    scene_before = json.loads(
+        (campaign_dir / "save" / "world-state.json").read_text(encoding="utf-8")
+    )["active_scene_id"]
+    overdue = _run(
+        campaign_ws,
+        "state.advance_time",
+        {
+            "minutes": 11,
+            "reason": "Hayes remains underground past the renewed check-in",
+            "decision_id": "advance-past-1149",
+        },
+    )
+    assert overdue["ok"] is True
+    overdue_marker = overdue["data"]["active_time_markers"][0]
+    assert overdue_marker["remaining_minutes"] == -1
+    assert overdue_marker["overdue"] is True
+    assert overdue_marker["timing_state"] == "overdue"
+    assert json.loads(trigger_path.read_text(encoding="utf-8")) == triggers_before
+    assert json.loads(
+        (campaign_dir / "save" / "world-state.json").read_text(encoding="utf-8")
+    )["active_scene_id"] == scene_before
+    assert not any(
+        row.get("event_type") == "trigger_fired"
+        and row.get("trigger_id") == "police-check-in"
+        for row in _read_jsonl(campaign_dir / "logs" / "time.jsonl")
+    )
+
+    cleared = _run(
+        campaign_ws,
+        "state.time_marker",
+        {
+            "action": "clear",
+            "marker_id": "police-check-in",
+            "reason": "Hayes returned to the officers",
+            "decision_id": "police-check-in-clear-1",
+        },
+    )
+    assert cleared["ok"] is True
+    assert cleared["data"]["marker"]["status"] == "cleared"
+    assert cleared["data"]["active_time_markers"] == []
+    assert _run(campaign_ws, "scene.context")["data"]["continuity"][
+        "active_time_markers"
+    ] == []
+
+    marker_events = [
+        row
+        for row in _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+        if row.get("event_type") == "time_marker_changed"
+        and row.get("marker_id") == "police-check-in"
+    ]
+    assert [row["action"] for row in marker_events] == ["set", "reset", "clear"]
 
 
 def test_state_write_appends_toolbox_calls_log(campaign_ws):
@@ -1305,6 +1493,17 @@ def test_npc_query_preserves_authored_identity_contract(campaign_ws):
     assert kim["origin"] == "source"
     assert kim["relationship_to_investigators"] == "court_contact"
     assert kim["social_role"]["authority_scope"] == ["specialist_knowledge"]
+    assert kim["identity_ref"].startswith("npc-identity-v1:")
+    contract = kim["identity_contract"]
+    assert contract["keeper_only"] is True
+    assert contract["npc_id"] == "npc-kim-debrun"
+    assert contract["role"]["relationship_to_investigators"] == "court_contact"
+    assert contract["agenda"] == kim["agenda"]
+    assert contract["voice"] == kim["voice"]
+    assert contract["schedule"] == kim["schedule"]
+    assert contract["location_provenance"]["authored_scene_ids"] == [
+        "higher-courts-central-police"
+    ]
     assert any("identity contract" in hint for hint in envelope["hints"])
     assert any("never invent a gendered pronoun" in hint for hint in envelope["hints"])
 
@@ -1327,9 +1526,21 @@ def test_actions_list_gives_noncombat_choices_equal_structured_semantics(campaig
 
 
 def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {
+            "scene_id": "higher-courts-central-police",
+            "decision_id": "move-kim-engagement",
+        },
+    )
+    assert moved["ok"] is True
+    queried = _run(campaign_ws, "npc.query", {"npc_id": "npc-kim-debrun"})
+    identity_ref = queried["data"]["npcs"][0]["identity_ref"]
     args = {
         "npc_id": "npc-kim-debrun",
         "interaction_kind": "dialogue",
+        "identity_ref": identity_ref,
         "decision_id": "kim-engagement-once",
     }
     state_path = campaign_ws["campaign_dir"] / "save" / "npc-state.json"
@@ -1342,6 +1553,9 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
     assert replay["data"] == first["data"]
     assert first["data"]["event_type"] == "npc_engagement"
     assert first["data"]["interaction_kind"] == "dialogue"
+    assert first["data"]["identity_binding"]["status"] == "authored_bound"
+    assert first["data"]["identity_binding"]["authored_identity_attested"] is True
+    assert first["data"]["identity_binding"]["coverage_eligible"] is True
     after = state_path.read_bytes() if state_path.is_file() else None
     assert after == before
     matching = [
@@ -1351,6 +1565,83 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
         and row.get("npc_id") == "npc-kim-debrun"
     ]
     assert len(matching) == 1
+
+
+def test_npc_engagement_identity_binding_degrades_to_warnings_not_a_gate(
+    campaign_ws,
+):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "neighborhood-gossip", "decision_id": "move-dooley-binding"},
+    )
+    assert moved["ok"] is True
+    query = _run(campaign_ws, "npc.query", {"npc_id": "npc-dooley"})
+    dooley_ref = query["data"]["npcs"][0]["identity_ref"]
+
+    unverified = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": "npc-dooley",
+            "interaction_kind": "dialogue",
+            "decision_id": "dooley-unverified",
+        },
+    )
+    mismatched = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": "npc-dooley",
+            "interaction_kind": "dialogue",
+            "identity_ref": "npc-identity-v1:not-dooley",
+            "decision_id": "dooley-mismatched",
+        },
+    )
+    improvised = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": "npc-neighbor-white-hair",
+            "interaction_kind": "dialogue",
+            "identity_ref": dooley_ref,
+            "decision_id": "neighbor-improvised",
+        },
+    )
+    bound = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": "npc-dooley",
+            "interaction_kind": "dialogue",
+            "identity_ref": dooley_ref,
+            "decision_id": "dooley-bound",
+        },
+    )
+
+    assert all(row["ok"] is True for row in [unverified, mismatched, improvised, bound])
+    assert unverified["data"]["identity_binding"]["status"] == "unverified"
+    assert mismatched["data"]["identity_binding"]["status"] == "mismatch"
+    assert improvised["data"]["identity_binding"]["status"] == "improvised"
+    assert bound["data"]["identity_binding"]["status"] == "authored_bound"
+    assert not unverified["data"]["identity_binding"]["coverage_eligible"]
+    assert not mismatched["data"]["identity_binding"]["coverage_eligible"]
+    assert not improvised["data"]["identity_binding"]["coverage_eligible"]
+    assert bound["data"]["identity_binding"]["coverage_eligible"] is True
+    assert any("coverage" in warning for warning in unverified["warnings"])
+    assert any("does not match" in warning for warning in mismatched["warnings"])
+    assert any("improvised NPC" in warning for warning in improvised["warnings"])
+
+    context = _run(campaign_ws, "scene.context")
+    dooley = next(
+        npc for npc in context["data"]["npcs_present"] if npc["npc_id"] == "npc-dooley"
+    )
+    assert dooley["identity_contract"]["identity_ref"] == dooley_ref
+    assert dooley["identity_contract"]["location_provenance"] == {
+        "active_scene_id": "neighborhood-gossip",
+        "authored_scene_ids": ["neighborhood-gossip"],
+        "active_scene_matches_schedule": True,
+    }
 
 
 def test_npc_short_name_and_open_interaction_label_degrade_without_blocking(campaign_ws):

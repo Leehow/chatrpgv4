@@ -229,33 +229,75 @@ def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
             "criterion": {"npc_id": "npc-nayra"},
             "description": "Engage NPC 'Nayra'",
         },
+        {
+            "statement_id": "npc:npc-update-only",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-update-only"},
+            "description": "Do not count a psych update as identity attestation",
+        },
     ]
     play = {
         "turns": [
             {
                 "npc_moves": [
-                    {"npc_id": "npc-augustus-larkin", "display_name": "Augustus Larkin"},
+                    {
+                        "npc_id": "npc-augustus-larkin",
+                        "display_name": "Augustus Larkin",
+                        "identity_binding": {
+                            "status": "authored_bound",
+                            "authored_identity_attested": True,
+                            "coverage_eligible": True,
+                        },
+                    },
                     {"npc_id": "npc-luis-de-mendoza", "display_name": "Luis de Mendoza"},
                 ],
             }
         ],
         "events": [
-            {"event_type": "npc_engagement", "npc_id": "npc-augustus-larkin"},
+            {
+                "event_type": "npc_engagement",
+                "npc_id": "npc-augustus-larkin",
+                "identity_binding": {
+                    "status": "authored_bound",
+                    "authored_identity_attested": True,
+                    "coverage_eligible": True,
+                },
+            },
             {"event_type": "npc_update", "npc_id": "npc-nayra", "applied": {"trust": 1}},
+            {
+                "event_type": "npc_engagement",
+                "npc_id": "npc-nayra",
+                "identity_binding": {
+                    "status": "authored_bound",
+                    "authored_identity_attested": True,
+                    "coverage_eligible": True,
+                },
+            },
+            {
+                "event_type": "npc_update",
+                "npc_id": "npc-update-only",
+                "applied": {"trust": 1},
+            },
         ],
     }
     result = coc_adherence.evaluate_adherence(checklist, play)
     by_id = {s["statement_id"]: s for s in result["statements"]}
     assert by_id["npc:npc-augustus-larkin"]["satisfied"] is True
     assert by_id["npc:npc-nayra"]["satisfied"] is True
+    assert by_id["npc:npc-update-only"]["satisfied"] is False
 
 
-def test_project_engaged_npc_ids_accepts_canonical_and_legacy_update_events():
+def test_project_engaged_npc_ids_requires_authored_identity_attestation():
     events = [
         {
             "event_type": "npc_engagement",
             "npc_id": "npc-kim-debrun",
             "interaction_kind": "dialogue",
+            "identity_binding": {
+                "status": "authored_bound",
+                "authored_identity_attested": True,
+                "coverage_eligible": True,
+            },
         },
         {
             "event_type": "npc_update",
@@ -265,7 +307,47 @@ def test_project_engaged_npc_ids_accepts_canonical_and_legacy_update_events():
         {"event_type": "turn", "npc_id": "npc-not-an-engagement"},
     ]
 
-    assert coc_adherence.project_engaged_npc_ids(events) == {
-        "npc-kim-debrun",
-        "npc-steven-knott",
-    }
+    assert coc_adherence.project_engaged_npc_ids(events) == {"npc-kim-debrun"}
+
+
+def test_unverified_or_mismatched_npc_ids_do_not_satisfy_authored_coverage():
+    checklist = [
+        {
+            "statement_id": "npc:npc-dooley",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-dooley"},
+            "description": "Engage NPC 'Mr. Dooley'",
+        },
+        {
+            "statement_id": "npc:npc-kim-debrun",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-kim-debrun"},
+            "description": "Engage NPC 'Kim Debrun'",
+        },
+    ]
+    events = [
+        {"event_type": "npc_engagement", "npc_id": "npc-dooley"},
+        {
+            "event_type": "npc_engagement",
+            "npc_id": "npc-dooley",
+            "identity_binding": {
+                "status": "mismatch",
+                "coverage_eligible": False,
+            },
+        },
+        {
+            "event_type": "npc_engagement",
+            "npc_id": "npc-kim-debrun",
+            "identity_binding": {
+                "status": "authored_bound",
+                "authored_identity_attested": True,
+                "coverage_eligible": True,
+            },
+        },
+    ]
+
+    assert coc_adherence.project_engaged_npc_ids(events) == {"npc-kim-debrun"}
+    result = coc_adherence.evaluate_adherence(checklist, {"events": events})
+    by_id = {row["statement_id"]: row for row in result["statements"]}
+    assert by_id["npc:npc-dooley"]["satisfied"] is False
+    assert by_id["npc:npc-kim-debrun"]["satisfied"] is True

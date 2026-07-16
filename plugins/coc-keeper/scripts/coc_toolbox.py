@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import importlib.util
 import json
 import random
@@ -35,7 +36,7 @@ import re
 import sys
 import time
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -610,6 +611,70 @@ def _npc_by_id(npc_agendas: dict[str, Any], npc_id: str) -> dict[str, Any] | Non
     return matches[0] if len(matches) == 1 else None
 
 
+def _npc_identity_contract(
+    npc: dict[str, Any],
+    active_scene_id: str | None,
+) -> dict[str, Any]:
+    """Project one stable authored identity without interpreting free prose.
+
+    ``identity_ref`` binds the exact structured producer fields returned to the
+    Keeper.  It is evidence that the consumer selected this authored identity,
+    not an audit of the narration itself.
+    """
+    schedule = deepcopy(npc.get("schedule") or [])
+    schedule_rows = schedule if isinstance(schedule, list) else [schedule]
+    authored_scene_ids: set[str] = set()
+    for row in schedule_rows:
+        if not isinstance(row, dict):
+            continue
+        for scene_id in row.get("scene_ids") or []:
+            if scene_id not in (None, ""):
+                authored_scene_ids.add(str(scene_id))
+    identity_source = {
+        "npc_id": npc.get("npc_id"),
+        "name": npc.get("name"),
+        "origin": npc.get("origin"),
+        "agenda": npc.get("agenda"),
+        "voice": npc.get("voice"),
+        "relationship_to_investigators": npc.get("relationship_to_investigators"),
+        "social_role": deepcopy(npc.get("social_role")),
+        "schedule": schedule,
+        "source_refs": deepcopy(npc.get("source_refs") or []),
+    }
+    encoded = json.dumps(
+        identity_source,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    identity_ref = f"npc-identity-v1:{hashlib.sha256(encoded).hexdigest()[:24]}"
+    active = str(active_scene_id) if active_scene_id not in (None, "") else None
+    scene_match: bool | None = None
+    if authored_scene_ids:
+        scene_match = bool(active and active in authored_scene_ids)
+    return {
+        "keeper_only": True,
+        "npc_id": npc.get("npc_id"),
+        "name": npc.get("name"),
+        "origin": npc.get("origin"),
+        "identity_ref": identity_ref,
+        "role": {
+            "relationship_to_investigators": npc.get("relationship_to_investigators"),
+            "social_role": deepcopy(npc.get("social_role")),
+        },
+        "agenda": npc.get("agenda"),
+        "voice": npc.get("voice"),
+        "schedule": schedule,
+        "location_provenance": {
+            "active_scene_id": active,
+            "authored_scene_ids": sorted(authored_scene_ids),
+            "active_scene_matches_schedule": scene_match,
+        },
+        "source_refs": deepcopy(npc.get("source_refs") or []),
+    }
+
+
 def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
     """Return an authored rulebook base chance for a known skill when numeric."""
     global _SKILL_BASES_CACHE
@@ -705,6 +770,197 @@ def _read_object(path: Path) -> dict[str, Any]:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return []
+    for line in lines:
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            records.append(value)
+    return records
+
+
+def _flag_change_projection(
+    row: dict[str, Any],
+    *,
+    source_ref: str,
+) -> dict[str, Any]:
+    return {
+        "flag_id": str(row.get("flag_id")),
+        "value": bool(row.get("value")),
+        "provenance": {
+            "source": "state.set_flag",
+            "source_ref": source_ref,
+            "decision_id": row.get("decision_id"),
+            "changed_at": row.get("ts"),
+            "reason": row.get("reason"),
+            "previous_value": row.get("previous_value"),
+        },
+    }
+
+
+def _world_flag_continuity(ctx: Ctx) -> dict[str, list[dict[str, Any]]]:
+    flags_doc = ctx.flags()
+    flag_map = flags_doc.get("flags") or {}
+    provenance_map = flags_doc.get("flag_provenance") or {}
+    if not isinstance(flag_map, dict):
+        flag_map = {}
+    if not isinstance(provenance_map, dict):
+        provenance_map = {}
+
+    event_changes: list[dict[str, Any]] = []
+    latest_event_by_id: dict[str, dict[str, Any]] = {}
+    for line_number, row in enumerate(
+        _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl"),
+        start=1,
+    ):
+        if row.get("event_type") != "flag_set" or row.get("flag_id") in (None, ""):
+            continue
+        projected = _flag_change_projection(
+            row,
+            source_ref=f"logs/events.jsonl#{line_number}",
+        )
+        event_changes.append(projected)
+        latest_event_by_id[projected["flag_id"]] = projected["provenance"]
+
+    live: list[dict[str, Any]] = []
+    for flag_id, value in sorted(flag_map.items(), key=lambda pair: str(pair[0])):
+        if not value:
+            continue
+        stable_id = str(flag_id)
+        provenance = provenance_map.get(stable_id)
+        if not isinstance(provenance, dict):
+            provenance = latest_event_by_id.get(stable_id)
+        if not isinstance(provenance, dict):
+            provenance = {
+                "source": "save.flags",
+                "source_ref": f"save/flags.json#flags/{stable_id}",
+                "decision_id": None,
+                "changed_at": None,
+                "reason": None,
+                "previous_value": None,
+            }
+        live.append({
+            "flag_id": stable_id,
+            "value": True,
+            "provenance": deepcopy(provenance),
+        })
+    return {
+        "live_world_flags": live,
+        "recent_world_flag_changes": event_changes[-12:],
+    }
+
+
+def _time_markers_path(ctx: Ctx) -> Path:
+    return ctx.campaign_dir / "save" / "time-markers.json"
+
+
+def _load_time_markers(ctx: Ctx) -> dict[str, Any]:
+    payload = _read_object(_time_markers_path(ctx))
+    markers = payload.get("markers")
+    if not isinstance(markers, dict):
+        markers = {}
+    return {"schema_version": 1, "markers": markers}
+
+
+def _save_time_markers(ctx: Ctx, payload: dict[str, Any]) -> None:
+    coc_state.write_json_atomic(_time_markers_path(ctx), payload)
+
+
+def _deadline_due_at(current: dict[str, Any], minutes_from_now: int) -> dict[str, Any]:
+    elapsed = int(current.get("elapsed_minutes") or 0)
+    local_value = current.get("local_datetime")
+    due_local: str | None = None
+    due_display: str | None = None
+    if local_value:
+        try:
+            due_dt = datetime.fromisoformat(str(local_value)) + timedelta(
+                minutes=minutes_from_now
+            )
+            due_local = due_dt.isoformat()
+            due_display = due_dt.strftime("%Y-%m-%d %H:%M")
+            current_display = str(current.get("display") or "")
+            if "," in current_display:
+                due_display += current_display[current_display.index(","):]
+        except (TypeError, ValueError):
+            due_local = None
+            due_display = None
+    return {
+        "elapsed_minutes": elapsed + minutes_from_now,
+        "local_datetime": due_local,
+        "display": due_display,
+    }
+
+
+def _project_time_marker(
+    marker: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    due_at = marker.get("due_at") if isinstance(marker.get("due_at"), dict) else {}
+    status = str(marker.get("status") or "active")
+    remaining: int | None = None
+    if due_at.get("elapsed_minutes") is not None:
+        try:
+            remaining = int(due_at["elapsed_minutes"]) - int(
+                current.get("elapsed_minutes") or 0
+            )
+        except (TypeError, ValueError):
+            remaining = None
+    if status != "active":
+        timing_state = status
+    elif remaining is None:
+        timing_state = "unknown"
+    elif remaining < 0:
+        timing_state = "overdue"
+    elif remaining == 0:
+        timing_state = "due"
+    else:
+        timing_state = "pending"
+    return {
+        "marker_id": marker.get("marker_id"),
+        "label": marker.get("label"),
+        "status": status,
+        "revision": int(marker.get("revision") or 1),
+        "due_at": deepcopy(due_at),
+        "current_time": deepcopy(current),
+        "remaining_minutes": remaining,
+        "overdue": bool(status == "active" and remaining is not None and remaining < 0),
+        "timing_state": timing_state,
+        "provenance": {
+            "source": "state.time_marker",
+            "decision_id": marker.get("decision_id"),
+            "created_at": marker.get("created_at"),
+            "updated_at": marker.get("updated_at"),
+            "reason": marker.get("reason"),
+        },
+    }
+
+
+def _active_time_markers(ctx: Ctx) -> list[dict[str, Any]]:
+    current = coc_time.current_stamp(ctx.campaign_dir)
+    payload = _load_time_markers(ctx)
+    active = [
+        _project_time_marker(marker, current)
+        for marker in payload["markers"].values()
+        if isinstance(marker, dict) and marker.get("status") == "active"
+    ]
+    return sorted(
+        active,
+        key=lambda marker: (
+            int((marker.get("due_at") or {}).get("elapsed_minutes") or 0),
+            str(marker.get("marker_id") or ""),
+        ),
+    )
 
 
 def _investigator_combat_profile(
@@ -2109,6 +2365,11 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "trust": psych.get("trust", 0),
             "fear": psych.get("fear", 0),
             "suspicion": psych.get("suspicion", 0),
+            "identity_contract": (
+                _npc_identity_contract(agenda, str(active_id) if active_id else None)
+                if agenda
+                else None
+            ),
         })
 
     clues = []
@@ -2145,6 +2406,8 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         )
         pending_san_triggers.append(projected)
 
+    flag_continuity = _world_flag_continuity(ctx)
+    active_time_markers = _active_time_markers(ctx)
     data = {
         "campaign_id": ctx.campaign_id,
         "active_scene_id": active_id,
@@ -2164,6 +2427,13 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "tension_level": pacing.get("tension_level"),
         "turn_number": pacing.get("turn_number"),
         "time": coc_time.current_stamp(ctx.campaign_dir),
+        "continuity": {
+            "schema_version": 1,
+            "keeper_only": True,
+            "state_precedence": "live_over_authored_initial",
+            **flag_continuity,
+            "active_time_markers": active_time_markers,
+        },
         "exit_ready": str(active_id) in {str(s) for s in world.get("exit_ready_scene_ids") or []},
         "pending_san_triggers": [
             trigger for trigger in pending_san_triggers if trigger["status"] == "pending"
@@ -2200,6 +2470,16 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             "structured scene mechanics are keeper-only; use combat.resolve for a "
             "combat_engagement and do not quote operation secrets to the player"
+        )
+    if data["continuity"]["live_world_flags"]:
+        hints.append(
+            "continuity.live_world_flags is current campaign truth and supersedes "
+            "conflicting authored initial descriptions; use it when narrating the live scene"
+        )
+    if active_time_markers:
+        hints.append(
+            "active_time_markers are bookkeeping facts only; report their structured "
+            "remaining/overdue values, but do not auto-trigger a rescue or block play"
         )
     hints.append(
         "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored"
@@ -2306,6 +2586,7 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
 )
 def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
+    active_scene_id = ctx.world().get("active_scene_id")
     out = []
     requested_id = str(args.get("npc_id") or "").strip()
     requested_npc = _npc_by_id(ctx.npc_agendas, requested_id) if requested_id else None
@@ -2322,9 +2603,12 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
             continue
         npc_id = str(npc.get("npc_id"))
         psych = (npc_state.get("psych") or {}).get(npc_id) or {}
+        identity_contract = _npc_identity_contract(npc, active_scene_id)
         out.append({
             "npc_id": npc_id,
             "name": npc.get("name"),
+            "identity_ref": identity_contract["identity_ref"],
+            "identity_contract": identity_contract,
             # Preserve the authored identity contract.  The module compiler
             # already distinguishes source NPCs from inferred/improvised
             # people and expands their structured social role; dropping those
@@ -2357,6 +2641,7 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     hints = [
         "fields marked secret:true are your reference only — reveal through play, not exposition",
         "origin=source plus relationship_to_investigators/social_role is an authored identity contract: preserve that NPC's institution and role; introduce a new stable NPC id for a different role",
+        "pass the returned identity_ref to state.record_npc_engagement only when this authored identity is the one portrayed; a missing or mismatched ref records the interaction but is not authored-NPC coverage",
         "when an authored NPC has no pronoun or gender field, repeat the authored name; never invent a gendered pronoun",
     ]
     if requested_id and requested_id != canonical_requested_id:
@@ -2773,15 +3058,42 @@ def _tool_state_set_flag(ctx: Ctx, args: dict[str, Any]):
     value = bool(args.get("value", True))
     flags = ctx.flags()
     flag_map = flags.get("flags") or {}
+    previous_value = flag_map.get(flag_id)
     flag_map[flag_id] = value
     flags["flags"] = flag_map
+    changed_at = _now_iso()
+    provenance_map = flags.get("flag_provenance") or {}
+    if not isinstance(provenance_map, dict):
+        provenance_map = {}
+    provenance_map[flag_id] = {
+        "source": "state.set_flag",
+        "source_ref": f"save/flags.json#flag_provenance/{flag_id}",
+        "decision_id": args.get("decision_id"),
+        "changed_at": changed_at,
+        "reason": args.get("reason"),
+        "previous_value": previous_value,
+    }
+    flags["flag_provenance"] = provenance_map
     ctx.save_flags(flags)
     world = ctx.world()
     newly_unlocked = _evaluate_and_apply_unlocks(ctx, world)
     if newly_unlocked:
         ctx.save_world(world)
-    ctx.log_event({"event_type": "flag_set", "flag_id": flag_id, "value": value, "reason": args.get("reason")})
-    data = {"flag_id": flag_id, "value": value, "newly_unlocked_scenes": newly_unlocked}
+    ctx.log_event({
+        "event_type": "flag_set",
+        "flag_id": flag_id,
+        "value": value,
+        "previous_value": previous_value,
+        "reason": args.get("reason"),
+        "decision_id": args.get("decision_id"),
+        "ts": changed_at,
+    })
+    data = {
+        "flag_id": flag_id,
+        "value": value,
+        "provenance": deepcopy(provenance_map[flag_id]),
+        "newly_unlocked_scenes": newly_unlocked,
+    }
     ctx.ledger_record(args.get("decision_id"), "state.set_flag", data)
     return data, [], []
 
@@ -2864,6 +3176,10 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
             "required": True,
             "desc": "dialogue | assistance | opposition | accompaniment | witness | other",
         },
+        "identity_ref": {
+            "type": "string",
+            "desc": "exact identity_ref returned by npc.query/scene.context when the authored identity was portrayed",
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
@@ -2887,18 +3203,69 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     if interaction_kind not in allowed:
         interaction_kind = "other"
     scene_id = ctx.world().get("active_scene_id")
+    identity_contract = (
+        _npc_identity_contract(authored_npc, scene_id) if authored_npc else None
+    )
+    supplied_identity_ref = str(args.get("identity_ref") or "").strip()
+    expected_identity_ref = (
+        str(identity_contract.get("identity_ref")) if identity_contract else None
+    )
+    schedule_match = (
+        (identity_contract.get("location_provenance") or {}).get(
+            "active_scene_matches_schedule"
+        )
+        if identity_contract
+        else None
+    )
+    binding_reasons: list[str] = []
+    if authored_npc is None:
+        binding_status = "improvised"
+        binding_reasons.append("npc_id_not_in_authored_agendas")
+    elif not supplied_identity_ref:
+        binding_status = "unverified"
+        binding_reasons.append("identity_ref_missing")
+    elif supplied_identity_ref != expected_identity_ref:
+        binding_status = "mismatch"
+        binding_reasons.append("identity_ref_mismatch")
+    elif schedule_match is False:
+        binding_status = "mismatch"
+        binding_reasons.append("active_scene_outside_authored_schedule")
+    else:
+        binding_status = "authored_bound"
+    coverage_eligible = binding_status == "authored_bound"
     event = {
         "event_type": "npc_engagement",
         "npc_id": npc_id,
         "scene_id": scene_id,
         "interaction_kind": interaction_kind,
+        "identity_contract": identity_contract,
+        "identity_binding": {
+            "status": binding_status,
+            "authored_identity_attested": coverage_eligible,
+            "coverage_eligible": coverage_eligible,
+            "supplied_identity_ref": supplied_identity_ref or None,
+            "expected_identity_ref": expected_identity_ref,
+            "reasons": binding_reasons,
+        },
     }
     warnings: list[str] = []
     if authored_npc is None:
         warnings.append(
             f"npc '{npc_id}' is not in the authored agendas — recorded as an improvised NPC"
         )
-    elif requested_npc_id != npc_id:
+    elif binding_status == "unverified":
+        warnings.append(
+            f"authored npc '{npc_id}' engagement was recorded, but identity_ref is missing; it is not authored-NPC coverage"
+        )
+    elif binding_status == "mismatch" and "identity_ref_mismatch" in binding_reasons:
+        warnings.append(
+            f"supplied identity_ref does not match authored npc '{npc_id}'; engagement was recorded without authored-NPC coverage"
+        )
+    elif binding_status == "mismatch":
+        warnings.append(
+            f"authored npc '{npc_id}' is outside its structured scene schedule; engagement was recorded without authored-NPC coverage"
+        )
+    if authored_npc is not None and requested_npc_id != npc_id:
         warnings.append(
             f"resolved NPC alias '{requested_npc_id}' to authored id '{npc_id}'"
         )
@@ -2968,6 +3335,120 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "state.time_marker",
+    "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects.",
+    {
+        "action": {"type": "string", "required": True, "desc": "set | reset | clear"},
+        "marker_id": {"type": "string", "required": True, "desc": "stable deadline/agreement id"},
+        "minutes_from_now": {
+            "type": "integer",
+            "desc": "minutes until due; required for set/reset and must be >= 0",
+        },
+        "label": {"type": "string", "desc": "short keeper-facing label"},
+        "reason": {"type": "string", "desc": "why the marker changed (logged)"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup("state.time_marker", decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    action = str(args["action"]).strip().lower()
+    if action not in {"set", "reset", "clear"}:
+        raise ToolError("invalid_param", "action must be set, reset, or clear")
+    marker_id = str(args["marker_id"]).strip()
+    if not marker_id:
+        raise ToolError("invalid_param", "marker_id must be non-empty")
+
+    payload = _load_time_markers(ctx)
+    markers = payload["markers"]
+    existing = markers.get(marker_id)
+    existing = deepcopy(existing) if isinstance(existing, dict) else None
+    warnings: list[str] = []
+    now_wall = _now_iso()
+    current = coc_time.current_stamp(ctx.campaign_dir)
+    projected_marker: dict[str, Any] | None
+
+    if action in {"set", "reset"}:
+        if args.get("minutes_from_now") is None:
+            raise ToolError(
+                "missing_param", "minutes_from_now is required for set/reset"
+            )
+        minutes_from_now = int(args["minutes_from_now"])
+        if minutes_from_now < 0:
+            raise ToolError(
+                "invalid_param", "minutes_from_now must be >= 0 (time is monotonic)"
+            )
+        if action == "reset" and existing is None:
+            warnings.append(
+                f"time marker '{marker_id}' did not exist; reset created it"
+            )
+        if action == "set" and existing and existing.get("status") == "active":
+            warnings.append(
+                f"time marker '{marker_id}' was already active; set replaced its due time"
+            )
+        revision = int((existing or {}).get("revision") or 0) + 1
+        marker = {
+            "marker_id": marker_id,
+            "label": str(
+                args.get("label")
+                or (existing or {}).get("label")
+                or marker_id
+            ),
+            "status": "active",
+            "revision": revision,
+            "due_at": _deadline_due_at(current, minutes_from_now),
+            "created_at": (existing or {}).get("created_at") or now_wall,
+            "updated_at": now_wall,
+            "decision_id": decision_id,
+            "reason": args.get("reason"),
+        }
+        markers[marker_id] = marker
+        _save_time_markers(ctx, payload)
+        projected_marker = _project_time_marker(marker, current)
+    else:
+        if existing is None:
+            warnings.append(
+                f"time marker '{marker_id}' was already absent; clear recorded a no-op"
+            )
+            projected_marker = None
+        else:
+            existing["status"] = "cleared"
+            existing["revision"] = int(existing.get("revision") or 0) + 1
+            existing["updated_at"] = now_wall
+            existing["cleared_at"] = now_wall
+            existing["decision_id"] = decision_id
+            existing["reason"] = args.get("reason")
+            markers[marker_id] = existing
+            _save_time_markers(ctx, payload)
+            projected_marker = _project_time_marker(existing, current)
+
+    ctx.log_event({
+        "event_type": "time_marker_changed",
+        "action": action,
+        "marker_id": marker_id,
+        "decision_id": decision_id,
+        "reason": args.get("reason"),
+        "previous_due_at": deepcopy((existing or {}).get("due_at")),
+        "due_at": deepcopy((markers.get(marker_id) or {}).get("due_at")),
+        "status": (markers.get(marker_id) or {}).get("status", "absent"),
+    })
+    data = {
+        "action": action,
+        "marker": projected_marker,
+        "current_time": current,
+        "active_time_markers": _active_time_markers(ctx),
+    }
+    ctx.ledger_record(decision_id, "state.time_marker", data)
+    return data, warnings, [
+        "time markers are deterministic bookkeeping only; due/overdue status does not auto-trigger rescue, scene movement, or any narrative gate"
+    ]
+
+
+@tool(
     "state.advance_time",
     "Advance the in-fiction clock (monotonic). Fires any due scheduled triggers.",
     {
@@ -2988,8 +3469,17 @@ def _tool_state_advance_time(ctx: Ctx, args: dict[str, Any]):
         source="keeper_toolbox",
     )
     hints = []
+    active_time_markers = _active_time_markers(ctx)
+    result["active_time_markers"] = active_time_markers
     if result.get("fired_triggers"):
         hints.append("scheduled trigger(s) fired — weave their effects into the narration")
+    if any(
+        marker.get("timing_state") in {"due", "overdue"}
+        for marker in active_time_markers
+    ):
+        hints.append(
+            "one or more time markers are due/overdue; use the structured values for bookkeeping, but do not auto-apply a narrative consequence"
+        )
     ctx.ledger_record(args.get("decision_id"), "state.advance_time", result)
     return result, [], hints
 
@@ -3307,6 +3797,7 @@ _MUTATING_TOOLS = frozenset({
     "state.clear_transient_condition",
     "state.record_npc_engagement",
     "state.npc_update",
+    "state.time_marker",
     "state.advance_time",
     "state.journal",
     "state.end_session",

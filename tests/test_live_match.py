@@ -396,7 +396,25 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
                 "npc_id": "npc-guide",
                 "scene_id": "scene-1",
                 "interaction_kind": "dialogue",
-                "keeper_only_detail": "must not be projected",
+                "identity_binding": {
+                    "status": "authored_bound",
+                    "authored_identity_attested": True,
+                    "coverage_eligible": True,
+                },
+                "identity_contract": {
+                    "keeper_only": True,
+                    "agenda": "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC",
+                },
+                "keeper_only_detail": "SENTINEL_EVENT_DETAIL_MUST_NOT_BE_PUBLIC",
+            },
+        )
+        match._append_jsonl_fsync(
+            campaign / "logs" / "events.jsonl",
+            {
+                "event_type": "flag_set",
+                "flag_id": "keeper-only-continuity-flag",
+                "value": True,
+                "reason": "SENTINEL_FLAG_REASON_MUST_NOT_BE_PUBLIC",
             },
         )
 
@@ -412,7 +430,19 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
 
     session = result["result"]
     assert session["engaged_npc_ids"] == ["npc-guide"]
+    assert session["npc_engagement_coverage_contract"] == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "legacy_raw_ids_included": False,
+    }
     assert "events" not in session
+    public_artifacts = json.dumps(
+        {"result": result["result"], "metadata": result["metadata"]},
+        ensure_ascii=False,
+    )
+    assert "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC" not in public_artifacts
+    assert "SENTINEL_EVENT_DETAIL_MUST_NOT_BE_PUBLIC" not in public_artifacts
+    assert "SENTINEL_FLAG_REASON_MUST_NOT_BE_PUBLIC" not in public_artifacts
     npc_statement = next(
         row
         for row in result["metadata"]["narrative_adherence"]["statements"]

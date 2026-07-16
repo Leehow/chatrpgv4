@@ -1527,12 +1527,17 @@ def _run_live_match_impl(
         list(discovered_final) if isinstance(discovered_final, list) else []
     )
     if coc_adherence is not None:
-        # Adherence needs stable NPC IDs, not the keeper-only event payloads.
-        # Preserve the narrow semantic projection in the public result so a
-        # resumed/cumulative run does not silently forget prior interactions.
+        # Adherence needs positively attested authored NPC IDs, not raw IDs or
+        # keeper-only identity payloads. Preserve only that narrow projection
+        # so a resumed/cumulative run does not silently forget prior evidence.
         session_result["engaged_npc_ids"] = sorted(
             coc_adherence.project_engaged_npc_ids(final_event_rows)
         )
+        session_result["npc_engagement_coverage_contract"] = {
+            "schema_version": 1,
+            "semantics": "authored_identity_attestation",
+            "legacy_raw_ids_included": False,
+        }
     threat_state = _read_json(camp / "save" / "threat-state.json", {})
     if isinstance(threat_state, dict) and isinstance(threat_state.get("clocks"), dict):
         session_result["clocks"] = threat_state["clocks"]

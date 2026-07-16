@@ -285,6 +285,22 @@ def _iter_play_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
+def _engagement_coverage_eligible(event: dict[str, Any]) -> bool:
+    """Accept only typed authored bindings for id-only engagement receipts.
+
+    A psych-state update is not independent evidence that the authored persona
+    was portrayed.  We do not inspect narration, summaries, names, or role
+    prose.
+    """
+    binding = coc_event_contract.value(event, "identity_binding")
+    return bool(
+        isinstance(binding, dict)
+        and binding.get("status") == "authored_bound"
+        and binding.get("authored_identity_attested") is True
+        and binding.get("coverage_eligible") is True
+    )
+
+
 def project_engaged_npc_ids(events: list[dict[str, Any]]) -> set[str]:
     """Project NPC engagement IDs from canonical structured events.
 
@@ -299,6 +315,8 @@ def project_engaged_npc_ids(events: list[dict[str, Any]]) -> set[str]:
             coc_event_contract.matches(event, event_type)
             for event_type in _NPC_ENGAGEMENT_EVENT_TYPES
         ):
+            continue
+        if not _engagement_coverage_eligible(event):
             continue
         npc_id = _text(coc_event_contract.value(event, "npc_id"))
         if npc_id:
@@ -388,6 +406,10 @@ def _harvest_engaged_npc_ids(raw: dict[str, Any], final_state: dict[str, Any]) -
             continue
         for move in turn.get("npc_moves") or []:
             if not isinstance(move, dict):
+                continue
+            if not _engagement_coverage_eligible(
+                {"event_type": "npc_engagement", **move}
+            ):
                 continue
             npc_id = _text(move.get("npc_id"))
             if npc_id:
