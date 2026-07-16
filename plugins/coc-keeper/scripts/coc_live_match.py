@@ -1064,6 +1064,16 @@ def _run_live_match_impl(
     camp = _campaign_dir(ws, campaign_id)
     if not camp.is_dir():
         raise FileNotFoundError(f"campaign not found: {camp}")
+    coc_root = ws / ".coc"
+    lock_probe = coc_investigator_guard.reusable_investigator_lock_path(
+        coc_root, investigator_id
+    )
+    coc_investigator_guard.validate_contained_path_parents(ws, lock_probe)
+    if run_dir is None:
+        allocation_probe = coc_root / "playtests" / ".allocation-probe"
+        coc_investigator_guard.validate_contained_path_parents(
+            ws, allocation_probe
+        )
     char_path = (
         Path(character_path) if character_path else _default_character_path(ws, investigator_id)
     )
@@ -1073,6 +1083,26 @@ def _run_live_match_impl(
         )
     )
     character_card = investigator_snapshot["character"]
+    resume_source: Path | None = None
+    if resume_run_dir is not None:
+        if initial_transcript_tail is not None or initial_narration is not None:
+            raise ValueError(
+                "resume_run_dir cannot be combined with manual initial transcript inputs"
+            )
+        resume_source = Path(resume_run_dir).resolve()
+        if not resume_source.is_dir():
+            raise FileNotFoundError(f"resume run not found: {resume_source}")
+        prior_investigator_snapshot = (
+            playtest_driver.read_artifact_investigator_snapshot(
+                resume_source, investigator_id
+            )
+        )
+        if prior_investigator_snapshot != investigator_snapshot:
+            raise ValueError(
+                "current reusable investigator differs from resume artifact snapshot"
+            )
+        investigator_snapshot = prior_investigator_snapshot
+        character_card = investigator_snapshot["character"]
     if operator_long_play and player_runner is not None:
         raise ValueError("operator_long_play cannot use an AI player_runner")
     if not operator_long_play and player_runner is None:
@@ -1085,7 +1115,9 @@ def _run_live_match_impl(
         raise FileNotFoundError(f"keeper runner not found: {keeper_path}")
 
     if run_dir is None:
-        out = _allocate_default_run_dir(ws / ".coc" / "playtests")
+        out = _allocate_default_run_dir(
+            coc_root / "playtests", trusted_root=ws
+        )
         playtest_driver.preflight_artifact_investigator_target(
             out,
             investigator_id,
@@ -1103,22 +1135,15 @@ def _run_live_match_impl(
     # toolbox-driven turn can run. Directory names never carry provenance.
     run_id = _ensure_artifact_run_identity(out, campaign_id)
 
-    prior_run: Path | None = None
+    prior_run: Path | None = resume_source
     prior_transcript_rows: list[dict[str, Any]] = []
     prior_invocation_rows: list[dict[str, Any]] = []
     prior_metadata: dict[str, Any] = {}
     prior_run_ids: list[str] = []
     prior_current_run_id: str | None = None
-    if resume_run_dir is not None:
-        if initial_transcript_tail is not None or initial_narration is not None:
-            raise ValueError(
-                "resume_run_dir cannot be combined with manual initial transcript inputs"
-            )
-        prior_run = Path(resume_run_dir).resolve()
+    if prior_run is not None:
         if prior_run == out.resolve():
             raise ValueError("resume_run_dir and run_dir must be different")
-        if not prior_run.is_dir():
-            raise FileNotFoundError(f"resume run not found: {prior_run}")
         prior_transcript_rows = _read_jsonl_rows(prior_run / "transcript.jsonl")
         if not prior_transcript_rows:
             raise ValueError("resume run has no completed transcript.jsonl")

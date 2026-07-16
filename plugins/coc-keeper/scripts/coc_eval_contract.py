@@ -860,6 +860,8 @@ def build_report_completeness(
     *,
     play_language: str,
     linked_required_roll_ids: list[str] | None = None,
+    linked_keeper_only_roll_ids: list[str] | None = None,
+    linked_missing_source_roll_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     marker_counts = Counter(ROLL_MARKER_RE.findall(report_text))
     source_ids = list(rendered["source_roll_ids"])
@@ -921,6 +923,12 @@ def build_report_completeness(
         "source_roll_count": len(source_ids),
         "required_public_roll_count": len(required_ids),
         "linked_required_roll_ids": linked_ids,
+        "linked_keeper_only_roll_ids": list(
+            dict.fromkeys(linked_keeper_only_roll_ids or [])
+        ),
+        "linked_missing_source_roll_ids": list(
+            dict.fromkeys(linked_missing_source_roll_ids or [])
+        ),
         "rendered_public_roll_count": rendered_public_count,
         "keeper_only_roll_count": len(rendered["keeper_only_roll_ids"]),
         "missing_roll_ids": missing,
@@ -944,7 +952,10 @@ def build_report_completeness(
     }
 
 
-def _creation_linked_roll_ids(run_dir: Path) -> list[str]:
+def _creation_linked_roll_requirements(
+    run_dir: Path,
+    records: list[dict[str, Any]],
+) -> dict[str, list[str]]:
     investigator_root = run_dir / "sandbox" / ".coc" / "investigators"
     linked: list[str] = []
 
@@ -964,7 +975,31 @@ def _creation_linked_roll_ids(run_dir: Path) -> list[str]:
             creation = _read_json(path, None)
             if isinstance(creation, dict):
                 visit(creation)
-    return list(dict.fromkeys(linked))
+    linked = list(dict.fromkeys(linked))
+    rows_by_id: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        roll_id, _legacy, _source_id = _roll_identity(record)
+        rows_by_id.setdefault(roll_id, []).append(record)
+    required: list[str] = []
+    keeper_only: list[str] = []
+    missing: list[str] = []
+    for roll_id in linked:
+        rows = rows_by_id.get(roll_id, [])
+        if not rows:
+            required.append(roll_id)
+            missing.append(roll_id)
+        elif any(
+            roll_visibility(row) in {"public", "consequence_public"}
+            for row in rows
+        ):
+            required.append(roll_id)
+        else:
+            keeper_only.append(roll_id)
+    return {
+        "required": required,
+        "keeper_only": keeper_only,
+        "missing": missing,
+    }
 
 
 def _find_report_path(run_dir: Path) -> Path | None:
@@ -1199,6 +1234,9 @@ def compile_report_contract(
         actor_names=names,
         localized_terms=terms,
     )
+    creation_links = _creation_linked_roll_requirements(
+        root, roll_source["records"]
+    )
     final_text = inject_report_schema_v2(
         report_path.read_text(encoding="utf-8"), identity
     )
@@ -1209,7 +1247,9 @@ def compile_report_contract(
         roll_source,
         rendered,
         play_language=language,
-        linked_required_roll_ids=_creation_linked_roll_ids(root),
+        linked_required_roll_ids=creation_links["required"],
+        linked_keeper_only_roll_ids=creation_links["keeper_only"],
+        linked_missing_source_roll_ids=creation_links["missing"],
     )
     return _finalize_report_result(
         root=root,
@@ -1234,13 +1274,18 @@ def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
         actor_names=names,
         localized_terms=terms,
     )
+    creation_links = _creation_linked_roll_requirements(
+        root, roll_source["records"]
+    )
     report_text = report_path.read_text(encoding="utf-8")
     completeness = build_report_completeness(
         report_text,
         roll_source,
         rendered,
         play_language=language,
-        linked_required_roll_ids=_creation_linked_roll_ids(root),
+        linked_required_roll_ids=creation_links["required"],
+        linked_keeper_only_roll_ids=creation_links["keeper_only"],
+        linked_missing_source_roll_ids=creation_links["missing"],
     )
     evidence = _evidence_status(root)
     evaluation_report = root / "artifacts" / "evaluation-report.md"

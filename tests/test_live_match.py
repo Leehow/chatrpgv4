@@ -533,6 +533,62 @@ def test_live_match_packages_startup_creation_snapshot_when_source_changes_midru
     assert json.loads(creation_path.read_text())["method"] == "changed-during-run"
 
 
+def test_default_allocation_rejects_symlinked_playtests_before_any_creation(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    playtests = workspace / ".coc" / "playtests"
+    outside = tmp_path / "outside-playtests"
+    outside.mkdir()
+    playtests.symlink_to(outside, target_is_directory=True)
+    player = tmp_path / "unsafe-allocation-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    keeper_calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(ValueError, match="symlink|escapes canonical root"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=player,
+            max_turns=1,
+        )
+
+    assert keeper_calls == []
+    assert not player.with_suffix(".state").exists()
+    assert not (workspace / ".coc" / "locks").exists()
+    assert list(outside.iterdir()) == []
+
+
+def test_live_match_rejects_symlinked_lock_tree_without_outside_lock(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    locks = workspace / ".coc" / "locks"
+    outside = tmp_path / "outside-locks"
+    outside.mkdir()
+    locks.symlink_to(outside, target_is_directory=True)
+    player = tmp_path / "unsafe-lock-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    keeper_calls = _install_keeper(monkeypatch)
+    run_dir = tmp_path / "unsafe-lock-run"
+
+    with pytest.raises(ValueError, match="symlink|escapes canonical root"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=player,
+            max_turns=1,
+            run_dir=run_dir,
+        )
+
+    assert keeper_calls == []
+    assert not player.with_suffix(".state").exists()
+    assert not run_dir.exists()
+    assert list(outside.iterdir()) == []
+
+
 def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     tmp_path, monkeypatch,
 ):
@@ -930,6 +986,70 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
         (Path(second["run_dir"]) / "driver-result.json").read_text(encoding="utf-8")
     )
     assert len(driver["turns"]) == 2
+
+
+@pytest.mark.parametrize("change_kind", ["notes", "roll_refs"])
+def test_resume_rejects_creation_evidence_drift_between_segments(
+    tmp_path, monkeypatch, change_kind,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    investigator = workspace / ".coc" / "investigators" / investigator_id
+    creation_path = investigator / "creation.json"
+    initial = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "method": "standard_rulebook_chapter_3",
+        "notes": "segment-v1",
+        "roll_evidence": {"roll_id": "creation-segment-v1"},
+    }
+    _write_json(creation_path, initial)
+    first_player = tmp_path / f"drift-first-{change_kind}"
+    second_player = tmp_path / f"drift-second-{change_kind}"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / f"drift-first-run-{change_kind}",
+    )
+    changed = json.loads(json.dumps(initial))
+    if change_kind == "notes":
+        changed["notes"] = "segment-v2"
+    else:
+        changed["roll_evidence"]["roll_id"] = "creation-segment-v2"
+    _write_json(creation_path, changed)
+    keeper_calls = _install_keeper(monkeypatch)
+    second_run = tmp_path / f"drift-second-run-{change_kind}"
+
+    with pytest.raises(ValueError, match="differs from resume artifact"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=second_player,
+            max_turns=1,
+            run_dir=second_run,
+            resume_run_dir=first["run_dir"],
+        )
+
+    assert keeper_calls == []
+    assert not second_player.with_suffix(".state").exists()
+    assert not second_run.exists()
+    first_id = first["metadata"]["run_id"]
+    assert first["metadata"]["cumulative_run_ids"] == [first_id]
+    packaged = (
+        Path(first["run_dir"])
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / investigator_id
+        / "creation.json"
+    )
+    assert json.loads(packaged.read_text()) == initial
 
 
 def test_distinct_same_basename_artifacts_get_distinct_run_ids_with_resume(

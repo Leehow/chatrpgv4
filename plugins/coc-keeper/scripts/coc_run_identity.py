@@ -251,16 +251,57 @@ def allocate_default_run_dir(
     parent: Path | str,
     *,
     stamp: str | None = None,
+    trusted_root: Path | str | None = None,
 ) -> Path:
     """Atomically allocate a unique default artifact directory."""
-    root = Path(parent)
-    root.mkdir(parents=True, exist_ok=True)
+    root = Path(parent).absolute()
     timestamp = stamp or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    for _attempt in range(128):
-        candidate = root / f"live-match-{timestamp}-{uuid.uuid4().hex[:12]}"
-        try:
-            candidate.mkdir()
-        except FileExistsError:
-            continue
-        return candidate
-    raise RunIdentityError("could not allocate a unique playtest run directory")
+    if trusted_root is None:
+        root.mkdir(parents=True, exist_ok=True)
+        for _attempt in range(128):
+            candidate = root / f"live-match-{timestamp}-{uuid.uuid4().hex[:12]}"
+            try:
+                candidate.mkdir()
+            except FileExistsError:
+                continue
+            return candidate
+        raise RunIdentityError("could not allocate a unique playtest run directory")
+
+    anchor = Path(trusted_root).absolute()
+    try:
+        relative = root.relative_to(anchor)
+    except ValueError as exc:
+        raise RunIdentityError("playtest parent escapes trusted root") from exc
+    opened: list[int] = []
+    try:
+        current_fd = os.open(
+            anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+        opened.append(current_fd)
+        for component in relative.parts:
+            try:
+                child_fd = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+            except FileNotFoundError:
+                os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                child_fd = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current_fd,
+                )
+            current_fd = child_fd
+            opened.append(current_fd)
+        for _attempt in range(128):
+            basename = f"live-match-{timestamp}-{uuid.uuid4().hex[:12]}"
+            try:
+                os.mkdir(basename, mode=0o700, dir_fd=current_fd)
+            except FileExistsError:
+                continue
+            return root / basename
+        raise RunIdentityError("could not allocate a unique playtest run directory")
+    finally:
+        for directory_fd in reversed(opened):
+            os.close(directory_fd)

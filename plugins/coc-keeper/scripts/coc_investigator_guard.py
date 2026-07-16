@@ -252,9 +252,13 @@ def guard_reusable_investigators(
     ids = sorted(set(raw_ids))
     with ExitStack() as locks:
         for investigator_id in ids:
+            lock_path = reusable_investigator_lock_path(root, investigator_id)
+            validate_contained_path_parents(root, lock_path)
+            if lock_path.is_symlink():
+                raise ValueError(f"investigator lock is unsafe: {lock_path}")
             locks.enter_context(
                 coc_fileio.advisory_file_lock(
-                    reusable_investigator_lock_path(root, investigator_id),
+                    lock_path,
                     wait_seconds=wait_seconds,
                 )
             )

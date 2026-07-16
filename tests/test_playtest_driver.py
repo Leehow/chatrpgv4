@@ -509,6 +509,41 @@ def test_artifact_writer_rejects_target_file_symlink(tmp_path, leaf):
     assert outside.read_text() == "untouched"
 
 
+def test_artifact_writer_rejects_parent_swap_during_final_publication(
+    tmp_path, monkeypatch,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char_path.with_name("creation.json").write_text(
+        json.dumps(_creation_evidence()), encoding="utf-8"
+    )
+    run_dir = tmp_path / "swap-run"
+    outside = tmp_path / "swap-outside"
+    outside.mkdir()
+    original_copytree = driver.shutil.copytree
+
+    def swap_after_copy(*args, **kwargs):
+        result = original_copytree(*args, **kwargs)
+        target = (
+            run_dir / "sandbox" / ".coc" / "investigators" / "inv1"
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(outside, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(driver.shutil, "copytree", swap_after_copy)
+    with pytest.raises(OSError):
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+    assert list(outside.iterdir()) == []
+
+
 def test_artifact_writer_rejects_non_directory_parent_and_unsafe_id(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
     run_dir = tmp_path / "non-directory-run"
@@ -598,6 +633,91 @@ def test_creation_roll_report_completeness_fails_closed(tmp_path, failure_kind):
         assert receipt["parse_errors"]
     else:
         assert receipt["untraced_roll_ids"] == ["fabricated-creation"]
+
+
+def test_linked_keeper_only_creation_roll_is_counted_but_not_required(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    creation = {
+        "schema_version": 1,
+        "investigator_id": "inv1",
+        "method": "standard_rulebook_chapter_3",
+        "keeper_evidence": {"roll_id": "secret-generation"},
+    }
+    char_path.with_name("creation.json").write_text(
+        json.dumps(creation), encoding="utf-8"
+    )
+    secret_row = {
+        "roll_id": "secret-generation",
+        "type": "character_creation",
+        "actor": "keeper_under_test",
+        "visibility": "keeper_only",
+        "payload": {
+            "roll_id": "secret-generation",
+            "die": "1D6",
+            "die_rolls": [4],
+            "roll": 4,
+            "source": "keeper-only creation table",
+        },
+    }
+    (camp / "logs" / "rolls.jsonl").write_text(
+        json.dumps(secret_row) + "\n", encoding="utf-8"
+    )
+    run_dir = tmp_path / "keeper-linked-creation"
+    driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        _artifact_result(),
+    )
+
+    compiled = coc_eval_contract.compile_report_contract(
+        run_dir, generate_base_report=False
+    )
+    receipt = compiled["report_completeness"]
+    assert receipt["passed"] is True
+    assert receipt["required_public_roll_count"] == 0
+    assert receipt["keeper_only_roll_count"] == 1
+    assert receipt["linked_required_roll_ids"] == []
+    assert receipt["linked_keeper_only_roll_ids"] == ["secret-generation"]
+    report = Path(compiled["report_path"]).read_text(encoding="utf-8")
+    assert "[roll-id: secret-generation]" not in report
+
+
+def test_optional_creation_without_roll_references_keeps_zero_roll_report_valid(
+    tmp_path,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char_path.with_name("creation.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "investigator_id": "inv1",
+            "method": "imported_character_sheet",
+            "notes": "No creation dice were recorded for this optional import.",
+        }),
+        encoding="utf-8",
+    )
+    (camp / "logs" / "rolls.jsonl").write_text("", encoding="utf-8")
+    run_dir = tmp_path / "optional-no-roll-creation"
+    driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        _artifact_result(),
+    )
+
+    compiled = coc_eval_contract.compile_report_contract(
+        run_dir, generate_base_report=False
+    )
+    receipt = compiled["report_completeness"]
+    assert receipt["passed"] is True
+    assert receipt["required_public_roll_count"] == 0
+    assert receipt["linked_required_roll_ids"] == []
+    assert receipt["linked_keeper_only_roll_ids"] == []
+    assert receipt["linked_missing_source_roll_ids"] == []
 
 
 def test_artifact_writer_rejects_active_reusable_transaction_before_run_writes(

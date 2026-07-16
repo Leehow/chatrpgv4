@@ -15,8 +15,10 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import random
 import shutil
+import stat
 import sys
 import time
 from pathlib import Path
@@ -852,6 +854,128 @@ def preflight_artifact_investigator_target(
     return target_investigator
 
 
+def read_artifact_investigator_snapshot(
+    run_dir: Path,
+    investigator_id: str,
+) -> dict[str, Any]:
+    """Read one historical packaged snapshot without following artifact links."""
+    if not coc_investigator_guard.is_safe_investigator_id(investigator_id):
+        raise ValueError("investigator ids must be stable safe ids")
+    artifact_root = Path(run_dir).absolute()
+    investigator_root = (
+        artifact_root / "sandbox" / ".coc" / "investigators" / investigator_id
+    )
+    character_path = investigator_root / "character.json"
+    creation_path = investigator_root / "creation.json"
+    for path in (character_path, creation_path):
+        coc_investigator_guard.validate_contained_path_parents(
+            artifact_root, path
+        )
+        if path.is_symlink():
+            raise ValueError(f"historical investigator evidence is unsafe: {path}")
+    character = coc_investigator_guard._read_json_object(
+        character_path, "historical character sheet"
+    )
+    creation = (
+        coc_investigator_guard._read_json_object(
+            creation_path, "historical creation record"
+        )
+        if creation_path.exists()
+        else None
+    )
+    return coc_investigator_guard.validate_investigator_snapshot(
+        investigator_id, character, creation
+    )
+
+
+def _open_directory_at(parent_fd: int, name: str) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        return os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        return os.open(name, flags, dir_fd=parent_fd)
+
+
+def _stage_json_at(directory_fd: int, name: str, payload: Any) -> str:
+    try:
+        info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        info = None
+    if info is not None and not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"artifact investigator file is unsafe: {name}")
+    temporary = f".{name}.{os.getpid()}.{time.time_ns()}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+    file_fd = os.open(temporary, flags, 0o600, dir_fd=directory_fd)
+    try:
+        content = (
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        ).encode("utf-8")
+        offset = 0
+        while offset < len(content):
+            offset += os.write(file_fd, content[offset:])
+        os.fsync(file_fd)
+    finally:
+        os.close(file_fd)
+    return temporary
+
+
+def _publish_investigator_snapshot_no_follow(
+    run_dir: Path,
+    investigator_id: str,
+    character: dict[str, Any],
+    creation: dict[str, Any] | None,
+) -> None:
+    """Publish through trusted directory handles after the narrative copy phase."""
+    artifact_root = Path(run_dir).absolute()
+    root_fd = os.open(
+        artifact_root,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    )
+    opened = [root_fd]
+    staged: list[tuple[str, str]] = []
+    try:
+        current_fd = root_fd
+        for component in ("sandbox", ".coc", "investigators", investigator_id):
+            current_fd = _open_directory_at(current_fd, component)
+            opened.append(current_fd)
+        payloads = [("character.json", character)]
+        if creation is not None:
+            payloads.append(("creation.json", creation))
+        elif _entry_exists_no_follow(current_fd, "creation.json"):
+            raise ValueError(
+                "artifact target contains creation evidence absent from snapshot"
+            )
+        for name, payload in payloads:
+            staged.append((name, _stage_json_at(current_fd, name, payload)))
+        for name, temporary in staged:
+            os.replace(
+                temporary,
+                name,
+                src_dir_fd=current_fd,
+                dst_dir_fd=current_fd,
+            )
+        os.fsync(current_fd)
+    finally:
+        if opened:
+            current_fd = opened[-1]
+            for _name, temporary in staged:
+                try:
+                    os.unlink(temporary, dir_fd=current_fd)
+                except FileNotFoundError:
+                    pass
+        for directory_fd in reversed(opened):
+            os.close(directory_fd)
+
+
+def _entry_exists_no_follow(directory_fd: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def write_playtest_artifacts(
     run_dir: Path,
     campaign_dir: Path,
@@ -919,7 +1043,6 @@ def write_playtest_artifacts(
         investigator_id,
         creation_present=creation_snapshot is not None,
     )
-    target_creation = target_investigator_dir / "creation.json"
     run_dir.mkdir(parents=True, exist_ok=True)
     source_campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
     campaign_id = str(metadata.get("campaign_id") or source_campaign.get("campaign_id") or campaign_dir.name)
@@ -1008,12 +1131,12 @@ def write_playtest_artifacts(
         shutil.copytree(campaign_dir, target_campaign_dir, dirs_exist_ok=True)
     _ensure_campaign_report_files(target_campaign_dir, investigator_id, metadata)
 
-    target_character = target_investigator_dir / "character.json"
-    target_character.parent.mkdir(parents=True, exist_ok=True)
-    if character_path.resolve() != target_character.resolve():
-        _write_json(target_character, character_snapshot)
-    if creation_snapshot is not None:
-        _write_json(target_creation, creation_snapshot)
+    _publish_investigator_snapshot_no_follow(
+        run_dir,
+        investigator_id,
+        character_snapshot,
+        creation_snapshot,
+    )
 
     transcript = _transcript_from_driver_result(
         result,
