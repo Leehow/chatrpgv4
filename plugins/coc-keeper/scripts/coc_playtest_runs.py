@@ -153,7 +153,12 @@ def open_published_run(
             return
         run_fd = path._open_dir(path.parts)
         try:
-            _read_regular_file_at(run_fd, "playtest.json")
+            try:
+                _read_regular_file_at(run_fd, "playtest.json")
+            except (OSError, ValueError) as exc:
+                raise ValueError(
+                    f"{purpose} requires a published final playtest run"
+                ) from exc
             yield path
         finally:
             os.close(run_fd)

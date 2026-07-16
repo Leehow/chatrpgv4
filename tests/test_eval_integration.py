@@ -1092,6 +1092,60 @@ def test_malformed_gameplay_metadata_cannot_masquerade_as_aggregate(
         cli.verify_run_contract(run)
 
 
+@pytest.mark.parametrize("canonical", [True, False])
+def test_run_directory_symlink_is_strictly_rejected(
+    tmp_path: Path, canonical: bool,
+):
+    cli = _load_cli()
+    outside = tmp_path / "outside-real-run"
+    _write_json(outside / "playtest.json", {
+        "schema_version": 1,
+        "run_id": "outside-real-run",
+        "campaign_id": "outside-campaign",
+    })
+    run = (
+        tmp_path / ".coc" / "playtests" / "linked-run"
+        if canonical
+        else tmp_path / "historical-linked-run"
+    )
+    run.parent.mkdir(parents=True, exist_ok=True)
+    run.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="published final playtest run"):
+        cli.verify_run_contract(run)
+
+
+def test_gameplay_verification_retains_run_across_classification_swap(
+    tmp_path: Path, monkeypatch,
+):
+    cli = _load_cli()
+    run = tmp_path / ".coc" / "playtests" / "retained-run"
+    _write_json(run / "playtest.json", {
+        "schema_version": 1,
+        "run_id": "retained-run",
+        "campaign_id": "retained-campaign",
+    })
+    outside = tmp_path / "replacement-run"
+    outside.mkdir()
+    metadata_target = tmp_path / "replacement-playtest.json"
+    _write_json(metadata_target, {"run_id": "replacement-run"})
+    (outside / "playtest.json").symlink_to(metadata_target)
+    real_classifier = cli._is_canonical_gameplay_path
+
+    def swap_after_open(path):
+        retained = tmp_path / "retained-original"
+        run.rename(retained)
+        run.symlink_to(outside, target_is_directory=True)
+        return real_classifier(path)
+
+    monkeypatch.setattr(cli, "_is_canonical_gameplay_path", swap_after_open)
+
+    payload = cli.verify_run_contract(run)
+
+    assert payload.get("report_scope") != "suite"
+    assert payload["status"] == "FAIL"
+
+
 @pytest.mark.parametrize(
     "mutation",
     ("missing_inputs", "matrix_limit_mismatch", "suite_downgrade"),

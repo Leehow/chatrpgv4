@@ -28,6 +28,7 @@ import coc_eval_packs as packs
 import coc_eval_pipeline as pipeline
 import coc_eval_replay as replay
 import coc_playtest_route_compare as route_compare
+from coc_playtest_runs import PUBLIC_RESULT_PATH_FIELDS, open_published_run
 
 
 EXIT_BY_STATUS = {
@@ -423,17 +424,37 @@ def _verify_suite_report_contract(
 
 def report_run_contract(run_dir: Path | str) -> dict[str, Any]:
     """Compile one playtest report or verify declared nightly child reports."""
-    directory = Path(run_dir).resolve()
-    manifest_path = directory / "run-manifest.json"
-    manifest = _read_object(manifest_path)
-    if manifest_path.is_file() and manifest is None:
-        raise ValueError("run manifest unreadable")
-    if isinstance(manifest, dict) and manifest.get("suite") == "nightly":
-        # Nightly child reports are compiled before lane hashes are sealed.  A
-        # post-run report command verifies those children without regenerating
-        # narrative artifacts behind the signed lane receipts.
-        return _verify_suite_report_contract(directory, manifest)
-    return dict(contract.compile_report_contract(directory, generate_base_report=True))
+    lexical_directory = Path(run_dir).absolute()
+    with open_published_run(
+        lexical_directory,
+        purpose="evaluation run reporting",
+        require_metadata=False,
+    ) as opened_directory:
+        gameplay_run = (
+            _is_canonical_gameplay_path(lexical_directory)
+            or _has_entry(opened_directory, "playtest.json")
+        )
+        if gameplay_run:
+            return _remap_gameplay_result(
+                dict(contract.compile_report_contract(
+                    opened_directory, generate_base_report=True
+                )),
+                lexical_directory,
+            )
+        manifest_path = opened_directory / "run-manifest.json"
+        manifest = _read_object(manifest_path)
+        if manifest_path.is_file() and manifest is None:
+            raise ValueError("run manifest unreadable")
+        if isinstance(manifest, dict) and manifest.get("suite") == "nightly":
+            # Nightly child reports are compiled before lane hashes are sealed.
+            # A post-run report verifies them without regenerating signed lanes.
+            return _verify_suite_report_contract(lexical_directory, manifest)
+        return _remap_gameplay_result(
+            dict(contract.compile_report_contract(
+                opened_directory, generate_base_report=True
+            )),
+            lexical_directory,
+        )
 
 
 def _is_canonical_gameplay_path(path: Path) -> bool:
@@ -445,30 +466,24 @@ def _is_canonical_gameplay_path(path: Path) -> bool:
     )
 
 
-def _has_playtest_entry(directory: Path) -> bool:
-    """Classify by directory entry kind without following the metadata leaf."""
-    try:
-        directory_fd = os.open(
-            directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-        )
-    except OSError:
-        try:
-            os.lstat(directory / "playtest.json")
-        except OSError:
-            return False
-        return True
-    try:
-        try:
-            os.stat("playtest.json", dir_fd=directory_fd, follow_symlinks=False)
-        except FileNotFoundError:
-            return False
-        return True
-    finally:
-        os.close(directory_fd)
+def _has_entry(directory: Any, name: str) -> bool:
+    entry = directory / name
+    return entry.exists() or entry.is_symlink()
+
+
+def _remap_gameplay_result(
+    payload: dict[str, Any], lexical_directory: Path
+) -> dict[str, Any]:
+    result = dict(payload)
+    for field in PUBLIC_RESULT_PATH_FIELDS:
+        value = result.get(field)
+        if isinstance(value, str) and value and not Path(value).is_absolute():
+            result[field] = str(lexical_directory / value)
+    return result
 
 
 def _has_coherent_aggregate_identity(
-    directory: Path, manifest: dict[str, Any]
+    directory: Any, manifest: dict[str, Any]
 ) -> bool:
     if (
         manifest.get("schema_version") != 1
@@ -485,8 +500,8 @@ def _has_coherent_aggregate_identity(
             manifest["run_id"] == "nightly"
             or str(manifest["run_id"]).startswith("nightly-")
         )
-        and (directory / "aggregate-summary.json").is_file()
-        and (directory / "case-results.json").is_file()
+        and _has_entry(directory, "aggregate-summary.json")
+        and _has_entry(directory, "case-results.json")
     )
     return declared_identity or persisted_identity
 
@@ -494,14 +509,41 @@ def _has_coherent_aggregate_identity(
 def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     """Verify the report contract plus any aggregate nightly lane receipts."""
     lexical_directory = Path(run_dir).absolute()
-    directory = lexical_directory.resolve()
-    manifest_path = directory / "run-manifest.json"
+    with open_published_run(
+        lexical_directory,
+        purpose="evaluation run verification",
+        require_metadata=False,
+    ) as opened_directory:
+        return _verify_open_run_contract(lexical_directory, opened_directory)
+
+
+def _verify_open_run_contract(
+    lexical_directory: Path, opened_directory: Any
+) -> dict[str, Any]:
+    directory = lexical_directory
+    gameplay_run = (
+        _is_canonical_gameplay_path(lexical_directory)
+        or _has_entry(opened_directory, "playtest.json")
+    )
+    if gameplay_run:
+        return _remap_gameplay_result(
+            dict(contract.verify_report_contract(opened_directory)),
+            lexical_directory,
+        )
+
+    manifest_path = opened_directory / "run-manifest.json"
     if not manifest_path.is_file():
-        return dict(contract.verify_report_contract(directory))
+        return _remap_gameplay_result(
+            dict(contract.verify_report_contract(opened_directory)),
+            lexical_directory,
+        )
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        payload = dict(contract.verify_report_contract(directory))
+        payload = _remap_gameplay_result(
+            dict(contract.verify_report_contract(opened_directory)),
+            lexical_directory,
+        )
         payload["status"] = "FAIL"
         payload["lane_artifact_verification"] = {
             "schema_version": 1,
@@ -511,7 +553,10 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
         }
         return payload
     if not isinstance(manifest, dict):
-        payload = dict(contract.verify_report_contract(directory))
+        payload = _remap_gameplay_result(
+            dict(contract.verify_report_contract(opened_directory)),
+            lexical_directory,
+        )
         payload["status"] = "FAIL"
         payload["lane_artifact_verification"] = {
             "schema_version": 1,
@@ -520,20 +565,13 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "findings": [{"code": "run_manifest_malformed"}],
         }
         return payload
-    gameplay_run = (
-        _is_canonical_gameplay_path(lexical_directory)
-        or _has_playtest_entry(directory)
-    )
     lane_artifacts = (
         manifest.get("lane_artifacts") if isinstance(manifest, dict) else None
     )
     lanes = manifest.get("lanes") if isinstance(manifest, dict) else None
     manifest_suite = manifest.get("suite") if isinstance(manifest, dict) else None
-    artifact_hashes = manifest.get("artifact_hashes")
-    aggregate_summary_path = directory / "aggregate-summary.json"
     has_aggregate_contract = bool(
-        not gameplay_run
-        and _has_coherent_aggregate_identity(directory, manifest)
+        _has_coherent_aggregate_identity(opened_directory, manifest)
     )
     # Aggregate evaluation directories are not gameplay-run artifacts and do
     # not carry playtest.json.  Verify their declared aggregate contract first;
@@ -541,7 +579,10 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
     payload = (
         _verify_suite_report_contract(directory, manifest)
         if has_aggregate_contract
-        else dict(contract.verify_report_contract(directory))
+        else _remap_gameplay_result(
+            dict(contract.verify_report_contract(opened_directory)),
+            lexical_directory,
+        )
     )
     if not has_aggregate_contract:
         return payload
