@@ -11,10 +11,9 @@ import hashlib
 import json
 import os
 import stat
-import threading
 import time
 import uuid
-from contextlib import contextmanager
+import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -23,14 +22,259 @@ RUN_IDENTITY_SCHEMA_VERSION = 2
 LEGACY_RUN_IDENTITY_SCHEMA_VERSION = 1
 RUN_IDENTITY_FILENAME = "run-identity.json"
 RUN_ID_PREFIX = "coc-run-v1:"
-_PROCESS_CWD_LOCK = threading.RLock()
 
 
-@contextmanager
-def process_cwd_guard():
-    """Serialize in-process playtest entry while a default run owns cwd."""
-    with _PROCESS_CWD_LOCK:
-        yield
+class AnchoredRunPath:
+    """Small pathlib-compatible view rooted at a retained directory fd."""
+
+    _coc_anchored_path = True
+
+    def __init__(self, root_fd: int, parts: tuple[str, ...] = ()) -> None:
+        self.root_fd = root_fd
+        self.parts = parts
+
+    def __truediv__(self, child: str) -> "AnchoredRunPath":
+        raw = str(child)
+        pieces = tuple(piece for piece in raw.split("/") if piece not in {"", "."})
+        if any(piece == ".." for piece in pieces):
+            raise ValueError("anchored run path cannot escape its root")
+        return AnchoredRunPath(self.root_fd, self.parts + pieces)
+
+    def __str__(self) -> str:
+        return "/".join(self.parts) if self.parts else "."
+
+    def __repr__(self) -> str:
+        return f"AnchoredRunPath({str(self)!r})"
+
+    def __lt__(self, other: object) -> bool:
+        return str(self) < str(other)
+
+    @property
+    def name(self) -> str:
+        return self.parts[-1] if self.parts else ""
+
+    @property
+    def parent(self) -> "AnchoredRunPath":
+        return AnchoredRunPath(self.root_fd, self.parts[:-1])
+
+    @property
+    def suffix(self) -> str:
+        return Path(self.name).suffix
+
+    def with_name(self, name: str) -> "AnchoredRunPath":
+        return self.parent / name
+
+    def relative_to(self, other: object) -> Path:
+        other_parts = getattr(other, "parts", ())
+        if tuple(self.parts[: len(other_parts)]) != tuple(other_parts):
+            raise ValueError("anchored paths are unrelated")
+        return Path(*self.parts[len(other_parts):])
+
+    def resolve(self, *args: Any, **kwargs: Any) -> "AnchoredRunPath":
+        return self
+
+    def absolute(self) -> "AnchoredRunPath":
+        return self
+
+    def _open_dir(self, parts: tuple[str, ...], *, create: bool = False) -> int:
+        current = os.dup(self.root_fd)
+        try:
+            for component in parts:
+                if create:
+                    try:
+                        os.mkdir(component, 0o700, dir_fd=current)
+                    except FileExistsError:
+                        pass
+                following = os.open(
+                    component,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=current,
+                )
+                os.close(current)
+                current = following
+            return current
+        except Exception:
+            os.close(current)
+            raise
+
+    def mkdir(
+        self,
+        mode: int = 0o777,
+        parents: bool = False,
+        exist_ok: bool = False,
+    ) -> None:
+        if not self.parts:
+            return
+        if parents:
+            fd = self._open_dir(self.parts, create=True)
+            os.close(fd)
+            return
+        parent_fd = self._open_dir(self.parts[:-1], create=False)
+        try:
+            try:
+                os.mkdir(self.name, mode, dir_fd=parent_fd)
+            except FileExistsError:
+                if not exist_ok:
+                    raise
+        finally:
+            os.close(parent_fd)
+
+    def _lstat(self):
+        if not self.parts:
+            return os.fstat(self.root_fd)
+        parent_fd = self._open_dir(self.parts[:-1])
+        try:
+            return os.stat(self.name, dir_fd=parent_fd, follow_symlinks=False)
+        finally:
+            os.close(parent_fd)
+
+    def exists(self) -> bool:
+        try:
+            self._lstat()
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+        return True
+
+    def is_file(self) -> bool:
+        try:
+            return stat.S_ISREG(self._lstat().st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+
+    def is_dir(self) -> bool:
+        try:
+            return stat.S_ISDIR(self._lstat().st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+
+    def is_symlink(self) -> bool:
+        try:
+            return stat.S_ISLNK(self._lstat().st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            return False
+
+    def stat(self, *, follow_symlinks: bool = True):
+        if follow_symlinks:
+            descriptor = self._open_file_fd(os.O_RDONLY)
+            try:
+                return os.fstat(descriptor)
+            finally:
+                os.close(descriptor)
+        return self._lstat()
+
+    def _open_file_fd(self, flags: int, mode: int = 0o600) -> int:
+        if not self.parts:
+            return os.dup(self.root_fd)
+        create_parent = bool(flags & (os.O_CREAT | os.O_WRONLY | os.O_RDWR))
+        parent_fd = self._open_dir(self.parts[:-1], create=create_parent)
+        try:
+            return os.open(
+                self.name,
+                flags | os.O_NOFOLLOW,
+                mode,
+                dir_fd=parent_fd,
+            )
+        finally:
+            os.close(parent_fd)
+
+    def open(
+        self,
+        mode: str = "r",
+        buffering: int = -1,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ):
+        binary = "b" in mode
+        updating = "+" in mode
+        flags = os.O_RDWR if updating else os.O_RDONLY
+        if "w" in mode:
+            flags = (os.O_RDWR if updating else os.O_WRONLY) | os.O_CREAT | os.O_TRUNC
+        elif "a" in mode:
+            flags = (os.O_RDWR if updating else os.O_WRONLY) | os.O_CREAT | os.O_APPEND
+        elif "x" in mode:
+            flags = (os.O_RDWR if updating else os.O_WRONLY) | os.O_CREAT | os.O_EXCL
+        descriptor = self._open_file_fd(flags)
+        if binary:
+            return os.fdopen(descriptor, mode, buffering=buffering)
+        return os.fdopen(
+            descriptor,
+            mode,
+            buffering=buffering,
+            encoding=encoding,
+            errors=errors,
+            newline=newline,
+        )
+
+    def read_text(self, encoding: str = "utf-8", errors: str | None = None) -> str:
+        with self.open("r", encoding=encoding, errors=errors) as handle:
+            return handle.read()
+
+    def read_bytes(self) -> bytes:
+        with self.open("rb") as handle:
+            return handle.read()
+
+    def write_text(self, data: str, encoding: str = "utf-8", errors=None, newline=None) -> int:
+        with self.open("w", encoding=encoding, errors=errors, newline=newline) as handle:
+            return handle.write(data)
+
+    def write_bytes(self, data: bytes) -> int:
+        with self.open("wb") as handle:
+            return handle.write(data)
+
+    def unlink(self, missing_ok: bool = False) -> None:
+        parent_fd = self._open_dir(self.parts[:-1])
+        try:
+            try:
+                os.unlink(self.name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                if not missing_ok:
+                    raise
+        finally:
+            os.close(parent_fd)
+
+    def replace(self, target: "AnchoredRunPath") -> "AnchoredRunPath":
+        if not getattr(target, "_coc_anchored_path", False) or target.root_fd != self.root_fd:
+            raise ValueError("anchored replace requires the same root")
+        source_parent = self._open_dir(self.parts[:-1])
+        target_parent = target._open_dir(target.parts[:-1], create=True)
+        try:
+            os.replace(
+                self.name,
+                target.name,
+                src_dir_fd=source_parent,
+                dst_dir_fd=target_parent,
+            )
+        finally:
+            os.close(source_parent)
+            os.close(target_parent)
+        return target
+
+    def iterdir(self):
+        directory_fd = self._open_dir(self.parts)
+        try:
+            names = os.listdir(directory_fd)
+        finally:
+            os.close(directory_fd)
+        return iter(self / name for name in names)
+
+    def glob(self, pattern: str):
+        patterns = tuple(part for part in pattern.split("/") if part)
+        current = [self]
+        for item in patterns:
+            following = []
+            for base in current:
+                if not base.is_dir():
+                    continue
+                for child in base.iterdir():
+                    if fnmatch.fnmatch(child.name, item):
+                        following.append(child)
+            current = following
+        return iter(current)
+
+
+def is_anchored_path(value: Any) -> bool:
+    return getattr(value, "_coc_anchored_path", False) is True
 
 
 class RunIdentityError(ValueError):
@@ -65,38 +309,15 @@ class AnchoredRunDirectory:
         self.staging_fd = staging_fd
         self._committed = False
         self._closed = False
-        self._cwd_fd: int | None = None
-        self._cwd_lock_held = False
 
-    def activate(self) -> Path:
-        """Make relative run paths resolve from the retained staging inode."""
-        if self._closed or self._cwd_fd is not None:
+    def activate(self) -> AnchoredRunPath:
+        """Return an fd-rooted path facade without changing process cwd."""
+        if self._closed:
             raise RunIdentityError("playtest staging activation is invalid")
-        _PROCESS_CWD_LOCK.acquire()
-        self._cwd_lock_held = True
-        try:
-            self._cwd_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
-            info = os.fstat(self.staging_fd)
-            if not stat.S_ISDIR(info.st_mode):
-                raise RunIdentityError("playtest staging inode is not a directory")
-            os.fchdir(self.staging_fd)
-            return Path(".")
-        except Exception:
-            if self._cwd_fd is not None:
-                os.close(self._cwd_fd)
-                self._cwd_fd = None
-            self._cwd_lock_held = False
-            _PROCESS_CWD_LOCK.release()
-            raise
-
-    def _deactivate(self) -> None:
-        if self._cwd_fd is not None:
-            os.fchdir(self._cwd_fd)
-            os.close(self._cwd_fd)
-            self._cwd_fd = None
-        if self._cwd_lock_held:
-            self._cwd_lock_held = False
-            _PROCESS_CWD_LOCK.release()
+        info = os.fstat(self.staging_fd)
+        if not stat.S_ISDIR(info.st_mode):
+            raise RunIdentityError("playtest staging inode is not a directory")
+        return AnchoredRunPath(self.staging_fd)
 
     def _current_source_name(self) -> str:
         expected = os.fstat(self.staging_fd)
@@ -152,38 +373,93 @@ class AnchoredRunDirectory:
         if self._committed:
             return self.final_path
         self.assert_parent_binding()
-        source_name = self._current_source_name()
+        final_fd: int | None = None
         try:
-            os.rename(
-                source_name,
+            os.mkdir(self.final_path.name, mode=0o700, dir_fd=self.parent_fd)
+            final_fd = os.open(
                 self.final_path.name,
-                src_dir_fd=self.source_parent_fd,
-                dst_dir_fd=self.parent_fd,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=self.parent_fd,
             )
         except FileExistsError as exc:
             raise RunIdentityError("allocated playtest destination already exists") from exc
-        os.fsync(self.parent_fd)
-        self._committed = True
-        published = os.stat(
-            self.final_path.name,
-            dir_fd=self.parent_fd,
-            follow_symlinks=False,
-        )
-        original = os.fstat(self.staging_fd)
-        if (
-            not stat.S_ISDIR(published.st_mode)
-            or (published.st_dev, published.st_ino)
-            != (original.st_dev, original.st_ino)
-        ):
-            raise RunIdentityError("published playtest is not the staging inode")
-        self._remove_replacement_source_name()
-        self.assert_parent_binding()
-        return self.final_path
+        try:
+            _copy_tree_fd(self.staging_fd, final_fd)
+            digest = _tree_digest_fd(final_fd)
+            _write_json_at(
+                final_fd,
+                "run-commit.json",
+                {
+                    "schema_version": 1,
+                    "tree_sha256": digest,
+                },
+            )
+            os.fsync(final_fd)
+            if not self._final_entry_matches(final_fd):
+                self._remove_wrong_final(final_fd)
+                raise RunIdentityError("published playtest directory was replaced")
+            os.fsync(self.parent_fd)
+            source_name = self._current_source_name()
+            _remove_tree_at(self.source_parent_fd, source_name)
+            self._remove_replacement_source_name()
+            self._committed = True
+            self.assert_parent_binding()
+            return self.final_path
+        except Exception:
+            if not self._committed:
+                self._remove_wrong_final(final_fd)
+            raise
+        finally:
+            if final_fd is not None:
+                os.close(final_fd)
+
+    def _final_entry_matches(self, final_fd: int) -> bool:
+        try:
+            named = os.stat(
+                self.final_path.name,
+                dir_fd=self.parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return False
+        opened = os.fstat(final_fd)
+        return stat.S_ISDIR(named.st_mode) and (
+            named.st_dev,
+            named.st_ino,
+        ) == (opened.st_dev, opened.st_ino)
+
+    def _remove_wrong_final(self, final_fd: int | None) -> None:
+        try:
+            info = os.stat(
+                self.final_path.name,
+                dir_fd=self.parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            info = None
+        if info is not None:
+            if stat.S_ISDIR(info.st_mode):
+                _remove_tree_at(self.parent_fd, self.final_path.name)
+            else:
+                os.unlink(self.final_path.name, dir_fd=self.parent_fd)
+        if final_fd is None:
+            return
+        expected = os.fstat(final_fd)
+        for name in os.listdir(self.parent_fd):
+            try:
+                current = os.stat(name, dir_fd=self.parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISDIR(current.st_mode) and (
+                current.st_dev,
+                current.st_ino,
+            ) == (expected.st_dev, expected.st_ino):
+                _remove_tree_at(self.parent_fd, name)
+                break
 
     def close(self) -> None:
         if self._closed:
             return
-        self._deactivate()
         if not self._committed:
             try:
                 source_name = self._current_source_name()
@@ -213,6 +489,112 @@ def _remove_tree_at(parent_fd: int, name: str) -> None:
     finally:
         os.close(directory_fd)
     os.rmdir(name, dir_fd=parent_fd)
+
+
+def _copy_tree_fd(source_fd: int, destination_fd: int) -> None:
+    for name in os.listdir(source_fd):
+        info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            os.mkdir(name, mode=info.st_mode & 0o777, dir_fd=destination_fd)
+            source_child = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=source_fd,
+            )
+            destination_child = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=destination_fd,
+            )
+            try:
+                _copy_tree_fd(source_child, destination_child)
+                os.fsync(destination_child)
+            finally:
+                os.close(source_child)
+                os.close(destination_child)
+        elif stat.S_ISREG(info.st_mode):
+            source_file = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=source_fd
+            )
+            destination_file = os.open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                info.st_mode & 0o777,
+                dir_fd=destination_fd,
+            )
+            try:
+                while True:
+                    chunk = os.read(source_file, 1024 * 1024)
+                    if not chunk:
+                        break
+                    view = memoryview(chunk)
+                    while view:
+                        view = view[os.write(destination_file, view):]
+                os.fsync(destination_file)
+            finally:
+                os.close(source_file)
+                os.close(destination_file)
+        else:
+            raise RunIdentityError("playtest generation contains an unsafe entry")
+
+
+def _tree_digest_fd(root_fd: int) -> str:
+    digest = hashlib.sha256()
+
+    def visit(directory_fd: int, prefix: str) -> None:
+        for name in sorted(os.listdir(directory_fd)):
+            if not prefix and name == "run-commit.json":
+                continue
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            relative = f"{prefix}{name}"
+            if stat.S_ISDIR(info.st_mode):
+                digest.update(f"D\0{relative}\0".encode())
+                child = os.open(
+                    name,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    dir_fd=directory_fd,
+                )
+                try:
+                    visit(child, relative + "/")
+                finally:
+                    os.close(child)
+            elif stat.S_ISREG(info.st_mode):
+                digest.update(f"F\0{relative}\0{info.st_size}\0".encode())
+                descriptor = os.open(
+                    name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd
+                )
+                try:
+                    while True:
+                        chunk = os.read(descriptor, 1024 * 1024)
+                        if not chunk:
+                            break
+                        digest.update(chunk)
+                finally:
+                    os.close(descriptor)
+            else:
+                raise RunIdentityError("playtest tree contains an unsafe entry")
+
+    visit(root_fd, "")
+    return digest.hexdigest()
+
+
+def _write_json_at(directory_fd: int, name: str, payload: Any) -> None:
+    temporary = f".{name}.{uuid.uuid4().hex}.tmp"
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+        dir_fd=directory_fd,
+    )
+    try:
+        encoded = (json.dumps(payload, sort_keys=True) + "\n").encode()
+        view = memoryview(encoded)
+        while view:
+            view = view[os.write(descriptor, view):]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
 
 
 def normalize_run_id(value: Any) -> str:
@@ -271,11 +653,12 @@ def read_artifact_run_identity(run_dir: Path | str) -> dict[str, Any] | None:
     source while preventing a copied artifact from becoming a second current
     run instance.
     """
-    path = Path(run_dir) / RUN_IDENTITY_FILENAME
+    directory = run_dir if is_anchored_path(run_dir) else Path(run_dir)
+    path = directory / RUN_IDENTITY_FILENAME
     if not path.exists() and not path.is_symlink():
         return None
     try:
-        mode = path.lstat().st_mode
+        mode = path._lstat().st_mode if is_anchored_path(path) else path.lstat().st_mode
     except OSError as exc:
         raise RunIdentityError("artifact run identity is unreadable") from exc
     if not stat.S_ISREG(mode):
@@ -374,7 +757,7 @@ def ensure_artifact_run_identity(
     Concurrent unrequested opens converge on the winning persisted identity.
     A caller that already owns a run ID must match the persisted value exactly.
     """
-    directory = Path(run_dir)
+    directory = run_dir if is_anchored_path(run_dir) else Path(run_dir)
     directory.mkdir(parents=True, exist_ok=True)
     campaign = str(campaign_id).strip()
     if not campaign:
@@ -405,6 +788,26 @@ def ensure_artifact_run_identity(
         json.dumps(body, ensure_ascii=False, indent=2) + "\n"
     ).encode("utf-8")
     target = directory / RUN_IDENTITY_FILENAME
+    if is_anchored_path(directory):
+        try:
+            with target.open("xb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.fsync(directory.root_fd)
+            return candidate
+        except FileExistsError:
+            existing = read_artifact_run_identity(directory)
+            if existing is None:
+                raise RunIdentityError(
+                    "artifact run identity publication was indeterminate"
+                )
+            return _validate_current_identity(
+                existing,
+                location_directory,
+                campaign,
+                requested,
+            )
     temp = directory / f".{RUN_IDENTITY_FILENAME}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
     try:
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL

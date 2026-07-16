@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ OPERATOR_REVIEW_SCRIPT = (
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_operator_review.py"
 )
 SECRET_AUDIT_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_secret_audit.py"
+RUN_IDENTITY_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_run_identity.py"
 TRUSTED_RUNNER_REGISTRY = (
     REPO / "plugins" / "coc-keeper" / "references" / "trusted-playtest-runners.json"
 )
@@ -572,6 +574,28 @@ def test_receipt_does_not_hash_artifact_paths_outside_run_dir(tmp_path, evidence
     assert receipt["eligible_as_gameplay_evidence"] is False
     assert "artifact_path_outside_run_dir" in receipt["evidence_reasons"]
     assert receipt["artifacts"]["transcript"]["sha256"] is None
+
+
+def test_descriptor_anchored_evidence_does_not_follow_run_local_secret_symlink(
+    tmp_path, evidence,
+):
+    identity = _load("coc_run_identity_evidence_test", RUN_IDENTITY_SCRIPT)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    secret = tmp_path / "outside-secret.jsonl"
+    secret.write_bytes(b"outside secret must never be hashed\n")
+    handle = identity.allocate_default_run_dir(
+        workspace / ".coc" / "playtests",
+        trusted_root=workspace,
+    )
+    anchored = handle.activate()
+    os.symlink(secret, "leak.jsonl", dir_fd=anchored.root_fd)
+    try:
+        artifact = evidence._build_artifact(anchored, "leak.jsonl")
+        assert artifact == {"path": "leak.jsonl", "sha256": None}
+        assert artifact["sha256"] != hashlib.sha256(secret.read_bytes()).hexdigest()
+    finally:
+        handle.close()
 
 
 @pytest.mark.parametrize(

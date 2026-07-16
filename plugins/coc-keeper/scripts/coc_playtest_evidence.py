@@ -56,7 +56,8 @@ def _load_operator_review():
 
 def sha256_path(path: Path) -> str:
     digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
+    candidate = path if getattr(path, "_coc_anchored_path", False) else Path(path)
+    with candidate.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -69,9 +70,13 @@ def _write_fixed_artifact_atomic(
 ) -> Path:
     """Atomically replace one repository-defined evidence artifact."""
     basename = _FIXED_ARTIFACT_BASENAMES[artifact_kind]
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
-    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    root_fd = (
+        os.dup(root.root_fd)
+        if getattr(root, "_coc_anchored_path", False)
+        else os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    )
     temp_name: str | None = None
     temp_fd: int | None = None
     try:
@@ -121,8 +126,12 @@ def _finding(findings: list[dict[str, str]], code: str, field: str) -> None:
 
 
 def _inside_run_dir(run_dir: Path, path: Path) -> bool:
-    if run_dir == Path(".") and not path.is_absolute():
-        return ".." not in path.parts
+    if getattr(run_dir, "_coc_anchored_path", False):
+        return (
+            getattr(path, "_coc_anchored_path", False)
+            and path.root_fd == run_dir.root_fd
+            and tuple(path.parts[: len(run_dir.parts)]) == tuple(run_dir.parts)
+        )
     try:
         path.resolve().relative_to(run_dir.resolve())
     except ValueError:
@@ -134,12 +143,16 @@ def _artifact_path(run_dir: Path, raw_path: Any) -> tuple[Path | None, str | Non
     if not isinstance(raw_path, (str, Path)) or not str(raw_path).strip():
         return None, None
     candidate = Path(raw_path)
+    if getattr(run_dir, "_coc_anchored_path", False):
+        if candidate.is_absolute() or ".." in candidate.parts:
+            return None, str(raw_path)
+        anchored = run_dir
+        for component in candidate.parts:
+            if component not in {"", "."}:
+                anchored = anchored / component
+        return anchored, candidate.as_posix().removeprefix("./")
     if not candidate.is_absolute():
         candidate = run_dir / candidate
-        if run_dir == Path("."):
-            if ".." in candidate.parts:
-                return candidate, str(raw_path)
-            return candidate, candidate.as_posix().removeprefix("./")
     resolved = candidate.resolve()
     if not _inside_run_dir(run_dir, resolved):
         return resolved, str(raw_path)
@@ -750,7 +763,7 @@ def _evaluate_interactive_evidence(
 
 def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[str, Any]:
     """Recompute trust, counts, and current artifact hashes from the ledger."""
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     validated = copy.deepcopy(receipt) if isinstance(receipt, dict) else {}
     findings: list[dict[str, str]] = []
     if (
@@ -920,7 +933,7 @@ def build_evidence_receipt(
     provenance: dict[str, Any],
 ) -> dict[str, Any]:
     """Build from non-authoritative observations and repository-owned trust."""
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     source = provenance if isinstance(provenance, dict) else {}
     event_paths = source.get("event_log_paths")
     event_paths = event_paths if isinstance(event_paths, list) else []
@@ -991,7 +1004,7 @@ def _invalid_receipt(code: str) -> dict[str, Any]:
 
 
 def write_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> Path:
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     root.mkdir(parents=True, exist_ok=True)
     validated = validate_evidence_receipt(root, receipt)
     return _write_fixed_artifact_atomic(
@@ -1002,7 +1015,7 @@ def write_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> Path:
 
 
 def read_evidence_receipt(run_dir: Path) -> dict[str, Any]:
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     path = root / "evidence.json"
     if not path.is_file():
         return _invalid_receipt("evidence_receipt_missing")

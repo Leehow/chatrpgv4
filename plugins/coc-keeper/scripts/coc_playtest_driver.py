@@ -836,16 +836,20 @@ def preflight_artifact_investigator_target(
     """Validate the selected sandbox destination without creating it."""
     if not coc_investigator_guard.is_safe_investigator_id(investigator_id):
         raise ValueError("investigator id must be a stable safe id")
-    artifact_root = Path(run_dir).absolute()
+    if coc_run_identity.is_anchored_path(run_dir):
+        artifact_root = run_dir
+    else:
+        artifact_root = Path(run_dir).absolute()
     target_investigator = (
         artifact_root / "sandbox" / ".coc" / "investigators" / investigator_id
     )
     target_character = target_investigator / "character.json"
     target_creation = target_investigator / "creation.json"
     for target in (target_character, target_creation):
-        coc_investigator_guard.validate_contained_path_parents(
-            artifact_root, target
-        )
+        if not coc_run_identity.is_anchored_path(artifact_root):
+            coc_investigator_guard.validate_contained_path_parents(
+                artifact_root, target
+            )
         if target.is_symlink() or (target.exists() and not target.is_file()):
             raise ValueError(f"artifact target is unsafe: {target}")
     if not creation_present and target_creation.exists():
@@ -1051,6 +1055,24 @@ def _remove_tree_at(parent_fd: int, name: str) -> None:
     os.rmdir(name, dir_fd=parent_fd)
 
 
+def _copy_tree_to_anchored(source: Path, target: Any) -> None:
+    """Copy regular files into one descriptor-anchored run tree."""
+    target.mkdir(parents=True, exist_ok=True)
+    for child in source.iterdir():
+        destination = target / child.name
+        if child.is_symlink():
+            raise ValueError(f"campaign copy source contains a symlink: {child}")
+        if child.is_dir():
+            _copy_tree_to_anchored(child, destination)
+            continue
+        if not child.is_file():
+            raise ValueError(f"campaign copy source is not a regular file: {child}")
+        with child.open("rb") as source_handle, destination.open("wb") as output:
+            shutil.copyfileobj(source_handle, output)
+            output.flush()
+            os.fsync(output.fileno())
+
+
 def write_playtest_artifacts(
     run_dir: Path,
     campaign_dir: Path,
@@ -1206,7 +1228,10 @@ def write_playtest_artifacts(
 
     target_campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / campaign_id
     if campaign_dir.resolve() != target_campaign_dir.resolve():
-        shutil.copytree(campaign_dir, target_campaign_dir, dirs_exist_ok=True)
+        if coc_run_identity.is_anchored_path(target_campaign_dir):
+            _copy_tree_to_anchored(campaign_dir, target_campaign_dir)
+        else:
+            shutil.copytree(campaign_dir, target_campaign_dir, dirs_exist_ok=True)
     _ensure_campaign_report_files(target_campaign_dir, investigator_id, metadata)
 
     _publish_investigator_snapshot_no_follow(

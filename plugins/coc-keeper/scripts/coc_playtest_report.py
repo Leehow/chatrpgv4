@@ -136,11 +136,15 @@ def _write_report_artifact_atomic(
     for sibling in siblings:
         if sibling not in allowed:
             raise ValueError("unsupported report artifact sibling")
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     artifacts = root / "artifacts"
     try:
         artifacts.mkdir(mode=0o755, exist_ok=True)
-        named = os.stat(artifacts, follow_symlinks=False)
+        named = (
+            artifacts._lstat()
+            if getattr(artifacts, "_coc_anchored_path", False)
+            else os.stat(artifacts, follow_symlinks=False)
+        )
     except OSError as exc:
         raise RuntimeError("unsafe playtest artifacts directory") from exc
     if not stat.S_ISDIR(named.st_mode):
@@ -149,15 +153,23 @@ def _write_report_artifact_atomic(
     nofollow_flag = getattr(os, "O_NOFOLLOW", None)
     if directory_flag is None or nofollow_flag is None:
         raise RuntimeError("runtime lacks safe artifact write primitives")
-    directory_fd = os.open(
-        artifacts,
-        os.O_RDONLY | directory_flag | nofollow_flag | getattr(os, "O_CLOEXEC", 0),
+    directory_fd = (
+        artifacts._open_dir(artifacts.parts)
+        if getattr(artifacts, "_coc_anchored_path", False)
+        else os.open(
+            artifacts,
+            os.O_RDONLY | directory_flag | nofollow_flag | getattr(os, "O_CLOEXEC", 0),
+        )
     )
     identity = (named.st_dev, named.st_ino)
 
     def verify_directory() -> None:
         opened = os.fstat(directory_fd)
-        current = os.stat(artifacts, follow_symlinks=False)
+        current = (
+            artifacts._lstat()
+            if getattr(artifacts, "_coc_anchored_path", False)
+            else os.stat(artifacts, follow_symlinks=False)
+        )
         if (
             not stat.S_ISDIR(opened.st_mode)
             or not stat.S_ISDIR(current.st_mode)

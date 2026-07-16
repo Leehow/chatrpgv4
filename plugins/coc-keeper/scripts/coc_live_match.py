@@ -47,7 +47,10 @@ def _ensure_jsonl_source(path: Path) -> None:
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
-        fd = os.open(path, flags, 0o600)
+        if getattr(path, "_coc_anchored_path", False):
+            fd = path._open_file_fd(flags, 0o600)
+        else:
+            fd = os.open(path, flags, 0o600)
     except OSError as exc:
         raise RuntimeError(f"cannot initialize JSONL evidence source: {path}") from exc
     try:
@@ -672,7 +675,10 @@ def _write_jsonl_rows_atomic(path: Path, rows: list[dict[str, Any]]) -> None:
             handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temp, path)
+    if getattr(path, "_coc_anchored_path", False):
+        temp.replace(path)
+    else:
+        os.replace(temp, path)
 
 
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
@@ -683,7 +689,10 @@ def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
-    os.replace(temp, path)
+    if getattr(path, "_coc_anchored_path", False):
+        temp.replace(path)
+    else:
+        os.replace(temp, path)
 
 
 def _resume_tail_from_transcript(
@@ -2013,7 +2022,10 @@ def _run_live_match_impl(
     report_contract = coc_eval_contract.verify_report_contract(out)
     contract_report = report_contract.get("report_path")
     if isinstance(contract_report, str) and contract_report:
-        battle_path = Path(contract_report)
+        if getattr(out, "_coc_anchored_path", False) and not Path(contract_report).is_absolute():
+            battle_path = out / contract_report
+        else:
+            battle_path = Path(contract_report)
 
     if run_handle is not None:
         staging_out = out
@@ -2022,12 +2034,16 @@ def _run_live_match_impl(
         evidence_path = final_out / evidence_path.relative_to(staging_out)
         report_path_value = report_contract.get("report_path")
         if isinstance(report_path_value, str):
-            try:
-                report_contract["report_path"] = str(
-                    final_out / Path(report_path_value).relative_to(staging_out)
-                )
-            except ValueError:
-                pass
+            report_candidate = Path(report_path_value)
+            if getattr(staging_out, "_coc_anchored_path", False) and not report_candidate.is_absolute():
+                report_contract["report_path"] = str(final_out / report_candidate)
+            else:
+                try:
+                    report_contract["report_path"] = str(
+                        final_out / report_candidate.relative_to(staging_out)
+                    )
+                except (TypeError, ValueError):
+                    pass
         out = final_out
 
     if player_worker_pool is not None:
@@ -2058,8 +2074,7 @@ def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
     start = len(_ACTIVE_WORKER_POOLS)
     run_start = len(_ACTIVE_RUN_HANDLES)
     try:
-        with coc_run_identity.process_cwd_guard():
-            return _run_live_match_impl(*args, **kwargs)
+        return _run_live_match_impl(*args, **kwargs)
     finally:
         for pool in _ACTIVE_WORKER_POOLS[start:]:
             try:

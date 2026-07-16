@@ -11,8 +11,10 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import stat
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -1501,6 +1503,84 @@ def test_default_run_stage_swap_after_identity_stays_on_original_inode(
     assert list(outside.iterdir()) == []
     assert not displaced.exists()
     assert not captured["handle"].staging_path.exists()
+
+
+def test_default_run_writes_stay_anchored_during_concurrent_chdir(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "cwd-race-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    _install_keeper(monkeypatch, texts=["锁眼里卡着新鲜木屑。"])
+    outside = tmp_path / "cwd-race-outside"
+    outside.mkdir()
+    release = threading.Event()
+    changed = threading.Event()
+    original_identity = match._ensure_artifact_run_identity
+    original_cwd_fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+
+    def change_cwd():
+        assert release.wait(timeout=5)
+        os.chdir(outside)
+        changed.set()
+
+    worker = threading.Thread(target=change_cwd)
+    worker.start()
+
+    def identity_then_release(*args, **kwargs):
+        run_id = original_identity(*args, **kwargs)
+        release.set()
+        assert changed.wait(timeout=5)
+        return run_id
+
+    monkeypatch.setattr(match, "_ensure_artifact_run_identity", identity_then_release)
+    try:
+        result = match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=player,
+            max_turns=1,
+        )
+    finally:
+        worker.join(timeout=5)
+        os.fchdir(original_cwd_fd)
+        os.close(original_cwd_fd)
+
+    run_dir = Path(result["run_dir"])
+    assert (run_dir / "run-commit.json").is_file()
+    assert Path(result["battle_report_path"]).is_file()
+    assert list(outside.iterdir()) == []
+
+
+def test_default_run_commit_rejects_final_name_replacement(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    handle = match.coc_run_identity.allocate_default_run_dir(
+        workspace / ".coc" / "playtests",
+        trusted_root=workspace,
+    )
+    assert isinstance(handle, match.coc_run_identity.AnchoredRunDirectory)
+    anchored = handle.activate()
+    (anchored / "proof.txt").write_text("trusted generation\n", encoding="utf-8")
+    displaced = handle.final_path.with_name(handle.final_path.name + "-displaced")
+    original_check = handle._final_entry_matches
+
+    def replace_before_check(final_fd):
+        handle.final_path.rename(displaced)
+        handle.final_path.mkdir()
+        (handle.final_path / "attacker.txt").write_text("attacker\n", encoding="utf-8")
+        return original_check(final_fd)
+
+    monkeypatch.setattr(handle, "_final_entry_matches", replace_before_check)
+    try:
+        with pytest.raises(match.RunIdentityError, match="replaced"):
+            handle.commit()
+        assert handle._committed is False
+        assert not handle.final_path.exists()
+        assert not displaced.exists()
+    finally:
+        handle.close()
 
 
 def test_resume_helpers_ignore_system_rows_and_renumber_append():

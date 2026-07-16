@@ -65,7 +65,8 @@ IDENTITY_KEYS = (
 def file_sha256(path: Path | str) -> str:
     """Return the SHA-256 digest of a file without loading it all into memory."""
     digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
+    candidate = path if getattr(path, "_coc_anchored_path", False) else Path(path)
+    with candidate.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -80,9 +81,13 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_text_atomic(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    parent_fd = os.open(
-        path.parent,
-        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+    parent_fd = (
+        path.parent._open_dir(path.parent.parts)
+        if getattr(path, "_coc_anchored_path", False)
+        else os.open(
+            path.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+        )
     )
     temp_name: str | None = None
     temp_fd: int | None = None
@@ -214,7 +219,7 @@ def _relative_to_run(run_dir: Path, path: Path) -> str:
 
 def load_roll_records(run_dir: Path | str) -> dict[str, Any]:
     """Read all campaign roll logs while preserving parse errors and provenance."""
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     metadata = _metadata(root)
     candidate_paths = [
         campaign_dir / "logs" / "rolls.jsonl"
@@ -1035,11 +1040,19 @@ def _generate_base_reports(run_dir: Path) -> tuple[Path, Path | None]:
     module = _load_sibling(
         "coc_playtest_report_eval_contract", "coc_playtest_report.py"
     )
-    battle_report = Path(module.generate_battle_report(run_dir))
+    generated = module.generate_battle_report(run_dir)
+    battle_report = (
+        generated if getattr(generated, "_coc_anchored_path", False) else Path(generated)
+    )
     evaluation_report: Path | None = None
     generator = getattr(module, "generate_evaluation_report", None)
     if callable(generator):
-        evaluation_report = Path(generator(run_dir))
+        generated_evaluation = generator(run_dir)
+        evaluation_report = (
+            generated_evaluation
+            if getattr(generated_evaluation, "_coc_anchored_path", False)
+            else Path(generated_evaluation)
+        )
     return battle_report, evaluation_report
 
 
@@ -1228,7 +1241,7 @@ def compile_report_contract(
     *,
     generate_base_report: bool = True,
 ) -> dict[str, Any]:
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     evaluation_report_path: Path | None = None
     if generate_base_report:
         report_path, evaluation_report_path = _generate_base_reports(root)
@@ -1281,7 +1294,7 @@ def compile_report_contract(
 
 
 def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
-    root = Path(run_dir)
+    root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     report_path = _find_report_path(root)
     if report_path is None:
         return _missing_report_result(root)
