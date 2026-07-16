@@ -98,6 +98,11 @@ def campaign_save_paths(campaign: Path | str, investigator_id: str) -> dict[str,
     resolved_campaign = Path(campaign).resolve(strict=False)
     save = contained_path(resolved_campaign, resolved_campaign / "save")
     inv_dir = contained_path(save, save / "investigator-state")
+    sanity_dir = contained_path(save, save / "sanity-state")
+    canonical_sanity = contained_path(
+        sanity_dir, sanity_dir / f"{investigator_id}.json"
+    )
+    legacy_sanity = contained_path(save, save / "sanity.json")
     paths = {
         "campaign": resolved_campaign,
         "save": save,
@@ -108,7 +113,11 @@ def campaign_save_paths(campaign: Path | str, investigator_id: str) -> dict[str,
         "active_scene": contained_path(save, save / "active-scene.json"),
         "subsystem_state": contained_path(save, save / "subsystem-state.json"),
         "combat_state": contained_path(save, save / "combat.json"),
-        "sanity_state": contained_path(save, save / "sanity.json"),
+        # Prefer identity-bound state.  The singleton remains a read-only
+        # compatibility source until that investigator has migrated once.
+        "sanity_state": (
+            canonical_sanity if canonical_sanity.is_file() else legacy_sanity
+        ),
         "chase_state": contained_path(save, save / "chase.json"),
         "time_state": contained_path(save, save / "time-state.json"),
         "time_triggers": contained_path(save, save / "time-triggers.json"),

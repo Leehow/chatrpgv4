@@ -68,7 +68,10 @@ Campaigns store temporary and scenario-specific state:
 │   ├── storylet-ledger.json        # storylet anti-repeat signatures + usage ledger
 │   ├── time-state.json             # in-fiction world clock
 │   ├── time-triggers.json          # scheduled time-based triggers
-│   ├── sanity.json                 # sanity session state (bouts, episodes) when active
+│   ├── sanity-state/               # canonical per-investigator SAN sessions
+│   │   └── <investigator-id>.json  # bouts, episodes, caps, current/max SAN
+│   ├── sanity.json                 # legacy single-investigator compatibility mirror
+│   ├── development-settlements/    # ending receipts, recovery journals, reward receipts
 │   ├── combat.json                 # combat session state (only during combat)
 │   ├── chase.json                  # chase session state (only during chases)
 │   ├── character-creation-draft.json  # in-progress creation workflow state
@@ -107,9 +110,12 @@ Campaigns store temporary and scenario-specific state:
 
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
 
-Subsystem session files (`combat.json`, `chase.json`, `sanity.json`) exist only
-while their subsystem is active and are owned by the corresponding session
-classes; do not hand-edit them mid-session. `pacing-state.json`,
+Subsystem session files (`combat.json`, `chase.json`, and
+`sanity-state/<investigator-id>.json`) are owned by the corresponding session
+classes; do not hand-edit them mid-session. A matching legacy `sanity.json` is
+migrated to the owner's per-investigator file and remains that investigator's
+compatibility mirror. It is never overwritten by another linked party member.
+`pacing-state.json`,
 `threat-state.json`, `npc-state.json`, and `storylet-ledger.json` are written
 by the director apply layer each turn — treat `run_live_turn(...)` as their
 single writer during live play.

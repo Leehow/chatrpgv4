@@ -283,6 +283,50 @@ def test_treatment_handler_dispatch_recovers_san(campaign_with_inv):
     assert inv_after["current_san"] >= 40  # never lost SAN from treatment success
 
 
+def test_treatment_updates_identity_snapshot_without_claiming_party_legacy(
+    campaign_with_inv,
+):
+    campaign = campaign_with_inv
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({
+        "current_san": 60,
+        "max_san": 60,
+        "indefinite_insane": True,
+        "psychoanalysis_skill": 1,
+    })
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+
+    legacy_owner = coc_sanity.SanitySession(
+        "inv2", san_max=50, int_value=50, rng=random.Random(10),
+        campaign_dir=campaign,
+    )
+    legacy_path = campaign / "save" / "sanity.json"
+    legacy_path.write_text(
+        json.dumps(legacy_owner.snapshot()), encoding="utf-8"
+    )
+    legacy_before = legacy_path.read_bytes()
+    inv1_sanity = coc_sanity.SanitySession(
+        "inv1", san_max=60, int_value=50, rng=random.Random(11),
+        campaign_dir=campaign,
+    )
+    inv1_sanity.san_current = 60
+    inv1_sanity.indefinite_insane = True
+    inv1_sanity.save(campaign)
+    assert legacy_path.read_bytes() == legacy_before
+
+    outcome = coc_time._handler_apply_treatment(campaign, "inv1", {})
+    canonical = json.loads(
+        coc_sanity.sanity_snapshot_path(campaign, "inv1").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert outcome["fully_restored"] is True
+    assert canonical["san_current"] == 60
+    assert canonical["indefinite_insane"] is False
+    assert legacy_path.read_bytes() == legacy_before
+
+
 def test_handler_dispatch_failure_does_not_block_time(campaign_with_inv, monkeypatch):
     """A handler that raises must not block time advance; the error is recorded."""
     campaign = campaign_with_inv

@@ -3763,6 +3763,9 @@ def test_final_ledger_failure_rolls_back_san_log_and_rng(tmp_path, monkeypatch):
     assert rng.getstate() == rng_before
     assert inv_path.read_bytes() == inv_before
     assert not (campaign / "save" / "sanity.json").exists()
+    assert not executor.coc_sanity.sanity_snapshot_path(
+        campaign, "inv1"
+    ).exists()
     assert log_path.read_bytes() == log_before
     recovered = json.loads(state_path.read_text(encoding="utf-8"))
     assert recovered["applied_command_ids"] == []
@@ -4451,6 +4454,9 @@ def test_strict_san_mirror_failure_removes_new_identity_mirror(tmp_path, monkeyp
     assert rng.getstate() == rng_before
     assert not inv_path.exists()
     assert not (campaign / "save" / "sanity.json").exists()
+    assert not executor.coc_sanity.sanity_snapshot_path(
+        campaign, "inv1"
+    ).exists()
     assert log_path.read_bytes() == log_before
     state = json.loads(
         (campaign / "save" / "subsystem-state.json").read_text(encoding="utf-8")
@@ -4692,6 +4698,20 @@ def test_sanity_and_investigator_state_identity_must_match_requested_actor(tmp_p
     assert not (campaign / "save" / "subsystem-state.json").exists()
 
     sanity_path.unlink()
+    valid_legacy = executor.coc_sanity.SanitySession(
+        "inv1",
+        san_max=55,
+        int_value=70,
+        rng=random.Random(129),
+        campaign_dir=campaign,
+    )
+    sanity_path.write_text(
+        json.dumps(valid_legacy.snapshot()), encoding="utf-8"
+    )
+    canonical_sanity = executor.coc_sanity.sanity_snapshot_path(
+        campaign, "inv1"
+    )
+    assert not canonical_sanity.exists()
     investigator_path = campaign / "save" / "investigator-state" / "inv1.json"
     investigator = json.loads(investigator_path.read_text(encoding="utf-8"))
     investigator["investigator_id"] = "inv2"
@@ -4703,6 +4723,9 @@ def test_sanity_and_investigator_state_identity_must_match_requested_actor(tmp_p
     assert investigator_exc.value.code == "malformed_investigator_state"
     assert investigator_exc.value.path.endswith("inv1.json.investigator_id")
     assert rng.getstate() == rng_before
+    # Validation is read-only; the one-time legacy migration happens only
+    # inside the subsequently journalled SAN transaction.
+    assert not canonical_sanity.exists()
     assert not (campaign / "save" / "subsystem-state.json").exists()
 
 
@@ -4733,6 +4756,80 @@ def test_first_structured_san_creates_identity_bound_investigator_mirror(tmp_pat
     assert mirror["schema_version"] == 1
     assert mirror["investigator_id"] == "inv1"
     assert isinstance(mirror["current_san"], int)
+
+
+def test_linked_second_investigator_sanity_starts_from_sheet_and_stays_identity_bound(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_party_sanity_identity")
+    campaign, inv1_character = _campaign_and_character(tmp_path)
+    (campaign / "party.json").write_text(json.dumps({
+        "schema_version": 1,
+        "investigator_ids": ["inv1", "inv2"],
+    }), encoding="utf-8")
+
+    # The first investigator claims the legacy singleton and also receives a
+    # canonical identity-bound snapshot.
+    _execute(
+        executor,
+        campaign,
+        inv1_character,
+        [_san_command("party-san-inv1")],
+        random.Random(140),
+    )
+    legacy_path = campaign / "save" / "sanity.json"
+    legacy_before = legacy_path.read_bytes()
+    assert json.loads(legacy_before)["investigator_id"] == "inv1"
+
+    inv2_character = tmp_path / "investigators" / "inv2" / "character.json"
+    inv2_character.parent.mkdir(parents=True)
+    inv2_character.write_text(json.dumps({
+        "schema_version": 1,
+        "id": "inv2",
+        "characteristics": {"STR": 50, "INT": 60, "POW": 42},
+        "derived": {"SAN": 42},
+        "skills": {"Spot Hidden": 50, "Dodge": 30},
+    }), encoding="utf-8")
+    inv2_state = campaign / "save" / "investigator-state" / "inv2.json"
+    inv2_state.write_text(json.dumps({
+        "schema_version": 1,
+        "investigator_id": "inv2",
+        "current_san": 42,
+    }), encoding="utf-8")
+
+    first = executor.execute_commands(
+        campaign,
+        inv2_character,
+        "inv2",
+        [_san_command("party-san-inv2-first")],
+        rng=random.Random(141),
+    )[0]
+    inv2_snapshot_path = executor.coc_sanity.sanity_snapshot_path(
+        campaign, "inv2"
+    )
+    inv2_first = json.loads(inv2_snapshot_path.read_text(encoding="utf-8"))
+    assert first["status"] == "completed"
+    assert inv2_first["investigator_id"] == "inv2"
+    assert inv2_first["san_max"] == 42
+    assert inv2_first["san_current"] <= 42
+    assert legacy_path.read_bytes() == legacy_before
+
+    second = executor.execute_commands(
+        campaign,
+        inv2_character,
+        "inv2",
+        [_san_command("party-san-inv2-second")],
+        rng=random.Random(142),
+    )[0]
+    inv2_second = json.loads(inv2_snapshot_path.read_text(encoding="utf-8"))
+    second_sanity_event = next(
+        event for event in second["events"]
+        if event.get("event_type") == "sanity"
+    )
+    assert second_sanity_event["san_before"] == inv2_first["san_current"]
+    assert inv2_second["san_max"] == 42
+    assert inv2_second["san_current"] <= inv2_first["san_current"]
+    assert legacy_path.read_bytes() == legacy_before
 
 
 def test_persisted_pending_choice_survives_empty_batch_and_blocks_new_commands(tmp_path):

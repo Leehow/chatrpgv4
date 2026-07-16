@@ -514,3 +514,23 @@ def test_public_state_json_schema_accepts_all_auxiliary_health_states(
     assert {"state": state_name, "code": "invalid_schema"} in state["state_health"]["issues"]
     schema = json.loads(Path("runtime/protocol/public_state.schema.json").read_text())
     Draft202012Validator(schema).validate(state)
+
+
+def test_public_state_health_prefers_identity_bound_sanity_snapshot(tmp_path):
+    campaign = _seed_campaign(tmp_path)
+    legacy = campaign / "save" / "sanity.json"
+    legacy.write_text(json.dumps({
+        "schema_version": 1,
+        "investigator_id": "someone-else",
+    }), encoding="utf-8")
+    canonical = campaign / "save" / "sanity-state" / "inv-alice.json"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text(json.dumps({
+        "schema_version": True,
+        "investigator_id": "inv-alice",
+    }), encoding="utf-8")
+
+    state = _load().build_public_state(tmp_path, "camp-1", "inv-alice")
+    assert {"state": "sanity", "code": "invalid_schema"} in state[
+        "state_health"
+    ]["issues"]

@@ -419,8 +419,14 @@ def _error_recovery_hints(code: str) -> list[str]:
         "development_settlement_failed": [
             "the ending remains recorded and the development transaction was rolled back; retry with the same decision_id"
         ],
+        "recovery_conflict": [
+            "campaign mutation is paused because an interrupted settlement has foreign state divergence; preserve the listed paths and resolve the integrity conflict before retrying"
+        ],
         "settlement_unavailable": [
             "record state.end_session first, then retry development.settle for that persisted ending"
+        ],
+        "settlement_target_conflict": [
+            "retry the persisted ending for one of its frozen investigator_ids; party changes do not retarget an existing ending"
         ],
     }
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
@@ -510,7 +516,19 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     ctx.campaign_dir,
                     wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
                 ):
-                    envelope = execute_transaction(ctx)
+                    try:
+                        coc_runtime_ops.recover_development_transactions(
+                            ctx.campaign_dir
+                        )
+                    except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
+                        envelope = failure("recovery_conflict", str(exc))
+                        envelope["recovery"] = {
+                            "status": "RECOVERY_CONFLICT",
+                            "transaction_id": exc.transaction_id,
+                            "conflicting_paths": exc.conflicting_paths,
+                        }
+                    else:
+                        envelope = execute_transaction(ctx)
             except coc_fileio.CampaignLockError as exc:
                 envelope = failure("campaign_busy", str(exc))
 
@@ -3637,6 +3655,37 @@ def _record_settlement_pending(ctx: Ctx, development: dict[str, Any]) -> None:
         existing.add(key)
 
 
+def _normalized_investigator_ids(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return list(dict.fromkeys(
+        str(value) for value in values if isinstance(value, str) and value
+    ))
+
+
+def _requested_ending_targets(ctx: Ctx, args: dict[str, Any]) -> list[str]:
+    return _normalized_investigator_ids(
+        [str(args["investigator"])]
+        if args.get("investigator") else ctx.party_ids()
+    )
+
+
+def _ending_target_retry_conflict(
+    ctx: Ctx,
+    args: dict[str, Any],
+    frozen_ids: list[str],
+) -> dict[str, Any] | None:
+    requested_ids = _requested_ending_targets(ctx, args)
+    if requested_ids == frozen_ids:
+        return None
+    return {
+        "code": "SETTLEMENT_TARGET_CONFLICT",
+        "frozen_investigator_ids": list(frozen_ids),
+        "retry_investigator_ids": requested_ids,
+        "resolution": "frozen_targets_preserved",
+    }
+
+
 @tool(
     "development.settle",
     "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine.",
@@ -3663,6 +3712,10 @@ def _tool_development_settle(ctx: Ctx, args: dict[str, Any]):
             investigator_id,
             rng=rng,
         )
+    except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
+        raise ToolError("recovery_conflict", str(exc)) from exc
+    except coc_runtime_ops.DevelopmentTargetConflict as exc:
+        raise ToolError("settlement_target_conflict", str(exc)) from exc
     except coc_runtime_ops.RuntimeOperationError as exc:
         if "requires a persisted state.end_session" in str(exc):
             raise ToolError("settlement_unavailable", str(exc)) from exc
@@ -3691,29 +3744,54 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
     prior = ctx.ledger_lookup("state.end_session", args.get("decision_id"))
     if prior is not None:
         data = deepcopy(prior.get("data") or {})
+        frozen_ids = _normalized_investigator_ids(data.get("investigator_ids"))
+        if not frozen_ids:
+            frozen_ids = _normalized_investigator_ids([
+                row.get("investigator_id")
+                for row in (data.get("development") or {}).get("settlements", [])
+                if isinstance(row, dict)
+            ])
+        target_conflict = _ending_target_retry_conflict(
+            ctx, args, frozen_ids
+        ) if frozen_ids else None
+        if target_conflict is not None:
+            data["retry_target_conflict"] = target_conflict
         development = data.get("development")
         if not isinstance(development, dict) or development.get("status") != "PASS":
-            targets = (
-                [str(args["investigator"])]
-                if args.get("investigator") else ctx.party_ids()
-            )
-            development = _development_finalizer(ctx, targets)
+            development = _development_finalizer(ctx, frozen_ids)
             data["development"] = development
             data["ending_id"] = development.get("ending_id")
+            data["investigator_ids"] = frozen_ids
             ctx.ledger_record(args.get("decision_id"), "state.end_session", data)
             if development.get("status") != "PASS":
                 _record_settlement_pending(ctx, development)
-                return data, [
+                warnings = [
                     "duplicate ending receipt replayed; development settlement remains pending"
-                ], [
+                ]
+                if target_conflict is not None:
+                    warnings.append(
+                        "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
+                    )
+                return data, warnings, [
                     "retry state.end_session or development.settle with the same decision identity"
                 ]
-            return data, [
+            warnings = [
                 "duplicate ending receipt replayed; pending development settlement completed"
-            ], []
-        return data, ["duplicate decision_id: returning the previously settled result"], []
+            ]
+            if target_conflict is not None:
+                warnings.append(
+                    "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
+                )
+            return data, warnings, []
+        warnings = ["duplicate decision_id: returning the previously settled result"]
+        if target_conflict is not None:
+            warnings.append(
+                "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
+            )
+        return data, warnings, []
     decision_id = str(args["decision_id"])
     existing_ending: dict[str, Any] | None = None
+    target_conflict: dict[str, Any] | None = None
     event_path = ctx.campaign_dir / "logs" / "events.jsonl"
     if event_path.is_file():
         for line in reversed(event_path.read_text(encoding="utf-8").splitlines()):
@@ -3731,6 +3809,16 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
     if existing_ending is not None:
         scene_id = existing_ending.get("scene_id")
         kind = str(existing_ending.get("kind") or "conclusion")
+        targets = _normalized_investigator_ids(
+            existing_ending.get("investigator_ids")
+        )
+        if not targets:
+            # Legacy crash receipts predate frozen targets.  Freeze them once
+            # in the reconstructed toolbox receipt; new endings always persist
+            # them in the event itself before settlement begins.
+            targets = _requested_ending_targets(ctx, args)
+        else:
+            target_conflict = _ending_target_retry_conflict(ctx, args, targets)
     else:
         world = ctx.world()
         scene_id = world.get("active_scene_id")
@@ -3740,36 +3828,47 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
                 "invalid_param",
                 "kind must be conclusion, tpk, retreat, or cliffhanger",
             )
+        targets = _requested_ending_targets(ctx, args)
         record: dict[str, Any] = {
             "event_type": "session_ending",
             "scene_id": scene_id,
             "kind": kind,
             "decision_id": decision_id,
+            "investigator_ids": targets,
         }
         if args.get("summary"):
             record["summary"] = str(args["summary"])
         ctx.log_event(record)
-    targets = (
-        [str(args["investigator"])]
-        if args.get("investigator") else ctx.party_ids()
-    )
     development = _development_finalizer(ctx, targets)
     data = {
         "session_ending": True,
         "scene_id": scene_id,
         "kind": kind,
+        "investigator_ids": targets,
         "ending_id": development.get("ending_id"),
         "development": development,
     }
+    if target_conflict is not None:
+        data["retry_target_conflict"] = target_conflict
     ctx.ledger_record(args.get("decision_id"), "state.end_session", data)
     if development.get("status") != "PASS":
         _record_settlement_pending(ctx, development)
-        return data, [
+        warnings = [
             "session ending is durable, but development settlement remains pending after bounded retries"
-        ], [
+        ]
+        if target_conflict is not None:
+            warnings.append(
+                "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
+            )
+        return data, warnings, [
             "retry state.end_session or development.settle with the same decision identity; do not reopen narration"
         ]
-    return data, [], ["development settlement completed synchronously"]
+    warnings = []
+    if target_conflict is not None:
+        warnings.append(
+            "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
+        )
+    return data, warnings, ["development settlement completed synchronously"]
 
 
 # --------------------------------------------------------------------------- #

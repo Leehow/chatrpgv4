@@ -468,16 +468,18 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
     if new_san >= max_san:
         # Fully restored — clear indefinite insanity.
         inv["indefinite_insane"] = False
-        # Also clear on the authoritative sanity snapshot if it exists.
-        sanity_path = campaign_dir / "save" / "sanity.json"
-        if sanity_path.exists():
+        # Also clear the identity-bound authoritative snapshot if it exists.
+        # SanitySession.save maintains the legacy singleton only when this
+        # investigator owns it, so treatment cannot overwrite a party mate.
+        coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
+        if coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
             try:
-                snap = json.loads(sanity_path.read_text(encoding="utf-8"))
-                snap["san_current"] = new_san
-                snap["indefinite_insane"] = False
-                coc_fileio.write_json_atomic(
-                    sanity_path, snap, indent=2, ensure_ascii=False, trailing_newline=False
+                sanity = coc_sanity.SanitySession.load(
+                    campaign_dir, investigator_id
                 )
+                sanity.san_current = new_san
+                sanity.indefinite_insane = False
+                sanity.save(campaign_dir)
             except (OSError, ValueError):
                 pass
     _write_inv_state(campaign_dir, investigator_id, inv)

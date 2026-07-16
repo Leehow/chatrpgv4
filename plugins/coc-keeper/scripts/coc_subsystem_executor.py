@@ -1118,6 +1118,10 @@ def _allowed_preimage_path(path: str) -> bool:
     if path.startswith(prefix) and path.endswith(suffix):
         investigator_id = path[len(prefix):-len(suffix)]
         return bool(_SAFE_ID.fullmatch(investigator_id))
+    prefix = "save/sanity-state/"
+    if path.startswith(prefix) and path.endswith(suffix):
+        investigator_id = path[len(prefix):-len(suffix)]
+        return bool(_SAFE_ID.fullmatch(investigator_id))
     return False
 
 
@@ -1630,6 +1634,11 @@ def _validate_history_terminal_snapshot(
     if kind not in BOUT_COMMAND_KINDS:
         raise _state_error(f"choice history {choice_id!r} has unsupported terminal kind")
     expected_refs = [
+        f"save/sanity-state/{entry['investigator_id']}.json#{entry['bout_id']}",
+        f"save/investigator-state/{entry['investigator_id']}.json#bout_active",
+        history_ref,
+    ]
+    legacy_expected_refs = [
         f"save/sanity.json#{entry['bout_id']}",
         f"save/investigator-state/{entry['investigator_id']}.json#bout_active",
         history_ref,
@@ -1638,7 +1647,7 @@ def _validate_history_terminal_snapshot(
     expected_types = ["bout_ended"] if kind == "bout_end" else ["bout_tick", "bout_ended"]
     if (
         snapshot.get("status") != "completed"
-        or snapshot.get("state_refs") != expected_refs
+        or snapshot.get("state_refs") not in (expected_refs, legacy_expected_refs)
         or not isinstance(events, list)
         or [event.get("event_type") for event in events] != expected_types
     ):
@@ -2127,6 +2136,37 @@ def _read_jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
     return records
 
 
+def _read_investigator_sanity_snapshot(
+    campaign_dir: Path,
+    investigator_id: str,
+) -> dict[str, Any] | None:
+    """Read the identity-bound SAN source without mutating legacy state."""
+    canonical = coc_sanity.sanity_snapshot_path(campaign_dir, investigator_id)
+    legacy = coc_sanity.legacy_sanity_snapshot_path(campaign_dir)
+    path = canonical if canonical.is_file() else legacy
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise _state_error(
+            f"canonical sanity snapshot for {investigator_id!r} is invalid: {exc}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise _state_error(
+            f"canonical sanity snapshot for {investigator_id!r} is not an object"
+        )
+    if value.get("investigator_id") != investigator_id:
+        # A legacy singleton may legitimately belong to another linked party
+        # member.  It is not evidence for this investigator.
+        if path == legacy:
+            return None
+        raise _state_error(
+            f"canonical sanity snapshot for {investigator_id!r} has mismatched identity"
+        )
+    return value
+
+
 def load_combat_damage_evidence(
     campaign_dir: Path | str,
 ) -> list[dict[str, Any]]:
@@ -2263,13 +2303,6 @@ def _validate_result_source_evidence(
                 raise _state_error(
                     f"canonical roll evidence for {command_id!r} diverges"
                 )
-    sanity_path = campaign_dir / "save" / "sanity.json"
-    sanity = None
-    if sanity_path.is_file():
-        try:
-            sanity = json.loads(sanity_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise _state_error(f"canonical sanity snapshot is invalid: {exc}") from exc
     for choice_id, history in state["choice_history"].items():
         for command_id in history["terminal_command_ids"]:
             result = state["result_snapshots"][command_id]
@@ -2287,6 +2320,9 @@ def _validate_result_source_evidence(
                         f"choice history {choice_id!r} diverges from canonical roll receipt"
                     )
             if result["kind"] in BOUT_COMMAND_KINDS and result["status"] == "completed":
+                sanity = _read_investigator_sanity_snapshot(
+                    campaign_dir, str(history["investigator_id"])
+                )
                 if not isinstance(sanity, dict):
                     raise _state_error(
                         f"choice history {choice_id!r} lacks canonical sanity source"
@@ -3654,6 +3690,10 @@ def _build_inflight(
     preimage_relatives: list[str] = []
     if structured_sanity:
         preimage_relatives = [
+            f"save/sanity-state/{investigator_id}.json",
+            # The legacy singleton may still be this investigator's
+            # compatibility mirror.  Capture both paths so rollback cannot
+            # leave a newer canonical snapshot behind a restored mirror.
             "save/sanity.json",
             f"save/investigator-state/{investigator_id}.json",
             "save/time-state.json",
@@ -4628,6 +4668,14 @@ def _preflight_sanity_state(
     if not needs_sanity:
         return
     assert character is not None
+    canonical_sanity = coc_sanity.sanity_snapshot_path(
+        Path(campaign_dir), investigator_id
+    )
+    legacy_sanity = coc_sanity.legacy_sanity_snapshot_path(Path(campaign_dir))
+    sanity_source = (
+        canonical_sanity if canonical_sanity.is_file() else legacy_sanity
+    )
+    sanity_relative = sanity_source.relative_to(Path(campaign_dir)).as_posix()
     try:
         characteristics = (
             character.get("characteristics")
@@ -4641,15 +4689,16 @@ def _preflight_sanity_state(
             int_value=int(characteristics.get("INT", 50)),
             rng=random.Random(0),
             cm_value=int(skills.get("Cthulhu Mythos", 0)),
+            migrate_legacy=False,
         )
     except coc_sanity.SanityStateIdentityError as exc:
         raise _error(
             "malformed_sanity_state",
-            "save/sanity.json.investigator_id",
+            f"{sanity_relative}.investigator_id",
             str(exc),
         ) from exc
     except Exception as exc:
-        raise _error("malformed_sanity_state", "save/sanity.json", str(exc)) from exc
+        raise _error("malformed_sanity_state", sanity_relative, str(exc)) from exc
 
     investigator_relative = f"save/investigator-state/{investigator_id}.json"
     investigator_path = Path(campaign_dir) / investigator_relative
@@ -5341,7 +5390,9 @@ def _settle_sanity_check(
     derived = character.get("derived") if isinstance(character.get("derived"), dict) else {}
     skills = character.get("skills") if isinstance(character.get("skills"), dict) else {}
     cm_value = int(skills.get("Cthulhu Mythos", 0))
-    sanity_path = Path(campaign_dir) / "save" / "sanity.json"
+    had_snapshot = coc_sanity.sanity_snapshot_exists(
+        Path(campaign_dir), investigator_id
+    )
     session = coc_sanity.SanitySession.load(
         Path(campaign_dir),
         investigator_id,
@@ -5349,7 +5400,7 @@ def _settle_sanity_check(
         rng=rng,
         cm_value=cm_value,
     )
-    if not sanity_path.exists():
+    if not had_snapshot:
         sheet_san = int(derived.get("SAN", characteristics.get("POW", 50)))
         session.san_max = sheet_san
         session.san_current = sheet_san
@@ -7327,8 +7378,10 @@ def _dispatch(
             rng=rng,
             cm_value=int(skills.get("Cthulhu Mythos", 0)),
         )
-        sanity_path = campaign_dir / "save" / "sanity.json"
-        if not sanity_path.exists():
+        had_snapshot = coc_sanity.sanity_snapshot_exists(
+            campaign_dir, investigator_id
+        )
+        if not had_snapshot:
             sheet_san = int(derived.get("SAN", characteristics.get("POW", 50)))
             session.san_max = sheet_san
             session.san_current = sheet_san
@@ -7362,7 +7415,7 @@ def _dispatch(
             "pending_choice": None,
             "state_refs": [
                 f"logs/rolls.jsonl#{command_id}",
-                f"save/sanity.json#{investigator_id}",
+                f"save/sanity-state/{investigator_id}.json#{investigator_id}",
                 f"save/investigator-state/{investigator_id}.json#current_san",
             ],
         }
@@ -7397,7 +7450,7 @@ def _dispatch(
         ):
             raise _error(
                 "bout_state_mismatch",
-                "save/sanity.json",
+                f"save/sanity-state/{investigator_id}.json",
                 "canonical pending bout does not match persisted sanity state",
             )
         event_start = len(session.events)
@@ -7458,7 +7511,7 @@ def _dispatch(
             "events": events,
             "pending_choice": pending_choice,
             "state_refs": [
-                f"save/sanity.json#{context['bout_id']}",
+                f"save/sanity-state/{investigator_id}.json#{context['bout_id']}",
                 f"save/investigator-state/{investigator_id}.json#bout_active",
                 f"save/subsystem-state.json#pending_contexts/{choice_id}"
                 if pending_choice is not None
@@ -7653,7 +7706,7 @@ def _dispatch(
     refs = [f"logs/rolls.jsonl#{command_id}"]
     if kind == "sanity_check" and "san_loss_fail_expr" in command["payload"]:
         refs.extend([
-            f"save/sanity.json#{investigator_id}",
+            f"save/sanity-state/{investigator_id}.json#{investigator_id}",
             f"save/investigator-state/{investigator_id}.json#current_san",
         ])
     pending_choice = None

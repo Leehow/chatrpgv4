@@ -222,3 +222,34 @@ def test_delusion_active_read_from_explicit_field(tmp_path):
     (inv / "g.json").write_text(_json.dumps({"temporary_insane": True}))
     sig2 = coc_rule_signals.read_sanity_engine_state(tmp_path, "g")
     assert sig2["delusion_active"] is False
+
+
+def test_sanity_signal_prefers_identity_snapshot_and_rejects_other_legacy_owner(
+    tmp_path,
+):
+    import json as _json
+
+    save = tmp_path / "save"
+    canonical = save / "sanity-state"
+    canonical.mkdir(parents=True)
+    (save / "sanity.json").write_text(_json.dumps({
+        "schema_version": 1,
+        "investigator_id": "inv1",
+        "san_current": 11,
+        "san_max": 55,
+        "bout_active": True,
+    }), encoding="utf-8")
+    (canonical / "inv2.json").write_text(_json.dumps({
+        "schema_version": 1,
+        "investigator_id": "inv2",
+        "san_current": 42,
+        "san_max": 60,
+        "bout_active": False,
+    }), encoding="utf-8")
+
+    inv2 = coc_rule_signals.read_sanity_engine_state(tmp_path, "inv2")
+    assert inv2["current_san"] == 42
+    assert inv2["bout_active"] is False
+    missing = coc_rule_signals.read_sanity_engine_state(tmp_path, "inv3")
+    assert missing["has_state"] is False
+    assert missing["current_san"] is None

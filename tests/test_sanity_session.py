@@ -310,7 +310,7 @@ def test_load_rejects_inconsistent_active_bout_snapshot(tmp_path, mutate):
     )
     s._start_bout("ghoul", alone=False, module_bout_override=None)
     s.save(tmp_path)
-    path = tmp_path / "save" / "sanity.json"
+    path = coc_sanity.sanity_snapshot_path(tmp_path, "ada")
     snapshot = json.loads(path.read_text())
     mutate(snapshot)
     path.write_text(json.dumps(snapshot))

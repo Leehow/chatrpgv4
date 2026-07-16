@@ -31,6 +31,8 @@ def _load(name: str, rel: str | Path):
 
 coc_toolbox = _load("coc_toolbox_under_test", TOOLBOX_SCRIPT)
 coc_starter = _load("coc_starter_for_toolbox", SCRIPTS / "coc_starter.py")
+coc_state = _load("coc_state_for_toolbox", SCRIPTS / "coc_state.py")
+coc_combat = _load("coc_combat_for_toolbox", SCRIPTS / "coc_combat.py")
 
 EXPECTED_NAMESPACES = {
     "rules",
@@ -93,6 +95,28 @@ def _run(ws, tool: str, args: dict | None = None) -> dict:
         ws["campaign_id"],
         args or {},
     )
+
+
+def _add_eleanor_to_party(ws: dict) -> str:
+    investigator_id = "eleanor-reed"
+    sheet = json.loads((
+        REPO
+        / "plugins"
+        / "coc-keeper"
+        / "references"
+        / "starter-scenarios"
+        / "the-haunting"
+        / "pregens"
+        / investigator_id
+        / "character.json"
+    ).read_text(encoding="utf-8"))
+    coc_state.create_investigator(ws["workspace"], investigator_id, sheet)
+    coc_state.link_party(
+        ws["workspace"],
+        ws["campaign_id"],
+        [ws["investigator_id"], investigator_id],
+    )
+    return investigator_id
 
 
 def _first_clue_id(campaign_dir: Path) -> str:
@@ -1203,6 +1227,16 @@ def test_state_end_session_process_retry_reuses_persisted_ending(
     with pytest.raises(SystemExit, match="simulated host process exit"):
         _run(campaign_ws, "state.end_session", args)
 
+    added_investigator = _add_eleanor_to_party(campaign_ws)
+    # Party membership may change while a crashed ending is pending.  The
+    # durable ending still owns its original target, even when that actor is
+    # no longer in the current party projection.
+    coc_state.link_party(
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        [added_investigator],
+    )
+
     monkeypatch.setattr(
         coc_toolbox.coc_runtime_ops,
         "settle_development",
@@ -1211,6 +1245,17 @@ def test_state_end_session_process_retry_reuses_persisted_ending(
     recovered = _run(campaign_ws, "state.end_session", args)
     assert recovered["ok"] is True
     assert recovered["data"]["development"]["status"] == "PASS"
+    assert recovered["data"]["investigator_ids"] == [campaign_ws["investigator_id"]]
+    assert recovered["data"]["retry_target_conflict"] == {
+        "code": "SETTLEMENT_TARGET_CONFLICT",
+        "frozen_investigator_ids": [campaign_ws["investigator_id"]],
+        "retry_investigator_ids": [added_investigator],
+        "resolution": "frozen_targets_preserved",
+    }
+    assert any(
+        "SETTLEMENT_TARGET_CONFLICT" in warning
+        for warning in recovered["warnings"]
+    )
     endings = [
         row
         for row in _read_jsonl(
@@ -1220,6 +1265,13 @@ def test_state_end_session_process_retry_reuses_persisted_ending(
         and row.get("decision_id") == args["decision_id"]
     ]
     assert len(endings) == 1
+    assert endings[0]["investigator_ids"] == [campaign_ws["investigator_id"]]
+    assert not (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "development-settlements"
+        / f"{added_investigator}.json"
+    ).exists()
 
 
 def test_state_end_session_keeps_ending_when_settlement_is_pending(
@@ -1247,8 +1299,19 @@ def test_state_end_session_keeps_ending_when_settlement_is_pending(
     assert pending["ok"] is True
     assert pending["data"]["session_ending"] is True
     assert pending["data"]["development"]["status"] == "PENDING"
+    assert pending["data"]["investigator_ids"] == [campaign_ws["investigator_id"]]
     assert attempts == coc_toolbox._TOOL_TRANSIENT_RETRY_ATTEMPTS
     assert any("ending is durable" in warning for warning in pending["warnings"])
+    ending_event = next(
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("event_type") == "session_ending"
+        and row.get("decision_id") == args["decision_id"]
+    )
+    assert ending_event["investigator_ids"] == [campaign_ws["investigator_id"]]
+
+    added_investigator = _add_eleanor_to_party(campaign_ws)
 
     monkeypatch.setattr(
         coc_toolbox.coc_runtime_ops,
@@ -1258,8 +1321,35 @@ def test_state_end_session_keeps_ending_when_settlement_is_pending(
     recovered = _run(campaign_ws, "state.end_session", args)
     assert recovered["ok"] is True
     assert recovered["data"]["development"]["status"] == "PASS"
+    assert recovered["data"]["investigator_ids"] == [campaign_ws["investigator_id"]]
+    assert recovered["data"]["retry_target_conflict"] == {
+        "code": "SETTLEMENT_TARGET_CONFLICT",
+        "frozen_investigator_ids": [campaign_ws["investigator_id"]],
+        "retry_investigator_ids": [campaign_ws["investigator_id"], added_investigator],
+        "resolution": "frozen_targets_preserved",
+    }
     assert any("pending development settlement completed" in warning
                for warning in recovered["warnings"])
+    assert any(
+        "SETTLEMENT_TARGET_CONFLICT" in warning
+        for warning in recovered["warnings"]
+    )
+    assert not (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "development-settlements"
+        / f"{added_investigator}.json"
+    ).exists()
+    incompatible = _run(
+        campaign_ws,
+        "development.settle",
+        {
+            "investigator": added_investigator,
+            "decision_id": "ending-frozen-target-incompatible",
+        },
+    )
+    assert incompatible["ok"] is False
+    assert incompatible["error"]["code"] == "settlement_target_conflict"
     endings = [
         row for row in _read_jsonl(
             campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
@@ -1282,6 +1372,84 @@ def test_state_end_session_rejects_unknown_ending_kind(campaign_ws):
     )
     assert envelope["ok"] is False
     assert envelope["error"]["code"] == "invalid_param"
+
+
+def test_toolbox_returns_typed_recovery_conflict_without_touching_foreign_state(
+    campaign_ws, monkeypatch
+):
+    runtime_ops = coc_toolbox.coc_runtime_ops
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    original_write = runtime_ops.coc_fileio.write_text_atomic
+    crashed = False
+
+    def crash_after_character(path, text):
+        nonlocal crashed
+        original_write(path, text)
+        if Path(path) == character_path and not crashed:
+            crashed = True
+            raise SystemExit("toolbox settlement process crash")
+
+    monkeypatch.setattr(
+        runtime_ops.coc_fileio, "write_text_atomic", crash_after_character
+    )
+    with pytest.raises(SystemExit, match="toolbox settlement process crash"):
+        _run(
+            campaign_ws,
+            "state.end_session",
+            {
+                "kind": "cliffhanger",
+                "summary": "durable ending before recovery conflict",
+                "decision_id": "toolbox-recovery-conflict-ending",
+            },
+        )
+    monkeypatch.setattr(
+        runtime_ops.coc_fileio, "write_text_atomic", original_write
+    )
+
+    inv_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    foreign = json.loads(inv_path.read_text(encoding="utf-8"))
+    foreign["foreign_integrity_receipt"] = "preserve-exactly"
+    _write_json(inv_path, foreign)
+    bytes_before = inv_path.read_bytes()
+    event_path = campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+    turns_before = len([
+        row for row in _read_jsonl(event_path)
+        if row.get("event_type") == "turn"
+    ])
+
+    blocked = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "must not commit while integrity is unresolved",
+            "decision_id": "journal-after-recovery-conflict",
+        },
+    )
+    assert blocked["ok"] is False
+    assert blocked["error"]["code"] == "recovery_conflict"
+    assert blocked["recovery"]["status"] == "RECOVERY_CONFLICT"
+    assert (
+        f"campaigns/{campaign_ws['campaign_id']}/save/investigator-state/"
+        f"{campaign_ws['investigator_id']}.json"
+    ) in blocked["recovery"]["conflicting_paths"]
+    assert inv_path.read_bytes() == bytes_before
+    assert json.loads(inv_path.read_text(encoding="utf-8"))[
+        "foreign_integrity_receipt"
+    ] == "preserve-exactly"
+    assert len([
+        row for row in _read_jsonl(event_path)
+        if row.get("event_type") == "turn"
+    ]) == turns_before
 
 
 def test_combat_conclusion_synchronously_settles_development_once(
@@ -1373,13 +1541,18 @@ def test_combat_conclusion_synchronously_settles_development_once(
     result = receipt["result"]
     assert result["skills_checked"] == ["Fighting (Brawl)"]
     assert result["ending_evidence"]["conclusion_id"] == "corbitt-destroyed"
-    assert result["ending_evidence"]["conclusion_evidence"] == {
+    conclusion_evidence = result["ending_evidence"]["conclusion_evidence"]
+    assert conclusion_evidence == {
         "kind": "combat_outcome",
         "combat_id": "combat-corbitt-confrontation",
         "combat_outcome": "investigators_win",
         "scene_ref": "scene/corbitt-confrontation",
         "event_type": "combat_ended",
+        "event_ref": conclusion_evidence["event_ref"],
+        "event_sha256": conclusion_evidence["event_sha256"],
     }
+    assert conclusion_evidence["event_ref"].startswith("logs/events.jsonl#")
+    assert len(conclusion_evidence["event_sha256"]) == 64
     assert result["scenario_san_reward_expr"] == "1D6"
     assert result["scenario_san_reward"]["expression"] == "1D6"
     improvement = result["skills_improved"][0]
@@ -1448,6 +1621,245 @@ def test_combat_conclusion_synchronously_settles_development_once(
         if row.get("event_type") == "reward"
         and row.get("source") == "conclusion_rewards"
     ]) == 1
+
+
+def test_party_conclusion_rewards_both_and_migrates_legacy_sanity_once(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setattr(
+        coc_toolbox,
+        "_ending_rng",
+        lambda _ctx, investigator_id: random.Random(
+            5 if investigator_id == campaign_ws["investigator_id"] else 7
+        ),
+    )
+    thomas_id = campaign_ws["investigator_id"]
+    eleanor_id = _add_eleanor_to_party(campaign_ws)
+    sanity_engine = coc_toolbox.coc_runtime_ops.coc_sanity
+    legacy_session = sanity_engine.SanitySession(
+        thomas_id,
+        san_max=99,
+        int_value=70,
+        rng=random.Random(1),
+        campaign_dir=campaign_ws["campaign_dir"],
+    )
+    legacy_session.san_current = 40
+    legacy_session.day_start_san = 40
+    legacy_path = campaign_ws["campaign_dir"] / "save" / "sanity.json"
+    _write_json(legacy_path, legacy_session.snapshot())
+    per_sanity_dir = campaign_ws["campaign_dir"] / "save" / "sanity-state"
+    assert not per_sanity_dir.exists()
+
+    assert _run(
+        campaign_ws,
+        "state.record_clue",
+        {
+            "clue_id": "clue-own-dagger-ends-him",
+            "method": "party settlement fixture",
+            "decision_id": "party-settle-clue",
+        },
+    )["ok"]
+    assert _run(
+        campaign_ws,
+        "state.move_scene",
+        {
+            "scene_id": "corbitt-confrontation",
+            "decision_id": "party-settle-move",
+        },
+    )["ok"]
+    combat = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "strike-with-his-dagger",
+            "investigator": thomas_id,
+            "decision_id": "party-settle-combat",
+            "seed": 0,
+        },
+    )
+    assert combat["ok"] is True
+    assert combat["data"]["combat"]["outcome"] == "investigators_win"
+
+    end_args = {
+        "kind": "conclusion",
+        "summary": "Both investigators survive Corbitt's destruction.",
+        "decision_id": "party-settle-ending",
+    }
+    ended = _run(campaign_ws, "state.end_session", end_args)
+    assert ended["ok"] is True, ended
+    assert ended["data"]["investigator_ids"] == [thomas_id, eleanor_id]
+    assert ended["data"]["development"]["status"] == "PASS"
+    settlements = ended["data"]["development"]["settlements"]
+    assert [row["investigator_id"] for row in settlements] == [
+        thomas_id, eleanor_id
+    ]
+    assert all(row["status"] == "PASS" for row in settlements)
+    assert all(
+        row["receipt"]["result"]["scenario_san_reward_applied"] is True
+        for row in settlements
+    )
+
+    ending_event = next(
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("event_type") == "session_ending"
+        and row.get("decision_id") == end_args["decision_id"]
+    )
+    assert ending_event["investigator_ids"] == [thomas_id, eleanor_id]
+    sanity_paths = {
+        investigator_id: sanity_engine.sanity_snapshot_path(
+            campaign_ws["campaign_dir"], investigator_id
+        )
+        for investigator_id in [thomas_id, eleanor_id]
+    }
+    assert all(path.is_file() for path in sanity_paths.values())
+    assert len(list(per_sanity_dir.glob("*.json"))) == 2
+    legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+    thomas_sanity = json.loads(
+        sanity_paths[thomas_id].read_text(encoding="utf-8")
+    )
+    eleanor_sanity = json.loads(
+        sanity_paths[eleanor_id].read_text(encoding="utf-8")
+    )
+    assert legacy["investigator_id"] == thomas_id
+    assert legacy == thomas_sanity
+    assert eleanor_sanity["investigator_id"] == eleanor_id
+    assert thomas_sanity["san_current"] != eleanor_sanity["san_current"]
+
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    events_path = campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+    rolls_before_replay = rolls_path.read_bytes()
+    events_before_replay = events_path.read_bytes()
+    replay = _run(campaign_ws, "state.end_session", end_args)
+    assert replay["ok"] is True
+    assert replay["data"] == ended["data"]
+    assert rolls_path.read_bytes() == rolls_before_replay
+    assert events_path.read_bytes() == events_before_replay
+    rolls = _read_jsonl(rolls_path)
+    scenario_rolls = [
+        row for row in rolls
+        if row.get("payload", {}).get("kind") == "scenario_san_reward"
+    ]
+    assert {row["actor"] for row in scenario_rolls} == {thomas_id, eleanor_id}
+    assert len(scenario_rolls) == 2
+    assert len({row["roll_id"] for row in rolls}) == len(rolls)
+    reward_events = [
+        row for row in _read_jsonl(events_path)
+        if row.get("event_type") == "reward"
+        and row.get("source") == "conclusion_rewards"
+    ]
+    assert {row["actor_id"] for row in reward_events} == {thomas_id, eleanor_id}
+    assert len(reward_events) == 2
+    assert all(len(list((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "development-settlements"
+        / "conclusion-rewards"
+        / investigator_id
+    ).glob("*.json"))) == 1 for investigator_id in [thomas_id, eleanor_id])
+
+    # Migration is one-way: once Thomas has a canonical per-investigator file,
+    # a stale legacy singleton cannot supersede it on a later load.
+    canonical_thomas_san = json.loads(
+        sanity_paths[thomas_id].read_text(encoding="utf-8")
+    )["san_current"]
+    stale_legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+    stale_legacy["san_current"] = 1
+    _write_json(legacy_path, stale_legacy)
+    migrated_thomas = sanity_engine.SanitySession.load(
+        campaign_ws["campaign_dir"], thomas_id, rng=random.Random(30)
+    )
+    assert migrated_thomas.san_current == canonical_thomas_san
+    migrated_thomas.save(campaign_ws["campaign_dir"], strict_mirror=True)
+
+    # The migrated singleton remains Thomas's compatibility mirror.  Eleanor
+    # subsequently writes only her canonical file; Thomas then writes his own
+    # file and mirror without altering Eleanor's state.
+    thomas_bytes_before = sanity_paths[thomas_id].read_bytes()
+    legacy_bytes_before = legacy_path.read_bytes()
+    eleanor_session = sanity_engine.SanitySession.load(
+        campaign_ws["campaign_dir"], eleanor_id, rng=random.Random(31)
+    )
+    eleanor_session.gain_san(1, source="independence-test")
+    eleanor_session.save(campaign_ws["campaign_dir"], strict_mirror=True)
+    eleanor_bytes_after = sanity_paths[eleanor_id].read_bytes()
+    assert sanity_paths[thomas_id].read_bytes() == thomas_bytes_before
+    assert legacy_path.read_bytes() == legacy_bytes_before
+    thomas_session = sanity_engine.SanitySession.load(
+        campaign_ws["campaign_dir"], thomas_id, rng=random.Random(32)
+    )
+    thomas_session.gain_san(1, source="independence-test")
+    thomas_session.save(campaign_ws["campaign_dir"], strict_mirror=True)
+    assert sanity_paths[eleanor_id].read_bytes() == eleanor_bytes_after
+    assert json.loads(legacy_path.read_text(encoding="utf-8")) == json.loads(
+        sanity_paths[thomas_id].read_text(encoding="utf-8")
+    )
+
+
+def test_bonus_die_only_combat_success_preserves_06_66_evidence_without_tick(
+    campaign_ws,
+):
+    investigator_id = campaign_ws["investigator_id"]
+    session = coc_combat.CombatSession(
+        "combat-bonus-tick",
+        "scene/bonus-tick",
+        0,
+        random.Random(0),
+    )
+    session.add_participant(
+        investigator_id,
+        "investigator",
+        dex=50,
+        combat_skill=50,
+        build=0,
+        hp_max=10,
+    )
+    outcome, record = session._percentile(
+        investigator_id,
+        "Spot Hidden",
+        50,
+        "notice the hidden attacker",
+        bonus=1,
+    )
+    assert outcome == "extreme"
+    assert record["roll"] == 6
+    assert record["tens_values"] == [6, 0]
+    assert record["units"] == 6
+    assert record["effective_modifier"] == {
+        "bonus": 1,
+        "penalty": 0,
+        "net": 1,
+    }
+    assert record["bonus_die_only_success"] is True
+    assert record["excluded_outcome"] == "bonus_die_only_success"
+    pending_rolls, pending_events = session.drain_pending()
+    assert pending_rolls == [record]
+    assert pending_events == []
+
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    legacy_tick_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / investigator_id
+        / "development.jsonl"
+    )
+    state_before = state_path.read_bytes()
+    legacy_before = legacy_tick_path.read_bytes()
+    ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    recorded = coc_toolbox._record_combat_improvement_ticks(
+        ctx,
+        investigator_id=investigator_id,
+        events=[{"event_type": "combat_roll", **pending_rolls[0]}],
+    )
+    assert recorded == []
+    assert state_path.read_bytes() == state_before
+    assert legacy_tick_path.read_bytes() == legacy_before
 
 
 # --------------------------------------------------------------------------- #

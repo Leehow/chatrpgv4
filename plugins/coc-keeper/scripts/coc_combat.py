@@ -813,6 +813,25 @@ class CombatSession:
             if bonus: parts.append(f"+{bonus}bonus")
             if penalty: parts.append(f"-{penalty}penalty")
             mod_str = "[" + ",".join(parts) + "]"
+        tens_values = [int(value) for value in (res.get("tens_values") or [])]
+        units = res.get("units")
+        bonus_die_only_success = False
+        if (
+            int(res.get("bonus") or 0) > 0
+            and int(res.get("penalty") or 0) == 0
+            and len(tens_values) >= 2
+            and units is not None
+        ):
+            units_i = int(units)
+            selected = min(tens_values) * 10 + units_i
+            unmodified = max(tens_values) * 10 + units_i
+            if selected == 0:
+                selected = 100
+            if unmodified == 0:
+                unmodified = 100
+            bonus_die_only_success = (
+                selected <= int(res["effective_target"]) < unmodified
+            )
         record = {
             "roll_id": roll_id,
             "actor_id": actor_id,
@@ -825,6 +844,17 @@ class CombatSession:
             "difficulty": difficulty,
             "bonus": bonus,
             "penalty": penalty,
+            "effective_modifier": {
+                "bonus": int(res.get("bonus") or 0),
+                "penalty": int(res.get("penalty") or 0),
+                "net": int(res.get("bonus") or 0) - int(res.get("penalty") or 0),
+            },
+            "tens_values": tens_values,
+            "units": int(units) if units is not None else None,
+            "bonus_die_only_success": bonus_die_only_success,
+            "excluded_outcome": (
+                "bonus_die_only_success" if bonus_die_only_success else None
+            ),
             "ranged": ranged,
             "marker": f"[roll]{actor_id} {skill}{target}{mod_str}:(d100->{res['roll']})->{res['outcome']}[/roll]",
         }

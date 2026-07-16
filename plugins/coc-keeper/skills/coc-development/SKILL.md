@@ -21,7 +21,9 @@ available to replay a structured pending settlement.
 ## Workflow
 
 1. Confirm the ending receipt, investigator identity, and the development
-   status returned by `state.end_session`.
+   status returned by `state.end_session`. The ending receipt freezes its exact
+   `investigator_ids`; a retry never retargets an ending from changed party
+   state or incompatible arguments.
 2. When that status is `PASS`, use its settlement receipt. When it is
    `PENDING`, retry `state.end_session` or call `development.settle` with the
    same decision/ending identity. The operation must synchronously consume all
@@ -31,13 +33,27 @@ available to replay a structured pending settlement.
 3. Present the completed settlement: skills checked, permanent increases, SAN
    gained, Luck before/after, and state/evidence references.
 4. Retry only through the same idempotent settlement identity. Never settle a
-   completed ending twice.
+   completed ending twice. A scenario conclusion reward has a separate durable
+   per-investigator identity, so a later ending may run legitimate development
+   and Luck recovery without paying the same conclusion SAN reward again.
 
 ## Persistence and evidence
 
 Treat permanent character changes and campaign investigator state as critical
-writes: complete them before reporting success. The settlement journal restores
-any crash-before-receipt attempt and replays its original dice before committing.
+writes: complete them before reporting success. Settlement is planned in an
+isolated mirror, then a durable journal records exact pre/post images and owned
+append suffixes before canonical mutation. Every later canonical toolbox or
+runtime operation performs recovery under the campaign lock before its own
+read/write. Recovery rolls back only proven transaction-owned images; foreign
+divergence returns typed `RECOVERY_CONFLICT` / `PENDING` evidence with exact
+paths and is never overwritten or truncated. A conflict-free retry reuses the
+original dice.
+
+SAN snapshots are canonical per investigator under
+`save/sanity-state/<investigator-id>.json`. `save/sanity.json` remains only as
+the legacy mirror for its original owner and must never be reused for another
+party member.
+
 Record every public development,
 reward, and Luck die in the authoritative roll log with a stable `roll_id`,
 public visibility, expression/target, component dice, and numerical result.

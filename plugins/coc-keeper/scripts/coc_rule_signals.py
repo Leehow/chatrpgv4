@@ -371,9 +371,10 @@ def read_sanity_engine_state(campaign_dir, investigator_id: str) -> dict[str, An
     """Read structured sanity fields for an investigator (director signal).
 
     Reads ``save/investigator-state/<id>.json`` (written by coc_mythos and
-    merged by the director's investigator-state layer). Falls back to
-    ``save/sanity.json`` (a SanitySession snapshot) when the per-investigator
-    file is absent, then returns a structured signal describing current SAN,
+    merged by the director's investigator-state layer). Falls back to the
+    identity-bound ``save/sanity-state/<id>.json`` SanitySession snapshot, and
+    then to a matching legacy ``save/sanity.json`` owner, when the
+    per-investigator state file is absent. Returns a structured signal describing current SAN,
     max SAN, conditions, daily SAN lost, temporary/indefinite/permanent
     insanity flags, CM, and phobia/mania if present.
 
@@ -385,9 +386,22 @@ def read_sanity_engine_state(campaign_dir, investigator_id: str) -> dict[str, An
         save / "investigator-state" / f"{investigator_id}.json", {}
     )
     if not state:
-        # Fall back to a SanitySession snapshot if present.
-        san_snap = _read_json(save / "sanity.json", {})
-        if san_snap:
+        # Fall back to the identity-bound SanitySession snapshot.  The legacy
+        # singleton is usable only when its embedded owner matches.
+        san_snap = _read_json(
+            save / "sanity-state" / f"{investigator_id}.json", {}
+        )
+        if not san_snap:
+            legacy = _read_json(save / "sanity.json", {})
+            san_snap = (
+                legacy
+                if isinstance(legacy, dict)
+                and legacy.get("investigator_id") == investigator_id
+                else {}
+            )
+        if isinstance(san_snap, dict) and san_snap.get("investigator_id") in {
+            None, investigator_id,
+        }:
             state = san_snap
 
     current_san = state.get("current_san", state.get("san_current"))

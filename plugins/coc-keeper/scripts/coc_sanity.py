@@ -100,6 +100,49 @@ class SanityStateIdentityError(ValueError):
     """Persisted sanity state belongs to a different or unknown actor."""
 
 
+def sanity_snapshot_path(campaign_dir: Path, investigator_id: str) -> Path:
+    """Return the canonical per-investigator SAN snapshot path."""
+    investigator_id = str(investigator_id or "")
+    if _STABLE_ID.fullmatch(investigator_id) is None:
+        raise SanityStateIdentityError("investigator_id is not a stable safe id")
+    return Path(campaign_dir) / "save" / "sanity-state" / f"{investigator_id}.json"
+
+
+def legacy_sanity_snapshot_path(campaign_dir: Path) -> Path:
+    """Return the pre-party SAN snapshot path retained for compatibility."""
+    return Path(campaign_dir) / "save" / "sanity.json"
+
+
+def _linked_party_ids(campaign_dir: Path) -> list[str]:
+    path = Path(campaign_dir) / "party.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return []
+    if not isinstance(value, dict) or not isinstance(value.get("investigator_ids"), list):
+        return []
+    return [str(item) for item in value["investigator_ids"] if isinstance(item, str)]
+
+
+def sanity_snapshot_exists(campaign_dir: Path, investigator_id: str) -> bool:
+    """Whether an identity-safe snapshot exists for this investigator.
+
+    A matching legacy ``save/sanity.json`` remains authoritative for a
+    single-investigator campaign.  In a linked party, a legacy snapshot owned
+    by another member is not an error and is not treated as this actor's state.
+    """
+    if sanity_snapshot_path(campaign_dir, investigator_id).is_file():
+        return True
+    legacy = legacy_sanity_snapshot_path(campaign_dir)
+    if not legacy.is_file():
+        return False
+    try:
+        value = json.loads(legacy.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    return isinstance(value, dict) and value.get("investigator_id") == investigator_id
+
+
 def validate_san_loss_expression(expression: str) -> dict[str, int | str]:
     """Parse the one canonical SAN-loss grammar without consuming RNG.
 
@@ -162,8 +205,9 @@ class SanitySession:
 
     Tracks current/max SAN, sanity loss events, temporary/indefinite/permanent
     insanity status, bout of madness episodes, and recovery. Produces
-    structured records for rolls.jsonl / events.jsonl and a snapshot for
-    save/sanity.json (parallel to save/combat.json).
+    structured records for rolls.jsonl / events.jsonl and an identity-safe
+    snapshot under save/sanity-state/<investigator-id>.json.  A matching
+    save/sanity.json is maintained only as a legacy single-owner mirror.
 
     The session is deterministic given the RNG it is handed.
     """
@@ -1074,10 +1118,31 @@ class SanitySession:
     def save(self, campaign_dir: Path, *, strict_mirror: bool = False) -> Path:
         save_dir = campaign_dir / "save"
         save_dir.mkdir(parents=True, exist_ok=True)
-        path = save_dir / "sanity.json"
+        snapshot = self.snapshot()
+        path = sanity_snapshot_path(campaign_dir, self.investigator_id)
         coc_fileio.write_json_atomic(
-            path, self.snapshot(), indent=2, ensure_ascii=False, trailing_newline=False
+            path, snapshot, indent=2, ensure_ascii=False, trailing_newline=False
         )
+        # Keep the historical single-investigator location live when it is
+        # absent or already belongs to this actor.  Never overwrite another
+        # party member's legacy snapshot; their canonical files are disjoint.
+        legacy_path = legacy_sanity_snapshot_path(campaign_dir)
+        legacy_owner: Any = None
+        if legacy_path.is_file():
+            try:
+                legacy_value = json.loads(legacy_path.read_text(encoding="utf-8"))
+                if isinstance(legacy_value, dict):
+                    legacy_owner = legacy_value.get("investigator_id")
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                legacy_owner = object()
+        if not legacy_path.exists() or legacy_owner == self.investigator_id:
+            coc_fileio.write_json_atomic(
+                legacy_path,
+                snapshot,
+                indent=2,
+                ensure_ascii=False,
+                trailing_newline=False,
+            )
         # Mirror the player-facing fields the Story Director reads into
         # investigator-state, so build_director_context can see the live SAN
         # and indefinite-insanity flag without parsing the sanity snapshot.
@@ -1094,8 +1159,8 @@ class SanitySession:
 
         The director reads these top-level fields from
         ``save/investigator-state/<id>.json``; this keeps them in sync with the
-        authoritative sanity snapshot. Failures are non-fatal (the sanity.json
-        snapshot remains the source of truth).
+        authoritative sanity snapshot. Failures are non-fatal (the canonical
+        per-investigator SAN snapshot remains the source of truth).
         """
         inv_path = campaign_dir / "save" / "investigator-state" / f"{self.investigator_id}.json"
         try:
@@ -1133,21 +1198,60 @@ class SanitySession:
     @classmethod
     def load(cls, campaign_dir: Path, investigator_id: str,
              int_value: int = 50, rng: random.Random | None = None,
-             cm_value: int = 0) -> "SanitySession":
-        """Reconstruct a SanitySession from the saved ``save/sanity.json`` snapshot.
+             cm_value: int = 0, *, migrate_legacy: bool = True) -> "SanitySession":
+        """Reconstruct a session from per-investigator or legacy SAN state.
 
         Mirrors ``HealingSession.load``. If no snapshot exists, a fresh session
         is returned. Used by the time-trigger handler dispatch (see
         ``coc_time.process_due_triggers``) so the ``recover_temporary_insanity``
         handler can rebuild the session, run ``recover_temporary()``, and save.
         """
-        save_path = campaign_dir / "save" / "sanity.json"
-        if not save_path.exists():
+        canonical_path = sanity_snapshot_path(campaign_dir, investigator_id)
+        legacy_path = legacy_sanity_snapshot_path(campaign_dir)
+        save_path: Path | None = None
+        legacy_snap: Any = None
+        migrated_from_legacy = False
+        if canonical_path.is_file():
+            # Once migration has produced the identity-safe file, it is the
+            # sole canonical read source.  The legacy singleton is only a
+            # compatibility mirror and cannot supersede it later.
+            save_path = canonical_path
+        elif legacy_path.is_file():
+            try:
+                legacy_snap = json.loads(legacy_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ValueError("sanity snapshot is unreadable") from exc
+            legacy_owner = (
+                legacy_snap.get("investigator_id")
+                if isinstance(legacy_snap, dict) else None
+            )
+            if legacy_owner == investigator_id:
+                save_path = legacy_path
+                migrated_from_legacy = True
+            else:
+                party_ids = _linked_party_ids(campaign_dir)
+                if (
+                    investigator_id in party_ids
+                    and isinstance(legacy_owner, str)
+                    and legacy_owner in party_ids
+                ):
+                    # A different linked member owns the legacy singleton.
+                    # This actor simply has no SAN snapshot yet.
+                    save_path = None
+                else:
+                    raise SanityStateIdentityError(
+                        "persisted sanity investigator_id does not match requested investigator_id"
+                    )
+        if save_path is None:
             sess = cls(investigator_id, san_max=99, int_value=int_value,
                        rng=rng or random.Random(), cm_value=cm_value,
                        campaign_dir=campaign_dir)
             return sess
-        snap = json.loads(save_path.read_text(encoding="utf-8"))
+        snap = (
+            legacy_snap
+            if save_path == legacy_path and legacy_snap is not None
+            else json.loads(save_path.read_text(encoding="utf-8"))
+        )
         if not isinstance(snap, dict):
             raise ValueError("sanity snapshot root must be an object")
         if snap.get("investigator_id") != investigator_id:
@@ -1221,6 +1325,14 @@ class SanitySession:
         saved_events = snap.get("events") or []
         sess.events = list(saved_events)
         sess._event_counter = len(saved_events)
+        if migrated_from_legacy and migrate_legacy:
+            coc_fileio.write_json_atomic(
+                canonical_path,
+                snap,
+                indent=2,
+                ensure_ascii=False,
+                trailing_newline=False,
+            )
         return sess
 
     def drain_pending(self) -> list[dict]:

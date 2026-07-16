@@ -14,7 +14,8 @@ Rulebook basis (7e 40th Anniversary, Rewards of Experience):
 Files managed:
   .coc/investigators/<id>/development.jsonl  — tick log (append / truncate)
   .coc/investigators/<id>/character.json     — skill write-back
-  save/sanity.json                           — awfulness_caps decay
+  save/sanity-state/<id>.json                — awfulness_caps decay
+  save/sanity.json                           — legacy single-investigator mirror
 """
 from __future__ import annotations
 
@@ -280,9 +281,12 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
 
     contract: dict[str, Any] = {}
     graph_path = campaign_dir / "scenario" / "story-graph.json"
+    graph_sha256: str | None = None
     if graph_path.is_file():
         try:
-            graph = json.loads(graph_path.read_text(encoding="utf-8"))
+            graph_text = graph_path.read_text(encoding="utf-8")
+            graph = json.loads(graph_text)
+            graph_sha256 = hashlib.sha256(graph_text.encode("utf-8")).hexdigest()
         except (OSError, json.JSONDecodeError):
             graph = {}
         for scene in graph.get("scenes") or []:
@@ -308,13 +312,15 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
                 combat = {}
             combat_id = combat.get("combat_id") if isinstance(combat, dict) else None
             scene_ref = combat.get("scene_ref") if isinstance(combat, dict) else None
-            receipt = next((
-                row
+            receipt_match = next((
+                (index, row)
                 for index, row in reversed(event_rows)
                 if index < ending_index
                 and row.get("event_type") == "combat_ended"
                 and row.get("combat_id") == combat_id
             ), None)
+            receipt_index = receipt_match[0] if receipt_match else None
+            receipt = receipt_match[1] if receipt_match else None
             conclusion_proven = bool(
                 isinstance(combat_id, str)
                 and combat_id
@@ -331,6 +337,15 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
                     "combat_outcome": required_outcome,
                     "scene_ref": scene_ref,
                     "event_type": "combat_ended",
+                    "event_ref": f"logs/events.jsonl#{receipt_index}",
+                    "event_sha256": hashlib.sha256(
+                        json.dumps(
+                            receipt,
+                            sort_keys=True,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest(),
                 }
         else:
             # A conclusion contract without an additional mechanical
@@ -345,11 +360,45 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
 
     reward = contract.get("sanity_reward") if conclusion_proven else None
     reward_expr = reward.get("die") if isinstance(reward, dict) else None
+    scenario_id: str | None = None
+    campaign_path = campaign_dir / "campaign.json"
+    if campaign_path.is_file():
+        try:
+            campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            campaign = {}
+        candidate = campaign.get("active_scenario_id") if isinstance(campaign, dict) else None
+        if isinstance(candidate, str) and candidate:
+            scenario_id = candidate
+    if scenario_id is None:
+        module_meta_path = campaign_dir / "scenario" / "module-meta.json"
+        if module_meta_path.is_file():
+            try:
+                module_meta = json.loads(module_meta_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                module_meta = {}
+            candidate = module_meta.get("scenario_id") if isinstance(module_meta, dict) else None
+            if isinstance(candidate, str) and candidate:
+                scenario_id = candidate
+    if scenario_id is None and graph_sha256 is not None:
+        scenario_id = f"story-graph-{graph_sha256[:20]}"
+    reward_identity: str | None = None
+    if conclusion_proven and isinstance(conclusion_id, str):
+        reward_material = {
+            "scenario_id": scenario_id or "unidentified-scenario",
+            "conclusion_id": conclusion_id,
+        }
+        reward_identity = "conclusion-reward-" + hashlib.sha256(
+            json.dumps(
+                reward_material, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()[:24]
     identity_payload = {
         "event_line": ending_index,
         "scene_id": ending.get("scene_id"),
         "kind": ending.get("kind"),
         "ts": ending.get("ts"),
+        "decision_id": ending.get("decision_id"),
         "conclusion_id": conclusion_id if conclusion_proven else None,
     }
     ending_id = "ending-" + hashlib.sha256(
@@ -360,8 +409,17 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
         "event_line": ending_index,
         "scene_id": ending.get("scene_id"),
         "kind": ending.get("kind"),
+        "decision_id": ending.get("decision_id"),
+        "investigator_ids": (
+            [str(value) for value in ending.get("investigator_ids")]
+            if isinstance(ending.get("investigator_ids"), list)
+            and all(isinstance(value, str) for value in ending.get("investigator_ids"))
+            else None
+        ),
+        "scenario_id": scenario_id,
         "conclusion_id": conclusion_id if conclusion_proven else None,
         "conclusion_evidence": conclusion_evidence,
+        "conclusion_reward_id": reward_identity,
         "scenario_san_reward_expr": reward_expr if isinstance(reward_expr, str) else None,
         "scenario_san_reward_rule_ref": (
             reward.get("rule_ref") if isinstance(reward, dict) else None
@@ -406,8 +464,7 @@ def _current_luck(campaign_dir: Path, investigator_id: str, sheet: dict[str, Any
 
 def _decay_awfulness(campaign_dir: Path, investigator_id: str) -> dict[str, int]:
     """Decrement each creature_type awfulness cap by 1 (floor 0) and persist."""
-    save_path = Path(campaign_dir) / "save" / "sanity.json"
-    if not save_path.exists():
+    if not coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
         return {}
     try:
         sess = coc_sanity.SanitySession.load(campaign_dir, investigator_id)

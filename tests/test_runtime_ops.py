@@ -90,6 +90,33 @@ def _seed_structured_combat_conclusion(
         }) + "\n")
 
 
+def _prepare_development_cliffhanger(root: Path) -> tuple[Path, Path, dict]:
+    character = _workspace(root)
+    campaign = root / ".coc" / "campaigns" / "camp"
+    inv_state = campaign / "save" / "investigator-state" / "inv.json"
+    inv_state.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "camp",
+        "investigator_id": "inv",
+        "current_luck": 50,
+        "current_san": 60,
+        "current_hp": 12,
+        "current_mp": 12,
+        "skill_checks_earned": ["Spot Hidden"],
+    }), encoding="utf-8")
+    events = campaign / "logs" / "events.jsonl"
+    events.write_text(json.dumps({
+        "event_type": "session_ending",
+        "scene_id": "finale",
+        "kind": "cliffhanger",
+        "decision_id": "ending-crash-interleave",
+        "investigator_ids": ["inv"],
+        "ts": "2026-07-15T00:00:00Z",
+    }) + "\n", encoding="utf-8")
+    operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
+    return character, campaign, operation
+
+
 def _cast_operation() -> dict:
     return {
         "schema_version": 1,
@@ -392,6 +419,157 @@ def test_development_settle_recovers_crash_before_commit_marker(
     assert (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == rolls_before
 
 
+def test_canonical_operation_recovers_crashed_settlement_before_its_write(
+    tmp_path, monkeypatch
+):
+    character, campaign, operation = _prepare_development_cliffhanger(tmp_path)
+    original_write = ops.coc_fileio.write_text_atomic
+    crashed = False
+
+    def crash_after_canonical_character(path, text):
+        nonlocal crashed
+        original_write(path, text)
+        if Path(path) == character and not crashed:
+            crashed = True
+            raise SystemExit("crash after canonical settlement mutation")
+
+    monkeypatch.setattr(
+        ops.coc_fileio, "write_text_atomic", crash_after_canonical_character
+    )
+    with pytest.raises(SystemExit, match="canonical settlement mutation"):
+        ops.execute_operation(
+            tmp_path,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=character,
+            operation=operation,
+            rng_seed=5,
+        )
+    inflight = campaign / "save" / "development-settlements" / "inv.inflight.json"
+    assert json.loads(inflight.read_text(encoding="utf-8"))["status"] == "prepared"
+
+    monkeypatch.setattr(ops.coc_fileio, "write_text_atomic", original_write)
+    intervening = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation=_cast_operation(),
+        rng_seed=1,
+    )
+    assert intervening["status"] == "PASS"
+    recovered_journal = json.loads(inflight.read_text(encoding="utf-8"))
+    assert recovered_journal["status"] == "recovered"
+    state_after_intervening = json.loads((
+        campaign / "save" / "investigator-state" / "inv.json"
+    ).read_text(encoding="utf-8"))
+    assert state_after_intervening["magic"]["cast_spells"] == ["Cloud Memory"]
+    magic_events_before = [
+        row for row in _read_jsonl(campaign / "logs" / "events.jsonl")
+        if row.get("type") == "magic"
+    ]
+    magic_rolls_before = [
+        row for row in _read_jsonl(campaign / "logs" / "rolls.jsonl")
+        if row.get("source") == "runtime_operation"
+        and row.get("payload", {}).get("kind") == "magic.cast"
+    ]
+
+    settled = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation=operation,
+        rng_seed=999,
+    )
+    assert settled["status"] == "PASS"
+    state_after_settlement = json.loads((
+        campaign / "save" / "investigator-state" / "inv.json"
+    ).read_text(encoding="utf-8"))
+    assert state_after_settlement["magic"] == state_after_intervening["magic"]
+    assert [
+        row for row in _read_jsonl(campaign / "logs" / "events.jsonl")
+        if row.get("type") == "magic"
+    ] == magic_events_before
+    assert [
+        row for row in _read_jsonl(campaign / "logs" / "rolls.jsonl")
+        if row.get("source") == "runtime_operation"
+        and row.get("payload", {}).get("kind") == "magic.cast"
+    ] == magic_rolls_before
+    assert not inflight.exists()
+
+
+def test_recovery_conflict_preserves_direct_foreign_deltas_without_restore(
+    tmp_path, monkeypatch
+):
+    character, campaign, operation = _prepare_development_cliffhanger(tmp_path)
+    rolls_path = campaign / "logs" / "rolls.jsonl"
+    rolls_path.unlink(missing_ok=True)
+    original_write = ops.coc_fileio.write_text_atomic
+    crashed = False
+
+    def crash_after_canonical_character(path, text):
+        nonlocal crashed
+        original_write(path, text)
+        if Path(path) == character and not crashed:
+            crashed = True
+            raise SystemExit("crash before foreign divergence")
+
+    monkeypatch.setattr(
+        ops.coc_fileio, "write_text_atomic", crash_after_canonical_character
+    )
+    with pytest.raises(SystemExit, match="foreign divergence"):
+        ops.execute_operation(
+            tmp_path,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=character,
+            operation=operation,
+            rng_seed=5,
+        )
+    monkeypatch.setattr(ops.coc_fileio, "write_text_atomic", original_write)
+
+    inv_path = campaign / "save" / "investigator-state" / "inv.json"
+    foreign_state = json.loads(inv_path.read_text(encoding="utf-8"))
+    foreign_state["foreign_post_crash_write"] = "must-survive"
+    inv_path.write_text(json.dumps(foreign_state), encoding="utf-8")
+    event_path = campaign / "logs" / "events.jsonl"
+    with event_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "event_type": "foreign_post_crash_event",
+            "receipt": "must-survive",
+        }) + "\n")
+    assert not rolls_path.exists()
+    # Existence is evidence too: an empty foreign-created append log must not
+    # be mistaken for the transaction's absent preimage and silently removed.
+    rolls_path.write_text("", encoding="utf-8")
+    tracked_before = {
+        path: path.read_bytes()
+        for path in [character, inv_path, event_path, rolls_path]
+    }
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as exc_info:
+        ops.execute_operation(
+            tmp_path,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=character,
+            operation=_cast_operation(),
+            rng_seed=1,
+        )
+    conflict = exc_info.value
+    assert conflict.code == "RECOVERY_CONFLICT"
+    assert "campaigns/camp/save/investigator-state/inv.json" in conflict.conflicting_paths
+    assert "campaigns/camp/logs/events.jsonl" in conflict.conflicting_paths
+    assert "campaigns/camp/logs/rolls.jsonl" in conflict.conflicting_paths
+    assert all(path.read_bytes() == before for path, before in tracked_before.items())
+    assert json.loads(inv_path.read_text(encoding="utf-8"))[
+        "foreign_post_crash_write"
+    ] == "must-survive"
+    assert _read_jsonl(event_path)[-1]["event_type"] == "foreign_post_crash_event"
+    assert (campaign / "save" / "development-settlements" / "inv.inflight.json").exists()
+
+
 @pytest.mark.parametrize(
     "crash_site",
     ["scenario_public_roll", "scenario_reward_event", "settlement_receipt"],
@@ -473,7 +651,7 @@ def test_development_settle_recovers_late_scenario_reward_crashes(
             ops, "_write_sanity_reward_event", original
         )
     else:
-        original = ops.coc_fileio.write_json_atomic
+        original = ops.coc_fileio.write_text_atomic
         settlement_path = (
             crash_campaign / "save" / "development-settlements" / "inv.json"
         )
@@ -484,10 +662,10 @@ def test_development_settle_recovers_late_scenario_reward_crashes(
             return original(path, *args, **kwargs)
 
         monkeypatch.setattr(
-            ops.coc_fileio, "write_json_atomic", crash_before_receipt
+            ops.coc_fileio, "write_text_atomic", crash_before_receipt
         )
         restore = lambda: monkeypatch.setattr(
-            ops.coc_fileio, "write_json_atomic", original
+            ops.coc_fileio, "write_text_atomic", original
         )
 
     with pytest.raises(SystemExit, match="crash"):
@@ -609,6 +787,109 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
     assert reward_event["source"] == "conclusion_rewards"
     assert reward_event["roll_id"] == reward_roll["payload"]["roll_id"]
     assert reward_event["conclusion_id"] == "corbitt-destroyed"
+
+
+def test_same_structured_conclusion_reward_is_consumed_once_across_endings(
+    tmp_path,
+):
+    character = _workspace(tmp_path)
+    campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True, exist_ok=True)
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": "corbitt-confrontation",
+            "conclusion_contract": {
+                "conclusion_id": "corbitt-destroyed",
+                "requires_combat_outcome": "investigators_win",
+                "session_ending": True,
+                "sanity_reward": {"die": "1D6", "rule_ref": "module.reward"},
+            },
+        }],
+    }), encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign)
+    event_path = campaign / "logs" / "events.jsonl"
+    with event_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "event_type": "session_ending",
+            "scene_id": "corbitt-confrontation",
+            "kind": "conclusion",
+            "decision_id": "conclusion-one",
+            "investigator_ids": ["inv"],
+        }) + "\n")
+    operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
+    first = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation=operation,
+        rng_seed=11,
+    )
+    first_reward = first["result"]["scenario_san_reward"]
+    assert first["result"]["scenario_san_reward_applied"] is True
+    sanity_path = ops.coc_sanity.sanity_snapshot_path(campaign, "inv")
+    san_after_first = json.loads(sanity_path.read_text(encoding="utf-8"))[
+        "san_current"
+    ]
+
+    inv_path = campaign / "save" / "investigator-state" / "inv.json"
+    inv_state = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv_state["skill_checks_earned"] = ["Spot Hidden"]
+    inv_path.write_text(json.dumps(inv_state), encoding="utf-8")
+    with event_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "event_type": "session_ending",
+            "scene_id": "corbitt-confrontation",
+            "kind": "conclusion",
+            "decision_id": "conclusion-two",
+            "investigator_ids": ["inv"],
+        }) + "\n")
+    second = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation=operation,
+        # Even an identical caller seed cannot duplicate public roll IDs for a
+        # distinct durable ending identity.
+        rng_seed=11,
+    )
+
+    assert second["result"]["ending_evidence"]["ending_id"] != first[
+        "result"
+    ]["ending_evidence"]["ending_id"]
+    assert second["result"]["skills_checked"] == ["Spot Hidden"]
+    assert second["result"]["luck_recovery"]["roll"] is not None
+    assert second["result"]["scenario_san_reward_applied"] is False
+    assert second["result"]["scenario_san_reward"]["replayed"] is True
+    assert second["result"]["scenario_san_reward"]["rolls"] == first_reward["rolls"]
+    assert json.loads(sanity_path.read_text(encoding="utf-8"))[
+        "san_current"
+    ] == san_after_first
+    rolls = _read_jsonl(campaign / "logs" / "rolls.jsonl")
+    assert len({row["roll_id"] for row in rolls}) == len(rolls)
+    assert sum(
+        row.get("payload", {}).get("kind") == "scenario_san_reward"
+        for row in rolls
+    ) == 1
+    assert sum(
+        row.get("payload", {}).get("kind") == "luck_recovery"
+        for row in rolls
+    ) == 2
+    rewards = [
+        row for row in _read_jsonl(event_path)
+        if row.get("event_type") == "reward"
+        and row.get("source") == "conclusion_rewards"
+    ]
+    assert len(rewards) == 1
+    reward_receipts = list((
+        campaign / "save" / "development-settlements" / "conclusion-rewards" / "inv"
+    ).glob("*.json"))
+    assert len(reward_receipts) == 1
+    durable = json.loads(reward_receipts[0].read_text(encoding="utf-8"))
+    assert durable["ending_id"] == first["result"]["ending_evidence"]["ending_id"]
+    assert durable["roll_id"] == rewards[0]["roll_id"]
 
 
 def test_development_settle_rejects_stale_combat_victory(tmp_path):
