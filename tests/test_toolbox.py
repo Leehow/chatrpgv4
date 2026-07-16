@@ -1633,6 +1633,143 @@ def test_coordinated_dice_receipt_and_log_tamper_fails_before_any_mutation(
     assert (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()) == before
 
 
+@pytest.mark.parametrize(
+    "tampered_reason",
+    ["a different frozen reason", {"not": "a string"}],
+)
+def test_current_dice_reason_tamper_fails_global_preflight_without_mutation(
+    campaign_ws, tampered_reason
+):
+    decision_id = "current-dice-reason-contract"
+    assert _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {
+            "expression": "1D6",
+            "reason": "original frozen reason",
+            "decision_id": decision_id,
+            "seed": 7,
+        },
+    )["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"]["rules.roll_dice"][decision_id]
+    receipt["operation"]["reason"] = tampered_reason
+    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
+        "rules.roll_dice", receipt["operation"]
+    )
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    before = tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    )
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "detect dice reason damage", "decision_id": "after-dice-reason"},
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    ) == before
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "operation_field", "tampered_value"),
+    [
+        ("rules.roll", "difficulty", "extreme"),
+        ("rules.roll", "bonus", 99),
+        ("rules.roll", "bonus", True),
+        ("rules.roll", "reason", {"bad": "type"}),
+        ("rules.roll", "fumble_consequence", "a different fumble"),
+        ("rules.push", "method_changed", "a different method"),
+        ("rules.push", "failure_consequence", "a different consequence"),
+        ("rules.push", "pushed", False),
+    ],
+)
+def test_current_percentile_invocation_tamper_fails_before_mutation(
+    campaign_ws, tool_name, operation_field, tampered_value
+):
+    decision_id = (
+        f"current-percentile-{tool_name}-{operation_field}-"
+        f"{type(tampered_value).__name__}"
+    )
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "difficulty": "hard",
+        "bonus": 1,
+        "reason": "original percentile reason",
+        "fumble_consequence": "original fumble consequence",
+        "decision_id": decision_id,
+        "seed": 4,
+    }
+    if tool_name == "rules.push":
+        args.update({
+            "method_changed": "search a different archive",
+            "failure_consequence": "the archive closes",
+        })
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"][tool_name][decision_id]
+    receipt["operation"][operation_field] = tampered_value
+    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
+        tool_name, receipt["operation"]
+    )
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    before = tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    )
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "detect percentile invocation damage",
+            "decision_id": f"after-{decision_id}",
+        },
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    ) == before
+
+
 def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     campaign_ws, monkeypatch
 ):
@@ -1647,6 +1784,7 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     for ordinal in range(301):
         decision_id = f"bulk-roll-{ordinal:03d}"
         total = (ordinal % 6) + 1
+        reason = f"bulk-{ordinal:03d}"
         data = {
             "expression": "1D6",
             "count": 1,
@@ -1654,6 +1792,7 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
             "modifier": 0,
             "rolls": [total],
             "total": total,
+            "reason": reason,
         }
         record = ctx.prepare_roll({
             **data,
@@ -1671,7 +1810,7 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
             tool_name="rules.roll_dice",
             decision_id=decision_id,
             operation=coc_toolbox._roll_dice_semantic_operation(
-                {"expression": "1D6", "reason": f"bulk-{ordinal:03d}"}
+                {"expression": "1D6", "reason": reason}
             ),
             resolution={
                 "expression": "1D6",
@@ -1752,6 +1891,8 @@ def test_settled_skill_receipts_do_not_replay_development_side_effects(
             "target": 60,
             "effective_target": 60,
             "difficulty": "regular",
+            "bonus": 0,
+            "penalty": 0,
             "outcome": "critical",
             "investigator_id": campaign_ws["investigator_id"],
             "skill": "Spot Hidden",

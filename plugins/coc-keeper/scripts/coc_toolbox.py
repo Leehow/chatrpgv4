@@ -1333,6 +1333,34 @@ def _is_exact_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _optional_scalar_evidence_matches(
+    field: str,
+    value: str | None,
+    *containers: dict[str, Any],
+) -> bool:
+    """Match the exact optional-field emission used by the roll tools."""
+    if value:
+        return all(
+            field in container and container[field] == value
+            for container in containers
+        )
+    return all(field not in container for container in containers)
+
+
+def _optional_consequence_evidence_matches(
+    field: str,
+    value: str | None,
+    *containers: dict[str, Any],
+) -> bool:
+    if value:
+        return all(
+            field in container
+            and container[field] == {"summary": value}
+            for container in containers
+        )
+    return all(field not in container for container in containers)
+
+
 def _dice_evidence_is_consistent(
     operation: dict[str, Any],
     resolution: dict[str, Any],
@@ -1356,8 +1384,10 @@ def _dice_evidence_is_consistent(
     modifier = resolution.get("modifier")
     rolls = data.get("rolls")
     total = data.get("total")
+    reason = operation.get("reason")
     return bool(
         set(operation) == {"expression", "reason"}
+        and (reason is None or isinstance(reason, str))
         and set(resolution) == set(_DICE_RESOLUTION_FIELDS)
         and _is_exact_int(count)
         and _is_exact_int(sides)
@@ -1384,6 +1414,9 @@ def _dice_evidence_is_consistent(
         and payload.get("individual_faces") == rolls
         and payload.get("final_total") == total
         and payload.get("roll") == total
+        and _optional_scalar_evidence_matches(
+            "reason", reason, data, record, payload
+        )
     )
 
 
@@ -1404,11 +1437,62 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
         selector_characteristic = operation.get("characteristic")
         explicit_target = operation.get("explicit_target")
         investigator = operation.get("investigator")
+        difficulty = operation.get("difficulty")
+        bonus = operation.get("bonus")
+        penalty = operation.get("penalty")
+        reason = operation.get("reason")
+        fumble_consequence = operation.get("fumble_consequence")
+        pushed = operation.get("pushed")
+        method_changed = operation.get("method_changed")
+        failure_consequence = operation.get("failure_consequence")
         label = resolution.get("resolved_label")
         target_source = resolution.get("target_source")
+        expected_bonus = (
+            max(0, bonus - penalty)
+            if _is_exact_int(bonus) and _is_exact_int(penalty)
+            else None
+        )
+        expected_penalty = (
+            max(0, penalty - bonus)
+            if _is_exact_int(bonus) and _is_exact_int(penalty)
+            else None
+        )
         invalid = bool(
             set(operation) != set(_PERCENTILE_INVOCATION_FIELDS)
             or set(resolution) != set(_PERCENTILE_RESOLUTION_FIELDS)
+            or not (
+                investigator is None
+                or (isinstance(investigator, str) and bool(investigator))
+            )
+            or not (
+                selector_skill is None
+                or (
+                    isinstance(selector_skill, str)
+                    and bool(selector_skill)
+                    and selector_skill == selector_skill.strip()
+                )
+            )
+            or not (
+                selector_characteristic is None
+                or (
+                    isinstance(selector_characteristic, str)
+                    and bool(selector_characteristic)
+                    and selector_characteristic
+                    == selector_characteristic.strip().upper()
+                )
+            )
+            or not (explicit_target is None or _is_exact_int(explicit_target))
+            or difficulty not in {"regular", "hard", "extreme"}
+            or not _is_exact_int(bonus)
+            or bonus < 0
+            or not _is_exact_int(penalty)
+            or penalty < 0
+            or not (reason is None or isinstance(reason, str))
+            or not (
+                fumble_consequence is None
+                or isinstance(fumble_consequence, str)
+            )
+            or not isinstance(pushed, bool)
             or not isinstance(resolution.get("investigator_id"), str)
             or not resolution.get("investigator_id")
             or not isinstance(label, str)
@@ -1427,20 +1511,93 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or target_source != data.get("target_source")
             or target_source != record.get("target_source")
             or target_source != payload.get("target_source")
-            or (investigator is not None and investigator != resolution.get("investigator_id"))
-            or (explicit_target is not None and explicit_target != resolution.get("resolved_target"))
+            or (
+                investigator is not None
+                and investigator != resolution.get("investigator_id")
+            )
+            or (
+                explicit_target is not None
+                and explicit_target != resolution.get("resolved_target")
+            )
             or (explicit_target is not None and target_source != "explicit")
             or (explicit_target is None and target_source == "explicit")
             or (
                 selector_skill is not None
-                and str(selector_skill).casefold() != str(label).casefold()
+                and selector_skill.casefold() != label.casefold()
             )
             or (
                 selector_characteristic is not None
-                and str(selector_characteristic).casefold() != str(label).casefold()
+                and selector_characteristic.casefold() != label.casefold()
             )
-            or bool(operation.get("pushed")) != (tool_name == "rules.push")
-            or data.get("pushed") != bool(operation.get("pushed"))
+            or pushed != (tool_name == "rules.push")
+            or any(
+                container.get("difficulty") != difficulty
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("bonus") != expected_bonus
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("penalty") != expected_penalty
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("pushed") != pushed
+                for container in (data, record, payload)
+            )
+            or not _optional_scalar_evidence_matches(
+                "reason", reason, data, record, payload
+            )
+            or not _optional_consequence_evidence_matches(
+                "fumble_consequence",
+                fumble_consequence,
+                data,
+                record,
+                payload,
+            )
+            or (
+                pushed
+                and (
+                    not isinstance(method_changed, str)
+                    or not method_changed
+                    or not isinstance(failure_consequence, str)
+                    or not failure_consequence
+                    or not _optional_scalar_evidence_matches(
+                        "method_changed", method_changed, data, record, payload
+                    )
+                    or not _optional_consequence_evidence_matches(
+                        "failure_consequence",
+                        failure_consequence,
+                        data,
+                        record,
+                        payload,
+                    )
+                    or not _optional_consequence_evidence_matches(
+                        "announced_consequence",
+                        failure_consequence,
+                        data,
+                        record,
+                        payload,
+                    )
+                )
+            )
+            or (
+                not pushed
+                and (
+                    method_changed is not None
+                    or failure_consequence is not None
+                    or any(
+                        field in container
+                        for field in (
+                            "method_changed",
+                            "failure_consequence",
+                            "announced_consequence",
+                        )
+                        for container in (data, record, payload)
+                    )
+                )
+            )
         )
     if invalid:
         raise ToolError(
