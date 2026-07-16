@@ -45,18 +45,27 @@ class AnchoredRunPath:
         root_fd: int,
         parts: tuple[str, ...] = (),
         pinned_files: dict[tuple[str, ...], bytes] | None = None,
+        lexical_path: Path | None = None,
     ) -> None:
         self.root_fd = root_fd
         self.parts = parts
         self._pinned_files = pinned_files or {}
+        self.lexical_path = lexical_path
 
     def __truediv__(self, child: str) -> "AnchoredRunPath":
         raw = str(child)
         pieces = tuple(piece for piece in raw.split("/") if piece not in {"", "."})
         if any(piece == ".." for piece in pieces):
             raise ValueError("anchored run path cannot escape its root")
+        lexical = self.lexical_path
+        if lexical is not None:
+            for piece in pieces:
+                lexical /= piece
         return AnchoredRunPath(
-            self.root_fd, self.parts + pieces, self._pinned_files
+            self.root_fd,
+            self.parts + pieces,
+            self._pinned_files,
+            lexical,
         )
 
     def __str__(self) -> str:
@@ -70,19 +79,34 @@ class AnchoredRunPath:
 
     @property
     def name(self) -> str:
-        return self.parts[-1] if self.parts else ""
+        if self.parts:
+            return self.parts[-1]
+        return self.lexical_path.name if self.lexical_path is not None else ""
 
     @property
     def parent(self) -> "AnchoredRunPath":
+        lexical_parent = self.lexical_path
+        if self.parts and lexical_parent is not None:
+            lexical_parent = lexical_parent.parent
         return AnchoredRunPath(
-            self.root_fd, self.parts[:-1], self._pinned_files
+            self.root_fd,
+            self.parts[:-1],
+            self._pinned_files,
+            lexical_parent,
         )
 
     @property
     def parents(self) -> tuple["AnchoredRunPath", ...]:
         return tuple(
             AnchoredRunPath(
-                self.root_fd, self.parts[:index], self._pinned_files
+                self.root_fd,
+                self.parts[:index],
+                self._pinned_files,
+                (
+                    self.lexical_path.parents[len(self.parts) - index - 1]
+                    if self.lexical_path is not None
+                    else None
+                ),
             )
             for index in range(len(self.parts) - 1, -1, -1)
         )
@@ -366,7 +390,9 @@ class AnchoredRunDirectory:
         info = os.fstat(self.staging_fd)
         if not stat.S_ISDIR(info.st_mode):
             raise RunIdentityError("playtest staging inode is not a directory")
-        return AnchoredRunPath(self.staging_fd)
+        return AnchoredRunPath(
+            self.staging_fd, lexical_path=self.final_path
+        )
 
     def _current_source_name(self) -> str:
         expected = os.fstat(self.staging_fd)

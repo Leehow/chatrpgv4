@@ -11,6 +11,11 @@ from typing import Any, Iterator
 
 
 STAGING_NAMESPACE = ".staging"
+PUBLIC_RESULT_PATH_FIELDS = (
+    "report_path",
+    "evaluation_report_path",
+    "report_completeness_path",
+)
 
 
 def _read_regular_file_at(directory_fd: int, name: str) -> bytes:
@@ -207,7 +212,11 @@ def open_published_run(
                 raise ValueError(
                     f"{purpose} requires a published final playtest run"
                 ) from exc
-        yield AnchoredRunPath(run_fd, pinned_files=pinned)
+        yield AnchoredRunPath(
+            run_fd,
+            pinned_files=pinned,
+            lexical_path=absolute,
+        )
     finally:
         for descriptor in reversed(opened):
             os.close(descriptor)
@@ -237,14 +246,15 @@ def published_run_consumer(*, require_metadata: bool = False):
                         lexical /= part
                     return lexical
                 if not caller_anchored and isinstance(result, dict):
-                    report_path = result.get("report_path")
-                    if (
-                        isinstance(report_path, str)
-                        and report_path
-                        and not Path(report_path).is_absolute()
-                    ):
-                        result = dict(result)
-                        result["report_path"] = str(Path(run_dir) / report_path)
+                    result = dict(result)
+                    for field in PUBLIC_RESULT_PATH_FIELDS:
+                        value = result.get(field)
+                        if (
+                            isinstance(value, str)
+                            and value
+                            and not Path(value).is_absolute()
+                        ):
+                            result[field] = str(Path(run_dir) / value)
                 return result
         return wrapped
     return decorate
@@ -297,6 +307,7 @@ def iter_final_run_metadata(playtests_dir: Path) -> Iterator[Path]:
                 yield AnchoredRunPath(
                     run_fd,
                     pinned_files={("playtest.json",): metadata},
+                    lexical_path=_lexical_absolute(playtests_dir) / name,
                 ) / "playtest.json"
             finally:
                 os.close(run_fd)

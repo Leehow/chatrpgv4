@@ -16,6 +16,10 @@ def load_module(name: str, relative_path: str):
 
 coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/scripts/coc_playtest_harness.py")
 coc_playtest_suite = load_module("coc_playtest_suite", "plugins/coc-keeper/scripts/coc_playtest_suite.py")
+coc_completion_audit = load_module(
+    "coc_completion_audit_suite_path_test",
+    "plugins/coc-keeper/scripts/coc_completion_audit.py",
+)
 
 
 def test_crash_orphan_playtest_metadata_is_never_discovered_or_indexed(tmp_path):
@@ -63,6 +67,26 @@ def test_crash_orphan_playtest_metadata_is_never_discovered_or_indexed(tmp_path)
         linked_root, coc_playtest_suite.StructuredSourceCoverageEvaluator()
     ) == []
     assert coc_playtest_suite.write_semantic_eval_requests(linked_root) == []
+
+
+def test_discovered_run_keeps_lexical_index_path_for_completion_audit(tmp_path):
+    run_dir = coc_playtest_harness.create_chase_drill_run(
+        tmp_path, run_id="v3-chase-drill"
+    )
+    runs = coc_playtest_suite._discover_runs(
+        tmp_path, coc_playtest_suite.StructuredSourceCoverageEvaluator()
+    )
+
+    assert [run["path"] for run in runs] == [str(run_dir)]
+    active = coc_completion_audit._active_runs(
+        tmp_path,
+        {"runs": runs},
+        {"evaluated_runs": ["v3-chase-drill"]},
+    )
+    try:
+        assert [run["run_id"] for run in active] == ["v3-chase-drill"]
+    finally:
+        active.close()
 
 
 def llm_semantic_provenance():

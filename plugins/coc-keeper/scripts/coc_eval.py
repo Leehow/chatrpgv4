@@ -464,11 +464,6 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
             "findings": [{"code": "run_manifest_malformed"}],
         }
         return payload
-    payload = (
-        _verify_suite_report_contract(directory, manifest)
-        if manifest.get("suite") == "nightly"
-        else dict(contract.verify_report_contract(directory))
-    )
     lane_artifacts = (
         manifest.get("lane_artifacts") if isinstance(manifest, dict) else None
     )
@@ -488,6 +483,14 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
         )
         or aggregate_summary_path.exists()
         or aggregate_summary_path.is_symlink()
+    )
+    # Aggregate evaluation directories are not gameplay-run artifacts and do
+    # not carry playtest.json.  Verify their declared aggregate contract first;
+    # only ordinary gameplay runs enter the metadata-requiring report verifier.
+    payload = (
+        _verify_suite_report_contract(directory, manifest)
+        if has_aggregate_contract
+        else dict(contract.verify_report_contract(directory))
     )
     if not has_aggregate_contract:
         return payload

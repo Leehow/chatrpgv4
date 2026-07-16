@@ -538,6 +538,9 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
     runs: list[dict[str, Any]] = []
     for playtest_path in iter_final_run_metadata(base):
         run_dir = playtest_path.parent
+        lexical_run_dir = (
+            getattr(run_dir, "lexical_path", None) or (base / run_dir.name)
+        )
         metadata = _read_json(playtest_path, {})
         battle_text = _read_text(
             run_dir / "artifacts" / "battle-report.md"
@@ -553,7 +556,7 @@ def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, A
         party_size = len(_party_investigator_ids(context.party)) if context.party else None
         run = {
             "run_id": run_id,
-            "path": str(run_dir),
+            "path": str(lexical_run_dir),
             "campaign_title": metadata.get("campaign_title", "unknown"),
             "campaign_title_display": _suite_report_value(metadata.get("campaign_title", "unknown"), metadata),
             "scenario": metadata.get("scenario", "unknown"),
@@ -934,6 +937,10 @@ def write_semantic_eval_requests(root: Path) -> list[Path]:
     request_paths: list[Path] = []
     for playtest_path in iter_final_run_metadata(_playtests_dir(root)):
         run_dir = playtest_path.parent
+        lexical_run_dir = (
+            getattr(run_dir, "lexical_path", None)
+            or (_playtests_dir(root) / run_dir.name)
+        )
         metadata = _read_json(playtest_path, {})
         run_id = str(metadata.get("run_id") or run_dir.name)
         battle_text = _read_text(
@@ -944,7 +951,9 @@ def write_semantic_eval_requests(root: Path) -> list[Path]:
         context = _coverage_context(run_dir, metadata, battle_text, run_id)
         request_path = run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
         _write_json(request_path, _semantic_eval_request(context))
-        request_paths.append(request_path)
+        request_paths.append(
+            lexical_run_dir / "artifacts" / SEMANTIC_EVAL_REQUEST
+        )
     return request_paths
 
 

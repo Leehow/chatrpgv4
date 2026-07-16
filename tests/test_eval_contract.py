@@ -166,6 +166,30 @@ def test_public_percentile_roll_renders_value_target_difficulty_and_outcome(tmp_
     assert "failure" in text
 
 
+def test_public_contract_result_remaps_every_declared_artifact_path(tmp_path):
+    contract = contract_module()
+    run_dir = make_run(tmp_path, rolls=[public_roll()])
+    evaluation = run_dir / "artifacts" / "evaluation-report.md"
+    evaluation.write_text("# Evaluation\n", encoding="utf-8")
+
+    compiled = contract.compile_report_contract(
+        run_dir, generate_base_report=False
+    )
+    verified = contract.verify_report_contract(run_dir)
+
+    expected = {
+        "report_path": run_dir / "artifacts" / "battle-report.md",
+        "evaluation_report_path": evaluation,
+        "report_completeness_path": (
+            run_dir / "artifacts" / "report-completeness.json"
+        ),
+    }
+    for result in (compiled, verified):
+        for field, path in expected.items():
+            assert result[field] == str(path)
+            assert Path(result[field]).is_file()
+
+
 def test_bonus_die_renders_candidates_and_selected_result(tmp_path):
     contract = contract_module()
     roll = public_roll("r-bonus")
