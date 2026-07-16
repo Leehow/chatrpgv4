@@ -87,6 +87,9 @@ coc_eval_contract = _load_sibling(
 )
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_starter = _load_sibling("coc_starter", "coc_starter.py")
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_live_match", "coc_investigator_guard.py"
+)
 coc_event_contract = _load_sibling(
     "coc_event_contract_live_match", "coc_event_contract.py"
 )
@@ -143,7 +146,20 @@ def _default_character_path(workspace: Path, investigator_id: str) -> Path:
 
 def load_character_card(character_path: Path | str) -> dict[str, Any]:
     """Load the investigator's own character sheet (player-safe by ownership)."""
-    data = _read_json(Path(character_path), {})
+    path = Path(character_path).absolute()
+    investigator_dir = path.parent
+    investigators_dir = investigator_dir.parent
+    coc_root = investigators_dir.parent
+    if (
+        path.name == "character.json"
+        and investigators_dir.name == "investigators"
+        and coc_root.name == ".coc"
+        and investigator_dir.name
+    ):
+        return coc_investigator_guard.read_reusable_character(
+            coc_root, investigator_dir.name, path
+        )
+    data = _read_json(path, {})
     return data if isinstance(data, dict) else {}
 
 
@@ -1047,7 +1063,11 @@ def _run_live_match_impl(
     if not char_path.is_file():
         raise FileNotFoundError(f"character sheet not found: {char_path}")
 
-    character_card = load_character_card(char_path)
+    character_card = coc_investigator_guard.read_reusable_character(
+        ws / ".coc",
+        investigator_id,
+        char_path,
+    )
     if operator_long_play and player_runner is not None:
         raise ValueError("operator_long_play cannot use an AI player_runner")
     if not operator_long_play and player_runner is None:
@@ -1666,6 +1686,7 @@ def _run_live_match_impl(
         session_result,
         metadata=metadata,
         generate_report=False,
+        character_snapshot=character_card,
     )
     partial_rows = _read_jsonl_rows(partial_transcript_path)
     final_transcript_rows = _read_jsonl_rows(out / "transcript.jsonl")

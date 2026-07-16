@@ -213,6 +213,9 @@ coc_chase = _load_sibling("coc_chase_subsystem_executor", "coc_chase.py")
 coc_healing = _load_sibling("coc_healing_subsystem_executor", "coc_healing.py")
 coc_hazards = _load_sibling("coc_hazards_subsystem_executor", "coc_hazards.py")
 coc_time = _load_sibling("coc_time_subsystem_executor", "coc_time.py")
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_subsystem_executor", "coc_investigator_guard.py"
+)
 
 
 class SubsystemExecutorError(ValueError):
@@ -4599,33 +4602,6 @@ def _validate_batch(commands: Any) -> list[dict[str, Any]]:
     return validated
 
 
-def _load_character(character_path: Path, investigator_id: str) -> dict[str, Any]:
-    try:
-        character = json.loads(Path(character_path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise _error("malformed_character", "character_path", str(exc)) from exc
-    if not isinstance(character, dict):
-        raise _error("malformed_character", "character_path", "character root must be an object")
-    character_id = character.get("id")
-    if not isinstance(character_id, str) or not _SAFE_ID.fullmatch(character_id):
-        raise _error(
-            "malformed_character",
-            "character_path.id",
-            "character id must be a stable safe ID",
-        )
-    if character_id != investigator_id:
-        raise _error(
-            "character_identity_mismatch",
-            "character_path.id",
-            f"character id {character_id!r} does not match investigator {investigator_id!r}",
-        )
-    for field in ("skills", "characteristics", "derived"):
-        value = character.get(field, {})
-        if value is not None and not isinstance(value, dict):
-            raise _error("malformed_character", f"character_path.{field}", "must be an object")
-    return character
-
-
 def _preflight_rule_targets(
     commands: list[dict[str, Any]],
     state: dict[str, Any],
@@ -8147,6 +8123,7 @@ def execute_commands(
     *,
     rng: random.Random,
     append_jsonl: Callable[[Path, dict[str, Any]], None] | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Validate, execute, persist, and replay a strict subsystem command batch."""
     campaign = Path(campaign_dir)
@@ -8172,17 +8149,60 @@ def execute_commands(
         command["kind"] in CHARACTER_REQUIRED_COMMAND_KINDS
         for command in validated
     )
-    character = (
-        _load_character(character_file, investigator_id)
-        if needs_character
-        else None
-    )
+    if needs_character:
+        if character_snapshot is not None:
+            if not isinstance(character_snapshot, dict):
+                raise _error(
+                    "malformed_character", "character_snapshot",
+                    "character snapshot must be an object",
+                )
+            character = _json_copy(character_snapshot)
+        else:
+            try:
+                character = coc_investigator_guard.read_reusable_character(
+                    coc_investigator_guard.coc_root_for_campaign(campaign),
+                    investigator_id,
+                    character_file,
+                )
+            except coc_investigator_guard.ReusableInvestigatorRecoveryConflict as exc:
+                raise _error("RECOVERY_CONFLICT", "character_path", str(exc)) from exc
+            except ValueError as exc:
+                marker_path = coc_investigator_guard.development_active_marker_path(
+                    coc_investigator_guard.coc_root_for_campaign(campaign),
+                    investigator_id,
+                )
+                if marker_path.is_file() or marker_path.is_symlink():
+                    raise _error("RECOVERY_CONFLICT", "character_path", str(exc)) from exc
+                raise _error("malformed_character", "character_path", str(exc)) from exc
+        # Preserve the executor's existing identity/field validation after the
+        # shared transaction-aware read.
+        character_id = character.get("id")
+        if not isinstance(character_id, str) or not _SAFE_ID.fullmatch(character_id):
+            raise _error(
+                "malformed_character", "character_path.id",
+                "character id must be a stable safe ID",
+            )
+        if character_id != investigator_id:
+            raise _error(
+                "character_identity_mismatch", "character_path.id",
+                f"character id {character_id!r} does not match investigator {investigator_id!r}",
+            )
+        for field in ("skills", "characteristics", "derived"):
+            value = character.get(field, {})
+            if value is not None and not isinstance(value, dict):
+                raise _error(
+                    "malformed_character", f"character_path.{field}",
+                    "must be an object",
+                )
+    else:
+        character = None
 
     state = _recover_inflight(campaign, _load_state(campaign))
     applied = set(state["applied_command_ids"])
 
-    # Conflict checking is part of whole-batch preflight.  No character read,
-    # random draw, handler call, log append, or state write occurs before this.
+    # Conflict checking is part of whole-batch preflight.  The stable character
+    # snapshot above is the only external read; no random draw, handler call,
+    # log append, or state write occurs before this point.
     for index, (command, command_hash) in enumerate(zip(validated, hashes)):
         command_id = command["command_id"]
         if command_id not in applied:

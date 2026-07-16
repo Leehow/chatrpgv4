@@ -54,6 +54,16 @@ def _write_json(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _game_file_bytes(root: Path) -> dict[Path, bytes]:
+    return {
+        path.relative_to(root): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file()
+        and "locks" not in path.relative_to(root).parts
+        and not path.name.endswith(".lock")
+    }
+
+
 @pytest.fixture
 def campaign_ws(tmp_path: Path):
     """Fresh workspace with a the-haunting / thomas-hayes quick-start campaign."""
@@ -2043,6 +2053,60 @@ def test_toolbox_returns_typed_recovery_conflict_without_touching_foreign_state(
         row for row in _read_jsonl(event_path)
         if row.get("event_type") == "turn"
     ]) == turns_before
+
+
+def test_unlinked_subsystem_tool_returns_typed_recovery_conflict_with_zero_writes(
+    campaign_ws,
+):
+    investigator_id = "unlinked-guarded-investigator"
+    sheet = {
+        "schema_version": 1,
+        "id": investigator_id,
+        "investigator_id": investigator_id,
+        "name": "Unlinked Guarded Investigator",
+        "characteristics": {"POW": 50, "INT": 60, "LUCK": 40},
+        "derived": {"HP": 10, "SAN": 50, "MP": 10},
+        "skills": {"First Aid": 60},
+    }
+    coc_state.create_investigator(
+        campaign_ws["workspace"], investigator_id, sheet
+    )
+    foreign_campaign = (
+        campaign_ws["coc_root"] / "campaigns" / "foreign-campaign"
+    )
+    inflight = (
+        foreign_campaign / "save" / "development-settlements" / "endings"
+        / "ending-unlinked-guard" / f"{investigator_id}.inflight.json"
+    )
+    marker = coc_toolbox.coc_runtime_ops._claim_development_active_marker(
+        campaign_dir=foreign_campaign,
+        investigator_id=investigator_id,
+        ending_id="ending-unlinked-guard",
+        inflight_path=inflight,
+    )
+    marker_path = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id
+        / "development-active-transaction.json"
+    )
+    assert marker["phase"] == "creating" and marker_path.is_file()
+    before = _game_file_bytes(campaign_ws["workspace"])
+
+    blocked = _run(
+        campaign_ws,
+        "rules.first_aid",
+        {
+            "investigator": investigator_id,
+            "skill_value": 60,
+            "decision_id": "unlinked-first-aid-guard",
+            "seed": 2,
+        },
+    )
+
+    assert blocked["ok"] is False
+    assert blocked["error"]["code"] == "recovery_conflict"
+    assert blocked["recovery"]["status"] == "RECOVERY_CONFLICT"
+    assert blocked["recovery"]["transaction_id"] == marker["transaction_id"]
+    assert _game_file_bytes(campaign_ws["workspace"]) == before
 
 
 def test_combat_conclusion_synchronously_settles_development_once(

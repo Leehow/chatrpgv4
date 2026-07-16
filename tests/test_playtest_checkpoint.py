@@ -378,6 +378,54 @@ def test_turn_zero_manifest_records_an_absent_action_journal(tmp_path: Path):
     assert journal not in {entry["workspace_path"] for entry in manifest["state_files"]}
 
 
+def test_checkpoint_rejects_active_reusable_transaction_before_snapshot_writes(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    run_dir = tmp_path / "run"
+    store = checkpoint.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+    ending_id = "ending-checkpoint-guard"
+    transaction_id = (
+        checkpoint.coc_investigator_guard._expected_transaction_id(
+            ending_id, "inv-a"
+        )
+    )
+    marker = (
+        workspace / ".coc" / "investigators" / "inv-a"
+        / "development-active-transaction.json"
+    )
+    _write_json(marker, {
+        "schema_version": 2,
+        "status": "active",
+        "transaction_id": transaction_id,
+        "investigator_id": "inv-a",
+        "campaign_id": "foreign-campaign",
+        "ending_id": ending_id,
+        "inflight_ref": (
+            ".coc/campaigns/foreign-campaign/save/development-settlements/"
+            "endings/ending-checkpoint-guard/inv-a.inflight.json"
+        ),
+        "created_at": "2026-07-16T00:00:00Z",
+        "phase": "creating",
+        "journal_sha256": None,
+        "next_journal_sha256": None,
+        "transition_at": None,
+    })
+    marker_before = marker.read_bytes()
+
+    with pytest.raises(
+        checkpoint.coc_investigator_guard.ReusableInvestigatorRecoveryConflict
+    ) as exc_info:
+        store.write_checkpoint("sess_123", 0, "initial_state")
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert marker.read_bytes() == marker_before
+    assert not (run_dir / "checkpoints").exists()
+
+
 def test_checkpoint_uses_only_the_canonical_public_runtime_allowlist(tmp_path: Path):
     workspace = tmp_path / "workspace"
     paths = _seed_workspace(workspace)

@@ -32,6 +32,29 @@ coc_subsystem_executor = _load_module(
 coc_keeper_planner = _load_module(
     "coc_action_keeper_planner", SCRIPT_DIR / "coc_keeper_planner.py"
 )
+coc_investigator_guard = _load_module(
+    "coc_investigator_guard_action_resolver",
+    SCRIPT_DIR / "coc_investigator_guard.py",
+)
+
+
+def _guarded_character(
+    campaign_dir: Path,
+    character_path: Path | str | None,
+    investigator_id: str | None,
+    character_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if isinstance(character_snapshot, dict):
+        return json.loads(json.dumps(character_snapshot, ensure_ascii=False))
+    if character_path is None:
+        return {}
+    if not isinstance(investigator_id, str) or not investigator_id:
+        raise ValueError("character_path requires investigator_id")
+    return coc_investigator_guard.read_reusable_character(
+        coc_investigator_guard.coc_root_for_campaign(campaign_dir),
+        investigator_id,
+        Path(character_path),
+    )
 
 
 class AuthoredOperationNotImplementedError(RuntimeError):
@@ -463,6 +486,7 @@ def _build_action_request_with_authority(
     *,
     character_path: Path | str | None = None,
     investigator_id: str | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> tuple[
     dict[str, Any],
     dict[str, dict[str, Any]],
@@ -503,7 +527,9 @@ def _build_action_request_with_authority(
         raise RuntimeError(
             "post-arrival affordance IDs must be unique across destinations"
         )
-    character = _read_json(Path(character_path), {}) if character_path is not None else {}
+    character = _guarded_character(
+        campaign, character_path, investigator_id, character_snapshot
+    )
     weapon_candidates = [
         {
             "weapon_id": str(weapon["weapon_id"]),
@@ -712,6 +738,7 @@ def build_action_request(
     *,
     character_path: Path | str | None = None,
     investigator_id: str | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     """Return the model request plus internal current-scene authority indexes."""
     request, affordance_index, _post_arrival_index, destination_index = (
@@ -721,6 +748,7 @@ def build_action_request(
             player_intent_rich,
             character_path=character_path,
             investigator_id=investigator_id,
+            character_snapshot=character_snapshot,
         )
     )
     return request, affordance_index, destination_index
@@ -901,8 +929,13 @@ def resolve_player_action(
     character_path: Path | str | None = None,
     investigator_id: str | None = None,
     evaluator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return enriched intent plus a fail-closed semantic resolution receipt."""
+    if character_snapshot is None and character_path is not None:
+        character_snapshot = _guarded_character(
+            Path(campaign_dir), character_path, investigator_id
+        )
     original = json.loads(json.dumps(player_intent_rich or {}, ensure_ascii=False))
     post_arrival_action: dict[str, Any] | None = None
     post_goal_compilation: dict[str, Any] | None = None
@@ -915,6 +948,7 @@ def resolve_player_action(
         ) = _build_action_request_with_authority(
             campaign_dir, player_text, original, character_path=character_path,
             investigator_id=investigator_id,
+            character_snapshot=character_snapshot,
         )
         result = (evaluator or _default_evaluator)(request)
         raw_proposal = result.get("keeper_proposal")
@@ -1185,7 +1219,10 @@ def resolve_player_action(
         candidate_atoms = result.get("normalized_action_atoms")
         if not isinstance(candidate_atoms, list) or not candidate_atoms:
             candidate_atoms = original.get("action_atoms") or []
-        character = _read_json(Path(character_path), {}) if character_path is not None else {}
+        character = _guarded_character(
+            Path(campaign_dir), character_path, investigator_id,
+            character_snapshot,
+        )
         character_skills = character.get("skills") if isinstance(character.get("skills"), dict) else {}
         matched_affordances = [
             combined_affordance_index[route_id]

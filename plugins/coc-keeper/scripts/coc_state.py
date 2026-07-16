@@ -18,6 +18,7 @@ from coc_fileio import (
     write_json_atomic as _fileio_write_json_atomic,
 )
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
+import coc_investigator_guard
 
 
 # Per-kind current schema versions. Migrations are registered in MIGRATIONS as
@@ -691,8 +692,14 @@ def create_investigator(
     sheet: dict[str, Any],
     *,
     creation: dict[str, Any] | None = None,
+    replace: bool = False,
 ) -> Path:
-    """Create/replace a reusable investigator under its shared file lock."""
+    """Create a reusable investigator under its shared file lock.
+
+    Replacement is deliberately explicit because a reusable sheet may be
+    linked to several campaigns.  The existence check and any authorized
+    replacement happen under the same marker-aware investigator lock.
+    """
     if not isinstance(investigator_id, str) or _SAFE_ID.fullmatch(investigator_id) is None:
         raise ValueError("investigator_id must be a stable safe id")
     base = coc_root(root)
@@ -714,6 +721,14 @@ def create_investigator(
     # Setup paths do not acquire a campaign lock, and never acquire one after
     # this block.  In-session writers use campaign -> investigator.
     with _advisory_file_lock(lock_path, wait_seconds=5.0):
+        coc_investigator_guard.assert_reusable_investigator_idle(
+            base, investigator_id
+        )
+        character_path = investigator_dir / "character.json"
+        if character_path.exists() and not replace:
+            raise FileExistsError(
+                f"investigator already exists: {investigator_id}"
+            )
         return _create_investigator_unlocked(
             root,
             investigator_id,
@@ -738,31 +753,37 @@ def list_investigators(root: Path) -> list[dict[str, Any]]:
     investigators_dir = coc_root(root) / "investigators"
     if not investigators_dir.is_dir():
         return []
+    candidates = [
+        candidate
+        for candidate in sorted(investigators_dir.iterdir(), key=lambda p: p.name)
+        if candidate.is_dir() and _SAFE_ID.fullmatch(candidate.name)
+    ]
     entries: list[dict[str, Any]] = []
-    for candidate in sorted(investigators_dir.iterdir(), key=lambda p: p.name):
-        if not candidate.is_dir():
-            continue
-        character_path = candidate / "character.json"
-        if not character_path.exists():
-            continue
-        try:
-            sheet = json.loads(character_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not isinstance(sheet, dict):
-            continue
-        investigator_id = str(
-            sheet.get("investigator_id") or sheet.get("id") or candidate.name
-        )
-        entries.append(
-            {
-                "investigator_id": investigator_id,
-                "name": sheet.get("name"),
-                "occupation": sheet.get("occupation"),
-                "era": sheet.get("era"),
-                "path": _relative_to_root(root, character_path),
-            }
-        )
+    with coc_investigator_guard.guard_reusable_investigators(
+        coc_root(root), [candidate.name for candidate in candidates]
+    ):
+        for candidate in candidates:
+            character_path = candidate / "character.json"
+            if not character_path.exists():
+                continue
+            try:
+                sheet = json.loads(character_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(sheet, dict):
+                continue
+            investigator_id = str(
+                sheet.get("investigator_id") or sheet.get("id") or candidate.name
+            )
+            entries.append(
+                {
+                    "investigator_id": investigator_id,
+                    "name": sheet.get("name"),
+                    "occupation": sheet.get("occupation"),
+                    "era": sheet.get("era"),
+                    "path": _relative_to_root(root, character_path),
+                }
+            )
     return entries
 
 
@@ -981,10 +1002,9 @@ def seed_investigator_state_if_missing(
             raise FileNotFoundError(
                 f"missing character sheet for investigator: {investigator_id}"
             )
-        loaded = json.loads(character_path.read_text(encoding="utf-8"))
-        if not isinstance(loaded, dict):
-            raise ValueError(f"character sheet must be an object: {character_path}")
-        sheet = loaded
+        sheet = coc_investigator_guard.read_reusable_character(
+            coc_root(root), investigator_id, character_path
+        )
 
     derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
     characteristics = (
@@ -1015,19 +1035,42 @@ def seed_investigator_state_if_missing(
 
 def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Path:
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
-    for investigator_id in investigator_ids:
-        seed_investigator_state_if_missing(root, campaign_id, investigator_id)
-    party_path = campaign_dir / "party.json"
-    write_json_atomic(
-        party_path,
-        {
-            "schema_version": 1,
-            "campaign_id": campaign_id,
-            "investigator_ids": investigator_ids,
-            "active_investigator_ids": investigator_ids,
-        },
-    )
-    _upsert_campaign_index(root, campaign_id)
+    with coc_investigator_guard.guard_reusable_investigators(
+        coc_root(root), investigator_ids
+    ):
+        sheets: dict[str, dict[str, Any]] = {}
+        for investigator_id in investigator_ids:
+            character_path = (
+                coc_root(root) / "investigators" / investigator_id / "character.json"
+            )
+            if not character_path.is_file():
+                raise FileNotFoundError(
+                    f"missing character sheet for investigator: {investigator_id}"
+                )
+            loaded = json.loads(character_path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                raise ValueError(
+                    f"character sheet must be an object: {character_path}"
+                )
+            sheets[investigator_id] = loaded
+        for investigator_id in investigator_ids:
+            seed_investigator_state_if_missing(
+                root,
+                campaign_id,
+                investigator_id,
+                sheet=sheets[investigator_id],
+            )
+        party_path = campaign_dir / "party.json"
+        write_json_atomic(
+            party_path,
+            {
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "investigator_ids": investigator_ids,
+                "active_investigator_ids": investigator_ids,
+            },
+        )
+        _upsert_campaign_index(root, campaign_id)
     return party_path
 
 

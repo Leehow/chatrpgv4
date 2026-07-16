@@ -47,6 +47,9 @@ coc_character_creation_briefing = _load_sibling(
 )
 coc_development = _load_sibling("coc_development_runtime_ops", "coc_development.py")
 coc_fileio = _load_sibling("coc_fileio_runtime_ops", "coc_fileio.py")
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_runtime_ops", "coc_investigator_guard.py"
+)
 coc_hazards = _load_sibling("coc_hazards_runtime_ops", "coc_hazards.py")
 coc_magic = _load_sibling("coc_magic_runtime_ops", "coc_magic.py")
 coc_mythos = _load_sibling("coc_mythos_runtime_ops", "coc_mythos.py")
@@ -1013,13 +1016,17 @@ def _claim_development_active_marker(
             transaction_id, [_journal_display_path(campaign_dir, marker_path)]
         )
     expected = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "active",
         "transaction_id": transaction_id,
         "investigator_id": investigator_id,
         "campaign_id": _id(campaign_dir.name, "campaign_id"),
         "ending_id": ending_id,
         "inflight_ref": _journal_display_path(campaign_dir, inflight_path),
+        "phase": "creating",
+        "journal_sha256": None,
+        "next_journal_sha256": None,
+        "transition_at": None,
     }
     try:
         current = coc_development.active_development_transaction(
@@ -1030,7 +1037,15 @@ def _claim_development_active_marker(
             transaction_id, [_journal_display_path(campaign_dir, marker_path)]
         ) from exc
     if current is not None:
-        if all(current.get(key) == value for key, value in expected.items()):
+        identity_keys = {
+            "status", "transaction_id", "investigator_id", "campaign_id",
+            "ending_id", "inflight_ref",
+        }
+        if (
+            all(current.get(key) == expected[key] for key in identity_keys)
+            and current.get("schema_version") == 2
+            and current.get("phase") == "creating"
+        ):
             return current
         raise DevelopmentRecoveryConflict(
             transaction_id, [_journal_display_path(campaign_dir, marker_path)]
@@ -1047,12 +1062,162 @@ def _claim_development_active_marker(
     return marker
 
 
+def _development_journal_sha256(path: Path) -> str:
+    try:
+        payload = Path(path).read_bytes()
+    except OSError as exc:
+        raise DevelopmentRecoveryConflict(
+            "development-journal",
+            [str(path)],
+        ) from exc
+    return _sha256_bytes(payload)
+
+
+def _development_marker_identity_matches(
+    marker: dict[str, Any],
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    transaction_id: str,
+    inflight_path: Path,
+) -> bool:
+    return bool(
+        marker.get("status") == "active"
+        and marker.get("transaction_id") == transaction_id
+        and marker.get("campaign_id") == campaign_dir.name
+        and marker.get("investigator_id") == investigator_id
+        and marker.get("inflight_ref")
+        == _journal_display_path(campaign_dir, inflight_path)
+    )
+
+
+def _transition_development_active_marker(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    inflight_path: Path,
+    transaction_id: str,
+    expected_phases: set[str],
+    phase: str,
+    journal_sha256: str,
+    next_journal_sha256: str | None = None,
+    transition_at: str | None = None,
+) -> dict[str, Any]:
+    """CAS one durable marker phase while the investigator lock is held."""
+    marker_path = _development_active_marker_path(campaign_dir, investigator_id)
+    try:
+        marker = coc_development.active_development_transaction(
+            campaign_dir, investigator_id
+        )
+    except ValueError as exc:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        ) from exc
+    if marker is None or not _development_marker_identity_matches(
+        marker,
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        transaction_id=transaction_id,
+        inflight_path=inflight_path,
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    current_phase = (
+        str(marker.get("phase"))
+        if marker.get("schema_version") == 2
+        else "legacy_active"
+    )
+    if current_phase not in expected_phases:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    actual_digest = _development_journal_sha256(inflight_path)
+    allowed_digests = {
+        value for value in (
+            marker.get("journal_sha256"), marker.get("next_journal_sha256")
+        ) if isinstance(value, str)
+    }
+    if current_phase not in {"creating", "legacy_active"} and (
+        actual_digest not in allowed_digests
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [
+                _journal_display_path(campaign_dir, marker_path),
+                _journal_display_path(campaign_dir, inflight_path),
+            ],
+        )
+    if phase in {"journaled", "committed", "recovered"}:
+        next_journal_sha256 = None
+    if phase == "journaled":
+        transition_at = None
+    elif not isinstance(transition_at, str) or not transition_at:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    updated = {
+        "schema_version": 2,
+        "status": "active",
+        "transaction_id": transaction_id,
+        "investigator_id": investigator_id,
+        "campaign_id": campaign_dir.name,
+        "ending_id": str(marker["ending_id"]),
+        "inflight_ref": _journal_display_path(campaign_dir, inflight_path),
+        "created_at": str(marker["created_at"]),
+        "phase": phase,
+        "journal_sha256": journal_sha256,
+        "next_journal_sha256": next_journal_sha256,
+        "transition_at": transition_at,
+    }
+    coc_fileio.write_json_atomic(
+        marker_path,
+        updated,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    try:
+        persisted = coc_development.active_development_transaction(
+            campaign_dir, investigator_id
+        )
+    except ValueError as exc:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        ) from exc
+    if persisted != updated:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    return updated
+
+
+def _mark_development_journal_durable(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    inflight_path: Path,
+    transaction_id: str,
+) -> dict[str, Any]:
+    digest = _development_journal_sha256(inflight_path)
+    return _transition_development_active_marker(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        inflight_path=inflight_path,
+        transaction_id=transaction_id,
+        expected_phases={"creating", "legacy_active"},
+        phase="journaled",
+        journal_sha256=digest,
+    )
+
+
 def _release_development_active_marker(
     *,
     campaign_dir: Path,
     investigator_id: str,
     transaction_id: str,
     missing_ok: bool = True,
+    expected_phases: set[str] | None = None,
 ) -> None:
     marker_path = _development_active_marker_path(campaign_dir, investigator_id)
     try:
@@ -1074,6 +1239,15 @@ def _release_development_active_marker(
         or marker.get("campaign_id") != campaign_dir.name
         or marker.get("investigator_id") != investigator_id
     ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    marker_phase = (
+        str(marker.get("phase"))
+        if marker.get("schema_version") == 2
+        else "legacy_active"
+    )
+    if expected_phases is not None and marker_phase not in expected_phases:
         raise DevelopmentRecoveryConflict(
             transaction_id, [_journal_display_path(campaign_dir, marker_path)]
         )
@@ -1188,28 +1362,25 @@ def read_development_guarded_character(
     character_path: Path,
 ) -> dict[str, Any]:
     """Read shared character state while excluding incomplete settlements."""
-    with coc_fileio.advisory_file_lock(
-        _development_investigator_lock_path(campaign_dir, investigator_id),
-        wait_seconds=5.0,
-    ):
-        marker_path = _development_active_marker_path(
-            campaign_dir, investigator_id
+    try:
+        return coc_investigator_guard.read_reusable_character(
+            Path(campaign_dir).parents[1], investigator_id, character_path
         )
-        try:
-            marker = coc_development.active_development_transaction(
-                campaign_dir, investigator_id
-            )
-        except ValueError as exc:
+    except coc_investigator_guard.ReusableInvestigatorRecoveryConflict as exc:
+        raise DevelopmentRecoveryConflict(
+            exc.transaction_id,
+            [_journal_display_path(Path(campaign_dir), exc.marker_path)],
+        ) from exc
+    except ValueError as exc:
+        marker_path = _development_active_marker_path(
+            Path(campaign_dir), investigator_id
+        )
+        if marker_path.is_file() or marker_path.is_symlink():
             raise DevelopmentRecoveryConflict(
                 "development-reader",
-                [_journal_display_path(campaign_dir, marker_path)],
+                [_journal_display_path(Path(campaign_dir), marker_path)],
             ) from exc
-        if marker is not None:
-            raise DevelopmentRecoveryConflict(
-                str(marker["transaction_id"]),
-                [_journal_display_path(campaign_dir, marker_path)],
-            )
-        return _read_object(character_path)
+        raise RuntimeOperationError(str(exc)) from exc
 
 
 class DevelopmentTargetConflict(RuntimeOperationError):
@@ -1234,6 +1405,66 @@ def _same_file_image(current: dict[str, Any], expected: Any) -> bool:
     )
 
 
+def _development_marker_for_inflight(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    inflight_path: Path,
+    transaction_id: str,
+) -> dict[str, Any] | None:
+    marker_path = _development_active_marker_path(campaign_dir, investigator_id)
+    try:
+        marker = coc_development.active_development_transaction(
+            campaign_dir, investigator_id
+        )
+    except ValueError as exc:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        ) from exc
+    if marker is None:
+        return None
+    if not _development_marker_identity_matches(
+        marker,
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        transaction_id=transaction_id,
+        inflight_path=inflight_path,
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    return marker
+
+
+def _development_marker_phase(marker: dict[str, Any] | None) -> str | None:
+    if marker is None:
+        return None
+    if marker.get("schema_version") == 1:
+        return "legacy_active"
+    return str(marker.get("phase"))
+
+
+def _recovered_development_journal(
+    journal: dict[str, Any], *, recovered_at: str
+) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "status": "recovered",
+        "transaction_id": journal["transaction_id"],
+        "ending_id": journal["ending_id"],
+        "investigator_id": journal["investigator_id"],
+        "conclusion_reward_id": journal.get("conclusion_reward_id"),
+        "rng_state": journal.get("rng_state"),
+        "prepared_at": journal.get("prepared_at"),
+        "recovered_at": recovered_at,
+    }
+
+
+def _journal_serialized_sha256(journal: dict[str, Any]) -> str:
+    text = json.dumps(journal, indent=2, ensure_ascii=False) + "\n"
+    return _sha256_bytes(text.encode("utf-8"))
+
+
 def _recover_development_inflight(
     *,
     campaign_dir: Path,
@@ -1245,6 +1476,14 @@ def _recover_development_inflight(
 ) -> dict[str, Any]:
     status = journal.get("status")
     transaction_id = str(journal.get("transaction_id") or "unknown-development-txn")
+    marker = _development_marker_for_inflight(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        inflight_path=inflight_path,
+        transaction_id=transaction_id,
+    )
+    marker_phase = _development_marker_phase(marker)
+    journal_digest = _development_journal_sha256(inflight_path)
     if status == "recovered":
         if (
             journal.get("schema_version") != 2
@@ -1257,11 +1496,54 @@ def _recover_development_inflight(
                 transaction_id,
                 [_journal_display_path(campaign_dir, inflight_path)],
             )
+        if marker is not None:
+            current_digest = marker.get("journal_sha256")
+            next_digest = marker.get("next_journal_sha256")
+            if marker_phase == "recovering" and next_digest == journal_digest:
+                if not dry_run:
+                    marker = _transition_development_active_marker(
+                        campaign_dir=campaign_dir,
+                        investigator_id=investigator_id,
+                        inflight_path=inflight_path,
+                        transaction_id=transaction_id,
+                        expected_phases={"recovering"},
+                        phase="recovered",
+                        journal_sha256=journal_digest,
+                        transition_at=str(marker["transition_at"]),
+                    )
+                    marker_phase = "recovered"
+            elif marker_phase == "legacy_active":
+                if not dry_run:
+                    marker = _transition_development_active_marker(
+                        campaign_dir=campaign_dir,
+                        investigator_id=investigator_id,
+                        inflight_path=inflight_path,
+                        transaction_id=transaction_id,
+                        expected_phases={"legacy_active"},
+                        phase="recovered",
+                        journal_sha256=journal_digest,
+                        transition_at=str(journal.get("recovered_at") or _now()),
+                    )
+                    marker_phase = "recovered"
+            elif marker_phase != "recovered" or current_digest != journal_digest:
+                raise DevelopmentRecoveryConflict(
+                    transaction_id,
+                    [
+                        _journal_display_path(
+                            campaign_dir,
+                            _development_active_marker_path(
+                                campaign_dir, investigator_id
+                            ),
+                        ),
+                        _journal_display_path(campaign_dir, inflight_path),
+                    ],
+                )
         if not dry_run:
             _release_development_active_marker(
                 campaign_dir=campaign_dir,
                 investigator_id=investigator_id,
                 transaction_id=transaction_id,
+                expected_phases={"recovered"},
             )
         return {
             "transaction_id": transaction_id,
@@ -1276,6 +1558,39 @@ def _recover_development_inflight(
         or journal.get("transaction_id")
         != _development_transaction_id(str(journal.get("ending_id")), investigator_id)
     ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, inflight_path)],
+        )
+    if marker_phase in {"journaled", "committed"} and (
+        marker is None or marker.get("journal_sha256") != journal_digest
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [
+                _journal_display_path(
+                    campaign_dir,
+                    _development_active_marker_path(campaign_dir, investigator_id),
+                ),
+                _journal_display_path(campaign_dir, inflight_path),
+            ],
+        )
+    if marker_phase == "recovering" and (
+        marker is None or marker.get("journal_sha256") != journal_digest
+    ):
+        # A recovering marker permits exactly the old prepared journal or the
+        # deterministic recovered journal.  The latter is handled above.
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [
+                _journal_display_path(
+                    campaign_dir,
+                    _development_active_marker_path(campaign_dir, investigator_id),
+                ),
+                _journal_display_path(campaign_dir, inflight_path),
+            ],
+        )
+    if marker_phase == "recovered":
         raise DevelopmentRecoveryConflict(
             transaction_id,
             [_journal_display_path(campaign_dir, inflight_path)],
@@ -1320,6 +1635,7 @@ def _recover_development_inflight(
 
     conflicts: list[str] = []
     current_files: dict[str, dict[str, Any]] = {}
+    all_preimage = True
     coc_root = campaign_dir.parents[1]
     for name, path in files.items():
         preimage = file_preimages[name]
@@ -1332,7 +1648,9 @@ def _recover_development_inflight(
             conflicts.append(_journal_display_path(campaign_dir, path))
             continue
         current_files[name] = current
-        owned = _same_file_image(current, preimage)
+        is_preimage = _same_file_image(current, preimage)
+        all_preimage = all_preimage and is_preimage
+        owned = is_preimage
         if status == "prepared":
             owned = owned or _same_file_image(current, file_postimages[name])
         if not owned:
@@ -1369,6 +1687,9 @@ def _recover_development_inflight(
             continue
         delta = current[size:]
         current_log_deltas[name] = delta
+        all_preimage = bool(
+            all_preimage and current_exists == pre_exists and not delta
+        )
         allowed_suffix = b""
         if status == "prepared":
             postimage = log_postimages[name]
@@ -1402,13 +1723,32 @@ def _recover_development_inflight(
             transaction_id, sorted(set(conflicts))
         )
 
+    # Schema-v2 ``creating`` proves application has not been authorized.  A
+    # non-preimage target contradicts that durable phase and must remain
+    # untouched.  Legacy markers lack that proof and are migrated only after
+    # the older journal's complete ownership validation above succeeds.
+    if marker_phase == "creating" and not all_preimage:
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [
+                _journal_display_path(
+                    campaign_dir,
+                    _development_active_marker_path(campaign_dir, investigator_id),
+                )
+            ],
+        )
+    if marker_phase == "committed" and status != "prepared":
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, inflight_path)]
+        )
+
     if status == "prepared":
         settlement_committed = _same_file_image(
             current_files["settlement"], file_postimages["settlement"]
         ) and not _same_file_image(
             current_files["settlement"], file_preimages["settlement"]
         )
-        if settlement_committed:
+        if settlement_committed and marker_phase != "recovering":
             if _settled_receipt_for_ending(
                 settlement_path,
                 str(journal["ending_id"]),
@@ -1434,10 +1774,41 @@ def _recover_development_inflight(
                     transaction_id, sorted(set(incomplete))
                 )
             if not dry_run:
+                if marker_phase in {"creating", "legacy_active"}:
+                    if marker_phase == "creating" and not all_preimage:
+                        raise DevelopmentRecoveryConflict(
+                            transaction_id,
+                            [_journal_display_path(campaign_dir, inflight_path)],
+                        )
+                    marker = _mark_development_journal_durable(
+                        campaign_dir=campaign_dir,
+                        investigator_id=investigator_id,
+                        inflight_path=inflight_path,
+                        transaction_id=transaction_id,
+                    )
+                    marker_phase = "journaled"
+                if marker_phase == "journaled":
+                    marker = _transition_development_active_marker(
+                        campaign_dir=campaign_dir,
+                        investigator_id=investigator_id,
+                        inflight_path=inflight_path,
+                        transaction_id=transaction_id,
+                        expected_phases={"journaled"},
+                        phase="committed",
+                        journal_sha256=journal_digest,
+                        transition_at=_now(),
+                    )
+                    marker_phase = "committed"
+                if marker is not None and marker_phase != "committed":
+                    raise DevelopmentRecoveryConflict(
+                        transaction_id,
+                        [_journal_display_path(campaign_dir, inflight_path)],
+                    )
                 _release_development_active_marker(
                     campaign_dir=campaign_dir,
                     investigator_id=investigator_id,
                     transaction_id=transaction_id,
+                    expected_phases={"committed"},
                 )
                 inflight_path.unlink(missing_ok=True)
             return {
@@ -1455,6 +1826,57 @@ def _recover_development_inflight(
             "status": "WOULD_ROLL_BACK",
             "conflicting_paths": [],
         }
+    if marker is None:
+        marker = _claim_development_active_marker(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            ending_id=str(journal["ending_id"]),
+            inflight_path=inflight_path,
+        )
+        marker_phase = _development_marker_phase(marker)
+    if marker_phase in {"creating", "legacy_active"}:
+        _mark_development_journal_durable(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            inflight_path=inflight_path,
+            transaction_id=transaction_id,
+        )
+        marker_phase = "journaled"
+    if marker_phase == "journaled":
+        recovered_at = _now()
+        recovered = _recovered_development_journal(
+            journal, recovered_at=recovered_at
+        )
+        recovered_digest = _journal_serialized_sha256(recovered)
+        marker = _transition_development_active_marker(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            inflight_path=inflight_path,
+            transaction_id=transaction_id,
+            expected_phases={"journaled"},
+            phase="recovering",
+            journal_sha256=journal_digest,
+            next_journal_sha256=recovered_digest,
+            transition_at=recovered_at,
+        )
+        marker_phase = "recovering"
+    elif marker_phase == "recovering":
+        assert marker is not None
+        recovered_at = str(marker["transition_at"])
+        recovered = _recovered_development_journal(
+            journal, recovered_at=recovered_at
+        )
+        recovered_digest = _journal_serialized_sha256(recovered)
+        if recovered_digest != marker.get("next_journal_sha256"):
+            raise DevelopmentRecoveryConflict(
+                transaction_id,
+                [_journal_display_path(campaign_dir, inflight_path)],
+            )
+    else:
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, inflight_path)],
+        )
     for name, path in files.items():
         preimage = file_preimages[name]
         if preimage["exists"] is True:
@@ -1471,22 +1893,22 @@ def _recover_development_inflight(
                 os.fsync(handle.fileno())
         else:
             path.unlink(missing_ok=True)
-    recovered = {
-        "schema_version": 2,
-        "status": "recovered",
-        "transaction_id": transaction_id,
-        "ending_id": journal["ending_id"],
-        "investigator_id": investigator_id,
-        "conclusion_reward_id": journal.get("conclusion_reward_id"),
-        "rng_state": journal.get("rng_state"),
-        "prepared_at": journal.get("prepared_at"),
-        "recovered_at": _now(),
-    }
     _write_development_journal(inflight_path, recovered)
+    marker = _transition_development_active_marker(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        inflight_path=inflight_path,
+        transaction_id=transaction_id,
+        expected_phases={"recovering"},
+        phase="recovered",
+        journal_sha256=recovered_digest,
+        transition_at=recovered_at,
+    )
     _release_development_active_marker(
         campaign_dir=campaign_dir,
         investigator_id=investigator_id,
         transaction_id=transaction_id,
+        expected_phases={"recovered"},
     )
     return {
         "transaction_id": transaction_id,
@@ -1708,10 +2130,23 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
                     _journal_display_path(campaign_dir, marker_path)
                 )
             elif loaded_item is None:
-                # Marker-first creation makes this the only safe orphan shape:
-                # the origin exited before its journal became durable.
-                orphan_markers.append((investigator_id, transaction_id))
-            elif str(loaded_item[1].get("transaction_id")) != transaction_id:
+                # Only a schema-v2 creating marker proves application was never
+                # authorized.  Legacy, journaled, recovering, recovered, and
+                # committed markers without their fingerprinted journal are
+                # preserved fail-closed.
+                if (
+                    marker.get("schema_version") == 2
+                    and marker.get("phase") == "creating"
+                ):
+                    orphan_markers.append((investigator_id, transaction_id))
+                else:
+                    marker_conflicts.append(
+                        _journal_display_path(campaign_dir, marker_path)
+                    )
+            elif (
+                str(loaded_item[1].get("transaction_id")) != transaction_id
+                or loaded_item[2] != investigator_id
+            ):
                 marker_conflicts.extend([
                     _journal_display_path(campaign_dir, marker_path),
                     _journal_display_path(campaign_dir, referenced),
@@ -1785,6 +2220,7 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
                 investigator_id=investigator_id,
                 transaction_id=transaction_id,
                 missing_ok=False,
+                expected_phases={"creating"},
             )
         for inflight_path, journal, investigator_id, _ending_id, settlement_path in loaded:
             recovered.append(_recover_development_inflight(
@@ -1927,6 +2363,24 @@ def _assert_development_preapply_cas(
         campaign_dir, investigator_id, settlement_path, ending
     )
     transaction_id = str(journal.get("transaction_id") or "unknown-development-txn")
+    marker = _development_marker_for_inflight(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        inflight_path=settlement_path.with_name(f"{investigator_id}.inflight.json"),
+        transaction_id=transaction_id,
+    )
+    if (
+        _development_marker_phase(marker) != "journaled"
+        or marker is None
+        or marker.get("journal_sha256")
+        != _development_journal_sha256(
+            settlement_path.with_name(f"{investigator_id}.inflight.json")
+        )
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, settlement_path)],
+        )
     file_preimages = journal.get("file_preimages")
     log_preimages = journal.get("log_preimages")
     file_postimages = journal.get("file_postimages")
@@ -2358,11 +2812,27 @@ def _development_operation_body(
             sanity.gain_san(planned_delta, source="scenario_conclusion")
             san_after = int(sanity.san_current)
             sanity.save(campaign_dir, strict_mirror=True)
+            baseline_sanity = (
+                (result.get("mechanical_baseline") or {}).get("sanity") or {}
+            )
+            planned_san_before = baseline_sanity.get("current")
+            baseline_max = baseline_sanity.get("max")
+            development_planned_delta = result.get("san_reward_planned_delta")
+            if (
+                isinstance(planned_san_before, int)
+                and not isinstance(planned_san_before, bool)
+                and isinstance(baseline_max, int)
+                and not isinstance(baseline_max, bool)
+                and isinstance(development_planned_delta, int)
+                and not isinstance(development_planned_delta, bool)
+            ):
+                planned_san_before = min(
+                    baseline_max,
+                    planned_san_before + max(0, development_planned_delta),
+                )
             reward_result = {
                 **rolled,
-                "planned_san_before": (
-                    ((result.get("mechanical_baseline") or {}).get("sanity") or {}).get("current")
-                ),
+                "planned_san_before": planned_san_before,
                 "planned_san_delta": planned_delta,
                 "san_before": san_before,
                 "san_gained": san_after - san_before,
@@ -2720,6 +3190,12 @@ def _development_operation_locked(
         # would observe; this catches torn/corrupted per-image data before any
         # canonical target changes.
         journal = _read_object(inflight_path)
+        marker = _mark_development_journal_durable(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            inflight_path=inflight_path,
+            transaction_id=str(journal["transaction_id"]),
+        )
         _assert_development_preapply_cas(
             campaign_dir=campaign_dir,
             investigator_id=investigator_id,
@@ -2733,6 +3209,16 @@ def _development_operation_locked(
             settlement_path=settlement_path,
             ending=ending,
             journal=journal,
+        )
+        _transition_development_active_marker(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            inflight_path=inflight_path,
+            transaction_id=str(journal["transaction_id"]),
+            expected_phases={"journaled"},
+            phase="committed",
+            journal_sha256=_development_journal_sha256(inflight_path),
+            transition_at=_now(),
         )
         # The exact per-ending receipt above is the commit marker.  This
         # compatibility projection is intentionally derived afterwards and is
@@ -2758,6 +3244,7 @@ def _development_operation_locked(
         transaction_id=_development_transaction_id(
             exact_ending_id, investigator_id
         ),
+        expected_phases={"committed"},
     )
     inflight_path.unlink(missing_ok=True)
     return _receipt_with_projection_warning(receipt, mirror_warning)
@@ -2950,6 +3437,18 @@ def execute_setup_operation(
         if str(sheet.get("id")) != investigator_id:
             raise RuntimeOperationError("investigator sheet id must match investigator_id")
         path = root / ".coc" / "investigators" / investigator_id / "character.json"
+        try:
+            with coc_investigator_guard.guard_reusable_investigators(
+                root / ".coc", [investigator_id]
+            ):
+                pass
+        except coc_investigator_guard.ReusableInvestigatorRecoveryConflict as exc:
+            raise DevelopmentRecoveryConflict(
+                exc.transaction_id,
+                [_journal_display_path(
+                    root / ".coc" / "campaigns" / "setup", exc.marker_path
+                )],
+            ) from exc
         if path.exists():
             raise FileExistsError(f"investigator already exists: {investigator_id}")
         created = coc_state.create_investigator(
@@ -2989,15 +3488,26 @@ def execute_setup_operation(
         language = str(
             payload.get("language") or campaign.get("play_language") or "zh-Hans"
         )
-        rendered = coc_character_card.render_cards(
-            character_path,
-            campaign_path,
-            campaign_dir / "assets" / "character-cards" / investigator_id,
-            repo_root=root,
-            language=language,
-            html_mode=str(html_mode),
-            write_back=False,
-        )
+        try:
+            with coc_investigator_guard.guard_reusable_investigators(
+                root / ".coc", [investigator_id]
+            ):
+                character_snapshot = _read_object(character_path)
+                rendered = coc_character_card.render_cards(
+                    character_path,
+                    campaign_path,
+                    campaign_dir / "assets" / "character-cards" / investigator_id,
+                    repo_root=root,
+                    language=language,
+                    html_mode=str(html_mode),
+                    write_back=False,
+                    character_snapshot=character_snapshot,
+                )
+        except coc_investigator_guard.ReusableInvestigatorRecoveryConflict as exc:
+            raise DevelopmentRecoveryConflict(
+                exc.transaction_id,
+                [_journal_display_path(campaign_dir, exc.marker_path)],
+            ) from exc
         refs = [rendered["markdown_path"]]
         if isinstance(rendered.get("html_path"), str):
             refs.append(rendered["html_path"])

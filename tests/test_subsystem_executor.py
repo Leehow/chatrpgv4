@@ -69,6 +69,35 @@ def _campaign_and_character(tmp_path: Path) -> tuple[Path, Path]:
     return campaign, character
 
 
+def _install_creating_marker(executor, root: Path, investigator_id: str) -> Path:
+    ending_id = "ending-consumer-guard"
+    transaction_id = executor.coc_investigator_guard._expected_transaction_id(
+        ending_id, investigator_id
+    )
+    marker = (
+        root / "investigators" / investigator_id
+        / "development-active-transaction.json"
+    )
+    marker.write_text(json.dumps({
+        "schema_version": 2,
+        "status": "active",
+        "transaction_id": transaction_id,
+        "investigator_id": investigator_id,
+        "campaign_id": "foreign-campaign",
+        "ending_id": ending_id,
+        "inflight_ref": (
+            "campaigns/foreign-campaign/save/development-settlements/"
+            "endings/ending-consumer-guard/inv.inflight.json"
+        ),
+        "created_at": "2026-07-16T00:00:00Z",
+        "phase": "creating",
+        "journal_sha256": None,
+        "next_journal_sha256": None,
+        "transition_at": None,
+    }), encoding="utf-8")
+    return marker
+
+
 def _command(
     command_id: str,
     kind: str,
@@ -98,6 +127,37 @@ def _san_command(command_id: str) -> dict:
             "source": "structured-test-source",
         },
     )
+
+
+def test_direct_character_command_returns_recovery_conflict_without_state_writes(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_character_recovery_guard")
+    campaign, character = _campaign_and_character(tmp_path)
+    marker = _install_creating_marker(executor, tmp_path, "inv1")
+    tracked = [
+        path for path in tmp_path.rglob("*")
+        if path.is_file() and "locks" not in path.parts
+    ]
+    before = {path: path.read_bytes() for path in tracked}
+    command = _command("guarded-first-aid", "stabilize", payload={
+        "decision_id": "guarded-first-aid",
+        "method": "first_aid",
+        "skill_value": 99,
+    })
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        executor.execute_commands(
+            campaign, character, "inv1", [command], rng=random.Random(2)
+        )
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert marker.is_file()
+    assert {
+        path: path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file() and "locks" not in path.parts
+    } == before
 
 
 def _realtime_bout_command(command_id: str = "san-realtime-bout") -> dict:

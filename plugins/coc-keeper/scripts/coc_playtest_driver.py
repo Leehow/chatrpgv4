@@ -40,6 +40,9 @@ subsystem_executor = _load_sibling(
     "coc_subsystem_executor_driver",
     "coc_subsystem_executor.py",
 )
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_playtest_driver", "coc_investigator_guard.py"
+)
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
@@ -830,6 +833,7 @@ def write_playtest_artifacts(
     metadata: dict[str, Any] | None = None,
     *,
     generate_report: bool = True,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> Path:
     """Write a reportable driver playtest artifact and return battle-report.md.
 
@@ -839,6 +843,14 @@ def write_playtest_artifacts(
     report contract.
     """
     metadata = dict(metadata or {})
+    if character_snapshot is None:
+        character_snapshot = coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign_dir),
+            investigator_id,
+            character_path,
+        )
+    else:
+        character_snapshot = json.loads(json.dumps(character_snapshot))
     run_dir.mkdir(parents=True, exist_ok=True)
     source_campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
     campaign_id = str(metadata.get("campaign_id") or source_campaign.get("campaign_id") or campaign_dir.name)
@@ -869,7 +881,7 @@ def write_playtest_artifacts(
     target_character = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / "character.json"
     target_character.parent.mkdir(parents=True, exist_ok=True)
     if character_path.resolve() != target_character.resolve():
-        shutil.copy2(character_path, target_character)
+        _write_json(target_character, character_snapshot)
 
     transcript = _transcript_from_driver_result(
         result,

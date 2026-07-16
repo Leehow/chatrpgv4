@@ -43,6 +43,9 @@ coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
 coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compile.py")
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_story_director", "coc_investigator_guard.py"
+)
 coc_director_strategies = _load_sibling("coc_director_strategies", "coc_director_strategies.py")
 coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_policy.py")
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
@@ -610,6 +613,7 @@ def build_director_context(
     player_intent_class: str,
     rng: random.Random | None = None,
     player_intent_rich: dict[str, Any] | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble DirectorContext: rule signals + active scene + scenario graph.
 
@@ -632,7 +636,15 @@ def build_director_context(
     scenario = campaign_dir / "scenario"
 
     inv_state = _read_json(save / "investigator-state" / f"{investigator_id}.json", {})
-    character = _read_json(character_path, {})
+    character = (
+        json.loads(json.dumps(character_snapshot, ensure_ascii=False))
+        if isinstance(character_snapshot, dict)
+        else coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign_dir),
+            investigator_id,
+            character_path,
+        )
+    )
     world = _read_json(save / "world-state.json", {})
     pacing = _read_json(save / "pacing-state.json", {})
     combat_state = _read_json(save / "combat.json", {})

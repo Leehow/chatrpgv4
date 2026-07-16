@@ -135,6 +135,41 @@ def _exact_development_paths(
     )
 
 
+def _prepared_development_journal(
+    root: Path,
+) -> tuple[Path, Path, Path, Path, dict]:
+    character, campaign, _operation = _prepare_development_cliffhanger(root)
+    ending = ops.coc_development.structured_ending_evidence(campaign)
+    assert ending is not None
+    ending_id, settlement, inflight = _exact_development_paths(campaign)
+    rng = random.Random(5)
+    journal = ops._capture_development_inflight(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        ending_id=ending_id,
+        settlement_path=settlement,
+        inflight_path=inflight,
+        ending=ending,
+        rng=rng,
+    )
+    _receipt, file_postimages, log_postimages = ops._plan_development_postimages(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        payload={},
+        rng=rng,
+        settlement_path=settlement,
+        ending=ending,
+    )
+    journal.update({
+        "status": "prepared",
+        "file_postimages": file_postimages,
+        "log_postimages": log_postimages,
+        "planned_at": "2026-07-16T00:00:00Z",
+    })
+    ops._write_development_journal(inflight, journal)
+    return character, campaign, settlement, inflight, journal
+
+
 def _cast_operation() -> dict:
     return {
         "schema_version": 1,
@@ -146,6 +181,192 @@ def _cast_operation() -> dict:
             "is_npc": False,
         },
     }
+
+
+def _path_images(paths: list[Path]) -> dict[Path, bytes | None]:
+    return {
+        path: path.read_bytes() if path.is_file() else None
+        for path in paths
+    }
+
+
+def test_recovery_cleans_marker_only_creating_window_without_game_state_changes(
+    tmp_path,
+):
+    character, campaign, _operation = _prepare_development_cliffhanger(tmp_path)
+    ending_id, settlement, inflight = _exact_development_paths(campaign)
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+    ]
+    before = _path_images(tracked)
+    marker = ops._development_active_marker_path(campaign, "inv")
+    ops._claim_development_active_marker(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        ending_id=ending_id,
+        inflight_path=inflight,
+    )
+    assert marker.is_file() and not inflight.exists() and not settlement.exists()
+
+    with ops.coc_fileio.campaign_lock(campaign):
+        recovered = ops.recover_development_transactions(campaign)
+
+    assert recovered == []
+    assert not marker.exists() and not inflight.exists()
+    assert _path_images(tracked) == before
+
+
+def test_recovery_handles_prepared_journal_durable_before_phase_transition(
+    tmp_path,
+):
+    character, campaign, _settlement, inflight, _journal = (
+        _prepared_development_journal(tmp_path)
+    )
+    marker = ops._development_active_marker_path(campaign, "inv")
+    assert json.loads(marker.read_text(encoding="utf-8"))["phase"] == "creating"
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+    ]
+    before = _path_images(tracked)
+
+    with ops.coc_fileio.campaign_lock(campaign):
+        recovered = ops.recover_development_transactions(campaign)
+
+    assert [item["status"] for item in recovered] == ["ROLLED_BACK"]
+    assert not marker.exists() and inflight.is_file()
+    assert json.loads(inflight.read_text(encoding="utf-8"))["status"] == "recovered"
+    assert _path_images(tracked) == before
+
+
+@pytest.mark.parametrize("journal_fault", ["missing", "fingerprint_mismatch"])
+def test_journaled_marker_missing_or_mismatched_journal_fails_closed(
+    tmp_path, journal_fault
+):
+    character, campaign, _settlement, inflight, journal = (
+        _prepared_development_journal(tmp_path)
+    )
+    ops._mark_development_journal_durable(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+    )
+    marker = ops._development_active_marker_path(campaign, "inv")
+    if journal_fault == "missing":
+        inflight.unlink()
+    else:
+        inflight.write_bytes(inflight.read_bytes() + b"\n")
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+        marker,
+        inflight,
+    ]
+    before = _path_images(tracked)
+
+    with ops.coc_fileio.campaign_lock(campaign):
+        with pytest.raises(ops.DevelopmentRecoveryConflict):
+            ops.recover_development_transactions(campaign)
+
+    assert _path_images(tracked) == before
+
+
+def test_recovery_finishes_committed_receipt_before_cleanup_window(tmp_path):
+    _character, campaign, settlement, inflight, journal = (
+        _prepared_development_journal(tmp_path)
+    )
+    ending = ops.coc_development.structured_ending_evidence(campaign)
+    assert ending is not None
+    ops._mark_development_journal_durable(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+    )
+    ops._apply_development_postimages(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        settlement_path=settlement,
+        ending=ending,
+        journal=journal,
+    )
+    ops._transition_development_active_marker(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+        expected_phases={"journaled"},
+        phase="committed",
+        journal_sha256=ops._development_journal_sha256(inflight),
+        transition_at="2026-07-16T00:01:00Z",
+    )
+    marker = ops._development_active_marker_path(campaign, "inv")
+    committed = settlement.read_bytes()
+
+    with ops.coc_fileio.campaign_lock(campaign):
+        recovered = ops.recover_development_transactions(campaign)
+
+    assert [item["status"] for item in recovered] == ["COMMITTED"]
+    assert settlement.read_bytes() == committed
+    assert not marker.exists() and not inflight.exists()
+
+
+@pytest.mark.parametrize("marker_phase", ["recovering", "recovered"])
+def test_recovery_cleans_recovered_journal_precleanup_windows(
+    tmp_path, marker_phase
+):
+    character, campaign, _settlement, inflight, journal = (
+        _prepared_development_journal(tmp_path)
+    )
+    ops._mark_development_journal_durable(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+    )
+    recovered_at = "2026-07-16T00:02:00Z"
+    recovered_journal = ops._recovered_development_journal(
+        journal, recovered_at=recovered_at
+    )
+    recovered_digest = ops._journal_serialized_sha256(recovered_journal)
+    ops._transition_development_active_marker(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+        expected_phases={"journaled"},
+        phase="recovering",
+        journal_sha256=ops._development_journal_sha256(inflight),
+        next_journal_sha256=recovered_digest,
+        transition_at=recovered_at,
+    )
+    ops._write_development_journal(inflight, recovered_journal)
+    if marker_phase == "recovered":
+        ops._transition_development_active_marker(
+            campaign_dir=campaign,
+            investigator_id="inv",
+            inflight_path=inflight,
+            transaction_id=str(journal["transaction_id"]),
+            expected_phases={"recovering"},
+            phase="recovered",
+            journal_sha256=recovered_digest,
+            transition_at=recovered_at,
+        )
+    marker = ops._development_active_marker_path(campaign, "inv")
+    character_before = character.read_bytes()
+
+    with ops.coc_fileio.campaign_lock(campaign):
+        recovered = ops.recover_development_transactions(campaign)
+
+    assert [item["status"] for item in recovered] == ["RECOVERED"]
+    assert character.read_bytes() == character_before
+    assert not marker.exists() and inflight.is_file()
+    assert json.loads(inflight.read_text(encoding="utf-8"))["status"] == "recovered"
 
 
 def test_plugin_and_pi_sdk_entries_return_same_magic_receipt(tmp_path):
@@ -712,6 +933,12 @@ def test_recovery_rejects_malformed_individual_image_before_restore(
     else:
         journal["log_postimages"]["events"]["suffix_sha256"] = "0" * 64
     ops._write_development_journal(inflight, journal)
+    ops._mark_development_journal_durable(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+    )
     tracked = [
         character,
         campaign / "save" / "investigator-state" / "inv.json",
@@ -756,6 +983,12 @@ def test_recovery_rejects_relocated_duplicate_journal_before_any_mutation(tmp_pa
         "log_postimages": log_postimages,
     })
     ops._write_development_journal(inflight, journal)
+    ops._mark_development_journal_durable(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+    )
     duplicate = (
         campaign / "save" / "development-settlements" / "endings"
         / "zzz-relocated" / "inv.inflight.json"
@@ -1015,6 +1248,12 @@ def test_foreign_campaign_marker_is_zero_write_and_only_origin_recovers(tmp_path
         "log_postimages": log_postimages,
     })
     ops._write_development_journal(inflight, journal)
+    ops._mark_development_journal_durable(
+        campaign_dir=campaign_a,
+        investigator_id="inv",
+        inflight_path=inflight,
+        transaction_id=str(journal["transaction_id"]),
+    )
     character_preimage = journal["file_preimages"]["character"]
     ops.coc_fileio.write_text_atomic(
         character, str(file_postimages["character"]["text"])
@@ -1608,6 +1847,95 @@ def test_frozen_capped_san_reward_cannot_turn_into_later_healing(tmp_path):
     assert reward["san_before"] == reward["san_after"] == 90
     assert reward["san_gained"] == 0
     assert ops.coc_sanity.SanitySession.load(campaign, "inv").san_current == 90
+    assert Path(character).is_file()
+
+
+def test_scenario_reward_planned_baseline_includes_frozen_development_delta(
+    tmp_path,
+):
+    character = _workspace(tmp_path)
+    campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    baseline = {
+        "skills": {"Spot Hidden": 89},
+        "luck": 50,
+        "sanity": {
+            "source": "canonical",
+            "current": 80,
+            "max": 99,
+            "awfulness_caps": {},
+        },
+    }
+    plan = None
+    for index in range(500):
+        candidate = ops.coc_development._deterministic_development_plan(
+            skills=baseline["skills"],
+            luck=baseline["luck"],
+            sanity=baseline["sanity"],
+            seed_material=f"planned-reward-order-{index}",
+            scenario_reward_expr="1D6",
+        )
+        if (
+            candidate["development_san_planned_delta"] > 0
+            and candidate["scenario_san_planned_delta"] > 0
+        ):
+            plan = candidate
+            break
+    assert plan is not None
+    development_input = {
+        "schema_version": 2,
+        "skills_checked": ["Spot Hidden"],
+        "input_tokens": [],
+        "mechanical_baseline": baseline,
+        "deterministic_plan": plan,
+    }
+    ending = {
+        "ending_id": "ending-planned-reward-order",
+        "investigator_ids": ["inv"],
+        "development_inputs": {"inv": development_input},
+        "scenario_san_reward_expr": "1D6",
+        "scenario_san_reward_rule_ref": "test.reward-order",
+        "scenario_id": "test-scenario",
+        "conclusion_id": "test-conclusion",
+        "conclusion_reward_id": "test-conclusion-reward-order",
+        "conclusion_evidence": {"kind": "structured-test"},
+    }
+    live_sanity = ops.coc_sanity.SanitySession(
+        "inv", san_max=99, int_value=70, rng=random.Random(1),
+        campaign_dir=campaign,
+    )
+    live_sanity.san_current = 30
+    live_sanity.day_start_san = 30
+    live_sanity.save(campaign, strict_mirror=True)
+    settlement = ops.coc_development.ending_settlement_path(
+        campaign, ending["ending_id"], "inv"
+    )
+
+    receipt = ops._development_operation_body(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        payload={},
+        rng=random.Random(9),
+        ending=ending,
+        settlement_path=settlement,
+    )
+
+    development_reward = receipt["result"]["san_reward"]
+    scenario_reward = receipt["result"]["scenario_san_reward"]
+    expected_planned_before = min(
+        baseline["sanity"]["max"],
+        baseline["sanity"]["current"]
+        + plan["development_san_planned_delta"],
+    )
+    assert development_reward["planned_san_before"] == 80
+    assert development_reward["san_before"] == 30
+    assert scenario_reward["planned_san_before"] == expected_planned_before
+    assert scenario_reward["planned_san_delta"] == plan[
+        "scenario_san_planned_delta"
+    ]
+    assert scenario_reward["san_before"] == (
+        30 + plan["development_san_planned_delta"]
+    )
+    assert scenario_reward["planned_san_before"] != scenario_reward["san_before"]
     assert Path(character).is_file()
 
 

@@ -7,6 +7,7 @@ to resume a playtest.  It never mirrors the workspace wholesale.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -16,6 +17,22 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_checkpoint", "coc_investigator_guard.py"
+)
 
 
 SCHEMA_VERSION = 2
@@ -1711,6 +1728,7 @@ class CheckpointStore:
         checkpoints_fd = -1
         temporary_fd = -1
         campaign_lock = None
+        investigator_guard = None
         checkpoint_name = f"turn-{turn_number:06d}"
         temporary_name = f".{checkpoint_name}.{uuid.uuid4().hex}.tmp"
         published = False
@@ -1726,6 +1744,13 @@ class CheckpointStore:
             lock_candidate = _campaign_lock_at(workspace_fd, self._campaign_relative())
             lock_candidate.__enter__()
             campaign_lock = lock_candidate
+            guard_candidate = (
+                coc_investigator_guard.guard_reusable_investigators(
+                    self.workspace / ".coc", [self.investigator_id]
+                )
+            )
+            guard_candidate.__enter__()
+            investigator_guard = guard_candidate
             self._validate_no_pending_background_records(workspace_fd)
             if self._turn_number > 0:
                 self._validate_runtime_evidence_at(
@@ -1993,6 +2018,8 @@ class CheckpointStore:
             os.fsync(checkpoints_fd)
             os.fsync(run_fd)
         finally:
+            if investigator_guard is not None:
+                investigator_guard.__exit__(None, None, None)
             if campaign_lock is not None:
                 campaign_lock.__exit__(None, None, None)
             if ledger_fd >= 0:

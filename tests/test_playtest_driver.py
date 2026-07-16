@@ -69,6 +69,58 @@ def _build_mini_campaign(tmp_path):
     return camp, char_dir / "character.json"
 
 
+def test_artifact_writer_rejects_active_reusable_transaction_before_run_writes(
+    tmp_path,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    ending_id = "ending-artifact-guard"
+    transaction_id = (
+        driver.coc_investigator_guard._expected_transaction_id(
+            ending_id, "inv1"
+        )
+    )
+    marker = char_path.with_name("development-active-transaction.json")
+    marker.write_text(json.dumps({
+        "schema_version": 2,
+        "status": "active",
+        "transaction_id": transaction_id,
+        "investigator_id": "inv1",
+        "campaign_id": "foreign-campaign",
+        "ending_id": ending_id,
+        "inflight_ref": (
+            "campaigns/foreign-campaign/save/development-settlements/"
+            "endings/ending-artifact-guard/inv1.inflight.json"
+        ),
+        "created_at": "2026-07-16T00:00:00Z",
+        "phase": "creating",
+        "journal_sha256": None,
+        "next_journal_sha256": None,
+        "transition_at": None,
+    }), encoding="utf-8")
+    run_dir = tmp_path / "playtests" / "guarded-artifact"
+    before = {
+        char_path: char_path.read_bytes(),
+        marker: marker.read_bytes(),
+    }
+
+    with pytest.raises(
+        driver.coc_investigator_guard.ReusableInvestigatorRecoveryConflict
+    ) as exc_info:
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            {"turns": [], "final_state": {}, "clue_coverage": {}},
+            generate_report=False,
+        )
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert not run_dir.exists()
+    assert {path: path.read_bytes() for path in before} == before
+
+
 def _persist_driver_bout(camp: Path, char_path: Path) -> dict:
     character = json.loads(char_path.read_text())
     character["characteristics"].update({"POW": 99, "INT": 99})

@@ -25,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
+import coc_investigator_guard
 
 LANGUAGE_SHEET_SUFFIX = {
     "zh-Hans": "zh",
@@ -773,7 +774,8 @@ def render_html(
 """
 
 
-def render_cards(
+def _render_cards_loaded(
+    character: dict[str, Any],
     character_path: Path,
     campaign_path: Path,
     out_dir: Path,
@@ -784,7 +786,6 @@ def render_cards(
     playwright_detected: bool | None = None,
     write_back: bool = False,
 ) -> dict[str, str]:
-    character = _load_json(character_path)
     campaign = _load_json(campaign_path)
     sheet = _display_sheet(character, language)
     slug = _slugify(_identity_name(character, sheet))
@@ -826,6 +827,86 @@ def render_cards(
         character["character_cards"] = result
         _write_json(character_path, character)
     return result
+
+
+def _canonical_reusable_identity(
+    character_path: Path,
+) -> tuple[Path, str] | None:
+    path = Path(character_path).absolute()
+    investigator_dir = path.parent
+    investigators_dir = investigator_dir.parent
+    coc_root = investigators_dir.parent
+    if (
+        path.name == "character.json"
+        and investigators_dir.name == "investigators"
+        and coc_root.name == ".coc"
+        and investigator_dir.name
+    ):
+        return coc_root, investigator_dir.name
+    return None
+
+
+def render_cards(
+    character_path: Path,
+    campaign_path: Path,
+    out_dir: Path,
+    *,
+    repo_root: Path,
+    language: str = "zh-Hans",
+    html_mode: str | bool = "auto",
+    playwright_detected: bool | None = None,
+    write_back: bool = False,
+    character_snapshot: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Render one card from a stable reusable-character snapshot."""
+    if character_snapshot is not None:
+        if write_back:
+            raise ValueError(
+                "write_back cannot be combined with an external character snapshot"
+            )
+        character = json.loads(json.dumps(character_snapshot))
+        if not isinstance(character, dict):
+            raise ValueError("character_snapshot must be an object")
+        return _render_cards_loaded(
+            character,
+            character_path,
+            campaign_path,
+            out_dir,
+            repo_root=repo_root,
+            language=language,
+            html_mode=html_mode,
+            playwright_detected=playwright_detected,
+            write_back=False,
+        )
+
+    reusable = _canonical_reusable_identity(character_path)
+    if reusable is not None:
+        coc_root, investigator_id = reusable
+        with coc_investigator_guard.guard_reusable_investigators(
+            coc_root, [investigator_id]
+        ):
+            return _render_cards_loaded(
+                _load_json(character_path),
+                character_path,
+                campaign_path,
+                out_dir,
+                repo_root=repo_root,
+                language=language,
+                html_mode=html_mode,
+                playwright_detected=playwright_detected,
+                write_back=write_back,
+            )
+    return _render_cards_loaded(
+        _load_json(character_path),
+        character_path,
+        campaign_path,
+        out_dir,
+        repo_root=repo_root,
+        language=language,
+        html_mode=html_mode,
+        playwright_detected=playwright_detected,
+        write_back=write_back,
+    )
 
 
 def main() -> int:

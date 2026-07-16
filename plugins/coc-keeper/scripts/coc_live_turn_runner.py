@@ -60,6 +60,9 @@ coc_scene_graph = _load_sibling("coc_scene_graph_live_turn", "coc_scene_graph.py
 coc_action_resolver = _load_sibling(
     "coc_action_resolver_live_turn", "coc_action_resolver.py"
 )
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_live_turn", "coc_investigator_guard.py"
+)
 
 
 _INTERRUPT_EVENT_TYPES = {
@@ -150,6 +153,7 @@ def _mint_compound_action_capsule(
     origin_decision_id: str,
     origin_scene_id: str,
     post_arrival_action: dict[str, Any],
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     action = _copy_jsonable(post_arrival_action)
     if (
@@ -178,7 +182,15 @@ def _mint_compound_action_capsule(
         or route.get("destination_scene_id") != action.get("destination_scene_id")
     ):
         raise RuntimeError("post-arrival route snapshot is invalid")
-    character = _read_json(character_path, {})
+    character = (
+        _copy_jsonable(character_snapshot)
+        if isinstance(character_snapshot, dict)
+        else coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign),
+            investigator_id,
+            character_path,
+        )
+    )
     character_id = character.get("id")
     if not isinstance(character_id, str) or not character_id.strip():
         raise RuntimeError("compound action requires a bound character ID")
@@ -216,6 +228,7 @@ def _validate_compound_action_capsule(
     campaign: Path,
     character_path: Path,
     investigator_id: str,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(capsule, dict) or set(capsule) != {
         "schema_version", "kind", "continuation_id", "campaign_binding",
@@ -231,7 +244,15 @@ def _validate_compound_action_capsule(
         != subsystem_executor._campaign_binding(campaign)
     ):
         raise RuntimeError("compound action capsule binding is invalid")
-    character = _read_json(character_path, {})
+    character = (
+        _copy_jsonable(character_snapshot)
+        if isinstance(character_snapshot, dict)
+        else coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign),
+            investigator_id,
+            character_path,
+        )
+    )
     expected_actor = {
         "investigator_id": investigator_id,
         "character_id": character.get("id"),
@@ -273,6 +294,7 @@ def _validate_compound_action_capsule(
         source["origin_decision_id"],
         source["origin_scene_id"],
         capsule.get("action_authority"),
+        character_snapshot=character_snapshot,
     )
     if expected != capsule:
         raise RuntimeError("compound action capsule authority is not canonical")
@@ -993,6 +1015,7 @@ def _run_one_turn(
     rng: random.Random,
     recording_mode: str,
     recording_flush: str,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     director_started = time.perf_counter()
     def build_context() -> dict[str, Any]:
@@ -1004,6 +1027,7 @@ def _run_one_turn(
             player_intent_class=str(choice.get("intent_class") or "investigate"),
             player_intent_rich=choice.get("player_intent_rich"),
             rng=rng,
+            character_snapshot=character_snapshot,
         )
         built["storylet_ledger"] = apply_mod._read_json(
             campaign_dir / "save" / "storylet-ledger.json", {}
@@ -1065,6 +1089,7 @@ def _run_one_turn(
         commands,
         rng=rng,
         append_jsonl=append_jsonl,
+        character_snapshot=character_snapshot,
     )
     rule_results = subsystem_executor.flatten_result_events(subsystem_results)
     pending_choice = subsystem_executor.get_current_pending_choice(campaign_dir)
@@ -1222,7 +1247,15 @@ def _run_one_turn(
         settled_choice_frame
     )
     directives = resolved_plan.get("narrative_directives") or {}
-    character = apply_mod._read_json(character_path, {})
+    character = (
+        _copy_jsonable(character_snapshot)
+        if isinstance(character_snapshot, dict)
+        else coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign_dir),
+            investigator_id,
+            character_path,
+        )
+    )
     investigator_display_name = ""
     if isinstance(character, dict):
         investigator_display_name = str(
@@ -1390,6 +1423,12 @@ def run_live_turn(
     started = time.perf_counter()
     campaign = Path(campaign_dir)
     with coc_fileio.campaign_lock(campaign):
+        character = Path(character_path)
+        character_snapshot = coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign),
+            investigator_id,
+            character,
+        )
         # Production resolution boundary: the Keeper-only resolver reuses or
         # compiles validated IR before any director code reads the scenario.
         # Raw module text never crosses into the player/narrator requests.
@@ -1416,6 +1455,7 @@ def run_live_turn(
             state_patch=state_patch,
             resolve_player_action=resolve_player_action,
             action_evaluator=action_evaluator,
+            character_snapshot=character_snapshot,
         )
         chapter_transition = _automatic_chapter_handoff(campaign, result)
         if chapter_transition is not None:
@@ -1811,6 +1851,7 @@ def _run_pending_choice_response(
     plan_override: dict[str, Any] | None = None,
     intent_source: str = "pending_choice_response",
     action_resolution_receipt: dict[str, Any] | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve one canonical subsystem choice without intent/Director routing."""
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
@@ -1838,6 +1879,7 @@ def _run_pending_choice_response(
         commands,
         rng=turn_rng,
         append_jsonl=append_jsonl,
+        character_snapshot=character_snapshot,
     )
     rule_results = subsystem_executor.flatten_result_events(subsystem_results)
     rules_pending = _commit_rules_recorder(rules_recorder)
@@ -1887,7 +1929,15 @@ def _run_pending_choice_response(
     settled_directives["consequence_cues"] = narrative_enrichment.build_consequence_cues(
         settled_choice_frame
     )
-    character = apply_mod._read_json(character_path, {})
+    character = (
+        _copy_jsonable(character_snapshot)
+        if isinstance(character_snapshot, dict)
+        else coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign),
+            investigator_id,
+            character_path,
+        )
+    )
     display_name = str(
         character.get("name") or character.get("display_name") or investigator_id
     ).strip() if isinstance(character, dict) else investigator_id
@@ -2072,12 +2122,14 @@ def _consume_compound_action_capsule(
     rng: random.Random,
     recording_mode: str,
     recording_flush: str,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     sealed = _validate_compound_action_capsule(
         capsule,
         campaign=campaign,
         character_path=character_path,
         investigator_id=investigator_id,
+        character_snapshot=character_snapshot,
     )
     continuation_id = sealed["continuation_id"]
     ledger = _load_compound_ledger(campaign)
@@ -2127,6 +2179,7 @@ def _consume_compound_action_capsule(
             {"primary_intent": action["primary_intent"], "action_atoms": []},
             character_path=character_path,
             investigator_id=investigator_id,
+            character_snapshot=character_snapshot,
         )
     )
     current_route = affordance_index.get(action["route_id"])
@@ -2194,6 +2247,7 @@ def _consume_compound_action_capsule(
             rng=rng,
             recording_mode=recording_mode,
             recording_flush=recording_flush,
+            character_snapshot=character_snapshot,
         )
     except Exception as exc:
         blocker = _compound_blocker("continuation_consumption_indeterminate")
@@ -2252,9 +2306,17 @@ def _run_live_turn_impl(
     state_patch: dict[str, Any] | None = None,
     resolve_player_action: bool = False,
     action_evaluator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
+    character_path = Path(character_path)
+    if character_snapshot is None:
+        character_snapshot = coc_investigator_guard.read_reusable_character(
+            coc_investigator_guard.coc_root_for_campaign(campaign),
+            investigator_id,
+            character_path,
+        )
     if pending_choice_response is not None:
         coc_state.load_world_state(campaign)
         combat_choice = subsystem_executor.project_player_combat_defense(
@@ -2290,6 +2352,7 @@ def _run_live_turn_impl(
                 state_patch=state_patch,
                 plan_override=_plan_from_typed_subsystem_request(investigator_id, request),
                 intent_source="combat_pending_choice_response",
+                character_snapshot=character_snapshot,
             )
         return _run_pending_choice_response(
             campaign,
@@ -2304,6 +2367,7 @@ def _run_live_turn_impl(
             max_auto_advance=max_auto_advance,
             auto_advance_low_agency=auto_advance_low_agency,
             state_patch=state_patch,
+            character_snapshot=character_snapshot,
         )
     if subsystem_request is not None:
         coc_state.load_world_state(campaign)
@@ -2323,6 +2387,7 @@ def _run_live_turn_impl(
             state_patch=state_patch,
             plan_override=plan,
             intent_source="subsystem_request",
+            character_snapshot=character_snapshot,
         )
     pending_choice = subsystem_executor.get_current_pending_choice(campaign)
     if pending_choice is None:
@@ -2346,6 +2411,7 @@ def _run_live_turn_impl(
             auto_advance_low_agency=auto_advance_low_agency,
             recording_mode=recording_mode, recording_flush=recording_flush,
             rng=rng, rng_seed=rng_seed, state_patch=state_patch,
+            character_snapshot=character_snapshot,
         )
     if pending_choice is not None:
         return _pending_choice_blocked_result(
@@ -2363,7 +2429,7 @@ def _run_live_turn_impl(
     # any director/apply code reads and potentially rewrites world. A turn
     # blocked exclusively by an existing subsystem choice remains read-only.
     coc_state.load_world_state(campaign)
-    character = Path(character_path)
+    character = character_path
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
     flush_policy = coc_async_recorder.normalize_flush_policy(recording_flush)
     turn_rng = rng if rng is not None else random.Random(
@@ -2381,6 +2447,7 @@ def _run_live_turn_impl(
                 character_path=character,
                 investigator_id=investigator_id,
                 evaluator=action_evaluator,
+                character_snapshot=character_snapshot,
             )
         )
         if action_resolution.get("status") == "blocked":
@@ -2427,6 +2494,7 @@ def _run_live_turn_impl(
                     else "semantic_push_request"
                 ),
                 action_resolution_receipt=action_resolution,
+                character_snapshot=character_snapshot,
             )
             result["runtime_phase_ms"]["intent_ms"] = max(0.0, intent_ms)
             return result
@@ -2481,6 +2549,7 @@ def _run_live_turn_impl(
             f"turn-{start_number:03d}",
             str(world_before_move.get("active_scene_id") or ""),
             post_arrival_action,
+            character_snapshot=character_snapshot,
         )
         _register_compound_action_capsule(campaign, compound_capsule)
     # P1-3: collect player action_atom (skill, kind) signatures from prior turns
@@ -2506,6 +2575,7 @@ def _run_live_turn_impl(
             rng=turn_rng,
             recording_mode=mode,
             recording_flush=flush_policy,
+            character_snapshot=character_snapshot,
         )
         # P1-3: append this turn's player-action signatures BEFORE deciding
         # whether to advance, so the next loop iteration sees the cumulative
@@ -2522,6 +2592,7 @@ def _run_live_turn_impl(
                 rng=turn_rng,
                 recording_mode=mode,
                 recording_flush=flush_policy,
+                character_snapshot=character_snapshot,
             )
             continuation_turn = compound_outcome.get("turn")
             turn["compound_action_continuation"] = {

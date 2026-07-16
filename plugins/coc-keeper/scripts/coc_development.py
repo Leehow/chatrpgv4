@@ -51,6 +51,9 @@ coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_state = _load_sibling("coc_state", "coc_state.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_investigator_guard = _load_sibling(
+    "coc_investigator_guard_development", "coc_investigator_guard.py"
+)
 
 
 def _investigators_root(campaign_dir: Path) -> Path:
@@ -81,9 +84,8 @@ def _development_claims_path(campaign_dir: Path, investigator_id: str) -> Path:
 def development_active_transaction_path(
     campaign_dir: Path, investigator_id: str
 ) -> Path:
-    return (
-        _investigator_dir(campaign_dir, investigator_id)
-        / "development-active-transaction.json"
+    return coc_investigator_guard.development_active_marker_path(
+        _investigators_root(campaign_dir).parent, investigator_id
     )
 
 
@@ -109,45 +111,9 @@ def active_development_transaction(
     campaign_dir: Path, investigator_id: str
 ) -> dict[str, Any] | None:
     """Read the reusable investigator's transaction marker without mutating it."""
-    path = development_active_transaction_path(campaign_dir, investigator_id)
-    if path.is_symlink():
-        raise ValueError("development active transaction marker is unsafe")
-    if not path.is_file():
-        return None
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError("development active transaction marker is unreadable") from exc
-    required = {
-        "schema_version", "status", "transaction_id", "investigator_id",
-        "campaign_id", "ending_id", "inflight_ref", "created_at",
-    }
-    expected_transaction_id = None
-    if isinstance(value, dict):
-        ending_id = value.get("ending_id")
-        if isinstance(ending_id, str):
-            expected_transaction_id = "development-txn-" + hashlib.sha256(
-                f"{ending_id}\0{investigator_id}".encode("utf-8")
-            ).hexdigest()[:24]
-    if (
-        not isinstance(value, dict)
-        or set(value) != required
-        or value.get("schema_version") != 1
-        or value.get("status") != "active"
-        or value.get("investigator_id") != investigator_id
-        or value.get("transaction_id") != expected_transaction_id
-        or not all(
-            isinstance(value.get(key), str) and value.get(key)
-            for key in (
-                "transaction_id", "campaign_id", "ending_id",
-                "inflight_ref", "created_at",
-            )
-        )
-        or _SAFE_ID.fullmatch(str(value.get("campaign_id"))) is None
-        or _SAFE_ID.fullmatch(str(value.get("ending_id"))) is None
-    ):
-        raise ValueError("development active transaction marker is invalid")
-    return value
+    return coc_investigator_guard.read_active_marker(
+        _investigators_root(campaign_dir).parent, investigator_id
+    )
 
 
 def _investigator_lock_path(campaign_dir: Path, investigator_id: str) -> Path:

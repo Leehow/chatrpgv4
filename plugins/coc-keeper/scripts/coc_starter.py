@@ -33,6 +33,7 @@ STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
 import coc_fileio
 import coc_state
 import coc_character_creation_briefing
+import coc_investigator_guard
 
 # The seven story-graph JSON files the Story Director reads (see
 # coc_story_director.py:95-183).
@@ -532,6 +533,25 @@ def quick_start(
     camp_title = title or str(meta.get("title") or scenario_id)
 
     coc_root = _coc_root(root)
+    # Reject an active settlement before campaign creation so a conflict is
+    # byte-for-byte zero game-state writes.  A byte-equivalent shipped pregen
+    # may be reused across campaigns; quick-start never silently replaces a
+    # developed reusable investigator.
+    reuse_existing = False
+    with coc_investigator_guard.guard_reusable_investigators(
+        coc_root, [investigator_id]
+    ):
+        existing_path = (
+            coc_root / "investigators" / investigator_id / "character.json"
+        )
+        if existing_path.is_file():
+            existing = json.loads(existing_path.read_text(encoding="utf-8"))
+            if existing != sheet:
+                raise FileExistsError(
+                    "quick-start will not replace an existing reusable "
+                    f"investigator: {investigator_id}"
+                )
+            reuse_existing = True
     coc_state.ensure_workspace(coc_root)
     campaign_path = coc_root / "campaigns" / camp_id / "campaign.json"
     if campaign_path.exists():
@@ -549,7 +569,8 @@ def quick_start(
     install_starter(coc_root, camp_id, scenario_id)
 
     # Workspace reusable investigator (what coc_live_match / run_live_turn expect).
-    coc_state.create_investigator(coc_root, investigator_id, sheet)
+    if not reuse_existing:
+        coc_state.create_investigator(coc_root, investigator_id, sheet)
     character_path = coc_root / "investigators" / investigator_id / "character.json"
 
     campaign_dir = coc_root / "campaigns" / camp_id

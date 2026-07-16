@@ -559,7 +559,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             envelope["retry_exhausted"] = True
         envelope["recovered_after_retry"] = recovered
         will_retry = bool(retryable and attempt < max_attempts)
-        if ctx is not None:
+        # Recovery conflict is a strict, non-mutating reusable-state barrier;
+        # even the best-effort toolbox audit log must remain byte-identical.
+        if ctx is not None and error_code.lower() != "recovery_conflict":
             _log_tool_call(
                 ctx,
                 name,
@@ -1725,6 +1727,28 @@ def _execute_subsystem_requests(
             rng=random.Random(seed) if seed is not None else random.Random(),
         )
     except coc_subsystem_executor.SubsystemExecutorError as exc:
+        if exc.code == "RECOVERY_CONFLICT":
+            cause = exc.__cause__
+            transaction_id = str(
+                getattr(cause, "transaction_id", "development-reader")
+            )
+            marker_path = Path(
+                getattr(
+                    cause,
+                    "marker_path",
+                    ctx.coc_root
+                    / "investigators"
+                    / investigator_id
+                    / "development-active-transaction.json",
+                )
+            )
+            try:
+                display_path = marker_path.relative_to(ctx.root).as_posix()
+            except ValueError:
+                display_path = str(marker_path)
+            raise coc_runtime_ops.DevelopmentRecoveryConflict(
+                transaction_id, [display_path]
+            ) from exc
         raise ToolError(exc.code, exc.message) from exc
 
     events = coc_subsystem_executor.flatten_result_events(results)
