@@ -1,29 +1,28 @@
 /**
  * Parse exactly one JSON object from a model/tool response.
  *
- * A unique JSON Markdown fence or ordinary prose wrapper is tolerated, but a
- * second complete JSON value of any type remains ambiguous and is rejected.
- * Schema validation remains the caller's job.
+ * Wrapper prose is allowed. Ambiguity is checked at the standalone-document
+ * level, never by promoting JSON-looking words or numbers inside sentences.
  */
 export function parseSingleJsonObject(input) {
   if (typeof input !== "string" || !input.trim()) {
     throw new Error("JSON response must be a non-empty string");
   }
 
-  const value = input.trim();
+  const source = input.trim();
   try {
-    return requireObject(JSON.parse(value));
+    return requireObject(JSON.parse(source));
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
   }
 
-  const fences = findMarkdownFences(value);
+  const fences = findMarkdownFences(source);
   const explicitJsonFences = fences.filter((fence) => fence.info === "json");
   if (explicitJsonFences.length > 1) {
     throw new Error("JSON response contains multiple JSON fences");
   }
   if (explicitJsonFences.length === 1) {
-    return parseFencedObject(value, explicitJsonFences[0]);
+    return parseFencedObject(source, explicitJsonFences[0]);
   }
 
   const genericJsonFences = fences.filter((fence) => {
@@ -39,18 +38,21 @@ export function parseSingleJsonObject(input) {
     throw new Error("JSON response contains multiple JSON fences");
   }
   if (genericJsonFences.length === 1) {
-    return parseFencedObject(value, genericJsonFences[0]);
+    return parseFencedObject(source, genericJsonFences[0]);
   }
 
-  const candidates = scanJsonValues(value);
-  if (candidates.length !== 1) {
+  const objects = findObjectCandidates(source);
+  if (objects.length !== 1) {
     throw new Error(
-      candidates.length === 0
+      objects.length === 0
         ? "JSON response does not contain one complete object"
-        : "JSON response contains multiple JSON values",
+        : "JSON response contains multiple JSON objects",
     );
   }
-  return requireObject(candidates[0].value);
+  const [candidate] = objects;
+  assertNoStandaloneJsonDocument(source.slice(0, candidate.start));
+  assertNoStandaloneJsonDocument(source.slice(candidate.end));
+  return candidate.value;
 }
 
 function parseFencedObject(source, fence) {
@@ -60,11 +62,8 @@ function parseFencedObject(source, fence) {
   } catch (error) {
     throw new Error(`JSON fence does not contain one valid object: ${error.message}`);
   }
-  const outside = `${source.slice(0, fence.start)}\n${source.slice(fence.end)}`;
-  const externalValues = scanJsonValues(outside);
-  if (externalValues.length) {
-    throw new Error("JSON response contains a JSON value outside its fence");
-  }
+  assertNoStandaloneJsonDocument(source.slice(0, fence.start));
+  assertNoStandaloneJsonDocument(source.slice(fence.end));
   return parsed;
 }
 
@@ -75,6 +74,120 @@ function requireObject(value) {
   return value;
 }
 
+function assertNoStandaloneJsonDocument(wrapper) {
+  const whole = wrapper.trim();
+  if (!whole) return;
+  if (findObjectCandidates(whole).length) {
+    throw new Error("JSON response contains a standalone JSON value outside its object");
+  }
+  const segments = [whole, ...whole.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)];
+  const uniqueSegments = [...new Set(segments)];
+  for (const segment of uniqueSegments) {
+    try {
+      JSON.parse(segment);
+      throw new Error("JSON response contains a standalone JSON value outside its object");
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    if (looksLikeMalformedStandaloneJson(segment)) {
+      throw new Error("JSON response contains a malformed standalone JSON document");
+    }
+  }
+}
+
+function looksLikeMalformedStandaloneJson(segment) {
+  if (isMarkdownLinkAt(segment, 0)) return false;
+  if (segment.startsWith('"')) return true;
+  if (segment.startsWith("{")) return looksLikeJsonContainer(segment, 0);
+  if (segment.startsWith("[")) return looksLikeJsonContainer(segment, 0);
+  return /^[+-]?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?)$/.test(segment);
+}
+
+function findObjectCandidates(source) {
+  const objects = [];
+  let index = 0;
+  while (index < source.length) {
+    if (source[index] === "[" && isMarkdownLinkAt(source, index)) {
+      index = endOfMarkdownLink(source, index);
+      continue;
+    }
+    if (source[index] !== "{" && source[index] !== "[") {
+      index += 1;
+      continue;
+    }
+    const container = scanContainer(source, index);
+    if (container.kind === "invalid_json") throw new Error(container.error);
+    if (container.kind === "valid" && isObject(container.value)) objects.push(container);
+    index = container.end;
+  }
+  return objects;
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function scanContainer(source, start) {
+  const stack = [source[start]];
+  let inString = false;
+  let escaped = false;
+  let index = start + 1;
+  for (; index < source.length && stack.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "{" || char === "[") stack.push(char);
+    else if (char === "}" || char === "]") {
+      const expected = char === "}" ? "{" : "[";
+      if (stack.at(-1) !== expected) {
+        return looksLikeJsonContainer(source, start)
+          ? { kind: "invalid_json", end: index + 1, error: "JSON response contains mismatched delimiters" }
+          : { kind: "prose", end: index + 1 };
+      }
+      stack.pop();
+    }
+  }
+  if (stack.length || inString) {
+    return looksLikeJsonContainer(source, start)
+      ? { kind: "invalid_json", end: source.length, error: "JSON response contains a truncated JSON value" }
+      : { kind: "prose", end: start + 1 };
+  }
+  const token = source.slice(start, index);
+  try {
+    return { kind: "valid", start, end: index, value: JSON.parse(token) };
+  } catch (error) {
+    return looksLikeJsonContainer(source, start)
+      ? { kind: "invalid_json", end: index, error: `JSON response contains invalid JSON: ${error.message}` }
+      : { kind: "prose", end: index };
+  }
+}
+
+function looksLikeJsonContainer(source, start) {
+  const opener = source[start];
+  const rest = source.slice(start + 1).trimStart();
+  if (!rest) return false;
+  if (opener === "{") return rest.startsWith('"') || rest.startsWith("}");
+  return /^(?:[\[{"]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\b|true\b|false\b|null\b|\])/.test(rest);
+}
+
+function isMarkdownLinkAt(source, start) {
+  if (source[start] !== "[") return false;
+  const labelEnd = source.indexOf("]", start + 1);
+  if (labelEnd < 0 || source[labelEnd + 1] !== "(") return false;
+  const targetEnd = source.indexOf(")", labelEnd + 2);
+  return targetEnd >= 0;
+}
+
+function endOfMarkdownLink(source, start) {
+  const labelEnd = source.indexOf("]", start + 1);
+  return source.indexOf(")", labelEnd + 2) + 1;
+}
+
 function findMarkdownFences(source) {
   const lines = [];
   const linePattern = /.*(?:\r?\n|$)/g;
@@ -82,7 +195,6 @@ function findMarkdownFences(source) {
     if (!match[0]) continue;
     lines.push({ text: match[0], start: match.index, end: match.index + match[0].length });
   }
-
   const fences = [];
   for (let index = 0; index < lines.length; index += 1) {
     const opening = lines[index].text.match(/^[ \t]*(`{3,}|~{3,})[ \t]*([^\r\n]*?)[ \t]*(?:\r?\n)?$/);
@@ -108,138 +220,4 @@ function findMarkdownFences(source) {
     index = closingIndex;
   }
   return fences;
-}
-
-function scanJsonValues(source) {
-  const candidates = [];
-  let index = 0;
-  while (index < source.length) {
-    const char = source[index];
-    if (char === "{" || char === "[") {
-      const container = scanContainer(source, index);
-      if (container.kind === "valid") candidates.push(container);
-      else if (container.kind === "invalid_json") throw new Error(container.error);
-      index = container.end;
-      continue;
-    }
-    if (char === '"') {
-      const stringToken = scanStringToken(source, index);
-      if (stringToken) {
-        if (stringToken.kind === "invalid_json") throw new Error(stringToken.error);
-        candidates.push(stringToken);
-        index = stringToken.end;
-        continue;
-      }
-    }
-    const scalar = scanScalarToken(source, index);
-    if (scalar) {
-      candidates.push(scalar);
-      index = scalar.end;
-      continue;
-    }
-    index += 1;
-  }
-  return candidates;
-}
-
-function scanContainer(source, start) {
-  const stack = [source[start]];
-  let inString = false;
-  let escaped = false;
-  let index = start + 1;
-  for (; index < source.length && stack.length; index += 1) {
-    const char = source[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') inString = true;
-    else if (char === "{" || char === "[") stack.push(char);
-    else if (char === "}" || char === "]") {
-      const expected = char === "}" ? "{" : "[";
-      if (stack.at(-1) !== expected) {
-        if (looksLikeJsonContainer(source, start)) {
-          return { kind: "invalid_json", end: index + 1, error: "JSON response contains mismatched delimiters" };
-        }
-        return { kind: "prose", end: index + 1 };
-      }
-      stack.pop();
-    }
-  }
-  if (stack.length || inString) {
-    if (looksLikeJsonContainer(source, start)) {
-      return { kind: "invalid_json", end: source.length, error: "JSON response contains a truncated JSON value" };
-    }
-    return { kind: "prose", end: start + 1 };
-  }
-
-  const token = source.slice(start, index);
-  try {
-    return { kind: "valid", start, end: index, value: JSON.parse(token) };
-  } catch (error) {
-    if (looksLikeJsonContainer(source, start)) {
-      return { kind: "invalid_json", end: index, error: `JSON response contains invalid JSON: ${error.message}` };
-    }
-    return { kind: "prose", end: index };
-  }
-}
-
-function looksLikeJsonContainer(source, start) {
-  const opener = source[start];
-  const rest = source.slice(start + 1).trimStart();
-  if (!rest) return false;
-  if (opener === "{") return rest.startsWith('"') || rest.startsWith("}");
-  return /^(?:[\[{"]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\b|true\b|false\b|null\b|\])/.test(rest);
-}
-
-function scanStringToken(source, start) {
-  const startsAtBoundary = isBoundary(source[start - 1]);
-  let escaped = false;
-  for (let index = start + 1; index < source.length; index += 1) {
-    const char = source[index];
-    if (escaped) escaped = false;
-    else if (char === "\\") escaped = true;
-    else if (char === '"') {
-      const end = index + 1;
-      if (!hasTokenBoundaries(source, start, end)) {
-        if (startsAtBoundary) continue;
-        return null;
-      }
-      try {
-        return { kind: "valid", start, end, value: JSON.parse(source.slice(start, end)) };
-      } catch (error) {
-        return startsAtBoundary
-          ? { kind: "invalid_json", end, error: `JSON response contains invalid JSON string: ${error.message}` }
-          : null;
-      }
-    }
-  }
-  return startsAtBoundary
-    ? { kind: "invalid_json", end: source.length, error: "JSON response contains a truncated JSON string" }
-    : null;
-}
-
-function scanScalarToken(source, start) {
-  if (!isBoundary(source[start - 1])) return null;
-  const rest = source.slice(start);
-  const match = rest.match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
-  if (!match) return null;
-  const end = start + match[0].length;
-  if (!isBoundary(source[end])) {
-    if (/[-+\.\dEe]/.test(source[end])) {
-      throw new Error("JSON response contains a truncated or invalid JSON number");
-    }
-    return null;
-  }
-  return { kind: "valid", start, end, value: JSON.parse(match[0]) };
-}
-
-function hasTokenBoundaries(source, start, end) {
-  return isBoundary(source[start - 1]) && isBoundary(source[end]);
-}
-
-function isBoundary(char) {
-  return char === undefined || /[\s,:;()[\]{}.!?`~]/.test(char);
 }
