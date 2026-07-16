@@ -27,6 +27,9 @@ def _load_sibling(name: str, filename: str):
 coc_event_contract = _load_sibling(
     "coc_event_contract_adherence", "coc_event_contract.py"
 )
+coc_npc_identity = _load_sibling(
+    "coc_npc_identity_adherence", "coc_npc_identity.py"
+)
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -292,12 +295,16 @@ def _engagement_coverage_eligible(event: dict[str, Any]) -> bool:
     was portrayed.  We do not inspect narration, summaries, names, or role
     prose.
     """
+    npc_id = _text(coc_event_contract.value(event, "npc_id"))
+    contract = coc_event_contract.value(event, "identity_contract")
     binding = coc_event_contract.value(event, "identity_binding")
     return bool(
-        isinstance(binding, dict)
-        and binding.get("status") == "authored_bound"
-        and binding.get("authored_identity_attested") is True
-        and binding.get("coverage_eligible") is True
+        npc_id
+        and coc_npc_identity.validate_authored_attestation(
+            npc_id,
+            contract if isinstance(contract, dict) else None,
+            binding if isinstance(binding, dict) else None,
+        )
     )
 
 
@@ -326,18 +333,22 @@ def project_npc_engagement_evidence(
     legacy: set[str] = set()
     unverified: set[str] = set()
     for event in events:
-        if not isinstance(event, dict) or not any(
-            coc_event_contract.matches(event, event_type)
-            for event_type in _NPC_ENGAGEMENT_EVENT_TYPES
-        ):
+        if not isinstance(event, dict):
+            continue
+        # Identity coverage deliberately consumes only raw canonical
+        # engagement/agency records.  The broader semantic compatibility
+        # layer aliases npc_update for other consumers, but a psych-state
+        # mutation is never identity evidence in any bucket.
+        if coc_event_contract.event_type(event) not in _NPC_ENGAGEMENT_EVENT_TYPES:
             continue
         npc_id = _text(coc_event_contract.value(event, "npc_id"))
         if not npc_id:
             continue
         binding = coc_event_contract.value(event, "identity_binding")
+        contract = coc_event_contract.value(event, "identity_contract")
         if _engagement_coverage_eligible(event):
             attested.add(npc_id)
-        elif not isinstance(binding, dict):
+        elif not isinstance(binding, dict) and not isinstance(contract, dict):
             legacy.add(npc_id)
         else:
             unverified.add(npc_id)
@@ -446,23 +457,48 @@ def _harvest_npc_engagement_evidence(
     contract = raw.get("npc_engagement_coverage_contract")
     if not isinstance(contract, dict):
         contract = final_state.get("npc_engagement_coverage_contract")
-    if (
+    supported_projection_contract = bool(
         isinstance(contract, dict)
+        and contract.get("schema_version") == 2
         and contract.get("semantics") == "authored_identity_attestation"
-    ):
+        and contract.get("producer") == "coc_live_match"
+        and contract.get("projection_schema_version") == 1
+        and contract.get("legacy_raw_ids_included") is False
+    )
+    if supported_projection_contract:
         attested.update(explicit_ids)
+    elif isinstance(contract, dict):
+        unverified.update(explicit_ids)
     else:
         legacy.update(explicit_ids)
 
     prior_projection = raw.get("npc_engagement_evidence")
     if isinstance(prior_projection, dict):
-        attested.update(
-            _as_str_set(prior_projection.get("authored_attested_npc_ids"))
+        projection_supported = bool(
+            prior_projection.get("schema_version") == 1
+            and prior_projection.get("semantics")
+            == "authored_identity_attestation"
+            and supported_projection_contract
         )
-        legacy.update(
-            _as_str_set(prior_projection.get("legacy_unverifiable_npc_ids"))
+        claimed_attested = _as_str_set(
+            prior_projection.get("authored_attested_npc_ids")
         )
-        unverified.update(_as_str_set(prior_projection.get("unverified_npc_ids")))
+        if projection_supported:
+            attested.update(claimed_attested)
+            legacy.update(
+                _as_str_set(prior_projection.get("legacy_unverifiable_npc_ids"))
+            )
+            unverified.update(
+                _as_str_set(prior_projection.get("unverified_npc_ids"))
+            )
+        else:
+            unverified.update(claimed_attested)
+            unverified.update(
+                _as_str_set(prior_projection.get("legacy_unverifiable_npc_ids"))
+            )
+            unverified.update(
+                _as_str_set(prior_projection.get("unverified_npc_ids"))
+            )
 
     return {
         "schema_version": 1,

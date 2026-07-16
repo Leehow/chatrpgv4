@@ -16,6 +16,10 @@ from typing import Any
 
 IDENTITY_CONTRACT_SCHEMA_VERSION = 1
 IDENTITY_BINDING_SCHEMA_VERSION = 1
+SUPPORTED_ATTESTATION_SOURCES = frozenset({
+    "keeper_supplied_identity_ref",
+    "director_apply.npc_move",
+})
 
 
 def _entity_key(value: Any) -> str:
@@ -60,12 +64,7 @@ def resolve_authored_npc(
     return matches[0] if len(matches) == 1 else None
 
 
-def identity_contract(
-    npc: dict[str, Any],
-    active_scene_id: str | None,
-) -> dict[str, Any]:
-    """Build a versioned digest over the complete structured identity producer."""
-    schedule = deepcopy(npc.get("schedule") or [])
+def _authored_scene_ids(schedule: Any) -> list[str]:
     schedule_rows = schedule if isinstance(schedule, list) else [schedule]
     authored_scene_ids: set[str] = set()
     for row in schedule_rows:
@@ -74,6 +73,30 @@ def identity_contract(
         for scene_id in row.get("scene_ids") or []:
             if scene_id not in (None, ""):
                 authored_scene_ids.add(str(scene_id))
+    return sorted(authored_scene_ids)
+
+
+def _identity_ref(identity_source: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        identity_source,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return (
+        f"npc-identity-v{IDENTITY_CONTRACT_SCHEMA_VERSION}:"
+        f"{hashlib.sha256(encoded).hexdigest()[:24]}"
+    )
+
+
+def identity_contract(
+    npc: dict[str, Any],
+    active_scene_id: str | None,
+) -> dict[str, Any]:
+    """Build a versioned digest over the complete structured identity producer."""
+    schedule = deepcopy(npc.get("schedule") or [])
+    authored_scene_ids = _authored_scene_ids(schedule)
     identity_source = {
         "npc_id": npc.get("npc_id"),
         "name": npc.get("name"),
@@ -87,21 +110,11 @@ def identity_contract(
         "schedule": schedule,
         "source_refs": deepcopy(npc.get("source_refs") or []),
     }
-    encoded = json.dumps(
-        identity_source,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    identity_ref = (
-        f"npc-identity-v{IDENTITY_CONTRACT_SCHEMA_VERSION}:"
-        f"{hashlib.sha256(encoded).hexdigest()[:24]}"
-    )
+    identity_ref = _identity_ref(identity_source)
     active = str(active_scene_id) if active_scene_id not in (None, "") else None
     scene_match: bool | None = None
     if authored_scene_ids:
-        scene_match = bool(active and active in authored_scene_ids)
+        scene_match = bool(active and active in set(authored_scene_ids))
     return {
         "schema_version": IDENTITY_CONTRACT_SCHEMA_VERSION,
         "keeper_only": True,
@@ -120,7 +133,7 @@ def identity_contract(
         "schedule": schedule,
         "location_provenance": {
             "active_scene_id": active,
-            "authored_scene_ids": sorted(authored_scene_ids),
+            "authored_scene_ids": authored_scene_ids,
             "active_scene_matches_schedule": scene_match,
         },
         "source_refs": deepcopy(npc.get("source_refs") or []),
@@ -180,3 +193,69 @@ def identity_binding(
         "attestation_source": structured_producer or "keeper_supplied_identity_ref",
         "reasons": reasons,
     }
+
+
+def validate_authored_attestation(
+    npc_id: str,
+    contract: dict[str, Any] | None,
+    binding: dict[str, Any] | None,
+) -> bool:
+    """Validate one supported producer contract without reading prose meaning."""
+    if not isinstance(contract, dict) or not isinstance(binding, dict):
+        return False
+    if contract.get("schema_version") != IDENTITY_CONTRACT_SCHEMA_VERSION:
+        return False
+    if binding.get("schema_version") != IDENTITY_BINDING_SCHEMA_VERSION:
+        return False
+    if contract.get("keeper_only") is not True:
+        return False
+    stable_npc_id = str(contract.get("npc_id") or "")
+    if not stable_npc_id or stable_npc_id != str(npc_id):
+        return False
+
+    role = contract.get("role")
+    if not isinstance(role, dict):
+        return False
+    schedule = deepcopy(contract.get("schedule") or [])
+    identity_source = {
+        "npc_id": contract.get("npc_id"),
+        "name": contract.get("name"),
+        "origin": contract.get("origin"),
+        "agenda": contract.get("agenda"),
+        "voice": contract.get("voice"),
+        "relationship_to_investigators": role.get(
+            "relationship_to_investigators"
+        ),
+        "social_role": deepcopy(role.get("social_role")),
+        "schedule": schedule,
+        "source_refs": deepcopy(contract.get("source_refs") or []),
+    }
+    expected_ref = _identity_ref(identity_source)
+    if str(contract.get("identity_ref") or "") != expected_ref:
+        return False
+
+    location = contract.get("location_provenance")
+    if not isinstance(location, dict):
+        return False
+    authored_scene_ids = _authored_scene_ids(schedule)
+    if location.get("authored_scene_ids") != authored_scene_ids:
+        return False
+    active_scene_id = location.get("active_scene_id")
+    expected_schedule_match: bool | None = None
+    if authored_scene_ids:
+        expected_schedule_match = bool(
+            active_scene_id not in (None, "")
+            and str(active_scene_id) in set(authored_scene_ids)
+        )
+    if location.get("active_scene_matches_schedule") is not expected_schedule_match:
+        return False
+
+    return bool(
+        binding.get("status") == "authored_bound"
+        and binding.get("authored_identity_attested") is True
+        and binding.get("coverage_eligible") is True
+        and str(binding.get("expected_identity_ref") or "") == expected_ref
+        and str(binding.get("supplied_identity_ref") or "") == expected_ref
+        and binding.get("attestation_source") in SUPPORTED_ATTESTATION_SOURCES
+        and binding.get("reasons") == []
+    )

@@ -37,6 +37,10 @@ def _load(name: str, path: Path):
 
 
 match = _load("coc_live_match", SCRIPT)
+npc_identity = _load(
+    "coc_npc_identity_live_test",
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_npc_identity.py",
+)
 
 
 def _write_json(path: Path, value) -> None:
@@ -389,6 +393,16 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     _write_scripted_player_runner(player, ["我向向导问路。"])
 
     def mutate(_request, _index):
+        identity_contract = npc_identity.identity_contract(
+            {
+                "npc_id": "npc-guide",
+                "name": "Guide",
+                "agenda": "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC",
+                "schedule": [],
+                "source_refs": [],
+            },
+            "scene-1",
+        )
         match._append_jsonl_fsync(
             campaign / "logs" / "events.jsonl",
             {
@@ -396,15 +410,11 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
                 "npc_id": "npc-guide",
                 "scene_id": "scene-1",
                 "interaction_kind": "dialogue",
-                "identity_binding": {
-                    "status": "authored_bound",
-                    "authored_identity_attested": True,
-                    "coverage_eligible": True,
-                },
-                "identity_contract": {
-                    "keeper_only": True,
-                    "agenda": "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC",
-                },
+                "identity_binding": npc_identity.identity_binding(
+                    identity_contract,
+                    structured_producer="director_apply.npc_move",
+                ),
+                "identity_contract": identity_contract,
                 "keeper_only_detail": "SENTINEL_EVENT_DETAIL_MUST_NOT_BE_PUBLIC",
             },
         )
@@ -449,6 +459,8 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     assert session["npc_engagement_coverage_contract"] == {
         "schema_version": 2,
         "semantics": "authored_identity_attestation",
+        "producer": "coc_live_match",
+        "projection_schema_version": 1,
         "legacy_raw_ids_included": False,
         "legacy_status": "NON_COMPARABLE",
     }

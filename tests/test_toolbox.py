@@ -941,10 +941,14 @@ def test_time_marker_source_receipt_recovers_every_crash_window_without_drift(
         if crash_stage == "after_event":
             raise RuntimeError("synthetic crash after marker event append")
 
-    def crash_ledger_record(self, current_decision_id, tool_name, data):
+    def crash_ledger_record(
+        self, current_decision_id, tool_name, data, **kwargs
+    ):
         if tool_name == "state.time_marker" and crash_stage == "before_ledger":
             raise RuntimeError("synthetic crash before marker ledger write")
-        return real_ledger_record(self, current_decision_id, tool_name, data)
+        return real_ledger_record(
+            self, current_decision_id, tool_name, data, **kwargs
+        )
 
     with monkeypatch.context() as crash:
         crash.setattr(coc_toolbox.Ctx, "log_event", crash_log_event)
@@ -1062,10 +1066,14 @@ def test_set_flag_source_receipt_preserves_original_provenance_and_unlock_once(
         if crash_stage == "after_event":
             raise RuntimeError("synthetic crash after flag event append")
 
-    def crash_ledger_record(self, current_decision_id, tool_name, data):
+    def crash_ledger_record(
+        self, current_decision_id, tool_name, data, **kwargs
+    ):
         if tool_name == "state.set_flag" and crash_stage == "before_ledger":
             raise RuntimeError("synthetic crash before flag ledger write")
-        return real_ledger_record(self, current_decision_id, tool_name, data)
+        return real_ledger_record(
+            self, current_decision_id, tool_name, data, **kwargs
+        )
 
     with monkeypatch.context() as crash:
         crash.setattr(coc_toolbox.Ctx, "save_world", crash_save_world)
@@ -1107,6 +1115,24 @@ def test_set_flag_source_receipt_preserves_original_provenance_and_unlock_once(
     assert current_flags["flags"]["receipt-unlock-flag"] is False
     assert current_flags["flag_provenance"]["receipt-unlock-flag"]["reason"] == (
         "legitimate later flag transition"
+    )
+    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
+    ordered_changes = [
+        row
+        for row in continuity["recent_world_flag_changes"]
+        if row["flag_id"] == "receipt-unlock-flag"
+    ]
+    assert [row["value"] for row in ordered_changes] == [True, False]
+    assert [
+        row["provenance"]["reason"] for row in ordered_changes
+    ] == [
+        "SENTINEL_ORIGINAL_FLAG_REASON",
+        "legitimate later flag transition",
+    ]
+    assert [
+        row["provenance"]["source_sequence"] for row in ordered_changes
+    ] == sorted(
+        row["provenance"]["source_sequence"] for row in ordered_changes
     )
     world = json.loads(
         (campaign_dir / "save" / "world-state.json").read_text(encoding="utf-8")
@@ -1204,6 +1230,240 @@ def test_source_receipt_repairs_secondary_ledger_but_rejects_corrupt_source_or_e
     source_conflict = _run(campaign_ws, "state.time_marker", args)
     assert source_conflict["ok"] is False
     assert source_conflict["error"]["code"] == "state_corrupt"
+
+
+def test_time_marker_receipt_integrity_binds_frozen_result_before_replay_mutation(
+    campaign_ws,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    args = {
+        "action": "set",
+        "marker_id": "integrity-body-marker",
+        "minutes_from_now": 9,
+        "reason": "receipt body integrity",
+        "decision_id": "integrity-body-marker-decision",
+    }
+    assert _run(campaign_ws, "state.time_marker", args)["ok"] is True
+    marker_path = campaign_dir / "save" / "time-markers.json"
+    ledger_path = campaign_dir / "save" / "toolbox-ledger.json"
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    marker_doc = json.loads(marker_path.read_text(encoding="utf-8"))
+    receipt = marker_doc["operation_receipts"]["state.time_marker"][
+        args["decision_id"]
+    ]
+    assert receipt["schema_version"] == 2
+    assert receipt["integrity_digest"].startswith("sha256:")
+    receipt["data"]["marker"]["due_at"]["display"] = "CORRUPTED-DUE"
+    _write_json(marker_path, marker_doc)
+    ledger_before = ledger_path.read_bytes()
+    events_before = events_path.read_bytes()
+
+    replay = _run(campaign_ws, "state.time_marker", args)
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+    assert ledger_path.read_bytes() == ledger_before
+    assert events_path.read_bytes() == events_before
+
+
+def test_flag_receipt_integrity_rejects_forged_unlock_before_world_mutation(
+    campaign_ws,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    args = {
+        "flag_id": "integrity-body-flag",
+        "value": True,
+        "reason": "receipt body integrity",
+        "decision_id": "integrity-body-flag-decision",
+    }
+    assert _run(campaign_ws, "state.set_flag", args)["ok"] is True
+    flags_path = campaign_dir / "save" / "flags.json"
+    world_path = campaign_dir / "save" / "world-state.json"
+    ledger_path = campaign_dir / "save" / "toolbox-ledger.json"
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    flags_doc = json.loads(flags_path.read_text(encoding="utf-8"))
+    receipt = flags_doc["operation_receipts"]["state.set_flag"][
+        args["decision_id"]
+    ]
+    receipt["data"]["newly_unlocked_scenes"] = ["forged-final-scene"]
+    _write_json(flags_path, flags_doc)
+    world_before = world_path.read_bytes()
+    ledger_before = ledger_path.read_bytes()
+    events_before = events_path.read_bytes()
+
+    replay = _run(campaign_ws, "state.set_flag", args)
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+    assert world_path.read_bytes() == world_before
+    assert ledger_path.read_bytes() == ledger_before
+    assert events_path.read_bytes() == events_before
+    assert "forged-final-scene" not in json.loads(
+        world_path.read_text(encoding="utf-8")
+    ).get("unlocked_scene_ids", [])
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "source_name", "args"),
+    [
+        (
+            "state.time_marker",
+            "time-markers.json",
+            {
+                "action": "set",
+                "marker_id": "corrupt-source-marker",
+                "minutes_from_now": 4,
+                "decision_id": "corrupt-source-marker-decision",
+            },
+        ),
+        (
+            "state.set_flag",
+            "flags.json",
+            {
+                "flag_id": "corrupt-source-flag",
+                "value": True,
+                "decision_id": "corrupt-source-flag-decision",
+            },
+        ),
+    ],
+)
+def test_receipt_source_corruption_never_downgrades_to_legacy_or_overwrites(
+    campaign_ws,
+    tool_name,
+    source_name,
+    args,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    source_path = campaign_dir / "save" / source_name
+    source_path.write_text("{malformed-json", encoding="utf-8")
+    corrupt_bytes = source_path.read_bytes()
+
+    replay = _run(campaign_ws, tool_name, args)
+    new_decision = _run(
+        campaign_ws,
+        tool_name,
+        {**args, "decision_id": f"{args['decision_id']}-new"},
+    )
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+    assert new_decision["ok"] is False
+    assert new_decision["error"]["code"] == "state_corrupt"
+    assert source_path.read_bytes() == corrupt_bytes
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "source_name", "args"),
+    [
+        (
+            "state.time_marker",
+            "time-markers.json",
+            {
+                "action": "set",
+                "marker_id": "missing-source-marker",
+                "minutes_from_now": 4,
+                "decision_id": "missing-source-marker-decision",
+            },
+        ),
+        (
+            "state.set_flag",
+            "flags.json",
+            {
+                "flag_id": "missing-source-flag",
+                "value": True,
+                "decision_id": "missing-source-flag-decision",
+            },
+        ),
+    ],
+)
+def test_receipt_era_ledger_manifest_rejects_missing_canonical_source(
+    campaign_ws,
+    tool_name,
+    source_name,
+    args,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    source_path = campaign_dir / "save" / source_name
+    source_path.unlink()
+
+    replay = _run(campaign_ws, tool_name, args)
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+    assert not source_path.exists()
+
+
+def test_genuine_pre_receipt_legacy_ledger_entry_remains_replayable(campaign_ws):
+    campaign_dir = campaign_ws["campaign_dir"]
+    marker_path = campaign_dir / "save" / "time-markers.json"
+    assert not marker_path.exists()
+    args = {
+        "action": "set",
+        "marker_id": "legacy-marker",
+        "minutes_from_now": 5,
+        "decision_id": "pre-receipt-legacy-decision",
+    }
+    legacy_data = {"legacy": "settled-before-source-receipts"}
+    coc_toolbox.Ctx(
+        campaign_ws["workspace"], campaign_ws["campaign_id"]
+    ).ledger_record(args["decision_id"], "state.time_marker", legacy_data)
+
+    replay = _run(campaign_ws, "state.time_marker", args)
+
+    assert replay["ok"] is True
+    assert replay["data"] == legacy_data
+    assert any("legacy ledger" in warning for warning in replay["warnings"])
+    assert not marker_path.exists()
+
+
+@pytest.mark.parametrize("event_damage", ["duplicate", "extra_field"])
+def test_stable_operation_event_requires_exactly_one_full_canonical_match(
+    campaign_ws,
+    event_damage,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    args = {
+        "action": "set",
+        "marker_id": f"event-integrity-{event_damage}",
+        "minutes_from_now": 3,
+        "decision_id": f"event-integrity-{event_damage}-decision",
+    }
+    assert _run(campaign_ws, "state.time_marker", args)["ok"] is True
+    marker_doc = json.loads(
+        (campaign_dir / "save" / "time-markers.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    receipt = marker_doc["operation_receipts"]["state.time_marker"][
+        args["decision_id"]
+    ]
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    ledger_path = campaign_dir / "save" / "toolbox-ledger.json"
+    events = _read_jsonl(events_path)
+    target_index = next(
+        index
+        for index, row in enumerate(events)
+        if row.get("event_id") == receipt["event_id"]
+    )
+    if event_damage == "duplicate":
+        events.append(dict(events[target_index]))
+    else:
+        events[target_index]["unexpected_extra"] = True
+    events_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in events) + "\n",
+        encoding="utf-8",
+    )
+    ledger_before = ledger_path.read_bytes()
+    damaged_events = events_path.read_bytes()
+
+    replay = _run(campaign_ws, "state.time_marker", args)
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+    assert ledger_path.read_bytes() == ledger_before
+    assert events_path.read_bytes() == damaged_events
 
 
 def test_state_write_appends_toolbox_calls_log(campaign_ws):

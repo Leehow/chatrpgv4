@@ -20,6 +20,36 @@ def _load(name: str, rel: str):
 
 
 coc_adherence = _load("coc_adherence", "plugins/coc-keeper/scripts/coc_adherence.py")
+coc_npc_identity = _load(
+    "coc_npc_identity_test", "plugins/coc-keeper/scripts/coc_npc_identity.py"
+)
+
+
+def _attested_npc_event(
+    npc_id: str,
+    *,
+    event_type: str = "npc_engagement",
+    agenda: str | None = None,
+) -> dict:
+    contract = coc_npc_identity.identity_contract(
+        {
+            "npc_id": npc_id,
+            "name": npc_id,
+            "agenda": agenda,
+            "schedule": [],
+            "source_refs": [],
+        },
+        None,
+    )
+    return {
+        "event_type": event_type,
+        "npc_id": npc_id,
+        "identity_contract": contract,
+        "identity_binding": coc_npc_identity.identity_binding(
+            contract,
+            structured_producer="director_apply.npc_move",
+        ),
+    }
 
 
 def test_generate_adherence_checklist_from_haunting():
@@ -105,6 +135,9 @@ def test_evaluate_adherence_against_synthetic_play_record():
         "npc_engagement_coverage_contract": {
             "schema_version": 2,
             "semantics": "authored_identity_attestation",
+            "producer": "coc_live_match",
+            "projection_schema_version": 1,
+            "legacy_raw_ids_included": False,
         },
     }
     result = coc_adherence.evaluate_adherence(checklist, play)
@@ -245,38 +278,23 @@ def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
             {
                 "npc_moves": [
                     {
-                        "npc_id": "npc-augustus-larkin",
-                        "display_name": "Augustus Larkin",
-                        "identity_binding": {
-                            "status": "authored_bound",
-                            "authored_identity_attested": True,
-                            "coverage_eligible": True,
+                        **{
+                            key: value
+                            for key, value in _attested_npc_event(
+                                "npc-augustus-larkin"
+                            ).items()
+                            if key != "event_type"
                         },
+                        "display_name": "Augustus Larkin",
                     },
                     {"npc_id": "npc-luis-de-mendoza", "display_name": "Luis de Mendoza"},
                 ],
             }
         ],
         "events": [
-            {
-                "event_type": "npc_engagement",
-                "npc_id": "npc-augustus-larkin",
-                "identity_binding": {
-                    "status": "authored_bound",
-                    "authored_identity_attested": True,
-                    "coverage_eligible": True,
-                },
-            },
+            _attested_npc_event("npc-augustus-larkin"),
             {"event_type": "npc_update", "npc_id": "npc-nayra", "applied": {"trust": 1}},
-            {
-                "event_type": "npc_engagement",
-                "npc_id": "npc-nayra",
-                "identity_binding": {
-                    "status": "authored_bound",
-                    "authored_identity_attested": True,
-                    "coverage_eligible": True,
-                },
-            },
+            _attested_npc_event("npc-nayra"),
             {
                 "event_type": "npc_update",
                 "npc_id": "npc-update-only",
@@ -293,16 +311,7 @@ def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
 
 def test_project_engaged_npc_ids_requires_authored_identity_attestation():
     events = [
-        {
-            "event_type": "npc_engagement",
-            "npc_id": "npc-kim-debrun",
-            "interaction_kind": "dialogue",
-            "identity_binding": {
-                "status": "authored_bound",
-                "authored_identity_attested": True,
-                "coverage_eligible": True,
-            },
-        },
+        {**_attested_npc_event("npc-kim-debrun"), "interaction_kind": "dialogue"},
         {
             "event_type": "npc_update",
             "npc_id": "npc-steven-knott",
@@ -312,6 +321,69 @@ def test_project_engaged_npc_ids_requires_authored_identity_attestation():
     ]
 
     assert coc_adherence.project_engaged_npc_ids(events) == {"npc-kim-debrun"}
+    evidence = coc_adherence.project_npc_engagement_evidence(events)
+    assert evidence == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "PASS",
+        "authored_attested_npc_ids": ["npc-kim-debrun"],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": [],
+    }
+
+
+def test_schema_less_or_internally_inconsistent_identity_claims_never_attest():
+    valid = _attested_npc_event("npc-dooley")
+    schema_less = {
+        "event_type": "npc_engagement",
+        "npc_id": "npc-dooley",
+        "identity_binding": {
+            "status": "authored_bound",
+            "authored_identity_attested": True,
+            "coverage_eligible": True,
+        },
+    }
+    wrong_event_id = {
+        **valid,
+        "npc_id": "npc-not-dooley",
+    }
+    unsupported_binding = {
+        **valid,
+        "identity_binding": {
+            **valid["identity_binding"],
+            "schema_version": 99,
+        },
+    }
+
+    evidence = coc_adherence.project_npc_engagement_evidence(
+        [schema_less, wrong_event_id, unsupported_binding]
+    )
+    assert evidence == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "PASS",
+        "authored_attested_npc_ids": [],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": ["npc-dooley", "npc-not-dooley"],
+    }
+
+
+def test_supported_payload_envelope_identity_contract_is_consumed():
+    event = _attested_npc_event(
+        "npc-envelope-guide", event_type="npc_agency"
+    )
+    wrapped = {
+        "type": "npc_agency",
+        "payload": {
+            key: value
+            for key, value in event.items()
+            if key != "event_type"
+        },
+    }
+
+    assert coc_adherence.project_engaged_npc_ids([wrapped]) == {
+        "npc-envelope-guide"
+    }
 
 
 def test_unverified_or_mismatched_npc_ids_do_not_satisfy_authored_coverage():
@@ -339,15 +411,7 @@ def test_unverified_or_mismatched_npc_ids_do_not_satisfy_authored_coverage():
                 "coverage_eligible": False,
             },
         },
-        {
-            "event_type": "npc_engagement",
-            "npc_id": "npc-kim-debrun",
-            "identity_binding": {
-                "status": "authored_bound",
-                "authored_identity_attested": True,
-                "coverage_eligible": True,
-            },
-        },
+        _attested_npc_event("npc-kim-debrun"),
     ]
 
     evidence = coc_adherence.project_npc_engagement_evidence(events)
@@ -385,4 +449,37 @@ def test_unversioned_explicit_npc_ids_are_non_comparable_not_coverage():
         "authored_attested_npc_ids": [],
         "legacy_unverifiable_npc_ids": ["npc-dooley"],
         "unverified_npc_ids": [],
+    }
+
+
+def test_unsupported_projection_contract_cannot_promote_raw_attested_ids():
+    checklist = [{
+        "statement_id": "npc:npc-dooley",
+        "kind": "optional",
+        "criterion": {"npc_id": "npc-dooley"},
+        "description": "Engage Dooley",
+    }]
+    result = coc_adherence.evaluate_adherence(
+        checklist,
+        {
+            "engaged_npc_ids": ["npc-dooley"],
+            "npc_engagement_coverage_contract": {
+                "schema_version": 999,
+                "semantics": "authored_identity_attestation",
+            },
+            "npc_engagement_evidence": {
+                "schema_version": 1,
+                "semantics": "authored_identity_attestation",
+                "authored_attested_npc_ids": ["npc-dooley"],
+            },
+        },
+    )
+    assert result["statements"][0]["satisfied"] is False
+    assert result["npc_engagement_evidence"] == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "PASS",
+        "authored_attested_npc_ids": [],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": ["npc-dooley"],
     }

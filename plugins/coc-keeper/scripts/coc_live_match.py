@@ -1540,6 +1540,8 @@ def _run_live_match_impl(
         session_result["npc_engagement_coverage_contract"] = {
             "schema_version": 2,
             "semantics": "authored_identity_attestation",
+            "producer": "coc_live_match",
+            "projection_schema_version": 1,
             "legacy_raw_ids_included": False,
             "legacy_status": npc_evidence["status"],
         }
