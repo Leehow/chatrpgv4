@@ -54,6 +54,88 @@ KNOWN_STARTER_PREGENS: dict[str, dict[str, str]] = {
     "eleanor-reed": {"scenario_id": "the-haunting"},
 }
 
+_ZH_CHARACTERISTICS = {
+    "STR": "力量", "CON": "体质", "SIZ": "体型", "DEX": "敏捷",
+    "APP": "外貌", "INT": "智力", "POW": "意志", "EDU": "教育",
+    "LUCK": "幸运",
+}
+_ZH_DERIVED = {
+    "HP": "生命值", "SAN": "理智", "MP": "魔法值", "MOV": "移动力",
+    "DB": "伤害加值", "BUILD": "体格",
+}
+_ZH_SKILLS = {
+    "Accounting": "会计", "Art/Craft (Photography)": "艺术/手艺（摄影）",
+    "Charm": "魅惑", "Climb": "攀爬", "Credit Rating": "信用评级",
+    "Dodge": "闪避", "Drive Auto": "汽车驾驶", "Fast Talk": "话术",
+    "Fighting (Brawl)": "格斗（斗殴）", "Firearms (Handgun)": "射击（手枪）",
+    "History": "历史", "Intimidate": "恐吓", "Language (Latin)": "外语（拉丁语）",
+    "Language (Own)": "母语（英语）", "Law": "法律", "Library Use": "图书馆使用",
+    "Listen": "聆听", "Locksmith": "锁匠", "Occult": "神秘学",
+    "Persuade": "说服", "Psychology": "心理学", "Spot Hidden": "侦查",
+    "Stealth": "潜行", "Track": "追踪",
+}
+
+
+def ensure_pregen_player_facing_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
+    """Build the complete zh-Hans display layer for shipped starter pregens."""
+    if not isinstance(sheet, dict) or str(sheet.get("id") or "") not in KNOWN_STARTER_PREGENS:
+        return sheet
+    if isinstance(sheet.get("player_facing_sheet_zh"), dict):
+        return sheet
+    out = dict(sheet)
+    characteristics = sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    backstory = sheet.get("backstory") if isinstance(sheet.get("backstory"), dict) else {}
+    bound = backstory.get("scenario_bound") if isinstance(backstory.get("scenario_bound"), dict) else {}
+    details = [
+        {"label": "重要之人", "items": [bound.get("significant_people")]},
+        {"label": "重要地点", "items": [bound.get("meaningful_locations")]},
+        {"label": "信念", "items": [backstory.get("ideology")]},
+        {"label": "珍贵物品", "items": [backstory.get("treasured_possessions")]},
+        {"label": "特质", "items": list(backstory.get("traits") or [])},
+    ]
+    details = [block for block in details if block["items"] and block["items"][0]]
+    player_weapons = []
+    for weapon in sheet.get("weapons") or []:
+        if not isinstance(weapon, dict):
+            continue
+        player_weapons.append({
+            "label": weapon.get("name") or weapon.get("weapon_id"),
+            "skill_label": _ZH_SKILLS.get(str(weapon.get("skill")), weapon.get("skill")),
+            "damage": weapon.get("damage"),
+            "range": weapon.get("range"),
+            "ammo_capacity": weapon.get("ammo", "—"),
+            "malfunction": weapon.get("malfunction", "—"),
+        })
+    out["player_facing_sheet_zh"] = {
+        "display_name": sheet.get("name"),
+        "era": "1920年代",
+        "nationality": "美国",
+        "occupation": sheet.get("occupation"),
+        "characteristics": {
+            _ZH_CHARACTERISTICS.get(key, key): {"key": key, "value": value}
+            for key, value in characteristics.items()
+        },
+        "derived": {
+            _ZH_DERIVED.get(key, key): value for key, value in derived.items()
+        },
+        "skills": [
+            {
+                "key": key,
+                "label": _ZH_SKILLS.get(key, key),
+                "value": int(value),
+                "half": int(value) // 2,
+                "fifth": int(value) // 5,
+            }
+            for key, value in skills.items()
+        ],
+        "weapons": player_weapons,
+        "backstory_summary": bound.get("description"),
+        "backstory_details": details,
+    }
+    return out
+
 
 def lookup_known_starter_pregen(pregen_id: str) -> dict[str, Any] | None:
     """Return registry entry for a known starter pregen, or None.
@@ -163,6 +245,72 @@ def list_starter_scenarios() -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def player_safe_opening(
+    campaign_dir: Path | str,
+    *,
+    play_language: str = "zh-Hans",
+) -> str | None:
+    """Return the installed scenario's canonical player-safe opening.
+
+    The lookup is deliberately limited to explicitly public fields.  It never
+    falls back to a dramatic question, Keeper summary, scene plan, or other
+    free-form scenario internals merely because they happen to contain prose.
+    """
+    scenario_dir = Path(campaign_dir) / "scenario"
+    documents = [
+        _read_json_object(scenario_dir / "module-meta.json"),
+        _read_json_object(scenario_dir / "scenario.json"),
+    ]
+    for document in documents:
+        localized = document.get("localized_text")
+        localized_public = (
+            localized.get(play_language)
+            if isinstance(localized, dict)
+            and isinstance(localized.get(play_language), dict)
+            else {}
+        )
+        for value in (
+            localized_public.get("opening_scene"),
+            localized_public.get("player_safe_summary"),
+            document.get("player_safe_summary"),
+            document.get("opening_scene"),
+        ):
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    story = _read_json_object(scenario_dir / "story-graph.json")
+    scenes = story.get("scenes") if isinstance(story.get("scenes"), list) else []
+    start = next(
+        (scene for scene in scenes if isinstance(scene, dict) and scene.get("is_start") is True),
+        next((scene for scene in scenes if isinstance(scene, dict)), None),
+    )
+    if isinstance(start, dict):
+        localized = start.get("localized_text")
+        localized_public = (
+            localized.get(play_language)
+            if isinstance(localized, dict)
+            and isinstance(localized.get(play_language), dict)
+            else {}
+        )
+        for value in (
+            localized_public.get("player_safe_summary"),
+            start.get("player_safe_summary"),
+        ):
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def install_starter(root: Path, campaign_id: str, scenario_id: str) -> Path:
@@ -374,6 +522,7 @@ def quick_start(
     if not isinstance(sheet, dict):
         raise ValueError(f"pregen character.json must be an object: {pregen_path}")
     sheet = ensure_pregen_backstory_provenance(sheet)
+    sheet = ensure_pregen_player_facing_sheet(sheet)
     investigator_id = str(sheet.get("id") or pregen_id)
 
     meta_path = src_dir / "module-meta.json"

@@ -9,12 +9,13 @@
       "secret": "He knows only rumor and the Macario tragedy — nothing of Corbitt's undead nature — and will not believe Mythos explanations without hard proof.",
       "voice": "Practical, impatient, money-minded. Speaks in short offers and deadlines.",
       "relationship_to_investigators": "employer",
-      "known_fact_ids": ["fact-knott-commission", "fact-knott-research-leads"],
-      "revealable_fact_ids": ["fact-knott-commission", "fact-knott-research-leads"],
-      "disclosure_order": ["fact-knott-commission", "fact-knott-research-leads"],
+      "known_fact_ids": ["fact-knott-commission", "fact-knott-research-leads", "fact-knott-macario-tragedy"],
+      "revealable_fact_ids": ["fact-knott-commission", "fact-knott-research-leads", "fact-knott-macario-tragedy"],
+      "disclosure_order": ["fact-knott-commission", "fact-knott-research-leads", "fact-knott-macario-tragedy"],
       "facts": [
         {"fact_id": "fact-knott-commission", "clue_id": "clue-knott-commission", "min_trust": 0},
-        {"fact_id": "fact-knott-research-leads", "clue_id": "clue-knott-research-leads", "min_trust": 0}
+        {"fact_id": "fact-knott-research-leads", "clue_id": "clue-knott-research-leads", "min_trust": 0},
+        {"fact_id": "fact-knott-macario-tragedy", "clue_id": "clue-knott-macario-summary", "min_trust": 0}
       ],
       "lie_options": [],
       "deflect_options": [{"deflect_id": "deflect-knott-deadline", "fact_id": "fact-knott-research-leads", "player_safe_line": "Start with the papers; we can discuss the rest when you have something concrete."}],
@@ -156,7 +157,7 @@
         }
       },
       "source_refs": [
-        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Mr. Dooley"}
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 439, "grep_anchor": "Mr. Dooley"}
       ]
     },
     {
@@ -194,7 +195,7 @@
         }
       },
       "source_refs": [
-        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Gabriela Macario"}
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 439, "grep_anchor": "Gabriela Macario"}
       ]
     },
     {
@@ -226,7 +227,44 @@
         }
       },
       "source_refs": [
-        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Vittorio Macario"}
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 439, "grep_anchor": "Vittorio Macario"}
+      ]
+    },
+    {
+      "npc_id": "npc-kim-debrun",
+      "name": "Kim Debrun",
+      "origin": "source",
+      "agenda": "Control access to the court file and decide whether a claimed legal contact deserves cooperation.",
+      "fear": "Being blamed for allowing unauthorized access to a politically sensitive police file.",
+      "secret": "On a successful Law contact roll Kim is warm and grants access; on failure Kim demands a bribe, reneges, and denies knowing the investigator.",
+      "voice": "Professional when friendly; evasive and transactional when the contact claim fails.",
+      "relationship_to_investigators": "court_contact",
+      "lie_options": [],
+      "deflect_options": [],
+      "leverage_ids": [],
+      "active_reactions": [],
+      "availability": {"status": "available"},
+      "schedule": [
+        {
+          "schedule_id": "kim-court-office",
+          "scene_ids": ["higher-courts-central-police"],
+          "status": "available"
+        }
+      ],
+      "keeper_note": "Law contact route only. Failed initial Law may be pushed as a concealed contact roll; failure means bribe demand followed by refusal.",
+      "social_role": {
+        "authority_scope": ["specialist_knowledge"],
+        "responsibility_domains": ["truth_claims", "specialist_advice"],
+        "chain_of_command": {"to_pc": "none", "to_group": "none"},
+        "duty_pressure": [],
+        "initiative_style": "consultative",
+        "delegation_policy": {
+          "keeps": ["specialist_interpretation"],
+          "delegates": ["scene_safety"]
+        }
+      },
+      "source_refs": [
+        {"path": "Call of Cthulhu 7e Keeper Rulebook", "page": 438, "grep_anchor": "Kim Debrun"}
       ]
     },
     {

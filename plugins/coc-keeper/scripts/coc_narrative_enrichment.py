@@ -14,6 +14,7 @@ fields such as ``action_atoms``, ``secondary_intents`` or ``target_entities``.
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,8 @@ def _load_optional_sibling(name: str, filename: str):
 
 coc_storylets = _load_optional_sibling("coc_storylets", "coc_storylets.py")
 coc_language = _load_optional_sibling("coc_language", "coc_language.py")
+coc_rules = _load_optional_sibling("coc_narrative_rules", "coc_rules.py")
+coc_combat = _load_optional_sibling("coc_narrative_combat", "coc_combat.py")
 
 _SCHEMA_VERSION = 1
 _CHARACTERISTICS = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"}
@@ -82,6 +85,8 @@ def build_choice_frame(
     clue_policy: dict[str, Any] | None = None,
     *,
     max_routes: int = 3,
+    discovered_clue_ids: list[str] | set[str] | tuple[str, ...] | None = None,
+    route_completion_receipts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a player-agency frame from scene affordances or clue leads.
 
@@ -95,14 +100,84 @@ def build_choice_frame(
     clue_policy = clue_policy or {}
     routes: list[dict[str, Any]] = []
 
-    affordances = [a for a in _as_list(scene.get("affordances")) if isinstance(a, dict)]
+    discovered = {str(item) for item in (discovered_clue_ids or []) if _non_empty_str(item)}
+    active_scene_id = _non_empty_str(scene.get("scene_id"))
+    completed_routes: dict[str, dict[str, Any]] = {}
+    blocked_route_ids: set[str] = set()
+    for receipt in route_completion_receipts or []:
+        if not isinstance(receipt, dict) or receipt.get("status") not in {"consumed", "blocked"}:
+            continue
+        receipt_scene_id = _non_empty_str(receipt.get("scene_id"))
+        if receipt_scene_id and active_scene_id and receipt_scene_id != active_scene_id:
+            continue
+        route_id = _non_empty_str(receipt.get("route_id"))
+        if route_id:
+            if receipt.get("status") == "consumed":
+                completed_routes[route_id] = receipt
+            else:
+                blocked_route_ids.add(route_id)
+    affordances = []
+    for affordance in _as_list(scene.get("affordances")):
+        if not isinstance(affordance, dict):
+            continue
+        grant_ids = []
+        for value in [affordance.get("clue_id"), *_as_list(affordance.get("grants_clue_ids"))]:
+            clue_id = _non_empty_str(value)
+            if clue_id and clue_id not in grant_ids:
+                grant_ids.append(clue_id)
+        route_id = _non_empty_str(
+            affordance.get("id") or affordance.get("route_id")
+        )
+        if route_id in blocked_route_ids:
+            continue
+        required_route_ids = {
+            str(item).strip()
+            for item in _as_list(affordance.get("requires_completed_route_ids"))
+            if _non_empty_str(item)
+        }
+        if not required_route_ids.issubset(completed_routes):
+            continue
+        required_clue_ids = {
+            str(item).strip()
+            for item in _as_list(affordance.get("requires_discovered_clue_ids"))
+            if _non_empty_str(item)
+        }
+        if not required_clue_ids.issubset(discovered):
+            continue
+        receipt = completed_routes.get(route_id or "")
+        explicitly_repeatable = bool(
+            affordance.get("repeatable") is True
+            or str(affordance.get("status") or "") in {"repeatable", "resume"}
+            or str(affordance.get("completion_policy") or "") == "repeatable"
+        )
+        remaining_outputs = [
+            clue_id for clue_id in grant_ids if clue_id not in discovered
+        ]
+        if isinstance(receipt, dict):
+            for value in receipt.get("remaining_clue_ids") or []:
+                clue_id = _non_empty_str(value)
+                if clue_id and clue_id not in discovered and clue_id not in remaining_outputs:
+                    remaining_outputs.append(clue_id)
+        if receipt and not explicitly_repeatable and not remaining_outputs:
+            continue
+        if (
+            grant_ids
+            and all(clue_id in discovered for clue_id in grant_ids)
+            and not explicitly_repeatable
+        ):
+            continue
+        affordances.append(affordance)
     affordances = sorted(affordances, key=_route_priority, reverse=True)
     for idx, affordance in enumerate(affordances[:max_routes], start=1):
         route_id = _non_empty_str(affordance.get("id") or affordance.get("route_id")) or f"affordance-{idx}"
         routes.append({
             "route_id": route_id,
             "route_type": affordance.get("route_type", "scene_affordance"),
+            "clue_id": affordance.get("clue_id"),
             "cue": affordance.get("cue") or affordance.get("player_visible_cue") or route_id,
+            # A cue exposes an available action, never the undiscovered fact or
+            # state transition that choosing the route may later grant.
+            "cue_scope": "action_only",
             "visible_benefit": affordance.get("visible_benefit") or affordance.get("promise"),
             "visible_cost": affordance.get("visible_cost") or affordance.get("cost"),
             "visible_risk": affordance.get("visible_risk") or affordance.get("risk"),
@@ -125,6 +200,7 @@ def build_choice_frame(
                 "route_id": f"clue:{cid}",
                 "route_type": "investigative_lead",
                 "cue": cid,
+                "cue_scope": "action_only",
                 "visible_benefit": "may advance the investigation",
                 "visible_cost": None,
                 "visible_risk": None,
@@ -307,6 +383,7 @@ def build_stop_actionability_contract(
     stop_reason: str | None = None,
     max_handles: int = 3,
     turn_focus: dict[str, Any] | None = None,
+    durable_clue_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the structured player-facing handhold required at a stop point.
 
@@ -392,10 +469,37 @@ def build_stop_actionability_contract(
             if cue and cue not in storylet_cues:
                 storylet_cues.append(cue)
     must_include = (turn.get("narrative_directives") or {}).get("must_include") or []
-    for cue in _as_list(must_include):
-        cue_text = _non_empty_str(cue)
-        if cue_text and cue_text not in storylet_cues:
-            storylet_cues.append(cue_text)
+    resolved_policy = turn.get("resolved_clue_policy")
+    if not isinstance(resolved_policy, dict):
+        resolved_policy = turn.get("clue_policy") if isinstance(turn.get("clue_policy"), dict) else {}
+    planned_reveals = {
+        str(clue_id)
+        for clue_id in (
+            resolved_policy.get("planned_reveals")
+            or resolved_policy.get("reveal")
+            or []
+        )
+        if clue_id
+    }
+    durable = {
+        str(clue_id)
+        for clue_id in (
+            durable_clue_ids
+            if durable_clue_ids is not None
+            else (turn.get("clue_revealed") or [])
+        )
+        if clue_id
+    }
+    # ``must_include`` can contain the player-safe body of a planned clue, but
+    # it has no per-string clue ID.  If this turn planned any clue, surface the
+    # block only after every planned reveal is durable.  This prevents a social
+    # disclosure or failed rules gate from leaking pre-apply clue prose through
+    # the stop postscript.  Non-clue storylet cues keep their legacy behavior.
+    if not planned_reveals or planned_reveals.issubset(durable):
+        for cue in _as_list(must_include):
+            cue_text = _non_empty_str(cue)
+            if cue_text and cue_text not in storylet_cues:
+                storylet_cues.append(cue_text)
 
     return {
         "schema_version": _SCHEMA_VERSION,
@@ -573,20 +677,59 @@ def _atom_roll_contract(atom: dict[str, Any], atom_id: str) -> dict[str, Any]:
     # push_eligible=True on those kinds is overridden; unknown kinds keep default.
     if _push_kind_base(atom, skill) in _PUSH_INELIGIBLE_KIND_BASES:
         push_eligible = False
-    return {
+    failure_mode = _non_empty_str(atom.get("failure_outcome_mode")) or "goal_with_cost"
+    must_not = (
+        ["do not narrate the failed goal as achieved"]
+        if failure_mode == "no_progress"
+        else ["do not narrate no progress on ordinary failure"]
+    )
+    authored_roll_gate = atom.get("authored_roll_gate") is True
+    fumble_consequence = atom.get("fumble_consequence")
+    push_failure_consequence = atom.get("push_failure_consequence")
+    if authored_roll_gate and (
+        not isinstance(fumble_consequence, dict)
+        or not isinstance(fumble_consequence.get("summary"), str)
+        or not fumble_consequence["summary"].strip()
+        or not isinstance(fumble_consequence.get("effect"), dict)
+    ):
+        raise ValueError("authored roll gate requires a typed fumble consequence")
+    if authored_roll_gate and (
+        not isinstance(push_failure_consequence, dict)
+        or not isinstance(push_failure_consequence.get("summary"), str)
+        or not push_failure_consequence["summary"].strip()
+        or not isinstance(push_failure_consequence.get("effect"), dict)
+    ):
+        raise ValueError("authored roll gate requires a typed Push consequence")
+    contract = {
         "schema_version": _SCHEMA_VERSION,
         "goal": goal,
         "success_effect": _non_empty_str(atom.get("success_effect")) or "the action succeeds cleanly",
         "failure_effect": failure,
-        "failure_outcome_mode": _non_empty_str(atom.get("failure_outcome_mode")) or "goal_with_cost",
+        "failure_outcome_mode": failure_mode,
         "push_policy": {
             "eligible": push_eligible,
             "requires_changed_method": push_eligible,
             "keeper_must_foreshadow_failure": push_eligible,
         },
         "roll_density_group": group,
-        "must_not": ["do not narrate no progress on ordinary failure"],
+        "must_not": must_not,
     }
+    localized_failure_effects = atom.get("localized_failure_effects")
+    if isinstance(localized_failure_effects, dict) and localized_failure_effects:
+        contract["localized_failure_effects"] = deepcopy(localized_failure_effects)
+    if authored_roll_gate:
+        contract["authored_roll_gate"] = True
+        contract["fumble_consequence"] = json.loads(json.dumps(
+            fumble_consequence, ensure_ascii=False
+        ))
+        contract["push_failure_consequence"] = json.loads(json.dumps(
+            push_failure_consequence, ensure_ascii=False
+        ))
+        if isinstance(atom.get("push_time_profile"), dict):
+            contract["push_time_profile"] = json.loads(json.dumps(
+                atom["push_time_profile"], ensure_ascii=False
+            ))
+    return contract
 
 
 def _request_atom_id(request: dict[str, Any]) -> str:
@@ -796,6 +939,503 @@ def build_action_chain_requests(
         requests[-1]["chain_truncated"] = True
         requests[-1]["chain_policy"] = "resolve remaining low-stakes atoms by narration or montage"
     return requests
+
+
+def _module_rule_table(scenario_id: str) -> dict[str, Any]:
+    path = SCRIPT_DIR.parent / "references" / "rules-json" / f"{scenario_id}.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _monster_profile(monster_ref: str) -> dict[str, Any]:
+    path = SCRIPT_DIR.parent / "references" / "rules-json" / "monsters.json"
+    try:
+        root = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    monsters = root.get("monsters") if isinstance(root, dict) else {}
+    row = monsters.get(monster_ref) if isinstance(monsters, dict) else None
+    return dict(row) if isinstance(row, dict) else {}
+
+
+def _combat_participant_from_operation(
+    operation: dict[str, Any],
+) -> dict[str, Any] | None:
+    actor_id = _non_empty_str(operation.get("actor_id"))
+    monster_ref = _non_empty_str(operation.get("monster_ref"))
+    if actor_id is None or monster_ref is None or coc_rules is None:
+        return None
+    monster = _monster_profile(monster_ref)
+    if not monster:
+        return None
+    damage = coc_rules.damage_bonus_build(
+        int(monster.get("str", 50)), int(monster.get("siz", 50))
+    )
+    return {
+        "actor_id": actor_id,
+        "side": str(operation.get("side") or "monster"),
+        "dex": int(monster.get("dex", 50)),
+        "combat_skill": int(operation.get("combat_skill", 50)),
+        "dodge_skill": int(operation.get("dodge_skill", max(1, int(monster.get("dex", 50)) // 2))),
+        "firearms_skill": int(operation.get("firearms_skill", 0)),
+        "has_ready_firearm": False,
+        "build": int(damage["build"]),
+        "damage_bonus": str(damage["damage_bonus"]),
+        "hp_max": int(monster.get("hp", 1)),
+        "hp_current": int(monster.get("hp", 1)),
+        "con": int(monster.get("con", 50)),
+        "magic_points": int(operation.get("magic_points", max(0, int(monster.get("pow", 0)) // 5))),
+        "armor": int(monster.get("armor", 0)),
+        "armor_rule": None,
+        "weapons": deepcopy(operation.get("weapons") or [{"weapon_id": "unarmed"}]),
+        "conditions": [],
+    }
+
+
+def _route_rules_operation(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    rich = ctx.get("player_intent_rich") or {}
+    resolution = rich.get("action_resolution") if isinstance(rich, dict) else None
+    matched = {
+        str(value) for value in (
+            resolution.get("matched_affordance_ids") if isinstance(resolution, dict) else []
+        ) or [] if value
+    }
+    for affordance in (ctx.get("active_scene") or {}).get("affordances") or []:
+        if not isinstance(affordance, dict):
+            continue
+        route_id = str(affordance.get("id") or affordance.get("route_id") or "")
+        operation = affordance.get("rules_operation")
+        if route_id in matched and isinstance(operation, dict):
+            return {**deepcopy(operation), "route_id": route_id}
+    return None
+
+
+def _structured_route_weapon_id(
+    ctx: dict[str, Any], operation: dict[str, Any], route_id: str,
+) -> str:
+    """Return an authored or semantically compiled weapon ID for a route.
+
+    The special-dagger route pins its module weapon in authored data.  Generic
+    assault routes may instead consume ``combat_action.weapon_id`` or an
+    action-atom ``weapon_id`` emitted by the semantic intent compiler.  Player
+    prose is deliberately never scanned here.
+    """
+    fixed = operation.get("investigator_weapon_id")
+    if isinstance(fixed, str) and fixed:
+        return fixed
+    rich = ctx.get("player_intent_rich") or {}
+    combat_action = rich.get("combat_action") if isinstance(rich, dict) else None
+    selected = combat_action.get("weapon_id") if isinstance(combat_action, dict) else None
+    if isinstance(selected, str) and selected:
+        return selected
+    matched = set(
+        str(value) for value in (
+            ((rich.get("action_resolution") or {}).get("matched_affordance_ids") or [])
+            if isinstance(rich, dict) else []
+        ) if value
+    )
+    for atom in rich.get("action_atoms", []) if isinstance(rich, dict) else []:
+        if not isinstance(atom, dict):
+            continue
+        atom_route = atom.get("route_id") or atom.get("affordance_id")
+        if atom_route not in (None, route_id):
+            continue
+        if atom_route is None and matched != {route_id}:
+            continue
+        selected = atom.get("weapon_id")
+        if isinstance(selected, str) and selected:
+            return selected
+    default = operation.get("default_investigator_weapon_id")
+    return str(default) if isinstance(default, str) and default else "unarmed"
+
+
+def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compile authored route operations into the existing typed rules bridge.
+
+    Only stable IDs/enums and authored operation metadata are consumed.  No
+    player or scenario prose is classified here.
+    """
+    scene = ctx.get("active_scene") or {}
+    combat = ctx.get("combat_state") or {}
+    world = ctx.get("world_state") or {}
+    conclusion = scene.get("conclusion_contract")
+    if (
+        isinstance(conclusion, dict)
+        and combat.get("status") == "concluded"
+        and combat.get("outcome") == conclusion.get("requires_combat_outcome")
+        and not any(
+            isinstance(item, dict)
+            and item.get("conclusion_id") == conclusion.get("conclusion_id")
+            for item in world.get("scenario_outcome_receipts", []) or []
+        )
+    ):
+        reward = conclusion.get("sanity_reward")
+        if isinstance(reward, dict):
+            return [{
+                "kind": "sanity_reward",
+                "die": reward.get("die"),
+                "source": conclusion.get("conclusion_id"),
+                "rule_ref": reward.get("rule_ref"),
+                "reason": "structured scenario conclusion reward",
+            }]
+
+    operation = _route_rules_operation(ctx)
+    if not isinstance(operation, dict) or operation.get("kind") != "combat_engagement":
+        return []
+    investigator = deepcopy(ctx.get("investigator_combat_profile") or {})
+    opponent_spec = operation.get("opponent")
+    opponent = (
+        _combat_participant_from_operation(opponent_spec)
+        if isinstance(opponent_spec, dict) else None
+    )
+    if not investigator or opponent is None:
+        return []
+    investigator_id = str(investigator["actor_id"])
+    opponent_id = str(opponent["actor_id"])
+    scenario_id = str(operation.get("module_rules_id") or "")
+    module = _module_rule_table(scenario_id)
+    module_weapons = module.get("weapons") if isinstance(module, dict) else []
+    route_id = str(operation["route_id"])
+    weapon_id = _structured_route_weapon_id(ctx, operation, route_id)
+    if coc_combat is not None:
+        merged_weapons = coc_combat.resolve_module_weapons(module_weapons)
+        weapon = merged_weapons.get(weapon_id)
+        owned_weapon_ids = {
+            str(row.get("weapon_id"))
+            for row in investigator.get("weapons", []) or []
+            if isinstance(row, dict) and row.get("weapon_id")
+        }
+        fixed_weapon = operation.get("investigator_weapon_id") == weapon_id
+        if isinstance(weapon, dict) and (fixed_weapon or weapon_id in owned_weapon_ids):
+            investigator["weapons"] = [{"weapon_id": weapon_id, **deepcopy(weapon)}]
+            if weapon.get("magazine") is not None:
+                investigator["has_ready_firearm"] = True
+                investigator["firearms_skill"] = max(
+                    int(investigator.get("firearms_skill", 0)),
+                    int((ctx.get("character") or {}).get("skills", {}).get(
+                        weapon.get("skill"), investigator.get("firearms_skill", 0)
+                    )),
+                )
+        elif weapon_id != "unarmed":
+            # A semantic weapon declaration must never be silently resolved as
+            # unarmed.  Fail closed until the character sheet owns that stable
+            # weapon ID (or the authored route explicitly supplies it).
+            return []
+        resolved_opponent_weapons = []
+        for ref in opponent.get("weapons") or []:
+            ref_id = ref.get("weapon_id") if isinstance(ref, dict) else ref
+            resolved = merged_weapons.get(str(ref_id))
+            resolved_opponent_weapons.append(
+                {"weapon_id": str(ref_id), **deepcopy(resolved)}
+                if isinstance(resolved, dict) else deepcopy(ref)
+            )
+        opponent["weapons"] = resolved_opponent_weapons
+
+    base_combat_id = f"combat-{scene.get('scene_id') or 'scene'}"
+    prior_combat_id = combat.get("combat_id")
+    if combat.get("status") == "active" and isinstance(prior_combat_id, str):
+        # Every continuation of one encounter must keep its existing identity.
+        decision_id = prior_combat_id
+    elif isinstance(prior_combat_id, str) and prior_combat_id:
+        # A concluded combat is historical evidence, not the identity of a
+        # later rematch. Derive a stable new encounter ID from structured
+        # state so command IDs and roll IDs cannot collide with the old fight.
+        decision_id = (
+            f"{base_combat_id}-restart-t{int(ctx.get('turn_number', 0) or 0)}"
+            f"-r{int(combat.get('revision', 0) or 0)}"
+        )
+    else:
+        decision_id = base_combat_id
+    current_initiative = combat.get("current_initiative") or []
+    cursor = int(combat.get("initiative_cursor", 0) or 0)
+    current_actor = (
+        current_initiative[cursor].get("actor_id")
+        if cursor < len(current_initiative) and isinstance(current_initiative[cursor], dict)
+        else None
+    )
+    requests: list[dict[str, Any]] = []
+    revision = int(combat.get("revision", 0) or 0)
+    if combat.get("status") != "active":
+        requests.append({
+            "kind": "combat_start",
+            "command_id": f"{decision_id}-start",
+            "combat_id": decision_id,
+            "scene_ref": f"scene/{scene.get('scene_id')}",
+            "turn_number": int(ctx.get("turn_number", 0) or 0),
+            "participants": [investigator, opponent],
+            "preparations": deepcopy(operation.get("preparations") or []),
+            "route_resolution": {"matched_route_ids": [route_id]},
+        })
+        revision = 1
+        current_actor = max(
+            [investigator, opponent],
+            key=lambda row: (int(row["dex"]), int(row["combat_skill"])),
+        )["actor_id"]
+
+    if current_actor == investigator_id:
+        attack_id = f"{decision_id}-{route_id}-attack-{revision}"
+        attack = {
+            "kind": "combat_attack",
+            "command_id": attack_id,
+            "revision": revision,
+            "actor_id": investigator_id,
+            "target_actor_id": opponent_id,
+            "declared_intent": "structured investigator attack",
+            "resolution_hint": (
+                "firearm_attack"
+                if investigator.get("has_ready_firearm")
+                else str(operation.get("resolution_hint") or "opposed_melee")
+            ),
+            "weapon_id": weapon_id,
+            "route_resolution": {"matched_route_ids": [route_id]},
+        }
+        if isinstance(operation.get("rulebook_exception"), str):
+            attack["rulebook_exception"] = operation["rulebook_exception"]
+        if isinstance(operation.get("on_success"), dict):
+            attack["on_success"] = deepcopy(operation["on_success"])
+        if isinstance(operation.get("victory_outcome"), str):
+            attack["victory_outcome"] = operation["victory_outcome"]
+        requests.extend([attack, {
+            "kind": "combat_defend",
+            "command_id": f"{attack_id}-defense",
+            "revision": revision + 1,
+            "actor_id": opponent_id,
+            "attack_command_id": attack_id,
+            "defense_kind": str(operation.get("opponent_defense") or "dodge"),
+            "route_resolution": {"matched_route_ids": [route_id]},
+        }])
+    elif current_actor == opponent_id:
+        attack_id = f"{decision_id}-opponent-attack-{revision}"
+        attack = {
+            "kind": "combat_attack",
+            "command_id": attack_id,
+            "revision": revision,
+            "actor_id": opponent_id,
+            "target_actor_id": investigator_id,
+            "declared_intent": "structured opponent attack",
+            "resolution_hint": str(operation.get("opponent_resolution_hint") or "opposed_melee"),
+            "weapon_id": str(operation.get("opponent_weapon_id") or "unarmed"),
+        }
+        if isinstance(operation.get("opponent_attack_resource_cost"), dict):
+            attack["resource_cost"] = deepcopy(operation["opponent_attack_resource_cost"])
+        if isinstance(operation.get("defeat_outcome"), str):
+            attack["defeat_outcome"] = operation["defeat_outcome"]
+        requests.append(attack)
+    return requests
+
+
+def bind_action_chain_routes(
+    chain_requests: list[dict[str, Any]],
+    player_intent_rich: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Attach fail-closed route ownership to rule requests.
+
+    The semantic resolver owns the route decision; this function only records
+    which already-matched route a concrete action-atom request settles.  An
+    explicit atom ``route_id``/``affordance_id`` is authoritative when it is in
+    the resolver's matched set.  For older intent compilers, exactly one rule
+    request plus exactly one matched route is also unambiguous.  Multi-route or
+    multi-request ambiguity remains unbound so apply cannot consume a route on
+    the strength of an unrelated successful roll.
+    """
+    rich = player_intent_rich if isinstance(player_intent_rich, dict) else {}
+    resolution = rich.get("action_resolution")
+    if not isinstance(resolution, dict) or resolution.get("no_match") is True:
+        return chain_requests
+    matched_route_ids = [
+        str(value)
+        for value in resolution.get("matched_affordance_ids") or []
+        if _non_empty_str(value)
+    ]
+    matched_route_ids = list(dict.fromkeys(matched_route_ids))
+    if not matched_route_ids:
+        return chain_requests
+    atoms = {
+        str(atom.get("id")): atom
+        for atom in _as_list(rich.get("action_atoms"))
+        if isinstance(atom, dict) and _non_empty_str(atom.get("id"))
+    }
+    for request in chain_requests:
+        atom_ids = [
+            str(value)
+            for value in (
+                request.get("merged_atoms") or [request.get("atom_id")]
+            )
+            if _non_empty_str(value)
+        ]
+        explicit: list[str] = []
+        for atom_id in atom_ids:
+            atom = atoms.get(atom_id) or {}
+            route_id = _non_empty_str(
+                atom.get("route_id") or atom.get("affordance_id")
+            )
+            if route_id and route_id in matched_route_ids and route_id not in explicit:
+                explicit.append(route_id)
+        binding = None
+        route_ids: list[str] = []
+        if len(explicit) == 1:
+            route_ids = explicit
+            binding = "explicit_atom_route"
+        elif len(chain_requests) == 1 and len(matched_route_ids) == 1:
+            route_ids = list(matched_route_ids)
+            binding = "single_request_single_resolver_route"
+        if not route_ids:
+            continue
+        request["route_resolution"] = {
+            "schema_version": _SCHEMA_VERSION,
+            "matched_route_ids": route_ids,
+            "binding": binding,
+            "request_id": request.get("request_id"),
+            "atom_ids": atom_ids,
+            "source": "kp_semantic_action_resolver",
+        }
+    return chain_requests
+
+
+def _is_primary_clue_gate(request: dict[str, Any]) -> bool:
+    contract = request.get("roll_contract")
+    return bool(
+        request.get("clue_gate") is True
+        or request.get("reason") == "obscured clue in scene"
+        or (
+            isinstance(contract, dict)
+            and contract.get("failure_outcome_mode") == "clue_with_cost"
+        )
+    )
+
+
+def _is_clue_bonus_request(request: dict[str, Any]) -> bool:
+    contract = request.get("roll_contract")
+    group = (
+        str(contract.get("roll_density_group") or "")
+        if isinstance(contract, dict)
+        else ""
+    )
+    return request.get("clue_bonus") is True or group.startswith("clue-bonus:")
+
+
+def _action_owned_chain_candidate(
+    chain_requests: list[dict[str, Any]],
+    rich: dict[str, Any],
+    clue_policy: dict[str, Any],
+    authored_request: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return the one action atom structurally proven to own a clue request.
+
+    The proof uses route IDs and compiled clue-affordance skill matches only.
+    It never compares request reasons, verbs, targets, or other free prose.
+    Ambiguity fails open by preserving all requests.
+    """
+    if not chain_requests:
+        return None
+    matched_route_ids = {
+        str(value)
+        for value in clue_policy.get("matched_route_ids") or []
+        if _non_empty_str(value)
+    }
+    atoms = {
+        str(atom.get("id")): atom
+        for atom in _as_list(rich.get("action_atoms"))
+        if isinstance(atom, dict) and _non_empty_str(atom.get("id"))
+    }
+
+    route_matches: list[dict[str, Any]] = []
+    for request in chain_requests:
+        atom = atoms.get(str(request.get("atom_id") or ""), {})
+        route_id = _non_empty_str(atom.get("route_id") or atom.get("affordance_id"))
+        if route_id and route_id in matched_route_ids:
+            route_matches.append(request)
+    if len(route_matches) == 1:
+        return route_matches[0]
+
+    matched = clue_policy.get("matched_affordance")
+    matched_skills = {
+        str(value).strip().lower()
+        for value in ((matched or {}).get("matched") or {}).get("skills", [])
+        if _non_empty_str(value)
+    } if isinstance(matched, dict) else set()
+    authored_skill = _non_empty_str(authored_request.get("skill"))
+    skill_matches = [
+        request
+        for request in chain_requests
+        if _non_empty_str(request.get("skill"))
+        and str(request.get("skill")).strip().lower()
+        in (matched_skills or ({authored_skill.lower()} if authored_skill else set()))
+    ]
+    if len(skill_matches) == 1:
+        return skill_matches[0]
+
+    # A single rollable atom plus a resolver-confirmed authored route is an
+    # unambiguous primary action even if an older compiler omitted route_id on
+    # the atom. Multiple action atoms are deliberately not collapsed here.
+    if len(chain_requests) == 1 and matched_route_ids:
+        return chain_requests[0]
+    return None
+
+
+def arbitrate_rule_requests(
+    existing_requests: list[dict[str, Any]] | None,
+    chain_requests: list[dict[str, Any]],
+    rich: dict[str, Any] | None,
+    clue_policy: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Coalesce one semantic action into one primary rules gate.
+
+    Director-owned SAN/combat/opposed checks, independent action atoms, and
+    unrelated clue bonus rolls are retained.  Only a clue gate/bonus request
+    with one structurally identifiable action-atom owner is replaced; the atom
+    request keeps its authored skill while inheriting the clue outcome contract.
+    """
+    existing = [dict(request) for request in _as_list(existing_requests) if isinstance(request, dict)]
+    chains = [dict(request) for request in chain_requests if isinstance(request, dict)]
+    rich = rich if isinstance(rich, dict) else {}
+    clue_policy = clue_policy if isinstance(clue_policy, dict) else {}
+    decisions: list[dict[str, Any]] = []
+    consumed_chain_ids: set[int] = set()
+    kept_existing: list[dict[str, Any]] = []
+
+    # Primary clue gates win ownership before optional bonus dice. This keeps a
+    # real obscured-clue gate and its independently authored bonus as two
+    # distinct mechanics instead of accidentally merging both into one roll.
+    ordered = sorted(existing, key=lambda request: 0 if _is_primary_clue_gate(request) else 1)
+    for request in ordered:
+        is_gate = _is_primary_clue_gate(request)
+        is_bonus = _is_clue_bonus_request(request)
+        if not is_gate and not is_bonus:
+            kept_existing.append(request)
+            continue
+        candidate = _action_owned_chain_candidate(chains, rich, clue_policy, request)
+        if candidate is None or id(candidate) in consumed_chain_ids:
+            kept_existing.append(request)
+            continue
+        consumed_chain_ids.add(id(candidate))
+        authored_contract = request.get("roll_contract")
+        if isinstance(authored_contract, dict):
+            candidate["roll_contract"] = deepcopy(authored_contract)
+        for key in ("clue_gate", "clue_bonus", "clue_id", "bonus"):
+            if key in request:
+                candidate[key] = deepcopy(request[key])
+        candidate["rule_request_arbitration"] = {
+            "schema_version": _SCHEMA_VERSION,
+            "mode": "action_atom_replaces_director_clue_request",
+            "preserved_skill": candidate.get("skill"),
+            "replaced_kind": "clue_bonus" if is_bonus else "clue_gate",
+            "source": "structured_route_and_clue_affordance",
+        }
+        decisions.append(deepcopy(candidate["rule_request_arbitration"]))
+
+    # Restore original relative order for retained director requests, then add
+    # action atoms in their declared order. Rules with explicit depends_on stay
+    # intact because chain request objects themselves are not reordered.
+    kept_ids = {id(request) for request in kept_existing}
+    retained_in_original_order = [
+        request for request in existing if any(request == kept for kept in kept_existing)
+    ]
+    del kept_ids  # equality, not object identity, is intentional after copies
+    return retained_in_original_order + chains, chains, decisions
 
 
 def _intent_tags(player_intent_rich: dict[str, Any] | None) -> set[str]:
@@ -1123,6 +1763,24 @@ def _pressure_tick_level(plan: dict[str, Any], ctx: dict[str, Any]) -> str:
     return "high" if tension in {"high", "climax"} else "medium"
 
 
+def _structured_authored_route_miss(ctx: dict[str, Any]) -> bool:
+    """True when the KP resolver rejected prose against a closed public fork."""
+    rich = ctx.get("player_intent_rich")
+    if not isinstance(rich, dict):
+        return False
+    resolution = rich.get("action_resolution")
+    if not isinstance(resolution, dict) or resolution.get("no_match") is not True:
+        return False
+    scene = ctx.get("active_scene")
+    if not isinstance(scene, dict):
+        return False
+    return any(
+        isinstance(item, dict)
+        and str(item.get("status") or "open") in {"open", "resume"}
+        for item in _as_list(scene.get("affordances"))
+    )
+
+
 def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Return why the current turn is allowed to draw a storylet event card.
 
@@ -1134,6 +1792,12 @@ def infer_storylet_trigger(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[st
     policy = ctx.get("storylet_policy") or {}
     if policy.get("disabled") or policy.get("disable_storylets"):
         return dict(_NO_TRIGGER)
+    if _structured_authored_route_miss(ctx):
+        return {
+            **dict(_NO_TRIGGER),
+            "reason": "authored_route_miss",
+            "source": "kp_semantic_action_resolver",
+        }
 
     forced_reason = _non_empty_str(
         policy.get("storylet_trigger")
@@ -1309,7 +1973,27 @@ def _apply_storylet_state(enriched: dict[str, Any], storylet_moves: list[dict[st
     nd["storylet_trigger"] = trigger
     if storylet_moves:
         nd.setdefault("must_include", [])
+        nd["storylet_grounding"] = [
+            deepcopy(move.get("grounding_contract"))
+            for move in storylet_moves
+            if isinstance(move.get("grounding_contract"), dict)
+        ]
+        nd.setdefault("must_not", [])
+        grounding_rule = (
+            "Storylets may alter presentation or cost only. Do not introduce a new "
+            "actionable object, route, room, or spatial fact outside each move's "
+            "structured grounding_contract. On conflict, omit the storylet cue and "
+            "fall back to active-scene affordances/anchors."
+        )
+        if grounding_rule not in nd["must_not"]:
+            nd["must_not"].append(grounding_rule)
         for move in storylet_moves:
+            grounding = move.get("grounding_contract")
+            if (
+                isinstance(grounding, dict)
+                and grounding.get("allow_new_actionable_fact") is False
+            ):
+                continue
             cue = move.get("cue")
             if cue and cue not in nd["must_include"]:
                 nd["must_include"].append(cue)
@@ -1421,24 +2105,58 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
     enriched = deepcopy(plan)
     scene = ctx.get("active_scene") or {}
     rich = ctx.get("player_intent_rich")
+    authored_route_miss = _structured_authored_route_miss(ctx)
 
-    choice_frame = build_choice_frame(scene, enriched.get("clue_policy"))
+    choice_frame = build_choice_frame(
+        scene,
+        enriched.get("clue_policy"),
+        discovered_clue_ids=(ctx.get("world_state") or {}).get("discovered_clue_ids"),
+        route_completion_receipts=(ctx.get("world_state") or {}).get(
+            "route_completion_receipts"
+        ),
+    )
     enriched["choice_frame"] = choice_frame
     nd = enriched.setdefault("narrative_directives", {})
     nd["choice_frame"] = choice_frame
     nd["consequence_cues"] = build_consequence_cues(choice_frame)
 
-    proposal_transform = build_proposal_transform(rich)
+    proposal_transform = None if authored_route_miss else build_proposal_transform(rich)
     if proposal_transform is not None:
         enriched["proposal_transform"] = proposal_transform
         nd["proposal_transform"] = proposal_transform
         if proposal_transform["next_contract"] == "request_roll":
             enriched["handoff"] = "rules" if enriched.get("rules_requests") else enriched.get("handoff", "narration")
 
-    chain_requests = build_action_chain_requests(
-        rich,
-        recent_atom_signatures=ctx.get("recent_atom_signatures"),
+    route_operation_requests = (
+        [] if authored_route_miss or enriched.get("rules_requests")
+        else build_route_operation_requests(ctx)
     )
+    if route_operation_requests:
+        enriched["rules_requests"] = route_operation_requests
+        enriched["handoff"] = "rules"
+        nd["route_operation"] = {
+            "schema_version": _SCHEMA_VERSION,
+            "request_kinds": [row.get("kind") for row in route_operation_requests],
+            "source": "scene.affordances.rules_operation",
+        }
+    resolution = rich.get("action_resolution") if isinstance(rich, dict) else None
+    destination_move = (
+        enriched.get("scene_action") == "CUT"
+        and isinstance(resolution, dict)
+        and isinstance(resolution.get("matched_destination_scene_id"), str)
+        and bool(resolution["matched_destination_scene_id"])
+    )
+    chain_requests = [] if authored_route_miss or route_operation_requests or destination_move else build_action_chain_requests(
+        rich, recent_atom_signatures=ctx.get("recent_atom_signatures")
+    )
+    if destination_move:
+        nd["destination_action_deferred"] = {
+            "schema_version": _SCHEMA_VERSION,
+            "destination_scene_id": resolution["matched_destination_scene_id"],
+            "reason": "destination actions resolve after scene arrival",
+            "source": "structured_action_resolution",
+        }
+    bind_action_chain_routes(chain_requests, rich)
     roll_density_decisions = [
         req["density_decision"]
         for req in chain_requests
@@ -1448,8 +2166,16 @@ def enrich_director_plan(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str,
         enriched["roll_density_decisions"] = roll_density_decisions
         nd["roll_density_decisions"] = roll_density_decisions
     if chain_requests:
-        existing = enriched.setdefault("rules_requests", [])
-        existing.extend(chain_requests)
+        merged_requests, chain_requests, arbitration = arbitrate_rule_requests(
+            enriched.get("rules_requests"),
+            chain_requests,
+            rich,
+            enriched.get("clue_policy"),
+        )
+        enriched["rules_requests"] = merged_requests
+        if arbitration:
+            nd["rule_request_arbitration"] = arbitration
+            enriched["rule_request_arbitration"] = arbitration
         enriched["handoff"] = "rules"
     # P1-3: surface cross-turn roll density as a narration-facing montage_hint so
     # the narrator/director can compress repeated player actions. Advisory only —

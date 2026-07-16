@@ -1001,13 +1001,21 @@ def _report_unlocalized_glossary_terms(battle_report: str, terms: dict[str, str]
     ]
     leaked: list[str] = []
     for heading in visible_sections:
-        leaked.extend(_unlocalized_terms_in_text(_report_narrative_text(_section_text(battle_report, heading)), terms))
+        visible_text = _report_narrative_text(
+            _strip_html_comments(_section_text(battle_report, heading))
+        )
+        leaked.extend(_unlocalized_terms_in_text(visible_text, terms))
     actual_play_lines = [
         line
         for line in _section_text(battle_report, "Actual Play Replay").splitlines()
         if line.startswith("- Turn") and (" KP:" in line or " Player:" in line)
     ]
-    leaked.extend(_unlocalized_terms_in_text("\n".join(actual_play_lines), terms))
+    leaked.extend(
+        _unlocalized_terms_in_text(
+            _strip_html_comments("\n".join(actual_play_lines)),
+            terms,
+        )
+    )
     return sorted(set(leaked))
 
 

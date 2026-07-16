@@ -240,11 +240,12 @@ def build_public_state(
     if invalid_terminal_evidence:
         gateway.record_invalid_fields("terminal")
 
+    active_scene_id = _nullable_string(world.get("active_scene_id"), gateway, "world")
     return {
         "schema_version": 1,
         "campaign_id": gateway.campaign_id,
         "play_language": _nullable_string(meta.get("play_language"), gateway, "campaign"),
-        "active_scene_id": _nullable_string(world.get("active_scene_id"), gateway, "world"),
+        "active_scene_id": active_scene_id,
         "tension_level": _nullable_string(pacing.get("tension_level"), gateway, "pacing"),
         "turn_number": turn_number,
         "discovered_clue_ids": list(clue_ids),

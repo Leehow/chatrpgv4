@@ -1,47 +1,50 @@
 ---
 name: coc-story-director
-description: Internal COC Keeper narrative orchestration layer. Use only after COC mode is active, before coc-keeper-play renders the next player-visible response, to choose scene direction, pacing, clue delivery, NPC moves, pressure clocks, and memory use. This skill does not output final narration to the player.
+description: Advisory pacing lens for the COC Keeper. Use after COC mode is active when you are unsure what the next beat should accomplish — it explains how to read director.advise and storylets.suggest output. This skill does not output final narration to the player.
 ---
 
 # COC Story Director
 
 ## Role
 
-You are the hidden director layer, not the player-facing Keeper voice. coc-keeper-play calls you each turn to decide what the next table moment should accomplish.
+The director layer is advisory now. You — the Keeper LLM — choose every beat.
+When your read of the table is clear, act on it directly. When you are unsure
+what the story needs, consult the deterministic advisors:
 
-## Workflow
+```bash
+python3 plugins/coc-keeper/scripts/coc_toolbox.py director.advise --root . --campaign <id>
+python3 plugins/coc-keeper/scripts/coc_toolbox.py storylets.suggest --root . --campaign <id> --json '{"max":5}'
+```
 
-1. Read campaign save state + active scene + scenario story-graph via `scripts/coc_story_director.py`.
-2. Build DirectorContext (rule signals + scene + clue graph + NPC agendas + threat fronts).
-3. Run the three-layer scoring engine to pick one director action.
-4. Emit a DirectorPlan JSON to artifacts/.
-5. Hand off to coc-keeper-play for narration (or to rules subsystem if handoff=rules).
+`director.advise` reads pacing signals (tension, stalling, undiscovered clues,
+open exits, threat clocks) and returns suggested beats with reasons.
+`storylets.suggest` scores side-beat candidates against the current scene.
+Both are suggestions with rationale — never obligations.
 
-## Decision Loop
+## Beat Vocabulary
 
-1. Consume the turn's semantic intent (investigate/social/combat/flee/meta/stuck/idle)
-   from structured input only: the caller-supplied `player_intent_rich` /
-   `intent_class`, or `scripts/coc_intent_router.py` (`parse_intent`) output.
-   Never classify intent inside this skill by keyword hits or fixed phrases in
-   the player's prose (Semantic Matcher Constitution). If no semantic evidence
-   exists, treat the intent as `ambiguous`; do not guess `investigate`.
-2. Apply Layer 3 rule overrides first (bout_active/dying/temp_insane/fumble/stalled force actions).
-3. If no override, score all 10 actions via base_score × structure_weight.
-4. Pick highest score (tiebreak by rules-fidelity-priority order).
-5. Build clue_policy, npc_moves, pressure_moves, rules_requests.
-6. Return DirectorPlan with handoff = "rules" | "narration".
+Useful shared language for what a turn can accomplish:
 
-## Hard Rules
+- **REVEAL** — deliver a clue or new information the scene has earned.
+- **DEEPEN** — texture, mood, character, or an existing thread.
+- **PRESSURE** — cost, pursuit, deadline, or an NPC pushing back.
+- **CHARACTER** — an NPC beat or a personal-horror hook.
+- **CHOICE** — sharpen a real fork; make the tradeoffs visible.
+- **CUT / MONTAGE** — move; compress low-agency stretches.
+- **SUBSYSTEM** — the fiction demands combat/chase/sanity procedure.
+- **RECOVER** — the table is stalled; reopen motion (an Idea-style nudge,
+  an NPC arrival, a fallback route to a critical clue).
+- **PAYOFF** — cash in a planted thread or woven hook.
+
+## Craft Rules
 
 - Prep situations, not predetermined plot.
-- Never block player plans with a flat No when Yes-but or Yes-and can preserve agency.
-- Critical clues must have fallback routes (>=3).
+- Never block player plans with a flat No when Yes-but or Yes-and can
+  preserve agency.
+- Critical clues should stay reachable by multiple routes — `clues.query`
+  shows each conclusion's `minimum_routes` and `fallback_policy`; if the
+  table burned a route, open another rather than dead-ending the mystery.
 - Do not repeat identical rolls until anticlimactic.
 - Horror escalates: ordinary → wrongness → pattern → revelation.
 - Memory is not recap spam; only recall what changes the current beat.
-- Never reveal keeper_secrets from improvisation-boundaries.json.
-
-## References
-
-- `../../references/director-protocol.md` — DirectorPlan schema + scoring detail.
-- `../../scripts/coc_story_director.py` — implementation.
+- Never reveal keeper secrets as exposition (`secrets.briefing` tracks them).

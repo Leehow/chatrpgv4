@@ -1005,6 +1005,81 @@ def test_combat_snapshot_round_trip_preserves_revision_and_initiative(tmp_path):
     assert loaded.snapshot() == s.snapshot()
 
 
+def test_combat_snapshot_round_trip_preserves_string_and_dict_weapon_refs(tmp_path):
+    module_weapons = [{
+        "weapon_id": "corbitt-ritual-dagger",
+        "extends": "knife_medium",
+        "special": "bypasses_corbitt_spells",
+    }]
+    s = coc_combat.CombatSession(
+        "weapon-ref-round-trip", "corbitt-cellar", 1,
+        rng=random.Random(4), module_weapons=module_weapons,
+    )
+    s.add_participant(
+        "inv", "investigator", 60, 55, 0, 10,
+        weapons=["corbitt-ritual-dagger"],
+    )
+    s.add_participant(
+        "foe", "monster", 50, 45, 0, 8,
+        weapons=[{"weapon_id": "knife_medium", "special": "legacy_override"}],
+    )
+    s.begin_round()
+    s.save(tmp_path)
+
+    loaded = coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+    assert loaded.snapshot() == s.snapshot()
+    assert loaded.participants["inv"]["weapons"] == ["corbitt-ritual-dagger"]
+    assert loaded._weapon("inv", "corbitt-ritual-dagger")["damage"] == "1D4+2"
+    assert loaded._weapon("inv", "corbitt-ritual-dagger")["special"] == "bypasses_corbitt_spells"
+    assert loaded._weapon("foe", "knife_medium")["special"] == "legacy_override"
+
+
+def test_combat_load_accepts_own_dagger_victory_with_corbitt_still_alive(tmp_path):
+    """The module's own-dagger victory is not conditional on reducing HP to zero."""
+    module_weapons = [{
+        "weapon_id": "corbitt-ritual-dagger",
+        "extends": "knife_medium",
+        "special": "bypasses_corbitt_spells",
+    }]
+    s = coc_combat.CombatSession(
+        "own-dagger-victory", "corbitt-cellar", 1,
+        rng=random.Random(7), module_weapons=module_weapons,
+    )
+    s.add_participant(
+        "inv", "investigator", 70, 60, 0, 10,
+        weapons=["corbitt-ritual-dagger"],
+    )
+    s.add_participant(
+        "walter-corbitt", "monster", 40, 50, 1, 20,
+        armor=7, armor_rule="degrades_1_per_damage",
+    )
+    s.begin_round()
+    s.declare_and_resolve_turn(
+        "inv", "strike Corbitt with his own dagger",
+        target_actor_id="walter-corbitt",
+        weapon_id="corbitt-ritual-dagger",
+        resolution_hint="damage_only",
+        rulebook_exception="own_dagger_ignores_spells",
+    )
+    s.mark_current_initiative_acted()
+    s.initiative_cursor += 1
+    assert s.participants["walter-corbitt"]["hp_current"] > 0
+    assert s.damage_chain[-1]["rulebook_exception"] == "own_dagger_ignores_spells"
+    s.conclude("investigators_win")
+    s.ended_at_turn = 1
+    s.save(tmp_path)
+
+    loaded = coc_combat.CombatSession.load(
+        tmp_path, rng=random.Random(999), trusted_in_memory=True,
+    )
+
+    assert loaded.status == "concluded"
+    assert loaded.outcome == "investigators_win"
+    assert loaded.participants["walter-corbitt"]["hp_current"] > 0
+    assert loaded.damage_chain[-1]["rulebook_exception"] == "own_dagger_ignores_spells"
+
+
 def _save_two_round_initiative_evidence(tmp_path):
     """Persist valid current and historical skip/exclusion evidence."""
     s = coc_combat.CombatSession("initiative-evidence", "test", 1, rng=random.Random(4))
@@ -1274,6 +1349,41 @@ def _external_damage_rows(session):
     return session.damage_evidence_rows(command_actor_id="inv")
 
 
+def test_external_damage_evidence_uses_actual_source_actor(tmp_path):
+    session = coc_combat.CombatSession(
+        "source-actor-evidence", "test", 1, rng=random.Random(8)
+    )
+    weapon = [{
+        "weapon_id": "claw", "skill": "Fighting", "damage": "2",
+        "adds_damage_bonus": False, "impales": False, "special": None,
+    }]
+    session.add_participant(
+        "monster", "monster", 80, 60, 0, 10, weapons=weapon
+    )
+    session.add_participant("inv", "investigator", 50, 50, 0, 10)
+    session.begin_round()
+    session.declare_and_resolve_turn(
+        "monster",
+        "claw investigator",
+        target_actor_id="inv",
+        weapon_id="claw",
+        resolution_hint="damage_only",
+        resolution_command_id="monster-damage-defense",
+    )
+    evidence = _external_damage_rows(session)
+    session.save(tmp_path)
+
+    assert evidence[0]["actor"] == "monster"
+    assert evidence[0]["payload"]["actor_id"] == "monster"
+    loaded = coc_combat.CombatSession.load(
+        tmp_path,
+        rng=random.Random(99),
+        damage_evidence=evidence,
+        damage_evidence_actor="inv",
+    )
+    assert loaded.damage_chain == session.damage_chain
+
+
 @pytest.mark.parametrize("scope", ["current", "historical"])
 def test_combat_load_rejects_recomputed_internal_damage_receipt_without_external_change(
     tmp_path, scope
@@ -1423,6 +1533,131 @@ def test_combat_load_rejects_forged_pending_defense_contract(tmp_path):
     path.write_text(json.dumps(forged), encoding="utf-8")
     with pytest.raises(ValueError, match="pending attack"):
         coc_combat.CombatSession.load(tmp_path, rng=random.Random(5))
+
+
+def _save_extended_pending_attack(tmp_path):
+    session = coc_combat.CombatSession(
+        "pending-extended", "corbitt-cellar", 1, rng=random.Random(5),
+        module_weapons=[{
+            "weapon_id": "corbitt-ritual-dagger",
+            "extends": "knife_medium",
+            "special": "bypasses_corbitt_spells",
+        }],
+    )
+    session.add_participant(
+        "inv", "investigator", 60, 95, 0, 10,
+        weapons=["corbitt-ritual-dagger"],
+    )
+    session.add_participant("foe", "monster", 50, 45, 0, 20)
+    session.begin_round()
+    session.pending_attack = {
+        "attack_command_id": "attack-special-1",
+        "actor_id": "inv",
+        "target_actor_id": "foe",
+        "declared_intent": "strike with Corbitt's own dagger",
+        "resolution_hint": "opposed_melee",
+        "weapon_id": "corbitt-ritual-dagger",
+        "allowed_defenses": ["dodge", "fight_back"],
+        "rulebook_exception": "own_dagger_ignores_spells",
+        "on_success": {
+            "kind": "destroy_target",
+            "outcome": "investigators_win",
+            "rule_ref": "module.haunting.corbitt_own_dagger",
+        },
+        "victory_outcome": "investigators_win",
+        "defeat_outcome": "monsters_win",
+    }
+    session.save(tmp_path)
+    return session, tmp_path / "save" / "combat.json"
+
+
+@pytest.mark.parametrize("forged_on_success", [
+    {
+        "kind": "grant_reward",
+        "outcome": "investigators_win",
+        "rule_ref": "module.haunting.corbitt_own_dagger",
+    },
+    {
+        "kind": "destroy_target",
+        "outcome": "arbitrary_outcome",
+        "rule_ref": "module.haunting.corbitt_own_dagger",
+    },
+    {
+        "kind": "destroy_target",
+        "outcome": "investigators_win",
+        "rule_ref": "",
+    },
+    {
+        "kind": "destroy_target",
+        "outcome": "investigators_win",
+        "rule_ref": "module.haunting.corbitt_own_dagger",
+        "shell_command": "forged-extra-field",
+    },
+])
+def test_combat_load_rejects_forged_pending_on_success(tmp_path, forged_on_success):
+    _session, path = _save_extended_pending_attack(tmp_path)
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    snapshot["pending_attack"]["on_success"] = forged_on_success
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pending attack contract"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+@pytest.mark.parametrize("field", ["victory_outcome", "defeat_outcome"])
+def test_combat_load_rejects_illegal_pending_authored_outcome(tmp_path, field):
+    _session, path = _save_extended_pending_attack(tmp_path)
+    snapshot = json.loads(path.read_text(encoding="utf-8"))
+    snapshot["pending_attack"][field] = "keeper_forged_outcome"
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="pending attack contract"):
+        coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+
+def test_combat_pending_special_contract_survives_save_reload_for_executor(tmp_path):
+    """CombatSession preserves, but does not execute, executor-owned special resolution."""
+    original, _path = _save_extended_pending_attack(tmp_path)
+
+    loaded = coc_combat.CombatSession.load(
+        tmp_path, rng=random.Random(999), trusted_in_memory=True,
+    )
+
+    assert loaded.pending_attack == original.pending_attack
+    assert loaded.snapshot()["pending_attack"] == original.snapshot()["pending_attack"]
+    assert loaded.pending_attack["on_success"] == {
+        "kind": "destroy_target",
+        "outcome": "investigators_win",
+        "rule_ref": "module.haunting.corbitt_own_dagger",
+    }
+    assert loaded.pending_attack["victory_outcome"] == "investigators_win"
+    assert loaded.pending_attack["defeat_outcome"] == "monsters_win"
+
+
+def test_combat_load_preserves_legacy_pending_attack_compatibility(tmp_path):
+    session = coc_combat.CombatSession(
+        "pending-legacy", "test", 1, rng=random.Random(5)
+    )
+    session.add_participant("inv", "investigator", 60, 55, 0, 10)
+    session.add_participant("foe", "monster", 50, 45, 0, 8)
+    session.begin_round()
+    session.pending_attack = {
+        "attack_command_id": "attack-legacy-1",
+        "actor_id": "inv",
+        "target_actor_id": "foe",
+        "declared_intent": "strike",
+        "resolution_hint": "opposed_melee",
+        "weapon_id": "unarmed",
+        "allowed_defenses": ["dodge", "fight_back"],
+    }
+    session.save(tmp_path)
+
+    loaded = coc_combat.CombatSession.load(tmp_path, rng=random.Random(999))
+
+    assert loaded.pending_attack["attack_command_id"] == "attack-legacy-1"
+    assert loaded.pending_attack["on_success"] is None
+    assert loaded.pending_attack["victory_outcome"] is None
+    assert loaded.pending_attack["defeat_outcome"] is None
 
 
 # --------------------------------------------------------------------------- #

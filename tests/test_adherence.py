@@ -72,7 +72,13 @@ def test_generate_adherence_checklist_from_haunting():
 
     # Optional: scenes / bonus / npc
     assert any(s["kind"] == "optional" and "scene_id" in s["criterion"] for s in checklist)
-    assert any(s["kind"] == "optional" and "bonus_clue_id" in s["criterion"] for s in checklist)
+    # The current semantic clue schema removed legacy nested ``bonus`` rows.
+    # Consumers must not fabricate bonus-roll statements from ordinary
+    # skill/difficulty fields when the producer no longer declares them.
+    assert not any(
+        s["kind"] == "optional" and "bonus_clue_id" in s["criterion"]
+        for s in checklist
+    )
     assert any(s["kind"] == "optional" and "npc_id" in s["criterion"] for s in checklist)
 
 
@@ -235,9 +241,31 @@ def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
         ],
         "events": [
             {"event_type": "npc_engagement", "npc_id": "npc-augustus-larkin"},
+            {"event_type": "npc_update", "npc_id": "npc-nayra", "applied": {"trust": 1}},
         ],
     }
     result = coc_adherence.evaluate_adherence(checklist, play)
     by_id = {s["statement_id"]: s for s in result["statements"]}
     assert by_id["npc:npc-augustus-larkin"]["satisfied"] is True
-    assert by_id["npc:npc-nayra"]["satisfied"] is False
+    assert by_id["npc:npc-nayra"]["satisfied"] is True
+
+
+def test_project_engaged_npc_ids_accepts_canonical_and_legacy_update_events():
+    events = [
+        {
+            "event_type": "npc_engagement",
+            "npc_id": "npc-kim-debrun",
+            "interaction_kind": "dialogue",
+        },
+        {
+            "event_type": "npc_update",
+            "npc_id": "npc-steven-knott",
+            "applied": {"trust": 1},
+        },
+        {"event_type": "turn", "npc_id": "npc-not-an-engagement"},
+    ]
+
+    assert coc_adherence.project_engaged_npc_ids(events) == {
+        "npc-kim-debrun",
+        "npc-steven-knott",
+    }

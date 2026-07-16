@@ -6,6 +6,25 @@ from pathlib import Path
 
 import pytest
 
+
+def test_collect_anchors_prefers_structured_play_language_localization():
+    director = _load(
+        "coc_story_director_localized_anchor",
+        Path(__file__).resolve().parents[1]
+        / "plugins" / "coc-keeper" / "scripts" / "coc_story_director.py",
+    )
+    graph = {"conclusions": [{"clues": [{
+        "clue_id": "localized-clue",
+        "player_safe_summary": "English source text.",
+        "localized_text": {"zh-Hans": {
+            "player_safe_summary": "中文玩家可见文本。",
+        }},
+    }]}]}
+
+    assert director._collect_anchors(
+        ["localized-clue"], graph, "zh-Hans"
+    ) == ["中文玩家可见文本。"]
+
 def _load(name, rel):
     spec = importlib.util.spec_from_file_location(name, rel)
     m = importlib.util.module_from_spec(spec)
@@ -183,6 +202,105 @@ def test_pressure_selects_canonical_scene_threat_front_id(tmp_path):
 
     assert move["clock_id"] == "matched"
     assert move["selection_reason"]["affinity_kind"] == "threat_front_ids"
+
+
+def test_pressure_without_structured_affinity_falls_back_to_authored_scene_move(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "scene_id": "newspaper-morgue",
+        "scene_tags": [],
+        "threat_front_ids": [],
+        "pressure_moves": [{
+            "id": "editor-deadline",
+            "visible_symptom": "The editor closes access for the day.",
+        }],
+    })
+    story_path.write_text(json.dumps(story))
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world["active_scene_id"] = "newspaper-morgue"
+    world_path.write_text(json.dumps(world))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [{
+        "front_id": "corbitt-haunting",
+        "clocks": [{
+            "clock_id": "corbitt-awareness", "segments": 4,
+            "on_tick_visible": ["a answering knock from inside the walls"],
+        }],
+    }]}))
+
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "ask the editor", "social", rng=random.Random(1)
+    )
+    move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
+
+    assert move["source"] == "active_scene.pressure_moves"
+    assert move["pressure_move_id"] == "editor-deadline"
+    assert move["clock_id"] is None
+    assert move["tick"] == 0
+    assert move["grounding_receipt"]["status"] == "authorized"
+    assert move["grounding_receipt"]["active_scene_id"] == "newspaper-morgue"
+
+
+def test_pressure_without_affinity_or_scene_move_emits_no_fact_or_clock_tick(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "scene_tags": [], "threat_front_ids": [], "pressure_moves": [],
+    })
+    story_path.write_text(json.dumps(story))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [{
+        "front_id": "unrelated",
+        "clocks": [{"clock_id": "remote", "segments": 4}],
+    }]}))
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
+    )
+
+    assert coc_story_director._build_pressure_moves(ctx, "PRESSURE") == []
+
+
+def test_pressure_accepts_authored_scene_clock_reference_for_house_front(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "scene_id": "basement-rites",
+        "scene_tags": [],
+        "threat_front_ids": [],
+        "pressure_moves": ["The basement stairs shift underfoot."],
+        "on_enter": {
+            "clock_ticks": [{
+                "clock_id": "corbitt-awareness",
+                "reason": "Corbitt feels entry into his buried domain",
+            }],
+        },
+    })
+    story_path.write_text(json.dumps(story))
+    world_path = camp / "save" / "world-state.json"
+    world = json.loads(world_path.read_text())
+    world["active_scene_id"] = "basement-rites"
+    world_path.write_text(json.dumps(world))
+    (camp / "scenario" / "threat-fronts.json").write_text(json.dumps({"fronts": [{
+        "front_id": "corbitt-haunting",
+        "clocks": [{
+            "clock_id": "corbitt-awareness", "segments": 4,
+            "on_tick_visible": ["the reek thickens on the stair"],
+        }],
+    }]}))
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "continue", "investigate", rng=random.Random(1)
+    )
+
+    move = coc_story_director._build_pressure_moves(ctx, "PRESSURE")[0]
+
+    assert move["clock_id"] == "corbitt-awareness"
+    assert move["tick"] == 1
+    assert move["selection_reason"]["affinity_kind"] == "scene_clock_refs"
+    assert move["selection_reason"]["matched_ids"] == ["corbitt-awareness"]
+    assert move["grounding_receipt"]["status"] == "authorized"
 
 
 @pytest.mark.parametrize("field,value", [
@@ -2460,6 +2578,52 @@ def test_reveal_falls_back_to_first_when_no_priority(tmp_path):
     assert "clue-1" in plan["clue_policy"]["reveal"]
 
 
+def test_authoritative_unbound_route_cannot_claim_scene_clue_by_shared_skill(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    story_path = camp / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "available_clues": ["clue-1", "clue-1b"],
+        "affordances": [{
+            "id": "inspect-barricades", "cue": "Inspect the visible barricades.",
+            "route_type": "environment", "status": "open",
+        }],
+    })
+    story_path.write_text(json.dumps(story))
+    clue_path = camp / "scenario" / "clue-graph.json"
+    clues = json.loads(clue_path.read_text())
+    first = clues["conclusions"][0]["clues"][0]
+    first["affordance"] = {
+        "target_entities": [], "verbs": [], "skills": ["Spot Hidden"],
+    }
+    second = dict(first)
+    second["clue_id"] = "clue-1b"
+    clues["conclusions"][0]["clues"].append(second)
+    clue_path.write_text(json.dumps(clues))
+    rich = {
+        "primary_intent": "investigate",
+        "action_atoms": [{
+            "id": "inspect", "verb": "inspect", "requires_roll": True,
+            "skill": "Spot Hidden",
+        }],
+        "action_resolution": {
+            "status": "resolved", "no_match": False,
+            "matched_affordance_ids": ["inspect-barricades"],
+            "matched_destination_scene_id": None,
+        },
+    }
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="inspect", player_intent_class="investigate",
+        player_intent_rich=rich, rng=random.Random(42),
+    )
+
+    policy = coc_story_director._select_clue_policy(ctx, "REVEAL")
+
+    assert policy["reveal"] == []
+    assert policy["matched_route_ids"] == ["inspect-barricades"]
+
+
 def test_choice_returns_two_leads(tmp_path):
     """CHOICE action returns 2 leads ranked by priority."""
     camp, char_path = _make_minimal_campaign(tmp_path)
@@ -2934,8 +3098,8 @@ def test_move_intent_with_unlocked_reachable_target_selects_cut(tmp_path):
     assert plan.get("transition_to") == "crossing-saddle"
 
 
-def test_stalled_turns_raise_cut_score_when_transition_candidates_exist(tmp_path):
-    """Existing stalled_turns pacing should raise CUT pressure when a target is open."""
+def test_stalled_turns_do_not_choose_destination_without_movement_authority(tmp_path):
+    """Stalling alone cannot select an unlocked destination for the player."""
     camp, char_path = _make_minimal_campaign(tmp_path)
     story = json.loads((camp / "scenario" / "story-graph.json").read_text())
     story["scenes"].append({
@@ -2968,7 +3132,7 @@ def test_stalled_turns_raise_cut_score_when_transition_candidates_exist(tmp_path
     )
     assert ctx["rule_signals"]["stalled_turns"] >= 2
     score = coc_story_director._base_score("CUT", ctx)
-    assert score > 0.0
+    assert score == 0.0
 
 
 def test_move_intent_target_entities_route_to_matched_scene(tmp_path):
@@ -3166,10 +3330,16 @@ def test_director_emits_clue_bonus_skill_check_on_investigate_reveal(tmp_path):
         "delivery_kind": "handout",
         "player_safe_summary": "A civil file names the chapel executor.",
         "bonus": {
+            "schema_version": 1,
+            "origin": "improvised",
             "skill": "Library Use",
             "difficulty": "regular",
             "extra_summary": "A marginal note lists the chapel's 1912 closure date.",
             "on_fail_cost": "time",
+            "fumble_consequence": {
+                "summary": "The archive search leaves the investigator rattled.",
+                "effect": {"kind": "fictional_position", "severity": "serious"},
+            },
         },
     })
     (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
@@ -3205,6 +3375,10 @@ def test_director_emits_clue_bonus_skill_check_on_investigate_reveal(tmp_path):
     assert bonus_req["skill"] == "Library Use"
     assert bonus_req["difficulty"] == "regular"
     assert bonus_req["roll_contract"]["failure_outcome_mode"] != "clue_with_cost"
+    assert bonus_req["roll_contract"]["authored_clue_bonus"] is True
+    assert bonus_req["roll_contract"]["fumble_consequence"]["effect"] == {
+        "kind": "fictional_position", "severity": "serious",
+    }
 
 
 def test_director_skips_clue_bonus_for_non_investigate_intent(tmp_path):
@@ -3214,10 +3388,16 @@ def test_director_skips_clue_bonus_for_non_investigate_intent(tmp_path):
         "delivery_kind": "handout",
         "player_safe_summary": "A civil file names the chapel executor.",
         "bonus": {
+            "schema_version": 1,
+            "origin": "improvised",
             "skill": "Library Use",
             "difficulty": "regular",
             "extra_summary": "A marginal note lists the chapel's 1912 closure date.",
             "on_fail_cost": "time",
+            "fumble_consequence": {
+                "summary": "The archive search leaves the investigator rattled.",
+                "effect": {"kind": "fictional_position", "severity": "serious"},
+            },
         },
     })
     (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
@@ -3238,6 +3418,30 @@ def test_director_skips_clue_bonus_for_non_investigate_intent(tmp_path):
         for r in requests
         if isinstance(r, dict)
     )
+
+
+def test_director_suppresses_legacy_clue_bonus_without_typed_fumble(tmp_path):
+    camp, char_path = _make_minimal_campaign(tmp_path)
+    clue_graph = json.loads((camp / "scenario" / "clue-graph.json").read_text())
+    clue_graph["conclusions"][0]["clues"][0].update({
+        "delivery_kind": "handout",
+        "bonus": {
+            "schema_version": 1,
+            "origin": "improvised",
+            "skill": "Library Use",
+            "extra_summary": "An optional detail that must not trigger a roll.",
+        },
+    })
+    (camp / "scenario" / "clue-graph.json").write_text(json.dumps(clue_graph))
+    ctx = coc_story_director.build_director_context(
+        campaign_dir=camp, character_path=char_path, investigator_id="inv1",
+        player_intent="I search the file carefully.",
+        player_intent_class="investigate", rng=random.Random(7),
+    )
+    policy = coc_story_director._select_clue_policy(ctx, "REVEAL")
+    requests = coc_story_director._build_rules_requests(ctx, "REVEAL", policy)
+    assert "bonus" not in policy
+    assert not any(request.get("clue_bonus") is True for request in requests)
 
 
 def test_director_still_emits_skill_check_delivery_kind_unchanged(tmp_path):

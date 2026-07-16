@@ -405,7 +405,29 @@ def secret_ref_ids(secrets: Any) -> list[str]:
     return [ref["id"] for ref in normalize_keeper_secret_refs(secrets)]
 
 
-def _clue_lookup_player_safe(clue_graph: dict[str, Any] | None) -> dict[str, str]:
+def _localized_clue_summary(clue: dict[str, Any], language: str) -> str:
+    localized = clue.get("localized_text")
+    language_keys = [str(language or "").strip()]
+    if "-" in language_keys[0]:
+        language_keys.append(language_keys[0].split("-", 1)[0])
+    if isinstance(localized, dict):
+        for key in language_keys:
+            row = localized.get(key)
+            if isinstance(row, str) and row.strip():
+                return row.strip()
+            if isinstance(row, dict):
+                for field in ("player_safe_summary", "summary", "text"):
+                    value = row.get(field)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+    return str(
+        clue.get("player_safe_summary") or clue.get("player_visible_anchor") or ""
+    ).strip()
+
+
+def _clue_lookup_player_safe(
+    clue_graph: dict[str, Any] | None, language: str = "zh-Hans"
+) -> dict[str, str]:
     """Map clue_id -> player_safe_summary from a clue-graph (structured fields only)."""
     lookup: dict[str, str] = {}
     if not isinstance(clue_graph, dict):
@@ -422,12 +444,7 @@ def _clue_lookup_player_safe(clue_graph: dict[str, Any] | None) -> dict[str, str
             visibility = str(clue.get("visibility") or "player-safe").strip().lower()
             if visibility in {"keeper-only", "keeper_only", "secret"}:
                 continue
-            summary = (
-                clue.get("player_safe_summary")
-                or clue.get("player_visible_anchor")
-                or ""
-            )
-            summary = str(summary).strip()
+            summary = _localized_clue_summary(clue, language)
             if summary:
                 lookup[clue_id] = summary
     return lookup
@@ -465,7 +482,9 @@ def _project_approved_reveal_clues(
     clue_graph: dict[str, Any] | None,
     applied_events: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
-    lookup = _clue_lookup_player_safe(clue_graph)
+    style = (plan.get("narrative_directives") or {}).get("player_facing_style") or {}
+    language = str(style.get("language") or "zh-Hans") if isinstance(style, dict) else "zh-Hans"
+    lookup = _clue_lookup_player_safe(clue_graph, language)
     clues: list[dict[str, str]] = []
     for clue_id in _approved_reveal_clue_ids(plan, applied_events):
         summary = lookup.get(clue_id, "")
@@ -490,10 +509,23 @@ def _is_bonus_rule_result(result: dict[str, Any]) -> bool:
     return False
 
 
+def _localized_summary(value: Any, play_language: str) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    localized = value.get("localized_summaries")
+    summary = (
+        localized.get(play_language)
+        if isinstance(localized, dict)
+        else None
+    ) or value.get("summary")
+    return summary.strip() if isinstance(summary, str) and summary.strip() else None
+
+
 def _project_rule_results(
     plan: dict[str, Any],
     *,
     investigator_display_name: str | None = None,
+    applied_events: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Player-safe settled rule outcomes for the narrator (no dice math)."""
     raw = plan.get("rules_results")
@@ -514,6 +546,20 @@ def _project_rule_results(
     bonus_cost = resolved.get("bonus_cost")
     bonus_reveal = resolved.get("bonus_reveal")
     inv_name = str(investigator_display_name or "").strip()
+    style = (plan.get("narrative_directives") or {}).get("player_facing_style") or {}
+    play_language = (
+        str(style.get("language") or "zh-Hans")
+        if isinstance(style, dict) else "zh-Hans"
+    )
+    completed_route_ids = {
+        str(event.get("route_id"))
+        for event in (applied_events or [])
+        if isinstance(event, dict)
+        and event.get("event_type") == "route_completed"
+        and event.get("status") == "completed"
+        and event.get("success") is True
+        and str(event.get("route_id") or "").strip()
+    }
 
     projected: list[dict[str, Any]] = []
     for result in raw:
@@ -533,19 +579,79 @@ def _project_rule_results(
             "outcome": result.get("outcome"),
             "success": bool(result.get("success")),
         }
+        contract = result.get("roll_contract")
+        if isinstance(contract, dict):
+            goal = contract.get("goal")
+            success_effect = contract.get("success_effect")
+            if isinstance(goal, str) and goal.strip():
+                entry["goal"] = goal.strip()
+            if entry["success"] and isinstance(success_effect, str) and success_effect.strip():
+                entry["success_effect"] = success_effect.strip()
+            localized_failures = contract.get("localized_failure_effects")
+            ordinary_failure = (
+                localized_failures.get(play_language)
+                if isinstance(localized_failures, dict)
+                else None
+            ) or contract.get("failure_effect")
+            if (
+                not entry["success"]
+                and result.get("outcome") != "fumble"
+                and result.get("pushed") is not True
+                and contract.get("authored_roll_gate") is True
+                and contract.get("failure_outcome_mode") == "no_progress"
+                and isinstance(ordinary_failure, str)
+                and ordinary_failure.strip()
+            ):
+                # Authored roll gates are compiler-validated player-safe source
+                # material. Preserve their concrete settled failure for both the
+                # production narrator and deterministic fallback path.
+                entry["ordinary_failure_summary"] = ordinary_failure.strip()
+        resolution_context = result.get("resolution_context")
+        route_resolution = (
+            resolution_context.get("route_resolution")
+            if isinstance(resolution_context, dict)
+            else None
+        )
+        if isinstance(route_resolution, dict):
+            route_ids = [
+                str(value)
+                for value in route_resolution.get("matched_route_ids") or []
+                if str(value or "").strip()
+            ]
+            if route_ids:
+                entry["matched_route_ids"] = list(dict.fromkeys(route_ids))
+        matched_route_ids = set(entry.get("matched_route_ids") or [])
+        if entry["success"] and matched_route_ids:
+            route_state_committed = matched_route_ids.issubset(completed_route_ids)
+            entry["settlement_scope"] = (
+                "committed_route" if route_state_committed else "check_only"
+            )
+            entry["state_change_committed"] = route_state_committed
+            if not route_state_committed:
+                # A percentile outcome is not state-settlement authority. The
+                # narrator may say the check succeeded, but may not turn it
+                # into access, a clue, an NPC agreement, or route completion.
+                entry.pop("success_effect", None)
+                entry["must_not_claim_state_change"] = True
         if result.get("san_loss") is not None:
             entry["san_loss"] = result.get("san_loss")
         consequence = result.get("announced_consequence")
+        consequence_summary = _localized_summary(consequence, play_language)
         if (
             result.get("pushed") is True
             and not entry["success"]
-            and isinstance(consequence, dict)
-            and isinstance(consequence.get("summary"), str)
-            and consequence["summary"].strip()
+            and consequence_summary
         ):
             # Only the already-announced player-safe summary crosses this
             # boundary. The typed effect and private push context stay Keeper-side.
-            entry["consequence_summary"] = consequence["summary"].strip()
+            entry["consequence_summary"] = consequence_summary
+        fumble_consequence = result.get("fumble_consequence")
+        fumble_summary = _localized_summary(fumble_consequence, play_language)
+        if (
+            result.get("outcome") == "fumble"
+            and fumble_summary
+        ):
+            entry["consequence_summary"] = fumble_summary
 
         if not entry["success"]:
             costs: list[str] = []
@@ -565,21 +671,304 @@ def _project_rule_results(
     return projected
 
 
-def _scene_display_name(scene: dict[str, Any]) -> str:
+_ZH_ROLL_SKILL_LABELS = {
+    "Persuade": "说服",
+    "Charm": "魅惑",
+    "Fast Talk": "话术",
+    "Intimidate": "恐吓",
+    "Spot Hidden": "侦查",
+    "Library Use": "图书馆使用",
+    "Listen": "聆听",
+    "Psychology": "心理学",
+    "Dodge": "闪避",
+    "Credit Rating": "信用评级",
+}
+_ZH_ROLL_DIFFICULTY_LABELS = {
+    "regular": "常规",
+    "hard": "困难",
+    "extreme": "极难",
+    "opposed": "对抗",
+}
+_ZH_ROLL_OUTCOME_LABELS = {
+    "critical": "大成功",
+    "extreme": "极难成功",
+    "extreme_success": "极难成功",
+    "hard": "困难成功",
+    "hard_success": "困难成功",
+    "regular": "常规成功",
+    "regular_success": "常规成功",
+    "success": "成功",
+    "failure": "失败",
+    "fumble": "大失败",
+}
+
+
+def build_rules_owned_public_roll_block(
+    rule_results: Any,
+    *,
+    decision_id: str,
+    play_language: str = "zh-Hans",
+) -> dict[str, Any]:
+    """Render authoritative public dice independently of narrator prose.
+
+    This consumes settled structured rule results only. The narrator receives
+    outcome semantics but never owns numeric dice rendering, so a raw model
+    cannot omit, alter, or duplicate the rules-owned marker.
+    """
+    entries: list[dict[str, Any]] = []
+    lines: list[str] = []
+    for raw in rule_results if isinstance(rule_results, list) else []:
+        if not isinstance(raw, dict) or raw.get("skipped") or "roll" not in raw:
+            continue
+        visibility = raw.get("visibility")
+        if visibility is None:
+            visibility = "keeper_only" if raw.get("hidden") is True else "public"
+        if visibility not in {"public", "consequence_public"}:
+            continue
+        roll_id = str(raw.get("roll_id") or raw.get("command_id") or "").strip()
+        if not roll_id:
+            continue
+        skill = str(
+            raw.get("skill")
+            or raw.get("characteristic")
+            or raw.get("purpose")
+            or raw.get("kind")
+            or "roll"
+        ).strip()
+        die = str(raw.get("die_expression") or raw.get("die") or "").strip()
+        skill_or_die = f"{skill} ({die})" if die and die != skill else skill
+        outcome = str(raw.get("outcome") or "unknown").strip()
+        fumble_consequence = raw.get("fumble_consequence")
+        fumble_summary = (
+            fumble_consequence.get("summary", "").strip()
+            if outcome == "fumble" and isinstance(fumble_consequence, dict)
+            and isinstance(fumble_consequence.get("summary"), str)
+            else ""
+        )
+        entry: dict[str, Any] = {
+            "roll_id": roll_id,
+            "decision_id": str(raw.get("decision_id") or decision_id),
+            "visibility": visibility,
+            "skill_or_die": skill_or_die,
+            "roll": raw.get("roll"),
+            "outcome": outcome,
+            "source_ref": str(
+                raw.get("source_ref") or f"logs/rolls.jsonl#{roll_id}"
+            ),
+        }
+        target = raw.get("effective_target", raw.get("target"))
+        if target is not None:
+            entry["target"] = target
+        difficulty = raw.get("difficulty")
+        if difficulty is not None:
+            entry["difficulty"] = difficulty
+        for key in (
+            "bonus_penalty_dice", "bonus", "penalty", "die", "die_expression",
+            "die_rolls", "flat_modifier", "pushed",
+        ):
+            if raw.get(key) is not None:
+                entry[key] = raw[key]
+        dice_details: list[str] = []
+        if int(raw.get("bonus", 0) or 0) or int(raw.get("penalty", 0) or 0):
+            dice_details.append(
+                (
+                    f"奖励骰 {raw.get('bonus', 0)} / 惩罚骰 {raw.get('penalty', 0)}"
+                    if play_language == "zh-Hans"
+                    else f"bonus {raw.get('bonus', 0)} / penalty {raw.get('penalty', 0)}"
+                )
+            )
+        elif int(raw.get("bonus_penalty_dice", 0) or 0):
+            dice_details.append(
+                (
+                    f"奖惩骰 {raw.get('bonus_penalty_dice')}"
+                    if play_language == "zh-Hans"
+                    else f"bonus/penalty dice {raw.get('bonus_penalty_dice')}"
+                )
+            )
+        if play_language == "zh-Hans":
+            display_skill = _ZH_ROLL_SKILL_LABELS.get(skill, skill)
+            display_skill_or_die = (
+                f"{display_skill} ({die})" if die and die != skill else display_skill
+            )
+            display_difficulty = _ZH_ROLL_DIFFICULTY_LABELS.get(
+                str(difficulty), str(difficulty)
+            ) if difficulty is not None else None
+            display_outcome = _ZH_ROLL_OUTCOME_LABELS.get(outcome, outcome)
+            target_text = f" / 目标 {target}" if target is not None else ""
+            difficulty_text = f"（{display_difficulty}）" if display_difficulty is not None else ""
+            detail_text = f"；{'；'.join(dice_details)}" if dice_details else ""
+            pushed_text = "（推骰）" if raw.get("pushed") is True else ""
+            consequence_text = f"；后果：{fumble_summary}" if fumble_summary else ""
+            lines.append(
+                f"【明骰】{pushed_text}{display_skill_or_die}：{raw.get('roll')}"
+                f"{target_text}{difficulty_text} → {display_outcome}{detail_text}"
+                f"{consequence_text}。"
+                f"【来源：{entry['source_ref']}】"
+            )
+        else:
+            target_text = f" / target {target}" if target is not None else ""
+            difficulty_text = f" ({difficulty})" if difficulty is not None else ""
+            detail_text = f"; {'; '.join(dice_details)}" if dice_details else ""
+            pushed_text = " [Pushed]" if raw.get("pushed") is True else ""
+            consequence_text = (
+                f"; consequence: {fumble_summary}" if fumble_summary else ""
+            )
+            lines.append(
+                f"[Public roll]{pushed_text} {skill_or_die}: {raw.get('roll')}{target_text}{difficulty_text} "
+                f"-> {outcome}{detail_text}{consequence_text}. "
+                f"[Source: {entry['source_ref']}]"
+            )
+        if fumble_summary:
+            entry["fumble_consequence_summary"] = fumble_summary
+        entries.append(entry)
+    return {
+        "schema_version": 1,
+        "owner": "deterministic_rules_renderer",
+        "decision_id": decision_id,
+        "public_roll_count": len(entries),
+        "entries": entries,
+        "text": "\n".join(lines),
+    }
+
+
+def compose_rules_owned_public_roll_block(
+    narrator_text: str,
+    block: Any,
+) -> str:
+    """Compose one prebuilt rules block without inspecting generated prose."""
+    base = str(narrator_text or "").strip()
+    if (
+        not isinstance(block, dict)
+        or block.get("owner") != "deterministic_rules_renderer"
+        or not isinstance(block.get("entries"), list)
+        or block.get("public_roll_count") != len(block["entries"])
+        or not block["entries"]
+        or not isinstance(block.get("text"), str)
+        or not block["text"].strip()
+    ):
+        return base
+    return f"{base}\n\n{block['text'].strip()}" if base else block["text"].strip()
+
+
+def _project_action_outcomes(
+    applied_events: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Project committed public action outcomes from apply events.
+
+    Only ``route_completed`` events cross this boundary.  Their goal/outcome
+    strings originate from the already-public authored affordance, never from
+    Keeper secrets or report prose.
+    """
+    outcomes: list[dict[str, Any]] = []
+    for event in applied_events or []:
+        if not isinstance(event, dict) or event.get("event_type") != "route_completed":
+            continue
+        if event.get("success") is not True or event.get("status") != "completed":
+            continue
+        row: dict[str, Any] = {
+            "route_id": event.get("route_id"),
+            "status": "completed",
+            "success": True,
+            "source": event.get("source") or "route_completed",
+        }
+        for key in ("player_visible_goal", "player_visible_outcome"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                row[key] = value.strip()
+        rule_outcomes = [
+            str(value) for value in event.get("rule_outcomes") or []
+            if str(value or "").strip()
+        ]
+        if rule_outcomes:
+            row["rule_outcomes"] = rule_outcomes
+        outcomes.append(row)
+    return outcomes
+
+
+def _scene_display_name(scene: dict[str, Any], play_language: str) -> str:
+    identity = scene.get("destination_identity")
+    if isinstance(identity, dict):
+        localized_names = identity.get("localized_names")
+        localized = (
+            localized_names.get(play_language)
+            if isinstance(localized_names, dict)
+            else None
+        )
+        if isinstance(localized, dict):
+            for key in ("display_name", "name", "title"):
+                value = localized.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        elif isinstance(localized, str) and localized.strip():
+            return localized.strip()
+    for container_key in ("localized_text", "localized_names"):
+        container = scene.get(container_key)
+        localized = container.get(play_language) if isinstance(container, dict) else None
+        if isinstance(localized, dict):
+            for key in ("display_name", "name", "title"):
+                value = localized.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
     for key in ("display_name", "title", "player_safe_summary", "live_summary"):
         value = scene.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    tags = scene.get("location_tags")
-    if isinstance(tags, list):
-        for tag in tags:
-            text = str(tag or "").strip()
-            if text:
-                return text
-    return str(scene.get("scene_id") or "").strip()
+    if isinstance(identity, dict):
+        canonical_name = identity.get("canonical_name")
+        if isinstance(canonical_name, str) and canonical_name.strip():
+            return canonical_name.strip()
+    return "当前地点" if play_language == "zh-Hans" else "the current location"
 
 
-def _build_scene_anchor(active_scene: dict[str, Any] | None) -> dict[str, Any]:
+def _present_scene_npc_ids(
+    scene: dict[str, Any],
+    route_completion_receipts: list[dict[str, Any]] | None,
+) -> list[str]:
+    """Project physical NPC presence from structured scene prerequisites."""
+    scene_id = str(scene.get("scene_id") or "").strip()
+    declared = list(dict.fromkeys(
+        str(value).strip()
+        for value in (scene.get("npc_ids") or [])
+        if str(value or "").strip()
+    ))
+    requirements = {
+        str(row.get("npc_id")): row
+        for row in (scene.get("npc_presence_requirements") or [])
+        if isinstance(row, dict) and str(row.get("npc_id") or "").strip()
+    }
+    completed_route_ids = {
+        str(row.get("route_id"))
+        for row in (route_completion_receipts or [])
+        if isinstance(row, dict)
+        and row.get("status") == "consumed"
+        and str(row.get("route_id") or "").strip()
+        and (
+            not str(row.get("scene_id") or "").strip()
+            or not scene_id
+            or str(row.get("scene_id")) == scene_id
+        )
+    }
+    visible: list[str] = []
+    for npc_id in declared:
+        requirement = requirements.get(npc_id)
+        if not isinstance(requirement, dict):
+            visible.append(npc_id)
+            continue
+        required_route_ids = {
+            str(value).strip()
+            for value in (requirement.get("requires_completed_route_ids") or [])
+            if str(value or "").strip()
+        }
+        if required_route_ids.issubset(completed_route_ids):
+            visible.append(npc_id)
+    return visible
+
+
+def _build_scene_anchor(
+    active_scene: dict[str, Any] | None,
+    *,
+    play_language: str = "zh-Hans",
+) -> dict[str, Any]:
     """Player-safe scene grounding: display name + sensory anchors only."""
     scene = active_scene if isinstance(active_scene, dict) else {}
     if not scene:
@@ -608,7 +997,7 @@ def _build_scene_anchor(active_scene: dict[str, Any] | None) -> dict[str, Any]:
 
     anchor: dict[str, Any] = {
         "scene_id": scene.get("scene_id"),
-        "display_name": _scene_display_name(scene),
+        "display_name": _scene_display_name(scene, play_language),
         "sensory_anchors": sensory,
     }
     if location_tags:
@@ -643,7 +1032,17 @@ def _npc_dialogue_seed(move: dict[str, Any]) -> str:
     return ""
 
 
-def _npc_display_name(move: dict[str, Any]) -> str:
+def _npc_display_name(move: dict[str, Any], play_language: str = "zh-Hans") -> str:
+    for container_key in ("localized_text", "localized_names"):
+        container = move.get(container_key)
+        localized = container.get(play_language) if isinstance(container, dict) else None
+        if isinstance(localized, dict):
+            for key in ("display_name", "name"):
+                value = localized.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        elif isinstance(localized, str) and localized.strip():
+            return localized.strip()
     for key in ("display_name", "name"):
         value = move.get(key)
         if isinstance(value, str) and value.strip():
@@ -657,7 +1056,7 @@ def _npc_display_name(move: dict[str, Any]) -> str:
                 return value.strip()
         elif isinstance(name_rec, str) and name_rec.strip():
             return name_rec.strip()
-    return str(move.get("npc_id") or "").strip()
+    return "在场人物" if play_language == "zh-Hans" else "a present person"
 
 
 def _sanitize_persona(persona: Any) -> dict[str, Any]:
@@ -692,7 +1091,10 @@ def _sanitize_agency_moves(agency_moves: Any) -> list[dict[str, Any]]:
     return safe
 
 
-def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_npc_move(
+    move: dict[str, Any],
+    play_language: str = "zh-Hans",
+) -> dict[str, Any]:
     """Minimum-privilege NPC move for the narrator (no secret prose).
 
     Structured gate (Semantic Matcher Constitution): when ``has_secret`` is
@@ -705,7 +1107,7 @@ def _sanitize_npc_move(move: dict[str, Any]) -> dict[str, Any]:
     has_secret = bool(move.get("has_secret"))
     safe_move: dict[str, Any] = {
         "npc_id": move.get("npc_id"),
-        "display_name": _npc_display_name(move),
+        "display_name": _npc_display_name(move, play_language),
         "dialogue_seed": _npc_dialogue_seed(move),
         "emotional_tone": move.get("emotional_tone"),
         "has_secret": has_secret,
@@ -741,6 +1143,37 @@ def _sanitize_disclosure_decisions(value: Any) -> list[dict[str, Any]]:
     return safe
 
 
+def _sanitize_keeper_plan(value: Any) -> dict[str, Any] | None:
+    """Whitelist non-factual presentation guidance from the private Keeper."""
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        return None
+    narration = value.get("narration")
+    if not isinstance(narration, dict):
+        narration = {}
+    return {
+        "schema_version": 1,
+        "resolution_mode": value.get("resolution_mode"),
+        "scene_action": value.get("scene_action"),
+        "rule_decision": value.get("rule_decision"),
+        "npc_tactic": value.get("npc_tactic"),
+        "npc_id": value.get("npc_id"),
+        "narration": {
+            "beat": narration.get("beat"),
+            "tone": [
+                str(item) for item in narration.get("tone") or []
+                if isinstance(item, str) and item.strip()
+            ][:4],
+            # Private free-form focus/objective/rationale never cross privilege.
+            "sensory_focus": [],
+            "end_with": narration.get("end_with"),
+        },
+        "authority": (
+            "Presentation guidance only; facts and state require dedicated "
+            "approved envelope fields."
+        ),
+    }
+
+
 def _sanitize_choice_frame(value: Any) -> dict[str, Any]:
     """Whitelist the public choice-frame contract and route affordances."""
     if not isinstance(value, dict):
@@ -758,7 +1191,10 @@ def _sanitize_choice_frame(value: Any) -> dict[str, Any]:
             continue
         public_route = {
             key: route.get(key) for key in (
-                "route_id", "id", "clue_id", "cue", "label", "summary",
+                # clue_id is Keeper-side routing data.  The narrator needs only
+                # the authored player-visible affordance, never the identity of
+                # the undiscovered clue behind it.
+                "route_id", "id", "cue", "cue_scope", "label", "summary",
                 "player_safe_summary", "kind", "available",
             ) if route.get(key) is not None
         }
@@ -766,6 +1202,8 @@ def _sanitize_choice_frame(value: Any) -> dict[str, Any]:
             routes.append(public_route)
     if routes:
         safe["routes"] = routes
+    if not routes and not safe.get("prompt") and not safe.get("visible_affordances"):
+        return {}
     return safe
 
 
@@ -806,6 +1244,79 @@ def _sanitize_redirection(redirection: Any) -> dict[str, Any] | None:
     return {"strategy": strategy, "grounding": grounding}
 
 
+def _project_grounded_pressure_moves(
+    plan: dict[str, Any],
+    *,
+    active_scene_id: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Expose only pressure consequences with a structured source receipt.
+
+    The narrator must never turn an unbound threat-clock fallback into a local
+    observable fact. Legacy moves can still be recognized when their structured
+    source is the active scene or their affinity receipt has non-empty matches.
+    No pressure prose is inspected to make this decision.
+    """
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    receipts: list[dict[str, Any]] = []
+    for index, move in enumerate(plan.get("pressure_moves") or []):
+        if not isinstance(move, dict):
+            rejected.append({"index": index, "reason": "malformed_pressure_move"})
+            continue
+        receipt = move.get("grounding_receipt")
+        authorized = isinstance(receipt, dict) and receipt.get("status") == "authorized"
+        if not authorized and move.get("source") == "active_scene.pressure_moves":
+            receipt = {
+                "schema_version": 1,
+                "status": "authorized",
+                "source": "active_scene.pressure_moves",
+                "active_scene_id": active_scene_id,
+                "rule": "Narrate only the authored active-scene consequence.",
+            }
+            authorized = True
+        selection = move.get("selection_reason")
+        if not authorized and isinstance(selection, dict):
+            matched = [str(value) for value in selection.get("matched_ids") or [] if value]
+            affinity_kind = str(selection.get("affinity_kind") or "")
+            if affinity_kind and affinity_kind != "fallback" and matched:
+                receipt = {
+                    "schema_version": 1,
+                    "status": "authorized",
+                    "source": "threat_fronts.clock",
+                    "active_scene_id": active_scene_id,
+                    "front_id": selection.get("front_id"),
+                    "clock_id": move.get("clock_id"),
+                    "affinity_kind": affinity_kind,
+                    "matched_ids": matched,
+                    "rule": "Narrate only the symptom authorized by this structured affinity.",
+                }
+                authorized = True
+        if not authorized:
+            rejected.append({
+                "index": index,
+                "clock_id": move.get("clock_id"),
+                "reason": "missing_structured_scene_affinity",
+            })
+            continue
+        projected = dict(move)
+        projected["grounding_receipt"] = receipt
+        accepted.append(projected)
+        receipts.append(dict(receipt))
+    return accepted, {
+        "schema_version": 1,
+        "status": "authorized" if not rejected else "filtered",
+        "active_scene_id": active_scene_id,
+        "authorized_count": len(accepted),
+        "rejected_count": len(rejected),
+        "authorized_sources": receipts,
+        "rejected": rejected,
+        "rule": (
+            "Narrate only pressure_moves with an authorized source receipt; "
+            "do not add symptoms, objects, routes, or locations beyond it."
+        ),
+    }
+
+
 def _project_rules_requests(plan: dict[str, Any]) -> list[dict[str, Any]]:
     """Return narrator-safe rule requests without Keeper-only effect data.
 
@@ -843,6 +1354,105 @@ def _project_rules_requests(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return projected
 
 
+def _approved_reveal_must_include(
+    plan: dict[str, Any], directives: dict[str, Any]
+) -> list[Any]:
+    """Keep presentation-only storylet cues out of approved fact authority.
+
+    Older enriched plans copied every storylet cue into ``must_include`` even
+    when the move's structured grounding explicitly disallowed a new
+    actionable fact.  The move remains available in ``storylet_moves`` for
+    presentation, but it must not become a required approved reveal.  Matching
+    here is a structured provenance join (move.cue -> directive entry), not a
+    semantic classification of prose.
+    """
+    presentation_only_cues: set[str] = set()
+    for move in plan.get("storylet_moves") or []:
+        if not isinstance(move, dict):
+            continue
+        grounding = move.get("grounding_contract")
+        if not isinstance(grounding, dict):
+            continue
+        if grounding.get("allow_new_actionable_fact") is not False:
+            continue
+        cue = move.get("cue")
+        if isinstance(cue, str) and cue.strip():
+            presentation_only_cues.add(cue.strip())
+
+    projected: list[Any] = []
+    for item in directives.get("must_include") or []:
+        if isinstance(item, str) and item.strip() in presentation_only_cues:
+            continue
+        projected.append(item)
+    return projected
+
+
+def _project_storylet_moves(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Project only source-authorized storylet facts or exact public routes.
+
+    Entity binding is scheduling metadata, not fact authority.  Unverified
+    library prose, beats, titles, and variants therefore never enter the
+    narrator payload.  A bound open route may survive only as the exact cue
+    already present in the settled choice frame.
+    """
+    route_cues = {
+        str(route.get("route_id") or route.get("id")): str(route.get("cue")).strip()
+        for route in (plan.get("choice_frame") or {}).get("routes", [])
+        if isinstance(route, dict)
+        and str(route.get("route_id") or route.get("id") or "")
+        and isinstance(route.get("cue"), str)
+        and route.get("cue").strip()
+        and str(route.get("status") or "open") == "open"
+    }
+    active_scene_id = str(
+        (plan.get("active_scene") or {}).get("scene_id")
+        or (plan.get("turn_input") or {}).get("active_scene_id")
+        or ""
+    )
+    projected: list[dict[str, Any]] = []
+    for move in plan.get("storylet_moves") or []:
+        if not isinstance(move, dict):
+            continue
+        grounding = move.get("grounding_contract")
+        grounding = grounding if isinstance(grounding, dict) else {}
+        authorization = grounding.get("fact_authorization")
+        fact_authorized = (
+            grounding.get("allow_new_actionable_fact") is True
+            and isinstance(authorization, dict)
+            and authorization.get("status") == "authorized"
+            and str(authorization.get("storylet_id") or "")
+            == str(move.get("storylet_id") or "")
+            and (
+                not active_scene_id
+                or str(authorization.get("scene_id") or "") == active_scene_id
+            )
+            and bool(authorization.get("source_refs"))
+        )
+        if fact_authorized:
+            projected.append(dict(move))
+            continue
+        bound = move.get("bound_entities")
+        route_id = str(bound.get("route_id") or "") if isinstance(bound, dict) else ""
+        route_cue = route_cues.get(route_id)
+        if not route_cue:
+            continue
+        projected.append({
+            "schema_version": 1,
+            "presentation_mode": "existing_route_only",
+            "cue": route_cue,
+            "beat": None,
+            "bound_entities": {"route_id": route_id},
+            "rolled_variants": {},
+            "grounding_contract": {
+                "allow_new_actionable_fact": False,
+                "authorized_route_ids": [route_id],
+                "fallback_mode": "existing_route_only_or_suppress",
+                "source": "narrator_storylet_projection",
+            },
+        })
+    return projected
+
+
 def build_narration_envelope(
     plan: dict[str, Any],
     *,
@@ -851,6 +1461,7 @@ def build_narration_envelope(
     active_scene: dict[str, Any] | None = None,
     investigator_display_name: str | None = None,
     applied_events: list[dict[str, Any]] | None = None,
+    route_completion_receipts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the minimum-privilege narrator payload from a DirectorPlan.
 
@@ -860,6 +1471,12 @@ def build_narration_envelope(
     secret prose must never appear in the serialized envelope.
     """
     directives = plan.get("narrative_directives") or {}
+    style = directives.get("player_facing_style")
+    play_language = (
+        str(style.get("language") or "zh-Hans")
+        if isinstance(style, dict)
+        else "zh-Hans"
+    )
     clue_policy = plan.get("clue_policy") or {}
     mnr_refs = normalize_keeper_secret_refs(directives.get("must_not_reveal") or [])
     clue_ids = _approved_reveal_clue_ids(plan, applied_events)
@@ -873,7 +1490,7 @@ def build_narration_envelope(
              else decision)
             for decision in disclosure_decisions
         ]
-    reveal_must_include = list(directives.get("must_include") or [])
+    reveal_must_include = _approved_reveal_must_include(plan, directives)
     social_post_apply = (
         applied_events is not None and coc_npc_state.is_social_clue_plan(plan)
     )
@@ -883,13 +1500,105 @@ def build_narration_envelope(
         # authorized here; lie/deflect lines travel through their safe field.
         reveal_must_include = []
     npc_moves = [
-        _sanitize_npc_move(move)
+        _sanitize_npc_move(move, play_language)
         for move in (plan.get("npc_moves") or [])
         if isinstance(move, dict)
     ]
     scene = active_scene
     if not isinstance(scene, dict) or not scene:
         scene = plan.get("active_scene") if isinstance(plan.get("active_scene"), dict) else {}
+    declared_scene_npc_ids = {
+        str(value).strip()
+        for value in (scene.get("npc_ids") or [])
+        if str(value or "").strip()
+    }
+    present_scene_npc_ids = _present_scene_npc_ids(
+        scene,
+        route_completion_receipts,
+    )
+    present_scene_npc_id_set = set(present_scene_npc_ids)
+    if declared_scene_npc_ids:
+        npc_moves = [
+            move for move in npc_moves
+            if not str(move.get("npc_id") or "").strip()
+            or str(move.get("npc_id")).strip() in present_scene_npc_id_set
+        ]
+    scene_before_id = str(
+        plan.get("turn_input", {}).get("active_scene_id")
+        or scene.get("scene_id")
+        or ""
+    )
+    transition_events = [
+        event for event in (applied_events or [])
+        if isinstance(event, dict) and event.get("event_type") == "scene_transition"
+    ]
+    scene_after_id = scene_before_id
+    if transition_events:
+        scene_after_id = str(
+            transition_events[-1].get("to_scene")
+            or transition_events[-1].get("scene_id")
+            or scene_before_id
+        )
+    grounded_pressure_moves, pressure_grounding = _project_grounded_pressure_moves(
+        plan,
+        active_scene_id=scene_after_id,
+    )
+    turn_input = plan.get("turn_input") if isinstance(plan.get("turn_input"), dict) else {}
+    turn_rich = turn_input.get("player_intent_rich") if isinstance(turn_input.get("player_intent_rich"), dict) else {}
+    action_resolution = turn_rich.get("action_resolution") if isinstance(turn_rich.get("action_resolution"), dict) else {}
+    keeper_proposal = (
+        action_resolution.get("keeper_proposal")
+        if isinstance(action_resolution.get("keeper_proposal"), dict)
+        else {}
+    )
+    understood_unbound = keeper_proposal.get("resolution_mode") in {
+        "authored", "improvised", "subsystem",
+    }
+    recovery_required = bool(
+        not transition_events
+        and action_resolution
+        and (
+            (
+                action_resolution.get("no_match") is True
+                and not understood_unbound
+            )
+            or (
+                action_resolution.get("matched_destination_scene_id") is None
+                and turn_input.get("player_intent_class") == "move"
+            )
+        )
+    )
+    redirection = _sanitize_redirection(plan.get("redirection"))
+    redirection_grounding = (
+        redirection.get("grounding")
+        if isinstance(redirection, dict)
+        and isinstance(redirection.get("grounding"), dict)
+        else {}
+    )
+    redirection_npc_id = str(redirection_grounding.get("npc_id") or "").strip()
+    if (
+        redirection_npc_id
+        and declared_scene_npc_ids
+        and redirection_npc_id not in present_scene_npc_id_set
+    ):
+        redirection = None
+        redirection_grounding = {}
+    present_npc_names = list(dict.fromkeys(
+        name
+        for name in (
+            *(_npc_display_name(move) for move in npc_moves),
+            redirection_grounding.get("display_name"),
+        )
+        if isinstance(name, str) and name.strip()
+    ))
+    present_npc_ids = list(dict.fromkeys(
+        npc_id
+        for npc_id in (
+            *present_scene_npc_ids,
+            str(redirection_grounding.get("npc_id") or "").strip(),
+        )
+        if npc_id
+    ))
     envelope: dict[str, Any] = {
         "decision_id": plan.get("decision_id"),
         "scene_action": plan.get("scene_action"),
@@ -912,24 +1621,95 @@ def build_narration_envelope(
         "render_mode": _project_render_mode(directives.get("render_mode")),
         "content_constraints": list(directives.get("content_constraints") or []),
         "player_facing_style": directives.get("player_facing_style"),
+        "keeper_plan": _sanitize_keeper_plan(directives.get("keeper_plan")),
+        "typed_player_safe_limitation": None,
         "npc_moves": npc_moves,
         "disclosure_decisions": _sanitize_disclosure_decisions(
             disclosure_decisions
         ),
-        "pressure_moves": list(plan.get("pressure_moves") or []),
-        "storylet_moves": list(plan.get("storylet_moves") or []),
-        # Pre-gate clue routes may name a withheld social clue. The actual
-        # response line and post-apply reveal summaries are sufficient.
-        "choice_frame": {} if social_post_apply else _sanitize_choice_frame(
-            plan.get("choice_frame") or {}
-        ),
+        "pressure_moves": grounded_pressure_moves,
+        "pressure_grounding": pressure_grounding,
+        "storylet_moves": _project_storylet_moves(plan),
+        # The frame has already been rebuilt from settled post-apply state.
+        # Keep its player-visible cues so narration remains actionable, while
+        # _sanitize_choice_frame strips the undiscovered clue IDs behind them.
+        "choice_frame": _sanitize_choice_frame(plan.get("choice_frame") or {}),
         "rules_requests": _project_rules_requests(plan),
         "rule_results": _project_rule_results(
-            plan, investigator_display_name=investigator_display_name
+            plan,
+            investigator_display_name=investigator_display_name,
+            applied_events=applied_events,
         ),
-        "scene_anchor": _build_scene_anchor(scene),
+        "action_outcomes": _project_action_outcomes(applied_events),
+        "scene_anchor": _build_scene_anchor(
+            scene,
+            play_language=play_language,
+        ),
+        "state_grounding": {
+            "active_scene_before_id": scene_before_id,
+            "active_scene_after_id": scene_after_id,
+            "scene_transition_committed": bool(transition_events),
+            "recovery_required": recovery_required,
+            "present_npc_names": present_npc_names,
+            "present_npc_ids": present_npc_ids,
+            "npc_presence_authority": {
+                "scope": "physical_presence_only",
+                "source": "scene.npc_presence_requirements+route_completion_receipts",
+                "does_not_authorize": [
+                    "prior_npc_knowledge",
+                    "relationships",
+                    "recommendations",
+                    "quoted_dialogue",
+                ],
+                "relationship_or_knowledge_requires_structured_ref": True,
+            },
+            "attempted_destination_id": (
+                ((plan.get("turn_input") or {}).get("player_intent_rich") or {})
+                .get("action_resolution", {})
+                .get("matched_destination_scene_id")
+                if isinstance(
+                    ((plan.get("turn_input") or {}).get("player_intent_rich") or {}).get("action_resolution"),
+                    dict,
+                )
+                else None
+            ),
+            "rule": (
+                "Narrate the investigator as located in active_scene_after_id. "
+                "If scene_transition_committed is false, do not claim arrival at, "
+                "or introduce observable facts from, another location. When "
+                "recovery_required is true, explicitly and naturally state that "
+                "the attempted change did not occur, anchor the current scene, "
+                "and keep present_npc_names physically present."
+            ),
+        },
         "rationale": plan.get("rationale"),
     }
+    limitation = directives.get("typed_player_safe_limitation")
+    if isinstance(limitation, dict):
+        style = directives.get("player_facing_style")
+        language = (
+            str(style.get("language") or "zh-Hans")
+            if isinstance(style, dict) else "zh-Hans"
+        )
+        localized = limitation.get("localized_messages")
+        message = (
+            localized.get(language)
+            if isinstance(localized, dict)
+            else None
+        ) or limitation.get("message")
+        if isinstance(message, str) and message.strip():
+            envelope["typed_player_safe_limitation"] = {
+                "kind": (
+                    str(limitation.get("kind"))
+                    if limitation.get("kind") in {
+                        "push_resolution_required",
+                        "destination_not_known_and_reachable",
+                    }
+                    else "action_not_available"
+                ),
+                "message": message.strip(),
+                "must_render_exactly_once": True,
+            }
     if envelope["render_mode"] == "crisis":
         affordances = []
         for raw in scene.get("visible_affordances") or []:
@@ -959,10 +1739,41 @@ def build_narration_envelope(
     )
     if belief_update is not None:
         envelope["belief_update"] = belief_update
-    redirection = _sanitize_redirection(plan.get("redirection"))
     if redirection is not None:
         envelope["redirection"] = redirection
     return envelope
+
+
+def project_pending_choice(value: Any) -> dict[str, Any] | None:
+    """Whitelist a typed player choice for narrator/fallback presentation."""
+    if not isinstance(value, dict) or value.get("responder") != "player":
+        return None
+    if value.get("kind") not in {"push_confirm", "chase_action", "combat_defense"}:
+        return None
+    prompt = value.get("prompt")
+    options = value.get("options")
+    if not isinstance(prompt, str) or not prompt.strip() or not isinstance(options, list):
+        return None
+    safe_options: list[dict[str, str]] = []
+    for option in options:
+        if (
+            not isinstance(option, dict)
+            or set(option) != {"action", "label"}
+            or not isinstance(option.get("action"), str)
+            or not option["action"].strip()
+            or not isinstance(option.get("label"), str)
+            or not option["label"].strip()
+        ):
+            return None
+        safe_options.append({
+            "action": option["action"].strip(),
+            "label": option["label"].strip(),
+        })
+    return {
+        "kind": value["kind"],
+        "prompt": prompt.strip(),
+        "options": safe_options,
+    }
 
 
 def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str, dict[str, Any]]:

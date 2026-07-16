@@ -7,6 +7,9 @@ from typing import Any
 EVENT_TYPES = (
     "narration", "speech", "roll", "state_patch",
     "choice", "session_ending", "spoiler_gate", "system", "error",
+    # Keeper-visible receipt of one toolbox CLI call made by the keeper
+    # agent during a turn (projected from logs/toolbox-calls.jsonl).
+    "tool_call",
 )
 VISIBILITIES = ("player", "keeper", "system")
 PLAYER_EVENT_TYPES = (

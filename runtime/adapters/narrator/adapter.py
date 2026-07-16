@@ -75,6 +75,26 @@ def prepare_narrator_request(request: dict[str, Any]) -> dict[str, Any]:
         prepared["recent_narrations"] = [str(x) for x in recent[-2:]]
     prepared["last_player_text"] = str(prepared.get("last_player_text") or "")
     prepared["play_language"] = str(prepared.get("play_language") or "zh-Hans")
+    review_mode = prepared.get("review_mode")
+    if review_mode is not None and review_mode != "operator_long_play":
+        raise ValueError("review_mode must be operator_long_play when present")
+    public_tail = prepared.get("public_transcript_tail")
+    if public_tail is None:
+        prepared["public_transcript_tail"] = []
+    elif not isinstance(public_tail, list):
+        raise ValueError("public_transcript_tail must be a list")
+    else:
+        safe_tail: list[dict[str, str]] = []
+        for item in public_tail[-8:]:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            text = item.get("text")
+            if role not in {"player", "keeper"} or not isinstance(text, str):
+                continue
+            if text.strip():
+                safe_tail.append({"role": role, "text": text.strip()})
+        prepared["public_transcript_tail"] = safe_tail
     return prepared
 
 
@@ -107,6 +127,52 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         and asserted_present
         and semantic_present
     )
+    fidelity_present = "fidelity_audit" in raw
+    fidelity = raw.get("fidelity_audit")
+    if fidelity_present and not (
+        isinstance(fidelity, list)
+        and all(isinstance(record, dict) for record in fidelity)
+    ):
+        raise RuntimeError("fidelity_audit must be a list of objects")
+    result["fidelity_audit"] = copy.deepcopy(fidelity or [])
+    result["fact_fidelity_complete"] = (
+        raw.get("fact_fidelity_complete") is True and fidelity_present
+    )
+    verifier = raw.get("fact_fidelity_verifier")
+    if verifier is not None:
+        if verifier != "independent_model_call":
+            raise RuntimeError("fact_fidelity_verifier is unsupported")
+        result["fact_fidelity_verifier"] = verifier
+        verifier_identity = raw.get("fact_fidelity_verifier_identity")
+        if verifier_identity != {"provider": "coding-relay", "id": "gpt-5.6-sol"}:
+            raise RuntimeError(
+                "fact_fidelity_verifier_identity must be coding-relay/gpt-5.6-sol"
+            )
+        verifier_receipt = raw.get("fact_fidelity_verifier_receipt")
+        if not isinstance(verifier_receipt, dict):
+            raise RuntimeError("fact_fidelity_verifier_receipt must be an object")
+        if (
+            verifier_receipt.get("schema_version") != 1
+            or verifier_receipt.get("model_identity") != verifier_identity
+            or verifier_receipt.get("transport") != "chat/completions"
+            or verifier_receipt.get("response_mode") != "json_object"
+            or verifier_receipt.get("grounding_contract")
+            != "structured_authority_partitions_v2"
+            or not isinstance(verifier_receipt.get("max_completion_tokens"), int)
+            or verifier_receipt["max_completion_tokens"] <= 0
+            or not isinstance(verifier_receipt.get("timeout_ms"), int)
+            or verifier_receipt["timeout_ms"] <= 0
+            or not isinstance(verifier_receipt.get("attempt_count"), int)
+            or verifier_receipt["attempt_count"] <= 0
+            or not isinstance(verifier_receipt.get("duration_ms"), int)
+            or verifier_receipt["duration_ms"] < 0
+        ):
+            raise RuntimeError("fact_fidelity_verifier_receipt is invalid")
+        verifier_receipt = copy.deepcopy(verifier_receipt)
+        if "usage" in verifier_receipt:
+            verifier_receipt["usage"] = _validate_usage(verifier_receipt["usage"])
+        result["fact_fidelity_verifier_identity"] = copy.deepcopy(verifier_identity)
+        result["fact_fidelity_verifier_receipt"] = verifier_receipt
     notes = raw.get("notes")
     if notes is not None:
         if not isinstance(notes, str):
@@ -128,9 +194,67 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
         }
     response_mode = raw.get("response_mode")
     if response_mode is not None:
-        if response_mode not in {"tool", "prose_fallback"}:
-            raise RuntimeError("response_mode must be tool or prose_fallback")
+        if response_mode not in {"tool", "json", "prose_fallback"}:
+            raise RuntimeError("response_mode must be tool, json, or prose_fallback")
         result["response_mode"] = response_mode
+    generation_receipt = raw.get("narrator_generation_receipt")
+    if generation_receipt is not None:
+        if not isinstance(generation_receipt, dict):
+            raise RuntimeError("narrator_generation_receipt must be an object")
+        phase_timings = generation_receipt.get("phase_timings")
+        if (
+            generation_receipt.get("schema_version") != 1
+            or generation_receipt.get("model_identity") != result.get("model_identity")
+            or generation_receipt.get("transport") != "chat/completions"
+            or generation_receipt.get("response_mode") != "json_object"
+            or generation_receipt.get("thinking") != "disabled"
+            or generation_receipt.get("reasoning_effort") != "none"
+            or not isinstance(generation_receipt.get("max_tokens"), int)
+            or generation_receipt["max_tokens"] <= 0
+            or not isinstance(generation_receipt.get("attempt_count"), int)
+            or generation_receipt["attempt_count"] <= 0
+            or not isinstance(generation_receipt.get("correction_count"), int)
+            or generation_receipt["correction_count"] < 0
+            or generation_receipt["correction_count"]
+            != generation_receipt["attempt_count"] - 1
+            or not isinstance(generation_receipt.get("duration_ms"), int)
+            or generation_receipt["duration_ms"] < 0
+            or not isinstance(phase_timings, list)
+            or not phase_timings
+        ):
+            raise RuntimeError("narrator_generation_receipt is invalid")
+        for timing in phase_timings:
+            if (
+                not isinstance(timing, dict)
+                or set(timing)
+                != {
+                    "phase", "outer_attempt", "structured_attempt_count", "duration_ms"
+                }
+                or timing.get("phase") not in {"narrator_generation", "fact_verification"}
+                or not isinstance(timing.get("outer_attempt"), int)
+                or timing["outer_attempt"] <= 0
+                or not isinstance(timing.get("structured_attempt_count"), int)
+                or timing["structured_attempt_count"] <= 0
+                or not isinstance(timing.get("duration_ms"), int)
+                or timing["duration_ms"] < 0
+            ):
+                raise RuntimeError("narrator_generation_receipt phase timing is invalid")
+        result["narrator_generation_receipt"] = copy.deepcopy(generation_receipt)
+    operator_review = raw.get("operator_review_receipt")
+    if operator_review is not None:
+        if (
+            not isinstance(operator_review, dict)
+            or operator_review.get("schema_version") != 1
+            or operator_review.get("protocol") not in {
+                "operator_codex_black_box_v2", "operator_long_play_v1"
+            }
+            or operator_review.get("status") != "pending"
+            or operator_review.get("independent_fact_verification") != "NOT_RUN"
+            or operator_review.get("generation_policy")
+            != "single_pass_raw_narration"
+        ):
+            raise RuntimeError("operator_review_receipt is invalid")
+        result["operator_review_receipt"] = copy.deepcopy(operator_review)
     usage = raw.get("usage")
     if usage is not None:
         result["usage"] = _validate_usage(usage)

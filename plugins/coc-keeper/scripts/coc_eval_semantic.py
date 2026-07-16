@@ -190,6 +190,15 @@ def _validate_rubric(payload: Any, *, expected_id: str | None = None) -> dict[st
         raise ValueError(f"{rubric_id}.finding_codes must be non-empty strings")
     if len(set(finding_codes)) != len(finding_codes):
         raise ValueError(f"{rubric_id}.finding_codes must be unique")
+    hard_finding_codes = payload.get("hard_finding_codes", [])
+    if not isinstance(hard_finding_codes, list) or not all(
+        isinstance(code, str) and code for code in hard_finding_codes
+    ):
+        raise ValueError(f"{rubric_id}.hard_finding_codes must be a string list")
+    if len(set(hard_finding_codes)) != len(hard_finding_codes):
+        raise ValueError(f"{rubric_id}.hard_finding_codes must be unique")
+    if not set(hard_finding_codes) <= set(finding_codes):
+        raise ValueError(f"{rubric_id}.hard_finding_codes must be finding_codes")
     return payload
 
 
@@ -201,7 +210,12 @@ def load_rubrics(root: Path | str = REPO_ROOT) -> dict[str, dict[str, Any]]:
     for path in sorted(directory.glob("*.json")):
         payload = _validate_rubric(_read_json(path), expected_id=path.stem)
         rubrics[payload["rubric_id"]] = payload
-    required = {"agency-and-fun", "zh-prose", "module-fidelity"}
+    required = {
+        "rulebook-procedure",
+        "agency-and-fun",
+        "zh-prose",
+        "module-fidelity",
+    }
     missing = sorted(required - set(rubrics))
     if missing:
         raise ValueError(f"missing required rubrics: {missing}")

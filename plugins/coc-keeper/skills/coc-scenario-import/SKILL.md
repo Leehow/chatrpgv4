@@ -25,9 +25,18 @@ Use `../../scripts/coc_scenario.py` for:
   illustrations, maps, newspaper clippings, portraits, and player-safe
   handout images
 
-After a PDF module or parsed scenario is bound to a campaign, generate a
-player-safe character creation briefing with
-`../../scripts/coc_character_creation_briefing.py`. The briefing is Markdown
+For a live campaign, bind a local PDF with the canonical
+`scenario.bind_pdf` pre-session operation in `coc_runtime_ops.py --setup`.
+Supply explicit zero-based `pdf_index_start` / `pdf_index_end`; never guess a
+printed-page offset. The gateway creates the source skeleton, can run the same
+cold compiler used by Pi, and generates the player-safe character creation
+briefing. Direct `coc_scenario.py` calls are reserved for
+isolated import diagnostics and library maintenance, not host-specific play
+onboarding.
+
+After a PDF module or parsed scenario is bound to a campaign, use the briefing
+returned by `scenario.bind_pdf`; `campaign.render_briefing` regenerates it when
+public setup metadata changes. The briefing is Markdown
 only and lives under
 `.coc/campaigns/<campaign-id>/assets/character-creation/`. It may use
 `scenario.player_safe_summary`, public module metadata, source labels, era, and

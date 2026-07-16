@@ -1194,11 +1194,17 @@ def summarize_eval_contract_coverage(
         "required_continuity_lane_ids": list(
             requirements.get("continuity_lane_ids") or []
         ),
+        "required_benchmark_pack_ids": list(
+            requirements.get("benchmark_pack_ids") or []
+        ),
         "satisfied_matrix_cell_ids": list(
             assessment.get("satisfied_matrix_cell_ids") or []
         ),
         "satisfied_continuity_lane_ids": list(
             assessment.get("satisfied_continuity_lane_ids") or []
+        ),
+        "satisfied_benchmark_pack_ids": list(
+            assessment.get("satisfied_benchmark_pack_ids") or []
         ),
         "gaps": {
             "case_ids": list(gaps.get("case_ids") or []),
@@ -1206,6 +1212,7 @@ def summarize_eval_contract_coverage(
             "seeds": list(gaps.get("seeds") or []),
             "matrix_cells": list(gaps.get("matrix_cells") or []),
             "continuity_lane_ids": list(gaps.get("continuity_lane_ids") or []),
+            "benchmark_pack_ids": list(gaps.get("benchmark_pack_ids") or []),
             "missing_capabilities": list(gaps.get("missing_capabilities") or []),
         },
         "evidence_eligibility": {

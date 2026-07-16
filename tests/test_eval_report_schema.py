@@ -87,7 +87,7 @@ def test_compile_injects_report_schema_and_run_identity_once(tmp_path):
     run_dir = _make_run(tmp_path)
 
     contract.compile_report_contract(run_dir, generate_base_report=False)
-    contract.compile_report_contract(run_dir, generate_base_report=False)
+    compiled = contract.compile_report_contract(run_dir, generate_base_report=False)
     report = (run_dir / "artifacts" / "battle-report.md").read_text(
         encoding="utf-8"
     )
@@ -102,6 +102,34 @@ def test_compile_injects_report_schema_and_run_identity_once(tmp_path):
     assert "run-schema" in report
     assert receipt["report_schema_marker_present"] is True
     assert receipt["run_identity_anchor_count"] == 1
+    evaluation = (run_dir / "artifacts" / "evaluation-report.md").read_text(
+        encoding="utf-8"
+    )
+    overall = evaluation.split("## Overall Result", 1)[1].strip().splitlines()[0]
+    assert overall == compiled["status"]
+
+
+def test_run_identity_uses_evidence_runner_models_when_manifest_omits_them():
+    contract = _contract()
+    section = contract.render_run_identity_section(
+        {"run_id": "r1", "scenario": "The Haunting"},
+        {},
+        {
+            "eligible": True,
+            "reasons": [],
+            "receipt": {"runners": {
+                "narrator": {"model_identities": [
+                    {"provider": "coding-relay", "id": "gpt-5.6-luna"}
+                ]},
+                "player": {"model_identities": [
+                    {"provider": "coding-relay", "id": "gpt-5.6-luna"}
+                ]},
+            }},
+        },
+        language="zh-Hans",
+    )
+    assert "KP model: coding-relay/gpt-5.6-luna" in section
+    assert "Player model: coding-relay/gpt-5.6-luna" in section
 
 
 def test_verify_fails_when_report_schema_marker_is_removed(tmp_path):
@@ -161,3 +189,50 @@ def test_verify_updates_evaluation_report_after_roll_omission(tmp_path):
     assert result["status"] == "FAIL"
     assert "Missing roll IDs: r-schema" in evaluation
     assert "Contract status: FAIL" in evaluation
+
+
+def test_public_fumble_without_structured_consequence_fails_completeness(tmp_path):
+    contract = _contract()
+    run_dir = _make_run(tmp_path)
+    rolls_path = (
+        run_dir / "sandbox" / ".coc" / "campaigns" / "run-schema"
+        / "logs" / "rolls.jsonl"
+    )
+    row = json.loads(rolls_path.read_text(encoding="utf-8"))
+    row["payload"].update({"roll": 100, "outcome": "fumble"})
+    rolls_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    result = contract.compile_report_contract(run_dir, generate_base_report=False)
+
+    assert result["status"] == "FAIL"
+    assert result["report_completeness"]["passed"] is False
+    assert result["report_completeness"]["missing_fields_by_roll_id"] == {
+        "r-schema": ["fumble_consequence"]
+    }
+
+
+def test_nested_canonical_dice_object_is_complete_non_percentile_evidence(tmp_path):
+    contract = _contract()
+    run_dir = _make_run(tmp_path)
+    rolls_path = (
+        run_dir / "sandbox" / ".coc" / "campaigns" / "run-schema"
+        / "logs" / "rolls.jsonl"
+    )
+    row = json.loads(rolls_path.read_text(encoding="utf-8"))
+    row["payload"] = {
+        "event_type": "resource_change",
+        "actor_id": "walter-corbitt",
+        "reason": "flesh_ward",
+        "dice": {"expression": "2D6", "raw": [3, 5], "total": 8},
+    }
+    rolls_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    result = contract.compile_report_contract(run_dir, generate_base_report=False)
+    report = (run_dir / "artifacts" / "battle-report.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert result["report_completeness"]["missing_fields_by_roll_id"] == {}
+    assert result["report_completeness"]["passed"] is True
+    assert "2D6" in report
+    assert "3 + 5" in report

@@ -21,7 +21,12 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
 ## Workflow
 
 1. Load `../../references/mode-protocol.md`.
-2. If no `.coc/` workspace exists, use `../../scripts/coc_state.py` through Python or direct function inspection to create it.
+2. Inspect/setup through the canonical pre-session gateway
+   `../../scripts/coc_runtime_ops.py --setup`. Use `onboarding.inspect` to list
+   campaigns, investigators, starter scenarios/pregens, characteristic
+   generation methods, the callable rules-helper API, and both operation
+   catalogs. Use `rules.inspect` when only helper discovery is needed. Do not
+   recreate onboarding state with host-specific filesystem writes.
 3. Select the visible play language at campaign setup, defaulting to `zh-Hans`, and persist it as `play_language`.
 4. Select or create a campaign before character creation or play.
 5. **Scenario onboarding (mandatory for new campaigns).** If the selected campaign is newly created and has no bound scenario (`active_scenario_id` is empty), you MUST proactively present a clear, beginner-facing choice before doing anything else:
@@ -35,23 +40,32 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    > - **《白色战争》The White War** — 1916 年意大利阿尔卑斯前线，一支山地巡逻队调查冰川上传来的怪响，唤醒冰封万年的远古存在。开箱即玩。
    > - **《闹鬼》The Haunting** — 1920 年波士顿，房东委托调查恶名昭彰的 Corbitt 宅；报馆/档案/街坊多线调查后对峙地下室不死术士。开箱即玩。
    >
-   > One-line quick start (pregen investigators, The Haunting):
+   > One-line quick start (pregen investigators, The Haunting) through the
+   > canonical setup gateway:
    > ```bash
-   > python3 ../../scripts/coc_starter.py quick-start --scenario the-haunting --pregen thomas-hayes
-   > # or: --pregen eleanor-reed
+   > python3 ../../scripts/coc_runtime_ops.py --setup --workspace . \
+   >   --operation-json '{"schema_version":1,"kind":"campaign.quick_start","payload":{"scenario_id":"the-haunting","pregen_id":"thomas-hayes"}}'
    > ```
 
-   To install a chosen built-in scenario into the campaign (then create/link an investigator), run:
-   ```bash
-   python3 ../../scripts/coc_starter.py install --campaign <campaign-id> --scenario <scenario-id>
-   ```
+   For the one-step starter path use the shared `campaign.quick_start` setup
+   operation. For a custom table, use `campaign.create`, then
+   `investigator.create`, `campaign.link_investigator`, and
+   `scenario.bind_pdf`. The same gateway exposes `campaign.render_briefing`
+   and `investigator.render_card` for player-facing artifacts. Pi calls these
+   setup operations through
+   `runtime.sdk.api.setup_workspace(...)`.
    Never skip this prompt for a new empty campaign, and never wait for the user to ask. This is how new players discover they can play without owning a PDF. Continue old campaigns or campaigns that already have a bound scenario without prompting.
 6. Bind or import a scenario with `coc-scenario-import` (for user-provided scenarios), extending `localized_terms` for the campaign language when names, places, handouts, scenario titles, or special terms need customary local rendering.
 7. Select, create, or link investigators with `coc-character`.
 8. Route ordinary play to `coc-keeper-play`.
 9. Route rules questions and challenges to `coc-meta`.
-10. Route combat, chase, and sanity events to their subsystem skills.
-11. On pause or exit, summarize safely, write memory/log entries, and leave COC mode.
+10. Route combat, chase, sanity, and spell events to their subsystem skills;
+    spell learning/casting uses `coc-magic` and the shared typed operation
+    gateway.
+11. After `coc-keeper-play` records a structured ending, route post-session
+    skill checks, permanent advancement, scenario SAN rewards, and Luck
+    recovery to `coc-development`.
+12. On pause or exit, summarize safely, write memory/log entries, and leave COC mode.
 
 ## Hard Rules
 

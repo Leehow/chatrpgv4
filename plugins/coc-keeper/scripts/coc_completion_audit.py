@@ -30,6 +30,7 @@ from coc_playtest_report import (
 )
 from coc_validate import validate_rules
 from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
+from coc_eval_packs import load_benchmark_pack_registry
 
 
 REQUIRED_AUDIT_PROFILES = ["haunting_module", "chase_drill", "multi_profile_pressure"]
@@ -481,6 +482,7 @@ EVAL_SPEC_REL = Path("evaluation/spec/v1")
 BENCHMARK_MANIFEST_REL = EVAL_SPEC_REL / "benchmark-manifest.json"
 CASE_REGISTRY_REL = EVAL_SPEC_REL / "case-registry.json"
 LONG_MEMORY_CASE_REL = EVAL_SPEC_REL / "cases" / "long-memory.json"
+BENCHMARK_PACKS_REL = EVAL_SPEC_REL / "benchmark-packs.json"
 UNBOUND_HOLDOUT_STATUSES = frozenset({"example_unbound", "not_bound", "NOT_RUN"})
 EVAL_STATUS_RANK = {
     "FAIL": 5,
@@ -563,6 +565,33 @@ def build_eval_contract_requirements(
         for case in (matrix_suite.get("cases") or [])
         if isinstance(case, dict) and isinstance(case.get("case_id"), str)
     ]
+    matrix_required_rubric_ids_by_case: dict[str, list[str]] = {}
+    for case in matrix_suite.get("cases") or []:
+        if not isinstance(case, dict) or not isinstance(case.get("case_id"), str):
+            continue
+        rubric_ids: list[str] = []
+        profile_rel = case.get("evaluation_profile")
+        if isinstance(profile_rel, str) and profile_rel:
+            profile = _load_eval_json(root_path, Path(profile_rel))
+            rubric_ids = [
+                str(item)
+                for item in (profile.get("required_rubric_ids") or [])
+                if isinstance(item, str) and item
+            ]
+        if not rubric_ids:
+            judge_cfg = case.get("judge") if isinstance(case.get("judge"), dict) else {}
+            configured = judge_cfg.get("rubric_ids")
+            if isinstance(configured, list):
+                rubric_ids = [
+                    str(item)
+                    for item in configured
+                    if isinstance(item, str) and item
+                ]
+            elif isinstance(judge_cfg.get("rubric_id"), str) and judge_cfg["rubric_id"]:
+                rubric_ids = [str(judge_cfg["rubric_id"])]
+        matrix_required_rubric_ids_by_case[str(case["case_id"])] = list(
+            dict.fromkeys(rubric_ids or ["agency-and-fun"])
+        )
     continuity_lane_ids: list[str] = []
     if suite in {"nightly", "release"}:
         long_memory = _load_eval_json(root_path, LONG_MEMORY_CASE_REL)
@@ -572,6 +601,14 @@ def build_eval_contract_requirements(
             if isinstance(lane, dict)
             and isinstance(lane.get("lane_id"), str)
             and lane["lane_id"]
+        ]
+    benchmark_packs: list[dict[str, Any]] = []
+    if (root_path / BENCHMARK_PACKS_REL).is_file():
+        pack_registry = load_benchmark_pack_registry(root_path, manifest=manifest)
+        benchmark_packs = [
+            dict(pack)
+            for pack in pack_registry["packs"]
+            if suite in (pack.get("suites") or [])
         ]
 
     return {
@@ -585,7 +622,10 @@ def build_eval_contract_requirements(
         "persona_ids": persona_ids,
         "seeds": seeds,
         "matrix_case_ids": matrix_case_ids,
+        "matrix_required_rubric_ids_by_case": matrix_required_rubric_ids_by_case,
         "continuity_lane_ids": continuity_lane_ids,
+        "benchmark_pack_ids": [pack["pack_id"] for pack in benchmark_packs],
+        "benchmark_packs": benchmark_packs,
         "historical_audit_profiles": list(REQUIRED_AUDIT_PROFILES),
         "historical_profiles_satisfy_release": False,
     }
@@ -598,6 +638,7 @@ def assess_eval_contract_coverage(
     case_results: dict[str, Any] | None = None,
     matrix_results: dict[str, Any] | None = None,
     continuity_results: dict[str, Any] | None = None,
+    release_external_results: dict[str, Any] | None = None,
     historical_profiles: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare versioned required cells against provided structured evidence."""
@@ -606,6 +647,9 @@ def assess_eval_contract_coverage(
     required_personas = set(requirements["persona_ids"])
     required_seeds = set(requirements["seeds"])
     required_matrix_cases = set(requirements["matrix_case_ids"])
+    required_rubrics_by_case = requirements[
+        "matrix_required_rubric_ids_by_case"
+    ]
     required_matrix_cells = {
         f"{persona}__seed-{seed}__{case_id}"
         for persona in required_personas
@@ -613,6 +657,9 @@ def assess_eval_contract_coverage(
         for case_id in required_matrix_cases
     }
     required_continuity = set(requirements["continuity_lane_ids"])
+    required_packs = {
+        str(pack["pack_id"]): pack for pack in requirements["benchmark_packs"]
+    }
 
     def _sha256(value: Any) -> bool:
         return isinstance(value, str) and len(value) == 64 and all(
@@ -694,6 +741,51 @@ def assess_eval_contract_coverage(
             cell_id = cell.get("cell_id")
             if isinstance(cell_id, str):
                 observed_matrix_cells.add(cell_id)
+            required_rubric_ids = required_rubrics_by_case.get(
+                str(case_id), ["agency-and-fun"]
+            )
+            judge_results = cell.get("judge_results")
+            if not isinstance(judge_results, dict) and len(required_rubric_ids) == 1:
+                legacy_result = cell.get("judge_result")
+                judge_results = (
+                    {required_rubric_ids[0]: legacy_result}
+                    if isinstance(legacy_result, dict)
+                    else {}
+                )
+            judge_gates = cell.get("judge_gates")
+            judge_gate_by_rubric = {
+                str(gate.get("rubric_id")): gate
+                for gate in judge_gates or []
+                if isinstance(gate, dict) and isinstance(gate.get("rubric_id"), str)
+            }
+            required_judge_artifacts = {
+                (
+                    "judge-result.json"
+                    if len(required_rubric_ids) == 1
+                    else f"judge-result.{rubric_id}.json"
+                )
+                for rubric_id in required_rubric_ids
+            }
+            judge_grade = bool(
+                isinstance(judge_results, dict)
+                and set(judge_results) == set(required_rubric_ids)
+                and all(
+                    isinstance(judge_results.get(rubric_id), dict)
+                    and judge_results[rubric_id].get("evaluator")
+                    == EXPECTED_EVAL_MODELS["judge"]
+                    for rubric_id in required_rubric_ids
+                )
+                and (
+                    len(required_rubric_ids) == 1
+                    or (
+                        set(judge_gate_by_rubric) == set(required_rubric_ids)
+                        and all(
+                            judge_gate_by_rubric[rubric_id].get("status") == "PASS"
+                            for rubric_id in required_rubric_ids
+                        )
+                    )
+                )
+            )
             grade = bool(
                 matrix_envelope_grade
                 and isinstance(cell_id, str)
@@ -706,17 +798,15 @@ def assess_eval_contract_coverage(
                 and cell.get("judge_model") == EXPECTED_EVAL_MODELS["judge"]
                 and isinstance(cell.get("runner_result"), dict)
                 and cell["runner_result"].get("status") == "PASS"
-                and isinstance(cell.get("judge_result"), dict)
-                and cell["judge_result"].get("evaluator")
-                == EXPECTED_EVAL_MODELS["judge"]
+                and judge_grade
                 and _hashes_include(
                     cell.get("artifact_hashes"),
                     {
                         "run-manifest.json",
                         "player-request.json",
                         "kp-request.json",
-                        "judge-result.json",
-                    },
+                    }
+                    | required_judge_artifacts,
                 )
                 and not cell.get("hard_findings")
                 and not cell.get("not_run_reasons")
@@ -786,11 +876,50 @@ def assess_eval_contract_coverage(
     if historical_profiles:
         historical_visible = True
 
+    satisfied_packs: set[str] = set()
+    for pack_id, pack in required_packs.items():
+        route = pack.get("route") or {}
+        route_kind = route.get("kind")
+        if route_kind == "registered_case" and route.get("case_id") in satisfied_cases:
+            satisfied_packs.add(pack_id)
+        elif route_kind == "matrix_case":
+            matrix_case_id = (route.get("case_ids_by_suite") or {}).get(suite)
+            if isinstance(matrix_case_id, str) and all(
+                f"{persona}__seed-{seed}__{matrix_case_id}" in satisfied_matrix_cells
+                for persona in required_personas
+                for seed in required_seeds
+            ):
+                satisfied_packs.add(pack_id)
+        elif (
+            route_kind == "continuity_lane"
+            and route.get("lane_id") in satisfied_continuity
+        ):
+            satisfied_packs.add(pack_id)
+        elif route_kind == "release_external_bundle" and isinstance(
+            release_external_results, dict
+        ):
+            external_lanes = release_external_results.get("lanes") or {}
+            chapter = external_lanes.get("chapter_transition") or {}
+            holdout = external_lanes.get("holdout") or {}
+            human = external_lanes.get("human_calibration") or {}
+            agreement = human.get("agreement") or {}
+            if (
+                release_external_results.get("status") == "PASS"
+                and chapter.get("status") == "PASS"
+                and chapter.get("evidence_class") == "external"
+                and chapter.get("gameplay_evidence") is True
+                and holdout.get("status") == "PASS"
+                and human.get("status") == "PASS"
+                and int(agreement.get("reviewer_count") or 0) >= 2
+            ):
+                satisfied_packs.add(pack_id)
+
     gap_cases = sorted(required_cases - satisfied_cases)
     gap_personas = sorted(required_personas - satisfied_personas)
     gap_seeds = sorted(required_seeds - satisfied_seeds)
     gap_matrix_cells = sorted(required_matrix_cells - satisfied_matrix_cells)
     gap_continuity = sorted(required_continuity - satisfied_continuity)
+    gap_packs = sorted(set(required_packs) - satisfied_packs)
 
     missing_caps = sorted(
         set(requirements["required_capabilities"])
@@ -813,6 +942,7 @@ def assess_eval_contract_coverage(
         or gap_seeds
         or gap_matrix_cells
         or gap_continuity
+        or gap_packs
         or missing_caps
     )
     strongest = (
@@ -836,6 +966,7 @@ def assess_eval_contract_coverage(
         "satisfied_seeds": sorted(satisfied_seeds),
         "satisfied_matrix_cell_ids": sorted(satisfied_matrix_cells),
         "satisfied_continuity_lane_ids": sorted(satisfied_continuity),
+        "satisfied_benchmark_pack_ids": sorted(satisfied_packs),
         "observed_persona_ids": sorted(observed_personas),
         "observed_seeds": sorted(observed_seeds),
         "observed_matrix_cell_ids": sorted(observed_matrix_cells),
@@ -846,6 +977,7 @@ def assess_eval_contract_coverage(
             "seeds": gap_seeds,
             "matrix_cells": gap_matrix_cells,
             "continuity_lane_ids": gap_continuity,
+            "benchmark_pack_ids": gap_packs,
             "missing_capabilities": missing_caps,
         },
         "historical_profiles_visible": historical_visible,
@@ -1437,7 +1569,10 @@ def _battle_report_mechanical_log_findings(
     metadata: dict[str, Any],
     battle_report: str,
 ) -> list[dict[str, Any]]:
-    mechanical_log = _visible_markdown_text(_battle_report_anchor_section(battle_report, "Mechanical Log"))
+    mechanical_evidence = _visible_markdown_text("\n".join([
+        _battle_report_anchor_section(battle_report, "Rules & Dice"),
+        _battle_report_anchor_section(battle_report, "Mechanical Log"),
+    ]))
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
     localized_terms = _metadata_localized_terms(metadata)
     language_profile = metadata.get("language_profile", {})
@@ -1455,15 +1590,15 @@ def _battle_report_mechanical_log_findings(
         localized_roll = _format_roll_recap(row, actor_names, localized_terms, play_language, language_profile)
         localized_summary = localized_roll.splitlines()[0].removeprefix("- ").strip() if localized_roll.splitlines() else ""
         visible_candidates = [canonical_line, localized_summary]
-        if not any(candidate and candidate in mechanical_log for candidate in visible_candidates):
+        if not any(candidate and candidate in mechanical_evidence for candidate in visible_candidates):
             missing_roll_lines.append(canonical_line)
     if not missing_roll_lines:
         return []
     return [_finding(
         "battle_report_mechanical_log_missing",
         "report_gap",
-        f"{run_id} battle-report.md omits {len(missing_roll_lines)} of {len(required_roll_lines)} source mechanical roll lines from logs/rolls.jsonl.",
-        "Regenerate battle-report.md so Mechanical Log renders each structured source roll with skill, actor, roll, target, and outcome.",
+        f"{run_id} battle-report.md omits {len(missing_roll_lines)} of {len(required_roll_lines)} source roll lines from logs/rolls.jsonl.",
+        "Regenerate the report so the canonical Rules & Dice section (or legacy Mechanical Log) renders each structured source roll with skill, actor, roll, target, and outcome.",
         run_id=run_id,
         missing_roll_count=len(missing_roll_lines),
         required_roll_count=len(required_roll_lines),
@@ -1478,6 +1613,7 @@ def _battle_report_rule_ref_findings(
 ) -> list[dict[str, Any]]:
     rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")
     report_sections = "\n".join([
+        _battle_report_anchor_section(battle_report, "Rules & Dice"),
         _battle_report_anchor_section(battle_report, "Rules & Rolls Recap"),
         _battle_report_anchor_section(battle_report, "Mechanical Log"),
     ])
@@ -1500,7 +1636,7 @@ def _battle_report_rule_ref_findings(
         "battle_report_rule_refs_missing",
         "report_gap",
         f"{run_id} battle-report.md omits {len(missing_ref_lines)} of {len(set(required_ref_lines))} distinct rule_refs lines from logs/rolls.jsonl.",
-        "Regenerate battle-report.md so Rules & Rolls Recap or Mechanical Log renders each structured source roll's rule_refs.",
+        "Regenerate the report so Rules & Dice, Rules & Rolls Recap, or Mechanical Log renders each structured source roll's rule_refs.",
         run_id=run_id,
         missing_rule_ref_count=len(missing_ref_lines),
         required_rule_ref_count=len(set(required_ref_lines)),

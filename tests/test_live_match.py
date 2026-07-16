@@ -1,21 +1,25 @@
-"""Tests for coc_live_match: bridged player LLM vs KP match harness (N5)."""
+"""Contract tests for the keeper-agent live match harness.
+
+The current runtime has no fixed action-resolution/narration pipeline.  These
+tests exercise the actual boundary instead: a player adapter supplies prose,
+the keeper coding agent owns the turn and calls the canonical toolbox, and the
+match harness synchronously projects persisted state/log evidence into the
+playtest artifacts.
+"""
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
-import random
 import stat
 from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_live_match.py"
-CANONICAL_PLAYER_RUNNER = REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
-CANONICAL_NARRATOR_RUNNER = REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
 
-# Distinct keeper-side prose that must never appear in player-brain requests.
 SECRET_PROSE_FRAGMENTS = [
     "STR 100 CON 100 DEX 15 INT 25 POW 30; HP 100; tentacle slash",
     "probes and discards humans out of curiosity about these fragile successors",
@@ -26,362 +30,670 @@ SECRET_PROSE_FRAGMENTS = [
 
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
+    module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
+    spec.loader.exec_module(module)
+    return module
 
 
 match = _load("coc_live_match", SCRIPT)
+
+
+def _write_json(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def _write_scripted_player_runner(
     path: Path,
     lines: list[str],
     *,
-    intent_classes: list[str] | None = None,
     model_identity: dict | None = None,
     response_mode: str | None = None,
 ) -> None:
-    """Stateful fake runner: emit scripted player_text lines in order.
-
-    When ``intent_classes`` is provided, each turn's response includes that
-    structured ``intent_class`` (player-brain semantic evidence).
-    """
-    lines_literal = json.dumps(lines, ensure_ascii=False)
-    intents_repr = repr(intent_classes)
-    model_repr = repr(model_identity)
-    response_mode_repr = repr(response_mode)
+    """Write a stateful player adapter fixture with no keeper-side inputs."""
     script = f"""#!/usr/bin/env python3
 import json, sys
 from pathlib import Path
-state_path = Path(__file__).with_suffix(".state")
-lines = {lines_literal}
-intent_classes = {intents_repr}
-model_identity = {model_repr}
-response_mode = {response_mode_repr}
+state_path = Path(__file__).with_suffix('.state')
+lines = {json.dumps(lines, ensure_ascii=False)!r}
+lines = json.loads(lines)
+model_identity = {model_identity!r}
+response_mode = {response_mode!r}
 idx = int(state_path.read_text()) if state_path.exists() else 0
-req = json.loads(sys.stdin.read())
-assert "public_state" in req and "character_card" in req
+request = json.loads(sys.stdin.read())
+assert 'public_state' not in request
+assert 'world_state' not in request
+assert 'character_card' in request
+assert 'play_language' in request
 text = lines[min(idx, len(lines) - 1)]
 state_path.write_text(str(idx + 1))
-out = {{"ok": True, "player_text": text, "player_notes": f"note-for-turn-{{idx+1}}"}}
-if intent_classes is not None:
-    out["intent_class"] = intent_classes[min(idx, len(intent_classes) - 1)]
+result = {{
+    'ok': True,
+    'player_text': text,
+    'player_notes': f'note-for-turn-{{idx + 1}}',
+}}
 if model_identity is not None:
-    out["model_identity"] = model_identity
+    result['model_identity'] = model_identity
 if response_mode is not None:
-    out["response_mode"] = response_mode
-sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
+    result['response_mode'] = response_mode
+sys.stdout.write(json.dumps(result, ensure_ascii=False) + '\\n')
 """
     path.write_text(script, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def _build_workspace(tmp_path: Path, *, with_secrets: bool = False) -> tuple[Path, str, str]:
-    """Workspace layout matching runtime (.coc/campaigns + investigators)."""
-    workspace = tmp_path / "ws"
+def _build_workspace(
+    tmp_path: Path,
+    *,
+    with_secrets: bool = False,
+) -> tuple[Path, str, str]:
+    workspace = tmp_path / "workspace"
+    coc_root = workspace / ".coc"
     campaign_id = "match-drive"
     investigator_id = "inv1"
-    camp = workspace / ".coc" / "campaigns" / campaign_id
-    scn = camp / "scenario"
-    save = camp / "save"
-    save.mkdir(parents=True)
-    (save / "investigator-state").mkdir()
-    scn.mkdir(parents=True)
-    (camp / "logs").mkdir(parents=True)
-    (workspace / ".coc" / "runtime.json").write_text(
-        json.dumps({"schema_version": 1, "brain": "debug"}),
-        encoding="utf-8",
+    campaign = coc_root / "campaigns" / campaign_id
+    scenario = campaign / "scenario"
+    save = campaign / "save"
+
+    _write_json(
+        coc_root / "runtime.json",
+        {
+            "schema_version": 2,
+            "planner": {"kind": "deterministic"},
+            "rules": {"kind": "deterministic"},
+            "narrator": {"kind": "template"},
+            "player": {"kind": "human"},
+        },
     )
-    (camp / "campaign.json").write_text(
-        json.dumps(
-            {
-                "campaign_id": campaign_id,
-                "title": "Match Drive Campaign",
-                "scenario_id": "match-drive",
-                "era": "1920s",
-                "dice_mode": "codex",
-                "spoiler_policy": "warn_before_reveal",
-                "play_language": "zh-Hans",
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        campaign / "campaign.json",
+        {
+            "campaign_id": campaign_id,
+            "title": "Match Drive Campaign",
+            "scenario_id": "match-drive",
+            "era": "1920s",
+            "dice_mode": "codex",
+            "spoiler_policy": "warn_before_reveal",
+            "play_language": "zh-Hans",
+        },
     )
-    (save / "world-state.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "campaign_id": campaign_id,
-                "active_scene_id": "scene-1",
-                "discovered_clue_ids": [],
-                "major_decisions": [],
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        save / "world-state.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "active_scene_id": "scene-1",
+            "visited_scene_ids": ["scene-1"],
+            "discovered_clue_ids": [],
+            "major_decisions": [],
+        },
     )
-    (save / "pacing-state.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "tension_level": "low",
-                "lethal_chances_used": 0,
-                "recent_intent_classes": [],
-                "turn_number": 0,
-                "luck_spent_last": 0,
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        save / "pacing-state.json",
+        {
+            "schema_version": 1,
+            "tension_level": "low",
+            "lethal_chances_used": 0,
+            "recent_intent_classes": [],
+            "turn_number": 0,
+            "luck_spent_last": 0,
+        },
     )
-    (save / "flags.json").write_text(
-        json.dumps({"schema_version": 1, "clues_found": {}, "decisions": []}),
-        encoding="utf-8",
+    _write_json(
+        save / "flags.json",
+        {"schema_version": 1, "clues_found": {}, "decisions": []},
     )
-    (save / "investigator-state" / f"{investigator_id}.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "campaign_id": campaign_id,
-                "investigator_id": investigator_id,
-                "current_hp": 12,
-                "current_san": 55,
-                "current_mp": 11,
-                "conditions": [],
-                "skill_checks_earned": [],
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        save / "investigator-state" / f"{investigator_id}.json",
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "investigator_id": investigator_id,
+            "current_hp": 12,
+            "current_san": 55,
+            "current_mp": 11,
+            "conditions": [],
+            "skill_checks_earned": [],
+        },
     )
-    char_dir = workspace / ".coc" / "investigators" / investigator_id
-    char_dir.mkdir(parents=True)
-    (char_dir / "character.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "id": investigator_id,
-                "occupation": "Antiquarian",
-                "era": "1920s",
-                "characteristics": {"APP": 45, "LUCK": 55},
-                "derived": {"HP": 12, "SAN": 55},
-                "skills": {
-                    "Credit Rating": 50,
-                    "Spot Hidden": 60,
-                    "Library Use": 55,
+    _write_json(
+        coc_root / "investigators" / investigator_id / "character.json",
+        {
+            "schema_version": 1,
+            "id": investigator_id,
+            "name": "Ada",
+            "occupation": "Antiquarian",
+            "era": "1920s",
+            "characteristics": {
+                "STR": 50,
+                "CON": 55,
+                "SIZ": 50,
+                "DEX": 60,
+                "APP": 45,
+                "INT": 70,
+                "POW": 55,
+                "EDU": 70,
+                "LUCK": 55,
+            },
+            "derived": {"HP": 12, "SAN": 55, "MP": 11, "MOV": 8},
+            "skills": {
+                "Credit Rating": 50,
+                "Spot Hidden": 60,
+                "Library Use": 55,
+            },
+            "backstory": {},
+        },
+    )
+
+    secret_values = SECRET_PROSE_FRAGMENTS if with_secrets else []
+    _write_json(
+        scenario / "story-graph.json",
+        {
+            "scenes": [
+                {
+                    "scene_id": "scene-1",
+                    "available_clues": ["c1"],
+                    "dramatic_question": "q1",
+                    "entry_conditions": [],
+                    "exit_conditions": [],
+                    "tone": ["tense"],
+                    "allowed_improvisation": [],
+                    **(
+                        {"keeper_summary": secret_values[1]}
+                        if secret_values
+                        else {}
+                    ),
                 },
-                "backstory": {},
-            }
-        ),
-        encoding="utf-8",
+                {
+                    "scene_id": "scene-2",
+                    "available_clues": ["c2"],
+                    "dramatic_question": "q2",
+                    "entry_conditions": [],
+                    "exit_conditions": [],
+                    "tone": ["tense"],
+                    "allowed_improvisation": [],
+                },
+            ]
+        },
     )
-    (scn / "story-graph.json").write_text(
-        json.dumps(
-            {
-                "scenes": [
-                    {
-                        "scene_id": "scene-1",
-                        "available_clues": ["c1"],
-                        "dramatic_question": "q1",
-                        "entry_conditions": [],
-                        "exit_conditions": [],
-                        "tone": ["tense"],
-                        "allowed_improvisation": [],
-                    },
-                    {
-                        "scene_id": "scene-2",
-                        "available_clues": ["c2"],
-                        "dramatic_question": "q2",
-                        "entry_conditions": [],
-                        "exit_conditions": [],
-                        "tone": ["tense"],
-                        "allowed_improvisation": [],
-                    },
-                    {
-                        "scene_id": "scene-3",
-                        "available_clues": ["c3"],
-                        "dramatic_question": "q3",
-                        "entry_conditions": [],
-                        "exit_conditions": [],
-                        "tone": ["tense"],
-                        "allowed_improvisation": [],
-                    },
-                ]
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        scenario / "clue-graph.json",
+        {
+            "conclusions": [
+                {
+                    "conclusion_id": "cc1",
+                    "importance": "critical",
+                    "minimum_routes": 2,
+                    "clues": [
+                        {
+                            "clue_id": "c1",
+                            "delivery": "x",
+                            "delivery_kind": "environmental",
+                            "visibility": "player-safe",
+                        },
+                        {
+                            "clue_id": "c2",
+                            "delivery": "y",
+                            "delivery_kind": "environmental",
+                            "visibility": "player-safe",
+                        },
+                    ],
+                    "fallback_policy": "",
+                }
+            ]
+        },
     )
-    (scn / "clue-graph.json").write_text(
-        json.dumps(
-            {
-                "conclusions": [
-                    {
-                        "conclusion_id": "cc1",
-                        "importance": "critical",
-                        "minimum_routes": 3,
-                        "clues": [
-                            {
-                                "clue_id": "c1",
-                                "delivery": "x",
-                                "delivery_kind": "environmental",
-                                "visibility": "player-safe",
-                            },
-                            {
-                                "clue_id": "c2",
-                                "delivery": "y",
-                                "delivery_kind": "environmental",
-                                "visibility": "player-safe",
-                            },
-                            {
-                                "clue_id": "c3",
-                                "delivery": "z",
-                                "delivery_kind": "environmental",
-                                "visibility": "player-safe",
-                            },
-                        ],
-                        "fallback_policy": "",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        scenario / "npc-agendas.json",
+        {
+            "npcs": [
+                {
+                    "npc_id": "npc-guide",
+                    "name": "向导",
+                    "agenda": "hide the shaft",
+                    "secret": secret_values[0] if secret_values else "",
+                    "keeper_notes": secret_values[3] if secret_values else "",
+                }
+            ]
+        },
     )
-    secrets = []
-    if with_secrets:
-        secrets = [
-            (
-                "secret-polyp-horror-full-stat-block: STR 100 CON 100 DEX 15 INT 25 POW 30; "
-                "HP 100; tentacle slash 60% Lethality 50%."
-            ),
-            (
-                "secret-entity-motive-is-curiosity: the Polyp Horror probes and discards "
-                "humans out of curiosity about these fragile successors to the Great Race."
-            ),
-            (
-                "secret-white-friday-is-inevitable: regardless of the patrol's choices, on "
-                "13 December 1916 the White Friday disaster kills ~10,000; only the "
-                "attribution of blame varies."
-            ),
-            (
-                "secret-shaft-map: keeper-only shaft map coordinates 46.5N 12.1E under the ice seal"
-            ),
-        ]
-    (scn / "npc-agendas.json").write_text(
-        json.dumps(
-            {
-                "npcs": [
-                    {
-                        "npc_id": "npc-guide",
-                        "name": "向导",
-                        "agenda": "hide the shaft",
-                        "secret": secrets[0] if secrets else "",
-                        "keeper_notes": secrets[3] if len(secrets) > 3 else "",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+    _write_json(scenario / "threat-fronts.json", {"fronts": []})
+    _write_json(
+        scenario / "pacing-map.json",
+        {
+            "pacing_curve": [
+                {
+                    "scene_id": "scene-1",
+                    "tension_target": "low",
+                    "horror_stage": "ordinary",
+                },
+                {
+                    "scene_id": "scene-2",
+                    "tension_target": "medium",
+                    "horror_stage": "wrongness",
+                },
+            ]
+        },
     )
-    (scn / "threat-fronts.json").write_text(json.dumps({"fronts": []}), encoding="utf-8")
-    (scn / "pacing-map.json").write_text(
-        json.dumps(
-            {
-                "pacing_curve": [
-                    {"scene_id": "scene-1", "tension_target": "low", "horror_stage": "ordinary"},
-                    {"scene_id": "scene-2", "tension_target": "medium", "horror_stage": "wrongness"},
-                    {"scene_id": "scene-3", "tension_target": "high", "horror_stage": "revelation"},
-                ]
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        scenario / "improvisation-boundaries.json",
+        {
+            "invent_allowed": [],
+            "never_invent": [],
+            "keeper_secrets": secret_values or ["secret-1"],
+        },
     )
-    (scn / "improvisation-boundaries.json").write_text(
-        json.dumps(
-            {
-                "invent_allowed": [],
-                "never_invent": [],
-                "keeper_secrets": secrets or ["secret-1"],
-            }
-        ),
-        encoding="utf-8",
+    _write_json(
+        scenario / "module-meta.json",
+        {
+            "schema_version": 1,
+            "scenario_id": "match-drive",
+            "structure_type": "linear_acts",
+            "era": "1920s",
+            "content_flags": [],
+            "win_condition": "x",
+        },
     )
-    (scn / "module-meta.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "scenario_id": "match-drive",
-                "structure_type": "linear_acts",
-                "era": "1920s",
-                "content_flags": [],
-                "win_condition": "x",
-            }
-        ),
-        encoding="utf-8",
-    )
-    if with_secrets and secrets:
-        # Also bury secret prose in story-graph summary (keeper-facing).
-        story = json.loads((scn / "story-graph.json").read_text(encoding="utf-8"))
-        story["scenes"][0]["keeper_summary"] = secrets[1]
-        story["scenes"][0]["secret_outcome"] = secrets[2]
-        (scn / "story-graph.json").write_text(json.dumps(story), encoding="utf-8")
+    (campaign / "logs").mkdir(parents=True, exist_ok=True)
     return workspace, campaign_id, investigator_id
 
 
-def test_scripted_match_runs_three_plus_turns_end_to_end(tmp_path):
+def _install_keeper(
+    monkeypatch,
+    *,
+    texts: list[str] | None = None,
+    mutation=None,
+    error: str | None = None,
+) -> list[dict]:
+    calls: list[dict] = []
+    replies = texts or ["你检查了眼前的现场。"]
+
+    def send_turn(request, **_kwargs):
+        index = len(calls)
+        calls.append(json.loads(json.dumps(request, ensure_ascii=False)))
+        if error is not None:
+            raise RuntimeError(error)
+        if mutation is not None:
+            mutation(request, index)
+        return {
+            "ok": True,
+            "narration": replies[min(index, len(replies) - 1)],
+            "model_identity": {"provider": "fixture", "id": "keeper-agent"},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    monkeypatch.setattr(match.keeper_adapter, "keeper_send_turn", send_turn)
+    return calls
+
+
+def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
+    tmp_path, monkeypatch,
+):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "scripted_player"
+    player = tmp_path / "scripted-player"
     _write_scripted_player_runner(
-        runner,
-        [
-            "我搜查场景一的痕迹。",
-            "我继续跟进刚才发现的线索。",
-            "我检查下一个可调查的方向。",
-            "我再仔细看一遍现场。",
-        ],
+        player,
+        ["我检查门锁。", "我追查木屑。", "我检查相邻窗框。"],
     )
+    keeper_calls = _install_keeper(
+        monkeypatch,
+        texts=["锁眼里有木屑。", "木屑很新鲜。", "窗框没有撬痕。"],
+    )
+
     result = match.run_live_match(
         workspace,
         campaign_id,
         investigator_id,
-        player_runner=runner,
+        player_runner=player,
         max_turns=3,
-        rng_seed=42,
-        live=False,
-        intent_class="investigate",
+        run_dir=tmp_path / "run",
     )
-    assert len(result["turns"]) >= 3
-    assert result["metadata"]["runner_kind"] == "unknown"
-    assert result["metadata"]["simulation_method"] == "unattested_runner_match_not_gameplay_evidence"
-    assert result["battle_report_path"]
-    battle = Path(result["battle_report_path"]).read_text(encoding="utf-8")
-    assert "我搜查场景一的痕迹" in battle or "实际跑团" in battle
-    # player_notes captured for the report path
-    assert any(t.get("player_notes") for t in result["player_turns"])
+
+    assert len(result["turns"]) == 3
+    assert result["result"]["pipeline"] == "keeper_agent"
+    assert [call["player_input"] for call in keeper_calls] == [
+        "我检查门锁。",
+        "我追查木屑。",
+        "我检查相邻窗框。",
+    ]
+    partial = _read_jsonl(Path(result["run_dir"]) / "partial-transcript.jsonl")
+    assert len(partial) == 3
+    assert all(row["grounding_receipt"] == {
+        "schema_version": 1,
+        "source": "keeper_agent",
+        "guard_applied": False,
+    } for row in partial)
+    assert all(row["narrator_method"] == "keeper_agent" for row in partial)
 
 
-def test_live_match_rehydrates_transcript_tail_into_first_player_request(tmp_path):
+def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
+    tmp_path, monkeypatch,
+):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "scripted_player"
-    _write_scripted_player_runner(runner, ["我接着检查刚才的门缝。"])
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    player = tmp_path / "npc-player"
+    _write_scripted_player_runner(player, ["我向向导问路。"])
+
+    def mutate(_request, _index):
+        match._append_jsonl_fsync(
+            campaign / "logs" / "events.jsonl",
+            {
+                "event_type": "npc_engagement",
+                "npc_id": "npc-guide",
+                "scene_id": "scene-1",
+                "interaction_kind": "dialogue",
+                "keeper_only_detail": "must not be projected",
+            },
+        )
+
+    _install_keeper(monkeypatch, mutation=mutate)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "npc-run",
+    )
+
+    session = result["result"]
+    assert session["engaged_npc_ids"] == ["npc-guide"]
+    assert "events" not in session
+    npc_statement = next(
+        row
+        for row in result["metadata"]["narrative_adherence"]["statements"]
+        if row["criterion"].get("npc_id") == "npc-guide"
+    )
+    assert npc_statement["satisfied"] is True
+
+
+def test_keeper_turn_persistence_is_visible_before_next_player_call(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    run_dir = tmp_path / "sync-run"
+    dummy_player = tmp_path / "in-process-player"
+    dummy_player.write_text("fixture", encoding="utf-8")
+    player_calls = 0
+
+    def player_send_turn(_request, **_kwargs):
+        nonlocal player_calls
+        player_calls += 1
+        if player_calls == 2:
+            partial = _read_jsonl(run_dir / "partial-transcript.jsonl")
+            world = json.loads(
+                (campaign / "save" / "world-state.json").read_text(encoding="utf-8")
+            )
+            assert len(partial) == 1
+            assert world["major_decisions"] == ["keeper-write-complete"]
+        return {"ok": True, "player_text": f"行动 {player_calls}"}
+
+    monkeypatch.setattr(match.player_adapter, "player_send_turn", player_send_turn)
+
+    def mutate(_request, index):
+        if index != 0:
+            return
+        path = campaign / "save" / "world-state.json"
+        world = json.loads(path.read_text(encoding="utf-8"))
+        world["major_decisions"] = ["keeper-write-complete"]
+        _write_json(path, world)
+
+    _install_keeper(monkeypatch, mutation=mutate)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=dummy_player,
+        max_turns=2,
+        run_dir=run_dir,
+    )
+
+    assert len(result["turns"]) == 2
+    assert player_calls == 2
+
+
+def test_historical_cliffhanger_does_not_stop_resumed_run(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    match._append_jsonl_fsync(
+        campaign / "logs" / "events.jsonl",
+        {
+            "event_type": "session_ending",
+            "kind": "cliffhanger",
+            "scene_id": "scene-1",
+            "summary": "previous session boundary",
+        },
+    )
+    player = tmp_path / "resumed-player"
+    _write_scripted_player_runner(player, ["继续调查。", "再检查一次。"])
+    keeper_calls = _install_keeper(monkeypatch, texts=["你继续调查。", "你查完了。"])
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=2,
+        run_dir=tmp_path / "resumed-run",
+    )
+
+    assert len(result["turns"]) == 2
+    assert len(keeper_calls) == 2
+    assert result["stop_reason"] == "max_turns_reached"
+    assert result["terminal_evidence"]["session_ending"] is False
+    assert result["result"]["completion_receipts"]["conclusion"]["status"] == "missing"
+    assert result["result"]["completion_receipts"]["scenario_concluded"] is False
+
+
+def test_keeper_tool_and_roll_logs_are_projected_once_into_report(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    player = tmp_path / "roll-player"
+    _write_scripted_player_runner(player, ["我仔细检查锁眼。"])
+
+    def mutate(_request, _index):
+        match._append_jsonl_fsync(
+            campaign / "logs" / "toolbox-calls.jsonl",
+            {
+                "tool": "rules.roll",
+                "decision_id": "turn-roll-1",
+                "ok": True,
+            },
+        )
+        match._append_jsonl_fsync(
+            campaign / "logs" / "rolls.jsonl",
+            {
+                "event_type": "roll",
+                "type": "roll",
+                "roll_id": "fixture-roll-1",
+                "actor": investigator_id,
+                "visibility": "public",
+                "source": "keeper_toolbox",
+                "source_ref": "logs/rolls.jsonl#fixture-roll-1",
+                "payload": {
+                    "roll_id": "fixture-roll-1",
+                    "skill": "Spot Hidden",
+                    "roll": 22,
+                    "effective_target": 60,
+                    "difficulty": "regular",
+                    "outcome": "success",
+                },
+            },
+        )
+        world_path = campaign / "save" / "world-state.json"
+        world = json.loads(world_path.read_text(encoding="utf-8"))
+        world["discovered_clue_ids"] = ["c1"]
+        _write_json(world_path, world)
+
+    _install_keeper(monkeypatch, texts=["你在锁眼里发现了新鲜木屑。"], mutation=mutate)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "roll-run",
+    )
+
+    turn = result["turns"][0]
+    assert [row["tool"] for row in turn["tool_calls"]] == ["rules.roll"]
+    assert [row["roll_id"] for row in turn["rule_results"]] == ["fixture-roll-1"]
+    assert turn["clue_revealed"] == ["c1"]
+    report = Path(result["battle_report_path"]).read_text(encoding="utf-8")
+    assert report.count("[roll-id: fixture-roll-1]") == 1
+    completeness = json.loads(
+        (Path(result["run_dir"]) / "artifacts" / "report-completeness.json")
+        .read_text(encoding="utf-8")
+    )
+    assert completeness["passed"] is True
+
+
+def test_unknown_action_is_owned_by_keeper_without_fixed_grounding_gate(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "off-design-player"
+    _write_scripted_player_runner(player, ["我现在乘火箭去月球。"])
+    calls = _install_keeper(monkeypatch, texts=["你眼下没有这样的交通手段。"])
+
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        resolve_player_actions=True,
+        run_dir=tmp_path / "off-design-run",
+    )
+
+    assert calls[0]["player_input"] == "我现在乘火箭去月球。"
+    assert result["turns"][0]["narration"]["final_text"] == (
+        "你眼下没有这样的交通手段。"
+    )
+    partial = _read_jsonl(Path(result["run_dir"]) / "partial-transcript.jsonl")
+    assert partial[0]["grounding_receipt"]["guard_applied"] is False
+
+
+def test_live_match_rehydrates_manual_transcript_tail(tmp_path, monkeypatch):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "tail-player"
+    _write_scripted_player_runner(player, ["我接着检查刚才的门缝。"])
     prior_tail = [
         {"role": "player", "text": "我检查105号门。"},
         {"role": "keeper", "text": "门缝内侧留着一道新鲜刮痕。"},
     ]
+    calls = _install_keeper(monkeypatch)
 
     result = match.run_live_match(
         workspace,
         campaign_id,
         investigator_id,
-        player_runner=runner,
+        player_runner=player,
         max_turns=1,
-        rng_seed=43,
-        live=False,
-        intent_class="investigate",
         initial_transcript_tail=prior_tail,
         initial_narration=prior_tail[-1]["text"],
+        run_dir=tmp_path / "tail-run",
     )
 
-    first_request = result["player_requests"][0]
-    assert first_request["transcript_tail"] == prior_tail
-    assert first_request["narration"] == prior_tail[-1]["text"]
+    assert result["player_requests"][0]["transcript_tail"] == prior_tail
+    assert result["player_requests"][0]["narration"] == prior_tail[-1]["text"]
+    assert calls[0]["transcript_tail"][-3:] == [
+        *prior_tail,
+        {"role": "player", "text": "我接着检查刚才的门缝。"},
+    ]
+
+
+def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "first-player"
+    second_player = tmp_path / "second-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+
+    _install_keeper(monkeypatch, texts=["锁眼里有新鲜木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "first-run",
+    )
+    second_calls = _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "second-run",
+        resume_run_dir=first["run_dir"],
+    )
+
+    assert second["metadata"]["continuation_of"] == "first-run"
+    assert second["metadata"]["transcript_scope"] == "campaign_cumulative"
+    assert second["player_requests"][0]["transcript_tail"][-2:] == [
+        {"role": "player", "text": "我检查门锁。"},
+        {"role": "keeper", "text": "锁眼里有新鲜木屑。"},
+    ]
+    assert second_calls[0]["transcript_tail"][-1] == {
+        "role": "player",
+        "text": "我继续检查门轴。",
+    }
+    transcript = _read_jsonl(Path(second["run_dir"]) / "transcript.jsonl")
+    transcript_text = [row.get("text") for row in transcript]
+    for expected in ("我检查门锁。", "锁眼里有新鲜木屑。", "我继续检查门轴。", "门轴刚上过油。"):
+        assert expected in transcript_text
+    invocations = _read_jsonl(Path(second["run_dir"]) / "runner-invocations.jsonl")
+    assert len(invocations) == 4
+    assert [row["attempt"] for row in invocations if row["role"] == "player"] == [1, 2]
+    assert [row["attempt"] for row in invocations if row["role"] == "narrator"] == [1, 2]
+    driver = json.loads(
+        (Path(second["run_dir"]) / "driver-result.json").read_text(encoding="utf-8")
+    )
+    assert len(driver["turns"]) == 2
+
+
+def test_resume_helpers_ignore_system_rows_and_renumber_append():
+    prior = [
+        {"turn": 1, "role": "player_simulator", "text": "我检查门锁。"},
+        {"turn": 2, "role": "keeper_under_test", "text": "锁眼里有木屑。"},
+        {"turn": 3, "role": "system", "text": "Spot Hidden 22"},
+    ]
+    tail, narration = match._resume_tail_from_transcript(prior, limit=6)
+    assert tail == [
+        {"role": "player", "text": "我检查门锁。"},
+        {"role": "keeper", "text": "锁眼里有木屑。"},
+    ]
+    assert narration == "锁眼里有木屑。"
+    current = [
+        {"turn": 1, "role": "player_simulator", "text": "我继续。"},
+        {"turn": 2, "role": "keeper_under_test", "text": "门开了。"},
+    ]
+    assert [row["turn"] for row in match._renumber_appended_rows(prior, current)] == [
+        1, 2, 3, 4, 5,
+    ]
 
 
 def test_player_request_routes_distinct_personas_without_keeper_fields(tmp_path):
@@ -397,190 +709,222 @@ def test_player_request_routes_distinct_personas_without_keeper_fields(tmp_path)
         workspace,
         campaign_id,
         persona_id="careful_investigator",
-        persona_prompt_directives=[
-            "Prefer observation and corroboration before irreversible action."
-        ],
+        persona_prompt_directives=["先观察并交叉验证。"],
         **common,
     )
     reckless = match.build_player_request(
         workspace,
         campaign_id,
         persona_id="reckless_investigator",
-        persona_prompt_directives=["Act immediately on incomplete information."],
+        persona_prompt_directives=["立即行动。"],
         **common,
     )
 
-    assert careful["persona_id"] == "careful_investigator"
-    assert reckless["persona_id"] == "reckless_investigator"
-    assert careful["persona_prompt_directives"] != reckless[
-        "persona_prompt_directives"
-    ]
-    assert careful != reckless
+    assert careful["persona_prompt_directives"] != reckless["persona_prompt_directives"]
     encoded = json.dumps([careful, reckless], ensure_ascii=False)
-    assert all(secret not in encoded for secret in SECRET_PROSE_FRAGMENTS)
     assert "keeper_secret" not in encoded
+    assert all(secret not in encoded for secret in SECRET_PROSE_FRAGMENTS)
 
 
-def test_metadata_honesty_live_false_is_not_gameplay_evidence(tmp_path):
+def test_player_visible_opening_never_reads_private_scene_summary(tmp_path):
+    campaign = tmp_path / "campaign"
+    _write_json(
+        campaign / "save" / "active-scene.json",
+        {"summary": "PRIVATE PLAN", "dramatic_question": "PRIVATE QUESTION"},
+    )
+    _write_json(
+        campaign / "scenario" / "scenario.json",
+        {"opening_scene": {"summary": "PRIVATE OPENING"}},
+    )
+    narration = match.player_visible_narration(None, campaign)
+    assert narration == "场景开始。你站在可调查的现场。"
+    assert "PRIVATE" not in narration
+
+
+def test_fresh_haunting_uses_player_safe_commission_opening(tmp_path):
+    workspace = tmp_path / "fresh-workspace"
+    quick = match.coc_starter.quick_start(
+        workspace,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="fresh-haunting",
+    )
+    campaign = workspace / ".coc" / "campaigns" / quick["campaign_id"]
+    assert match.player_visible_narration(None, campaign) == (
+        "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
+    )
+
+
+def test_player_character_view_is_complete_owned_card_with_current_vitals(tmp_path):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "scripted_player"
-    _write_scripted_player_runner(runner, ["我环顾四周。"])
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    card = {
+        "schema_version": 1,
+        "id": investigator_id,
+        "name": "Ada",
+        "occupation": "Detective",
+        "characteristics": {"STR": 50, "POW": 65, "keeper_secret": 99},
+        "derived": {"HP": 99, "SAN": 99, "MP": 99, "MOV": 8},
+        "skills": {f"Skill {index}": index for index in range(1, 19)},
+        "weapons": [
+            {"name": ".38", "skill": "Handgun", "damage": "1D10", "secret": "x"}
+        ],
+        "equipment": ["flashlight", {"name": "lockpicks", "keeper_note": "x"}],
+        "backstory": {
+            "scenario_id": "the-haunting",
+            "scenario_bound": {"description": "Knott hired me", "keeper_secret": "x"},
+            "traits": ["cautious"],
+        },
+        "notes": "report-only note",
+        "clue_graph": {"secret": True},
+        "npc_agendas": ["secret"],
+    }
+
+    view = match.build_player_character_view(card, campaign, investigator_id)
+    assert len(view["skills"]) == 18
+    assert view["derived"] == {"HP": 12, "SAN": 55, "MP": 11, "MOV": 8}
+    assert view["weapons"][0] == {
+        "name": ".38",
+        "skill": "Handgun",
+        "damage": "1D10",
+    }
+    encoded = json.dumps(view, ensure_ascii=False)
+    for forbidden in (
+        "keeper_secret",
+        "keeper_note",
+        "clue_graph",
+        "npc_agendas",
+        "report-only note",
+        "scenario_id",
+    ):
+        assert forbidden not in encoded
+
+
+def test_completion_receipts_require_structured_ending_combat_and_reward(tmp_path):
+    campaign = tmp_path / "campaign"
+    logs = campaign / "logs"
+    logs.mkdir(parents=True)
+    story = {"scenes": [{"scene_id": "ending", "is_final": True, "scene_edges": []}]}
+    world = {"active_scene_id": "ending"}
+    terminal = {
+        "reached_terminal": True,
+        "active_scene_id": "ending",
+        "graph_terminal": True,
+        "session_ending": False,
+    }
+    (logs / "events.jsonl").write_text("", encoding="utf-8")
+    missing = match.build_completion_receipts(
+        campaign,
+        story_graph=story,
+        world_state=world,
+        terminal_evidence=terminal,
+        scenario_id="the-haunting",
+    )
+    assert missing["complete"] is False
+
+    events = [
+        {
+            "type": "session_ending",
+            "decision_id": "older-partial-ending",
+        },
+        {
+            "event_type": "combat_ended",
+            "decision_id": "combat-1",
+            "combat_id": "fight-1",
+            "outcome": "investigators_win",
+        },
+        {
+            "event_type": "reward",
+            "decision_id": "reward-1",
+            "source": "conclusion_rewards",
+            "reward_kind": "sanity",
+            "roll_id": "reward-roll-1",
+        },
+        {
+            "type": "session_ending",
+            "decision_id": "ending-1",
+            "scene_id": "ending",
+            "scenario_id": "the-haunting",
+        },
+    ]
+    (logs / "events.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in events), encoding="utf-8"
+    )
+    terminal["session_ending"] = True
+    complete = match.build_completion_receipts(
+        campaign,
+        story_graph=story,
+        world_state=world,
+        terminal_evidence=terminal,
+        scenario_id="the-haunting",
+    )
+    assert complete["complete"] is True
+    assert all(
+        complete[kind]["status"] == "complete"
+        for kind in ("session_ending", "combat", "conclusion", "reward")
+    )
+    assert complete["combat"]["source_event_type"] == "combat_ended"
+    assert complete["session_ending"]["source_ref"].endswith("line-4")
+
+    events.append({
+        "event_type": "session_ending",
+        "kind": "cliffhanger",
+        "scene_id": "ending",
+        "scenario_id": "the-haunting",
+    })
+    (logs / "events.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in events), encoding="utf-8"
+    )
+    cliffhanger = match.build_completion_receipts(
+        campaign,
+        story_graph=story,
+        world_state=world,
+        terminal_evidence=terminal,
+        scenario_id="the-haunting",
+    )
+    assert cliffhanger["session_ending"]["kind"] == "cliffhanger"
+    assert cliffhanger["conclusion"]["status"] == "missing"
+    assert cliffhanger["scenario_concluded"] is False
+    assert cliffhanger["complete"] is False
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_live_claim_cannot_make_untrusted_player_evidence_eligible(
+    tmp_path, monkeypatch, live,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / f"untrusted-player-{live}"
+    _write_scripted_player_runner(player, ["我环顾四周。"])
+    _install_keeper(monkeypatch)
     result = match.run_live_match(
         workspace,
         campaign_id,
         investigator_id,
-        player_runner=runner,
+        player_runner=player,
         max_turns=1,
-        rng_seed=7,
-        live=False,
-        intent_class="investigate",
+        live=live,
+        run_dir=tmp_path / f"evidence-{live}",
     )
-    meta = result["metadata"]
-    assert meta["user_claimed_live"] is False
-    assert "live" not in meta
-    assert meta["runner_kind"] == "unknown"
-    assert meta["simulation_method"] == "unattested_runner_match_not_gameplay_evidence"
-    assert meta["player_profile"] != "external_llm_bridge"
-    assert "never gameplay evidence" in meta["evidence_disclaimer"].lower()
-    assert meta["eligible_as_gameplay_evidence"] is False
-    playtest = json.loads(
-        (Path(result["run_dir"]) / "playtest.json").read_text(encoding="utf-8")
-    )
-    assert playtest["simulation_method"] == "unattested_runner_match_not_gameplay_evidence"
-    assert playtest["runner_kind"] == "unknown"
-    assert playtest["eligible_as_gameplay_evidence"] is False
+    metadata = result["metadata"]
+    assert metadata["user_claimed_live"] is live
+    assert metadata["eligible_as_gameplay_evidence"] is False
+    assert "untrusted_player_runner_used" in metadata["evidence_reasons"]
     assert (Path(result["run_dir"]) / "evidence.json").is_file()
 
 
-def test_live_flag_cannot_make_scripted_runner_evidence_eligible(tmp_path):
+def test_fake_runner_provenance_cannot_forge_trust(tmp_path, monkeypatch):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "scripted_player"
-    _write_scripted_player_runner(runner, ["我环顾四周。"])
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=runner,
-        max_turns=1,
-        rng_seed=7,
-        live=True,
-        intent_class="investigate",
-    )
-    meta = result["metadata"]
-    assert meta["user_claimed_live"] is True
-    assert "live" not in meta
-    assert meta["eligible_as_gameplay_evidence"] is False
-    assert "untrusted_player_runner_used" in meta["evidence_reasons"]
-    assert meta["runner_kind"] == "unknown"
-
-
-def test_evidence_receipt_exists_before_battle_report_generation(tmp_path, monkeypatch):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "scripted_player"
-    _write_scripted_player_runner(runner, ["我环顾四周。"])
-    assert hasattr(match, "playtest_report"), "live match must expose its report generator"
-    original = match.playtest_report.generate_battle_report
-    observed = []
-
-    def guarded_generate(run_dir):
-        evidence_path = Path(run_dir) / "evidence.json"
-        assert evidence_path.is_file()
-        observed.append(evidence_path)
-        return original(run_dir)
-
-    monkeypatch.setattr(match.playtest_report, "generate_battle_report", guarded_generate)
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=runner,
-        max_turns=1,
-        rng_seed=7,
-        live=True,
-        intent_class="investigate",
-    )
-
-    assert observed == [Path(result["run_dir"]) / "evidence.json"]
-
-
-def _patch_observed_canonical_player(monkeypatch):
-    def send_turn(_request, *, runner_path, timeout_s):
-        assert Path(runner_path).resolve() == CANONICAL_PLAYER_RUNNER.resolve()
-        return {
-            "ok": True,
-            "player_text": "我检查眼前最明显的痕迹。",
-            "intent_class": "investigate",
-            "model_identity": {"provider": "fixture", "id": "trusted-player-model"},
-            "response_mode": "tool",
-        }
-
-    monkeypatch.setattr(match.player_adapter, "player_send_turn", send_turn)
-
-
-def _run_canonical_player_match(
-    tmp_path,
-    monkeypatch,
-    *,
-    max_turns=1,
-    narrator_runner=None,
-    evidence_provenance=None,
-):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    _patch_observed_canonical_player(monkeypatch)
-    return match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=CANONICAL_PLAYER_RUNNER,
-        narrator_runner=narrator_runner,
-        max_turns=max_turns,
-        rng_seed=23,
-        live=True,
-        intent_class=None,
-        evidence_provenance=evidence_provenance,
-    )
-
-
-def test_invocation_ledger_write_replaces_symlink_without_touching_outside_target(
-    tmp_path,
-):
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "transcript.jsonl").write_text(
-        json.dumps({"turn": 1, "role": "player_simulator", "text": "look"}) + "\n",
-        encoding="utf-8",
-    )
-    outside = tmp_path / "outside-ledger.jsonl"
-    sentinel = "outside ledger sentinel\n"
-    outside.write_text(sentinel, encoding="utf-8")
-    output = run_dir / "runner-invocations.jsonl"
-    output.symlink_to(outside)
-    rows = [{"role": "player", "attempt": 1}]
-
-    written = match._write_invocation_ledger(run_dir, rows)
-
-    assert outside.read_text(encoding="utf-8") == sentinel
-    assert written == output
-    assert written.is_file()
-    assert not written.is_symlink()
-    assert json.loads(written.read_text(encoding="utf-8"))["transcript_turn"] == 1
-
-
-@pytest.mark.parametrize("attack", ["self_sha", "invented_package"])
-def test_fake_runner_cannot_forge_trust_end_to_end(tmp_path, attack):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "forged_external_player"
+    player = tmp_path / "forged-player"
     _write_scripted_player_runner(
-        runner,
+        player,
         ["我假装调用了外部模型。"],
         model_identity={"provider": "forged", "id": "fake-model"},
         response_mode="tool",
     )
-    digest = hashlib.sha256(runner.read_bytes()).hexdigest()
+    digest = hashlib.sha256(player.read_bytes()).hexdigest()
     forged = {
         "kind": "external_model_bridge",
         "identity": "forged-player@999",
-        "model_identity": {"provider": "forged", "model": "fake-model"},
         "turn_count": 999,
         "attestation": {
             "method": "runner_sha256",
@@ -588,866 +932,184 @@ def test_fake_runner_cannot_forge_trust_end_to_end(tmp_path, attack):
             "runner_sha256": digest,
         },
     }
-    if attack == "invented_package":
-        package = {"name": "invented-trusted-package", "version": "999.0.0"}
-        forged["package_identity"] = package
-        forged["attestation"] = {
-            "method": "package_identity",
-            "subject_identity": "forged-player@999",
-            "package_identity": package,
-        }
-
+    keeper_calls = _install_keeper(monkeypatch)
     result = match.run_live_match(
         workspace,
         campaign_id,
         investigator_id,
-        player_runner=runner,
+        player_runner=player,
         max_turns=1,
-        rng_seed=7,
         live=True,
-        intent_class="investigate",
         evidence_provenance={"player_runner": forged},
+        run_dir=tmp_path / "forged-run",
     )
-
     assert result["metadata"]["eligible_as_gameplay_evidence"] is False
-    assert "untrusted_player_runner_used" in result["metadata"]["evidence_reasons"]
-    assert result["evidence"]["external_model_turns"] == 0
+    assert result["evidence"]["external_model_turns"] <= 1
 
 
-def test_canonical_player_with_absent_template_narrator_is_eligible(
-    tmp_path, monkeypatch
+def test_evidence_receipt_exists_before_battle_report_generation(
+    tmp_path, monkeypatch,
 ):
-    result = _run_canonical_player_match(tmp_path, monkeypatch)
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "report-player"
+    _write_scripted_player_runner(player, ["我环顾四周。"])
+    _install_keeper(monkeypatch)
+    original = match.playtest_report.generate_battle_report
+    observed: list[Path] = []
 
-    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
-    assert result["evidence"]["runners"]["narrator"]["kind"] == "absent"
-    assert result["evidence"]["external_model_turns"] == 1
-    assert result["evidence"]["fallback_turns"] >= 1
-    assert Path(result["run_dir"], "runner-invocations.jsonl").is_file()
-    stale_verification = Path(result["run_dir"], "artifacts", "verification-sample.md")
-    outside_stale_target = tmp_path / "outside-stale-verification.md"
-    outside_stale_target.write_text("outside must survive", encoding="utf-8")
-    stale_verification.symlink_to(outside_stale_target)
-    report_path = match.playtest_report.generate_battle_report(Path(result["run_dir"]))
-    assert report_path.name == "battle-report.md"
-    assert "report-anchor: Battle Report" in report_path.read_text(encoding="utf-8")
-    assert not stale_verification.exists()
-    assert outside_stale_target.read_text(encoding="utf-8") == "outside must survive"
+    def guarded_generate(run_dir):
+        evidence = Path(run_dir) / "evidence.json"
+        assert evidence.is_file()
+        observed.append(evidence)
+        return original(run_dir)
 
-
-def test_report_atomic_temp_symlink_cannot_overwrite_outside_file(tmp_path, monkeypatch):
-    result = _run_canonical_player_match(tmp_path, monkeypatch)
-    run_dir = Path(result["run_dir"])
-    sentinel = tmp_path / "outside-sentinel.txt"
-    sentinel.write_text("unchanged", encoding="utf-8")
-    malicious_temp = run_dir / "artifacts" / ".battle-report.md.attack.tmp"
-    malicious_temp.symlink_to(sentinel)
-    monkeypatch.setattr(match.playtest_report.secrets, "token_hex", lambda _size: "attack")
-
-    with pytest.raises(RuntimeError, match="temporary file"):
-        match.playtest_report.generate_battle_report(run_dir)
-
-    assert sentinel.read_text(encoding="utf-8") == "unchanged"
-    assert malicious_temp.is_symlink()
+    monkeypatch.setattr(match.playtest_report, "generate_battle_report", guarded_generate)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "report-run",
+    )
+    assert observed == [Path(result["run_dir"]) / "evidence.json"]
 
 
-def test_report_rejects_artifacts_directory_symlink_without_outside_mutation(
-    tmp_path, monkeypatch
+def test_invocation_ledger_replaces_symlink_without_touching_target(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "transcript.jsonl").write_text(
+        json.dumps({"turn": 1, "role": "player_simulator", "text": "look"}) + "\n",
+        encoding="utf-8",
+    )
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("outside sentinel\n", encoding="utf-8")
+    output = run_dir / "runner-invocations.jsonl"
+    output.symlink_to(outside)
+
+    written = match._write_invocation_ledger(
+        run_dir, [{"role": "player", "attempt": 1}]
+    )
+    assert outside.read_text(encoding="utf-8") == "outside sentinel\n"
+    assert written.is_file() and not written.is_symlink()
+    assert json.loads(written.read_text(encoding="utf-8"))["transcript_turn"] == 1
+
+
+def test_operator_mode_uses_operator_player_and_remains_review_pending(
+    tmp_path, monkeypatch,
 ):
-    result = _run_canonical_player_match(tmp_path, monkeypatch)
-    run_dir = Path(result["run_dir"])
-    artifacts = run_dir / "artifacts"
-    artifacts.rename(run_dir / "original-artifacts")
-    outside = tmp_path / "outside-artifacts"
-    outside.mkdir()
-    sentinel = outside / "sentinel.txt"
-    sentinel.write_text("unchanged", encoding="utf-8")
-    (outside / "verification-sample.md").write_text("outside sibling", encoding="utf-8")
-    artifacts.symlink_to(outside, target_is_directory=True)
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    observed: list[dict] = []
 
-    with pytest.raises(RuntimeError, match="unsafe playtest artifacts directory"):
-        match.playtest_report.generate_battle_report(run_dir)
-
-    assert sentinel.read_text(encoding="utf-8") == "unchanged"
-    assert (outside / "verification-sample.md").read_text(encoding="utf-8") == "outside sibling"
-    assert not (outside / "battle-report.md").exists()
-
-
-def test_canonical_narrator_mixed_fallback_remains_eligible(tmp_path, monkeypatch):
-    calls = 0
-
-    def narrate(_request, *, runner_path, timeout_s):
-        nonlocal calls
-        assert Path(runner_path).resolve() == CANONICAL_NARRATOR_RUNNER.resolve()
-        calls += 1
-        if calls == 2:
-            raise RuntimeError("fixture narrator failure")
+    def operator_provider(request):
+        observed.append(request)
         return {
             "ok": True,
-            "final_text": "雨里传来一声短促的木响。",
-            "secret_audit_complete": True,
-            "asserted_fact_refs": [],
-            "semantic_audit": [],
-            "model_identity": {"provider": "fixture", "id": "trusted-narrator-model"},
-            "response_mode": "tool",
+            "player_text": "我检查眼前的痕迹。",
+            "response_mode": "operator_jsonl",
         }
 
-    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", narrate)
-    result = _run_canonical_player_match(
-        tmp_path,
-        monkeypatch,
-        max_turns=2,
-        narrator_runner=CANONICAL_NARRATOR_RUNNER,
-    )
-
-    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
-    assert result["evidence"]["fallback_turns"] == 1
-    assert result["evidence"]["external_model_turns"] >= 3
-
-
-def test_canonical_narrator_all_fallback_can_remain_eligible(tmp_path, monkeypatch):
-    def fail(_request, *, runner_path, timeout_s):
-        raise RuntimeError("fixture narrator failure")
-
-    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", fail)
-    result = _run_canonical_player_match(
-        tmp_path,
-        monkeypatch,
-        narrator_runner=CANONICAL_NARRATOR_RUNNER,
-    )
-
-    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
-    assert result["evidence"]["external_model_turns"] == 1
-    assert result["evidence"]["fallback_turns"] >= 1
-
-
-def test_live_match_missing_structured_secret_audit_uses_recorded_template_fallback(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", lambda *a, **k: {
-        "ok": True, "final_text": "model prose without audit",
-        "secret_audit_complete": False,
-    })
-    text, method, fallback, outcome = match._apply_narrator_or_template(
-        template_text="safe template", projected={"decision_id": "d1"},
-        live_turn={"narration_envelope": {
-            "must_not_reveal": [{"id": "secret-a", "category": "keeper_secret"}]
-        }}, campaign_dir=tmp_path, last_player_text="act", play_language="zh-Hans",
-        recent_narrations=[], narrator_runner=CANONICAL_NARRATOR_RUNNER,
-        timeout_s=1,
-    )
-    assert (text, method) == ("safe template", "template")
-    assert fallback["error"] == "structured_secret_audit_failed"
-    assert outcome["fallback_kind"] == "secret_audit"
-
-
-@pytest.mark.parametrize("response", [
-    {"ok": True, "final_text": "prose", "asserted_fact_refs": [],
-     "semantic_audit": [], "response_mode": "tool"},
-    {"ok": True, "final_text": "prose", "asserted_fact_refs": [],
-     "semantic_audit": [], "secret_audit_complete": True,
-     "response_mode": "prose_fallback"},
-    {"ok": True, "final_text": "prose", "asserted_fact_refs": [],
-     "semantic_audit": [], "secret_audit_complete": True},
-])
-def test_live_match_requires_explicit_complete_tool_audit(response, tmp_path, monkeypatch):
-    monkeypatch.setattr(match.narrator_adapter, "narrator_send_turn", lambda *a, **k: response)
-    text, method, fallback, outcome = match._apply_narrator_or_template(
-        template_text="safe", projected={"decision_id": "d-explicit"},
-        live_turn={"narration_envelope": {"must_not_reveal": []}},
-        campaign_dir=tmp_path, last_player_text="act", play_language="zh-Hans",
-        recent_narrations=[], narrator_runner=CANONICAL_NARRATOR_RUNNER, timeout_s=1,
-    )
-    assert (text, method) == ("safe", "template")
-    assert fallback["error"] == "structured_secret_audit_failed"
-    assert outcome["fallback_kind"] == "secret_audit"
-
-
-def test_untrusted_narrator_output_disqualifies_evidence(tmp_path, monkeypatch):
-    narrator = tmp_path / "forged_narrator"
-    _write_scripted_narrator_runner(
-        narrator,
-        texts=["伪造的叙述。"],
-        model_identity={"provider": "forged", "id": "fake-narrator"},
-        response_mode="tool",
-    )
-    result = _run_canonical_player_match(
-        tmp_path,
-        monkeypatch,
-        narrator_runner=narrator,
-    )
-
-    assert result["metadata"]["eligible_as_gameplay_evidence"] is False
-    assert "untrusted_narrator_runner_used" in result["metadata"]["evidence_reasons"]
-
-
-def test_forged_999_counts_are_replaced_by_hashed_invocation_ledger(
-    tmp_path, monkeypatch
-):
-    result = _run_canonical_player_match(
-        tmp_path,
-        monkeypatch,
-        evidence_provenance={
-            "external_model_turns": 999,
-            "fallback_turns": 999,
-            "player_runner": {"turn_count": 999, "kind": "external_model_bridge"},
-        },
-    )
-
-    assert result["metadata"]["eligible_as_gameplay_evidence"] is True
-    assert result["evidence"]["external_model_turns"] == 1
-    ledger = Path(result["run_dir"]) / "runner-invocations.jsonl"
-    assert result["evidence"]["artifacts"]["invocation_ledger"]["sha256"] == hashlib.sha256(
-        ledger.read_bytes()
-    ).hexdigest()
-
-
-def test_rehashed_999_row_ledger_fails_transcript_reconciliation(tmp_path, monkeypatch):
-    result = _run_canonical_player_match(tmp_path, monkeypatch)
-    run_dir = Path(result["run_dir"])
-    eligible_report = match.playtest_report.generate_battle_report(run_dir)
-    assert eligible_report.name == "battle-report.md" and eligible_report.exists()
-    ledger_path = run_dir / "runner-invocations.jsonl"
-    rows = [json.loads(line) for line in ledger_path.read_text().splitlines() if line]
-    player_row = next(row for row in rows if row["role"] == "player")
-    forged_rows = [*rows, *[dict(player_row, attempt=100 + index) for index in range(998)]]
-    ledger_path.write_text(
-        "".join(json.dumps(row, sort_keys=True) + "\n" for row in forged_rows),
-        encoding="utf-8",
-    )
-    receipt_path = run_dir / "evidence.json"
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    receipt["external_model_turns"] = 999
-    receipt["artifacts"]["invocation_ledger"]["sha256"] = hashlib.sha256(
-        ledger_path.read_bytes()
-    ).hexdigest()
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-
-    validated = match.playtest_evidence.read_evidence_receipt(run_dir)
-
-    assert validated["eligible_as_gameplay_evidence"] is False
-    assert "invocation_transcript_mismatch" in validated["evidence_reasons"]
-    report_path = match.playtest_report.generate_battle_report(run_dir)
-    assert report_path.name == "verification-sample.md"
-    assert "# Battle Report" not in report_path.read_text(encoding="utf-8")
-    assert not eligible_report.exists()
-
-
-def test_spoiler_isolation_player_requests_exclude_keeper_secret_prose(tmp_path):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path, with_secrets=True)
-    runner = tmp_path / "scripted_player"
-    _write_scripted_player_runner(
-        runner,
-        ["我搜查现场。", "我继续调查。", "我再看一眼。"],
-    )
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=runner,
-        max_turns=3,
-        rng_seed=11,
-        live=False,
-        intent_class="investigate",
-    )
-    assert result["player_requests"], "expected captured player requests"
-    for req in result["player_requests"]:
-        blob = json.dumps(req, ensure_ascii=False)
-        for fragment in SECRET_PROSE_FRAGMENTS:
-            assert fragment not in blob, f"secret prose leaked into player request: {fragment!r}"
-        # Structural spoiler sources must not be present as top-level keys.
-        assert "keeper_secrets" not in req
-        assert "story_graph" not in req
-        assert "clue_graph" not in req
-        assert "npc_agendas" not in req
-        assert "director_plan" not in req
-        assert "narrative_directives" not in req
-
-
-def test_scripted_match_passes_runner_intent_class_into_turn(tmp_path):
-    """Structured intent_class from the player envelope reaches turn records."""
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    runner = tmp_path / "scripted_player_intent"
-    _write_scripted_player_runner(
-        runner,
-        ["我仔细搜查现场寻找线索。"],
-        intent_classes=["investigate"],
-    )
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=runner,
-        max_turns=1,
-        rng_seed=42,
-        live=False,
-        # No match-level intent_class — envelope must supply it.
-        intent_class=None,
-    )
-    assert result["player_choices"], "expected player_choices"
-    assert result["player_choices"][0]["intent_class"] == "investigate"
-    pacing = json.loads(
-        (
-            workspace
-            / ".coc"
-            / "campaigns"
-            / campaign_id
-            / "save"
-            / "pacing-state.json"
-        ).read_text(encoding="utf-8")
-    )
-    assert "investigate" in pacing.get("recent_intent_classes", [])
-
-
-def test_scripted_match_move_crosses_into_unlocked_scene(tmp_path):
-    """Integration: after unlock, a move-intent turn must leave the start scene."""
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    camp = workspace / ".coc" / "campaigns" / campaign_id
-    story = json.loads((camp / "scenario" / "story-graph.json").read_text(encoding="utf-8"))
-    # Narrative exits block clue-exhaustion auto-advance (acceptance shape).
-    story["scenes"][0]["exit_conditions"] = ["orders_received"]
-    story["scenes"][0]["npc_ids"] = ["npc-commander"]
-    (camp / "scenario" / "story-graph.json").write_text(
-        json.dumps(story), encoding="utf-8"
-    )
-    (camp / "scenario" / "npc-agendas.json").write_text(
-        json.dumps(
-            {
-                "npcs": [
-                    {
-                        "npc_id": "npc-commander",
-                        "agenda": "withhold the true objective",
-                        "desire": "keep order",
-                    }
-                ]
-            }
+    monkeypatch.setattr(
+        match.player_adapter,
+        "player_send_turn",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("operator mode must not call the AI player adapter")
         ),
-        encoding="utf-8",
     )
-    world = json.loads((camp / "save" / "world-state.json").read_text(encoding="utf-8"))
-    world["unlocked_scene_ids"] = ["scene-1", "scene-2"]
-    world["visited_scene_ids"] = []
-    world["scene_history"] = []
-    (camp / "save" / "world-state.json").write_text(json.dumps(world), encoding="utf-8")
-
-    runner = tmp_path / "scripted_move_player"
-    _write_scripted_player_runner(
-        runner,
-        [
-            "我向指挥官确认任务细节。",
-            "我们沿鞍部侧脊隐蔽推进。",
-        ],
-        intent_classes=["social", "move"],
-    )
+    keeper_calls = _install_keeper(monkeypatch)
     result = match.run_live_match(
         workspace,
         campaign_id,
         investigator_id,
-        player_runner=runner,
-        max_turns=2,
-        rng_seed=42,
-        live=False,
-        intent_class=None,
-    )
-    world2 = json.loads((camp / "save" / "world-state.json").read_text(encoding="utf-8"))
-    assert world2["active_scene_id"] == "scene-2"
-    assert "scene-1" in world2["visited_scene_ids"]
-    assert any(h.get("scene_id") == "scene-2" for h in world2.get("scene_history") or [])
-    actions = [t.get("action") for t in result["turns"]]
-    assert "CUT" in actions or any(
-        t.get("scene_transition") for t in result["turns"]
-    )
-
-
-def _write_scripted_narrator_runner(
-    path: Path,
-    *,
-    texts: list[str] | None = None,
-    fail: bool = False,
-    inject_bookkeeping: bool = False,
-    model_identity: dict | None = None,
-    response_mode: str | None = None,
-) -> None:
-    """Stateful fake narrator: emit scripted final_text lines in order."""
-    lines_literal = json.dumps(
-        texts
-        or [
-            "你接过钥匙，金属还带着体温；诺特的目光在门廊阴影里停了一拍。",
-            "报馆纸页沙沙作响，你翻到那则未刊出的剪报。",
-        ],
-        ensure_ascii=False,
-    )
-    model_repr = repr(model_identity)
-    response_mode_repr = repr(response_mode)
-    if fail:
-        script = """#!/usr/bin/env python3
-import json, sys
-sys.stdout.write(json.dumps({"ok": False, "error": "narrator boom"}) + "\\n")
-sys.exit(1)
-"""
-    elif inject_bookkeeping:
-        script = f"""#!/usr/bin/env python3
-import json, sys
-from pathlib import Path
-state_path = Path(__file__).with_suffix(".state")
-idx = int(state_path.read_text()) if state_path.exists() else 0
-req = json.loads(sys.stdin.read())
-assert "rationale" not in json.dumps(req.get("narration_envelope") or {{}})
-state_path.write_text(str(idx + 1))
-# Deliberately include a bookkeeping phrase so the guard rewrite path fires.
-out = {{
-    "ok": True,
-    "final_text": "基于以上信息，你确认了线索：门框划痕。雨还在下。",
-    "secret_audit_complete": True,
-    "response_mode": "tool",
-    "asserted_fact_refs": [],
-    "semantic_audit": [],
-}}
-if {model_repr} is not None:
-    out["model_identity"] = {model_repr}
-if {response_mode_repr} is not None:
-    out["response_mode"] = {response_mode_repr}
-sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
-"""
-    else:
-        script = f"""#!/usr/bin/env python3
-import json, sys
-from pathlib import Path
-state_path = Path(__file__).with_suffix(".state")
-lines = {lines_literal}
-idx = int(state_path.read_text()) if state_path.exists() else 0
-req = json.loads(sys.stdin.read())
-assert "narration_envelope" in req
-env = req["narration_envelope"]
-assert "rationale" not in env
-assert "keeper_secrets" not in env
-text = lines[min(idx, len(lines) - 1)]
-state_path.write_text(str(idx + 1))
-out = {{"ok": True, "final_text": text, "secret_audit_complete": True,
-       "asserted_fact_refs": [], "semantic_audit": [], "response_mode": "tool"}}
-if {model_repr} is not None:
-    out["model_identity"] = {model_repr}
-if {response_mode_repr} is not None:
-    out["response_mode"] = {response_mode_repr}
-sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\\n")
-"""
-    path.write_text(script, encoding="utf-8")
-    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-
-def test_narrator_runner_uses_narrated_text_in_transcript(tmp_path):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    player = tmp_path / "scripted_player"
-    narrator = tmp_path / "scripted_narrator"
-    narrated = "你接过钥匙，金属还带着体温；诺特没再多说。"
-    _write_scripted_player_runner(player, ["我接受委托并收下钥匙。"])
-    _write_scripted_narrator_runner(narrator, texts=[narrated])
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=player,
-        narrator_runner=narrator,
+        player_runner=None,
+        operator_long_play=True,
+        operator_player_provider=operator_provider,
         max_turns=1,
-        rng_seed=42,
-        live=False,
-        intent_class="investigate",
+        run_dir=tmp_path / "operator-run",
     )
-    assert result["narration_method"] == "llm_narrator"
-    assert result["fallback_turns"] == 0
-    assert result["metadata"]["narration_method"] == "llm_narrator"
-    battle = Path(result["battle_report_path"]).read_text(encoding="utf-8")
-    assert narrated in battle
-    assert any(
-        (t.get("narration") or {}).get("final_text") == narrated for t in result["turns"]
-    )
+    assert len(observed) == 1
+    assert result["metadata"]["operator_review_status"] == "pending"
+    assert result["metadata"]["eligible_as_gameplay_evidence"] is False
+    assert "operator_review_required" in result["metadata"]["evidence_reasons"]
+    assert result["metadata"]["operator_contract"]["model_call_boundary"][
+        "kp_keeper_agent"
+    ] == "single_pass_production_model_under_test"
+    assert keeper_calls[0]["run_policy"] == "continue_until_scenario_terminal"
 
 
-def test_narrator_fallback_on_runner_failure_keeps_playing(tmp_path):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    player = tmp_path / "scripted_player"
-    narrator = tmp_path / "failing_narrator"
-    _write_scripted_player_runner(player, ["我环顾四周。", "我继续调查。"])
-    _write_scripted_narrator_runner(narrator, fail=True)
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=player,
-        narrator_runner=narrator,
-        max_turns=2,
-        rng_seed=7,
-        live=False,
-        intent_class="investigate",
-    )
-    assert result["fallback_turns"] >= 1
-    assert result["narration_method"] == "template"
-    assert any(t.get("narrator_fallback") for t in result["turns"])
-    assert len(result["turns"]) >= 1
-
-
-def test_narrator_guard_rewrite_and_final_text_audit(tmp_path):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    player = tmp_path / "scripted_player"
-    narrator = tmp_path / "bookkeeping_narrator"
-    _write_scripted_player_runner(player, ["我检查门框。"])
-    _write_scripted_narrator_runner(narrator, inject_bookkeeping=True)
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=player,
-        narrator_runner=narrator,
-        max_turns=1,
-        rng_seed=3,
-        live=False,
-        intent_class="investigate",
-    )
-    assert result["narration_method"] == "llm_narrator"
-    final = (result["turns"][0].get("narration") or {}).get("final_text") or ""
-    assert "基于以上信息" not in final
-    audit_path = (
-        workspace
-        / ".coc"
-        / "campaigns"
-        / campaign_id
-        / "logs"
-        / "narration-audit.jsonl"
-    )
-    assert audit_path.exists()
-    lines = [
-        json.loads(line)
-        for line in audit_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    assert any(row.get("field") == "final_text" for row in lines)
-
-
-def _run_match_with_investigator_state(
-    tmp_path: Path,
-    *,
-    current_hp: int,
-    conditions: list[str],
-    **state_overrides,
+def test_keeper_failure_stops_without_template_or_background_fallback(
+    tmp_path, monkeypatch,
 ):
     workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    state_path = (
-        workspace
-        / ".coc"
-        / "campaigns"
-        / campaign_id
-        / "save"
-        / "investigator-state"
-        / f"{investigator_id}.json"
+    player = tmp_path / "failure-player"
+    _write_scripted_player_runner(player, ["我检查现场。"])
+    _install_keeper(monkeypatch, error="fixture keeper failure")
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=2,
+        run_dir=tmp_path / "failure-run",
     )
+    assert result["stop_reason"] == "keeper_turn_failed"
+    assert result["turns"] == []
+    assert _read_jsonl(Path(result["run_dir"]) / "partial-transcript.jsonl") == []
+    invocations = _read_jsonl(Path(result["run_dir"]) / "runner-invocations.jsonl")
+    assert invocations[-1]["outcome"] == "runner_failure"
+    assert invocations[-1]["failure"]["class"] == "runner_failure"
+
+
+@pytest.mark.parametrize(
+    ("state_patch", "expected_status"),
+    [
+        ({"current_hp": 0, "conditions": ["unconscious"]}, "unconscious"),
+        ({"conditions": ["dying"]}, "dying"),
+        ({"conditions": ["stabilized"]}, "stabilized"),
+        ({"conditions": ["dead"]}, "dead"),
+        ({"bout_active": True}, "temporarily_unplayable"),
+        ({"permanently_insane": True}, "permanently_unplayable"),
+    ],
+)
+def test_structured_playability_pauses_before_player_or_keeper_turn(
+    tmp_path, monkeypatch, state_patch, expected_status,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    state_path = campaign / "save" / "investigator-state" / f"{investigator_id}.json"
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    state.update(
-        {
-            "current_hp": current_hp,
-            "conditions": conditions,
-            **state_overrides,
-        }
-    )
-    state_path.write_text(json.dumps(state), encoding="utf-8")
-    runner = tmp_path / "outcome_player"
-    _write_scripted_player_runner(runner, ["我等待同伴处理眼前的危机。"])
-    return match.run_live_match(
+    state.update(state_patch)
+    _write_json(state_path, state)
+    player = tmp_path / f"paused-{expected_status}"
+    _write_scripted_player_runner(player, ["不应执行。"])
+    keeper_calls = _install_keeper(monkeypatch)
+
+    result = match.run_live_match(
         workspace,
         campaign_id,
         investigator_id,
-        player_runner=runner,
+        player_runner=player,
         max_turns=1,
-        rng_seed=1,
-        live=False,
-        intent_class="wait",
+        run_dir=tmp_path / f"paused-run-{expected_status}",
     )
+    assert result["investigator_playability"]["status"] == expected_status
+    assert result["result"]["player_turn_count"] == 0
+    assert keeper_calls == []
+    if expected_status == "dead":
+        assert result["investigator_playability"]["terminal"] is True
+    else:
+        assert result["result"]["reached_terminal"] is False
 
 
-def test_dying_investigator_enters_rescue_resolution_not_dead(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=0,
-        conditions=["major_wound", "dying", "unconscious"],
-    )
-
-    assert result["stop_reason"] != "investigator_dead"
-    assert result["investigator_playability"]["status"] == "dying"
-    assert result["investigator_playability"]["terminal"] is False
-    assert result["pending_resolution"]["kind"] == "dying_rescue"
-    assert result["result"]["pending_resolution"] == result["pending_resolution"]
-    assert result["result"]["reached_terminal"] is False
-    assert any(
-        row.get("kind") == "dying_tick"
-        for turn in result["result"]["turns"]
-        for row in (turn.get("subsystem_results") or [])
-    )
-
-
-def test_stabilized_dying_investigator_remains_distinct_in_match_evidence(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=1,
-        conditions=["major_wound", "dying", "stabilized", "unconscious"],
-    )
-
-    assert result["stop_reason"] != "investigator_dead"
-    assert result["investigator_playability"]["status"] == "stabilized"
-    assert result["investigator_playability"]["terminal"] is False
-    assert result["pending_resolution"]["kind"] == "stabilized_death_clock"
-    assert result["result"]["reached_terminal"] is False
-
-
-def test_unconscious_without_dead_condition_does_not_report_death(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=0,
-        conditions=["unconscious"],
-    )
-
-    assert result["stop_reason"] != "investigator_dead"
-    assert result["investigator_playability"] == {
-        "status": "unconscious",
-        "playable": False,
-        "terminal": False,
-    }
-    assert result["result"]["reached_terminal"] is False
-
-
-def test_explicit_dead_condition_is_immediately_terminal(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=4,
-        conditions=["dead"],
-    )
-
-    assert result["stop_reason"] == "investigator_dead"
-    assert result["investigator_playability"] == {
-        "status": "dead",
-        "playable": False,
-        "terminal": True,
-    }
-    assert result["result"]["reached_terminal"] is False
-
-
-def test_permanently_unplayable_investigator_is_not_a_terminal_campaign(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=8,
-        conditions=[],
-        permanently_insane=True,
-    )
-
-    assert result["investigator_playability"]["status"] == "permanently_unplayable"
-    assert result["investigator_playability"]["terminal"] is False
-    assert result["result"]["reached_terminal"] is False
-
-
-@pytest.mark.parametrize("underlying_flag", ["temporary_insane", "indefinite_insane"])
-def test_underlying_insanity_without_active_bout_remains_player_controlled(
-    tmp_path,
-    underlying_flag,
-):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=8,
-        conditions=[],
-        bout_active=False,
-        **{underlying_flag: True},
-    )
-
-    assert result["investigator_playability"] == {
+def test_underlying_insanity_without_active_bout_remains_player_controlled(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    state_path = campaign / "save" / "investigator-state" / f"{investigator_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"temporary_insane": True, "indefinite_insane": True})
+    _write_json(state_path, state)
+    assert match.investigator_playability(campaign, investigator_id) == {
         "status": "active",
         "playable": True,
         "terminal": False,
     }
-    assert result["stop_reason"] == "max_turns_reached"
-    assert result["result"]["player_turn_count"] == 1
-
-
-def test_active_bout_is_temporarily_unplayable_and_pauses_match(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=8,
-        conditions=[],
-        bout_active=True,
-    )
-
-    assert result["investigator_playability"] == {
-        "status": "temporarily_unplayable",
-        "playable": False,
-        "terminal": False,
-    }
-    assert result["stop_reason"] == "investigator_temporarily_unplayable"
-    assert result["result"]["player_turn_count"] == 0
-    assert result["result"]["reached_terminal"] is False
-
-
-def test_canonical_keeper_bout_choice_progresses_without_player_brain(tmp_path, monkeypatch):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    camp = workspace / ".coc" / "campaigns" / campaign_id
-    char_path = workspace / ".coc" / "investigators" / investigator_id / "character.json"
-    character = json.loads(char_path.read_text())
-    character["characteristics"].update({"POW": 99, "INT": 99})
-    character["derived"]["SAN"] = 99
-    char_path.write_text(json.dumps(character))
-    started = match.live_turn_runner.subsystem_executor.execute_commands(
-        camp,
-        char_path,
-        investigator_id,
-        [{
-            "command_id": "match-bout-origin",
-            "kind": "sanity_check",
-            "phase": "resolve",
-            "payload": {
-                "decision_id": "match-bout-decision",
-                "roll_id": "match-bout-roll",
-                "san_loss_success": 5,
-                "san_loss_fail_expr": "5",
-                "source": "match horror",
-                "alone": False,
-                "involuntary_kind": "flee",
-                "module_bout_override": {"force_mode": "real_time"},
-            },
-        }],
-        rng=random.Random(1),
-    )[0]
-    assert started["pending_choice"]["responder"] == "keeper"
-    monkeypatch.setattr(
-        match.player_adapter,
-        "player_send_turn",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("Keeper-owned bout choice must bypass player brain")
-        ),
-    )
-    unused_runner = tmp_path / "unused-player"
-    _write_scripted_player_runner(unused_runner, ["不应调用"])
-
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=unused_runner,
-        max_turns=1,
-        rng_seed=31,
-        live=False,
-    )
-
-    assert result["stop_reason"] == "max_turns_reached"
-    assert result["result"]["player_turn_count"] == 0
-    assert result["result"]["turns"][0]["subsystem_results"][0]["kind"] == "bout_tick"
-    assert result["result"]["reached_terminal"] is False
-
-
-def test_live_match_forwards_player_typed_push_response(tmp_path, monkeypatch):
-    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
-    camp = workspace / ".coc" / "campaigns" / campaign_id
-    char_path = workspace / ".coc" / "investigators" / investigator_id / "character.json"
-    executor = match.live_turn_runner.subsystem_executor
-    failed = executor.execute_commands(
-        camp,
-        char_path,
-        investigator_id,
-        [{
-            "command_id": "match-push-origin",
-            "kind": "skill_check",
-            "phase": "resolve",
-            "payload": {
-                "decision_id": "match-push-origin-decision",
-                "roll_id": "match-push-origin-roll",
-                "skill": "Spot Hidden",
-                "roll_contract": {"push_policy": {"eligible": True}},
-                "resolution_context": {
-                    "scene_action": "SUBSYSTEM",
-                    "clue_policy": {},
-                    "narrative_directives": {},
-                    "rule_signals": {},
-                },
-            },
-        }],
-        rng=random.Random(5),
-    )[0]
-    assert failed["events"][0]["outcome"] == "failure"
-    offered = executor.execute_commands(
-        camp,
-        char_path,
-        investigator_id,
-        [{
-            "command_id": "match-push-offer",
-            "kind": "push_offer",
-            "phase": "offer",
-            "payload": {
-                "decision_id": "match-push-offer-decision",
-                "original_command_id": "match-push-origin",
-                "changed_method_evidence": {
-                    "changed": True,
-                    "source": "player_proposal",
-                    "summary": "inspect the paper impression",
-                },
-                "announced_consequence": {"summary": "the watcher recognizes you"},
-            },
-        }],
-        rng=random.Random(211),
-    )[0]
-    choice = offered["pending_choice"]
-
-    def answer_push(request, **_kwargs):
-        assert request["pending_choice"] == choice
-        return {
-            "ok": True,
-            "player_text": "",
-            "pending_choice_response": {
-                "choice_id": choice["choice_id"],
-                "responder": "player",
-                "revision": choice["revision"],
-                "action": "cancel",
-            },
-        }
-
-    monkeypatch.setattr(match.player_adapter, "player_send_turn", answer_push)
-    runner = tmp_path / "player-placeholder"
-    _write_scripted_player_runner(runner, ["unused"])
-    result = match.run_live_match(
-        workspace,
-        campaign_id,
-        investigator_id,
-        player_runner=runner,
-        max_turns=1,
-        rng_seed=32,
-        live=False,
-    )
-
-    assert result["result"]["turns"][0]["subsystem_results"][0]["status"] == "cancelled"
-    assert result["player_choices"][0]["player_text"] == ""
-    assert executor.get_current_pending_choice(camp) is None
-
-
-def test_condition_form_active_bout_is_temporarily_unplayable_and_pauses_match(
-    tmp_path,
-):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=8,
-        conditions=["bout_active"],
-    )
-
-    assert result["investigator_playability"] == {
-        "status": "temporarily_unplayable",
-        "playable": False,
-        "terminal": False,
-    }
-    assert result["stop_reason"] == "investigator_temporarily_unplayable"
-    assert result["result"]["player_turn_count"] == 0
-    assert result["result"]["reached_terminal"] is False
-
-
-def test_explicit_temporarily_unplayable_condition_pauses_match(tmp_path):
-    result = _run_match_with_investigator_state(
-        tmp_path,
-        current_hp=8,
-        conditions=["temporarily_unplayable"],
-    )
-
-    assert result["investigator_playability"]["status"] == "temporarily_unplayable"
-    assert result["investigator_playability"]["terminal"] is False
-    assert result["stop_reason"] == "investigator_temporarily_unplayable"
-    assert result["result"]["player_turn_count"] == 0

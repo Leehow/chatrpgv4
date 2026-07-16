@@ -6,7 +6,7 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-player-adapter@0.79.9",
       "path": "runtime/adapters/player/run_player_turn.mjs",
-      "sha256": "43421517360e3229b886558ba81bb6c04563762a183b0c92bfc341e40d383a96",
+      "sha256": "ed11b8e798e07860297e6a65913aed0c34c89ef10c1f5ab730783769d0d0ea5e",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"
@@ -15,13 +15,20 @@
     "narrator": {
       "role": "narrator",
       "kind": "external_model_bridge",
-      "identity": "coc-runtime-narrator-adapter@0.79.9",
-      "path": "runtime/adapters/narrator/run_narration.mjs",
-      "sha256": "2e855c0ad29e4e035f97d278d5d560a853eb53246d378527f407082d8ae22f47",
+      "identity": "coc-runtime-keeper-agent@0.79.9",
+      "path": "runtime/adapters/keeper/run_keeper_turn.mjs",
+      "sha256": "ddd8eb5c0d5ebb45722e9e8637878e3f9ed020a8f2d5b293d1d830685cba6b6c",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"
       }
+    },
+    "action_resolver": {
+      "role": "action_resolver",
+      "kind": "external_model_bridge",
+      "identity": "coc-runtime-action-resolver@1",
+      "path": "runtime/adapters/compiler/run_action_resolve.mjs",
+      "sha256": "b3008fbc293c69f707351a727f87d3d5205500a2eb4e21dbf82d1c368f512e50"
     },
     "interactive_driver": {
       "role": "interactive_driver",

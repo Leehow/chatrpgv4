@@ -7,9 +7,26 @@ scenes, threat clocks, bonus rolls, NPC engagements). No free-text scanning.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_event_contract = _load_sibling(
+    "coc_event_contract_adherence", "coc_event_contract.py"
+)
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -268,6 +285,27 @@ def _iter_play_events(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return events
 
 
+def project_engaged_npc_ids(events: list[dict[str, Any]]) -> set[str]:
+    """Project NPC engagement IDs from canonical structured events.
+
+    Live-match logs are intentionally not copied wholesale into the public
+    session result because they may contain keeper-only state.  This narrow
+    projection lets the adherence consumer receive the semantic IDs it needs
+    without losing the producer events or leaking their remaining payload.
+    """
+    found: set[str] = set()
+    for event in events:
+        if not isinstance(event, dict) or not any(
+            coc_event_contract.matches(event, event_type)
+            for event_type in _NPC_ENGAGEMENT_EVENT_TYPES
+        ):
+            continue
+        npc_id = _text(coc_event_contract.value(event, "npc_id"))
+        if npc_id:
+            found.add(npc_id)
+    return found
+
+
 def _bonus_clue_id_from_request(request: dict[str, Any]) -> str | None:
     if request.get("clue_bonus"):
         return _text(request.get("clue_id"))
@@ -355,13 +393,7 @@ def _harvest_engaged_npc_ids(raw: dict[str, Any], final_state: dict[str, Any]) -
             if npc_id:
                 found.add(npc_id)
 
-    for event in _iter_play_events(raw):
-        etype = str(event.get("event_type") or "").strip()
-        if etype not in _NPC_ENGAGEMENT_EVENT_TYPES:
-            continue
-        npc_id = _text(event.get("npc_id"))
-        if npc_id:
-            found.add(npc_id)
+    found.update(project_engaged_npc_ids(_iter_play_events(raw)))
 
     return found
 

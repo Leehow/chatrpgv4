@@ -75,17 +75,22 @@ a valid model identity also fails closed.
 
 ```json
 {
-  "public_state": { "...": "from runtime.engine.public_state.build_public_state" },
   "narration": "player-visible text from the last turn",
   "character_card": { "...": "investigator's own sheet" },
   "transcript_tail": [{ "role": "keeper|player", "text": "..." }],
-  "pending_choice": null
+  "pending_choice": null,
+  "play_language": "zh-Hans"
 }
 ```
 
-The Node bridge renders this envelope into the model prompt (narration verbatim;
-character card summarized; `pending_choice` surfaced as an explicit question).
-It does not add fields to the request.
+The Python harness first projects `character_card` through a strict player-owned
+allowlist. The Node bridge then renders the complete bounded view: every skill
+on the card, current HP/SAN/MP, characteristics and other derived values,
+weapons, equipment, and player backstory/traits. Arbitrary sheet notes and
+scenario provenance are omitted. `pending_choice` is surfaced as an explicit
+question. The AI player never receives PublicState, scene/clue/route IDs,
+expected outcomes, NPC agendas, or Keeper-only scenario files.
+PublicState remains a frontend rendering API, not a player cognition channel.
 
 **Response:**
 

@@ -3,8 +3,8 @@
  * Constrained Pi Coding Agent bridge for one COC investigator (player) turn.
  *
  * stdin:  player-safe JSON request
- *   {public_state, narration, character_card, transcript_tail, pending_choice}
- * stdout: { ok: true, player_text, intent_class?, player_notes? }
+ *   {narration, character_card, transcript_tail, pending_choice, play_language}
+ * stdout: { ok: true, player_text, intent_class?, player_intent_rich?, player_notes? }
  *      or { ok: false, error: "..." }
  *
  * V1 is stateless per process; match continuity lives in coc_live_match.py.
@@ -83,10 +83,16 @@ export function resolveRequestedModel({ agentDir, provider, modelId }) {
 
 const SYSTEM_PROMPT =
   "You are a Call of Cthulhu INVESTIGATOR player at a virtual table. " +
-  "Stay in character. Act only on what the narration and public state show. " +
+  "Stay in character. Act only on the Keeper narration and your own remembered " +
+  "actions in the supplied transcript. The character card is your own sheet; no " +
+  "scenario graph, Keeper state, clue registry, or director data is available. " +
   "Take exactly one concrete action or line of dialogue per turn. " +
   "Never ask for keeper secrets, director plans, or hidden clue graphs. " +
   "Never do rules math, dice rolls, or skill arithmetic yourself. " +
+  "Describe the meaning of your own action as structured player_intent_rich. " +
+  "Each action_atom must say whether uncertainty calls for a roll; when it " +
+  "does, name the candidate skill but never invent the target value, dice, " +
+  "difficulty, outcome, damage, or hidden facts. " +
   "Prefer calling the coc_player_action tool once with your in-character " +
   "player_text (in the campaign play_language). Optional intent_class and " +
   "player_notes (out-of-character reasoning) may be included. When a player " +
@@ -126,51 +132,44 @@ function summarizeCharacterCard(card) {
   if (name) lines.push(`Name/id: ${name}`);
   if (card.occupation) lines.push(`Occupation: ${card.occupation}`);
   if (card.age != null) lines.push(`Age: ${card.age}`);
-  const attrs = [];
-  for (const key of ["current_hp", "hp", "current_san", "san", "current_mp", "mp"]) {
-    if (card[key] != null) attrs.push(`${key}=${card[key]}`);
+  const current = card.current_status;
+  if (current && typeof current === "object") {
+    const attrs = ["HP", "SAN", "MP", "LUCK"]
+      .filter((key) => current[key] != null)
+      .map((key) => `${key}=${current[key]}`);
+    if (attrs.length) lines.push(`Current status: ${attrs.join(", ")}`);
+    if (Array.isArray(current.conditions) && current.conditions.length) {
+      lines.push(`Conditions: ${current.conditions.join(", ")}`);
+    }
   }
-  if (attrs.length) lines.push(`Status: ${attrs.join(", ")}`);
+  const derived = card.derived;
+  if (derived && typeof derived === "object") {
+    const attrs = ["HP", "SAN", "MP", "MOV", "DB", "BUILD"]
+      .filter((key) => derived[key] != null)
+      .map((key) => `${key}=${derived[key]}`);
+    if (attrs.length) lines.push(`Derived: ${attrs.join(", ")}`);
+  }
+  const characteristics = card.characteristics;
+  if (characteristics && typeof characteristics === "object") {
+    const entries = Object.entries(characteristics).map(([k, v]) => `${k}:${v}`);
+    if (entries.length) lines.push(`Characteristics: ${entries.join(", ")}`);
+  }
   const skills = card.skills;
   if (skills && typeof skills === "object") {
     const entries = Object.entries(skills)
-      .slice(0, 12)
       .map(([k, v]) => `${k}:${v}`);
-    if (entries.length) lines.push(`Skills (sample): ${entries.join(", ")}`);
+    if (entries.length) lines.push(`Skills (complete): ${entries.join(", ")}`);
   }
-  return lines.length ? lines.join("\n") : JSON.stringify(card).slice(0, 800);
-}
-
-function summarizePublicState(ps) {
-  if (!ps || typeof ps !== "object") {
-    return "(no public state)";
+  if (Array.isArray(card.weapons) && card.weapons.length) {
+    lines.push(`Weapons: ${JSON.stringify(card.weapons)}`);
   }
-  const lines = [
-    `campaign_id: ${ps.campaign_id ?? "?"}`,
-    `play_language: ${ps.play_language ?? "zh-Hans"}`,
-    `active_scene_id: ${ps.active_scene_id ?? "?"}`,
-    `turn_number: ${ps.turn_number ?? "?"}`,
-    `tension_level: ${ps.tension_level ?? "?"}`,
-  ];
-  const clues = Array.isArray(ps.discovered_clue_ids)
-    ? ps.discovered_clue_ids
-    : [];
-  lines.push(
-    `discovered_clue_ids: ${clues.length ? clues.join(", ") : "(none)"}`,
-  );
-  const invs = Array.isArray(ps.investigators) ? ps.investigators : [];
-  if (invs.length) {
-    for (const inv of invs) {
-      if (!inv || typeof inv !== "object") continue;
-      const cond = Array.isArray(inv.conditions)
-        ? inv.conditions.join("|")
-        : "";
-      lines.push(
-        `investigator ${inv.id}: HP=${inv.current_hp ?? "?"} SAN=${inv.current_san ?? "?"} MP=${inv.current_mp ?? "?"}${cond ? ` conditions=${cond}` : ""}`,
-      );
-    }
+  if (Array.isArray(card.equipment) && card.equipment.length) {
+    lines.push(`Equipment: ${JSON.stringify(card.equipment)}`);
   }
-  return lines.join("\n");
+  if (card.backstory && typeof card.backstory === "object") {
+    lines.push(`Backstory and traits: ${JSON.stringify(card.backstory)}`);
+  }
+  return lines.length ? lines.join("\n") : "(empty player-owned character view)";
 }
 
 function formatTranscript(tail) {
@@ -228,13 +227,8 @@ function formatPendingChoice(pending) {
 }
 
 export function buildPromptText(request) {
-  const playLanguage =
-    (request.public_state && request.public_state.play_language) || "zh-Hans";
-  const pendingText = formatPendingChoice(
-    request.pending_choice !== undefined
-      ? request.pending_choice
-      : request.public_state && request.public_state.pending_choice,
-  );
+  const playLanguage = request.play_language || "zh-Hans";
+  const pendingText = formatPendingChoice(request.pending_choice);
 
   const sections = [`Play language for player_text: ${playLanguage}`];
 
@@ -253,10 +247,7 @@ export function buildPromptText(request) {
     "## Narration (verbatim)",
     String(request.narration ?? ""),
     "",
-    "## Public state",
-    summarizePublicState(request.public_state),
-    "",
-    "## Your character card (summary)",
+    "## Your complete player-owned character view",
     summarizeCharacterCard(request.character_card),
     "",
     "## Recent transcript",
@@ -327,6 +318,35 @@ function buildPlayerActionTool(holder) {
         "Optional canonical intent class (structured semantic evidence).",
     },
   );
+  const riskPostureUnion = Type.Union(
+    ["cautious", "neutral", "reckless"].map((v) => Type.Literal(v)),
+  );
+  const actionAtom = Type.Object({
+    id: Type.String({
+      description: "Stable short id unique within this turn, such as inspect-door.",
+    }),
+    verb: Type.String({ description: "What the investigator concretely does." }),
+    target: Type.Optional(Type.String({
+      description: "Publicly known person, object, place, or goal being acted on.",
+    })),
+    topic: Type.Optional(Type.String({
+      description: "Public subject or focus of the action, if useful.",
+    })),
+    requires_roll: Type.Boolean({
+      description:
+        "True only when this action has meaningful uncertainty and consequences; false for ordinary unopposed action or dialogue.",
+    }),
+    skill: Type.Optional(Type.String({
+      description:
+        "Candidate character-sheet skill or characteristic only when requires_roll is true; never include its numeric value.",
+    })),
+    reason: Type.Optional(Type.String({
+      description: "Short semantic reason the uncertainty is being resolved.",
+    })),
+    stakes: Type.Optional(Type.String({
+      description: "Player-visible risk or cost of failure, without inventing hidden facts.",
+    })),
+  });
 
   return defineTool({
     name: "coc_player_action",
@@ -339,6 +359,10 @@ function buildPlayerActionTool(holder) {
       "Always call coc_player_action exactly once.",
       "player_text must be in-character action or dialogue only.",
       "Do not invent dice rolls, skill values, or rule math.",
+      "Always include player_intent_rich with at least one action_atom.",
+      "Use requires_roll=false for ordinary action or dialogue with no meaningful uncertainty.",
+      "Use requires_roll=true plus a candidate skill only when uncertainty and consequences justify a check.",
+      "Never invent target numbers, difficulty, outcomes, damage, or hidden scene facts.",
       "Do not ask for keeper secrets.",
       "After coc_player_action returns, stop.",
     ],
@@ -348,6 +372,17 @@ function buildPlayerActionTool(holder) {
           "In-character action or dialogue; optional only when answering the canonical pending choice.",
       })),
       intent_class: Type.Optional(intentUnion),
+      player_intent_rich: Type.Optional(
+        Type.Object({
+          primary_intent: intentUnion,
+          secondary_intents: Type.Array(Type.String()),
+          target_entities: Type.Array(Type.String()),
+          risk_posture: riskPostureUnion,
+          explicit_roll_request: Type.Boolean(),
+          player_hypothesis: Type.Optional(Type.String()),
+          action_atoms: Type.Array(actionAtom, { minItems: 1, maxItems: 3 }),
+        }),
+      ),
       player_notes: Type.Optional(
         Type.String({
           description:
@@ -386,6 +421,14 @@ function buildPlayerActionTool(holder) {
       const result = { ok: true, player_text: playerText };
       const intent = normalizeIntentClass(params.intent_class);
       if (intent) result.intent_class = intent;
+      if (params.player_intent_rich) {
+        result.player_intent_rich = params.player_intent_rich;
+        // Both fields are emitted by the same semantic submission. Keep the
+        // richer record authoritative and make the wire contract internally
+        // consistent before Python parses it; a model enum slip must not abort
+        // an otherwise usable live match.
+        result.intent_class = params.player_intent_rich.primary_intent;
+      }
       if (
         typeof params.player_notes === "string" &&
         params.player_notes.trim()
@@ -441,11 +484,11 @@ function buildPlayerActionTool(holder) {
 
 export async function runPlayerTurn(request, serverState = null) {
   const required = [
-    "public_state",
     "narration",
     "character_card",
     "transcript_tail",
     "pending_choice",
+    "play_language",
   ];
   for (const key of required) {
     if (!(key in request)) {
@@ -484,10 +527,7 @@ export async function runPlayerTurn(request, serverState = null) {
     }
   }
 
-  const pendingChoice =
-    request.pending_choice !== undefined
-      ? request.pending_choice
-      : request.public_state && request.public_state.pending_choice;
+  const pendingChoice = request.pending_choice;
   if (pendingChoice && pendingChoice.responder === "keeper") {
     throw new Error("Keeper pending choices must not be sent to the player brain");
   }

@@ -23,6 +23,9 @@ def _load(name: str, rel: str):
 coc_chapter_switch = _load("coc_chapter_switch", str(SCRIPTS / "coc_chapter_switch.py"))
 coc_module_registry = _load("coc_module_registry", str(SCRIPTS / "coc_module_registry.py"))
 coc_state = _load("coc_state", str(SCRIPTS / "coc_state.py"))
+coc_live_turn_runner = _load(
+    "coc_live_turn_runner_chapter_test", str(SCRIPTS / "coc_live_turn_runner.py")
+)
 
 
 def _write_chapter_package(
@@ -241,6 +244,44 @@ def test_switch_requires_structured_terminal_evidence(tmp_path: Path):
                 "session_ending": False,
             },
         )
+
+
+def test_live_runtime_auto_handoff_uses_authored_target_and_terminal_graph(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    peru = _write_chapter_package(
+        tmp_path, chapter="peru",
+        module_id="masks-of-nyarlathotep-ch-peru",
+        scene_id="lima-dock", clue_prefix="peru", npc_id="npc-peru-guide",
+    )
+    america = _write_chapter_package(
+        tmp_path, chapter="america",
+        module_id="masks-of-nyarlathotep-ch-america",
+        scene_id="ny-harbor", clue_prefix="america", npc_id="npc-america-contact",
+    )
+    meta_path = peru / "module-meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["chapter_handoff"] = {
+        "mode": "auto_on_terminal",
+        "target_module_id": "masks-of-nyarlathotep-ch-america",
+    }
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    _register(root, peru, "masks-of-nyarlathotep-ch-peru", "peru", "masks-of-nyarlathotep")
+    _register(root, america, "masks-of-nyarlathotep-ch-america", "america", "masks-of-nyarlathotep")
+    campaign = _seed_campaign(root, "camp-auto", "masks-of-nyarlathotep-ch-peru")
+    world_path = campaign / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "lima-dock-end"
+    world_path.write_text(json.dumps(world), encoding="utf-8")
+
+    # reached_terminal requires a structured session_ending event; graph leaf alone is NOT_RUN.
+    transition = coc_live_turn_runner._automatic_chapter_handoff(
+        campaign, {"turns": [{"event_types": ["session_ending"]}]}
+    )
+
+    assert transition["status"] == "PASS"
+    assert transition["target_module_id"] == "masks-of-nyarlathotep-ch-america"
+    assert transition["entry_scene_id"] == "ny-harbor"
 
 
 def test_switch_rejects_mismatched_parent(tmp_path: Path):

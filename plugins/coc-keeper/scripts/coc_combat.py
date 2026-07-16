@@ -262,7 +262,7 @@ class CombatSession:
     def add_participant(self, actor_id: str, side: str, dex: int, combat_skill: int,
                         build: int, hp_max: int, magic_points: int = 0,
                         armor: int = 0, armor_rule: str | None = None,
-                        weapons: list[dict] | None = None,
+                        weapons: list[dict[str, Any] | str] | None = None,
                         conditions: list[str] | None = None,
                         dodge_skill: int | None = None,
                         firearms_skill: int | None = None,
@@ -684,8 +684,11 @@ class CombatSession:
 
         This is primarily useful to component tests and embedding hosts that
         persist their own append-only evidence ledger.  Reload never derives
-        these rows from ``combat.json`` itself.
+        these rows from ``combat.json`` itself. ``command_actor_id`` is kept
+        for source compatibility, but canonical evidence attributes the roll
+        to the actor that actually caused the damage.
         """
+        _ = command_actor_id
         turns = {
             turn["turn_id"]: turn
             for round_row in self.rounds
@@ -703,13 +706,21 @@ class CombatSession:
             receipt = self._external_damage_receipt(turn=turn, damage=damage)
             if not isinstance(receipt["command_id"], str) or not receipt["command_id"]:
                 raise ValueError("combat damage lacks a resolution command ID")
+            visibility = "consequence_public"
+            source_ref = f"combat:{self.combat_id}#{roll_id}"
             rows.append({
+                "event_type": "roll",
                 "type": "roll",
-                "actor": command_actor_id,
+                "roll_id": roll_id,
+                "actor": damage["source_actor_id"],
+                "visibility": visibility,
+                "source": "combat_session",
+                "source_ref": source_ref,
                 "command_id": receipt["command_id"],
                 "payload": {
                     "event_type": "combat_roll",
                     "roll_id": roll_id,
+                    "visibility": visibility,
                     "actor_id": damage["source_actor_id"],
                     "skill": "HP Damage",
                     "source_command_id": receipt["command_id"],
@@ -808,6 +819,7 @@ class CombatSession:
             "skill": skill,
             "goal": goal,
             "target": target,
+            "effective_target": res["effective_target"],
             "roll": res["roll"],
             "outcome": res["outcome"],
             "difficulty": difficulty,
@@ -818,6 +830,134 @@ class CombatSession:
         }
         self.pending_rolls.append(record)
         return res["outcome"], record
+
+    def _apply_luck_to_roll(
+        self,
+        record: dict[str, Any],
+        *,
+        points: int,
+        current_luck: int,
+    ) -> tuple[str, dict[str, Any]]:
+        """Apply a pre-authorized Luck spend without rewriting the raw die."""
+        original_roll = int(record["roll"])
+        adjusted = coc_roll.spend_luck(
+            {
+                "roll": original_roll,
+                "outcome": record["outcome"],
+                "target": record["target"],
+                "effective_target": record.get(
+                    "effective_target", record["target"]
+                ),
+            },
+            points,
+            current_luck,
+            roll_kind="skill",
+        )
+        record["original_roll"] = original_roll
+        record["adjusted_roll"] = int(adjusted["roll"])
+        record["luck_spent"] = int(adjusted["luck_spent"])
+        record["luck_remaining"] = int(adjusted["luck_remaining"])
+        record["outcome"] = str(adjusted["outcome"])
+        record["improvement_tick_eligible"] = False
+        record["rule_ref"] = "core.optional.spending_luck"
+        record["marker"] = (
+            f"[roll]{record['actor_id']} {record['skill']}{record['target']}:"
+            f"(d100->{original_roll}; Luck-{points}->{record['adjusted_roll']})"
+            f"->{record['outcome']}[/roll]"
+        )
+        event = {
+            "event_type": "combat_luck_spent",
+            "actor_id": record["actor_id"],
+            "source_roll_id": record["roll_id"],
+            "original_roll": original_roll,
+            "adjusted_roll": record["adjusted_roll"],
+            "luck_spent": points,
+            "luck_before": current_luck,
+            "luck_after": adjusted["luck_remaining"],
+            "outcome": record["outcome"],
+            "rule_ref": "core.optional.spending_luck",
+        }
+        self.pending_events.append(event)
+        return record["outcome"], event
+
+    def _apply_opposed_luck_precommit(
+        self,
+        *,
+        attacker_id: str,
+        defender_id: str,
+        attack_outcome: str,
+        attack_record: dict[str, Any],
+        defense_outcome: str,
+        defense_record: dict[str, Any],
+        opposed_kind: str,
+        luck_precommit: dict[str, Any] | None,
+    ) -> tuple[str, str, str, dict[str, Any] | None]:
+        """Spend the minimum authorized Luck that changes the opposed result.
+
+        Luck is never spent speculatively when the investigator already has a
+        favorable result or when the authorized cap cannot change the outcome.
+        """
+        opposed = self._resolve_opposed(
+            attack_outcome, defense_outcome, opposed_kind
+        )
+        if not isinstance(luck_precommit, dict):
+            return attack_outcome, defense_outcome, opposed, None
+        luck_actor = luck_precommit.get("actor_id")
+        if luck_actor == attacker_id:
+            record = attack_record
+            actor_is_attacker = True
+        elif luck_actor == defender_id:
+            record = defense_record
+            actor_is_attacker = False
+        else:
+            return attack_outcome, defense_outcome, opposed, None
+
+        attacker_wins = {"attacker_higher", "tie_attacker_wins"}
+        currently_favorable = (
+            opposed in attacker_wins
+            if actor_is_attacker
+            else opposed not in attacker_wins
+        )
+        if currently_favorable or record.get("outcome") in {"critical", "fumble"}:
+            return attack_outcome, defense_outcome, opposed, None
+
+        current_luck = int(luck_precommit.get("current_luck", 0))
+        cap = min(int(luck_precommit.get("max_points", 0)), current_luck)
+        original_roll = int(record["roll"])
+        max_points = min(cap, original_roll - 2)
+        effective_target = int(
+            record.get("effective_target", record.get("target", 0))
+        )
+        chosen: tuple[int, str, str] | None = None
+        for points in range(1, max_points + 1):
+            candidate = coc_rules.success_level(
+                original_roll - points, effective_target
+            )
+            candidate_attack = candidate if actor_is_attacker else attack_outcome
+            candidate_defense = candidate if not actor_is_attacker else defense_outcome
+            candidate_opposed = self._resolve_opposed(
+                candidate_attack, candidate_defense, opposed_kind
+            )
+            favorable = (
+                candidate_opposed in attacker_wins
+                if actor_is_attacker
+                else candidate_opposed not in attacker_wins
+            )
+            if favorable:
+                chosen = (points, candidate, candidate_opposed)
+                break
+        if chosen is None:
+            return attack_outcome, defense_outcome, opposed, None
+
+        points, _candidate, chosen_opposed = chosen
+        adjusted_outcome, event = self._apply_luck_to_roll(
+            record, points=points, current_luck=current_luck
+        )
+        if actor_is_attacker:
+            attack_outcome = adjusted_outcome
+        else:
+            defense_outcome = adjusted_outcome
+        return attack_outcome, defense_outcome, chosen_opposed, event
 
     def _weapon_db_expr(self, attacker: dict, weapon: dict,
                         half: bool | None = None) -> str | None:
@@ -1183,6 +1323,7 @@ class CombatSession:
                                  suppress_targets: list[str] | None = None,
                                  dive_for_cover_actors: list[str] | None = None,
                                  defender_goal: str | None = None,
+                                 luck_precommit: dict[str, Any] | None = None,
                                  resolution_command_id: str | None = None) -> dict[str, Any]:
         """Resolve one combatant's turn per the rulebook's semantic model.
 
@@ -1271,7 +1412,8 @@ class CombatSession:
                                      load_and_fire=load_and_fire,
                                      suppress_targets=suppress_targets,
                                      dive_for_cover_actors=dive_for_cover_actors,
-                                     defender_goal=defender_goal)
+                                     defender_goal=defender_goal,
+                                     luck_precommit=luck_precommit)
             elif resolution_hint == "surprise_attack":
                 self._resolve_surprise_attack(turn, actor_id, target_actor_id, weapon_id)
             elif resolution_hint == "maneuver":
@@ -1405,7 +1547,8 @@ class CombatSession:
                         cover=False, fast_moving=False, outnumbered_penalty=False,
                         shots=None, fire_mode=None, rounds_fired=None,
                         load_and_fire=False, suppress_targets=None,
-                        dive_for_cover_actors=None, defender_goal=None):
+                        dive_for_cover_actors=None, defender_goal=None,
+                        luck_precommit=None):
         """Resolve one attack turn per Chapter 6 (+ W3-2 firearms depth).
 
         Firearms attacks (skill starts with 'Firearms') are unopposed — the
@@ -1604,7 +1747,18 @@ class CombatSession:
                                                f"dodge vs {actor_id}")
             opp_kind = "dodge"
         turn["opposed_roll_id"] = def_rec["roll_id"]
-        opp = self._resolve_opposed(atk_oc, def_oc, opp_kind)
+        atk_oc, def_oc, opp, luck_event = self._apply_opposed_luck_precommit(
+            attacker_id=actor_id,
+            defender_id=target_id,
+            attack_outcome=atk_oc,
+            attack_record=atk_rec,
+            defense_outcome=def_oc,
+            defense_record=def_rec,
+            opposed_kind=opp_kind,
+            luck_precommit=luck_precommit,
+        )
+        if luck_event is not None:
+            turn["luck_spend"] = dict(luck_event)
         turn["opposed_outcome"] = opp
         if opp in ("attacker_higher", "tie_attacker_wins"):
             turn["outcome"] = "hit"
@@ -2378,13 +2532,19 @@ class CombatSession:
         expected_command_actor: str | None,
     ) -> None:
         """Cross-check every damage transition against append-only roll rows."""
+        # Retained for call-site compatibility. A request's focused
+        # investigator is not necessarily the actor that dealt the damage.
+        _ = expected_command_actor
         if not isinstance(evidence, list):
             raise ValueError("combat external damage evidence is required")
         evidence_by_roll: dict[str, list[dict[str, Any]]] = {}
+        legacy_keys = {"type", "actor", "command_id", "payload", "ts"}
+        canonical_keys = legacy_keys | {
+            "event_type", "roll_id", "visibility", "source", "source_ref",
+        }
         for row in evidence:
-            if not isinstance(row, dict) or set(row) != {
-                "type", "actor", "command_id", "payload", "ts",
-            }:
+            row_keys = frozenset(row) if isinstance(row, dict) else frozenset()
+            if row_keys not in {frozenset(legacy_keys), frozenset(canonical_keys)}:
                 raise ValueError("combat external damage evidence contract is invalid")
             payload = row.get("payload")
             receipt = (
@@ -2395,6 +2555,21 @@ class CombatSession:
                 continue
             roll_id = receipt.get("roll_id")
             if isinstance(roll_id, str):
+                if row_keys == frozenset(canonical_keys) and (
+                    row.get("event_type") != "roll"
+                    or row.get("roll_id") != roll_id
+                    or row.get("visibility") != payload.get("visibility")
+                    or row.get("visibility") not in {
+                        "public", "consequence_public", "keeper_only",
+                    }
+                    or not isinstance(row.get("source"), str)
+                    or not row["source"]
+                    or not isinstance(row.get("source_ref"), str)
+                    or not row["source_ref"]
+                ):
+                    raise ValueError(
+                        "combat external damage evidence contract is invalid"
+                    )
                 evidence_by_roll.setdefault(roll_id, []).append(row)
         damage_by_roll = {
             damage["damage_roll_id"]: damage
@@ -2420,12 +2595,7 @@ class CombatSession:
                 not isinstance(command_id, str)
                 or not command_id
                 or row.get("type") != "roll"
-                or not isinstance(row.get("actor"), str)
-                or not row["actor"]
-                or (
-                    expected_command_actor is not None
-                    and row.get("actor") != expected_command_actor
-                )
+                or row.get("actor") != damage["source_actor_id"]
                 or row.get("command_id") != command_id
                 or not isinstance(row.get("ts"), str)
                 or not row["ts"]
@@ -2564,7 +2734,9 @@ class CombatSession:
             if participant.get("armor_rule") not in VALID_ARMOR_RULES:
                 raise ValueError("combat participant armor rule is invalid")
             if not isinstance(participant.get("weapons"), list) or not all(
-                isinstance(weapon, dict) for weapon in participant["weapons"]
+                isinstance(weapon, dict)
+                or (isinstance(weapon, str) and bool(weapon.strip()))
+                for weapon in participant["weapons"]
             ):
                 raise ValueError("combat participant weapons are invalid")
             if not isinstance(participant.get("active_effects"), list):
@@ -2645,7 +2817,7 @@ class CombatSession:
             "suppression_targets", "dive_rolls", "maneuver_build_difference",
             "maneuver_penalty_dice", "ammo_loaded", "ammo_after",
             "reload_rounds_remaining",
-            "resolution_command_id",
+            "resolution_command_id", "luck_spend",
         }
         turns_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
         bindings_by_damage_roll: dict[str, tuple[int, dict[str, Any], dict[str, Any]]] = {}
@@ -3062,11 +3234,35 @@ class CombatSession:
             raise ValueError("concluded combat state is incoherent")
         if session.pending_attack is not None:
             pending = session.pending_attack
-            expected_pending_keys = {
+            legacy_pending_keys = {
                 "attack_command_id", "actor_id", "target_actor_id",
                 "declared_intent", "resolution_hint", "weapon_id",
                 "allowed_defenses",
             }
+            extended_pending_keys = legacy_pending_keys | {
+                "rulebook_exception", "on_success",
+                "victory_outcome", "defeat_outcome",
+            }
+            original_pending_keys = set(pending)
+            for key in extended_pending_keys - legacy_pending_keys:
+                pending.setdefault(key, None)
+            on_success = pending.get("on_success")
+            on_success_valid = on_success is None or (
+                isinstance(on_success, dict)
+                and set(on_success) == {"kind", "outcome", "rule_ref"}
+                and on_success.get("kind") == "destroy_target"
+                and on_success.get("outcome") in VALID_OUTCOMES - {None}
+                and isinstance(on_success.get("rule_ref"), str)
+                and bool(on_success["rule_ref"].strip())
+            )
+            authored_outcomes_valid = all(
+                pending.get(field) is None
+                or (
+                    isinstance(pending.get(field), str)
+                    and pending.get(field) in VALID_OUTCOMES - {None}
+                )
+                for field in ("victory_outcome", "defeat_outcome")
+            )
             hint = pending.get("resolution_hint")
             expected_defenses = (
                 ["dive_for_cover", "none"]
@@ -3076,7 +3272,10 @@ class CombatSession:
                 else None
             )
             if (
-                set(pending) != expected_pending_keys
+                (
+                    original_pending_keys != legacy_pending_keys
+                    and original_pending_keys != extended_pending_keys
+                )
                 or not isinstance(pending.get("attack_command_id"), str)
                 or not pending["attack_command_id"]
                 or pending.get("actor_id") not in session.participants
@@ -3085,6 +3284,12 @@ class CombatSession:
                 or not isinstance(pending.get("declared_intent"), str)
                 or not pending["declared_intent"].strip()
                 or pending.get("allowed_defenses") != expected_defenses
+                or (
+                    pending.get("rulebook_exception") is not None
+                    and not isinstance(pending.get("rulebook_exception"), str)
+                )
+                or not on_success_valid
+                or not authored_outcomes_valid
             ):
                 raise ValueError("combat pending attack contract is invalid")
             if (

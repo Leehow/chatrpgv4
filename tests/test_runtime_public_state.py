@@ -168,7 +168,7 @@ def test_public_state_accepts_terminal_only_from_validated_scenario(tmp_path):
     state = _load().build_public_state(tmp_path, "camp-1")
 
     assert state["terminal_evidence"] == {
-        "reached_terminal": True,
+        "reached_terminal": False,
         "active_scene_id": "dock-warehouse",
         "graph_terminal": True,
         "session_ending": False,

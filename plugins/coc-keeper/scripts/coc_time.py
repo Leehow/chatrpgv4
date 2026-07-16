@@ -92,9 +92,19 @@ def _compute_local_datetime(base_dt: str | None, delta_minutes: int) -> str | No
         return base_dt
 
 
-def _day_phase(elapsed_minutes: int, *, day_length_minutes: int = 1440) -> str:
-    """Approximate day phase from elapsed within a 24h cycle."""
+def _day_phase(
+    elapsed_minutes: int,
+    *,
+    local_datetime: str | None = None,
+    day_length_minutes: int = 1440,
+) -> str:
+    """Return day phase from calendar time, falling back to relative elapsed time."""
     hour_of_day = (elapsed_minutes // 60) % 24
+    if local_datetime:
+        try:
+            hour_of_day = datetime.fromisoformat(local_datetime).hour
+        except (ValueError, TypeError):
+            pass
     if 6 <= hour_of_day < 12:
         return "morning"
     if 12 <= hour_of_day < 18:
@@ -171,7 +181,7 @@ def current_stamp(campaign_dir: Path) -> dict[str, Any]:
         "display": clock.get("display", ""),
         "local_datetime": clock.get("local_datetime"),
         "location_id": clock.get("location_id"),
-        "day_phase": _day_phase(elapsed),
+        "day_phase": _day_phase(elapsed, local_datetime=clock.get("local_datetime")),
     }
 
 
@@ -184,6 +194,8 @@ def advance_time(
     source: str = "llm_proposal",
     confidence: float = 1.0,
     category: str | None = None,
+    idempotency_key: str | None = None,
+    requested_mode: str | None = None,
 ) -> dict[str, Any]:
     """Advance the world clock by ``delta_minutes``.
 
@@ -198,7 +210,15 @@ def advance_time(
         )
     if delta_minutes == 0:
         # No-op; still record for audit
-        return {"from_elapsed": 0, "to_elapsed": 0, "delta_minutes": 0, "fired_triggers": []}
+        stamp = current_stamp(campaign_dir)
+        elapsed = int(stamp.get("elapsed_minutes", 0))
+        return {
+            "from_elapsed": elapsed,
+            "to_elapsed": elapsed,
+            "delta_minutes": 0,
+            "fired_triggers": [],
+            "current_time": stamp,
+        }
 
     path = _time_state_path(campaign_dir)
     state = _read_json(path)
@@ -216,6 +236,13 @@ def advance_time(
         clock["local_datetime"] = _compute_local_datetime(
             clock["local_datetime"], delta_minutes
         )
+        try:
+            rendered = datetime.fromisoformat(clock["local_datetime"]).strftime("%Y-%m-%d %H:%M")
+            old_display = str(clock.get("display") or "")
+            suffix = old_display[old_display.index(","):] if "," in old_display else ""
+            clock["display"] = rendered + suffix
+        except (ValueError, TypeError):
+            pass
 
     state["clock"] = clock
     state["sequence"] = int(state.get("sequence", 0)) + 1
@@ -236,6 +263,11 @@ def advance_time(
         "category": category,
         "fired_triggers": [t.get("trigger_id", "") for t in fired],
     }
+    if idempotency_key is not None:
+        log_record["idempotency_key"] = idempotency_key
+        log_record["requested_mode"] = requested_mode
+    stamp = current_stamp(campaign_dir)
+    log_record["current_time"] = stamp
     _append_jsonl(_time_log_path(campaign_dir), log_record)
 
     return {
@@ -243,6 +275,7 @@ def advance_time(
         "to_elapsed": to_elapsed,
         "delta_minutes": delta_minutes,
         "fired_triggers": fired,
+        "current_time": stamp,
     }
 
 
@@ -520,6 +553,37 @@ def apply_time_advance_from_plan(
 
     delta = int(ta.get("delta_minutes", 0))
     category = ta.get("category")
+    idempotency_key = ta.get("idempotency_key")
+    if idempotency_key is not None:
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise ValueError("time_advance.idempotency_key must be a non-empty string")
+        log_path = _time_log_path(campaign_dir)
+        if log_path.exists():
+            for line_number, raw_line in enumerate(
+                log_path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if not raw_line.strip():
+                    continue
+                try:
+                    prior = json.loads(raw_line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"malformed time evidence at line {line_number}"
+                    ) from exc
+                if (
+                    isinstance(prior, dict)
+                    and prior.get("event_type") == "time_advance"
+                    and prior.get("idempotency_key") == idempotency_key
+                ):
+                    if (
+                        prior.get("requested_mode") != mode
+                        or prior.get("category") != category
+                        or prior.get("delta_minutes") != int(ta.get("delta_minutes", 0))
+                    ):
+                        raise ValueError(
+                            "time advance idempotency key was reused with different semantics"
+                        )
+                    return []
     if mode == "instant":
         delta = max(delta, 0)
         if delta > 1:
@@ -546,6 +610,8 @@ def apply_time_advance_from_plan(
         source="llm_proposal",
         confidence=float(ta.get("confidence", 1.0)),
         category=category,
+        idempotency_key=idempotency_key,
+        requested_mode=mode,
     )
 
     event = {
@@ -650,8 +716,8 @@ def build_time_signals(
         "display": clock.get("display", ""),
         "local_datetime": clock.get("local_datetime"),
         "location_id": clock.get("location_id"),
-        "day_phase": _day_phase(elapsed),
-        "is_night": _day_phase(elapsed) == "night",
+        "day_phase": _day_phase(elapsed, local_datetime=clock.get("local_datetime")),
+        "is_night": _day_phase(elapsed, local_datetime=clock.get("local_datetime")) == "night",
         "hours_since_last_rest": round(hours_since_rest, 1),
         "safe_place": bool(time_state.get("safe_place", False)),
         "due_triggers_count": len(due_triggers),

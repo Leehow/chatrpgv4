@@ -233,49 +233,75 @@ def _relative_output(output: Path, path: Path) -> str:
 
 def _supports_process_tree_supervisor() -> bool:
     """Whether timeout execution can own and stop a complete process tree."""
-    return (
-        os.name == "posix"
-        and hasattr(os, "setsid")
-        and hasattr(os, "killpg")
-    )
+    return os.name == "posix" and hasattr(os, "kill")
+
+
+def _descendant_pids(root_pid: int) -> list[int]:
+    try:
+        completed = subprocess.run(
+            ["ps", "-axo", "pid=,ppid="], capture_output=True, text=True,
+            check=False, timeout=1.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    children: dict[int, list[int]] = {}
+    for line in (completed.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pid, parent = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(parent, []).append(pid)
+    result: list[int] = []
+    pending = list(children.get(root_pid, []))
+    while pending:
+        pid = pending.pop()
+        if pid in result or pid == os.getpid():
+            continue
+        result.append(pid)
+        pending.extend(children.get(pid, []))
+    return result
 
 
 def _terminate_process_tree(proc: subprocess.Popen[str]) -> bool:
-    """Boundedly terminate a case-owned POSIX process group and reap its leader."""
+    """Boundedly terminate case descendants and then reap the leader."""
     if not _supports_process_tree_supervisor():
         return False
-    group_id = proc.pid
     confirmed = True
-    try:
-        os.killpg(group_id, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    except OSError:
-        confirmed = False
-    leader_reaped = False
-    grace_deadline = time.monotonic() + 0.5
+    descendants = _descendant_pids(proc.pid)
+    for pid in descendants:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            confirmed = False
+    grace_deadline = time.monotonic() + 0.2
     while time.monotonic() < grace_deadline:
-        if not leader_reaped:
-            try:
-                proc.wait(timeout=0.02)
-                leader_reaped = True
-            except subprocess.TimeoutExpired:
-                pass
-        else:
-            time.sleep(0.02)
-    # A cooperative leader can exit while a descendant ignores SIGTERM.
-    # Always target the original group after the grace period.
+        time.sleep(0.02)
+    remaining = _descendant_pids(proc.pid)
+    for pid in remaining:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            confirmed = False
     try:
-        os.killpg(group_id, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        proc.terminate()
     except OSError:
         confirmed = False
-    if not leader_reaped:
+    if proc.poll() is None:
         try:
             proc.wait(timeout=0.5)
         except subprocess.TimeoutExpired:
-            confirmed = False
+            try:
+                proc.kill()
+                proc.wait(timeout=0.5)
+            except (OSError, subprocess.TimeoutExpired):
+                confirmed = False
     return confirmed
 
 

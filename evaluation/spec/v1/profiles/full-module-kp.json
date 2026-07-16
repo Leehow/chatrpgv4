@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "profile_id": "full-module-kp",
+  "require_structured_action_resolution": true,
+  "min_public_rolls": 3,
+  "min_scene_count": 0,
+  "min_clues_discovered": 0,
+  "require_terminal": true,
+  "required_completion_receipts": [
+    "session_ending",
+    "combat",
+    "conclusion",
+    "reward"
+  ],
+  "required_rubric_ids": [
+    "rulebook-procedure",
+    "agency-and-fun",
+    "zh-prose",
+    "module-fidelity"
+  ]
+}

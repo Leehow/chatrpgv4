@@ -132,6 +132,50 @@ def test_assert_rules_fidelity_dying(tmp_path):
     assert findings["rules_fidelity_override"]["passed"] is True
 
 
+def test_stalled_pressure_requires_authored_scene_pressure():
+    """A stalled scene can recover through clue fallback when no pressure exists."""
+    plan = {
+        "scene_action": "RECOVER",
+        "rule_signals": {
+            "stalled_turns": 3,
+            "scene_pressure_available": False,
+        },
+        "narrative_directives": {
+            "must_not_reveal": [],
+            "content_constraints": [],
+        },
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-fallback"]},
+        "pressure_moves": [],
+        "dramatic_question": "Can the investigators find another route?",
+    }
+
+    findings = coc_story_harness.assert_plan(plan)
+
+    assert findings["pacing_stalled_pressure"]["passed"] is True
+    assert "scene_pressure_available=False" in findings["pacing_stalled_pressure"]["detail"]
+
+
+def test_stalled_pressure_still_fails_when_authored_pressure_is_omitted():
+    plan = {
+        "scene_action": "RECOVER",
+        "rule_signals": {
+            "stalled_turns": 3,
+            "scene_pressure_available": True,
+        },
+        "narrative_directives": {
+            "must_not_reveal": [],
+            "content_constraints": [],
+        },
+        "clue_policy": {"reveal": [], "fallback_routes": ["clue-fallback"]},
+        "pressure_moves": [],
+        "dramatic_question": "Can the investigators find another route?",
+    }
+
+    findings = coc_story_harness.assert_plan(plan)
+
+    assert findings["pacing_stalled_pressure"]["passed"] is False
+
+
 def test_safety_content_boundary_missing_field_fails(tmp_path):
     """A plan whose narrative_directives lacks content_constraints FAILS the
     safety_content_boundary check (the field should always exist)."""

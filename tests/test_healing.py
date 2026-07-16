@@ -72,6 +72,9 @@ def test_first_aid_can_be_pushed():
     ev3 = sess.first_aid(skill_value=60, skill_roll_result=_roll("regular"), pushed=True)
     assert ev3["pushed"] is True
     assert sess.current_hp == 10
+    ev4 = sess.first_aid(skill_value=60, skill_roll_result=_roll("regular"), pushed=True)
+    assert ev4["push_already_used"] is True
+    assert sess.current_hp == 10
 
 
 # --------------------------------------------------------------------------- #
@@ -100,6 +103,22 @@ def test_first_aid_on_stabilized_dying_does_not_heal_further():
     assert sess.current_hp == 1
 
 
+def test_first_aid_clears_non_dying_unconscious_after_healing():
+    sess = coc_healing.HealingSession(
+        "eleanor",
+        hp_max=10,
+        con_value=50,
+        current_hp=1,
+        conditions=["major_wound", "prone", "unconscious"],
+    )
+
+    event = sess.first_aid(60, skill_roll_result=_roll("regular"))
+
+    assert event["hp_after"] == 2
+    assert "unconscious" not in sess.conditions
+    assert "major_wound" in sess.conditions
+
+
 def test_first_aid_failure_does_not_stabilize():
     sess = _dying_session()
     ev = sess.first_aid(10, skill_roll_result=_roll("failure"))
@@ -118,11 +137,13 @@ def test_medicine_cannot_stabilize_dying():
 
 def test_medicine_clears_dying_after_stabilization():
     sess = _dying_session()
+    sess.conditions.append("unconscious")
     sess.first_aid(99, skill_roll_result=_roll("regular"))
     ev = sess.medicine(99, skill_roll_result=_roll("regular"))
     assert ev["event_type"] == "medicine"
     assert "dying" not in sess.conditions
     assert "stabilized" not in sess.conditions
+    assert "unconscious" not in sess.conditions
     assert sess.current_hp >= 2  # 1 临时 + 1D3
 
 
@@ -135,18 +156,31 @@ def test_dying_con_roll_failure_kills():
 
 def test_dying_con_roll_success_holds_on():
     sess = _dying_session()
+    sess.first_aid(1, skill_roll_result=_roll("failure"))
+    sess.first_aid(1, skill_roll_result=_roll("failure"), pushed=True)
+    assert sess._first_aid_used_today is True
+    assert sess._first_aid_push_used_today is True
     ev = sess.dying_con_roll(roll_result=_roll("regular"))
     assert ev["died"] is False
     assert "dead" not in sess.conditions
+    # It remains a subsequent/pushed attempt on this wound, but the next
+    # dying round gets one fresh opportunity.
+    assert sess._first_aid_used_today is True
+    assert sess._first_aid_push_used_today is False
 
 
 def test_stabilized_con_roll_failure_reverts_to_dying():
     sess = _dying_session()
-    sess.first_aid(99, skill_roll_result=_roll("regular"))
+    sess.first_aid(1, skill_roll_result=_roll("failure"))
+    sess.first_aid(99, skill_roll_result=_roll("regular"), pushed=True)
+    assert sess._first_aid_used_today is True
+    assert sess._first_aid_push_used_today is True
     sess.stabilized_con_roll(roll_result=_roll("failure"))
     assert sess.current_hp == 0
     assert "stabilized" not in sess.conditions
     assert "dying" in sess.conditions
+    assert sess._first_aid_used_today is True
+    assert sess._first_aid_push_used_today is False
 
 
 # --------------------------------------------------------------------------- #
@@ -220,6 +254,12 @@ def test_major_wound_recovery_is_weekly_con_roll():
     sess = _wounded_session(con=99)
     ev = sess.major_wound_recovery_roll(roll_result=_roll("regular"))
     assert ev["event_type"] == "major_wound_recovery"
+    assert ev["skill"] == "CON"
+    assert ev["roll"] == 50
+    assert ev["target"] == 99
+    assert ev["difficulty"] == "regular"
+    assert ev["healing_dice"]["expression"] == "1D3"
+    assert ev["healing_dice"]["total"] == sum(ev["healing_dice"]["raw"])
     assert 1 <= ev["hp_gained"] <= 3
 
 
@@ -246,6 +286,8 @@ def test_recovery_extreme_success_clears_major_wound():
     sess = _wounded_session(con=99)
     ev = sess.major_wound_recovery_roll(roll_result=_roll("extreme"))
     assert 2 <= ev["hp_gained"] <= 6
+    assert ev["healing_dice"]["expression"] == "2D3"
+    assert len(ev["healing_dice"]["raw"]) == 2
     assert "major_wound" not in sess.conditions
 
 
@@ -268,6 +310,19 @@ def test_healing_clears_major_wound_above_half_hp():
     # half of 12 = 6; heal to 7 -> clears
     sess._heal(3)
     assert sess.current_hp == 7
+    assert "major_wound" not in sess.conditions
+
+
+def test_healing_uses_ceiling_half_for_odd_hp_maximum():
+    sess = coc_healing.HealingSession(
+        "inv1", hp_max=11, con_value=60, current_hp=4,
+        conditions=["major_wound"],
+    )
+    sess._heal(1)
+    assert sess.current_hp == 5
+    assert "major_wound" in sess.conditions
+    sess._heal(1)
+    assert sess.current_hp == 6
     assert "major_wound" not in sess.conditions
 
 
@@ -340,8 +395,11 @@ def test_reset_daily_treatments():
     sess = coc_healing.HealingSession("inv1", hp_max=12, con_value=60, current_hp=8)
     sess.first_aid(skill_value=60, skill_roll_result=_roll("regular"))
     assert sess._first_aid_used_today is True
+    sess.first_aid(skill_value=60, skill_roll_result=_roll("regular"), pushed=True)
+    assert sess._first_aid_push_used_today is True
     sess.reset_daily_treatments()
     assert sess._first_aid_used_today is False
+    assert sess._first_aid_push_used_today is False
 
 
 # --------------------------------------------------------------------------- #

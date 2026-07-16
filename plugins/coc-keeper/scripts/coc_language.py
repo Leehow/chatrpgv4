@@ -205,6 +205,8 @@ BASE_REPORT_LABELS = {
     "roll_sentence": "- {skill}: {actor} rolled {roll} vs {target} -> {outcome}",
     "die_roll_sentence": "- {skill}: {actor} rolled {die} = {roll} ({breakdown}) -> {outcome}",
     "die_face": "die roll",
+    "fixed_modifier": "fixed modifier",
+    "roll_breakdown_separator": "; ",
     "difficulty": "Difficulty",
     "goal": "Goal",
     "difficulty_rationale": "Difficulty Rationale",
@@ -226,6 +228,7 @@ BASE_REPORT_LABELS = {
 
 BASE_EMPTY_REPORT_LINES = {
     "combat_summary": "- No combat summary recorded.",
+    "combat_tracker": "- No combat tracker recorded.",
     "chase_summary": "- No chase summary recorded.",
     "chase_tracker": "- No chase tracker recorded.",
     "sanity_summary": "- No sanity summary recorded.",
@@ -276,6 +279,10 @@ BASE_REPORT_HEADING_LABELS = {
     "Story Recap": "Story Recap",
     "Player Feedback On KP": "Player Feedback On KP",
     "Localization Appendix": "Localization Appendix",
+    "Combat Tracker": "Combat Tracker",
+    "Epistemic Experience": "Epistemic Experience",
+    "Tool Reliability": "Tool Reliability",
+    "Narrative Adherence": "Narrative Route Coverage (Not Ending Outcome)",
 }
 
 BASE_REPORT_FIELD_LABELS = {
@@ -436,6 +443,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "roll_sentence": "- {skill}：{actor}掷出 {roll} / {target}，结果{outcome}。",
             "die_roll_sentence": "- {skill}：{actor}掷出 {die} = {roll}（{breakdown}），结果{outcome}。",
             "die_face": "骰面",
+            "fixed_modifier": "固定加值",
+            "roll_breakdown_separator": "；",
             "difficulty": "难度",
             "goal": "目的",
             "difficulty_rationale": "难度说明",
@@ -479,6 +488,10 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "Story Recap": "剧情回顾",
             "Player Feedback On KP": "玩家对 KP 的反馈",
             "Localization Appendix": "本地化附录",
+            "Combat Tracker": "战斗追踪器",
+            "Epistemic Experience": "认知体验诊断",
+            "Tool Reliability": "工具可靠性（诊断）",
+            "Narrative Adherence": "叙事路径覆盖（非结局判定）",
         },
         "report_field_labels": {
             "Run ID": "运行编号",
@@ -622,6 +635,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "empty_report_lines": {
             "combat_summary": "- 本轮没有触发战斗场面。",
+            "combat_tracker": "- 本轮没有战斗状态需要追踪。",
             "chase_summary": "- 本轮没有触发追逐场面。",
             "chase_tracker": "- 本轮没有追逐状态需要追踪。",
             "sanity_summary": "- 本轮没有触发理智检定或疯狂事件。",
@@ -655,6 +669,9 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "failure": "失败",
             "fumble": "大失败",
             "damage_applied": "造成伤害",
+            "healing_applied": "恢复生命",
+            "reward_applied": "获得奖励",
+            "applied": "已生效",
         },
         "difficulty_labels": {
             "regular": "普通",
@@ -701,6 +718,8 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "roll_sentence": "- {skill}：{actor}は {roll} / {target} を振り、結果は{outcome}。",
             "die_roll_sentence": "- {skill}：{actor}は {die} = {roll}（{breakdown}）を振り、結果は{outcome}。",
             "die_face": "出目",
+            "fixed_modifier": "固定修正",
+            "roll_breakdown_separator": "；",
             "difficulty": "難易度",
             "goal": "目的",
             "difficulty_rationale": "難易度の理由",
@@ -887,6 +906,7 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         },
         "empty_report_lines": {
             "combat_summary": "- 今回は戦闘場面は発生していない。",
+            "combat_tracker": "- 今回は追跡する戦闘状態はない。",
             "chase_summary": "- 今回はチェイス場面は発生していない。",
             "chase_tracker": "- 今回は追跡するチェイス状態はない。",
             "sanity_summary": "- 今回は正気度判定や狂気イベントは発生していない。",
@@ -917,6 +937,9 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
             "failure": "失敗",
             "fumble": "ファンブル",
             "damage_applied": "ダメージ適用",
+            "healing_applied": "HP回復",
+            "reward_applied": "報酬適用",
+            "applied": "適用済み",
         },
         "difficulty_labels": {
             "regular": "レギュラー",
@@ -931,6 +954,71 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "raw_payload_fallback": True,
     },
 }
+
+
+DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
+    "zh-Hans": {
+        "Accounting": "会计",
+        "Appraise": "估价",
+        "Charm": "魅惑",
+        "Climb": "攀爬",
+        "Credit Rating": "信用评级",
+        "Dodge": "闪避",
+        "Drive Auto": "汽车驾驶",
+        "Electrical Repair": "电气维修",
+        "Fast Talk": "话术",
+        "Fighting": "格斗",
+        "Fighting (Brawl)": "斗殴",
+        "Firearms (Handgun)": "射击（手枪）",
+        "Firearms (Rifle/Shotgun)": "射击（步枪/霰弹枪）",
+        "First Aid": "急救",
+        "History": "历史",
+        "HP Damage": "生命值伤害",
+        "HP Healing": "生命值恢复",
+        "Intimidate": "恐吓",
+        "Jump": "跳跃",
+        "Law": "法律",
+        "Library Use": "图书馆使用",
+        "Listen": "聆听",
+        "Locksmith": "锁匠",
+        "Mechanical Repair": "机械维修",
+        "Medicine": "医学",
+        "Occult": "神秘学",
+        "Persuade": "说服",
+        "Psychology": "心理学",
+        "Spot Hidden": "侦查",
+        "Stealth": "潜行",
+        "Swim": "游泳",
+        "Throw": "投掷",
+        "flesh_ward": "血肉防护术",
+        "Flesh Ward": "血肉防护术",
+        "SAN": "理智",
+        "LUCK": "幸运",
+        "Thomas Hayes": "托马斯·海斯",
+        "Eleanor Reed": "埃莉诺·里德",
+        "Steven Knott": "史蒂文·诺特",
+        "Arty Wilmot": "阿蒂·威尔莫特",
+        "Ruth Blake": "露丝·布莱克",
+        "Mr. Dooley": "杜利先生",
+        "Gabriela Macario": "加布里埃拉·马卡里奥",
+        "Vittorio Macario": "维托里奥·马卡里奥",
+        "Kim Debrun": "金·德布伦",
+        "Walter Corbitt": "沃尔特·科比特",
+        "the Hall of Records clerk": "档案馆职员",
+        "Boston ambulance attendant": "波士顿救护员",
+        "Boston hospital surgeon": "波士顿医院外科医生",
+        "Boston hospital day physician": "波士顿医院日班医生",
+        "hospital doctor": "医院医生",
+        "same hospital doctor": "同一位医院医生",
+        "Eleanor attending physician": "埃莉诺的主治医生",
+        "ambulance medic 1920 10 24": "1920年10月24日救护员",
+    },
+}
+
+
+def default_localized_terms(play_language: str | None = None) -> dict[str, str]:
+    """Built-in table vocabulary; run metadata may override any entry."""
+    return deepcopy(DEFAULT_LOCALIZED_TERMS.get(play_language or DEFAULT_PLAY_LANGUAGE, {}))
 
 
 def language_profile(play_language: str | None = None) -> dict[str, Any]:

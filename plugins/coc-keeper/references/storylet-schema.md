@@ -68,22 +68,37 @@ Optional object on a clue:
 ```json
 {
   "bonus": {
+    "schema_version": 1,
+    "origin": "improvised",
     "skill": "Library Use",
     "difficulty": "regular",
     "extra_summary": "Player-safe extra detail on success.",
-    "on_fail_cost": "time"
+    "on_fail_cost": "time",
+    "fumble_consequence": {
+      "summary": "The archive mishap leaves the investigator rattled.",
+      "effect": {"kind": "condition", "condition_id": "archive-rattled"}
+    }
   }
 }
 ```
 
+- `schema_version` (integer, required): currently `1`
+- `origin` (string, required): `source` | `inferred` | `improvised`. A
+  source-origin bonus must carry its own non-empty `source_refs`; the parent
+  clue's references do not prove a separately authored extra detail.
 - `skill` (string, required when `bonus` present)
 - `difficulty` (string): `regular` | `hard` | `extreme` (default `regular`)
 - `extra_summary` (string): player-safe extra reveal on success
 - `on_fail_cost` (string): `time` | `pressure` — failure never withholds the
   core clue; it costs time (existing time-cost machinery) or +1 tension pressure
+- `fumble_consequence` (object, required): non-empty `summary` plus a typed
+  `effect` using `fictional_position`, `pressure_tick`, `condition`, or
+  `route_closed`. It is never inferred from `on_fail_cost` or prose.
 
 Director emits a non-blocking `skill_check` with
 `roll_density_group: "clue-bonus:<clue_id>"` on REVEAL/RECOVER when the player
 intent is `investigate` (or a clue affordance skill match fires) and the
 selected clue carries `bonus`. Core `delivery_kind: "skill_check"` gating is
-unchanged.
+unchanged. Compiler-invalid bonuses are hard errors; a legacy or hydrated
+optional bonus that bypasses compilation is suppressed before randomness is
+consumed, while the core clue still lands.

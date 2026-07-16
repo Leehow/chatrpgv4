@@ -49,6 +49,7 @@ SESSION_SNAPSHOT_KEYS = {
     "resolved_config",
     "brain_at_create",
 }
+DURABLE_SYNC_FLUSH_POLICIES = frozenset({"manual", "auto"})
 
 
 def _canonical_json(value: object) -> bytes:
@@ -491,7 +492,7 @@ def _validate_runtime_evidence_fds(
         or runtime_row.get("event_type") != "live_turn_runtime"
         or runtime_row.get("investigator_id") != investigator_id
         or runtime_row.get("recording_mode") != "sync"
-        or runtime_row.get("recording_flush") != "manual"
+        or runtime_row.get("recording_flush") not in DURABLE_SYNC_FLUSH_POLICIES
     ):
         raise ValueError("live runtime receipt identity or recording mode mismatch")
     decision_ids = _validated_decision_ids(
@@ -1583,11 +1584,12 @@ class CheckpointStore:
             return
         if (
             self._last_provenance.get("recording_mode") != "sync"
-            or self._last_provenance.get("recording_flush") != "manual"
+            or self._last_provenance.get("recording_flush")
+            not in DURABLE_SYNC_FLUSH_POLICIES
         ):
             raise ValueError(
                 "checkpoint requires a durable quiescent recording boundary "
-                "(recording_mode=sync, recording_flush=manual)"
+                "(recording_mode=sync, recording_flush=manual|auto)"
             )
         receipt = self._last_provenance.get("runtime_receipt_sha256")
         if (
@@ -2499,7 +2501,8 @@ class CheckpointStore:
                 terminal_provenance = _terminal_journal_provenance_fd(journal_fd)
                 if (
                     terminal_provenance.get("recording_mode") != "sync"
-                    or terminal_provenance.get("recording_flush") != "manual"
+                    or terminal_provenance.get("recording_flush")
+                    not in DURABLE_SYNC_FLUSH_POLICIES
                 ):
                     raise ValueError(
                         "checkpoint journal lacks a synchronous runtime receipt"

@@ -28,15 +28,6 @@ def _load_adapter():
 
 def _sample_request() -> dict:
     return {
-        "public_state": {
-            "schema_version": 1,
-            "campaign_id": "live",
-            "active_scene_id": "scene-1",
-            "turn_number": 0,
-            "discovered_clue_ids": [],
-            "investigators": [],
-            "pending_choice": None,
-        },
         "narration": "雨还在下，门廊上有新鲜脚印。",
         "character_card": {
             "id": "inv1",
@@ -47,6 +38,7 @@ def _sample_request() -> dict:
             {"role": "keeper", "text": "你站在门廊前。"},
         ],
         "pending_choice": None,
+        "play_language": "zh-Hans",
     }
 
 
@@ -65,9 +57,10 @@ def _write_echo_runner(path: Path) -> None:
     script = """#!/usr/bin/env python3
 import json, sys
 req = json.loads(sys.stdin.read())
-assert "public_state" in req
+assert "public_state" not in req
 assert "narration" in req
 assert "character_card" in req
+assert "play_language" in req
 out = {
     "ok": True,
     "player_text": "我仔细检查门廊上的脚印。",
@@ -182,6 +175,29 @@ def test_parse_runner_response_requires_ok_and_player_text():
     assert parsed["player_notes"] == "先观察。"
 
 
+def test_prompt_contains_complete_player_owned_card_without_sampling():
+    request = _sample_request()
+    request["character_card"] = {
+        "id": "inv1",
+        "occupation": "Detective",
+        "derived": {"HP": 8, "SAN": 43, "MP": 7, "MOV": 8},
+        "current_status": {"HP": 8, "SAN": 43, "MP": 7, "conditions": []},
+        "skills": {f"Skill {index}": index for index in range(1, 19)},
+        "weapons": [{"name": ".38", "damage": "1D10"}],
+        "equipment": ["flashlight", "lockpicks"],
+        "backstory": {"traits": ["cautious"], "description": "private eye"},
+    }
+
+    prompt = _render_player_prompt(request)
+
+    assert "complete player-owned character view" in prompt
+    assert "Skills (complete):" in prompt
+    assert "Skill 1:1" in prompt and "Skill 18:18" in prompt
+    assert 'Weapons: [{"name":".38","damage":"1D10"}]' in prompt
+    assert 'Equipment: ["flashlight","lockpicks"]' in prompt
+    assert 'Backstory and traits: {"traits":["cautious"],"description":"private eye"}' in prompt
+
+
 def test_parse_runner_response_rejects_ok_false():
     adapter = _load_adapter()
     with pytest.raises(RuntimeError, match="model unavailable"):
@@ -210,6 +226,113 @@ def test_parse_runner_response_accepts_valid_intent_class():
         }
     )
     assert parsed["intent_class"] == "investigate"
+
+
+def test_parse_runner_response_accepts_structured_action_atoms():
+    adapter = _load_adapter()
+    rich = {
+        "primary_intent": "investigate",
+        "secondary_intents": ["avoid_risk"],
+        "target_entities": ["front-door"],
+        "risk_posture": "cautious",
+        "explicit_roll_request": False,
+        "player_hypothesis": "门锁可能被动过",
+        "action_atoms": [
+            {
+                "id": "inspect-lock",
+                "verb": "检查门锁",
+                "target": "front-door",
+                "requires_roll": True,
+                "skill": "Spot Hidden",
+                "stakes": "可能遗漏细微痕迹",
+            }
+        ],
+    }
+    parsed = adapter.parse_runner_response(
+        {"ok": True, "player_text": "我仔细检查门锁。", "player_intent_rich": rich}
+    )
+    assert parsed["intent_class"] == "investigate"
+    assert parsed["player_intent_rich"] == rich
+
+
+def test_parse_runner_response_normalizes_same_submission_intent_enum_mismatch():
+    adapter = _load_adapter()
+    parsed = adapter.parse_runner_response({
+        "ok": True,
+        "player_text": "我一边问价，一边仔细看合同。",
+        "intent_class": "social",
+        "player_intent_rich": {
+            "primary_intent": "investigate",
+            "secondary_intents": ["social"],
+            "target_entities": ["contract"],
+            "risk_posture": "cautious",
+            "explicit_roll_request": False,
+            "player_hypothesis": None,
+            "action_atoms": [{
+                "id": "inspect-contract",
+                "verb": "inspect",
+                "target": "contract",
+                "requires_roll": False,
+            }],
+        },
+    })
+
+    assert parsed["intent_class"] == "investigate"
+    assert parsed["intent_normalization"] == {
+        "source": "player_intent_rich.primary_intent",
+        "from": "social",
+        "to": "investigate",
+        "reason": "same-submission intent enums disagreed",
+    }
+
+
+def test_parse_runner_response_rejects_internal_route_id():
+    adapter = _load_adapter()
+    with pytest.raises(RuntimeError, match="route_id"):
+        adapter.parse_runner_response({
+            "ok": True,
+            "player_text": "我沿这条公开路线行动。",
+            "player_intent_rich": {
+                "primary_intent": "investigate",
+                "secondary_intents": [],
+                "target_entities": [],
+                "risk_posture": "neutral",
+                "explicit_roll_request": False,
+                "player_hypothesis": None,
+                "action_atoms": [{
+                    "id": "follow-route",
+                    "verb": "继续调查",
+                    "route_id": "internal-route-must-not-cross-player-boundary",
+                    "requires_roll": False,
+                }],
+            },
+        })
+
+
+def test_parse_runner_response_rejects_roll_atom_without_skill():
+    adapter = _load_adapter()
+    with pytest.raises(RuntimeError, match="requires skill"):
+        adapter.parse_runner_response(
+            {
+                "ok": True,
+                "player_text": "我仔细检查门锁。",
+                "player_intent_rich": {
+                    "primary_intent": "investigate",
+                    "secondary_intents": [],
+                    "target_entities": ["front-door"],
+                    "risk_posture": "neutral",
+                    "explicit_roll_request": False,
+                    "player_hypothesis": None,
+                    "action_atoms": [
+                        {
+                            "id": "inspect-lock",
+                            "verb": "检查门锁",
+                            "requires_roll": True,
+                        }
+                    ],
+                },
+            }
+        )
 
 
 def test_parse_runner_response_accepts_typed_player_pending_choice_response():
@@ -348,6 +471,18 @@ def test_personas_produce_distinct_dedicated_prompt_sections():
     assert reckless["persona_prompt_directives"][0] in reckless_prompt
 
 
+def test_player_prompt_is_black_box_and_contains_no_runtime_state_ids():
+    request = _sample_request()
+
+    prompt = _render_player_prompt(request)
+
+    assert request["narration"] in prompt
+    assert "## Public state" not in prompt
+    assert "active_scene_id" not in prompt
+    assert "discovered_clue_ids" not in prompt
+    assert "route_id" not in prompt
+
+
 def test_player_send_turn_rejects_response_mismatching_requested_choice(tmp_path):
     adapter = _load_adapter()
     runner = tmp_path / "fake_mismatched_choice"
@@ -406,7 +541,7 @@ def test_player_send_turn_requires_request_keys(tmp_path):
     adapter = _load_adapter()
     runner = tmp_path / "fake_player_runner"
     _write_echo_runner(runner)
-    with pytest.raises(ValueError, match="public_state"):
+    with pytest.raises(ValueError, match="character_card"):
         adapter.player_send_turn({"narration": "x"}, runner_path=runner)
 
 
@@ -433,11 +568,11 @@ def test_player_send_turn_raises_on_ok_false_even_with_zero_exit(tmp_path):
 def test_player_request_schema_documents_required_keys():
     adapter = _load_adapter()
     assert set(adapter.PLAYER_REQUEST_KEYS) == {
-        "public_state",
         "narration",
         "character_card",
         "transcript_tail",
         "pending_choice",
+        "play_language",
     }
 
 

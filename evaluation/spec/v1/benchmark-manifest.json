@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "eval_spec": "eval-spec-v1",
-  "benchmark_version": "2026.07.1",
+  "benchmark_version": "2026.07.5",
   "report_schema_version": 2,
   "implemented_capabilities": [
     "canonical_cli",
@@ -13,25 +13,44 @@
     "semantic_judge",
     "long_memory",
     "chapter_transition",
-    "human_calibration"
+    "human_calibration",
+    "benchmark_packs",
+    "module_hydration"
   ],
   "matrix": {
     "schema_version": 1,
     "eval_spec": "eval-spec-v1",
     "suites": {
       "nightly": {
-        "description": "Bounded proof matrix for attested Luna player and GLM Keeper live cells.",
+        "description": "Reusable full-module KP evaluation profile, currently exercised against The Haunting.",
+        "execution_policy": {
+          "runner_timeout_seconds": 2400,
+          "judge_timeout_seconds": 180,
+          "max_workers": 2
+        },
         "persona_ids": [
-          "careful_investigator"
+          "careful_investigator",
+          "reckless_investigator",
+          "skeptical_rules_lawyer",
+          "genre_savvy_player",
+          "social_first_player",
+          "combat_first_player",
+          "speedrunner",
+          "stuck_player"
         ],
         "seeds": [3, 7, 11],
         "cases": [
           {
-            "case_id": "nightly",
+            "case_id": "the-haunting-nightly",
             "runner": "live_match",
             "runner_path": "plugins/coc-keeper/scripts/coc_eval_live_cell.py",
-            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-scenario.json",
-            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-initial-state.json",
+            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/the-haunting-scenario.json",
+            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/the-haunting-initial-state.json",
+            "evaluation_profile": "evaluation/spec/v1/profiles/full-module-kp.json",
+            "module_expectations": {
+              "min_scene_count": 4,
+              "min_clues_discovered": 4
+            },
             "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
             "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
             "judge_model": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
@@ -39,13 +58,18 @@
               "player": "runtime/adapters/player/run_player_turn.mjs",
               "kp": "runtime/adapters/narrator/run_narration.mjs"
             },
-            "max_turns": 3,
-            "judge": {"enabled": true, "rubric_id": "agency-and-fun"}
+            "max_turns": 30,
+            "judge": {"enabled": true}
           }
         ]
       },
       "release": {
-        "description": "Complete persona and seed matrix using the same attested neutral live case.",
+        "description": "Complete reusable full-module KP matrix, currently exercised against The Haunting.",
+        "execution_policy": {
+          "runner_timeout_seconds": 2400,
+          "judge_timeout_seconds": 180,
+          "max_workers": 2
+        },
         "persona_ids": [
           "careful_investigator",
           "reckless_investigator",
@@ -63,11 +87,16 @@
         "seeds": [201, 202, 203, 204],
         "cases": [
           {
-            "case_id": "release",
+            "case_id": "the-haunting-release",
             "runner": "live_match",
             "runner_path": "plugins/coc-keeper/scripts/coc_eval_live_cell.py",
-            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-scenario.json",
-            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/nightly-initial-state.json",
+            "scenario_fixture": "evaluation/spec/v1/fixtures/matrix/the-haunting-scenario.json",
+            "initial_state_fixture": "evaluation/spec/v1/fixtures/matrix/the-haunting-initial-state.json",
+            "evaluation_profile": "evaluation/spec/v1/profiles/full-module-kp.json",
+            "module_expectations": {
+              "min_scene_count": 4,
+              "min_clues_discovered": 4
+            },
             "player_model": {"provider": "coding-relay", "id": "gpt-5.6-luna"},
             "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
             "judge_model": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
@@ -75,8 +104,8 @@
               "player": "runtime/adapters/player/run_player_turn.mjs",
               "kp": "runtime/adapters/narrator/run_narration.mjs"
             },
-            "max_turns": 3,
-            "judge": {"enabled": true, "rubric_id": "zh-prose"}
+            "max_turns": 30,
+            "judge": {"enabled": true}
           }
         ]
       }
@@ -89,7 +118,9 @@
         "canonical_cli",
         "case_registry",
         "report_contract",
-        "roll_completeness"
+        "roll_completeness",
+        "benchmark_packs",
+        "module_hydration"
       ],
       "commands": [
         [
@@ -113,7 +144,9 @@
         "case_registry",
         "report_contract",
         "roll_completeness",
-        "baseline_identity_compare"
+        "baseline_identity_compare",
+        "benchmark_packs",
+        "module_hydration"
       ],
       "commands": [
         [
@@ -143,7 +176,9 @@
         "baseline_identity_compare",
         "ai_player_matrix",
         "semantic_judge",
-        "long_memory"
+        "long_memory",
+        "benchmark_packs",
+        "module_hydration"
       ],
       "commands": []
     },
@@ -159,7 +194,9 @@
         "semantic_judge",
         "long_memory",
         "chapter_transition",
-        "human_calibration"
+        "human_calibration",
+        "benchmark_packs",
+        "module_hydration"
       ],
       "commands": []
     },
@@ -169,7 +206,9 @@
         "canonical_cli",
         "case_registry",
         "report_contract",
-        "roll_completeness"
+        "roll_completeness",
+        "benchmark_packs",
+        "module_hydration"
       ],
       "commands": []
     }

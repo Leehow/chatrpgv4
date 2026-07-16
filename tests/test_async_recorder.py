@@ -1,8 +1,8 @@
 """Tests for the CoC async recorder: pending-stuck detection + flush reliability.
 
 These cover P2-6 (conservative): a health check that flags pending JSONL batches
-that are too old or too numerous, plus a flush-attempt audit marker. The runner
-side (maintenance forced-flush) is exercised in test_live_turn_runner.py.
+that are too old or too numerous, plus a flush-attempt audit marker. Runner
+maintenance forced-flush is covered by runner maintenance tests.
 """
 import importlib.util
 import json

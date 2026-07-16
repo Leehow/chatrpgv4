@@ -43,8 +43,8 @@
           "attack_profiles": [
             {
               "name": "stab",
-              "attack_skill": "Fighting",
-              "attack_target_percent": 45,
+              "attack_skill": "POW",
+              "attack_target_percent": 90,
               "resist_skill": "Dodge",
               "damage": "1D4+2",
               "lethality": null,

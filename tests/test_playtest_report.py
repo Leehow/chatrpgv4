@@ -16,6 +16,30 @@ def load_module(name: str, relative_path: str):
 coc_playtest_report = load_module("coc_playtest_report", "plugins/coc-keeper/scripts/coc_playtest_report.py")
 
 
+def test_campaign_context_labels_compiled_module_instead_of_driver_fixture(tmp_path):
+    run_dir = tmp_path / "run"
+    campaign = run_dir / "sandbox" / ".coc" / "campaigns" / "c1"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True)
+    (campaign / "campaign.json").write_text(
+        json.dumps({"campaign_id": "c1"}), encoding="utf-8"
+    )
+    (scenario / "module-meta.json").write_text(
+        json.dumps({"scenario_id": "the-haunting", "title": "The Haunting"}),
+        encoding="utf-8",
+    )
+    (scenario / "scenario.json").write_text(
+        json.dumps({"module_source": "driver-generated scenario fixture"}),
+        encoding="utf-8",
+    )
+    context = coc_playtest_report._load_campaign_context(
+        run_dir, {"campaign_id": "c1"}
+    )
+    assert context["scenario"]["module_source"] == (
+        "compiled scenario package: the-haunting"
+    )
+
+
 def test_localized_text_uses_cjk_sentence_punctuation_after_glossary_replacement():
     localized = coc_playtest_report._localize_text(
         "The Haunting does not include a required chase sequence.",
@@ -60,6 +84,45 @@ def test_format_roll_recap_displays_bonus_die_components():
     assert "奖励骰：个位 1，十位 4/1，取 1 -> 11/37，困难成功" in recap
 
 
+def test_format_roll_recap_consumes_canonical_nested_dice_receipt():
+    event = {
+        "event_type": "roll",
+        "type": "roll",
+        "kind": "hp_damage",
+        "actor": "walter-corbitt",
+        "payload": {
+            "event_type": "combat_roll",
+            "dice": {
+                "expression": "1D4+2+1D4",
+                "raw": [2, 4],
+                "total": 8,
+            },
+        },
+    }
+
+    recap = coc_playtest_report._format_roll_recap(
+        event,
+        {},
+        {"HP Damage": "HP 伤害", "damage_applied": "造成伤害"},
+        "zh-Hans",
+        {
+            "report_labels": {
+                "die_roll_sentence": "- {skill}：{actor}掷出 {die} = {roll}（{breakdown}），结果{outcome}。",
+                "die_face": "骰面",
+                "fixed_modifier": "固定加值",
+                "roll_breakdown_separator": "；",
+            },
+            "outcome_labels": {},
+        },
+    )
+
+    assert "HP 伤害：walter-corbitt掷出 1D4+2+1D4 = 8" in recap
+    assert "骰面 2 + 4；固定加值 +2" in recap
+    assert "结果造成伤害" in recap
+    assert "check" not in recap
+    assert "unknown" not in recap
+
+
 def write_jsonl(path: Path, events: list[dict]):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(event) for event in events) + "\n")
@@ -80,6 +143,329 @@ def section_text(markdown: str, heading_anchor: str) -> str:
 
 def visible_markdown_text(markdown: str) -> str:
     return re.sub(r"<!--.*?-->", "", markdown, flags=re.DOTALL)
+
+
+def test_report_orders_structurally_linked_roll_before_keeper_consequence(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "ordered-roll"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "ordered-roll"
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "ordered-roll",
+        "title": "Ordering Probe",
+        "play_language": "en-US",
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {
+            "turn": 1,
+            "role": "player_simulator",
+            "mode": "play",
+            "text": "I search the archive index.",
+        },
+        {
+            "turn": 2,
+            "role": "keeper_under_test",
+            "mode": "play",
+            "text": "The failed search costs an hour.",
+        },
+        {
+            "turn": 3,
+            "role": "system",
+            "mode": "status",
+            "text": "Archive clock remains active.",
+        },
+        {
+            "turn": 4,
+            "role": "system",
+            "mode": "roll",
+            "roll_count": 1,
+            "text": "Library Use 80 vs 40 -> failure",
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [{
+        "type": "roll",
+        "actor": "investigator",
+        "payload": {
+            "roll_id": "turn-005-rule-1",
+            "decision_id": "turn-005",
+            "skill": "Library Use",
+            "target": 40,
+            "effective_target": 40,
+            "roll": 80,
+            "outcome": "failure",
+        },
+    }])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "match-result.json", {
+        "turns": [{
+            "decision_id": "turn-005",
+            "rule_results": [{
+                "roll_id": "turn-005-rule-1",
+                "decision_id": "turn-005",
+            }],
+        }],
+    })
+    write_json(run_dir / "playtest.json", {
+        "run_id": "ordered-roll",
+        "campaign_id": "ordered-roll",
+        "scenario": "Ordering Probe",
+        "play_language": "en-US",
+    })
+
+    report = coc_playtest_report.generate_battle_report(run_dir).read_text(encoding="utf-8")
+    replay = report[report.index("## Verification Replay"):report.index("## Session Transcript")]
+    transcript = report[report.index("## Session Transcript"):report.index("## Major Player Decisions")]
+    assert replay.index("I search the archive index.") < replay.index("Library Use: investigator rolled 80 vs 40 -> failure")
+    assert replay.index("Library Use: investigator rolled 80 vs 40 -> failure") < replay.index("The failed search costs an hour.")
+    assert "Source: transcript.jsonl" in transcript
+    assert "SHA-256" in transcript
+    assert "I search the archive index." not in transcript
+    assert replay.index("The failed search costs an hour.") < replay.index("Archive clock remains active.")
+    assert replay.count("Library Use: investigator rolled 80 vs 40 -> failure") == 1
+
+
+def test_report_roll_ordering_does_not_guess_when_match_cardinality_is_ambiguous():
+    transcript = [
+        {"turn": 1, "role": "keeper_under_test", "mode": "play", "text": "first"},
+        {"turn": 2, "role": "keeper_under_test", "mode": "play", "text": "second"},
+        {"turn": 3, "role": "system", "mode": "roll", "roll_count": 1, "text": "roll"},
+    ]
+    rolls = [{
+        "payload": {
+            "roll_id": "turn-005-rule-1",
+            "decision_id": "turn-005",
+        },
+    }]
+    match_result = {
+        "turns": [{
+            "decision_id": "turn-005",
+            "rule_results": [{"roll_id": "turn-005-rule-1"}],
+        }],
+    }
+
+    assert coc_playtest_report._ordered_transcript_for_report(
+        transcript,
+        rolls,
+        match_result,
+    ) == transcript
+
+
+def test_report_projects_discovered_player_safe_handout_and_localized_module_fields(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "localized-handout"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "localized-handout"
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "localized-handout",
+        "title": "The Haunting",
+        "play_language": "zh-Hans",
+    })
+    write_json(campaign_dir / "scenario" / "module-meta.json", {
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "localized_text": {
+            "zh-Hans": {
+                "title": "《鬼屋》",
+            },
+        },
+    })
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "opening_scene": "Will the investigators accept the commission?",
+        "localized_text": {
+            "zh-Hans": {
+                "opening_scene": "调查员会接受委托吗？",
+            },
+        },
+    })
+    write_json(campaign_dir / "scenario" / "clue-graph.json", {
+        "conclusions": [{
+            "conclusion_id": "newspaper-history",
+            "clues": [{
+                "clue_id": "clue-globe-unpublished-story",
+                "delivery": "Boston Globe clippings morgue",
+                "delivery_kind": "handout",
+                "visibility": "player-safe",
+                "player_safe_summary": "An unpublished 1918 feature describes the tenants' tragedies.",
+                "localized_text": {
+                    "zh-Hans": {
+                        "player_safe_summary": "一篇未刊发的 1918 年专题记录了历任住户的悲剧。",
+                    },
+                },
+            }, {
+                "clue_id": "clue-house-built-1835",
+                "delivery": "Central Library Handout 3",
+                "delivery_kind": "skill_check",
+                "presentation_kind": "handout",
+                "handout_number": 3,
+                "skill": "Library Use",
+                "difficulty": "regular",
+                "visibility": "player-safe",
+                "player_safe_summary": "In 1835, a prosperous merchant built the house and sold it to Corbitt.",
+                "localized_text": {
+                    "zh-Hans": {
+                        "player_safe_summary": "1835 年，一名富商建起宅子，随后将它卖给了 Corbitt。",
+                    },
+                },
+            }, {
+                "clue_id": "secret-basement-handout",
+                "delivery_kind": "handout",
+                "visibility": "keeper-only",
+                "player_safe_summary": "This must never render as a handout.",
+            }],
+        }],
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [{
+        "event_type": "clue_reveal",
+        "decision_id": "turn-005",
+        "clue_id": "clue-globe-unpublished-story",
+        "summary": "clue revealed: clue-globe-unpublished-story",
+    }, {
+        "event_type": "clue_reveal",
+        "decision_id": "turn-006",
+        "clue_id": "clue-house-built-1835",
+        "summary": "clue revealed: clue-house-built-1835",
+    }])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "localized-handout",
+        "campaign_id": "localized-handout",
+        "scenario": "The Haunting",
+        "play_language": "zh-Hans",
+    })
+
+    report = coc_playtest_report.generate_battle_report(run_dir).read_text(encoding="utf-8")
+    handouts = section_text(report, "Handouts")
+    clues = section_text(report, "Clues Found")
+    module = section_text(report, "Module")
+    assert "《鬼屋》" in module
+    assert "调查员会接受委托吗？" in module
+    assert "一篇未刊发的 1918 年专题记录了历任住户的悲剧。" in handouts
+    assert "Handout 3" in handouts
+    assert "1835 年，一名富商建起宅子，随后将它卖给了 Corbitt。" in handouts
+    assert "No handouts recorded" not in handouts
+    assert "This must never render as a handout." not in handouts
+    assert coc_playtest_report._player_safe_handout_from_clue(
+        "secret-basement-handout",
+        {
+            "delivery_kind": "handout",
+            "visibility": "keeper-only",
+            "player_safe_summary": "This must never render as a handout.",
+        },
+    ) is None
+    assert "一篇未刊发的 1918 年专题记录了历任住户的悲剧。" in clues
+    assert "Boston Globe clippings morgue" not in visible_markdown_text(clues)
+
+
+def test_report_consumes_canonical_toolbox_event_vocabulary(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "toolbox-events"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "toolbox-events"
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "toolbox-events",
+        "title": "工具事件消费测试",
+        "play_language": "zh-Hans",
+    })
+    write_json(campaign_dir / "scenario" / "module-meta.json", {
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+    })
+    write_json(campaign_dir / "scenario" / "clue-graph.json", {
+        "conclusions": [{
+            "conclusion_id": "toolbox-contract",
+            "clues": [{
+                "clue_id": "structured-clue",
+                "delivery_kind": "handout",
+                "visibility": "player-safe",
+                "player_safe_summary": "The structured clue is visible.",
+                "localized_text": {
+                    "zh-Hans": {"player_safe_summary": "结构化线索已经进入报告。"},
+                },
+            }],
+        }],
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [{
+        "event_type": "scene_transition",
+        "from_scene_id": "archive",
+        "to_scene_id": "cellar",
+    }, {
+        "event_type": "clue_discovered",
+        "clue_id": "structured-clue",
+        "method": "structured route",
+    }, {
+        "event_type": "sanity_loss",
+        "investigator_id": "ada-king",
+        "loss": 2,
+        "source": "目睹干尸起身",
+        "trigger_id": "corpse-rises",
+    }, {
+        "event_type": "combat_started",
+        "combat_id": "combat-1",
+        "initiative_order": [
+            {"actor_id": "ada-king", "dex": 60},
+            {"actor_id": "walter-corbitt", "dex": 35},
+        ],
+    }, {
+        "event_type": "combat_turn_resolved",
+        "combat_id": "combat-1",
+        "turn": {
+            "actor_id": "ada-king",
+            "target_actor_id": "walter-corbitt",
+            "action": "opposed_melee",
+            "outcome": "no_damage",
+            "opposed_outcome": "both_fail",
+        },
+    }, {
+        "event_type": "combat_ended",
+        "combat_id": "combat-1",
+        "outcome": "fled",
+    }, {
+        "event_type": "session_ending",
+        "scene_id": "cellar",
+        "kind": "retreat",
+        "summary": "调查员带伤撤离，威胁仍未解决。",
+    }, {
+        "type": "session_ending",
+        "actor": "keeper_under_test",
+        "payload": {"summary": "旧消费端占位结局，不应覆盖正式收据。"},
+    }])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [{
+        "session_id": "legacy",
+        "summary": "旧式泛化回顾。",
+    }])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+    write_json(run_dir / "playtest.json", {
+        "run_id": "toolbox-events",
+        "campaign_id": "toolbox-events",
+        "scenario": "The Haunting",
+        "play_language": "zh-Hans",
+    })
+
+    report = coc_playtest_report.generate_battle_report(run_dir).read_text(encoding="utf-8")
+    handouts = section_text(report, "Handouts")
+    replay = section_text(report, "Scene-by-Scene Replay")
+    combat = section_text(report, "Combat Summary")
+    sanity = section_text(report, "Sanity Summary")
+    clues = section_text(report, "Clues Found")
+    ending = section_text(report, "Session Ending")
+    recap = section_text(report, "Story Recap")
+
+    assert "结构化线索已经进入报告。" in handouts
+    assert "结构化线索已经进入报告。" in clues
+    assert "from-scene: archive" in replay
+    assert "to-scene: cellar" in replay
+    assert "目睹干尸起身失去 2 SAN" in sanity
+    assert "战斗开始：行动顺序" in combat
+    assert "近战对抗：未造成伤害（双方失败）" in combat
+    assert "战斗结束：调查员撤退" in combat
+    assert "本轮没有触发战斗场面" not in combat
+    assert "退场：调查员带伤撤离，威胁仍未解决。" in ending
+    assert "旧消费端占位结局" not in ending
+    assert "旧消费端占位结局" not in replay
+    assert "调查员带伤撤离，威胁仍未解决。" in recap
 
 
 def test_generate_battle_and_evaluation_reports(tmp_path):
@@ -291,12 +677,15 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "Skill Checks Earned: Library Use" in battle_text
     assert "Carryover Notes: Resolve skill improvement before importing Ada into another scenario." in battle_text
     assert "## Session Transcript" in battle_text
-    assert "KP: The room is cold." in battle_text
-    assert "Player: I search the desk." in battle_text
+    assert 'KP: "The room is cold."' in battle_text
+    assert 'Single Player: "I search the desk."' in battle_text
     assert "Intent: search desk" in battle_text
+    assert "Source: transcript.jsonl" in battle_text
     assert "## Mechanical Log" in battle_text
-    assert "Library Use: ada-king rolled 80 vs 60 -> failure" in battle_text
-    assert "scene: intro - Smoke-test scene opened." in battle_text
+    assert "1 rolls recorded" in battle_text
+    assert "Library Use: ada-king rolled 80 vs 60 -> failure" not in battle_text
+    assert "Smoke-test scene opened." in battle_text
+    assert "scene: intro - Smoke-test scene opened." not in battle_text
     assert "## Story Recap" in battle_text
     assert "Ada searched the cold room" in battle_text
     assert "## Player Feedback On KP" in battle_text
@@ -484,8 +873,9 @@ def test_battle_report_renders_storylet_moves_as_readable_scene_beats(tmp_path):
     assert "空气里有一丝金属、海盐或冷灰的味道。" in scene_replay
     assert "档案员看见警卫后停顿了一瞬。" in scene_replay
     assert "场景推进。" in scene_replay
-    assert "线索已记录：登记簿边缘的灰尘断痕。" in state_changes
-    assert "场景推进。" in state_changes
+    assert "其余 3 条事件收据已在对应章节呈现，此处不再重复。" in state_changes
+    assert "线索已记录：登记簿边缘的灰尘断痕。" not in state_changes
+    assert "场景推进。" not in state_changes
     assert "线索：登记簿边缘的灰尘断痕。" in clues_found
     assert "No clues recorded" not in clues_found
     assert "storylet-id: low-paper-wrong-date" in scene_replay
@@ -503,6 +893,27 @@ def test_battle_report_renders_storylet_moves_as_readable_scene_beats(tmp_path):
         assert leaked not in visible_scene
         assert leaked not in visible_state
     assert "ledger-mark" not in visible_clues
+
+
+def test_suppressed_unverified_storylet_event_does_not_render_fact_prose():
+    text = coc_playtest_report._format_storylet_event({
+        "event_type": "storylet_move",
+        "storylet_id": "low-alive-and-absent-record",
+        "title": "在场证明与缺席记录",
+        "cue": "一份可靠记录证明某人整晚在场；另一份同样可靠的记录证明他整晚不在。",
+        "rolled_variants": {
+            "sensory_detail_1d6": "远处的脚步声停了一瞬。",
+            "complication_1d6": "威胁只露出症状。",
+        },
+        "presentation_mode": "suppressed_unverified_fact",
+        "grounding_contract": {"allow_new_actionable_fact": False},
+        "bound_entities": {"scene_id": "commission-briefing"},
+    }, "zh-Hans")
+
+    assert "未向玩家呈现" in text
+    assert "整晚在场" not in text
+    assert "脚步声" not in text
+    assert "威胁只露出症状" not in text
 
 
 def test_evaluation_report_overall_result_passes_without_failed_cases_or_serious_notes(tmp_path):

@@ -91,8 +91,6 @@ def test_repository_case_registry_is_versioned_unique_and_resolvable():
         "investigator-state-party-seeding",
         "epistemic-sidecar-chapter-switch",
         "stale-roll-signal-expiry",
-        "invalidated-checkpoint-resume",
-        "narrator-secret-audit-persistence",
         "battle-report-roll-omission",
     } <= set(case_ids)
 

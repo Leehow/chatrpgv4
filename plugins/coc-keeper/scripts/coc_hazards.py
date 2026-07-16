@@ -385,6 +385,8 @@ def suffocation_round(
         "con_outcome": con_outcome,
         "con_failed": con_failed,
         "damage_applied": damage_applied,
+        "damage_roll": damage_event.get("damage_roll") if damage_event else None,
+        "damage_expr": damage_event.get("damage_expr") if damage_event else None,
         "raw_damage": raw_damage,
         "bypass_armor": True,
         "died": died,

@@ -1194,6 +1194,26 @@ def test_active_audit_rejects_unlocalized_visible_glossary_terms(tmp_path):
     assert "report_glossary_terms_not_localized" in finding_codes(audit)
 
 
+def test_report_glossary_audit_ignores_canonical_ids_in_html_comments():
+    report = (
+        "## Scene-by-Scene Replay\n"
+        "- 调查员确认了教堂日志。 <!-- clue-id: chapel-journal -->\n\n"
+        "## Major Player Decisions\n"
+        "- 调查员决定继续追查。\n\n"
+        "## Story Recap\n"
+        "- 调查员确认了地下室线索。\n\n"
+        "## Player Feedback On KP\n"
+        "- pacing: 5 - 节奏清楚。\n\n"
+        "## Actual Play Replay\n"
+        "- Turn 1 KP: \"发现教堂日志。\" <!-- scene-id: chapel-ruins -->\n"
+    )
+
+    assert coc_playtest_audit._report_unlocalized_glossary_terms(
+        report,
+        {"chapel": "教堂"},
+    ) == []
+
+
 def test_active_audit_rejects_actor_ids_in_player_readable_report_sections(tmp_path):
     run_dir = tmp_path / ".coc" / "playtests" / "haunting-module"
     create_final_rulebook_run(run_dir)
@@ -2847,11 +2867,11 @@ def test_haunting_module_audit_rejects_non_percentile_rolls_rendered_as_targets(
     report_path = run_dir / "artifacts" / "verification-sample.md"
     report_text = report_path.read_text()
     report_text = report_text.replace(
-        "HP 伤害：艾达·金掷出 1D6+2 = 5（骰面 3 + 2），结果造成伤害。",
+        "HP 伤害：艾达·金掷出 1D6+2 = 5（骰面 3；固定加值 +2），结果造成伤害。",
         "HP 伤害：艾达·金掷出 5 / 8，结果造成伤害。",
     )
     report_text = report_text.replace(
-        "HP 伤害：艾达·金掷出 1D4+2 = 4（骰面 2 + 2），结果造成伤害。",
+        "HP 伤害：艾达·金掷出 1D4+2 = 4（骰面 2；固定加值 +2），结果造成伤害。",
         "HP 伤害：艾达·金掷出 4 / 6，结果造成伤害。",
     )
     report_text = report_text.replace(

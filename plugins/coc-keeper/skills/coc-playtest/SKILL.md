@@ -39,7 +39,14 @@ python3 ../../scripts/coc_eval.py baseline --source <run-manifest> --output <bas
 python3 ../../scripts/coc_eval.py matrix --suite nightly --root <repo-root> --plan-only
 python3 ../../scripts/coc_eval.py calibrate --reviews <reviews.json>
 python3 ../../scripts/coc_eval.py holdouts --bundle <holdout-dir>
+python3 ../../scripts/coc_eval.py replay --case <case.json> --output <dir> --root <repo-root>
+python3 ../../scripts/coc_eval.py route-compare --run-a <run-a> --run-b <run-b> --semantic-result <result.json> --output <dir>
 ```
+
+`route-compare` reads `artifacts/route-ledger.json` from two actual-play run
+directories and accepts only an artifact-mediated semantic classification bound
+to the exact request SHA. `replay` and route comparison therefore use the same
+host-neutral entry point as named suites rather than standalone host commands.
 
 ### Model-backed nightly (capture then compare)
 
@@ -68,7 +75,13 @@ exists yet, its matrix cells and aggregate nightly status remain `NOT_RUN` with
 be presented as a passing nightly. Only the second run, supplied with
 `--baseline <baseline-dir>`, can produce a compared nightly `PASS`.
 
-`--timeout` controls each matrix runner and semantic-judge call. Continuity uses
+Without overrides, the versioned matrix policy gives each full-module runner
+2400 seconds, each semantic judge 180 seconds, and runs at most two model-backed
+cells concurrently. Every completed runner and final cell is checkpointed; an
+identical rerun of the same output directory reuses hash-verified checkpoints,
+while timed-out `NOT_RUN` cells are retried. `--timeout` overrides both matrix
+runner and semantic-judge budgets, and `--matrix-workers` overrides only the
+bounded worker count. Continuity uses
 versioned total lane budgets from `evaluation/spec/v1/cases/long-memory.json`
 (900 seconds for `continuity-25`, 1800 seconds for `continuity-50`). Use
 `--continuity-timeout <seconds>` only when an operator deliberately needs to
@@ -107,6 +120,106 @@ Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/cam
 - `evaluator`: inspects full logs and reports after the run.
 
 ## Interactive White-Box Driver
+
+### Operator-reviewed long-play (standard full-module method)
+
+This is the reusable, versioned `operator_codex_black_box_v2` default long-play
+method for **any compiled module**; it is not tied to The Haunting or to a fixed
+turn script. Use the module-agnostic `coc_live_match.py` operator transport. The
+main Codex is both the black-box player and the post-run reviewer. The transport emits only
+the same player-safe request used by the player adapter and accepts one JSONL
+response; it never exposes the narration envelope, Director plan, world state,
+clue graph, or Keeper secrets.
+
+```bash
+python3 ../../scripts/coc_live_match.py \
+  --workspace <isolated-workspace> --campaign <campaign> \
+  --investigator <investigator> --operator-long-play \
+  --narrator-runner <repo-root>/runtime/adapters/narrator/run_narration.mjs \
+  --run-dir <run-dir> --max-turns <turns>
+```
+
+For every `coc_operator_player_v2` `player_request` line, reply on stdin with:
+
+```json
+{"player_text":"...","intent_class":"investigate"}
+```
+
+`pending_choice_response` may be included when the public request contains a
+typed pending choice. The KP still uses the production Director, rules, state,
+evidence, and report path. In operator long-play only, GLM narration is captured
+once, raw: there is no Sol fact-judge call and no correction rewrite. The normal
+production/automated narrator path retains independent Sol verification.
+
+Run until the module reaches structured terminal evidence (or a documented
+human/operational blocker), rather than stopping after a convenient scene.
+Long-play defaults to **continue and accumulate**, not stop-and-polish after
+each finding. Record findings in `<run-dir>/operator-issue-ledger.jsonl` with
+`coc_operator_review.py record-issue`. Stop and repair immediately only for:
+crash/cannot continue; persistent-state integrity damage; rules integrity;
+spoiler integrity; or evidence-completeness damage. A single prose/style flaw,
+generic or awkward transition, or compound action split across turns remains a
+`continue_and_accumulate` issue. The second occurrence of the same
+`issue_class` escalates to `stop_and_fix`. At structured terminal evidence (or
+after a representative long segment), review the accumulated ledger, grade the
+issues, and batch related fixes. This policy is part of
+`operator_codex_black_box_v2`; it does not change the protocol version.
+
+Example first transition-quality finding:
+
+```json
+{
+  "schema_version": 1,
+  "protocol": "operator_codex_black_box_v2",
+  "run_id": "<run-dir-name>",
+  "issue_id": "transition-fallback-turn-002",
+  "issue_class": "transition_quality",
+  "occurrence": 1,
+  "disposition": "continue_and_accumulate",
+  "summary": "The transition used a generic template fallback.",
+  "turn_refs": ["turn-002"],
+  "evidence_refs": ["partial-transcript.jsonl#line-2"]
+}
+```
+
+```bash
+python3 ../../scripts/coc_operator_review.py record-issue \
+  --run-dir <run-dir> --input <issue.json>
+```
+
+Review the raw player/KP transcript turn by turn while using deterministic
+roll, event, clue, state, and report receipts as the authority for rules and
+continuity. Do not configure or call a separate AI player or player-visible
+judge: the same main Codex is both the black-box player and the post-run
+reviewer, while the production KP remains the system under test. The only model
+under test is the single-pass production KP narrator. Narrator failure may use the template fallback, but that
+fallback must still show authored ordinary failure, pending-choice risk, and
+localized options. Evidence must retain a sanitized failure class and stage so
+provider, runner, and response-contract faults remain distinguishable.
+
+Every new operator run starts with `operator_review_status: pending`,
+`independent_model_verification: NOT_RUN`, and no fact-fidelity PASS. The
+operator then reviews the transcript and structured logs across all four
+required dimensions—`rules`, `facts`, `progression`, and `style`—and records
+evidence with:
+
+```bash
+python3 ../../scripts/coc_operator_review.py record \
+  --run-dir <run-dir> --input <review.json>
+python3 ../../scripts/coc_operator_review.py verify --run-dir <run-dir>
+```
+
+The review input uses `protocol: operator_codex_black_box_v2`, binds the exact
+`run_id`, identifies the reviewer as `{"kind":"codex","id":"main-codex"}`,
+and provides a `pass|fail`
+decision, non-empty notes, and source refs for every dimension. Any failure
+produces `changes_required`; all four passes produce `approved`. This is
+operator review evidence, not an automated model fact PASS. Pending and
+changes-required runs remain formatter verification samples. An approved review
+with intact operator/player, canonical-narrator, transcript, event-log, and
+review hashes becomes `operator_reviewed_actual_play` and renders a real
+`battle-report.md`. None of these states may be described as an official
+`nightly` or `release` PASS; only the exact canonical suite can make that claim.
 
 For long-lived production-path white-box play (Masks Peru/America and similar), use
 `../../scripts/coc_interactive_playtest.py` rather than the Haunting simulated-player
@@ -237,7 +350,7 @@ Before generating reports, record the run context:
 
 `## Scene-by-Scene Replay` should render each significant structured play event from `events.jsonl` before the transcript appendix: scene, clue, damage, sanity, `疯狂发作` (`bout_of_madness`), combat, chase, `item_transfer`, `resource_change`, status, and session-ending events. Status events include final HP, final SAN, rewards, chase outcome, and other durable end-state summaries. This section is a table-readable episode map for the actual play report, not just a list of opening locations.
 
-`## Actual Play Replay` and `## Session Transcript` must render non-system source `transcript.jsonl` turns with visible speaker attribution and preserve source turn order inside each section; otherwise emit `battle_report_source_dialogue_missing`, `battle_report_source_dialogue_speaker_missing`, or `battle_report_source_dialogue_order_mismatch`.
+`## Actual Play Replay` must render non-system source `transcript.jsonl` turns with visible speaker attribution and preserve source turn order. `## Session Transcript` is a compact source receipt (record count, role counts, and transcript hash) that points back to that single full rendering instead of duplicating the whole conversation. Source-dialogue findings inspect the complete Actual Play Replay; the receipt itself is not a second dialogue copy and is not required to repeat speaker lines.
 
 `## Investigator Creation` should render sandbox `creation.json` before `## Character Dossier`, proving that the playtest followed the rulebook Chapter 3 creation workflow before play began and did not only invent a finished character sheet. The section must include structured age evidence: chosen age, age modifier bracket, EDU improvement check count and rolls, characteristic reductions, APP reduction, and MOV penalty; otherwise emit `investigator_age_step_missing`. Character source `derived.MOV` and creation `derived.MOV.value` must match the rulebook Movement Rate table from STR, DEX, SIZ, and age MOV penalty; otherwise emit `derived_movement_rate_mismatch`. It must also include full, half, and fifth characteristic values from `creation.json` and reusable `character.json`; otherwise emit `characteristic_half_fifth_missing`. The section must also include `skill_allocation` evidence: occupation points spent, personal-interest points spent, unallocated totals, base values, final skill values, and skill half/fifth values. It must render rulebook Table II finance evidence derived from Credit Rating and period: living standard, cash, assets, and spending level. Requirement: skill_allocation final values must match character.json skills so the creation workflow, character dossier, and roll targets describe one investigator. Reusable `character.json` must persist `skill_thresholds` for skill full/half/fifth values, and visible Investigator Creation plus Character Dossier must render them; otherwise emit `skill_half_fifth_missing`.
 
@@ -245,7 +358,7 @@ Before generating reports, record the run context:
 
 `## Handouts` should render every player-visible handout label, title, summary, and route from `scenario/handouts.json` before investigator creation, using the active play language. This section is the table handout register; `## Clues Found` can describe which clues were discovered in play, but it does not replace the source handout register. Source handouts must include player-visible summaries so this section is more than a title index. Otherwise emit `source_handout_summary_missing` or `battle_report_handouts_missing`.
 
-Active localized runs must render visible report headings and fields through `language_profile.report_heading_labels` and `language_profile.report_field_labels`, while preserving canonical tooling anchors in ASCII HTML comments such as `<!-- report-anchor: Run Setup -->` and `<!-- field-anchor: Campaign -->`; do not render bilingual visible headings like `# Battle Report / 跑团战报`. Run Setup display values such as audit profile, simulation method, dice mode, spoiler policy, play language, language profile, localized-term summary, and player profile must render through `language_profile.report_value_labels` or language report templates while preserving canonical values in JSON. The localized-term summary should be a short localized count pointing to `playtest.json`; the battle report must not render the full `localized_terms` glossary as a visible Localization Appendix because that is source metadata, not actual-play transcript. Campaign, Scenario, and Source display values must render through `localized_terms[play_language]` while preserving canonical values and file paths in JSON. Actual Play Replay and Session Transcript turn/detail display labels must render through `language_profile.transcript_labels`, speaker labels through `language_profile.speaker_labels`, and mode display values through `language_profile.transcript_mode_labels`. Transcript intent/ruling display values must render through `localized_text[play_language]` while preserving canonical values in JSON. Source rows in `player-view.jsonl` and `player-feedback.jsonl` that include canonical `player_profile` must also include `player_profile_display`; otherwise emit `player_profile_display_not_localized`. Investigator Chronicle labels and player-visible status values must render through `language_profile.chronicle_labels`. Player Feedback On KP metric labels must render through `language_profile.feedback_labels`. Player Feedback On KP entries must render direct virtual-player feedback voice through `language_profile.report_labels.feedback_voice_default`, `feedback_voice_profile`, and `feedback_line` rather than only a scorecard row; otherwise emit `player_feedback_voice_missing`. Active localized Character Dossier sections must render occupation, era, characteristics, derived values, skills, backstory, and backstory subfields through `language_profile.character_dossier_labels`. Derived value labels such as `damage_bonus` and `build` must render through `language_profile.character_dossier_labels` rather than leaking JSON keys. Player-readable Character Dossier values, such as occupation names, must also apply `localized_terms[play_language]`. Player-visible skill display names in Character Dossier, Investigator Chronicle, Actual Play Replay, Session Transcript, Rules & Rolls Recap, Mechanical Log, and Chase Tracker must apply `localized_terms[play_language]` while preserving canonical skill keys in JSON and hidden audit anchors; otherwise emit `report_skill_names_not_localized`. Player-readable report sections, including Scene-by-Scene Replay and Combat/Chase/Sanity summaries, must render localized actor display names and avoid internal actor ids. Player-readable Scene-by-Scene Replay and Clues Found entries must render scene/clue summaries without `scene_id` or `clue_id` prefixes. Scene-by-Scene Replay entries must not use raw event type enum prefixes such as `damage:` or `session ending:`. Scene-by-Scene Replay entries must not use actor-dash log prefixes such as `艾达·金 - ...`; otherwise emit `report_actor_dash_prefix`. Combat/Chase/Sanity summary entries must not use actor-colon log prefixes such as `KP:` or `艾达·金:`; otherwise emit `report_actor_colon_prefix`. If a summary sentence already begins with the localized actor name, avoid repeating it as a separate prefix. Active localized runs must render empty combat/chase/sanity/chase-tracker states through `language_profile.empty_report_lines`. Single-player style-pressure reports must persist `player_profile_labels` for the selected language and render those labels instead of profile ids in actual-play, transcript, and feedback sections. Chase Tracker labels, roles, status/difficulty values, locations, round summaries, and outcome text must render through `language_profile.chase_tracker_labels`, `localized_terms`, or `localized_text`; canonical ids and state-file paths must remain in stored JSON or hidden ASCII HTML audit anchors, not visible parenthetical text. Visible Character Dossier, Investigator Creation, Investigator Chronicle, and Chase Tracker lines should show localized names and locations only. Hidden comments may carry canonical ids and file paths for audit.
+Active localized runs must render visible report headings and fields through `language_profile.report_heading_labels` and `language_profile.report_field_labels`, while preserving canonical tooling anchors in ASCII HTML comments such as `<!-- report-anchor: Run Setup -->` and `<!-- field-anchor: Campaign -->`; do not render bilingual visible headings like `# Battle Report / 跑团战报`. Run Setup display values such as audit profile, simulation method, dice mode, spoiler policy, play language, language profile, localized-term summary, and player profile must render through `language_profile.report_value_labels` or language report templates while preserving canonical values in JSON. The localized-term summary should be a short localized count; built-in table vocabulary may be merged with and overridden by `playtest.json.localized_terms`. The battle report must not render the full glossary as a visible Localization Appendix because that is source metadata, not actual-play transcript. Campaign, Scenario, and Source display values must render through `localized_terms[play_language]` while preserving canonical values and file paths in JSON. Actual Play Replay turn/detail display labels must render through `language_profile.transcript_labels`, speaker labels through `language_profile.speaker_labels`, and mode display values through `language_profile.transcript_mode_labels`; Session Transcript renders a localized receipt instead of repeating those turns. Transcript intent/ruling display values must render through `localized_text[play_language]` while preserving canonical values in JSON. Source rows in `player-view.jsonl` and `player-feedback.jsonl` that include canonical `player_profile` must also include `player_profile_display`; otherwise emit `player_profile_display_not_localized`. Investigator Chronicle labels and player-visible status values must render through `language_profile.chronicle_labels`. Player Feedback On KP metric labels must render through `language_profile.feedback_labels`. Player Feedback On KP entries must render direct virtual-player feedback voice through `language_profile.report_labels.feedback_voice_default`, `feedback_voice_profile`, and `feedback_line` rather than only a scorecard row; otherwise emit `player_feedback_voice_missing`. Active localized Character Dossier sections must render occupation, era, characteristics, derived values, skills, backstory, and backstory subfields through `language_profile.character_dossier_labels`. Derived value labels such as `damage_bonus` and `build` must render through `language_profile.character_dossier_labels` rather than leaking JSON keys. Player-readable Character Dossier values, such as occupation names, must also apply `localized_terms[play_language]`. Player-visible skill display names in Character Dossier, Investigator Chronicle, Actual Play Replay, Rules & Rolls Recap, Mechanical Log, and Chase Tracker must apply `localized_terms[play_language]` while preserving canonical skill keys in JSON and hidden audit anchors; otherwise emit `report_skill_names_not_localized`. Player-readable report sections, including Scene-by-Scene Replay and Combat/Chase/Sanity summaries, must render localized actor display names and avoid internal actor ids. Player-readable Scene-by-Scene Replay and Clues Found entries must render scene/clue summaries without `scene_id` or `clue_id` prefixes. Scene-by-Scene Replay entries must not use raw event type enum prefixes such as `damage:` or `session ending:`. Scene-by-Scene Replay entries must not use actor-dash log prefixes such as `艾达·金 - ...`; otherwise emit `report_actor_dash_prefix`. Combat/Chase/Sanity summary entries must not use actor-colon log prefixes such as `KP:` or `艾达·金:`; otherwise emit `report_actor_colon_prefix`. If a summary sentence already begins with the localized actor name, avoid repeating it as a separate prefix. Active localized runs must render empty combat/chase/sanity/chase-tracker states through `language_profile.empty_report_lines`. Single-player style-pressure reports must persist `player_profile_labels` for the selected language and render those labels instead of profile ids in actual-play, transcript, and feedback sections. Chase Tracker labels, roles, status/difficulty values, locations, round summaries, and outcome text must render through `language_profile.chase_tracker_labels`, `localized_terms`, or `localized_text`; canonical ids and state-file paths must remain in stored JSON or hidden ASCII HTML audit anchors, not visible parenthetical text. Visible Character Dossier, Investigator Creation, Investigator Chronicle, and Chase Tracker lines should show localized names and locations only. Hidden comments may carry canonical ids and file paths for audit.
 
 Player Feedback On KP must render each source feedback row as a bound visible line containing that row's localized category, numeric score, player/profile voice, and comment. Completion audit emits `battle_report_feedback_binding_missing` when the report has the comment and score somewhere but scrambles the category or profile binding.
 
@@ -253,7 +366,7 @@ Player Feedback On KP must render each source feedback row as a bound visible li
 
 Rules & Rolls Recap boolean display values such as pushed-roll and skill-check-earned flags must render through `language_profile.report_labels`; otherwise emit `report_boolean_values_not_localized`.
 
-Completion audit treats HTML comments as non-visible. `Mechanical Log` may include hidden `roll-source` anchors, but every source roll from `logs/rolls.jsonl` must also have visible roll evidence: either the canonical source roll line or the selected-language roll sentence rendered from `language_profile`, `localized_terms`, and source character names.
+Completion audit treats HTML comments as non-visible. Every source roll from `logs/rolls.jsonl` must have visible evidence once in the canonical `Rules & Dice` section (legacy reports may satisfy this through `Mechanical Log`). `Rules & Rolls Recap` is aggregate, while `Important Rolls` may select only high-signal results; neither should duplicate the full per-roll ledger.
 
 Story Recap entries must render memory summaries without `session_id` or memory id prefixes; otherwise emit `report_memory_ids_not_localized`.
 

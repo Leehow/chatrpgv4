@@ -59,9 +59,17 @@ def assert_plan(plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "detail": f"dramatic_question='{plan.get('dramatic_question','')}'",
     }
     pressure_moves = plan.get("pressure_moves", [])
+    pressure_available = signals.get("scene_pressure_available") is True
+    needs_stalled_pressure = (
+        signals.get("stalled_turns", 0) >= 2 and pressure_available
+    )
     findings["pacing_stalled_pressure"] = {
-        "passed": bool(pressure_moves) if signals.get("stalled_turns", 0) >= 2 else True,
-        "detail": f"stalled={signals.get('stalled_turns',0)} pressure_moves={len(pressure_moves)}",
+        "passed": bool(pressure_moves) if needs_stalled_pressure else True,
+        "detail": (
+            f"stalled={signals.get('stalled_turns',0)} "
+            f"scene_pressure_available={pressure_available} "
+            f"pressure_moves={len(pressure_moves)}"
+        ),
     }
     # --- npc_life ---
     npc_moves = plan.get("npc_moves", [])

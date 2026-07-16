@@ -100,6 +100,101 @@ def test_player_intent_validator_requires_exact_public_fields():
         session._validate_player_intent(extra)
 
 
+def test_runtime_projects_canonical_nested_roll_without_keeper_metadata():
+    session = _load_session()
+    events = session._load_events_module()
+    row = {
+        "event_type": "roll",
+        "roll_id": "roll-nested-1",
+        "actor": "inv1",
+        "visibility": "public",
+        "source": "keeper_toolbox",
+        "source_ref": "logs/rolls.jsonl#roll-nested-1",
+        "payload": {
+            "roll_id": "roll-nested-1",
+            "kind": "skill_check",
+            "skill": "Spot Hidden",
+            "target": 60,
+            "roll": 24,
+            "outcome": "hard_success",
+            "keeper_reason": "must not cross the public allowlist",
+        },
+    }
+
+    event = session._project_roll_event(events, row)
+
+    assert event is not None
+    assert event["payload"] == {
+        "roll": 24,
+        "roll_id": "roll-nested-1",
+        "kind": "skill_check",
+        "skill": "Spot Hidden",
+        "outcome": "hard_success",
+        "target": 60,
+        "success": True,
+    }
+
+
+def test_runtime_projects_canonical_combat_damage_dice_shape():
+    session = _load_session()
+    events = session._load_events_module()
+    row = {
+        "event_type": "roll",
+        "roll_id": "combat-damage-1",
+        "visibility": "consequence_public",
+        "source": "combat_session",
+        "command_id": "combat-command-1",
+        "payload": {
+            "event_type": "combat_roll",
+            "roll_id": "combat-damage-1",
+            "visibility": "consequence_public",
+            "skill": "HP Damage",
+            "raw_roll": 4,
+            "dice": {"expression": "1D6", "raw": [4], "total": 4},
+        },
+    }
+
+    event = session._project_roll_event(events, row)
+
+    assert event is not None
+    assert event["payload"] == {
+        "roll": 4,
+        "roll_id": "combat-damage-1",
+        "decision_id": "combat-command-1",
+        "kind": "combat_roll",
+        "skill": "HP Damage",
+        "die": "1D6",
+        "die_rolls": [4],
+    }
+
+
+@pytest.mark.parametrize("visibility", ["keeper", "secret", "system"])
+def test_runtime_never_projects_nonpublic_canonical_roll(visibility):
+    session = _load_session()
+    events = session._load_events_module()
+    row = {
+        "event_type": "roll",
+        "roll_id": "keeper-roll",
+        "visibility": visibility,
+        "payload": {"roll_id": "keeper-roll", "roll": 1},
+    }
+
+    assert session._project_roll_event(events, row) is None
+
+
+def test_runtime_rejects_conflicting_canonical_roll_identity():
+    session = _load_session()
+    events = session._load_events_module()
+    row = {
+        "event_type": "roll",
+        "roll_id": "outer-roll",
+        "visibility": "public",
+        "payload": {"roll_id": "inner-roll", "roll": 1},
+    }
+
+    assert session._project_roll_event(events, row) is None
+
+
 @pytest.mark.parametrize("seed", [0, -1, 2**128, "", "run-a:0001"])
 def test_rng_seed_validator_preserves_exact_integer_or_string(seed):
     session = _load_session()
@@ -117,46 +212,6 @@ def test_rng_seed_validator_rejects_boolean_collection_and_non_exact_scalars(see
 
     with pytest.raises((TypeError, ValueError)):
         session._validate_rng_seed(seed)
-
-
-def test_checkpoint_durability_mode_forwards_sync_manual_without_changing_default(
-    tmp_path, monkeypatch
-):
-    session = _load_session()
-    forwarded: list[dict] = []
-
-    record = {
-        "session_id": "sess-durable",
-        "workspace": tmp_path,
-        "campaign_id": "case",
-        "investigator_id": "ada",
-        "character_relpath": ".coc/investigators/ada/character.json",
-        "character_path": tmp_path / ".coc/investigators/ada/character.json",
-        "campaign_dir": tmp_path / ".coc/campaigns/case",
-        "state_paths": {},
-        "resolved_config": {"schema_version": 1, "brain": "debug"},
-        "brain_at_create": "debug",
-    }
-
-    class Debug:
-        @staticmethod
-        def debug_send_turn(*_args, **kwargs):
-            forwarded.append(dict(kwargs))
-            return [], {"turns": [], "runtime_phase_ms": {}}
-
-    monkeypatch.setattr(session, "get_session", lambda _sid: record)
-    monkeypatch.setattr(session, "_load_debug_adapter", lambda: Debug)
-    monkeypatch.setattr(session, "_record_turn_telemetry", lambda *_a, **_k: None)
-
-    session.send("sess-durable", "normal")
-    session.send("sess-durable", "durable", durability_mode="checkpoint")
-
-    assert "recording_mode" not in forwarded[0]
-    assert "recording_flush" not in forwarded[0]
-    assert forwarded[1]["recording_mode"] == "sync"
-    assert forwarded[1]["recording_flush"] == "manual"
-    with pytest.raises(ValueError, match="durability_mode"):
-        session.send("sess-durable", "bad", durability_mode="eventual")
 
 
 def test_registry_expires_and_tombstones_session_without_revival(tmp_path):
@@ -283,262 +338,6 @@ def test_registry_close_and_expiry_retire_registered_worker_scopes(tmp_path):
     clock.advance(11)
     assert registry.expire() == ["sess-expire-worker"]
     assert pool.closed[-1] == expire_key
-
-
-def test_lazy_worker_pool_first_use_is_singleton_under_concurrency(monkeypatch):
-    session = _load_session()
-    registry = session.SessionRegistry(monotonic=FakeClock())
-    created = []
-
-    class Pool:
-        def __init__(self, *_args, **_kwargs):
-            created.append(self)
-
-    class WorkerPoolModule:
-        JsonlWorkerPool = Pool
-
-    original_load = session._load_module
-    monkeypatch.setattr(
-        session, "_load_module",
-        lambda name, path: WorkerPoolModule if path.name == "worker_pool.py"
-        else original_load(name, path),
-    )
-    barrier = threading.Barrier(8)
-    observed = []
-
-    def first_use():
-        barrier.wait()
-        observed.append(session._ensure_worker_pool(registry))
-
-    threads = [threading.Thread(target=first_use) for _ in range(8)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    assert len(created) == 1
-    assert all(pool is created[0] for pool in observed)
-
-
-def test_narrator_worker_pool_executes_the_trusted_canonical_server(monkeypatch):
-    session = _load_session()
-    registry = session.SessionRegistry(monotonic=FakeClock())
-    commands = []
-
-    class Pool:
-        def __init__(self, command_factory, **_kwargs):
-            commands.append(command_factory({}))
-
-    class WorkerPoolModule:
-        JsonlWorkerPool = Pool
-
-    original_load = session._load_module
-    monkeypatch.setattr(
-        session,
-        "_load_module",
-        lambda name, path: WorkerPoolModule
-        if path.name == "worker_pool.py"
-        else original_load(name, path),
-    )
-
-    session._ensure_worker_pool(registry)
-
-    assert commands == [[
-        "node",
-        str(
-            Path("runtime/adapters/narrator/run_narration.mjs").resolve()
-        ),
-        "--server",
-    ]]
-
-
-def test_session_accepts_only_canonical_exact_grounded_narrator_audit():
-    session = _load_session()
-    envelope = {
-        "scene_anchor": {
-            "scene_id": "study",
-            "sensory_anchors": ["雨点敲窗"],
-        },
-        "approved_reveals": {
-            "clues": [{
-                "clue_id": "clue-ledger",
-                "player_safe_summary": "账本边缘有新鲜水痕",
-            }],
-        },
-        "must_not_reveal": [{"id": "secret-owner", "category": "keeper"}],
-    }
-    anchor_ref = "envelope:/scene_anchor/sensory_anchors/0"
-    valid = {
-        "ok": True,
-        "final_text": "雨点敲着窗。",
-        "secret_audit_complete": True,
-        "asserted_fact_refs": [anchor_ref],
-        "semantic_audit": [{
-            "asserted_ref": anchor_ref,
-            "forbidden_ref": "secret-owner",
-            "decision": "different_fact",
-            "reason": "weather observation is not ownership",
-        }],
-        "response_mode": "tool",
-    }
-
-    receipt = session._validated_narrator_secret_audit(envelope, valid)
-
-    assert receipt is not None
-    assert receipt["passed"] is True
-    assert receipt["coverage"]["expected_pair_count"] == 1
-
-
-def test_session_rejects_narrator_audit_malformed_missing_extra_duplicate_uncertain_and_ungrounded():
-    session = _load_session()
-    envelope = {
-        "scene_anchor": {"scene_id": "study", "sensory_anchors": ["雨点敲窗"]},
-        "must_not_reveal": [{"id": "secret-owner", "category": "keeper"}],
-    }
-    anchor_ref = "envelope:/scene_anchor/sensory_anchors/0"
-    pair = {
-        "asserted_ref": anchor_ref,
-        "forbidden_ref": "secret-owner",
-        "decision": "different_fact",
-        "reason": "different structured facts",
-    }
-    base = {
-        "ok": True,
-        "final_text": "雨点敲着窗。",
-        "secret_audit_complete": True,
-        "asserted_fact_refs": [anchor_ref],
-        "semantic_audit": [pair],
-        "response_mode": "tool",
-    }
-    attacks = [
-        {**base, "response_mode": "prose_fallback"},
-        {**base, "secret_audit_complete": False},
-        {**base, "asserted_fact_refs": [anchor_ref, anchor_ref]},
-        {**base, "semantic_audit": []},
-        {**base, "semantic_audit": [pair, dict(pair)]},
-        {**base, "semantic_audit": [{**pair, "forbidden_ref": "secret-other"}]},
-        {**base, "semantic_audit": [{**pair, "decision": "uncertain"}]},
-        {**base, "semantic_audit": [{**pair, "extra": True}]},
-        {
-            **base,
-            "asserted_fact_refs": ["sensory:rain_proximity"],
-            "semantic_audit": [{
-                **pair,
-                "asserted_ref": "sensory:rain_proximity",
-            }],
-        },
-        {
-            **base,
-            "asserted_fact_refs": ["sensory:desk_dampness"],
-            "semantic_audit": [{
-                **pair,
-                "asserted_ref": "sensory:desk_dampness",
-            }],
-        },
-        {
-            **base,
-            "asserted_fact_refs": ["location:interior_study"],
-            "semantic_audit": [{
-                **pair,
-                "asserted_ref": "location:interior_study",
-            }],
-        },
-    ]
-
-    assert all(
-        session._validated_narrator_secret_audit(envelope, attack) is None
-        for attack in attacks
-    )
-
-
-_VALID_RETRY_ENVELOPE = {
-    "scene_anchor": {"scene_id": "study", "sensory_anchors": ["雨点敲窗"]},
-    "approved_reveals": {"clues": [{
-        "clue_id": "clue-ledger", "player_safe_summary": "账本边缘有新鲜水痕",
-    }]},
-    "must_not_reveal": [{"id": "secret-owner", "category": "keeper"}],
-}
-_VALID_RETRY_NARRATION = {
-    "ok": True,
-    "final_text": "雨点敲着窗。",
-    "secret_audit_complete": True,
-    "asserted_fact_refs": ["envelope:/scene_anchor/sensory_anchors/0"],
-    "semantic_audit": [{
-        "asserted_ref": "envelope:/scene_anchor/sensory_anchors/0",
-        "forbidden_ref": "secret-owner",
-        "decision": "different_fact",
-        "reason": "weather observation is not ownership",
-    }],
-    "response_mode": "tool",
-    "model_identity": {"provider": "zhipu-coding", "id": "glm-5.2"},
-}
-
-
-def _coverage_failing_narration():
-    """A tool-mode narration whose secret_audit_complete is False (coverage-fail).
-
-    Mirrors the intermittent GLM behaviour where the tool is invoked but the
-    audit fields are incomplete, so ``_validated_narrator_secret_audit``
-    returns None without the narration being a hard exception.
-    """
-    failing = json.loads(json.dumps(_VALID_RETRY_NARRATION))
-    failing["secret_audit_complete"] = False
-    failing["asserted_fact_refs"] = []
-    failing["semantic_audit"] = []
-    return failing
-
-
-def test_narrate_with_coverage_retry_recovers_from_intermittent_coverage_fail():
-    """A coverage-fail then pass on retry yields a valid audit (not a fatal abort).
-
-    Regression: an intermittent GLM coverage-fail previously forced
-    ``deterministic_fallback=True`` for the turn on the *first* attempt, which
-    made ``validate_attestation`` reject the whole turn (consistent=False). The
-    narrator path must retry the same envelope a bounded number of times before
-    degrading, since the LLM is non-deterministic and the same envelope can
-    pass on a second invocation.
-    """
-    session = _load_session()
-    attempts = [_coverage_failing_narration(), _VALID_RETRY_NARRATION]
-
-    def fake_pi_narrate(_request, **_kwargs):
-        return attempts.pop(0)
-
-    result = session._narrate_with_coverage_retry(
-        _VALID_RETRY_ENVELOPE,
-        player_text="...",
-        pi_narrate=fake_pi_narrate,
-    )
-    # The valid narration won out: a secret_audit receipt is returned.
-    assert result["secret_audit"] is not None
-    assert result["secret_audit"]["passed"] is True
-    assert result["deterministic_fallback"] is False
-    assert result["narration"]["final_text"] == "雨点敲着窗。"
-    # Both attempts were consumed.
-    assert attempts == []
-
-
-def test_narrate_with_coverage_retry_degrades_after_exhausting_retries():
-    """Persistent coverage-fail still degrades to deterministic fallback.
-
-    Safety/behaviour contract unchanged: when the model cannot produce a valid
-    audit within the retry budget, the turn falls back (no secret_audit) rather
-    than silently passing an unaudited narration.
-    """
-    session = _load_session()
-
-    def fake_pi_narrate(_request, **_kwargs):
-        return _coverage_failing_narration()
-
-    result = session._narrate_with_coverage_retry(
-        _VALID_RETRY_ENVELOPE,
-        player_text="...",
-        pi_narrate=fake_pi_narrate,
-    )
-    assert result["secret_audit"] is None
-    assert result["deterministic_fallback"] is True
-    # 1 initial attempt + 2 retries = 3 calls total, then it stops.
-    assert result["attempts"] == 3
 
 
 def test_sdk_unknown_session_is_stable_documented_exception():

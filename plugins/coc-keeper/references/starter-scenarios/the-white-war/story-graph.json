@@ -39,6 +39,12 @@
           "id": "question-mission-truth",
           "cue": "追问指挥官这次侦察的真实目的——上级只关心情报、不关心巡逻队死活，话里有话。",
           "route_type": "npc_question",
+          "clue_id": "clue-briefing-mention-strange-sounds",
+          "npc_interaction": {
+            "npc_id": "npc-company-commander",
+            "fact_id": "fact-briefing-strange-sounds",
+            "tactic": "request_fact"
+          },
           "status": "open"
         },
         {
@@ -145,6 +151,10 @@
         {
           "id": "observe-positions-through-glass",
           "cue": "用望远镜从掩体后观察阵地部署与仓促撤离的痕迹。",
+          "grants_clue_ids": [
+            "clue-hasty-abandonment",
+            "clue-guns-turned-inward"
+          ],
           "route_type": "investigative_lead",
           "status": "open"
         },
@@ -244,12 +254,20 @@
         {
           "id": "examine-blast-carnage",
           "cue": "检查爆炸现场的奥军遗体与伤口，判断这是常规炸药还是别的什么力量所为。",
+          "grants_clue_ids": [
+            "clue-massacred-austrians",
+            "clue-superhuman-strength-wounds"
+          ],
           "route_type": "investigative_lead",
           "status": "open"
         },
         {
           "id": "map-tunnel-and-shaft",
           "cue": "把坑道分支与那口无回音的玄武岩竖井走向记下来，标出拖痕通向哪里。",
+          "grants_clue_ids": [
+            "clue-basalt-shaft-no-echo",
+            "clue-drag-marks-into-shaft"
+          ],
           "route_type": "environment",
           "status": "open"
         }

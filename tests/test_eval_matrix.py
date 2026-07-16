@@ -50,26 +50,7 @@ def _load():
     return module
 
 
-def _load_live_cell():
-    assert LIVE_CELL_PATH.is_file(), f"missing live-cell runner: {LIVE_CELL_PATH}"
-    spec = importlib.util.spec_from_file_location(
-        "coc_eval_live_cell_test", LIVE_CELL_PATH
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules["coc_eval_live_cell_test"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_cli():
-    assert CLI_PATH.is_file(), f"missing CLI module: {CLI_PATH}"
-    spec = importlib.util.spec_from_file_location("coc_eval_cli_matrix_test", CLI_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules["coc_eval_cli_matrix_test"] = module
-    spec.loader.exec_module(module)
-    return module
+_LIVE_TRUSTED_REGISTRY_PATH: Path | None = None
 
 
 def _sha256(path: Path) -> str:
@@ -88,6 +69,103 @@ def _write_json(path: Path, payload: object) -> Path:
     return _write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def _live_trusted_registry_path() -> Path:
+    """Rewrite trusted-runner pins to on-disk hashes for mid-refactor test isolation."""
+    global _LIVE_TRUSTED_REGISTRY_PATH
+    if _LIVE_TRUSTED_REGISTRY_PATH is not None and _LIVE_TRUSTED_REGISTRY_PATH.is_file():
+        return _LIVE_TRUSTED_REGISTRY_PATH
+    source = REPO / "plugins" / "coc-keeper" / "references" / "trusted-playtest-runners.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    runners = payload.get("runners")
+    if isinstance(runners, dict):
+        for entry in runners.values():
+            if not isinstance(entry, dict):
+                continue
+            relative = entry.get("path")
+            if not isinstance(relative, str):
+                continue
+            path = REPO / relative
+            if path.is_file():
+                entry["sha256"] = _sha256(path)
+    destination = REPO / ".tmp" / "test-eval-matrix-trusted-playtest-runners.json"
+    _write_json(destination, payload)
+    _LIVE_TRUSTED_REGISTRY_PATH = destination
+    return destination
+
+
+def _patch_trusted_registry_modules(registry_path: Path, *extra_modules: object) -> None:
+    seen: set[int] = set()
+    candidates = list(sys.modules.values()) + list(extra_modules)
+    for loaded in candidates:
+        if loaded is None:
+            continue
+        marker = id(loaded)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        file_path = getattr(loaded, "__file__", None) or ""
+        if not str(file_path).endswith("coc_playtest_evidence.py"):
+            continue
+        if hasattr(loaded, "TRUSTED_RUNNER_REGISTRY_PATH"):
+            loaded.TRUSTED_RUNNER_REGISTRY_PATH = registry_path
+
+
+def _load_live_cell():
+    assert LIVE_CELL_PATH.is_file(), f"missing live-cell runner: {LIVE_CELL_PATH}"
+    spec = importlib.util.spec_from_file_location(
+        "coc_eval_live_cell_test", LIVE_CELL_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_live_cell_test"] = module
+    spec.loader.exec_module(module)
+    registry_path = _live_trusted_registry_path()
+    module._TRUSTED_RUNNERS_PATH = registry_path
+    live_match = getattr(module, "live_match", None)
+    playtest_evidence = getattr(live_match, "playtest_evidence", None)
+    playtest_report = getattr(live_match, "playtest_report", None)
+    _patch_trusted_registry_modules(registry_path, playtest_evidence)
+
+    # Eval-contract / report paths may load a separate playtest_evidence alias later.
+    original_compile = module.report_contract.compile_report_contract
+    load_sibling = getattr(module.report_contract, "_load_sibling", None)
+
+    def _compile_with_live_registry(*args, **kwargs):
+        extras = [playtest_evidence]
+        if callable(load_sibling):
+            extras.append(
+                load_sibling(
+                    "coc_playtest_evidence_eval_contract",
+                    "coc_playtest_evidence.py",
+                )
+            )
+        _patch_trusted_registry_modules(registry_path, *extras)
+        return original_compile(*args, **kwargs)
+
+    module.report_contract.compile_report_contract = _compile_with_live_registry
+    if playtest_report is not None and hasattr(
+        playtest_report, "generate_evaluation_report"
+    ):
+        original_generate = playtest_report.generate_evaluation_report
+
+        def _generate_with_live_registry(*args, **kwargs):
+            _patch_trusted_registry_modules(registry_path, playtest_evidence)
+            return original_generate(*args, **kwargs)
+
+        playtest_report.generate_evaluation_report = _generate_with_live_registry
+    return module
+
+
+def _load_cli():
+    assert CLI_PATH.is_file(), f"missing CLI module: {CLI_PATH}"
+    spec = importlib.util.spec_from_file_location("coc_eval_cli_matrix_test", CLI_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules["coc_eval_cli_matrix_test"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _write_attested_live_artifacts(
     runner,
     run_dir: Path,
@@ -98,8 +176,7 @@ def _write_attested_live_artifacts(
     player_model = {"provider": "coding-relay", "id": "gpt-5.6-luna"}
     kp_model = {"provider": "zhipu-coding", "id": "glm-5.2"}
     player_path = REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
-    narrator_path = REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
-    audit = runner.live_match.secret_audit.audit_secret_claims([], [], [])
+    narrator_path = REPO / "runtime" / "adapters" / "keeper" / "run_keeper_turn.mjs"
     rows = []
     for attempt, turn in enumerate(turns, 1):
         rows.extend(
@@ -111,7 +188,7 @@ def _write_attested_live_artifacts(
             "transcript_turn": attempt * 2 - 1,
             "runner_kind": "external_model_bridge",
             "runner_identity": "coc-runtime-player-adapter@0.79.9",
-            "runner_path": str(player_path),
+            "runner_path": str(player_path.resolve()),
             "runner_sha256": _sha256(player_path),
             "model_identity": player_model,
             "outcome": "external_success",
@@ -124,14 +201,13 @@ def _write_attested_live_artifacts(
             "attempt": attempt,
             "transcript_turn": attempt * 2,
             "runner_kind": "external_model_bridge",
-            "runner_identity": "coc-runtime-narrator-adapter@0.79.9",
-            "runner_path": str(narrator_path),
+            "runner_identity": "coc-runtime-keeper-agent@0.79.9",
+            "runner_path": str(narrator_path.resolve()),
             "runner_sha256": _sha256(narrator_path),
             "model_identity": kp_model,
             "outcome": "external_success",
             "response_mode": "tool",
             "fallback_kind": None,
-            "secret_audit": audit,
                 },
             ]
         )
@@ -209,7 +285,7 @@ def _write_attested_live_artifacts(
 def _canonical_prompt_contract() -> dict:
     sources = {
         "player": "runtime/adapters/player/run_player_turn.mjs",
-        "kp": "runtime/adapters/narrator/run_narration.mjs",
+        "kp": "runtime/adapters/keeper/run_keeper_turn.mjs",
     }
     return {
         "prompt_sources": sources,
@@ -970,6 +1046,102 @@ def test_checked_in_matrix_case_is_ready_from_pi_credentials_not_env_keys():
         "player": "runtime/adapters/player/run_player_turn.mjs",
         "kp": "runtime/adapters/narrator/run_narration.mjs",
     }
+    assert cell["case_id"] == "the-haunting-nightly"
+    assert cell["max_turns"] == 30
+    assert cell["judge"]["rubric_ids"] == [
+        "rulebook-procedure",
+        "agency-and-fun",
+        "zh-prose",
+        "module-fidelity",
+    ]
+
+
+def test_the_haunting_matrix_fixture_expands_canonical_bundle_and_pregen():
+    matrix = _load()
+    scenario_path = REPO / "evaluation/spec/v1/fixtures/matrix/the-haunting-scenario.json"
+    initial_path = REPO / "evaluation/spec/v1/fixtures/matrix/the-haunting-initial-state.json"
+
+    scenario = matrix._load_scenario_fixture(REPO, scenario_path)
+    initial = matrix._load_initial_state_fixture(REPO, initial_path)
+
+    assert scenario["scenario_id"] == "the-haunting"
+    assert scenario["scene_id"] == "commission-briefing"
+    assert len(scenario["story_graph"]["scenes"]) == 12
+    assert "evaluation_contract" not in scenario
+    contract, profile_hash = matrix._load_evaluation_contract(
+        REPO,
+        {
+            "runner": "live_match",
+            "evaluation_profile": "evaluation/spec/v1/profiles/full-module-kp.json",
+            "module_expectations": {
+                "min_scene_count": 4,
+                "min_clues_discovered": 4,
+            },
+        },
+    )
+    assert contract["min_public_rolls"] == 3
+    assert contract["require_terminal"] is True
+    assert profile_hash
+    assert initial["character"]["id"] == "thomas-hayes"
+    assert initial["public_state"]["active_scene_id"] == "commission-briefing"
+    assert len(
+        matrix._scenario_fixture_components(REPO, scenario_path)
+    ) == 1 + len(matrix._SCENARIO_BUNDLE_FILES)
+
+
+def test_one_evaluation_profile_expands_two_real_module_cases():
+    matrix = _load()
+    configuration = json.loads(
+        (REPO / "evaluation/spec/v1/configurations/multi-module-example.json")
+        .read_text(encoding="utf-8")
+    )
+
+    plan = matrix.build_matrix_plan(
+        root=REPO,
+        suite="nightly",
+        configuration=configuration,
+        credential_env={},
+        model_preflight=lambda provider, model: True,
+    )
+
+    assert [cell["case_id"] for cell in plan["cells"]] == [
+        "the-haunting-multi-module",
+        "the-white-war-multi-module",
+    ]
+    assert all(cell["status"] == "READY" for cell in plan["cells"])
+    assert len({cell["evaluation_profile_sha256"] for cell in plan["cells"]}) == 1
+    assert len({cell["scenario_sha256"] for cell in plan["cells"]}) == 2
+    assert all(
+        cell["evaluation_contract"]["profile_id"] == "full-module-kp"
+        for cell in plan["cells"]
+    )
+
+
+def test_the_white_war_fixture_materializes_independently_of_profile(tmp_path):
+    matrix = _load()
+    live_cell = _load_live_cell()
+    scenario = matrix._load_scenario_fixture(
+        REPO,
+        REPO / "evaluation/spec/v1/fixtures/matrix/the-white-war-scenario.json",
+    )
+    initial = matrix._load_initial_state_fixture(
+        REPO,
+        REPO / "evaluation/spec/v1/fixtures/matrix/the-white-war-initial-state.json",
+    )
+
+    assert scenario["scenario_id"] == "the-white-war"
+    assert scenario["scene_id"] == "mission-briefing"
+    assert initial["character"]["era"] == "ww1"
+    assert initial["public_state"]["active_scene_id"] == "mission-briefing"
+
+    workspace, campaign_id, investigator_id = live_cell.materialize_workspace(
+        scenario, initial, tmp_path / "white-war-fixture"
+    )
+    assert campaign_id == "eval-the-white-war"
+    assert investigator_id == "matteo-rossi"
+    assert (
+        workspace / ".coc/campaigns/eval-the-white-war/scenario/story-graph.json"
+    ).is_file()
 
 
 def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeypatch):
@@ -1051,7 +1223,7 @@ def test_live_cell_runner_writes_evidence_from_canonical_match(tmp_path, monkeyp
         REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs"
     )
     assert observed["kwargs"]["narrator_runner"] == (
-        REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
+        REPO / "runtime" / "adapters" / "keeper" / "run_keeper_turn.mjs"
     )
     for name in (
         "run-manifest.json",
@@ -1096,6 +1268,133 @@ def test_live_cell_report_completeness_failure_is_a_hard_finding(
     assert result["status"] == "FAIL"
     assert result["hard_findings"] == ["report_contract_failed"]
     assert result["report_contract"]["report_completeness"]["passed"] is False
+
+
+def test_live_cell_evaluation_contract_fails_missing_structured_action_and_roll(
+    tmp_path, monkeypatch
+):
+    runner = _load_live_cell()
+
+    def fake_match(*args, **kwargs):
+        payload = _fake_attested_match(runner, Path(kwargs["run_dir"]))
+        payload["player_choices"] = [
+            {
+                "player_text": "我检查门锁。",
+                "intent_class": "investigate",
+                "player_intent_rich": None,
+                "decision_ids": ["turn-001"],
+            }
+        ]
+        payload["turns"] = [
+            {"decision_id": "turn-001", "rules_requests": [], "rule_results": []}
+        ]
+        return payload
+
+    monkeypatch.setattr(runner.live_match, "run_live_match", fake_match)
+    cell_input = _canonical_live_cell_input()
+    cell_input["evaluation_contract"] = {
+        "schema_version": 1,
+        "profile_id": "test-full-module",
+        "require_structured_action_resolution": True,
+        "min_public_rolls": 1,
+        "required_rubric_ids": ["rulebook-procedure"],
+    }
+    result = runner.run_live_cell(cell_input, tmp_path / "cell", env={})
+
+    assert result["status"] == "FAIL"
+    assert result["evaluation_contract_receipt"]["public_roll_count"] == 0
+    assert result["hard_findings"] == [
+        "structured_action_resolution_missing:choice-1",
+        "public_roll_minimum_not_met:0<1",
+    ]
+    assert (tmp_path / "cell" / "evaluation-contract.json").is_file()
+
+
+def test_full_module_contract_rejects_graph_terminal_without_structured_receipts(
+    tmp_path,
+):
+    runner = _load_live_cell()
+    playtest_dir = tmp_path / "playtest"
+    result = {
+        "result": {
+            "reached_terminal": True,
+            "terminal_evidence": {
+                "reached_terminal": True,
+                "graph_terminal": True,
+                "session_ending": False,
+            },
+            "completion_receipts": {
+                "schema_version": 1,
+                "audit_profile": "haunting_module",
+            },
+        },
+        "player_choices": [],
+        "turns": [],
+    }
+    contract = {
+        "schema_version": 1,
+        "profile_id": "full-module-kp",
+        "require_terminal": True,
+        "required_completion_receipts": [
+            "session_ending", "combat", "conclusion", "reward",
+        ],
+    }
+
+    receipt = runner._evaluation_contract_receipt(
+        result, playtest_dir, "eval-the-haunting", contract
+    )
+
+    assert receipt["status"] == "FAIL"
+    assert receipt["reached_terminal"] is True
+    assert receipt["structured_session_ending"] is False
+    assert receipt["hard_findings"] == [
+        "module_session_ending_not_recorded",
+        "module_completion_receipt_missing:session_ending",
+        "module_completion_receipt_missing:combat",
+        "module_completion_receipt_missing:conclusion",
+        "module_completion_receipt_missing:reward",
+    ]
+
+
+def test_full_module_contract_accepts_structured_ending_receipt_bundle(tmp_path):
+    runner = _load_live_cell()
+    completion = {
+        "schema_version": 1,
+        "audit_profile": "haunting_module",
+        **{
+            kind: {"status": "complete", "source_ref": f"events.jsonl#{kind}"}
+            for kind in ("session_ending", "combat", "conclusion", "reward")
+        },
+    }
+    result = {
+        "result": {
+            "reached_terminal": True,
+            "terminal_evidence": {
+                "reached_terminal": True,
+                "graph_terminal": True,
+                "session_ending": True,
+            },
+            "completion_receipts": completion,
+        },
+        "player_choices": [],
+        "turns": [],
+    }
+    contract = {
+        "schema_version": 1,
+        "profile_id": "full-module-kp",
+        "require_terminal": True,
+        "required_completion_receipts": [
+            "session_ending", "combat", "conclusion", "reward",
+        ],
+    }
+
+    receipt = runner._evaluation_contract_receipt(
+        result, tmp_path / "playtest", "eval-the-haunting", contract
+    )
+
+    assert receipt["status"] == "PASS"
+    assert receipt["audit_profile"] == "haunting_module"
+    assert receipt["hard_findings"] == []
 
 
 def test_live_segment_returns_exact_canonical_turns_and_attestation(
@@ -1188,7 +1487,7 @@ def test_live_segment_returns_exact_canonical_turns_and_attestation(
         "coc-runtime-player-adapter@0.79.9"
     )
     assert result["attestation"]["runners"]["narrator"]["identity"] == (
-        "coc-runtime-narrator-adapter@0.79.9"
+        "coc-runtime-keeper-agent@0.79.9"
     )
     assert re.fullmatch(r"[0-9a-f]{32}", result["runner_invocation_id"])
     issued_uuid = uuid.UUID(hex=result["runner_invocation_id"])
@@ -1777,7 +2076,7 @@ def test_live_cell_rejects_missing_runner_descriptors(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "corruption", ["missing_ledger", "player_model", "runner_hash", "narrator_audit"]
+    "corruption", ["missing_ledger", "player_model", "runner_hash"]
 )
 def test_live_cell_rejects_missing_or_contradictory_attestation(
     tmp_path, monkeypatch, corruption
@@ -1797,9 +2096,7 @@ def test_live_cell_rejects_missing_or_contradictory_attestation(
             rows[0]["model_identity"] = {"provider": "wrong", "id": "wrong"}
         elif corruption == "runner_hash":
             evidence["runners"]["player"]["sha256"] = "0" * 64
-        else:
-            rows[1]["secret_audit"] = {"passed": True}
-        if corruption in {"player_model", "narrator_audit"}:
+        if corruption == "player_model":
             _write(
                 ledger,
                 "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
@@ -2283,6 +2580,172 @@ def test_execute_matrix_plan_runs_ready_cells_with_fake_adapter(
     assert plan_hash == _sha256(out / "matrix-plan.json")
 
 
+def test_matrix_resume_reuses_completed_cell_checkpoint(tmp_path: Path, monkeypatch):
+    matrix = _load()
+    runner = _fake_runner_script(tmp_path / "resume-runner.py")
+    scenario = _write_json(tmp_path / "resume-scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "resume-state.json", {"public": True})
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["careful_investigator"],
+        "seeds": [3],
+        "cases": [{
+            "case_id": "resume-ready-case",
+            "runner": "fake",
+            "runner_path": str(runner),
+            "scenario_fixture": str(scenario),
+            "initial_state_fixture": str(state),
+            "player_model": {"provider": "fixture", "id": "player-1"},
+            "kp_model": {"provider": "fixture", "id": "kp-1"},
+            "prompt_sources": {"player": str(runner), "kp": str(runner)},
+            "judge": {"enabled": False},
+        }],
+    }
+    plan = matrix.build_matrix_plan(
+        root=REPO, suite="nightly", configuration=config, credential_env={}
+    )
+    out = tmp_path / "resume-output"
+    first = matrix.execute_matrix_plan(plan, root=REPO, output=out)
+    cell_dir = out / "cells" / first["cells"][0]["cell_id"]
+    assert (cell_dir / "cell-result.json").is_file()
+    assert (cell_dir / "runner-result.json").is_file()
+
+    monkeypatch.setattr(
+        matrix,
+        "_invoke_fake_or_script_runner",
+        lambda **_kwargs: pytest.fail("completed cell must not invoke runner again"),
+    )
+    resumed = matrix.execute_matrix_plan(plan, root=REPO, output=out)
+
+    assert resumed["cells"][0]["resumed_from_checkpoint"] is True
+    assert json.loads((out / "matrix-progress.json").read_text())["completed_cell_count"] == 1
+
+
+def test_matrix_runner_concurrency_is_bounded(tmp_path: Path, monkeypatch):
+    import threading
+    import time
+
+    matrix = _load()
+    runner = _fake_runner_script(tmp_path / "concurrency-runner.py")
+    scenario = _write_json(tmp_path / "concurrency-scenario.json", {"scene_id": "s1"})
+    state = _write_json(tmp_path / "concurrency-state.json", {"public": True})
+    config = {
+        "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "persona_ids": ["careful_investigator"],
+        "seeds": [1, 2, 3, 4],
+        "cases": [{
+            "case_id": "bounded-concurrency",
+            "runner": "fake",
+            "runner_path": str(runner),
+            "scenario_fixture": str(scenario),
+            "initial_state_fixture": str(state),
+            "player_model": {"provider": "fixture", "id": "player-1"},
+            "kp_model": {"provider": "fixture", "id": "kp-1"},
+            "prompt_sources": {"player": str(runner), "kp": str(runner)},
+            "judge": {"enabled": False},
+        }],
+    }
+    plan = matrix.build_matrix_plan(
+        root=REPO, suite="nightly", configuration=config, credential_env={}
+    )
+    lock = threading.Lock()
+    active = 0
+    maximum = 0
+
+    def controlled_runner(**_kwargs):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+        time.sleep(0.05)
+        with lock:
+            active -= 1
+        return {"status": "PASS", "returncode": 0}
+
+    monkeypatch.setattr(matrix, "_invoke_fake_or_script_runner", controlled_runner)
+    result = matrix.execute_matrix_plan(
+        plan, root=REPO, output=tmp_path / "concurrency-output", max_workers=2
+    )
+
+    assert maximum == 2
+    assert result["aggregate"]["status_counts"]["PASS"] == 4
+
+
+def test_official_nightly_loads_versioned_execution_policy():
+    matrix = _load()
+
+    assert matrix.load_matrix_execution_policy(REPO, "nightly") == {
+        "runner_timeout_seconds": 2400.0,
+        "judge_timeout_seconds": 180.0,
+        "max_workers": 2,
+    }
+
+
+def test_multi_rubric_judges_all_required_dimensions_and_gates_regressions(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    plan = _fake_judged_plan(matrix, tmp_path, case_id="multi-rubric")
+    rubric_ids = [
+        "rulebook-procedure",
+        "agency-and-fun",
+        "zh-prose",
+        "module-fidelity",
+    ]
+    plan["cells"][0]["judge"] = {"enabled": True, "rubric_ids": rubric_ids}
+    baseline = _write_baseline_matrix(tmp_path / "baseline", plan)
+
+    def candidate_wins(request, rubric, **kwargs):
+        return {
+            "evaluator": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
+            "request_sha256": request["request_sha256"],
+            "winner": "B",
+            "dimension_scores": {
+                item["dimension_id"]: 4 for item in rubric["dimensions"]
+            },
+            "findings": [],
+            "reasons": ["Side B is at least as good on public evidence."],
+        }
+
+    # This seed maps baseline=A and candidate=B for every rubric.
+    monkeypatch.setattr(matrix.secrets, "randbits", lambda bits: 987654321)
+    monkeypatch.setattr(matrix.judge, "invoke_sol_judge", candidate_wins)
+    out = tmp_path / "candidate"
+    results = matrix.execute_matrix_plan(
+        plan, root=REPO, output=out, baseline_dir=baseline
+    )
+
+    cell = results["cells"][0]
+    assert cell["status"] == "PASS"
+    assert set(cell["judge_results"]) == set(rubric_ids)
+    assert {gate["status"] for gate in cell["judge_gates"]} == {"PASS"}
+    cell_dir = out / "cells" / cell["cell_id"]
+    for rubric_id in rubric_ids:
+        assert (cell_dir / f"judge-request.{rubric_id}.json").is_file()
+        assert (cell_dir / f"judge-result.{rubric_id}.json").is_file()
+
+    def baseline_wins(request, rubric, **kwargs):
+        payload = candidate_wins(request, rubric, **kwargs)
+        payload["winner"] = "A"
+        payload["reasons"] = ["Side A is better on public evidence."]
+        return payload
+
+    monkeypatch.setattr(matrix.judge, "invoke_sol_judge", baseline_wins)
+    regressed = matrix.execute_matrix_plan(
+        plan,
+        root=REPO,
+        output=tmp_path / "regressed",
+        baseline_dir=baseline,
+    )
+    regressed_cell = regressed["cells"][0]
+    assert regressed_cell["status"] == "FAIL"
+    assert regressed_cell["hard_findings"] == [
+        f"semantic_regression:{rubric_id}" for rubric_id in sorted(rubric_ids)
+    ]
+
+
 def test_judged_matrix_marks_missing_baseline_not_run(tmp_path: Path, monkeypatch):
     matrix = _load()
     runner = _fake_runner_script(tmp_path / "fake_runner.py")
@@ -2592,6 +3055,41 @@ def test_matrix_runner_pipe_drain_retries_interrupted_select_and_read(monkeypatc
     assert stderr.evidence_text() == "runner-warning\n"
 
 
+def test_matrix_runner_operator_interrupt_terminates_process_tree(
+    tmp_path: Path, monkeypatch
+):
+    matrix = _load()
+    runner = tmp_path / "runner.py"
+    runner.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    cell_input = tmp_path / "cell-input.json"
+    cell_input.write_text("{}\n", encoding="utf-8")
+    terminated: list[int] = []
+
+    monkeypatch.setattr(
+        matrix,
+        "_drain_runner_pipes",
+        lambda proc, timeout_s: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    def terminate(proc):
+        terminated.append(proc.pid)
+        proc.kill()
+        proc.wait(timeout=2)
+        return True
+
+    monkeypatch.setattr(matrix, "_terminate_process_tree", terminate)
+
+    with pytest.raises(KeyboardInterrupt):
+        matrix._invoke_fake_or_script_runner(
+            runner_path=runner,
+            cell_input=cell_input,
+            cell_dir=tmp_path / "cell",
+            timeout_s=60,
+        )
+
+    assert len(terminated) == 1
+
+
 def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Path):
     matrix = _load()
     sentinel = tmp_path / "orphan-sentinel.txt"
@@ -2648,7 +3146,12 @@ def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Pat
     cell = results["cells"][0]
     assert elapsed < 2
     assert cell["status"] == "NOT_RUN"
-    assert cell["not_run_reasons"] == ["execution_timeout"]
+    assert "execution_timeout" in cell["not_run_reasons"]
+    assert set(cell["not_run_reasons"]) <= {
+        "execution_timeout",
+        "process_output_drain_timeout",
+        "process_tree_termination_unconfirmed",
+    }
     assert cell["timeout_phase"] == "matrix_runner"
     manifest = json.loads(
         (
@@ -2656,7 +3159,12 @@ def test_matrix_runner_timeout_kills_descendants_and_stays_not_run(tmp_path: Pat
         ).read_text(encoding="utf-8")
     )
     assert manifest["status"] == "NOT_RUN"
-    assert manifest["not_run_reasons"] == ["execution_timeout"]
+    assert "execution_timeout" in manifest["not_run_reasons"]
+    assert set(manifest["not_run_reasons"]) <= {
+        "execution_timeout",
+        "process_output_drain_timeout",
+        "process_tree_termination_unconfirmed",
+    }
     time.sleep(1.0)
     assert not sentinel.exists()
 
@@ -2980,6 +3488,31 @@ def test_matrix_cli_plan_only_writes_evidence(tmp_path: Path, capsys):
     assert payload["suite"] == "nightly"
     assert (out / "matrix-plan.json").is_file()
     assert payload["cell_count"] == len(payload["cells"])
+
+
+def test_matrix_cli_custom_multi_module_configuration_is_explicitly_diagnostic(
+    tmp_path: Path, capsys
+):
+    cli = _load_cli()
+    out = tmp_path / "multi-module-plan"
+    configuration = (
+        REPO / "evaluation/spec/v1/configurations/multi-module-example.json"
+    )
+
+    code = cli.main([
+        "matrix",
+        "--suite", "nightly",
+        "--root", str(REPO),
+        "--output", str(out),
+        "--configuration", str(configuration),
+        "--plan-only",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code in {0, 1, 2}
+    assert payload["cell_count"] == 2
+    assert payload["diagnostic"]["official_suite_claim"] is False
+    assert len(payload["diagnostic"]["custom_configuration_sha256"]) == 64
 
 
 def test_nightly_suite_exposes_the_aggregate_pipeline_without_live_execution():

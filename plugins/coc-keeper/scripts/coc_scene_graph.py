@@ -12,8 +12,10 @@ R-3 (C1/C2/C3): story progression is a real graph, not array order.
 - Travel/cut unlock evaluation is source-local (visited or active only);
   explicit ``unlock`` edges remain global condition gates. One wave per call
   (no fixpoint across newly unlocked scenes).
-- CUT is cinematic travel among already-unlocked reachable targets — never an
-  unlock mechanism.
+- CUT is cinematic travel among already-unlocked reachable targets. The sole
+  exception is an exact semantic selection carrying a compiler-validated
+  public independent-entry receipt; apply persists that one destination before
+  travel. CUT itself never guesses or broadly unlocks destinations.
 
 Semantic Matcher Constitution: no free-text keyword scanning.
 """
@@ -37,6 +39,49 @@ def _load_sibling(name: str, filename: str):
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 
 SCENE_EDGE_KINDS = ("travel", "unlock", "cut")
+_DESTINATION_ACCESS_KEYS = {
+    "schema_version", "discoverability", "direct_entry",
+}
+
+
+def destination_access_contract(scene: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a canonical structured destination-access contract.
+
+    Missing or malformed contracts fail closed. Public independent access is
+    the sole mode that can authorize travel before an authored unlock; hidden
+    and evidence-gated destinations still require normal world evidence.
+    """
+    raw = scene.get("destination_access") if isinstance(scene, dict) else None
+    if not isinstance(raw, dict) or set(raw) != _DESTINATION_ACCESS_KEYS:
+        return None
+    discoverability = raw.get("discoverability")
+    direct_entry = raw.get("direct_entry")
+    if raw.get("schema_version") != 1:
+        return None
+    if discoverability not in {"public", "evidence_gated", "hidden"}:
+        return None
+    if direct_entry not in {"independent", "requires_unlock"}:
+        return None
+    if direct_entry == "independent" and discoverability != "public":
+        return None
+    return {
+        "schema_version": 1,
+        "discoverability": str(discoverability),
+        "direct_entry": str(direct_entry),
+    }
+
+
+def public_direct_entry_authority(
+    scene: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    contract = destination_access_contract(scene)
+    if contract == {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent",
+    }:
+        return contract
+    return None
 
 
 def _scenes(story_graph: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -144,6 +189,7 @@ def ensure_world_scene_fields(
         "unlocked_scene_ids",
         "visited_scene_ids",
         "exhausted_scene_ids",
+        "exit_ready_scene_ids",
         "scene_history",
     ):
         if not isinstance(world.get(key), list):
@@ -558,6 +604,12 @@ def record_scene_enter(
     if sid not in unlocked:
         unlocked.append(sid)
     world["unlocked_scene_ids"] = unlocked
+    if mark_previous_exhausted:
+        world["exit_ready_scene_ids"] = [
+            value
+            for value in (world.get("exit_ready_scene_ids") or [])
+            if str(value) != str(mark_previous_exhausted)
+        ]
     history = list(world.get("scene_history") or [])
     entry: dict[str, Any] = {"scene_id": sid}
     if decision_id:
@@ -630,7 +682,10 @@ def terminal_evidence(
     graph_terminal = is_terminal_scene(active_scene, story_graph)
     session_ending = _has_structured_event_type(events, "session_ending")
     return {
-        "reached_terminal": bool(graph_terminal or session_ending),
+        # Public terminal evidence means a structured session ending. Merely
+        # reaching a graph leaf is navigation evidence, exposed separately as
+        # graph_terminal, and is not proof that the scenario was resolved.
+        "reached_terminal": bool(session_ending),
         "active_scene_id": active_scene_id,
         "graph_terminal": bool(graph_terminal),
         "session_ending": bool(session_ending),
@@ -643,6 +698,8 @@ def outgoing_edge_count(scene_id: str, story_graph: dict[str, Any] | None) -> in
 
 __all__ = [
     "SCENE_EDGE_KINDS",
+    "destination_access_contract",
+    "public_direct_entry_authority",
     "derive_scene_edges",
     "start_scene_id",
     "ensure_world_scene_fields",

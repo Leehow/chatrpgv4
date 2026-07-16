@@ -21,6 +21,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 import coc_eval_calibration as calibration
 import coc_eval_longrun as longrun
 import coc_eval_matrix as matrix
+import coc_eval_metrics as metrics
 import coc_completion_audit as completion_audit
 
 CHAPTER_TRANSITION_CASE = Path("evaluation/spec/v1/cases/chapter-transition.json")
@@ -196,10 +197,19 @@ def run_matrix(
     output: Path | str,
     baseline: Path | str | None,
     matrix_limit: int | None,
-    timeout: float,
+    timeout: float | None,
+    max_workers: int | None = None,
 ) -> dict[str, Any]:
     """Execute the real matrix route and add its canonical lane status."""
-    timeout_s = _positive_number(timeout, label="timeout")
+    policy = matrix.load_matrix_execution_policy(root, suite)
+    if timeout is not None:
+        timeout_s = _positive_number(timeout, label="timeout")
+        runner_timeout_s = timeout_s
+        judge_timeout_s = timeout_s
+    else:
+        runner_timeout_s = float(policy["runner_timeout_seconds"])
+        judge_timeout_s = float(policy["judge_timeout_seconds"])
+    workers = policy["max_workers"] if max_workers is None else max_workers
     plan = matrix.build_matrix_plan(root=root, suite=suite)
     plan = _limited_matrix_plan(plan, matrix_limit)
     results = matrix.execute_matrix_plan(
@@ -207,8 +217,9 @@ def run_matrix(
         root=root,
         output=output,
         baseline_dir=_baseline_matrix_dir(baseline),
-        judge_timeout_s=timeout_s,
-        runner_timeout_s=timeout_s,
+        judge_timeout_s=judge_timeout_s,
+        runner_timeout_s=runner_timeout_s,
+        max_workers=workers,
     )
     payload = dict(results)
     declared_cells = {
@@ -431,46 +442,47 @@ def run_continuity(
 
 
 def _terminate_child_process_group(pid: int) -> None:
-    """Stop and reap a supervised fork plus descendants in its session."""
+    """Stop and reap a supervised fork without signalling a guessed group."""
+    descendants = matrix._descendant_pids(pid)
+    for target in descendants:
+        try:
+            os.kill(target, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    # Keep the fork leader alive until descendant ancestry has been
+    # revalidated.  Once the leader exits its children are reparented and a
+    # later signal could otherwise target a recycled PID.
+    grace_deadline = time.monotonic() + 0.2
+    while time.monotonic() < grace_deadline:
+        time.sleep(0.02)
+    for target in matrix._descendant_pids(pid):
+        try:
+            os.kill(target, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
     try:
-        group_id = os.getpgid(pid)
-    except ProcessLookupError:
-        group_id = None
-    try:
-        if group_id == pid:
-            os.killpg(group_id, signal.SIGTERM)
-        else:
-            os.kill(pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         pass
     grace_deadline = time.monotonic() + 0.5
-    leader_reaped = False
     while time.monotonic() < grace_deadline:
-        if not leader_reaped:
-            try:
-                waited, _status = os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
-                leader_reaped = True
-            except InterruptedError:
-                waited = 0
-            else:
-                if waited == pid:
-                    leader_reaped = True
+        try:
+            waited, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        except InterruptedError:
+            waited = 0
+        if waited == pid:
+            return
         time.sleep(0.02)
-    # The supervised leader may exit while a descendant ignores SIGTERM.
-    # Always target the original session group after the grace period.
     try:
-        if group_id == pid:
-            os.killpg(group_id, signal.SIGKILL)
-        else:
-            os.kill(pid, signal.SIGKILL)
+        os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    if not leader_reaped:
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
+    try:
+        os.waitpid(pid, 0)
+    except ChildProcessError:
+        pass
 
 
 def _unavailable_lane(lane_id: str, exc: BaseException) -> dict[str, Any]:
@@ -1222,13 +1234,15 @@ def run_extended_suite(
     registered_case_artifacts: dict[str, str] | None = None,
     baseline: Path | str | None = None,
     matrix_limit: int | None = None,
-    timeout: float = 120.0,
+    timeout: float | None = None,
     continuity_timeout: float | None = None,
+    matrix_workers: int | None = None,
 ) -> dict[str, Any]:
     """Run nightly's registered, matrix, and continuity lanes under one run."""
     if suite != "nightly":
         raise ValueError(f"extended suite is not implemented for: {suite}")
-    _positive_number(timeout, label="timeout")
+    if timeout is not None:
+        _positive_number(timeout, label="timeout")
     if continuity_timeout is not None:
         _positive_number(continuity_timeout, label="continuity_timeout")
     if matrix_limit is not None and (
@@ -1271,6 +1285,7 @@ def run_extended_suite(
             baseline=baseline,
             matrix_limit=matrix_limit,
             timeout=timeout,
+            max_workers=matrix_workers,
         )
         if matrix_limit is not None:
             matrix_diagnostic = dict(lanes["matrix"].get("diagnostic") or {})
@@ -1323,6 +1338,8 @@ def run_extended_suite(
         aggregation_inputs=aggregation_inputs,
     )
     summary_path = _write_json_atomic(out / "aggregate-summary.json", summary)
+    metric_payload = metrics.collect_metric_results(out, lanes)
+    metric_path = metrics.write_metric_results(out, metric_payload)
     artifact_hashes = {
         path: digest
         for receipt in lane_artifacts.values()
@@ -1331,8 +1348,20 @@ def run_extended_suite(
     artifact_hashes[summary_path.relative_to(out).as_posix()] = _sha256_file(
         summary_path
     )
+    artifact_hashes[metric_path.relative_to(out).as_posix()] = _sha256_file(
+        metric_path
+    )
+    matrix_policy = matrix.load_matrix_execution_policy(repo, suite)
     execution_budgets = {
-        "matrix_seconds": float(timeout),
+        "matrix_seconds": float(
+            timeout if timeout is not None else matrix_policy["runner_timeout_seconds"]
+        ),
+        "matrix_judge_seconds": float(
+            timeout if timeout is not None else matrix_policy["judge_timeout_seconds"]
+        ),
+        "matrix_max_workers": int(
+            matrix_workers if matrix_workers is not None else matrix_policy["max_workers"]
+        ),
         **{
             f"{lane_id}_seconds": _continuity_execution_budget(
                 repo, lane_id, continuity_timeout
@@ -1346,5 +1375,6 @@ def run_extended_suite(
         "lanes": lanes,
         "lane_artifacts": lane_artifacts,
         "artifact_hashes": artifact_hashes,
+        "metric_results_path": metric_path.relative_to(out).as_posix(),
         "execution_budgets": execution_budgets,
     }

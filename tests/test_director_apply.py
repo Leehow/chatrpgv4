@@ -817,8 +817,8 @@ def test_apply_memory_write_creates_card(tmp_path):
     assert "玩家信任诺特" in cards[0].read_text(encoding="utf-8")
 
 
-def test_apply_advances_scene_when_clues_exhausted(tmp_path):
-    """When all of a scene's available_clues are discovered, apply advances to next scene."""
+def test_apply_marks_scene_exit_ready_when_clues_exhausted(tmp_path):
+    """Clue exhaustion makes a scene leaveable without choosing travel for the player."""
     camp = _campaign(tmp_path)
     # scene-1 has clue-A; pre-discover it
     world = json.loads((camp / "save" / "world-state.json").read_text())
@@ -838,7 +838,8 @@ def test_apply_advances_scene_when_clues_exhausted(tmp_path):
             "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
-    assert world2["active_scene_id"] == "scene-2"
+    assert world2["active_scene_id"] == "scene-1"
+    assert world2["exit_ready_scene_ids"] == ["scene-1"]
 
 
 def test_apply_does_not_advance_when_clues_remain(tmp_path):
@@ -917,9 +918,8 @@ def test_apply_narrative_exit_does_not_auto_advance_on_clue_reveal(tmp_path):
     assert world3["active_scene_id"] == "archive"
 
 
-def test_apply_machine_checkable_exit_auto_advances_on_clue_reveal(tmp_path):
-    """A scene whose exit_condition IS machine-checkable (e.g. "clue-x discovered")
-    still auto-advances once all available_clues are revealed — preserved behavior."""
+def test_apply_machine_checkable_exit_requires_separate_transition_authority(tmp_path):
+    """A machine-checkable exit unlocks departure but does not authorize a destination."""
     camp = _campaign(tmp_path)
     world = json.loads((camp / "save" / "world-state.json").read_text())
     world["active_scene_id"] = "scene-1"
@@ -937,12 +937,12 @@ def test_apply_machine_checkable_exit_auto_advances_on_clue_reveal(tmp_path):
             "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
-    assert world2["active_scene_id"] == "scene-2"  # machine-checkable exit allows
+    assert world2["active_scene_id"] == "scene-1"
+    assert world2["exit_ready_scene_ids"] == ["scene-1"]
 
 
-def test_apply_no_exit_conditions_auto_advances_on_clue_reveal(tmp_path):
-    """A scene with NO exit_conditions still auto-advances once all available_clues
-    are revealed — preserved behavior (nothing to block on)."""
+def test_apply_no_exit_conditions_clue_exhaustion_marks_ready_without_travel(tmp_path):
+    """Exhausting a clue-only scene still hands destination choice back to the player."""
     camp = _campaign(tmp_path)
     world = json.loads((camp / "save" / "world-state.json").read_text())
     world["active_scene_id"] = "scene-1"
@@ -959,7 +959,8 @@ def test_apply_no_exit_conditions_auto_advances_on_clue_reveal(tmp_path):
             "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
-    assert world2["active_scene_id"] == "scene-2"  # no exit -> allow
+    assert world2["active_scene_id"] == "scene-1"
+    assert world2["exit_ready_scene_ids"] == ["scene-1"]
 
 
 def test_apply_obscured_reveal_waits_for_rule_result(tmp_path):
@@ -1719,8 +1720,8 @@ def test_apply_session_ending_bumps_storylet_ledger_session_number(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_apply_structured_clue_discovered_exit_auto_advances(tmp_path):
-    """Structured exit_conditions objects must satisfy in the apply layer (not only director)."""
+def test_apply_structured_clue_discovered_exit_marks_ready(tmp_path):
+    """Structured exit objects make departure available without selecting it."""
     camp = _campaign(tmp_path)
     world = json.loads((camp / "save" / "world-state.json").read_text())
     world["active_scene_id"] = "scene-1"
@@ -1738,7 +1739,8 @@ def test_apply_structured_clue_discovered_exit_auto_advances(tmp_path):
             "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
-    assert world2["active_scene_id"] == "scene-2"
+    assert world2["active_scene_id"] == "scene-1"
+    assert world2["exit_ready_scene_ids"] == ["scene-1"]
 
 
 def test_apply_structured_narrative_exit_blocks_auto_advance(tmp_path):
@@ -1762,7 +1764,7 @@ def test_apply_structured_narrative_exit_blocks_auto_advance(tmp_path):
     assert world2["active_scene_id"] == "briefing"
 
 
-def test_apply_structured_clock_reaches_exit_auto_advances(tmp_path):
+def test_apply_structured_clock_reaches_exit_marks_ready(tmp_path):
     camp = _campaign(tmp_path)
     world = json.loads((camp / "save" / "world-state.json").read_text())
     world["active_scene_id"] = "scene-1"
@@ -1791,7 +1793,8 @@ def test_apply_structured_clock_reaches_exit_auto_advances(tmp_path):
             "memory_writes": [], "rule_signals": {}, "narrative_directives": {}}
     coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
-    assert world2["active_scene_id"] == "scene-2"
+    assert world2["active_scene_id"] == "scene-1"
+    assert world2["exit_ready_scene_ids"] == ["scene-1"]
 
 
 def test_apply_tension_delta_cools_from_high_to_medium(tmp_path):
@@ -2132,6 +2135,13 @@ def _execute_normalized_push_lifecycle(
                     "eligible": True,
                     "requires_changed_method": True,
                     "keeper_must_foreshadow_failure": True,
+                },
+                "push_failure_consequence": {
+                    "summary": "the watcher identifies the investigator on failure",
+                    "effect": {
+                        "kind": "fictional_position",
+                        "severity": "serious",
+                    },
                 },
                 "roll_density_group": "clue:clue-A",
                 "must_not": ["do not reveal clue-A on failure"],
@@ -2650,10 +2660,18 @@ def _bonus_plan(clue_id="clue-A", on_fail_cost="time"):
             "reveal": [clue_id],
             "clue_type": "obvious",
             "bonus": {
+                "schema_version": 1,
+                "origin": "improvised",
                 "skill": "Spot Hidden",
                 "difficulty": "regular",
                 "extra_summary": "A faint chalk mark under the sill.",
                 "on_fail_cost": on_fail_cost,
+                "fumble_consequence": {
+                    "summary": "The failed search marks the investigator as rattled.",
+                    "effect": {
+                        "kind": "condition", "condition_id": "bonus-rattled",
+                    },
+                },
             },
         },
         "rules_requests": [{
@@ -2670,6 +2688,13 @@ def _bonus_plan(clue_id="clue-A", on_fail_cost="time"):
                 "success_effect": "attach bonus_reveal without gating the core clue",
                 "failure_effect": "core clue still lands; pay time or pressure cost",
                 "failure_outcome_mode": "bonus_with_cost",
+                "authored_clue_bonus": True,
+                "fumble_consequence": {
+                    "summary": "The failed search marks the investigator as rattled.",
+                    "effect": {
+                        "kind": "condition", "condition_id": "bonus-rattled",
+                    },
+                },
                 "roll_density_group": f"clue-bonus:{clue_id}",
                 "must_not": ["do not withhold the core clue on bonus failure"],
             },

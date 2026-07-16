@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -121,3 +123,77 @@ def test_campaign_lock_clears_stale_by_age(tmp_path, fileio, monkeypatch):
         payload = json.loads(lock_path.read_text(encoding="utf-8"))
         assert payload["pid"] == os.getpid()
         assert payload["acquired_at"] > time.time() - 60
+
+
+@pytest.mark.parametrize("contents", ["", "{not-json", "{}"])
+def test_campaign_lock_does_not_remove_fresh_unreadable_lock(
+    tmp_path,
+    fileio,
+    contents,
+):
+    campaign_dir = tmp_path / "campaigns" / "c1"
+    campaign_dir.mkdir(parents=True)
+    lock_path = campaign_dir / ".campaign.lock"
+    lock_path.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(fileio.CampaignLockError, match="held by pid=unknown"):
+        with fileio.campaign_lock(campaign_dir, stale_minutes=30):
+            pass
+
+    assert lock_path.read_text(encoding="utf-8") == contents
+
+
+def test_campaign_lock_waits_for_fresh_empty_lock_to_be_completed_and_released(
+    tmp_path,
+    fileio,
+):
+    campaign_dir = tmp_path / "campaigns" / "c1"
+    campaign_dir.mkdir(parents=True)
+    lock_path = campaign_dir / ".campaign.lock"
+    ready_path = tmp_path / "holder-ready"
+    holder_code = """
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+lock_path = Path(sys.argv[1])
+ready_path = Path(sys.argv[2])
+fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+ready_path.write_text("ready", encoding="utf-8")
+time.sleep(0.1)
+os.write(fd, json.dumps({"pid": os.getpid(), "acquired_at": time.time()}).encode("utf-8"))
+os.close(fd)
+time.sleep(0.1)
+lock_path.unlink()
+"""
+    holder = subprocess.Popen(
+        [sys.executable, "-c", holder_code, str(lock_path), str(ready_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 5.0
+        while not ready_path.is_file():
+            if holder.poll() is not None:
+                stdout, stderr = holder.communicate()
+                raise AssertionError(stderr or stdout or "lock holder exited early")
+            if time.monotonic() >= deadline:
+                raise AssertionError("lock holder did not create the empty lock")
+            time.sleep(0.001)
+
+        with fileio.campaign_lock(
+            campaign_dir,
+            stale_minutes=30,
+            wait_seconds=2,
+            poll_seconds=0.005,
+        ):
+            assert json.loads(lock_path.read_text(encoding="utf-8"))["pid"] == os.getpid()
+        stdout, stderr = holder.communicate(timeout=5)
+        assert holder.returncode == 0, stderr or stdout
+    finally:
+        if holder.poll() is None:
+            holder.kill()
+            holder.wait(timeout=5)

@@ -19,12 +19,9 @@ if str(SCRIPTS) not in sys.path:
 import coc_belief_state
 import coc_epistemic_compile
 import coc_epistemic_metrics
-import coc_epistemic_narration
 import coc_epistemic_policy
 import coc_epistemic_resolve
-import coc_narration_contract
 import coc_pdf_source
-import coc_storylets
 
 
 FIXTURES = Path("tests/fixtures/epistemic")
@@ -221,71 +218,3 @@ def test_failed_obscured_clue_produces_hold_and_no_belief_gain(tmp_path: Path):
     metrics = coc_epistemic_metrics.compute_epistemic_metrics(events, before)
     assert metrics["belief_gain"]["count"] == 0
 
-
-def test_storylet_and_narration_follow_resolved_primary_effect(tmp_path: Path):
-    fixture = _fixture("branching-investigation")
-    campaign = _campaign(tmp_path, fixture)
-    focused_state = coc_belief_state.read_belief_state(campaign)
-    focused_state["active_question_ids"] = ["q-motive"]
-    _write_json(campaign / "save" / "belief-state.json", focused_state)
-    planned = coc_epistemic_policy.plan_epistemic_contract(
-        _context(fixture, campaign, []),
-        {"reveal": ["clue-mixed"]},
-        "REVEAL",
-    )
-    resolved = coc_epistemic_resolve.resolve_epistemic_contract(
-        planned, ["clue-mixed"]
-    )
-    assert resolved["mode"] == "COMPLICATE"
-    assert {effect["mode"] for effect in resolved["resolved_effects"]} == {
-        "CONFIRM",
-        "COMPLICATE",
-    }
-
-    director_plan = {
-        "decision_id": "mixed-turn",
-        "scene_action": "REVEAL",
-        "clue_policy": {"reveal": ["clue-mixed"]},
-        "epistemic_contract": resolved,
-        "narrative_directives": {"horror_escalation_stage": "wrongness"},
-        "rule_signals": {},
-    }
-    story_ctx = {
-        "storylet_policy": {"allow_unanchored_storylets": True},
-        "active_scene": {
-            "scene_id": "scene-investigation",
-            "scene_type": "investigation",
-            "available_clues": ["clue-mixed"],
-            "npc_ids": [],
-        },
-        "world_state": {"discovered_clue_ids": []},
-        "structure_type": "branching_investigation",
-        "module_meta": {},
-        "turn_number": 1,
-    }
-    need = coc_storylets.infer_story_need(director_plan, story_ctx)
-    moves = coc_storylets.select_storylet_moves(
-        director_plan,
-        story_ctx,
-        library={"schema_version": 1, "storylets": fixture["storylets"]},
-        seed="e2e",
-    )
-    assert need["need_id"] == "belief_complication"
-    assert moves[0]["storylet_id"] == "story-complicate-motive"
-
-    envelope = coc_narration_contract.build_narration_envelope(
-        director_plan,
-        clue_graph={"conclusions": []},
-        epistemic_graph=fixture["epistemic_graph"],
-    )
-    projection = envelope["belief_update"]
-    assert projection["mode"] == "COMPLICATE"
-    assert projection["newly_uncertain"] == [
-        {"question_id": "q-motive", "label": "Why was the record changed?"}
-    ]
-    assert projection["newly_supported"] == [
-        {"question_id": "q-fact", "label": "Was the record changed?"}
-    ]
-    serialized = json.dumps(projection, ensure_ascii=False)
-    assert "truth_ref" not in serialized
-    assert "KEEPER" not in serialized

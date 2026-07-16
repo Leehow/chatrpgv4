@@ -20,6 +20,32 @@ Before finishing plugin work, run at minimum:
 PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
+## Keeper Toolbox Architecture
+
+The keeper LLM drives every play turn. There is no fixed turn pipeline: the
+host agent (Codex, Claude Code, Cursor, or Pi) reads the canonical skills and
+calls tools from the single registry:
+
+```bash
+python3 plugins/coc-keeper/scripts/coc_toolbox.py list
+python3 plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
+```
+
+Exactly three hard rules are enforced inside tools; everything else is
+advisory (`warnings` / `hints` in the tool envelope):
+
+1. Dice and HP/SAN/skill arithmetic are deterministic (`rules.*`); the keeper
+   never invents or adjusts roll numbers.
+2. State writes are transactional and idempotent (`state.*` with
+   `decision_id`); saves are never hand-edited mid-play.
+3. Module truth is read-only; tools mark keeper-only material as
+   `secret: true` and the keeper reveals it only through play.
+
+Do not reintroduce blocking narrative gates (scene-transition state machines,
+clue-reveal gates, storylet eligibility suppression, narration output audits)
+into the turn path. Narrative legality belongs in tool warnings, not in
+exceptions.
+
 ## Canonical Evaluation Contract
 
 Codex, ZCode, Cursor, CI, and local agents must use the same versioned evaluation

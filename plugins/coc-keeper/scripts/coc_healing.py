@@ -116,6 +116,7 @@ class HealingSession:
             str(wound): {
                 str(day): {
                     "first_aid_used": flags.get("first_aid_used") is True,
+                    "first_aid_push_used": flags.get("first_aid_push_used") is True,
                     "medicine_used": flags.get("medicine_used") is True,
                 }
                 for day, flags in days.items() if isinstance(flags, dict)
@@ -125,6 +126,7 @@ class HealingSession:
         if not self._usage_records and any(key in usage for key in ("first_aid_used", "medicine_used")):
             self._usage_records = {self.wound_id: {self.day_id: {
                 "first_aid_used": usage.get("first_aid_used") is True,
+                "first_aid_push_used": usage.get("first_aid_push_used") is True,
                 "medicine_used": usage.get("medicine_used") is True,
             }}}
         self._load_usage_flags()
@@ -155,12 +157,22 @@ class HealingSession:
         before = self.current_hp
         self.current_hp = min(self.hp_max, self.current_hp + amount)
         gained = self.current_hp - before
-        # Healing out of major_wound / dying once HP is sufficient
+        # Keep all healing consumers aligned: generic HP healing already
+        # clears a stale combat unconscious marker once HP is positive. First
+        # Aid/Medicine must do the same for a non-dying investigator or the
+        # live-play consumer can never resume after successful care.
         if gained > 0:
+            if not self.is_dying and "unconscious" in self.conditions:
+                self.conditions.remove("unconscious")
             if self.current_hp > 0 and "dying" in self.conditions:
                 self.conditions.remove("dying")
-            # major_wound clears once HP restored to >= half max (heuristic; p.122)
-            if self.current_hp >= self.hp_max // 2 and "major_wound" in self.conditions:
+            # A major wound clears once HP is restored to at least half max.
+            # Round odd maxima upward: 5 HP is still below half of an 11 HP
+            # maximum, while 6 HP satisfies the rule.
+            if (
+                self.current_hp >= (self.hp_max + 1) // 2
+                and "major_wound" in self.conditions
+            ):
                 self.conditions.remove("major_wound")
         return gained
 
@@ -191,6 +203,24 @@ class HealingSession:
                            "clear dying (p.121)"),
                 "summary": f"{self.investigator_id} already stabilized; Medicine next.",
             })
+        if pushed and not self._first_aid_used_today:
+            return self._event("first_aid", {
+                "skill": "First Aid", "difficulty": difficulty,
+                "outcome": None, "pushed": True, "already_used_today": False,
+                "push_unavailable": True,
+                "hp_before": self.current_hp, "hp_gained": 0,
+                "hp_after": self.current_hp,
+                "summary": f"{self.investigator_id} has no failed First Aid attempt to push.",
+            })
+        if pushed and self._first_aid_push_used_today:
+            return self._event("first_aid", {
+                "skill": "First Aid", "difficulty": difficulty,
+                "outcome": None, "pushed": True, "already_used_today": True,
+                "push_already_used": True,
+                "hp_before": self.current_hp, "hp_gained": 0,
+                "hp_after": self.current_hp,
+                "summary": f"{self.investigator_id} First Aid push already used today.",
+            })
         if self._first_aid_used_today and not pushed:
             return self._event("first_aid", {
                 "skill": "First Aid", "difficulty": difficulty,
@@ -203,6 +233,8 @@ class HealingSession:
             res = skill_roll_result or coc_roll.percentile_check(
                 skill_value, difficulty=difficulty, rng=self._rng)
             self._first_aid_used_today = True
+            if pushed:
+                self._first_aid_push_used_today = True
             success = res.get("outcome") in ("regular", "hard", "extreme", "critical")
             if success:
                 self.current_hp = 1
@@ -228,6 +260,8 @@ class HealingSession:
         hp_gained = 0
         already_used = False
         self._first_aid_used_today = True
+        if pushed:
+            self._first_aid_push_used_today = True
         if success and not already_used:
             hp_gained = self._heal(1)
             self._first_aid_used_today = True
@@ -293,6 +327,12 @@ class HealingSession:
                 # p.121: uncheck the dying box, then heal 1D3.
                 self.conditions.remove("dying")
                 self.conditions.remove("stabilized")
+                # The character is no longer in the unplayable dying chain.
+                # A successful Medicine rescue restores positive HP, so the
+                # stale combat unconscious marker must not strand consumers
+                # after the canonical rescue has completed.
+                if "unconscious" in self.conditions:
+                    self.conditions.remove("unconscious")
             dice = coc_roll.roll_expression("1D3", rng=self._rng)
             roll_total = int(dice.get("total", 1))
             healing_dice = {
@@ -333,6 +373,11 @@ class HealingSession:
         died = res.get("outcome") in ("failure", "fumble")
         if died and "dead" not in self.conditions:
             self.conditions.append("dead")
+        elif not died:
+            # First Aid after the original attempt is always pushed (p.120),
+            # but surviving the death clock advances the fiction to a new
+            # round and therefore opens one new subsequent attempt.
+            self.reopen_subsequent_first_aid_attempt()
         return self._event("dying_con_roll", {
             "outcome": res.get("outcome"), "roll": res.get("roll"),
             "target": self.con_value, "difficulty": "regular", "died": died,
@@ -351,6 +396,10 @@ class HealingSession:
             self.current_hp = 0
             if "stabilized" in self.conditions:
                 self.conditions.remove("stabilized")
+            # p.121 returns the patient to the start of the dying process and
+            # explicitly requires First Aid again.  It is still a subsequent
+            # attempt on the same wound, so it remains pushed (p.120).
+            self.reopen_subsequent_first_aid_attempt()
         return self._event("stabilized_con_roll", {
             "outcome": res.get("outcome"), "roll": res.get("roll"),
             "target": self.con_value, "difficulty": "regular", "deteriorated": deteriorated,
@@ -428,12 +477,25 @@ class HealingSession:
         outcome = res.get("outcome")
         hp_before = self.current_hp
         gained = 0
+        healing_dice: dict[str, Any] | None = None
         if outcome == "extreme":
-            gained = self._heal(int(coc_roll.roll_expression("2D3", rng=self._rng)["total"]))
+            dice = coc_roll.roll_expression("2D3", rng=self._rng)
+            healing_dice = {
+                "expression": "2D3",
+                "raw": list(dice.get("rolls") or []),
+                "total": int(dice["total"]),
+            }
+            gained = self._heal(healing_dice["total"])
             if "major_wound" in self.conditions:
                 self.conditions.remove("major_wound")
         elif outcome in ("regular", "hard", "critical"):
-            gained = self._heal(int(coc_roll.roll_expression("1D3", rng=self._rng)["total"]))
+            dice = coc_roll.roll_expression("1D3", rng=self._rng)
+            healing_dice = {
+                "expression": "1D3",
+                "raw": list(dice.get("rolls") or []),
+                "total": int(dice["total"]),
+            }
+            gained = self._heal(healing_dice["total"])
         elif outcome == "fumble":
             self._event("lasting_injury", {
                 "rule_ref": "core.combat.major_wound_recovery_fumble",
@@ -446,8 +508,19 @@ class HealingSession:
         # HP >= half max also clears the major wound (second path, p.121) —
         # handled by _heal.
         return self._event("major_wound_recovery", {
-            "outcome": outcome, "bonus_dice": bonus, "penalty_dice": penalty,
+            "skill": "CON",
+            "target": self.con_value,
+            "difficulty": "regular",
+            "roll": res.get("roll"),
+            "outcome": outcome,
+            "bonus_dice": bonus,
+            "penalty_dice": penalty,
+            "complete_rest": bool(complete_rest),
+            "medical_care_success": bool(medical_care_success),
+            "poor_environment": bool(poor_environment),
+            "medicine_fumbled": bool(medicine_fumbled),
             "hp_before": hp_before, "hp_gained": gained, "hp_after": self.current_hp,
+            "healing_dice": healing_dice,
             "rule_ref": "core.combat.major_wound_recovery",
             "summary": (f"{self.investigator_id} weekly recovery CON ({outcome}): "
                         f"+{gained} HP."),
@@ -459,17 +532,31 @@ class HealingSession:
     def reset_daily_treatments(self) -> None:
         """Reset the per-wound First Aid / Medicine trackers for a new day."""
         self._first_aid_used_today = False
+        self._first_aid_push_used_today = False
         self._medicine_used_today = False
+        self._store_usage_flags()
+
+    def reopen_subsequent_first_aid_attempt(self) -> None:
+        """Open one later First Aid attempt while preserving pushed status.
+
+        Surviving an unstabilized dying round or losing temporary
+        stabilization creates a new opportunity to treat the same wound.  It
+        is not a fresh first attempt: p.120 makes the second and subsequent
+        attempts pushed rolls.
+        """
+        self._first_aid_push_used_today = False
         self._store_usage_flags()
 
     def _load_usage_flags(self) -> None:
         flags = self._usage_records.get(self.wound_id, {}).get(self.day_id, {})
         self._first_aid_used_today = flags.get("first_aid_used") is True
+        self._first_aid_push_used_today = flags.get("first_aid_push_used") is True
         self._medicine_used_today = flags.get("medicine_used") is True
 
     def _store_usage_flags(self) -> None:
         self._usage_records.setdefault(self.wound_id, {})[self.day_id] = {
             "first_aid_used": self._first_aid_used_today,
+            "first_aid_push_used": self._first_aid_push_used_today,
             "medicine_used": self._medicine_used_today,
         }
 

@@ -50,6 +50,7 @@
   },
   "weapons": [
     {
+      "weapon_id": "revolver_38",
       "name": ".38 Revolver",
       "skill": "Firearms (Handgun)",
       "damage": "1D10",

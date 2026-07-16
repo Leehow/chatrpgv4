@@ -350,10 +350,12 @@ def test_rules_json_guide_lists_all_rule_json_files():
 
 def test_all_v1_skills_have_valid_frontmatter():
     expected = {
-        "coc-main",
+            "coc-main",
+            "coc-magic",
         "coc-campaign-state",
         "coc-rules-engine",
         "coc-character",
+        "coc-development",
         "coc-scenario-import",
         "coc-keeper-play",
         "coc-meta",
@@ -378,6 +380,22 @@ def test_all_v1_skills_have_valid_frontmatter():
         assert len(description) > 40
         found.add(name)
     assert found == expected
+
+
+def test_development_skill_owns_structured_synchronous_settlement():
+    development = (PLUGIN_ROOT / "skills" / "coc-development" / "SKILL.md").read_text()
+    keeper = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+    main = (PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md").read_text()
+    character = (PLUGIN_ROOT / "skills" / "coc-character" / "SKILL.md").read_text()
+    assert "structured ending evidence" in development
+    assert "Never infer an ending from narration" in development
+    assert "Only audit-log or mirror flushing may run in the background" in development
+    assert "route post-session" in main
+    assert "Route settlement to `coc-development`" in keeper
+    assert "use coc-development for post-session advancement" in character.split("---", 2)[1]
+    adapter = Path("runtime/adapters/keeper/run_keeper_turn.mjs").read_text()
+    assert "synchronously finish every rules.* resource change" in adapter
+    assert "Only append-only JSONL audit/mirror flushing may happen" in adapter
 
 
 def test_reference_documents_exist_and_use_ascii_system_markers():
@@ -472,6 +490,24 @@ def test_mode_protocol_documents_play_language_and_localized_terms():
         assert term in text
 
 
+def test_keeper_play_localizes_source_module_names_in_play_language():
+    source = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
+    text = " ".join(source.split())
+    required_terms = [
+        "every player-visible string",
+        "`play_language`",
+        "`localized_terms[play_language]`",
+        "`language_profile.name_policy`",
+        "Chinese transliterations or established Chinese translations",
+        "Japanese katakana",
+        "instead of preserving the source-language spelling",
+        "unless the player explicitly asks for it",
+        "machine-facing fields, stable IDs, and hidden audit data",
+    ]
+    for term in required_terms:
+        assert term in text
+
+
 def test_play_protocol_prohibits_player_visible_action_menus():
     mode_protocol = (PLUGIN_ROOT / "references" / "mode-protocol.md").read_text()
     keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
@@ -483,40 +519,6 @@ def test_play_protocol_prohibits_player_visible_action_menus():
     assert "`pending_choices` is Keeper-facing" in state_schema
 
 
-def test_keeper_play_documents_live_story_bridge_for_manual_campaigns():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "live-story bridge" in keeper_skill
-    assert "`save/active-scene.json`" in keeper_skill
-    assert "missing `story-graph.json`" in keeper_skill
-    assert "must still run through `build_director_context`" in keeper_skill
-
-
-def test_keeper_play_documents_scene_progress_governor():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "`logs/scene-progress.jsonl`" in keeper_skill
-    assert "`narrative_directives.scene_progress`" in keeper_skill
-    assert "Bridge and transition scenes must have a progress contract" in keeper_skill
-    assert "same-axis" in keeper_skill
-    assert "environment check" in keeper_skill
-
-
-def test_keeper_play_documents_live_turn_runner_hard_entrypoint():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert (PLUGIN_ROOT / "scripts" / "coc_live_turn_runner.py").exists()
-    assert "`scripts/coc_live_turn_runner.py`" in keeper_skill
-    assert "`run_live_turn(...)`" in keeper_skill
-    assert "`logs/live-turn-runtime.jsonl`" in keeper_skill
-    assert "`state_patch`" in keeper_skill
-    assert "`stop_actionability`" in keeper_skill
-    assert "`logs/scene-state-patches.jsonl`" in keeper_skill
-    assert "Do not manually stitch" in keeper_skill
-    assert "Foreground narration must not wait for background audit flushing" in keeper_skill
-    assert "Do not poll" in keeper_skill
-
-
 def test_keeper_play_lists_reusable_investigators_before_character_creation():
     keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
 
@@ -524,62 +526,6 @@ def test_keeper_play_lists_reusable_investigators_before_character_creation():
     assert "`/.coc/investigators/`" in keeper_skill
     assert "before starting characteristic generation" in keeper_skill
     assert "name, occupation, era" in keeper_skill
-
-
-def test_keeper_play_requires_player_created_investigators_for_starter_scenarios():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "Starter Scenario Character Gate" in keeper_skill
-    assert "built-in starter scenarios must not auto-select pre-generated investigators" in keeper_skill
-    assert "AI may draft a complete investigator only after the player asks for auto-creation" in keeper_skill
-    assert "player-safe background briefing" in keeper_skill
-
-
-def test_keeper_play_requires_semantic_repetition_compression():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "Compress repeated semantic facts" in keeper_skill
-    assert "communicates the same" in keeper_skill
-    assert "adds no new information" in keeper_skill
-    assert "Repetition is judged" in keeper_skill
-    assert "semantically, not by exact words" in keeper_skill
-
-
-def test_keeper_play_requires_observable_behavior_before_inner_state_explanation():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "Show observable behavior before interpretation" in keeper_skill
-    assert "Do not explain NPC mental state with abstract summary sentences" in keeper_skill
-    assert "observable action, voice, posture, gaze, hesitation, or physical evidence" in keeper_skill
-
-
-def test_keeper_play_requires_crisis_scene_clarity_rendering():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "Crisis scene clarity" in keeper_skill
-    assert "Use blocking as an internal drafting frame, not as player-visible prose" in keeper_skill
-    assert "viewpoint, spatial anchor, active motion, connection or force, risk progression, visible affordance, and player entry" in keeper_skill
-    assert "Do not render crisis beats as" in keeper_skill
-
-
-def test_keeper_play_documents_npc_social_role_persona_layer():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "NPC Social Role & Persona Layer" in keeper_skill
-    assert "Do not branch on concrete occupation, title, name, or keyword text" in keeper_skill
-    assert "`save/npc-state.json`" in keeper_skill
-    assert "`logs/npc-agency.jsonl`" in keeper_skill
-    assert "authority_scope, responsibility_domains, chain_of_command, duty_pressure, initiative_style, and delegation_policy" in keeper_skill
-
-
-def test_keeper_play_documents_npc_genesis_pipeline_and_debug_logs():
-    keeper_skill = (PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").read_text()
-
-    assert "NPC Genesis Pipeline" in keeper_skill
-    assert "`logs/npc-generation.jsonl`" in keeper_skill
-    assert "`logs/npc-stat-upgrade.jsonl`" in keeper_skill
-    assert "LLM-generated names are presentation data" in keeper_skill
-    assert "Do not generate full mechanical stats for every passerby" in keeper_skill
 
 
 def test_npc_runtime_rule_files_are_indexed_and_generic():

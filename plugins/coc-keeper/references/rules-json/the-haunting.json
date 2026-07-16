@@ -75,6 +75,7 @@
       "weapon_id": "floating-knife",
       "extends": "knife_medium",
       "name": "The Floating Knife",
+      "skill": "POW",
       "special": "mythos_animated",
       "rule_refs": [
         "core.combat.weapons",

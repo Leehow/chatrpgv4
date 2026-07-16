@@ -12,6 +12,76 @@ def _load(name, rel):
 
 
 narr = _load("coc_narrative_enrichment", "plugins/coc-keeper/scripts/coc_narrative_enrichment.py")
+director = _load("coc_story_director_empty_reveal", "plugins/coc-keeper/scripts/coc_story_director.py")
+
+
+def test_generic_combat_route_uses_structured_owned_weapon_without_unarmed_fallback():
+    operation = {
+        "kind": "combat_engagement",
+        "module_rules_id": "the-haunting",
+        "default_investigator_weapon_id": "unarmed",
+        "opponent": {
+            "actor_id": "walter-corbitt", "monster_ref": "Walter Corbitt",
+            "combat_skill": 90, "dodge_skill": 17, "magic_points": 18,
+            "weapons": [{"weapon_id": "floating-knife"}],
+        },
+    }
+    base = {
+        "active_scene": {"scene_id": "final", "affordances": [{
+            "id": "conventional-assault", "rules_operation": operation,
+        }]},
+        "world_state": {}, "combat_state": {},
+        "character": {"skills": {"Firearms (Handgun)": 55}},
+        "investigator_combat_profile": {
+            "actor_id": "inv1", "side": "investigator", "dex": 60,
+            "combat_skill": 50, "dodge_skill": 30, "firearms_skill": 55,
+            "has_ready_firearm": False, "build": 1, "damage_bonus": "none",
+            "hp_max": 12, "hp_current": 12, "con": 55, "magic_points": 11,
+            "armor": 0, "armor_rule": None,
+            "weapons": [{"weapon_id": "revolver_38"}, {"weapon_id": "unarmed"}],
+            "conditions": [],
+        },
+        "player_intent_rich": {
+            "action_resolution": {"matched_affordance_ids": ["conventional-assault"]},
+            "action_atoms": [{
+                "id": "shoot-corbitt", "verb": "attack", "requires_roll": True,
+                "weapon_id": "revolver_38",
+            }],
+        },
+    }
+
+    requests = narr.build_route_operation_requests(base)
+
+    start, attack = requests[:2]
+    assert start["participants"][0]["weapons"][0]["weapon_id"] == "revolver_38"
+    assert start["participants"][0]["has_ready_firearm"] is True
+    floating_knife = start["participants"][1]["weapons"][0]
+    assert floating_knife["weapon_id"] == "floating-knife"
+    assert floating_knife["skill"] == "POW"
+    assert attack["weapon_id"] == "revolver_38"
+    assert attack["resolution_hint"] == "firearm_attack"
+
+    unowned = {**base, "investigator_combat_profile": {
+        **base["investigator_combat_profile"], "weapons": [{"weapon_id": "unarmed"}],
+    }}
+    assert narr.build_route_operation_requests(unowned) == []
+
+    rematch = {
+        **base,
+        "combat_state": {
+            "status": "concluded",
+            "combat_id": "combat-final",
+            "revision": 9,
+        },
+        "turn_number": 25,
+    }
+    rematch_requests = narr.build_route_operation_requests(rematch)
+    rematch_start = rematch_requests[0]
+    assert rematch_start["kind"] == "combat_start"
+    assert rematch_start["combat_id"] == "combat-final-restart-t25-r9"
+    assert rematch_start["command_id"].startswith(
+        "combat-final-restart-t25-r9-"
+    )
 
 
 def test_choice_frame_surfaces_affordance_tradeoffs_without_menu():
@@ -24,8 +94,174 @@ def test_choice_frame_surfaces_affordance_tradeoffs_without_menu():
     assert frame["do_not_render_as_menu"] is True
     assert frame["route_count"] == 2
     assert frame["routes"][0]["route_id"] == "exit_tunnel"
+    assert frame["routes"][0]["cue_scope"] == "action_only"
     assert frame["routes"][0]["visible_risk"] == "出口可能被封堵"
     assert frame["must_surface_tradeoffs"] is True
+
+
+def test_choice_frame_hides_consumed_one_shot_affordances_but_keeps_repeatable_routes():
+    scene = {"affordances": [
+        {"id": "take-key", "cue": "Take the key.", "clue_id": "key"},
+        {"id": "ask-again", "cue": "Ask again.", "clue_id": "terms", "repeatable": True},
+        {"id": "ask-lead", "cue": "Ask for another lead.", "clue_id": "lead"},
+    ]}
+
+    frame = narr.build_choice_frame(
+        scene,
+        discovered_clue_ids=["key", "terms"],
+    )
+
+    assert frame["open_route_ids"] == ["ask-again", "ask-lead"]
+    assert "take-key" not in [route["route_id"] for route in frame["routes"]]
+
+
+def test_choice_frame_hides_completed_generic_route_from_durable_receipt():
+    scene = {"scene_id": "newspaper-morgue", "affordances": [{
+        "id": "search-clippings", "cue": "Search the indexed clippings.",
+    }]}
+    frame = narr.build_choice_frame(
+        scene,
+        discovered_clue_ids=["clue-globe-story"],
+        route_completion_receipts=[{
+            "route_id": "search-clippings",
+            "scene_id": "newspaper-morgue",
+            "status": "consumed",
+            "committed_clue_ids": ["clue-globe-story"],
+            "remaining_clue_ids": [],
+        }],
+    )
+
+    assert frame["routes"] == []
+    assert frame["open_route_ids"] == []
+
+
+def test_choice_frame_keeps_repeatable_or_explicit_remaining_route():
+    scene = {"scene_id": "newspaper-morgue", "affordances": [
+        {
+            "id": "ask-again", "cue": "Ask the editor again.",
+            "repeatable": True,
+        },
+        {
+            "id": "search-two-files", "cue": "Search the remaining file.",
+            "grants_clue_ids": ["c1", "c2"],
+        },
+    ]}
+    receipts = [
+        {
+            "route_id": "ask-again", "scene_id": "newspaper-morgue",
+            "status": "consumed", "remaining_clue_ids": [],
+        },
+        {
+            "route_id": "search-two-files", "scene_id": "newspaper-morgue",
+            "status": "consumed", "remaining_clue_ids": ["c2"],
+        },
+    ]
+
+    frame = narr.build_choice_frame(
+        scene,
+        discovered_clue_ids=["c1"],
+        route_completion_receipts=receipts,
+    )
+
+    assert frame["open_route_ids"] == ["ask-again", "search-two-files"]
+
+
+def test_choice_frame_keeps_failed_generic_route_without_completion_receipt():
+    scene = {"scene_id": "newspaper-morgue", "affordances": [{
+        "id": "persuade-arty", "cue": "Ask the editor for access.",
+    }]}
+
+    frame = narr.build_choice_frame(
+        scene,
+        discovered_clue_ids=[],
+        route_completion_receipts=[],
+    )
+
+    assert frame["open_route_ids"] == ["persuade-arty"]
+
+
+def test_choice_frame_requires_structured_route_prerequisites():
+    scene = {"scene_id": "newspaper-morgue", "affordances": [
+        {"id": "persuade-arty", "cue": "Gain archive access."},
+        {
+            "id": "search-clippings",
+            "cue": "Search the archive.",
+            "requires_completed_route_ids": ["persuade-arty"],
+        },
+    ]}
+
+    locked = narr.build_choice_frame(scene, route_completion_receipts=[])
+    unlocked = narr.build_choice_frame(scene, route_completion_receipts=[{
+        "route_id": "persuade-arty",
+        "scene_id": "newspaper-morgue",
+        "status": "consumed",
+    }])
+
+    assert locked["open_route_ids"] == ["persuade-arty"]
+    assert unlocked["open_route_ids"] == ["search-clippings"]
+
+
+def test_rule_request_route_binding_is_unambiguous_and_fails_closed_on_many_requests():
+    rich = {
+        "action_resolution": {
+            "matched_affordance_ids": ["gain-access"],
+            "no_match": False,
+        },
+        "action_atoms": [{
+            "id": "ask-access", "verb": "request", "skill": "Charm",
+        }],
+    }
+    one = [{"request_id": "roll-ask-access", "atom_id": "ask-access"}]
+
+    narr.bind_action_chain_routes(one, rich)
+
+    assert one[0]["route_resolution"]["matched_route_ids"] == ["gain-access"]
+    assert one[0]["route_resolution"]["binding"] == (
+        "single_request_single_resolver_route"
+    )
+
+    ambiguous = [
+        {"request_id": "roll-a", "atom_id": "a"},
+        {"request_id": "roll-b", "atom_id": "b"},
+    ]
+    narr.bind_action_chain_routes(ambiguous, rich)
+    assert all("route_resolution" not in request for request in ambiguous)
+
+
+def test_merged_request_rejects_different_routes_but_dedupes_same_route():
+    request = {
+        "request_id": "roll-merged", "atom_id": "a",
+        "merged_atoms": ["a", "b"],
+    }
+    different = {
+        "action_resolution": {
+            "matched_affordance_ids": ["route-a", "route-b"],
+            "no_match": False,
+        },
+        "action_atoms": [
+            {"id": "a", "route_id": "route-a"},
+            {"id": "b", "route_id": "route-b"},
+        ],
+    }
+    narr.bind_action_chain_routes([request], different)
+    assert "route_resolution" not in request
+
+    same_request = {
+        "request_id": "roll-merged", "atom_id": "a",
+        "merged_atoms": ["a", "b"],
+    }
+    same = {
+        "action_resolution": {
+            "matched_affordance_ids": ["route-a"],
+            "no_match": False,
+        },
+        "action_atoms": [
+            {"id": "a", "route_id": "route-a"},
+            {"id": "b", "route_id": "route-a"},
+        ],
+    }
+    narr.bind_action_chain_routes([same_request], same)
+    assert same_request["route_resolution"]["matched_route_ids"] == ["route-a"]
 
 
 def test_stop_actionability_contract_uses_structured_handles_after_costly_failure():
@@ -89,6 +325,99 @@ def test_action_atoms_become_chained_rule_requests():
     assert requests[1]["kind"] == "opposed_check"
     assert requests[1]["depends_on"] == "roll-a1"
     assert requests[2]["kind"] == "characteristic_check"
+
+
+def test_empty_reveal_never_emits_sentinel_spot_hidden_roll():
+    requests = director._build_rules_requests(
+        {
+            "active_scene": {},
+            "world_state": {},
+            "player_intent_rich": {},
+            "combat_state": {},
+            "rule_signals": {},
+        },
+        "REVEAL",
+        {"reveal": [], "clue_type": "obscured", "skill": None},
+    )
+
+    assert requests == []
+
+
+def test_archive_action_atom_replaces_director_default_clue_gate():
+    existing = [{
+        "kind": "skill_check",
+        "skill": "Spot Hidden",
+        "reason": "obscured clue in scene",
+        "clue_gate": True,
+        "clue_id": "clue-globe-story",
+        "roll_contract": {
+            "failure_outcome_mode": "clue_with_cost",
+            "roll_density_group": "clue:clue-globe-story",
+        },
+    }]
+    rich = {"action_atoms": [{
+        "id": "search-clippings",
+        "route_id": "search-clippings",
+        "skill": "Library Use",
+        "requires_roll": True,
+    }]}
+    chain = narr.build_action_chain_requests(rich)
+
+    merged, _chains, decisions = narr.arbitrate_rule_requests(
+        existing,
+        chain,
+        rich,
+        {
+            "reveal": ["clue-globe-story"],
+            "matched_route_ids": ["search-clippings"],
+            "matched_affordance": {"matched": {"skills": ["Library Use"]}},
+        },
+    )
+
+    assert len(merged) == 1
+    assert merged[0]["skill"] == "Library Use"
+    assert merged[0]["clue_gate"] is True
+    assert merged[0]["clue_id"] == "clue-globe-story"
+    assert merged[0]["roll_contract"]["failure_outcome_mode"] == "clue_with_cost"
+    assert decisions[0]["replaced_kind"] == "clue_gate"
+
+
+def test_rule_arbitration_preserves_distinct_multi_step_actions():
+    rich = {"action_atoms": [
+        {
+            "id": "search-clippings", "route_id": "search-clippings",
+            "skill": "Library Use", "requires_roll": True,
+        },
+        {
+            "id": "convince-editor", "route_id": "persuade-arty",
+            "skill": "Persuade", "requires_roll": True,
+        },
+    ]}
+    chain = narr.build_action_chain_requests(rich)
+    existing = [{
+        "kind": "skill_check", "skill": "Spot Hidden",
+        "reason": "obscured clue in scene", "clue_gate": True,
+        "clue_id": "clue-globe-story",
+        "roll_contract": {
+            "failure_outcome_mode": "clue_with_cost",
+            "roll_density_group": "clue:clue-globe-story",
+        },
+    }]
+
+    merged, _chains, _decisions = narr.arbitrate_rule_requests(
+        existing,
+        chain,
+        rich,
+        {
+            "reveal": ["clue-globe-story"],
+            "matched_route_ids": ["search-clippings"],
+            "matched_affordance": {"matched": {"skills": ["Library Use"]}},
+        },
+    )
+
+    assert [request["skill"] for request in merged] == ["Library Use", "Persuade"]
+    assert merged[0]["clue_gate"] is True
+    assert "clue_gate" not in merged[1]
 
 
 def test_action_atom_requests_include_roll_contract():
@@ -493,6 +822,13 @@ def test_enrich_director_plan_adds_storylet_moves_with_conflict_control():
     assert enriched["narrative_enrichment"]["storylet_moves"] == 1
     assert enriched["narrative_enrichment"]["conflict_level"] == "low"
     assert enriched["narrative_directives"]["storylet_moves"][0]["source"] == "storylet-library.json"
+    move = enriched["storylet_moves"][0]
+    storylet_cue = move.get("cue")
+    must_include = enriched["narrative_directives"].get("must_include", [])
+    if (move.get("grounding_contract") or {}).get("allow_new_actionable_fact") is False:
+        assert storylet_cue not in must_include
+    else:
+        assert storylet_cue in must_include
 
 
 def test_enrichment_reports_story_need_and_candidate_deck():
@@ -841,6 +1177,26 @@ def test_stop_actionability_empty_storylet_cues_when_absent():
     turn = {"choice_frame": {"routes": [], "is_real_fork": False, "open_route_count": 0}}
     contract = narr.build_stop_actionability_contract(turn, {}, stop_reason="awaiting_player_input")
     assert contract["storylet_cues"] == []
+
+
+def test_stop_actionability_never_surfaces_uncommitted_clue_must_include():
+    turn = {
+        "choice_frame": {"routes": []},
+        "resolved_clue_policy": {"reveal": ["clue-private"]},
+        "clue_revealed": [],
+        "narrative_directives": {"must_include": ["PRIVATE PRE-GATE CLUE PROSE"]},
+    }
+
+    withheld = narr.build_stop_actionability_contract(
+        turn, {}, stop_reason="awaiting_player_input", durable_clue_ids=[]
+    )
+    committed = narr.build_stop_actionability_contract(
+        turn, {}, stop_reason="new_clue_or_obvious_information",
+        durable_clue_ids=["clue-private"],
+    )
+
+    assert withheld["storylet_cues"] == []
+    assert committed["storylet_cues"] == ["PRIVATE PRE-GATE CLUE PROSE"]
 
 
 def test_storylet_triggers_on_scene_entry_with_storylet_tags():

@@ -236,6 +236,27 @@ def _normalized_report_contract(
     return normalized
 
 
+def _anchored_report_section(report_text: str, anchor: str) -> str | None:
+    lines = report_text.splitlines()
+    marker = f"report-anchor: {anchor}"
+    start = next((index for index, line in enumerate(lines) if marker in line), None)
+    if start is None:
+        return None
+    stripped = lines[start].lstrip()
+    level = len(stripped) - len(stripped.lstrip("#"))
+    if level < 1:
+        return None
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        candidate = lines[index].lstrip()
+        next_level = len(candidate) - len(candidate.lstrip("#"))
+        if next_level and candidate[next_level : next_level + 1] == " " and next_level <= level:
+            end = index
+            break
+    section = "\n".join(lines[start:end]).strip()
+    return section or None
+
+
 def _report_artifact_descriptor(
     run_dir: Path, payload: dict[str, Any], key: str
 ) -> dict[str, str] | None:
@@ -576,6 +597,237 @@ def materialize_workspace(
     return workspace, campaign_id, investigator_id
 
 
+def _evaluation_contract_receipt(
+    result: dict[str, Any],
+    playtest_dir: Path,
+    campaign_id: str,
+    contract: Any,
+) -> dict[str, Any] | None:
+    """Evaluate structured, scenario-declared gameplay obligations.
+
+    This gate consumes only structured player intent, structured rule requests,
+    and authoritative roll logs. It never infers meaning from transcript prose.
+    """
+    if contract is None:
+        return None
+    if not isinstance(contract, dict):
+        raise ValueError("evaluation_contract must be an object")
+    allowed = {
+        "schema_version",
+        "profile_id",
+        "require_structured_action_resolution",
+        "min_public_rolls",
+        "required_rubric_ids",
+        "min_scene_count",
+        "min_clues_discovered",
+        "require_terminal",
+        "required_completion_receipts",
+    }
+    if set(contract) - allowed or contract.get("schema_version") != 1:
+        raise ValueError("evaluation_contract schema mismatch")
+    require_structured = contract.get("require_structured_action_resolution", False)
+    if not isinstance(require_structured, bool):
+        raise ValueError("require_structured_action_resolution must be boolean")
+    min_public_rolls = contract.get("min_public_rolls", 0)
+    if (
+        isinstance(min_public_rolls, bool)
+        or not isinstance(min_public_rolls, int)
+        or min_public_rolls < 0
+    ):
+        raise ValueError("min_public_rolls must be a non-negative integer")
+    required_rubrics = contract.get("required_rubric_ids", [])
+    if not isinstance(required_rubrics, list) or any(
+        not isinstance(value, str) or not value for value in required_rubrics
+    ):
+        raise ValueError("required_rubric_ids must be a string list")
+    min_scene_count = contract.get("min_scene_count", 0)
+    min_clues_discovered = contract.get("min_clues_discovered", 0)
+    for label, value in (
+        ("min_scene_count", min_scene_count),
+        ("min_clues_discovered", min_clues_discovered),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{label} must be a non-negative integer")
+    require_terminal = contract.get("require_terminal", False)
+    if not isinstance(require_terminal, bool):
+        raise ValueError("require_terminal must be boolean")
+    required_completion_receipts = contract.get("required_completion_receipts", [])
+    allowed_completion_receipts = {
+        "session_ending", "combat", "conclusion", "reward",
+    }
+    if (
+        not isinstance(required_completion_receipts, list)
+        or any(
+            not isinstance(value, str) or value not in allowed_completion_receipts
+            for value in required_completion_receipts
+        )
+        or len(set(required_completion_receipts)) != len(required_completion_receipts)
+    ):
+        raise ValueError("required_completion_receipts has invalid values")
+
+    turns_by_id = {
+        str(turn.get("decision_id")): turn
+        for turn in (result.get("turns") or [])
+        if isinstance(turn, dict) and turn.get("decision_id")
+    }
+    structured_action_count = 0
+    required_roll_atom_count = 0
+    resolved_roll_atom_count = 0
+    findings: list[str] = []
+    for choice_index, choice in enumerate(result.get("player_choices") or [], start=1):
+        if not isinstance(choice, dict):
+            findings.append(f"structured_action_resolution_missing:choice-{choice_index}")
+            continue
+        if isinstance(choice.get("pending_choice_response"), dict):
+            continue
+        rich = choice.get("player_intent_rich")
+        atoms = rich.get("action_atoms") if isinstance(rich, dict) else None
+        if not isinstance(atoms, list) or not atoms:
+            if require_structured:
+                findings.append(
+                    f"structured_action_resolution_missing:choice-{choice_index}"
+                )
+            continue
+        structured_action_count += 1
+        decision_turns = [
+            turns_by_id[decision_id]
+            for decision_id in (choice.get("decision_ids") or [])
+            if decision_id in turns_by_id
+        ]
+        covered_atom_ids: set[str] = set()
+        for turn in decision_turns:
+            for request in turn.get("rules_requests") or []:
+                if not isinstance(request, dict):
+                    continue
+                if request.get("atom_id"):
+                    covered_atom_ids.add(str(request["atom_id"]))
+                covered_atom_ids.update(
+                    str(value)
+                    for value in (request.get("merged_atoms") or [])
+                    if value not in (None, "")
+                )
+        for atom_index, atom in enumerate(atoms, start=1):
+            if not isinstance(atom, dict) or atom.get("requires_roll") is not True:
+                continue
+            required_roll_atom_count += 1
+            atom_id = str(atom.get("id") or f"atom-{atom_index}")
+            if atom_id in covered_atom_ids:
+                resolved_roll_atom_count += 1
+            else:
+                findings.append(
+                    f"required_roll_request_missing:choice-{choice_index}:{atom_id}"
+                )
+
+    roll_log = (
+        playtest_dir
+        / "sandbox"
+        / ".coc"
+        / "campaigns"
+        / campaign_id
+        / "logs"
+        / "rolls.jsonl"
+    )
+    roll_rows = _read_jsonl(roll_log)
+    public_roll_count = sum(
+        1
+        for event in roll_rows
+        if report_contract.roll_visibility(event)
+        in {"public", "consequence_public"}
+    )
+    if public_roll_count < min_public_rolls:
+        findings.append(
+            f"public_roll_minimum_not_met:{public_roll_count}<{min_public_rolls}"
+        )
+    session = result.get("result") if isinstance(result.get("result"), dict) else {}
+    scene_path = session.get("scene_path")
+    if not isinstance(scene_path, list):
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        scene_path = metadata.get("module_coverage")
+    visited_scene_ids = list(
+        dict.fromkeys(str(value) for value in (scene_path or []) if value not in (None, ""))
+    )
+    clue_coverage = session.get("clue_coverage")
+    clue_count = (
+        clue_coverage.get("discovered_count")
+        if isinstance(clue_coverage, dict)
+        else 0
+    )
+    if isinstance(clue_count, bool) or not isinstance(clue_count, int):
+        clue_count = 0
+    terminal_evidence = result.get("terminal_evidence")
+    if not isinstance(terminal_evidence, dict):
+        terminal_evidence = session.get("terminal_evidence")
+    reached_terminal = bool(
+        terminal_evidence.get("reached_terminal")
+        if isinstance(terminal_evidence, dict)
+        else session.get("reached_terminal")
+    )
+    structured_session_ending = bool(
+        terminal_evidence.get("session_ending")
+        if isinstance(terminal_evidence, dict)
+        else False
+    )
+    if len(visited_scene_ids) < min_scene_count:
+        findings.append(
+            f"module_scene_coverage_below_minimum:{len(visited_scene_ids)}<{min_scene_count}"
+        )
+    if clue_count < min_clues_discovered:
+        findings.append(
+            f"module_clue_coverage_below_minimum:{clue_count}<{min_clues_discovered}"
+        )
+    if require_terminal and not structured_session_ending:
+        findings.append("module_session_ending_not_recorded")
+    completion_receipts = (
+        session.get("completion_receipts")
+        if isinstance(session.get("completion_receipts"), dict)
+        else {}
+    )
+    for receipt_kind in required_completion_receipts:
+        receipt = completion_receipts.get(receipt_kind)
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("status") != "complete"
+            or not isinstance(receipt.get("source_ref"), str)
+            or not receipt["source_ref"].strip()
+        ):
+            findings.append(f"module_completion_receipt_missing:{receipt_kind}")
+    metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+    scenario_id = metadata.get("scenario_id") or completion_receipts.get("scenario_id")
+    audit_profile = completion_receipts.get("audit_profile")
+    if scenario_id == "the-haunting" and audit_profile != "haunting_module":
+        findings.append("module_audit_profile_mismatch:haunting_module")
+    return {
+        "schema_version": 1,
+        "status": "FAIL" if findings else "PASS",
+        "require_structured_action_resolution": require_structured,
+        "structured_action_count": structured_action_count,
+        "required_roll_atom_count": required_roll_atom_count,
+        "resolved_roll_atom_count": resolved_roll_atom_count,
+        "min_public_rolls": min_public_rolls,
+        "public_roll_count": public_roll_count,
+        "required_rubric_ids": list(required_rubrics),
+        "min_scene_count": min_scene_count,
+        "visited_scene_ids": visited_scene_ids,
+        "min_clues_discovered": min_clues_discovered,
+        "clues_discovered": clue_count,
+        "require_terminal": require_terminal,
+        "reached_terminal": reached_terminal,
+        "structured_session_ending": structured_session_ending,
+        "audit_profile": audit_profile,
+        "required_completion_receipts": list(required_completion_receipts),
+        "completion_receipts": {
+            key: completion_receipts.get(key)
+            for key in required_completion_receipts
+        },
+        "hard_findings": findings,
+        "sources": {
+            "player_choices": "live_match.player_choices",
+            "rules_requests": "live_match.turns[].rules_requests",
+            "roll_log": roll_log.relative_to(playtest_dir).as_posix(),
+        },
+    }
+
+
 @contextmanager
 def _scoped_environment(values: Mapping[str, str]):
     updates = {str(key): str(value) for key, value in values.items()}
@@ -783,12 +1035,6 @@ def _attestation_findings(
                 findings.append(f"invocation_outcome_mismatch:{role}")
             if row.get("model_identity") != declared:
                 findings.append(f"invocation_model_identity_mismatch:{role}")
-            if role != "narrator":
-                continue
-            receipt = row.get("secret_audit")
-            validation = live_match.secret_audit.validate_audit_receipt(receipt)
-            if not validation.get("valid") or not validation.get("passed"):
-                findings.append("narrator_secret_audit_missing")
         if turn_bindings is not None:
             expected = Counter(
                 (
@@ -1132,6 +1378,7 @@ def run_live_segment(
             },
             persona_id=_CONTINUITY_PERSONA_ID,
             persona_prompt_directives=list(_CONTINUITY_PERSONA_DIRECTIVES),
+            resolve_player_actions=True,
             **match_kwargs,
         )
     result = _object(result, "live_match segment result")
@@ -1343,7 +1590,6 @@ def run_live_segment(
         "attestation_findings": findings,
         "report_contract": normalized_report_contract,
         "evidence_class": "external",
-        "secret_audit_passed": attested,
         "resume_context_applied": resume_context is not None,
         "artifacts": {
             "invocation_ledger": invocation_descriptor,
@@ -1434,6 +1680,7 @@ def run_live_cell(
             evidence_provenance={"eval_spec": "eval-spec-v1", "cell_id": cell_id},
             persona_id=persona_id,
             persona_prompt_directives=persona_prompt_directives,
+            resolve_player_actions=True,
         )
     result = _object(result, "live_match result")
     raw_report_contract = _compile_existing_report_contract(playtest_dir)
@@ -1470,6 +1717,27 @@ def run_live_cell(
     _write_text_atomic(
         destination / "battle-report.md", battle_source.read_text(encoding="utf-8")
     )
+    scenario_contract = cell.get("evaluation_contract")
+    required_rubric_ids = (
+        scenario_contract.get("required_rubric_ids")
+        if isinstance(scenario_contract, dict)
+        else []
+    )
+    if "rulebook-procedure" in (required_rubric_ids or []):
+        rules_section = _anchored_report_section(
+            battle_source.read_text(encoding="utf-8"),
+            report_contract.RULES_AND_DICE_ANCHOR,
+        )
+        if rules_section:
+            player_view.append(
+                {
+                    "schema_version": 1,
+                    "view": "player",
+                    "turn_id": "rules-and-dice",
+                    "text": rules_section,
+                }
+            )
+            _write_jsonl_atomic(destination / "player-view.jsonl", player_view)
     evidence = _object(result.get("evidence") or {}, "live_match evidence")
     _write_json_atomic(destination / "evidence.json", evidence)
     evidence_eligible = evidence.get("eligible_as_gameplay_evidence") is True
@@ -1487,6 +1755,12 @@ def run_live_cell(
         hard_findings.append("report_contract_failed")
     elif raw_report_contract.get("status") == "INELIGIBLE":
         findings.append("report_contract_ineligible")
+    evaluation_receipt = _evaluation_contract_receipt(
+        result, playtest_dir, campaign_id, scenario_contract
+    )
+    if evaluation_receipt is not None:
+        _write_json_atomic(destination / "evaluation-contract.json", evaluation_receipt)
+        hard_findings.extend(evaluation_receipt["hard_findings"])
     if findings:
         evidence_eligible = False
     status = (
@@ -1502,6 +1776,8 @@ def run_live_cell(
         "keeper-view.jsonl",
         "runner-invocations.jsonl",
     ]
+    if evaluation_receipt is not None:
+        artifact_names.append("evaluation-contract.json")
     artifact_names.extend(
         relative
         for relative in (
@@ -1537,6 +1813,9 @@ def run_live_cell(
         "max_turns": max_turns,
         "canonical_run_dir": "playtest",
         "report_contract": normalized_report_contract,
+        "evaluation_profile_sha256": cell.get("evaluation_profile_sha256"),
+        "evaluation_contract": scenario_contract,
+        "evaluation_contract_receipt": evaluation_receipt,
         "artifacts": artifact_names,
         "artifact_hashes": {
             name: _sha256_file(destination / name) for name in artifact_names

@@ -1,6 +1,6 @@
 ---
 name: coc-character
-description: Create and maintain reusable Call of Cthulhu investigators. Use for full guided investigator creation, quick generation, derived values, age modifiers, validation, development, and cross-campaign character history.
+description: Create, select, validate, localize, and display reusable Call of Cthulhu investigators. Use for guided or quick investigator creation, derived values, age modifiers, reusable character selection, localized cards, and cross-campaign character history; use coc-development for post-session advancement.
 ---
 
 # COC Character
@@ -18,8 +18,8 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
 - If the campaign has a bound scenario or PDF module, show the player-safe
   character creation briefing before rolling characteristics or choosing an
   occupation. Use the existing `campaign.character_creation.briefing_path` when
-  present; otherwise generate it with
-  `../../scripts/coc_character_creation_briefing.py`. The briefing gives module
+  present; otherwise call the shared `campaign.render_briefing` setup
+  operation. The briefing gives module
   mood and investigator-fit guidance without Keeper-only spoilers.
 - Before rolling or assigning characteristics, ask the player to choose the
   characteristic generation method. Supported methods are the rules JSON
@@ -27,14 +27,15 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   order, roll a pool then assign results, point-buy 460, or Quick Fire array.
   Record the selected method in the creation draft and validate fixed/point-buy
   values with `../../scripts/coc_character.py`.
-- After the player confirms the final parameters, generate a reusable machine
-  sheet plus player-facing character cards. Use `../../scripts/coc_character_card.py`
+- After the player confirms the final parameters, persist the reusable machine
+  sheet through the shared `investigator.create` setup operation and attach it
+  with `campaign.link_investigator`. Pi calls the same setup gateway. Then call
+  the shared `investigator.render_card` setup operation
   to render the confirmed `player_facing_sheet_<language>` data into Markdown,
-  including an existing portrait asset when present. The script's default
-  `--html auto` also emits a static HTML card when Playwright is detected; use
-  `--html never` for Markdown-only environments.
+  including an existing portrait asset when present. The shared operation
+  defaults to Markdown only for host parity; explicitly set `html_mode` to
+  `auto` or `always` when a browser/print artifact is wanted.
 - Import: validate JSON before linking it to a campaign.
-- Development: write permanent changes back to investigator history only at explicit development or campaign-ending moments.
 - Personal horror hooks: at the end of creation, once backstory is confirmed,
   derive 1-2 initial hooks from the strongest backstory entries (a missing
   significant person, an heirloom possession, a haunted meaningful location…)
@@ -96,8 +97,9 @@ project-referenced portrait only under `$CODEX_HOME/generated_images`.
 ## Scripts
 
 Use `../../scripts/coc_character.py` for derived values and validation. Use
-`../../scripts/coc_state.py` to create or link investigator files. Use
-`../../scripts/coc_character_creation_briefing.py` before guided creation when
-a scenario is already bound. Use
-`../../scripts/coc_character_card.py` after confirmation to render localized
-Markdown character cards, with optional auto-detected HTML enhancement.
+`../../scripts/coc_state.py` to create or link investigator files. Use the
+shared `campaign.render_briefing` setup operation before guided creation when a
+scenario is already bound. Use `investigator.render_card` after confirmation
+to render localized Markdown character cards, with optional auto-detected HTML
+enhancement. The underlying renderer scripts remain available for isolated
+diagnostics.

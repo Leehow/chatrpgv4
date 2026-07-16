@@ -28,6 +28,39 @@ You may symlink `../player/node_modules` if both adapters share the same pin.
 Same as the Pi KP / player adapters (`~/.pi/agent` or environment variables).
 Do not commit secrets or API keys.
 
+Narration and semantic verification are intentionally model-independent. The
+narrator remains `zhipu-coding/glm-5.2`; every accepted narration is separately
+checked by the canonical semantic judge `coding-relay/gpt-5.6-sol` at
+`http://127.0.0.1:18888/v1/chat/completions`. The judge request uses
+`max_completion_tokens` and resolves auth from `CODING_RELAY_API_KEY`, then
+`OPENAI_API_KEY`, then the relay's harmless local placeholder. It never falls
+back to the narrator model. If Sol is unavailable or cannot return a valid
+structured verdict within its bounded timeout, narration fails closed to the
+deterministic template.
+
+The direct narrator path has a shared 270-second end-to-end deadline (hard cap
+285 seconds) and 120-second per-provider-call timeouts. The Sol judge has a
+90-second per-call timeout inside that same end-to-end budget.
+
+Direct GLM JSON generation uses the provider's supported low-latency structured
+mode: `thinking: {type: "disabled"}`, `reasoning_effort: "none"`,
+`do_sample: false`, `response_format: {type: "json_object"}`, and a bounded
+`max_tokens: 4096`. Correction calls do not resend the full narration envelope;
+they receive the rejected submission, semantic findings, exact allowed refs,
+required facts, forbidden refs, and provenance-partitioned authority bundle.
+Successful responses persist privacy-safe generation and verifier receipts with
+attempt counts and millisecond phase durations, never prompts or credentials.
+
+The semantic judge distinguishes new facts from faithful staging. An already
+authorized exact disclosure/transfer may use an ephemeral, non-actionable
+carrier or gesture only when it creates no independent contents, inspectability,
+route, availability, possession continuity, or continuing object state. A
+completed agreement/action may receive a brief acknowledgement only when it
+adds no terms, permission, promise, answer, or relationship. This never makes a
+player-requested independent document real. Exhausting semantic correction is
+reported separately as `semantic_verification_exhausted`, with only safe finding
+categories and a count; it is not classified as a provider failure.
+
 ## Layout
 
 | File | Role |
@@ -72,9 +105,17 @@ transcript. Caller provenance and caller turn counts are non-authoritative.
   "narration_envelope": { "...": "from build_narration_envelope" },
   "last_player_text": "player action this turn",
   "play_language": "zh-Hans",
-  "recent_narrations": ["previous KP final_text", "..."]
+  "recent_narrations": ["previous KP final_text", "..."],
+  "public_transcript_tail": [
+    {"role": "keeper", "text": "previously player-visible continuity"},
+    {"role": "player", "text": "declared action or attempt"}
+  ]
 }
 ```
+
+`public_transcript_tail` is optional and bounded to eight player-visible
+player/KP rows. Keeper rows may ground only continuity already stated to the
+player; player rows never prove that an attempted action succeeded.
 
 **Response:**
 

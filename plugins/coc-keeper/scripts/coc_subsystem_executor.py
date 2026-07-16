@@ -46,7 +46,11 @@ PUSH_COMMAND_KINDS = frozenset({"push_offer", "push_confirm", "push_resolve"})
 BOUT_COMMAND_KINDS = frozenset({"bout_tick", "bout_end"})
 COMBAT_COMMAND_KINDS = frozenset({
     "combat_start", "combat_attack", "combat_defend", "dying_tick",
-    "stabilize", "combat_end",
+    "stabilize", "weekly_recovery", "combat_end",
+})
+REWARD_COMMAND_KINDS = frozenset({"sanity_reward"})
+AUTHORED_OPERATION_COMMAND_KINDS = frozenset({
+    "environmental_hazard", "mythos_tome_study",
 })
 CHASE_COMMAND_KINDS = frozenset({
     "chase_start", "chase_move", "chase_hazard", "chase_barrier",
@@ -55,21 +59,26 @@ CHASE_COMMAND_KINDS = frozenset({
 CHARACTER_REQUIRED_COMMAND_KINDS = (
     ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
     | COMBAT_COMMAND_KINDS
-    | CHASE_COMMAND_KINDS
+    | CHASE_COMMAND_KINDS | REWARD_COMMAND_KINDS
+    | AUTHORED_OPERATION_COMMAND_KINDS
 )
 RNG_CONSUMING_COMMAND_KINDS = ROLL_COMMAND_KINDS | {
     "push_resolve", "combat_defend", "dying_tick", "stabilize",
-    "chase_hazard", "chase_barrier",
+    "weekly_recovery", "chase_hazard", "chase_barrier", "sanity_reward",
+    "environmental_hazard", "mythos_tome_study",
 }
 ROLL_EVIDENCE_COMMAND_KINDS = ROLL_COMMAND_KINDS | {
     "push_resolve", "combat_defend", "dying_tick", "stabilize",
-    "chase_hazard", "chase_barrier",
+    "weekly_recovery", "chase_hazard", "chase_barrier", "sanity_reward",
 }
-SAN_MUTATION_COMMAND_KINDS = frozenset({"sanity_check", "bout_tick", "bout_end"})
+SAN_MUTATION_COMMAND_KINDS = frozenset({
+    "sanity_check", "sanity_reward", "bout_tick", "bout_end",
+})
 SUPPORTED_COMMAND_KINDS = (
     ROLL_COMMAND_KINDS | PUSH_COMMAND_KINDS | BOUT_COMMAND_KINDS
     | COMBAT_COMMAND_KINDS
-    | CHASE_COMMAND_KINDS
+    | CHASE_COMMAND_KINDS | REWARD_COMMAND_KINDS
+    | AUTHORED_OPERATION_COMMAND_KINDS
 )
 EXPECTED_PHASE = {
     **{kind: "resolve" for kind in ROLL_COMMAND_KINDS},
@@ -83,7 +92,11 @@ EXPECTED_PHASE = {
     "combat_defend": "resolve",
     "dying_tick": "resolve",
     "stabilize": "resolve",
+    "weekly_recovery": "resolve",
     "combat_end": "end",
+    "sanity_reward": "resolve",
+    "environmental_hazard": "resolve",
+    "mythos_tome_study": "resolve",
     "chase_start": "start",
     "chase_move": "resolve",
     "chase_hazard": "resolve",
@@ -101,6 +114,9 @@ RESULT_STATUSES_BY_KIND = {
     "bout_end": frozenset({"completed"}),
     **{kind: frozenset({"completed"}) for kind in COMBAT_COMMAND_KINDS},
     **{kind: frozenset({"completed"}) for kind in CHASE_COMMAND_KINDS},
+    "sanity_reward": frozenset({"completed"}),
+    "environmental_hazard": frozenset({"completed"}),
+    "mythos_tome_study": frozenset({"completed"}),
     "chase_move": frozenset({"completed", "pending_choice"}),
 }
 SUCCESS_OUTCOMES = frozenset({
@@ -114,8 +130,51 @@ SUCCESS_OUTCOMES = frozenset({
     "hard_success",
     "regular_success",
 })
+TRANSIENT_COMBAT_CONDITIONS = frozenset({
+    "prone", "grappled", "surprised", "outnumbered", "fled",
+})
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _command_requires_roll_evidence(command: dict[str, Any]) -> bool:
+    kind = command.get("kind")
+    if kind == "environmental_hazard":
+        return True
+    if kind == "mythos_tome_study":
+        return True
+    if kind in ROLL_EVIDENCE_COMMAND_KINDS:
+        return True
+    if kind == "combat_start":
+        payload = command.get("payload") if isinstance(command.get("payload"), dict) else {}
+        return any(
+            isinstance(item, dict) and isinstance(item.get("armor_dice"), str)
+            for item in payload.get("preparations", []) or []
+        )
+    return False
+
+
+def _result_requires_roll_evidence(
+    result: dict[str, Any], command: dict[str, Any] | None = None,
+) -> bool:
+    """Recover the evidence contract from persisted results on later loads.
+
+    Most historical receipts do not retain the complete originating command,
+    so ordinary roll kinds must continue to classify from ``result.kind``.
+    ``combat_start`` is the sole conditional case: it consumes randomness only
+    when an authored preparation rolled armor, which is represented by a
+    preparation event carrying a roll id.
+    """
+    if result.get("kind") == "mythos_tome_study":
+        return any(isinstance(event.get("roll_id"), str) for event in result.get("events", []))
+    if result.get("kind") in ROLL_EVIDENCE_COMMAND_KINDS:
+        return True
+    if isinstance(command, dict) and _command_requires_roll_evidence(command):
+        return True
+    return result.get("kind") == "combat_start" and any(
+        isinstance(event, dict) and isinstance(event.get("roll_id"), str)
+        for event in result.get("events", []) or []
+    )
 _TRANSACTION_DIR_FD_SUPPORTED = all(
     function in os.supports_dir_fd for function in (os.open, os.stat, os.unlink)
 )
@@ -152,6 +211,8 @@ coc_sanity = _load_sibling("coc_sanity_subsystem_executor", "coc_sanity.py")
 coc_combat = _load_sibling("coc_combat_subsystem_executor", "coc_combat.py")
 coc_chase = _load_sibling("coc_chase_subsystem_executor", "coc_chase.py")
 coc_healing = _load_sibling("coc_healing_subsystem_executor", "coc_healing.py")
+coc_hazards = _load_sibling("coc_hazards_subsystem_executor", "coc_hazards.py")
+coc_time = _load_sibling("coc_time_subsystem_executor", "coc_time.py")
 
 
 class SubsystemExecutorError(ValueError):
@@ -271,6 +332,12 @@ PENDING_CHOICE_CONTRACTS: dict[str, dict[str, Any]] = {
             {"action": "confirm", "label": "Push the roll"},
             {"action": "cancel", "label": "Keep the original failure"},
         ],
+        "localized_options": {
+            "zh-Hans": [
+                {"action": "confirm", "label": "确认孤注一掷"},
+                {"action": "cancel", "label": "保留原失败"},
+            ],
+        },
         "scope": "global",
     },
     "sanity_check": {
@@ -305,6 +372,50 @@ PENDING_CHOICE_CONTRACTS: dict[str, dict[str, Any]] = {
     },
 }
 
+
+def _campaign_play_language(campaign_dir: Path) -> str:
+    try:
+        campaign = json.loads(
+            (campaign_dir / "campaign.json").read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "en-US"
+    language = campaign.get("play_language") if isinstance(campaign, dict) else None
+    return language.strip() if isinstance(language, str) and language.strip() else "en-US"
+
+
+def _push_choice_content(
+    skill: str,
+    consequence_summary: str,
+    play_language: str,
+) -> tuple[str, list[dict[str, str]]]:
+    if play_language == "zh-Hans":
+        prompt = (
+            f"是否要孤注一掷这次失败的{skill}检定？"
+            f"若再次失败：{consequence_summary}"
+        )
+        options = PENDING_CHOICE_CONTRACTS["push_offer"]["localized_options"][
+            "zh-Hans"
+        ]
+    else:
+        prompt = (
+            f"Push the failed {skill} roll? Failure consequence: "
+            f"{consequence_summary}"
+        )
+        options = PENDING_CHOICE_CONTRACTS["push_offer"]["options"]
+    return prompt, _json_copy(options)
+
+
+def _localized_consequence_summary(
+    consequence: dict[str, Any], play_language: str
+) -> str:
+    localized = consequence.get("localized_summaries")
+    if isinstance(localized, dict):
+        value = localized.get(play_language)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return str(consequence.get("summary") or "").strip()
+
 PUBLIC_PENDING_CHOICE_KEYS = frozenset({
     "choice_id",
     "kind",
@@ -325,9 +436,11 @@ PUSH_CONTEXT_KEYS = frozenset({
     "original_roll",
     "changed_method_evidence",
     "announced_consequence",
+    "source_time_profile",
     "resolution_context",
     "origin_decision_id",
     "offer_command",
+    "continuation_capsule",
 })
 PUSH_HISTORY_EXTRA_KEYS = frozenset({
     "public_choice",
@@ -373,6 +486,229 @@ CHANGED_METHOD_SOURCES = frozenset({
     "keeper_prompt",
     "module_instruction",
 })
+
+PUSH_CAPSULE_REQUIRED_KEYS = frozenset({
+    "schema_version",
+    "kind",
+    "continuation_id",
+    "campaign_binding",
+    "actor_binding",
+    "authority_revision",
+    "roll_spec",
+    "settlement",
+    "source_evidence",
+    "idempotency",
+})
+PUSH_CAPSULE_OPTIONAL_KEYS = frozenset({"audit_compatibility"})
+
+
+def _campaign_binding(campaign_dir: Path | str) -> str:
+    material = str(Path(campaign_dir).resolve()).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+def _typed_push_consequence(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not isinstance(value.get("summary"), str):
+        return None
+    if not value["summary"].strip() or set(value) - {
+        "summary", "effect", "localized_summaries",
+    }:
+        return None
+    localized = value.get("localized_summaries", {})
+    if not isinstance(localized, dict) or any(
+        not isinstance(language, str) or not language.strip()
+        or not isinstance(summary, str) or not summary.strip()
+        for language, summary in localized.items()
+    ):
+        return None
+    effect = value.get("effect")
+    if effect is not None and not isinstance(effect, dict):
+        return None
+    return _json_copy(value)
+
+
+def _is_exact_source_time_profile(value: Any) -> bool:
+    """Recognize the exact time authority accepted by Push commands.
+
+    A Director fallback such as ``{mode: instant, category: null}`` describes
+    runtime scheduling, not authored route authority, and must never be sealed
+    into a continuation capsule.
+    """
+    return value is None or (
+        isinstance(value, dict)
+        and set(value) == {"mode", "category", "delta_minutes"}
+        and value.get("mode") in {
+            "instant", "elapsed", "downtime", "subsystem"
+        }
+        and isinstance(value.get("category"), str)
+        and bool(value["category"].strip())
+        and not isinstance(value.get("delta_minutes"), bool)
+        and isinstance(value.get("delta_minutes"), int)
+        and value["delta_minutes"] >= 0
+    )
+
+
+def _validate_sealed_route_transaction(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    keys = {
+        "schema_version", "kind", "scene_id", "route_id",
+        "requires_completed_route_ids", "direct_grant_clue_ids",
+        "remaining_clue_ids", "sets_flags", "completion_policy",
+        "repeatable", "player_visible_goal", "player_visible_outcome",
+        "source_time_profile", "source_provenance",
+    }
+    if not isinstance(value, dict) or set(value) != keys:
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.route_transaction", "sealed route transaction has an invalid field set")
+    if value.get("schema_version") != 1 or value.get("kind") != "authored_route_completion":
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.route_transaction", "unsupported sealed route transaction")
+    for field in ("scene_id", "route_id"):
+        if not isinstance(value.get(field), str) or not _SAFE_ID.fullmatch(value[field]):
+            raise _error("push_continuation_unbound", f"continuation_capsule.settlement.route_transaction.{field}", "sealed route identity must be a safe ID")
+    for field in (
+        "requires_completed_route_ids", "direct_grant_clue_ids",
+        "remaining_clue_ids", "sets_flags",
+    ):
+        items = value.get(field)
+        if (
+            not isinstance(items, list)
+            or len(items) != len(set(items))
+            or any(not isinstance(item, str) or not _SAFE_ID.fullmatch(item) for item in items)
+        ):
+            raise _error("push_continuation_unbound", f"continuation_capsule.settlement.route_transaction.{field}", "sealed route ID lists must be unique safe IDs")
+    if not isinstance(value.get("repeatable"), bool):
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.route_transaction.repeatable", "repeatable must be boolean")
+    if value.get("completion_policy") is not None and (
+        not isinstance(value.get("completion_policy"), str)
+        or not value["completion_policy"].strip()
+    ):
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.route_transaction.completion_policy", "completion policy must be null or non-empty")
+    for field in ("player_visible_goal", "player_visible_outcome"):
+        if not isinstance(value.get(field), str):
+            raise _error("push_continuation_unbound", f"continuation_capsule.settlement.route_transaction.{field}", "visible route text must be a string")
+    if not _is_exact_source_time_profile(value.get("source_time_profile")):
+        raise _error(
+            "push_continuation_unbound",
+            "continuation_capsule.settlement.route_transaction.source_time_profile",
+            "sealed route time profile must be null or exact structured authority",
+        )
+    provenance = value.get("source_provenance")
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != {"kind", "story_graph_sha256"}
+        or provenance.get("kind") != "sealed_story_graph_route"
+        or not isinstance(provenance.get("story_graph_sha256"), str)
+        or not _SHA256.fullmatch(provenance["story_graph_sha256"])
+    ):
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.route_transaction.source_provenance", "sealed route provenance is invalid")
+    return _json_copy(value)
+
+
+def _validate_push_capsule(
+    capsule: Any,
+    *,
+    campaign_dir: Path | str | None,
+    investigator_id: str,
+    character_id: str,
+) -> dict[str, Any]:
+    if (
+        not isinstance(capsule, dict)
+        or not PUSH_CAPSULE_REQUIRED_KEYS <= set(capsule)
+        or set(capsule) - PUSH_CAPSULE_REQUIRED_KEYS - PUSH_CAPSULE_OPTIONAL_KEYS
+    ):
+        raise _error(
+            "push_continuation_unbound",
+            "continuation_capsule",
+            "persisted Push continuation capsule has an invalid field set",
+        )
+    if capsule.get("schema_version") != 1 or capsule.get("kind") != "push_continuation":
+        raise _error(
+            "push_continuation_unbound",
+            "continuation_capsule",
+            "unsupported Push continuation capsule schema",
+        )
+    continuation_id = capsule.get("continuation_id")
+    if not isinstance(continuation_id, str) or not _SAFE_ID.fullmatch(continuation_id):
+        raise _error("push_continuation_unbound", "continuation_capsule.continuation_id", "invalid continuation capability")
+    if campaign_dir is not None and capsule.get("campaign_binding") != _campaign_binding(campaign_dir):
+        raise _error("push_continuation_campaign_mismatch", "continuation_capsule.campaign_binding", "continuation belongs to a different campaign")
+    actor = capsule.get("actor_binding")
+    if not isinstance(actor, dict) or set(actor) != {"investigator_id", "character_id"}:
+        raise _error("push_continuation_unbound", "continuation_capsule.actor_binding", "invalid actor binding")
+    if actor != {"investigator_id": investigator_id, "character_id": character_id}:
+        raise _error("push_origin_actor_mismatch", "continuation_capsule.actor_binding", "continuation belongs to a different actor")
+    if capsule.get("authority_revision") != 0:
+        raise _error("stale_pending_choice_response", "continuation_capsule.authority_revision", "continuation authority revision is stale")
+    roll_spec = capsule.get("roll_spec")
+    if not isinstance(roll_spec, dict) or set(roll_spec) != {
+        "kind", "skill", "target", "difficulty", "bonus_penalty_dice",
+        "reason", "roll_contract",
+    }:
+        raise _error("push_continuation_unbound", "continuation_capsule.roll_spec", "invalid immutable roll authority")
+    settlement = capsule.get("settlement")
+    if not isinstance(settlement, dict) or set(settlement) != {
+        "plan_slice", "route_resolution", "request_id", "announced_consequence",
+        "source_time_profile", "route_transaction",
+    }:
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement", "invalid immutable settlement authority")
+    if not isinstance(settlement.get("plan_slice"), dict):
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.plan_slice", "missing settlement plan")
+    if _typed_push_consequence(settlement.get("announced_consequence")) is None:
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.announced_consequence", "missing typed Push consequence")
+    transaction = _validate_sealed_route_transaction(
+        settlement.get("route_transaction")
+    )
+    source_time_profile = settlement.get("source_time_profile")
+    if not _is_exact_source_time_profile(source_time_profile):
+        raise _error(
+            "push_continuation_unbound",
+            "continuation_capsule.settlement.source_time_profile",
+            "Push time authority must be null or an exact structured profile",
+        )
+    if (
+        isinstance(transaction, dict)
+        and not _json_deep_equal(
+            source_time_profile, transaction.get("source_time_profile")
+        )
+    ):
+        raise _error(
+            "push_continuation_unbound",
+            "continuation_capsule.settlement.source_time_profile",
+            "Push time authority is detached from the sealed authored route",
+        )
+    request_id = settlement.get("request_id")
+    if not isinstance(request_id, str) or not _SAFE_ID.fullmatch(request_id):
+        raise _error("push_continuation_unbound", "continuation_capsule.settlement.request_id", "missing settlement request capability")
+    source = capsule.get("source_evidence")
+    if not isinstance(source, dict) or set(source) != {
+        "origin_command_id", "origin_decision_id", "roll_id", "scene_id",
+    }:
+        raise _error("push_continuation_unbound", "continuation_capsule.source_evidence", "invalid source evidence")
+    idem = capsule.get("idempotency")
+    if not isinstance(idem, dict) or set(idem) != {"key", "mode", "consumption_ledger"} or idem.get("mode") != "exact_once" or idem.get("consumption_ledger") != "choice_history":
+        raise _error("push_continuation_unbound", "continuation_capsule.idempotency", "invalid exact-once authority")
+    if not isinstance(idem.get("key"), str) or not _SAFE_ID.fullmatch(idem["key"]):
+        raise _error("push_continuation_unbound", "continuation_capsule.idempotency.key", "invalid idempotency key")
+    if "audit_compatibility" in capsule and not isinstance(
+        capsule.get("audit_compatibility"), dict
+    ):
+        raise _error("push_continuation_unbound", "continuation_capsule.audit_compatibility", "invalid audit compatibility record")
+    expected_material = _json_copy(capsule)
+    expected_material.pop("audit_compatibility", None)
+    expected_material["continuation_id"] = None
+    expected_material["settlement"]["request_id"] = None
+    if isinstance(expected_material["settlement"]["route_resolution"], dict):
+        expected_material["settlement"]["route_resolution"]["request_id"] = None
+    expected_material["idempotency"]["key"] = None
+    digest = _canonical_json_hash(expected_material)
+    expected_id = f"push-cont:{digest}"
+    if continuation_id != expected_id:
+        raise _error("push_continuation_unbound", "continuation_capsule.continuation_id", "continuation capability does not match immutable authority")
+    expected_request_id = f"push-settle:{digest}"
+    expected_idem = f"push-once:{digest}"
+    if request_id != expected_request_id or idem.get("key") != expected_idem:
+        raise _error("push_continuation_unbound", "continuation_capsule", "continuation settlement identifiers are forged")
+    return _json_copy(capsule)
 
 
 def _default_state() -> dict[str, Any]:
@@ -692,7 +1028,17 @@ def _validate_pending_choice_contract(
         raise _state_error(
             f"result snapshot {command_id!r} has an empty public choice prompt"
         )
-    if contract["options"] is None:
+    localized_options = contract.get("localized_options")
+    if isinstance(localized_options, dict):
+        allowed_options = [contract["options"], *localized_options.values()]
+        if not any(
+            _json_deep_equal(pending.get("options"), option_set)
+            for option_set in allowed_options
+        ):
+            raise _state_error(
+                f"result snapshot {command_id!r} has invalid player-safe options"
+            )
+    elif contract["options"] is None:
         options = pending.get("options")
         if (
             not isinstance(options, list) or len(options) < 2
@@ -938,9 +1284,18 @@ def _validate_push_pending_context(
         context.get("resolution_context"), origin_events[0].get("resolution_context") or {}
     ):
         raise _state_error(f"pending context {choice_id!r} mismatches origin resolution context")
+    capsule = origin_events[0].get("push_continuation_capsule")
+    if not isinstance(capsule, dict) or not _json_deep_equal(
+        context.get("continuation_capsule"), capsule
+    ):
+        raise _state_error(f"pending context {choice_id!r} mismatches continuation authority")
     offer_payload = offer_command.get("payload")
     if not isinstance(offer_payload, dict) or (
-        offer_payload.get("original_command_id") != origin_id
+        (
+            offer_payload.get("continuation_id") != capsule.get("continuation_id")
+            if offer_payload.get("continuation_id") is not None
+            else offer_payload.get("original_command_id") != origin_id
+        )
         or not _json_deep_equal(
             context.get("changed_method_evidence"),
             offer_payload.get("changed_method_evidence"),
@@ -949,14 +1304,27 @@ def _validate_push_pending_context(
             context.get("announced_consequence"),
             offer_payload.get("announced_consequence"),
         )
+        or not _json_deep_equal(
+            context.get("source_time_profile"),
+            offer_payload.get("source_time_profile"),
+        )
     ):
         raise _state_error(f"pending context {choice_id!r} diverges from its creator command")
     skill = str(origin_events[0].get("skill") or "ordinary")
-    expected_prompt = (
-        f"Push the failed {skill} roll? Failure consequence: "
-        f"{offer_payload['announced_consequence']['summary']}"
-    )
-    if choice.get("prompt") != expected_prompt:
+    consequence = offer_payload["announced_consequence"]
+    valid_choice_content = [
+        _push_choice_content(
+            skill,
+            _localized_consequence_summary(consequence, language),
+            language,
+        )
+        for language in ("en-US", "zh-Hans")
+    ]
+    if not any(
+        choice.get("prompt") == prompt
+        and _json_deep_equal(choice.get("options"), options)
+        for prompt, options in valid_choice_content
+    ):
         raise _state_error(f"pending context {choice_id!r} has a forged public prompt")
     try:
         _validate_json_value(context, f"pending_contexts.{choice_id}")
@@ -1152,6 +1520,13 @@ def _validate_history_terminal_snapshot(
             raise _state_error(f"choice history {choice_id!r} has an invalid push-resolve result")
         event = events[0]
         original = entry["original_roll"]
+        capsule = entry["continuation_capsule"]
+        roll_spec = capsule["roll_spec"]
+        expected_roll_contract, _ = _settle_percentile_fumble_contract(
+            roll_spec.get("roll_contract"),
+            event.get("outcome"),
+            path=f"commands.{command_id}.payload.roll_contract",
+        )
         expected_keys = {
             "roll_id", "decision_id", "kind", "skill", "target", "difficulty",
             "reason", "request_id", "bonus_penalty_dice", "roll",
@@ -1159,19 +1534,29 @@ def _validate_history_terminal_snapshot(
             "resolution_context", "pushed", "push_gate", "original_command_id",
             "original_roll_id", "announced_consequence", "changed_method_evidence",
             "source_command_id",
+            "continuation_id", "continuation_idempotency_key",
         }
+        if event.get("outcome") == "fumble":
+            expected_keys.add("fumble_consequence")
         expected_static = {
             "roll_id": command["payload"]["roll_id"],
             "decision_id": command["payload"]["decision_id"],
-            "kind": original.get("kind"),
-            "skill": original.get("skill"),
-            "target": original.get("target"),
-            "difficulty": str(original.get("difficulty") or "regular"),
-            "reason": original.get("reason"),
-            "request_id": original.get("request_id"),
-            "bonus_penalty_dice": int(original.get("bonus_penalty_dice", 0) or 0),
-            "roll_contract": _json_copy(original.get("roll_contract")),
-            "resolution_context": _json_copy(entry["resolution_context"]),
+            "kind": roll_spec.get("kind"),
+            "skill": roll_spec.get("skill"),
+            "target": roll_spec.get("target"),
+            "difficulty": str(roll_spec.get("difficulty") or "regular"),
+            "reason": roll_spec.get("reason"),
+            "request_id": capsule["settlement"]["request_id"],
+            "bonus_penalty_dice": int(roll_spec.get("bonus_penalty_dice", 0) or 0),
+            "roll_contract": expected_roll_contract,
+            "resolution_context": {
+                **_json_copy(capsule["settlement"]["plan_slice"]),
+                **(
+                    {"route_resolution": _json_copy(capsule["settlement"]["route_resolution"])}
+                    if isinstance(capsule["settlement"].get("route_resolution"), dict)
+                    else {}
+                ),
+            },
             "pushed": True,
             "push_gate": {
                 "method_changed": True,
@@ -1185,14 +1570,20 @@ def _validate_history_terminal_snapshot(
                 entry["response_changed_method_evidence"]
             ),
             "source_command_id": command_id,
+            "continuation_id": entry["continuation_capsule"]["continuation_id"],
+            "continuation_idempotency_key": entry["continuation_capsule"]["idempotency"]["key"],
         }
+        if event.get("outcome") == "fumble":
+            expected_static["fumble_consequence"] = _json_copy(
+                entry["announced_consequence"]
+            )
         if set(event) != expected_keys or any(
             not _json_deep_equal(event.get(key), value)
             for key, value in expected_static.items()
         ):
             raise _state_error(f"choice history {choice_id!r} has forged push-roll evidence")
         expected_effective_target = coc_roll._effective_target(
-            int(original.get("target")), str(original.get("difficulty") or "regular")
+            int(roll_spec.get("target")), str(roll_spec.get("difficulty") or "regular")
         )
         expected_outcome = (
             coc_roll.coc_rules.success_level(event.get("roll"), expected_effective_target)
@@ -1513,7 +1904,7 @@ def _validate_state(state: Any) -> dict[str, Any]:
                     raise _error("invalid_pending_resolution_batch", "commands", "chase end cancellation is not canonical")
             else:
                 expected_plan = _pending_resume_plan_from_state(
-                    state, entry["investigator_id"], response
+                    state, None, entry["investigator_id"], response
                 )
                 expected_commands = commands_from_rules_requests(expected_plan)
         except SubsystemExecutorError as exc:
@@ -1783,10 +2174,67 @@ def _validate_result_source_evidence(
     # complete payload so roll identity, request/source context, target,
     # modifier, percentile and derived outcome cannot be substituted piecemeal.
     seen_roll_ids: dict[str, str] = {}
-    expected_row_keys = {"type", "actor", "command_id", "payload", "ts"}
+    legacy_row_keys = frozenset({"type", "actor", "command_id", "payload", "ts"})
+    canonical_row_keys = legacy_row_keys | frozenset({
+        "event_type", "roll_id", "visibility", "source", "source_ref",
+    })
+
+    def row_matches_event(
+        row: Any, event: dict[str, Any], *, actor: Any, command_id: str,
+    ) -> bool:
+        """Validate legacy evidence or the canonical v2 roll projection.
+
+        The executor snapshot remains the semantic source of truth.  The v2
+        log wraps that exact event with report-facing identity, visibility and
+        provenance fields; those fields must agree with both the row and the
+        nested payload.
+        """
+        if not isinstance(row, dict):
+            return False
+        row_keys = frozenset(row)
+        if row_keys not in {legacy_row_keys, canonical_row_keys}:
+            return False
+        semantic_actor = event.get("actor_id") or actor
+        # Compatibility for canonical rows emitted before actor-aware roll
+        # projection: those rows always used the investigator provenance even
+        # when the nested event identified a monster or NPC actor.  New writes
+        # use semantic_actor; old trusted rows remain readable for resume.
+        allowed_actors = {semantic_actor, actor}
+        if (
+            row.get("type") != "roll"
+            or row.get("actor") not in allowed_actors
+            or row.get("command_id") != command_id
+            or not isinstance(row.get("ts"), str)
+            or not row["ts"]
+        ):
+            return False
+        if row_keys == legacy_row_keys:
+            return _json_deep_equal(row.get("payload"), event)
+
+        expected_payload = _json_copy(event)
+        visibility = str(
+            expected_payload.get("visibility")
+            or (
+                "consequence_public"
+                if expected_payload.get("skill") == "HP Damage"
+                else "public"
+            )
+        )
+        expected_payload["visibility"] = visibility
+        roll_id = str(event["roll_id"])
+        return bool(
+            row.get("event_type") == "roll"
+            and row.get("roll_id") == roll_id
+            and row.get("visibility") == visibility
+            and row.get("source") == "subsystem_executor"
+            and row.get("source_ref") == f"logs/rolls.jsonl#{roll_id}"
+            and _json_deep_equal(row.get("payload"), expected_payload)
+        )
+
     for command_id in state["applied_command_ids"]:
         result = state["result_snapshots"][command_id]
-        if result.get("kind") not in ROLL_EVIDENCE_COMMAND_KINDS:
+        command = commands_by_id.get(command_id)
+        if not _result_requires_roll_evidence(result, command):
             continue
         expected_events = [
             event for event in result.get("events") or []
@@ -1807,14 +2255,10 @@ def _validate_result_source_evidence(
                     f"{previous!r} and {command_id!r}"
                 )
             seen_roll_ids[roll_id] = command_id
-            if (
-                set(row) != expected_row_keys
-                or row.get("type") != "roll"
-                or row.get("actor") != provenance.get("investigator_id")
-                or row.get("command_id") != command_id
-                or not isinstance(row.get("ts"), str)
-                or not row["ts"]
-                or not _json_deep_equal(row.get("payload"), event)
+            if not row_matches_event(
+                row, event,
+                actor=provenance.get("investigator_id"),
+                command_id=command_id,
             ):
                 raise _state_error(
                     f"canonical roll evidence for {command_id!r} diverges"
@@ -1832,8 +2276,12 @@ def _validate_result_source_evidence(
             if result["kind"] == "push_resolve":
                 rows = rolls_by_command.get(command_id, [])
                 row = rows[0] if len(rows) == 1 else None
-                if not isinstance(row, dict) or not _json_deep_equal(
-                    row.get("payload"), result["events"][0]
+                provenance = state["command_provenance"][command_id]
+                if not row_matches_event(
+                    row,
+                    result["events"][0],
+                    actor=provenance.get("investigator_id"),
+                    command_id=command_id,
                 ):
                     raise _state_error(
                         f"choice history {choice_id!r} diverges from canonical roll receipt"
@@ -2325,6 +2773,378 @@ def project_player_pending_choice(campaign_dir: Path | str) -> dict[str, Any] | 
     ):
         raise _state_error("public pending choice options have an invalid contract")
     return _json_copy(choice)
+
+
+def _seal_authored_route_transaction(
+    campaign_dir: Path,
+    *,
+    scene_id: str,
+    route_id: str,
+) -> dict[str, Any] | None:
+    path = campaign_dir / "scenario" / "story-graph.json"
+    try:
+        encoded = path.read_bytes()
+        story = json.loads(encoded.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(story, dict):
+        return None
+    scene = next(
+        (
+            row for row in story.get("scenes", [])
+            if isinstance(row, dict) and str(row.get("scene_id") or "") == scene_id
+        ),
+        None,
+    )
+    if not isinstance(scene, dict):
+        return None
+    route = next(
+        (
+            row for row in scene.get("affordances", [])
+            if isinstance(row, dict)
+            and str(row.get("id") or row.get("route_id") or "") == route_id
+        ),
+        None,
+    )
+    if not isinstance(route, dict):
+        return None
+    direct_grants = list(dict.fromkeys(
+        str(value).strip()
+        for value in [route.get("clue_id"), *(route.get("grants_clue_ids") or [])]
+        if str(value or "").strip()
+    ))
+    remaining = list(dict.fromkeys(
+        str(value).strip()
+        for value in route.get("remaining_clue_ids") or []
+        if str(value or "").strip()
+    ))
+    required = list(dict.fromkeys(
+        str(value).strip()
+        for value in route.get("requires_completed_route_ids") or []
+        if str(value or "").strip()
+    ))
+    flags = list(dict.fromkeys(
+        str(value).strip()
+        for value in route.get("sets_flags") or []
+        if str(value or "").strip()
+    ))
+    public_goal = str(
+        route.get("cue") or route.get("player_visible_cue") or ""
+    ).strip()
+    public_outcome = str(
+        route.get("player_visible_outcome")
+        or route.get("player_visible_success")
+        or route.get("on_success_visible")
+        or route.get("visible_benefit")
+        or (f"Completed public action: {public_goal}" if public_goal else "")
+    ).strip()
+    source_time_profile = route.get("time_profile") if "time_profile" in route else None
+    if not _is_exact_source_time_profile(source_time_profile):
+        # An authored but malformed/partial non-null value is ambiguous
+        # execution authority.  Do not mint a Push capability for the route.
+        return None
+    transaction = {
+        "schema_version": 1,
+        "kind": "authored_route_completion",
+        "scene_id": scene_id,
+        "route_id": route_id,
+        "requires_completed_route_ids": required,
+        "direct_grant_clue_ids": direct_grants,
+        "remaining_clue_ids": remaining,
+        "sets_flags": flags,
+        "completion_policy": (
+            str(route.get("completion_policy")).strip()
+            if route.get("completion_policy") is not None
+            else None
+        ),
+        "repeatable": bool(
+            route.get("repeatable") is True
+            or str(route.get("status") or "") in {"repeatable", "resume"}
+            or str(route.get("completion_policy") or "") == "repeatable"
+        ),
+        "player_visible_goal": public_goal,
+        "player_visible_outcome": public_outcome,
+        "source_time_profile": _json_copy(source_time_profile),
+        "source_provenance": {
+            "kind": "sealed_story_graph_route",
+            "story_graph_sha256": hashlib.sha256(encoded).hexdigest(),
+        },
+    }
+    return _validate_sealed_route_transaction(transaction)
+
+
+def _mint_push_continuation_capsule(
+    campaign_dir: Path,
+    investigator_id: str,
+    character_id: str,
+    command: dict[str, Any],
+    event: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Compile immutable Push execution authority at the original failure.
+
+    Missing or ambiguous structured source evidence simply makes the failed
+    roll non-pushable.  It is never repaired later from prose or adjacent IDs.
+    """
+    if event.get("success") is not False or event.get("outcome") != "failure":
+        return None
+    contract = event.get("roll_contract")
+    policy = contract.get("push_policy") if isinstance(contract, dict) else None
+    consequence = _typed_push_consequence(
+        contract.get("push_failure_consequence") if isinstance(contract, dict) else None
+    )
+    if not isinstance(policy, dict) or policy.get("eligible") is not True or consequence is None:
+        return None
+    resolution = event.get("resolution_context")
+    if not isinstance(resolution, dict):
+        return None
+    plan_slice = _json_copy(resolution)
+    route_resolution = plan_slice.pop("route_resolution", None)
+    context_time_profile = plan_slice.pop("source_time_profile", None)
+    turn_input = resolution.get("turn_input")
+    rich = (
+        turn_input.get("player_intent_rich")
+        if isinstance(turn_input, dict) and isinstance(turn_input.get("player_intent_rich"), dict)
+        else {}
+    )
+    action_resolution = (
+        rich.get("action_resolution")
+        if isinstance(rich.get("action_resolution"), dict)
+        else {}
+    )
+    action_route_ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in action_resolution.get("matched_affordance_ids") or []
+        if str(value or "").strip()
+    ))
+    clue_policy = resolution.get("clue_policy")
+    policy_route_ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in (
+            clue_policy.get("matched_route_ids") if isinstance(clue_policy, dict) else []
+        ) or []
+        if str(value or "").strip()
+    ))
+    receipt_route_ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in (
+            route_resolution.get("matched_route_ids")
+            if isinstance(route_resolution, dict)
+            else []
+        ) or []
+        if str(value or "").strip()
+    ))
+    route_claimed = bool(action_route_ids or policy_route_ids or receipt_route_ids)
+    route_id: str | None = None
+    clue_ids: list[str] = []
+    scene_id = str(turn_input.get("active_scene_id") or "").strip() if isinstance(turn_input, dict) else ""
+    if route_claimed:
+        if (
+            not isinstance(route_resolution, dict)
+            or route_resolution.get("schema_version") != 1
+            or len(receipt_route_ids) != 1
+            or not scene_id
+            or receipt_route_ids[0] not in set(action_route_ids or policy_route_ids)
+            or (
+                action_route_ids and policy_route_ids
+                and receipt_route_ids[0] not in set(action_route_ids) & set(policy_route_ids)
+            )
+        ):
+            return None
+        route_id = receipt_route_ids[0]
+        clue_ids = list(dict.fromkeys(
+            str(value).strip()
+            for value in route_resolution.get("clue_ids") or []
+            if str(value or "").strip()
+        ))
+        generated = bool(
+            contract.get("generated_clue_gate") is True
+            or contract.get("authored_clue_bonus") is True
+        )
+        policy_clues = list(dict.fromkeys(
+            str(value).strip()
+            for value in (
+                clue_policy.get("reveal") if isinstance(clue_policy, dict) else []
+            ) or []
+            if str(value or "").strip()
+        ))
+        if generated and (len(clue_ids) != 1 or clue_ids != policy_clues):
+            return None
+    route_transaction = None
+    if route_id is not None:
+        route_transaction = _seal_authored_route_transaction(
+            campaign_dir,
+            scene_id=scene_id,
+            route_id=route_id,
+        )
+        if route_transaction is None:
+            return None
+    if isinstance(route_transaction, dict):
+        # Route authority comes only from the exact authored route snapshot.
+        # Director/runtime fallback timing is intentionally not reusable by a
+        # later Push attempt.
+        source_time = route_transaction.get("source_time_profile")
+    else:
+        source_time = (
+            contract.get("push_time_profile")
+            if isinstance(contract, dict)
+            and contract.get("push_time_profile") is not None
+            else context_time_profile
+        )
+        if not _is_exact_source_time_profile(source_time):
+            return None
+    settlement_route = None
+    if route_id is not None:
+        settlement_route = {
+            "schema_version": 1,
+            "matched_route_ids": [route_id],
+            "request_id": None,
+        }
+        if clue_ids:
+            settlement_route["clue_ids"] = clue_ids
+    capsule: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "push_continuation",
+        "continuation_id": None,
+        "campaign_binding": _campaign_binding(campaign_dir),
+        "actor_binding": {
+            "investigator_id": investigator_id,
+            "character_id": character_id,
+        },
+        "authority_revision": 0,
+        "roll_spec": {
+            "kind": event.get("kind"),
+            "skill": event.get("skill") or event.get("characteristic"),
+            "target": event.get("target"),
+            "difficulty": event.get("difficulty"),
+            "bonus_penalty_dice": event.get("bonus_penalty_dice", 0),
+            "reason": event.get("reason"),
+            "roll_contract": _json_copy(contract),
+        },
+        "settlement": {
+            "plan_slice": plan_slice,
+            "route_resolution": settlement_route,
+            "request_id": None,
+            "announced_consequence": consequence,
+            "source_time_profile": _json_copy(source_time),
+            "route_transaction": route_transaction,
+        },
+        "source_evidence": {
+            "origin_command_id": command["command_id"],
+            "origin_decision_id": command["payload"].get("decision_id"),
+            "roll_id": event.get("roll_id"),
+            "scene_id": scene_id or None,
+        },
+        "idempotency": {
+            "key": None,
+            "mode": "exact_once",
+            "consumption_ledger": "choice_history",
+        },
+    }
+    digest = _canonical_json_hash(capsule)
+    capsule["continuation_id"] = f"push-cont:{digest}"
+    capsule["settlement"]["request_id"] = f"push-settle:{digest}"
+    capsule["idempotency"]["key"] = f"push-once:{digest}"
+    if isinstance(capsule["settlement"]["route_resolution"], dict):
+        capsule["settlement"]["route_resolution"]["request_id"] = (
+            capsule["settlement"]["request_id"]
+        )
+    return _validate_push_capsule(
+        capsule,
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        character_id=character_id,
+    )
+
+
+def project_latest_eligible_push_candidate(
+    campaign_dir: Path | str,
+    investigator_id: str,
+    character_id: str,
+) -> dict[str, Any] | None:
+    """Project the latest unconsumed ordinary failed roll for semantic routing.
+
+    The projection is deliberately singular and bounded. Any later roll by the
+    same actor makes an older failure stale, while combat/sanity/ineligible,
+    successful, fumbled, ambiguous-route, or already-used results fail closed.
+    Numeric dice and private resolution context never cross this boundary.
+    """
+    state = load_canonical_state_readonly(campaign_dir)
+    if state["pending_choices"]:
+        return None
+    for command_id in reversed(state["applied_command_ids"]):
+        provenance = state["command_provenance"].get(command_id)
+        snapshot = state["result_snapshots"].get(command_id)
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("investigator_id") != investigator_id
+            or provenance.get("character_id") != character_id
+            or not isinstance(snapshot, dict)
+        ):
+            continue
+        roll_events = [
+            event for event in snapshot.get("events") or []
+            if isinstance(event, dict) and isinstance(event.get("roll_id"), str)
+        ]
+        if not roll_events:
+            continue
+        if snapshot.get("kind") not in {"skill_check", "characteristic_check"}:
+            return None
+        if len(roll_events) != 1:
+            return None
+        event = roll_events[0]
+        contract = event.get("roll_contract")
+        policy = contract.get("push_policy") if isinstance(contract, dict) else None
+        if (
+            event.get("success") is not False
+            or event.get("outcome") != "failure"
+            or not isinstance(policy, dict)
+            or policy.get("eligible") is not True
+            or _push_origin_in_use(state, command_id)
+        ):
+            return None
+        capsule = event.get("push_continuation_capsule")
+        if not isinstance(capsule, dict):
+            return None
+        capsule = _validate_push_capsule(
+            capsule,
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            character_id=character_id,
+        )
+        transaction = capsule["settlement"].get("route_transaction")
+        route_id = str(
+            transaction.get("route_id") if isinstance(transaction, dict) else ""
+        ).strip()
+        skill = event.get("skill") or event.get("characteristic")
+        if not isinstance(skill, str) or not skill.strip():
+            return None
+        return {
+            "candidate_id": capsule["continuation_id"],
+            "continuation_id": capsule["continuation_id"],
+            "original_command_id": command_id,
+            "original_roll_id": event["roll_id"],
+            "kind": snapshot["kind"],
+            "skill_or_characteristic": skill.strip(),
+            "target": event.get("target"),
+            "difficulty": event.get("difficulty"),
+            "goal": contract.get("goal") if isinstance(contract, dict) else None,
+            "route_id": route_id,
+            "failure_outcome_mode": (
+                contract.get("failure_outcome_mode")
+                if isinstance(contract, dict) else None
+            ),
+            "requires_changed_method": policy.get("requires_changed_method") is True,
+            "keeper_must_foreshadow_failure": (
+                policy.get("keeper_must_foreshadow_failure") is True
+            ),
+            "announced_consequence": _json_copy(
+                capsule["settlement"]["announced_consequence"]
+            ),
+            "source_time_profile": _json_copy(
+                capsule["settlement"]["source_time_profile"]
+            ),
+        }
+    return None
 
 
 def project_player_combat_defense(
@@ -2827,6 +3647,10 @@ def _build_inflight(
         command["kind"] in CHASE_COMMAND_KINDS
         for command, _command_hash in commands_with_hashes
     )
+    structured_authored = any(
+        command["kind"] in AUTHORED_OPERATION_COMMAND_KINDS
+        for command, _command_hash in commands_with_hashes
+    )
     preimage_relatives: list[str] = []
     if structured_sanity:
         preimage_relatives = [
@@ -2849,8 +3673,16 @@ def _build_inflight(
         ):
             if relative not in preimage_relatives:
                 preimage_relatives.append(relative)
+    if structured_authored:
+        for relative in (
+            f"save/investigator-state/{investigator_id}.json",
+            "save/time-state.json",
+            "save/time-triggers.json",
+        ):
+            if relative not in preimage_relatives:
+                preimage_relatives.append(relative)
     has_roll_evidence = any(
-        command["kind"] in ROLL_EVIDENCE_COMMAND_KINDS
+        _command_requires_roll_evidence(command)
         for command, _command_hash in commands_with_hashes
     )
     log_offsets: dict[str, dict[str, Any]] = {}
@@ -2867,6 +3699,8 @@ def _build_inflight(
     if has_roll_evidence:
         log_relatives.append("logs/rolls.jsonl")
     if structured_sanity:
+        log_relatives.append("logs/time.jsonl")
+    if structured_authored and "logs/time.jsonl" not in log_relatives:
         log_relatives.append("logs/time.jsonl")
     for relative in log_relatives:
         with _AnchoredTransactionTarget(campaign_dir, relative) as target:
@@ -3000,9 +3834,39 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             "decision_id must be null or a stable safe ID",
         )
     kind = command["kind"]
+    if kind == "environmental_hazard":
+        required = {
+            "luck_skill", "jump_skill", "damage_expr", "source", "rule_ref",
+        }
+        optional = {"decision_id", "roll_id", "request_index", "request_id", "route_resolution"}
+        if not required <= set(payload) or set(payload) - required - optional:
+            raise _error("invalid_command_payload", base, "invalid environmental_hazard contract")
+        if payload.get("damage_expr") != "1D6":
+            raise _error("invalid_command_payload", f"{base}.damage_expr", "only 1D6 is supported")
+        for field in ("luck_skill", "jump_skill", "source", "rule_ref"):
+            if not isinstance(payload.get(field), str) or not payload[field].strip():
+                raise _error("invalid_command_payload", f"{base}.{field}", "expected non-empty string")
+    if kind == "mythos_tome_study":
+        required = {
+            "tome_id", "language_skill", "language_threshold", "duration_minutes",
+            "mythos_gain", "max_san_reduction", "rule_ref",
+        }
+        optional = {"decision_id", "roll_id", "request_index", "request_id", "route_resolution"}
+        if not required <= set(payload) or set(payload) - required - optional:
+            raise _error("invalid_command_payload", base, "invalid mythos_tome_study contract")
+        if not isinstance(payload.get("language_skill"), str) or not payload["language_skill"].strip():
+            raise _error("invalid_command_payload", f"{base}.language_skill", "expected non-empty string")
+        for field in ("language_threshold", "duration_minutes", "mythos_gain", "max_san_reduction"):
+            value = payload.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise _error("invalid_command_payload", f"{base}.{field}", "expected non-negative integer")
+        if payload["duration_minutes"] <= 0 or not isinstance(payload.get("tome_id"), str) or not payload["tome_id"].strip():
+            raise _error("invalid_command_payload", base, "tome study requires tome_id and positive duration")
     if kind in COMBAT_COMMAND_KINDS:
         revision = payload.get("revision")
-        if kind not in {"combat_start", "dying_tick", "stabilize"} and (
+        if kind not in {
+            "combat_start", "dying_tick", "stabilize", "weekly_recovery"
+        } and (
             isinstance(revision, bool) or not isinstance(revision, int) or revision < 0
         ):
             raise _error(
@@ -3026,9 +3890,17 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 "actor_id", "side", "dex", "combat_skill", "dodge_skill",
                 "build", "hp_max", "hp_current", "con", "weapons", "conditions",
             }
+            optional = {
+                "firearms_skill", "has_ready_firearm", "damage_bonus",
+                "magic_points", "armor", "armor_rule",
+            }
             for offset, participant in enumerate(participants):
                 ppath = f"{base}.participants[{offset}]"
-                if not isinstance(participant, dict) or set(participant) != required:
+                if (
+                    not isinstance(participant, dict)
+                    or not required <= set(participant)
+                    or set(participant) - required - optional
+                ):
                     raise _error("invalid_command_payload", ppath, "invalid participant contract")
                 actor_id = participant.get("actor_id")
                 if (not isinstance(actor_id, str) or not _SAFE_ID.fullmatch(actor_id)
@@ -3047,18 +3919,110 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                         or not isinstance(participant.get("conditions"), list)
                         or any(value not in coc_combat.VALID_CONDITIONS for value in participant["conditions"])):
                     raise _error("invalid_command_payload", ppath, "invalid weapons or conditions")
+                for field in ("firearms_skill", "magic_points", "armor"):
+                    if field in participant and (
+                        isinstance(participant[field], bool)
+                        or not isinstance(participant[field], int)
+                        or participant[field] < 0
+                    ):
+                        raise _error("invalid_command_payload", f"{ppath}.{field}", "expected non-negative integer")
+                if "has_ready_firearm" in participant and not isinstance(
+                    participant["has_ready_firearm"], bool
+                ):
+                    raise _error("invalid_command_payload", f"{ppath}.has_ready_firearm", "expected boolean")
+                if "damage_bonus" in participant and not isinstance(participant["damage_bonus"], str):
+                    raise _error("invalid_command_payload", f"{ppath}.damage_bonus", "expected string")
+                if participant.get("armor_rule") not in coc_combat.VALID_ARMOR_RULES:
+                    raise _error("invalid_command_payload", f"{ppath}.armor_rule", "invalid armor rule")
+            preparations = payload.get("preparations", [])
+            if not isinstance(preparations, list):
+                raise _error("invalid_command_payload", f"{base}.preparations", "expected a list")
+            for offset, preparation in enumerate(preparations):
+                ppath = f"{base}.preparations[{offset}]"
+                required_preparation = {
+                    "effect_id", "actor_id", "resource", "cost", "effect_kind",
+                    "duration_rounds", "rule_ref",
+                }
+                optional_preparation = {"armor_dice", "armor_rule"}
+                if (
+                    not isinstance(preparation, dict)
+                    or not required_preparation <= set(preparation)
+                    or set(preparation) - required_preparation - optional_preparation
+                ):
+                    raise _error("invalid_command_payload", ppath, "invalid combat preparation contract")
+                if preparation.get("resource") != "magic_points":
+                    raise _error("invalid_command_payload", f"{ppath}.resource", "unsupported combat resource")
+                for field in ("cost", "duration_rounds"):
+                    if isinstance(preparation.get(field), bool) or not isinstance(preparation.get(field), int) or preparation[field] < 0:
+                        raise _error("invalid_command_payload", f"{ppath}.{field}", "expected non-negative integer")
+                if "armor_dice" in preparation and not re.fullmatch(r"[1-9][0-9]*D6", str(preparation["armor_dice"])):
+                    raise _error("invalid_command_payload", f"{ppath}.armor_dice", "armor dice must be Nd6")
+                if preparation.get("armor_rule") not in coc_combat.VALID_ARMOR_RULES:
+                    raise _error("invalid_command_payload", f"{ppath}.armor_rule", "invalid armor rule")
         elif kind == "combat_attack":
             for field in ("actor_id", "target_actor_id", "declared_intent", "resolution_hint"):
                 if not isinstance(payload.get(field), str) or not payload[field].strip():
                     raise _error("invalid_command_payload", f"{base}.{field}", "field is required")
             if payload.get("resolution_hint") not in {"opposed_melee", "firearm_attack"}:
                 raise _error("invalid_command_payload", f"{base}.resolution_hint", "attack hint must be structured combat")
+            if "resource_cost" in payload:
+                cost = payload["resource_cost"]
+                if (
+                    not isinstance(cost, dict)
+                    or set(cost) != {"resource", "cost", "reason", "rule_ref"}
+                    or cost.get("resource") != "magic_points"
+                    or isinstance(cost.get("cost"), bool)
+                    or not isinstance(cost.get("cost"), int)
+                    or cost["cost"] < 0
+                ):
+                    raise _error("invalid_command_payload", f"{base}.resource_cost", "invalid structured combat resource cost")
+            if "on_success" in payload:
+                effect = payload["on_success"]
+                if (
+                    not isinstance(effect, dict)
+                    or set(effect) != {"kind", "outcome", "rule_ref"}
+                    or effect.get("kind") != "destroy_target"
+                    or effect.get("outcome") not in coc_combat.VALID_OUTCOMES - {None}
+                ):
+                    raise _error("invalid_command_payload", f"{base}.on_success", "invalid combat success effect")
+            for field in ("victory_outcome", "defeat_outcome"):
+                if field in payload and payload[field] not in coc_combat.VALID_OUTCOMES - {None}:
+                    raise _error("invalid_command_payload", f"{base}.{field}", "invalid combat outcome")
         elif kind == "combat_defend":
             if payload.get("defense_kind") not in {"dodge", "fight_back", "dive_for_cover", "none"}:
                 raise _error("invalid_command_payload", f"{base}.defense_kind", "invalid defense enum")
             for field in ("actor_id", "attack_command_id"):
                 if not isinstance(payload.get(field), str) or not _SAFE_ID.fullmatch(payload[field]):
                     raise _error("invalid_command_payload", f"{base}.{field}", "stable ID required")
+            luck_cap = payload.get("luck_spend_max")
+            luck_actor_id = payload.get("luck_actor_id")
+            if luck_cap is None:
+                if luck_actor_id is not None:
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.luck_actor_id",
+                        "luck_actor_id requires luck_spend_max",
+                    )
+            else:
+                if (
+                    isinstance(luck_cap, bool)
+                    or not isinstance(luck_cap, int)
+                    or not 1 <= luck_cap <= 99
+                ):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.luck_spend_max",
+                        "luck_spend_max must be 1..99",
+                    )
+                if (
+                    not isinstance(luck_actor_id, str)
+                    or not _SAFE_ID.fullmatch(luck_actor_id)
+                ):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.luck_actor_id",
+                        "luck_actor_id must be a stable safe ID",
+                    )
         elif kind == "dying_tick":
             if payload.get("clock_kind") not in {"round", "hour"}:
                 raise _error("invalid_command_payload", f"{base}.clock_kind", "clock_kind must be round or hour")
@@ -3066,16 +4030,111 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             if payload.get("method") not in {"first_aid", "medicine"}:
                 raise _error("invalid_command_payload", f"{base}.method", "method must be first_aid or medicine")
             skill_value = payload.get("skill_value")
-            if isinstance(skill_value, bool) or not isinstance(skill_value, int) or not 0 <= skill_value <= 100:
-                raise _error("invalid_command_payload", f"{base}.skill_value", "skill_value must be 0..100")
+            if isinstance(skill_value, bool) or not isinstance(skill_value, int) or not 1 <= skill_value <= 100:
+                raise _error("invalid_command_payload", f"{base}.skill_value", "skill_value must be 1..100")
+            rescuer_id = payload.get("rescuer_id")
+            if rescuer_id is not None and (
+                not isinstance(rescuer_id, str) or not _SAFE_ID.fullmatch(rescuer_id)
+            ):
+                raise _error(
+                    "invalid_command_payload",
+                    f"{base}.rescuer_id",
+                    "rescuer_id must be a stable safe ID",
+                )
+            pushed = payload.get("pushed", False)
+            if not isinstance(pushed, bool):
+                raise _error(
+                    "invalid_command_payload",
+                    f"{base}.pushed",
+                    "pushed must be boolean",
+                )
+            if pushed:
+                if payload.get("method") != "first_aid":
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.pushed",
+                        "only First Aid can use this pushed-treatment route",
+                    )
+                for field in ("changed_method", "failure_consequence"):
+                    if not isinstance(payload.get(field), str) or not payload[field].strip():
+                        raise _error(
+                            "invalid_command_payload",
+                            f"{base}.{field}",
+                            f"pushed First Aid requires non-empty {field}",
+                        )
             for field in ("wound_id", "day_id"):
                 if field in payload and (
                     not isinstance(payload[field], str)
                     or not _SAFE_ID.fullmatch(payload[field])
                 ):
                     raise _error("invalid_command_payload", f"{base}.{field}", f"{field} must be a stable ID")
+        elif kind == "weekly_recovery":
+            allowed = {
+                "decision_id", "request_index", "request_id", "roll_id",
+                "complete_rest", "poor_environment", "caregiver_id",
+                "medicine_skill_value",
+            }
+            if set(payload) - allowed:
+                raise _error(
+                    "invalid_command_payload",
+                    base,
+                    "invalid weekly recovery contract",
+                )
+            for field in ("complete_rest", "poor_environment"):
+                if not isinstance(payload.get(field), bool):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.{field}",
+                        f"{field} must be boolean",
+                    )
+            if payload["complete_rest"] and payload["poor_environment"]:
+                raise _error(
+                    "invalid_command_payload",
+                    base,
+                    "complete rest and poor environment are mutually exclusive",
+                )
+            medicine_skill = payload.get("medicine_skill_value")
+            caregiver_id = payload.get("caregiver_id")
+            if medicine_skill is None:
+                if caregiver_id is not None:
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.caregiver_id",
+                        "caregiver_id requires medicine_skill_value",
+                    )
+            else:
+                if (
+                    isinstance(medicine_skill, bool)
+                    or not isinstance(medicine_skill, int)
+                    or not 1 <= medicine_skill <= 100
+                ):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.medicine_skill_value",
+                        "medicine_skill_value must be 1..100",
+                    )
+                if (
+                    not isinstance(caregiver_id, str)
+                    or not _SAFE_ID.fullmatch(caregiver_id)
+                ):
+                    raise _error(
+                        "invalid_command_payload",
+                        f"{base}.caregiver_id",
+                        "caregiver_id must be a stable safe ID",
+                    )
         elif kind == "combat_end" and payload.get("outcome") not in coc_combat.VALID_OUTCOMES - {None}:
             raise _error("invalid_command_payload", f"{base}.outcome", "invalid combat outcome")
+    if kind == "sanity_reward":
+        if set(payload) - {
+            "decision_id", "request_index", "roll_id", "die", "source", "rule_ref",
+            "reason", "request_id",
+        }:
+            raise _error("invalid_command_payload", base, "invalid sanity reward contract")
+        if payload.get("die") != "1D6":
+            raise _error("invalid_command_payload", f"{base}.die", "sanity reward die must be 1D6")
+        for field in ("source", "rule_ref"):
+            if not isinstance(payload.get(field), str) or not payload[field].strip():
+                raise _error("invalid_command_payload", f"{base}.{field}", "field is required")
     if kind in CHASE_COMMAND_KINDS:
         chase_payload_keys = {
             "chase_start": {"decision_id", "chase_id", "participants", "locations"},
@@ -3283,11 +4342,28 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 )
     if command["kind"] == "push_offer":
         original_id = payload.get("original_command_id")
-        if not isinstance(original_id, str) or not _SAFE_ID.fullmatch(original_id):
+        continuation_id = payload.get("continuation_id")
+        if continuation_id is not None and (
+            not isinstance(continuation_id, str) or not _SAFE_ID.fullmatch(continuation_id)
+        ):
+            raise _error(
+                "invalid_command_payload",
+                f"{base}.continuation_id",
+                "continuation_id must be an opaque persisted capability",
+            )
+        if original_id is not None and (
+            not isinstance(original_id, str) or not _SAFE_ID.fullmatch(original_id)
+        ):
             raise _error(
                 "invalid_command_payload",
                 f"{base}.original_command_id",
-                "original_command_id must be a stable persisted command ID",
+                "legacy original_command_id must be a stable audit ID",
+            )
+        if continuation_id is None and original_id is None:
+            raise _error(
+                "invalid_command_payload",
+                f"{base}.continuation_id",
+                "push offer requires a continuation capability",
             )
         changed = payload.get("changed_method_evidence")
         if not isinstance(changed, dict) or set(changed) != {
@@ -3319,7 +4395,8 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
         consequence = payload.get("announced_consequence")
         if (
             not isinstance(consequence, dict)
-            or not {"summary"} <= set(consequence) <= {"summary", "effect"}
+            or not {"summary"} <= set(consequence)
+            or set(consequence) - {"summary", "effect", "localized_summaries"}
             or not isinstance(consequence.get("summary"), str)
             or not consequence["summary"].strip()
         ):
@@ -3328,10 +4405,24 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 f"{base}.announced_consequence.summary",
                 "Keeper-owned announced consequence requires a non-empty summary",
             )
+        localized_summaries = consequence.get("localized_summaries")
+        if localized_summaries is not None and (
+            not isinstance(localized_summaries, dict)
+            or any(
+                not isinstance(language, str) or not language.strip()
+                or not isinstance(summary, str) or not summary.strip()
+                for language, summary in localized_summaries.items()
+            )
+        ):
+            raise _error(
+                "invalid_command_payload",
+                f"{base}.announced_consequence.localized_summaries",
+                "localized summaries must map locale IDs to non-empty text",
+            )
         effect = consequence.get("effect")
         if effect is not None:
             if not isinstance(effect, dict) or effect.get("kind") not in {
-                "fictional_position", "pressure_tick", "condition",
+                "fictional_position", "pressure_tick", "condition", "route_closed",
             }:
                 raise _error(
                     "invalid_command_payload",
@@ -3359,6 +4450,11 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 and set(effect) == {"kind", "condition_id"}
                 and isinstance(effect.get("condition_id"), str)
                 and bool(_SAFE_ID.fullmatch(effect["condition_id"]))
+            ) or (
+                kind == "route_closed"
+                and set(effect) == {"kind", "route_id"}
+                and isinstance(effect.get("route_id"), str)
+                and bool(_SAFE_ID.fullmatch(effect["route_id"]))
             )
             if not valid:
                 raise _error(
@@ -3366,6 +4462,13 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     f"{base}.announced_consequence.effect",
                     "effect does not match its exact typed payload contract",
                 )
+        source_time_profile = payload.get("source_time_profile")
+        if not _is_exact_source_time_profile(source_time_profile):
+            raise _error(
+                "invalid_command_payload",
+                f"{base}.source_time_profile",
+                "source_time_profile must be null or an exact structured route time profile",
+            )
         supplied_context = payload.get("resolution_context")
         if supplied_context is not None and not isinstance(supplied_context, dict):
             raise _error(
@@ -3411,6 +4514,14 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                 f"{base}.terminal_command_ids",
                 "terminal command IDs must be stable IDs",
             )
+        if command["kind"] == "push_resolve":
+            continuation_id = payload.get("continuation_id")
+            if not isinstance(continuation_id, str) or not _SAFE_ID.fullmatch(continuation_id):
+                raise _error(
+                    "invalid_command_payload",
+                    f"{base}.continuation_id",
+                    "push resolve requires the opaque continuation capability",
+                )
     if command["kind"] in BOUT_COMMAND_KINDS:
         choice_id = payload.get("choice_id")
         if not isinstance(choice_id, str) or not _SAFE_ID.fullmatch(choice_id):
@@ -3506,7 +4617,7 @@ def _preflight_sanity_state(
     needs_sanity = any(
         command["command_id"] not in applied
         and (
-            command["kind"] in BOUT_COMMAND_KINDS
+            command["kind"] in BOUT_COMMAND_KINDS | REWARD_COMMAND_KINDS
             or (
                 command["kind"] == "sanity_check"
                 and "san_loss_fail_expr" in command["payload"]
@@ -3583,8 +4694,49 @@ def _resume_ids(choice_id: str, revision: int, action: str) -> dict[str, str]:
     }
 
 
+def _compile_push_continuation_binding(
+    context: dict[str, Any], campaign_dir: Path | str | None
+) -> dict[str, Any]:
+    """Load already-compiled authority; never reconstruct it at confirmation."""
+    capsule = _validate_push_capsule(
+        context.get("continuation_capsule"),
+        campaign_dir=campaign_dir,
+        investigator_id=str(context.get("investigator_id") or ""),
+        character_id=str(context.get("character_id") or ""),
+    )
+    source = capsule["source_evidence"]
+    if (
+        source.get("origin_command_id") != context.get("origin_command_id")
+        or source.get("roll_id") != (context.get("original_roll") or {}).get("roll_id")
+    ):
+        raise _error(
+            "push_continuation_unbound",
+            "pending_choice_response",
+            "continuation capsule is detached from its immutable roll evidence",
+        )
+    transaction = capsule["settlement"].get("route_transaction")
+    return {
+        "schema_version": 2,
+        "mode": "continuation_capsule",
+        "continuation_id": capsule["continuation_id"],
+        "authority_revision": capsule["authority_revision"],
+        "request_id": capsule["settlement"]["request_id"],
+        "scene_id": source.get("scene_id"),
+        "route_id": (
+            transaction.get("route_id") if isinstance(transaction, dict) else None
+        ),
+        "route_transaction_sha256": (
+            _canonical_json_hash(transaction)
+            if isinstance(transaction, dict)
+            else None
+        ),
+        "idempotency_key": capsule["idempotency"]["key"],
+    }
+
+
 def _push_resume_plan_from_state(
     state: dict[str, Any],
+    campaign_dir: Path | str | None,
     investigator_id: str,
     response: Any,
 ) -> dict[str, Any]:
@@ -3671,6 +4823,10 @@ def _push_resume_plan_from_state(
                 "choice was already consumed by a different response",
             )
 
+    continuation_binding = _compile_push_continuation_binding(context, campaign_dir)
+    capsule = context["continuation_capsule"]
+    settlement = capsule["settlement"]
+
     ids = _resume_ids(choice_id, int(revision), str(action))
     terminal_ids = [ids["confirm_command_id"]]
     if action == "confirm":
@@ -3688,13 +4844,18 @@ def _push_resume_plan_from_state(
         **_json_copy(common),
     }]
     if action == "confirm":
-        rules_requests.append({
+        resolve_request = {
             "command_id": ids["resolve_command_id"],
             "kind": "push_resolve",
             **_json_copy(common),
             "confirm_command_id": ids["confirm_command_id"],
-        })
-    resolution = _json_copy(context.get("resolution_context") or {})
+            "continuation_id": continuation_binding["continuation_id"],
+            "request_id": settlement["request_id"],
+        }
+        if isinstance(settlement.get("route_resolution"), dict):
+            resolve_request["route_resolution"] = _json_copy(settlement["route_resolution"])
+        rules_requests.append(resolve_request)
+    resolution = _json_copy(settlement["plan_slice"])
     plan: dict[str, Any] = {
         "decision_id": ids["decision_id"],
         "scene_action": str(resolution.get("scene_action") or "SUBSYSTEM"),
@@ -3711,10 +4872,27 @@ def _push_resume_plan_from_state(
             "action": action,
             "revision": revision,
             "announced_consequence": _json_copy(context["announced_consequence"]),
+            "binding": continuation_binding,
+            "sealed_route_transaction": _json_copy(
+                settlement.get("route_transaction")
+            ),
         },
     }
     if isinstance(resolution.get("turn_input"), dict):
         plan["turn_input"] = _json_copy(resolution["turn_input"])
+    if action == "confirm" and isinstance(
+        settlement.get("route_transaction"), dict
+    ):
+        plan["flags_set"] = _json_copy(
+            settlement["route_transaction"].get("sets_flags") or []
+        )
+    if action == "confirm" and isinstance(context.get("source_time_profile"), dict):
+        plan["time_advance"] = {
+            **_json_copy(context["source_time_profile"]),
+            "confidence": 1.0,
+            "reason": "confirmed pushed attempt consumes the source route time",
+            "idempotency_key": f"push-time:{choice_id}:{revision}",
+        }
     return plan
 
 
@@ -3837,7 +5015,7 @@ def _chase_resume_plan_from_state(
 
 
 def _pending_resume_plan_from_state(
-    state: dict[str, Any], investigator_id: str, response: Any
+    state: dict[str, Any], campaign_dir: Path | str | None, investigator_id: str, response: Any
 ) -> dict[str, Any]:
     choice_id = response.get("choice_id") if isinstance(response, dict) else None
     context = (
@@ -3850,7 +5028,7 @@ def _pending_resume_plan_from_state(
         return _bout_resume_plan_from_state(state, investigator_id, response)
     if isinstance(context, dict) and context.get("kind") == "chase_action":
         return _chase_resume_plan_from_state(state, investigator_id, response)
-    return _push_resume_plan_from_state(state, investigator_id, response)
+    return _push_resume_plan_from_state(state, campaign_dir, investigator_id, response)
 
 
 def plan_from_pending_choice_response(
@@ -3876,10 +5054,10 @@ def plan_from_pending_choice_response(
     # Validate against the pre-transaction canonical indexes before recovery.
     # A malformed/stale response must never authorize preimage restoration or
     # log truncation merely by being presented to this read/compile boundary.
-    candidate = _pending_resume_plan_from_state(state, investigator_id, response)
+    candidate = _pending_resume_plan_from_state(state, campaign, investigator_id, response)
     recovered = _recover_inflight(campaign, state)
     _validate_external_result_receipts(campaign, recovered)
-    resolved = _pending_resume_plan_from_state(recovered, investigator_id, response)
+    resolved = _pending_resume_plan_from_state(recovered, campaign, investigator_id, response)
     if not _json_deep_equal(candidate, resolved):
         raise _error(
             "pending_choice_changed_during_recovery",
@@ -3916,7 +5094,13 @@ def commands_from_rules_requests(plan: dict[str, Any]) -> list[dict[str, Any]]:
             if key not in {"kind", "command_id", "phase"}
         }
         payload.setdefault("decision_id", plan.get("decision_id"))
-        if kind in RNG_CONSUMING_COMMAND_KINDS:
+        if kind in RNG_CONSUMING_COMMAND_KINDS or (
+            kind == "combat_start"
+            and any(
+                isinstance(item, dict) and isinstance(item.get("armor_dice"), str)
+                for item in request.get("preparations", []) or []
+            )
+        ):
             payload.setdefault("roll_id", command_id)
         payload.setdefault("request_index", index)
         commands.append({
@@ -4229,6 +5413,118 @@ def _settle_sanity_check(
     }
 
 
+def _settle_percentile_fumble_contract(
+    contract_value: Any,
+    outcome: Any,
+    *,
+    path: str,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Make every percentile fumble non-pushable and project typed effects."""
+    contract = _json_copy(contract_value)
+    if not isinstance(contract, dict):
+        if outcome != "fumble":
+            return contract, None
+        return {
+            "schema_version": 1,
+            "push_policy": {
+                "eligible": False,
+                "requires_changed_method": False,
+                "keeper_must_foreshadow_failure": False,
+            },
+        }, None
+    authored_fumble = contract.get("fumble_consequence")
+    effect = (
+        authored_fumble.get("effect")
+        if isinstance(authored_fumble, dict)
+        else None
+    )
+    valid_effect = (
+        isinstance(effect, dict)
+        and (
+            effect.get("kind") == "fictional_position"
+            and set(effect) in ({"kind"}, {"kind", "severity"})
+            and (
+                "severity" not in effect
+                or effect.get("severity") in {"minor", "serious", "critical"}
+            )
+            or effect.get("kind") == "pressure_tick"
+            and set(effect) == {"kind", "clock_id", "ticks"}
+            and isinstance(effect.get("clock_id"), str)
+            and bool(_SAFE_ID.fullmatch(effect["clock_id"]))
+            and isinstance(effect.get("ticks"), int)
+            and not isinstance(effect.get("ticks"), bool)
+            and 1 <= effect["ticks"] <= 4
+            or effect.get("kind") == "condition"
+            and set(effect) == {"kind", "condition_id"}
+            and isinstance(effect.get("condition_id"), str)
+            and bool(_SAFE_ID.fullmatch(effect["condition_id"]))
+            or effect.get("kind") == "route_closed"
+            and set(effect) == {"kind", "route_id"}
+            and isinstance(effect.get("route_id"), str)
+            and bool(_SAFE_ID.fullmatch(effect["route_id"]))
+        )
+    )
+    valid_consequence = (
+        isinstance(authored_fumble, dict)
+        and {"summary", "effect"} <= set(authored_fumble)
+        and not set(authored_fumble) - {
+            "summary", "effect", "localized_summaries", "source_binding"
+        }
+        and isinstance(authored_fumble.get("summary"), str)
+        and bool(authored_fumble["summary"].strip())
+        and isinstance(authored_fumble.get("localized_summaries", {}), dict)
+        and all(
+            isinstance(language, str) and language.strip()
+            and isinstance(summary, str) and summary.strip()
+            for language, summary in authored_fumble.get("localized_summaries", {}).items()
+        )
+        and valid_effect
+    )
+    source_binding = (
+        authored_fumble.get("source_binding")
+        if isinstance(authored_fumble, dict)
+        else None
+    )
+    if source_binding is not None:
+        valid_consequence = bool(
+            valid_consequence
+            and isinstance(source_binding, dict)
+            and set(source_binding) == {
+                "schema_version", "kind", "clue_id", "route_ids"
+            }
+            and source_binding.get("schema_version") == 1
+            and source_binding.get("kind") == "generated_obscured_clue_gate"
+            and isinstance(source_binding.get("clue_id"), str)
+            and bool(source_binding["clue_id"].strip())
+            and isinstance(source_binding.get("route_ids"), list)
+            and all(
+                isinstance(route_id, str) and bool(_SAFE_ID.fullmatch(route_id))
+                for route_id in source_binding["route_ids"]
+            )
+        )
+    if contract.get("generated_clue_gate") is True and source_binding is None:
+        valid_consequence = False
+    required = (
+        contract.get("authored_roll_gate") is True
+        or contract.get("authored_clue_bonus") is True
+        or contract.get("generated_clue_gate") is True
+    )
+    if required and not valid_consequence:
+        raise _error(
+            "invalid_authored_fumble_consequence",
+            f"{path}.fumble_consequence",
+            "authored roll contract requires an exact typed fumble consequence",
+        )
+    if outcome != "fumble":
+        return contract, None
+    contract["push_policy"] = {
+        "eligible": False,
+        "requires_changed_method": False,
+        "keeper_must_foreshadow_failure": False,
+    }
+    return contract, (_json_copy(authored_fumble) if valid_consequence else None)
+
+
 def _roll_result(
     campaign_dir: Path,
     character: dict[str, Any],
@@ -4297,7 +5593,12 @@ def _roll_result(
             penalty=penalty,
             rng=rng,
         )
-        return {
+        contract, fumble_consequence = _settle_percentile_fumble_contract(
+            payload.get("roll_contract"),
+            roll.get("outcome"),
+            path=f"commands.{command['command_id']}.payload.roll_contract",
+        )
+        result = {
             "roll_id": roll_id,
             "decision_id": decision_id,
             "kind": "idea_roll",
@@ -4313,11 +5614,14 @@ def _roll_result(
             "effective_target": roll.get("effective_target"),
             "outcome": roll.get("outcome"),
             "success": roll.get("outcome") in SUCCESS_OUTCOMES,
-            "roll_contract": payload.get("roll_contract"),
+            "roll_contract": contract,
             "resolution_context": _json_copy(payload.get("resolution_context") or {}),
             "roll_kind": "idea",
             "characteristic": "INT",
         }
+        if fumble_consequence is not None:
+            result["fumble_consequence"] = fumble_consequence
+        return result
 
     roll = coc_roll.percentile_check(
         target,
@@ -4326,7 +5630,13 @@ def _roll_result(
         penalty=penalty,
         rng=rng,
     )
-    return {
+    outcome = roll.get("outcome")
+    contract, fumble_consequence = _settle_percentile_fumble_contract(
+        payload.get("roll_contract"),
+        outcome,
+        path=f"commands.{command['command_id']}.payload.roll_contract",
+    )
+    result = {
         "roll_id": roll_id,
         "decision_id": decision_id,
         "kind": kind,
@@ -4342,11 +5652,14 @@ def _roll_result(
         "bonus_penalty_dice": bonus_penalty,
         "roll": roll.get("roll"),
         "effective_target": roll.get("effective_target"),
-        "outcome": roll.get("outcome"),
-        "success": roll.get("outcome") in SUCCESS_OUTCOMES,
-        "roll_contract": payload.get("roll_contract"),
+        "outcome": outcome,
+        "success": outcome in SUCCESS_OUTCOMES,
+        "roll_contract": contract,
         "resolution_context": _json_copy(payload.get("resolution_context") or {}),
     }
+    if fumble_consequence is not None:
+        result["fumble_consequence"] = fumble_consequence
+    return result
 
 
 def _investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
@@ -4370,7 +5683,14 @@ def _sync_investigator_from_combat(
         return
     state = _investigator_state(campaign_dir, investigator_id)
     state["current_hp"] = int(participant["hp_current"])
-    state["conditions"] = list(participant.get("conditions") or [])
+    projected_conditions = list(participant.get("conditions") or [])
+    if session.status != "active":
+        projected_conditions = [
+            condition
+            for condition in projected_conditions
+            if condition not in TRANSIENT_COMBAT_CONDITIONS
+        ]
+    state["conditions"] = projected_conditions
     had_wound_ledger = "wound_ledger" in state
     ledger = state.get("wound_ledger")
     if ledger is None:
@@ -4414,9 +5734,41 @@ def _sync_investigator_from_combat(
     persisted = _investigator_state(campaign_dir, investigator_id)
     if (
         persisted.get("current_hp") != participant["hp_current"]
-        or persisted.get("conditions") != participant.get("conditions", [])
+        or persisted.get("conditions") != projected_conditions
     ):
         raise _error("combat_mirror_failed", path.as_posix(), "combat/investigator mirror diverged")
+
+
+def _clear_inactive_combat_conditions(
+    campaign_dir: Path,
+    investigator_id: str,
+) -> list[str]:
+    """Remove combat-position markers once no active combat owns them."""
+    combat_path = campaign_dir / "save" / "combat.json"
+    if combat_path.exists():
+        session = _load_combat_session(
+            campaign_dir, rng=random.Random(0), investigator_id=investigator_id,
+        )
+        if session.status == "active":
+            return []
+    state = _investigator_state(campaign_dir, investigator_id)
+    conditions = list(state.get("conditions") or [])
+    cleared = [
+        condition
+        for condition in conditions
+        if condition in TRANSIENT_COMBAT_CONDITIONS
+    ]
+    if not cleared:
+        return []
+    state["conditions"] = [
+        condition for condition in conditions
+        if condition not in TRANSIENT_COMBAT_CONDITIONS
+    ]
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    coc_fileio.write_json_atomic(
+        path, state, indent=2, ensure_ascii=False, trailing_newline=True
+    )
+    return cleared
 
 
 def _combat_actor_eligible(participant: dict[str, Any]) -> bool:
@@ -4520,31 +5872,242 @@ def _persist_legacy_wound_ledger_if_needed(
     coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False, trailing_newline=True)
 
 
+def _authoritative_major_wound_recovery_scope(
+    campaign_dir: Path,
+    investigator_id: str,
+) -> tuple[str, int, int]:
+    """Return the active wound and its due interval from trusted save state.
+
+    Major-wound recovery is a weekly rule, not a caller-selected delay.  The
+    consumer therefore derives both the wound and elapsed interval from the
+    canonical wound/time ledgers and rejects an early reroll.
+    """
+    state = _investigator_state(campaign_dir, investigator_id)
+    if "major_wound" not in (state.get("conditions") or []):
+        raise _error(
+            "major_wound_not_active",
+            "save/investigator-state.conditions",
+            "weekly recovery requires an active major_wound condition",
+        )
+    if not isinstance(state.get("wound_ledger"), list) or not state["wound_ledger"]:
+        raise _error(
+            "major_wound_recovery_migration_required",
+            "save/investigator-state.wound_ledger",
+            "weekly recovery requires a canonical wound ledger",
+        )
+    wound_id, _day_id, _same_day = _authoritative_treatment_scope(
+        campaign_dir, investigator_id, {}
+    )
+    wound_rows = state.get("wound_ledger") or []
+    wound = next(
+        row
+        for row in wound_rows
+        if isinstance(row, dict) and row.get("wound_id") == wound_id
+    )
+    baseline = int(wound["occurred_elapsed_minutes"])
+    recovery_rows = state.get("major_wound_recovery_ledger") or []
+    if not isinstance(recovery_rows, list):
+        raise _error(
+            "malformed_major_wound_recovery_ledger",
+            "save/investigator-state.major_wound_recovery_ledger",
+            "recovery ledger must be a list",
+        )
+    for index, row in enumerate(recovery_rows):
+        if (
+            not isinstance(row, dict)
+            or set(row) != {
+                "command_id", "wound_id", "attempt_elapsed_minutes",
+                "outcome", "medical_care_outcome",
+            }
+            or not isinstance(row.get("command_id"), str)
+            or not _SAFE_ID.fullmatch(row["command_id"])
+            or not isinstance(row.get("wound_id"), str)
+            or not _SAFE_ID.fullmatch(row["wound_id"])
+            or isinstance(row.get("attempt_elapsed_minutes"), bool)
+            or not isinstance(row.get("attempt_elapsed_minutes"), int)
+            or row["attempt_elapsed_minutes"] < 0
+            or (
+                row.get("outcome") is not None
+                and not isinstance(row.get("outcome"), str)
+            )
+            or (
+                row.get("medical_care_outcome") is not None
+                and not isinstance(row.get("medical_care_outcome"), str)
+            )
+        ):
+            raise _error(
+                "malformed_major_wound_recovery_ledger",
+                f"save/investigator-state.major_wound_recovery_ledger[{index}]",
+                "invalid recovery attempt record",
+            )
+        if row["wound_id"] == wound_id:
+            baseline = max(baseline, row["attempt_elapsed_minutes"])
+    elapsed = _read_authoritative_elapsed_minutes(campaign_dir)
+    weekly_minutes = 7 * 24 * 60
+    if elapsed - baseline < weekly_minutes:
+        remaining = weekly_minutes - (elapsed - baseline)
+        raise _error(
+            "weekly_recovery_not_due",
+            "save/time-state.json.clock.elapsed_minutes",
+            f"major-wound recovery is not due for another {remaining} game minute(s)",
+        )
+    return wound_id, baseline, elapsed
+
+
+def _record_major_wound_recovery_attempt(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    command_id: str,
+    wound_id: str,
+    elapsed: int,
+    outcome: Any,
+    medical_care_outcome: Any,
+) -> None:
+    state = _investigator_state(campaign_dir, investigator_id)
+    rows = state.get("major_wound_recovery_ledger") or []
+    if not isinstance(rows, list):
+        raise _error(
+            "malformed_major_wound_recovery_ledger",
+            "save/investigator-state.major_wound_recovery_ledger",
+            "recovery ledger must be a list",
+        )
+    rows.append({
+        "command_id": command_id,
+        "wound_id": wound_id,
+        "attempt_elapsed_minutes": elapsed,
+        "outcome": outcome if isinstance(outcome, str) else None,
+        "medical_care_outcome": (
+            medical_care_outcome if isinstance(medical_care_outcome, str) else None
+        ),
+    })
+    state["major_wound_recovery_ledger"] = rows
+    if "major_wound" not in (state.get("conditions") or []):
+        for wound in state.get("wound_ledger") or []:
+            if isinstance(wound, dict) and wound.get("wound_id") == wound_id:
+                wound["status"] = "healed"
+    path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    coc_fileio.write_json_atomic(
+        path, state, indent=2, ensure_ascii=False, trailing_newline=True
+    )
+
+
+def _latest_healing_result_reopens_pushed_first_aid(state: dict[str, Any]) -> bool:
+    """Return whether the latest death-clock result opens another attempt.
+
+    This also migrates runs produced before HealingSession persisted the
+    reopened pushed-First-Aid window itself: the executor ledger remains the
+    durable structured evidence that the patient survived a dying round or
+    that temporary stabilization deteriorated.
+    """
+    snapshots = state.get("result_snapshots") or {}
+    for command_id in reversed(state.get("applied_command_ids") or []):
+        result = snapshots.get(command_id)
+        if not isinstance(result, dict) or result.get("kind") not in {
+            "dying_tick", "stabilize"
+        }:
+            continue
+        if result.get("kind") != "dying_tick":
+            return False
+        primary = next(
+            (
+                event
+                for event in result.get("events") or []
+                if isinstance(event, dict)
+                and event.get("event_type") in {
+                    "dying_con_roll", "stabilized_con_roll"
+                }
+            ),
+            None,
+        )
+        if not isinstance(primary, dict):
+            return False
+        if primary.get("event_type") == "stabilized_con_roll":
+            return primary.get("deteriorated") is True
+        return primary.get("died") is False
+    return False
+
+
 def _preflight_treatment_commands(
     campaign_dir: Path,
     investigator_id: str,
     commands: list[dict[str, Any]],
     applied: set[str],
+    executor_state: dict[str, Any],
 ) -> None:
-    seen_new: set[tuple[str, str, str]] = set()
+    seen_new: set[tuple[str, str, str, bool]] = set()
+    weekly_wounds: set[str] = set()
     for index, command in enumerate(commands):
-        if command["kind"] != "stabilize" or command["command_id"] in applied:
+        if command["command_id"] in applied:
+            continue
+        if command["kind"] == "weekly_recovery":
+            wound_id, _baseline, _elapsed = _authoritative_major_wound_recovery_scope(
+                campaign_dir, investigator_id
+            )
+            if wound_id in weekly_wounds:
+                raise _error(
+                    "weekly_recovery_already_submitted",
+                    f"commands[{index}]",
+                    "a command batch may contain only one recovery attempt per wound",
+                )
+            weekly_wounds.add(wound_id)
+            continue
+        if command["kind"] != "stabilize":
             continue
         payload = command["payload"]
         wound_id, day_id, _same_day = _authoritative_treatment_scope(
             campaign_dir, investigator_id, payload
         )
-        state = _investigator_state(campaign_dir, investigator_id)
-        usage = state.get("healing_usage") if isinstance(state.get("healing_usage"), dict) else {}
+        investigator_state = _investigator_state(campaign_dir, investigator_id)
+        usage = (
+            investigator_state.get("healing_usage")
+            if isinstance(investigator_state.get("healing_usage"), dict)
+            else {}
+        )
         records = usage.get("records") if isinstance(usage.get("records"), dict) else {}
         flags = records.get(wound_id, {}).get(day_id, {}) if isinstance(records.get(wound_id), dict) else {}
-        flag = "first_aid_used" if payload["method"] == "first_aid" else "medicine_used"
-        scope_key = (wound_id, day_id, payload["method"])
-        if (isinstance(flags, dict) and flags.get(flag) is True) or scope_key in seen_new:
+        if (
+            payload["method"] == "first_aid"
+            and _latest_healing_result_reopens_pushed_first_aid(executor_state)
+        ):
+            flags = {
+                **(flags if isinstance(flags, dict) else {}),
+                "first_aid_push_used": False,
+            }
+        pushed = bool(payload.get("pushed", False))
+        scope_key = (wound_id, day_id, payload["method"], pushed)
+        regular_first_aid_key = (wound_id, day_id, "first_aid", False)
+        if payload["method"] == "first_aid" and pushed:
+            prior_attempt = (
+                isinstance(flags, dict) and flags.get("first_aid_used") is True
+            ) or regular_first_aid_key in seen_new
+            if not prior_attempt:
+                raise _error(
+                    "push_without_origin",
+                    f"commands[{index}].payload.pushed",
+                    "pushed First Aid requires a prior First Aid attempt in the same wound/day scope",
+                )
+            already_used = (
+                isinstance(flags, dict)
+                and flags.get("first_aid_push_used") is True
+            )
+        else:
+            flag = (
+                "first_aid_used"
+                if payload["method"] == "first_aid"
+                else "medicine_used"
+            )
+            already_used = isinstance(flags, dict) and flags.get(flag) is True
+        if already_used or scope_key in seen_new:
             raise _error(
                 "treatment_already_used",
                 f"commands[{index}].payload.method",
-                f"{payload['method']} already used for authoritative wound/day scope",
+                (
+                    "pushed first_aid"
+                    if payload["method"] == "first_aid" and pushed
+                    else payload["method"]
+                )
+                + " already used for authoritative wound/day scope",
             )
         seen_new.add(scope_key)
 
@@ -4559,13 +6122,69 @@ def _healing_roll_evidence(
         return None
     target = event.get("target")
     difficulty = str(event.get("difficulty") or "regular")
+    bonus = int(event.get("bonus_dice") or 0)
+    penalty = int(event.get("penalty_dice") or 0)
     return {
-        "event_type": "combat_rescue_roll",
+        "event_type": (
+            "major_wound_recovery_roll"
+            if event.get("event_type") == "major_wound_recovery"
+            else "combat_rescue_roll"
+        ),
         "roll_id": f"{command_id}:roll",
         "decision_id": payload.get("decision_id"),
+        **(
+            {"actor_id": payload["rescuer_id"]}
+            if isinstance(payload.get("rescuer_id"), str)
+            else {}
+        ),
         "skill": event.get("skill") or "CON",
+        "pushed": bool(payload.get("pushed", False)),
+        **(
+            {
+                "changed_method": payload["changed_method"],
+                "announced_consequence": {
+                    "summary": payload["failure_consequence"]
+                },
+            }
+            if payload.get("pushed") is True
+            else {}
+        ),
         "target": target,
         "difficulty": difficulty,
+        "roll": roll,
+        "outcome": event.get("outcome"),
+        "bonus_penalty_dice": bonus - penalty,
+        "bonus_dice": bonus,
+        "penalty_dice": penalty,
+        "dice": {"expression": "1D100", "raw": [roll], "total": roll},
+        "source_command_id": command_id,
+    }
+
+
+def _weekly_care_roll_evidence(
+    command_id: str,
+    payload: dict[str, Any],
+    event: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(event, dict):
+        return None
+    roll = event.get("roll")
+    target = event.get("target")
+    if (
+        isinstance(roll, bool)
+        or not isinstance(roll, int)
+        or isinstance(target, bool)
+        or not isinstance(target, int)
+    ):
+        return None
+    return {
+        "event_type": "weekly_medical_care_roll",
+        "roll_id": f"{command_id}:care",
+        "decision_id": payload.get("decision_id"),
+        "actor_id": payload["caregiver_id"],
+        "skill": "Medicine",
+        "target": target,
+        "difficulty": "regular",
         "roll": roll,
         "outcome": event.get("outcome"),
         "bonus_penalty_dice": 0,
@@ -4580,30 +6199,43 @@ def _medicine_healing_evidence(
     event: dict[str, Any],
 ) -> dict[str, Any] | None:
     dice = event.get("healing_dice")
-    if not isinstance(dice, dict) or dice.get("expression") != "1D3":
+    if not isinstance(dice, dict) or not re.fullmatch(
+        r"[12]D3", str(dice.get("expression") or "")
+    ):
         return None
+    expression = str(dice["expression"])
+    expected_count = int(expression.split("D", 1)[0])
     raw = dice.get("raw")
     total = dice.get("total")
     if (
         not isinstance(raw, list)
-        or not raw
+        or len(raw) != expected_count
         or any(isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 3 for value in raw)
         or isinstance(total, bool)
         or not isinstance(total, int)
         or total != sum(raw)
     ):
-        raise _error("invalid_healing_roll", "medicine.healing_dice", "Medicine healing evidence is invalid")
+        raise _error(
+            "invalid_healing_roll",
+            "healing.healing_dice",
+            "healing dice evidence is invalid",
+        )
     return {
         "event_type": "combat_healing_roll",
         "roll_id": f"{command_id}:healing",
         "decision_id": payload.get("decision_id"),
+        **(
+            {"actor_id": payload["rescuer_id"]}
+            if isinstance(payload.get("rescuer_id"), str)
+            else {}
+        ),
         "skill": "HP Healing",
         "target": None,
         "difficulty": "healing",
         "roll": total,
         "outcome": "healing_applied",
         "bonus_penalty_dice": 0,
-        "dice": {"expression": "1D3", "raw": list(raw), "total": total},
+        "dice": {"expression": expression, "raw": list(raw), "total": total},
         "source_command_id": command_id,
     }
 
@@ -4956,13 +6588,18 @@ def _dispatch_combat(
     investigator_id: str,
     command: dict[str, Any],
     rng: random.Random,
+    state: dict[str, Any],
 ) -> dict[str, Any]:
     kind = command["kind"]
     payload = command["payload"]
     command_id = command["command_id"]
+    additional_events: list[dict[str, Any]] = []
     combat_path = campaign_dir / "save" / "combat.json"
     authoritative_inv = _investigator_state(campaign_dir, investigator_id)
-    if "dead" in (authoritative_inv.get("conditions") or []):
+    if (
+        kind != "combat_end"
+        and "dead" in (authoritative_inv.get("conditions") or [])
+    ):
         raise _error("investigator_dead", "save/investigator-state", "dead is terminal")
 
     if kind == "combat_start":
@@ -5002,8 +6639,60 @@ def _dispatch_combat(
                 weapons=_json_copy(spec["weapons"]),
                 conditions=list(spec["conditions"]),
                 dodge_skill=spec["dodge_skill"], con=spec["con"],
+                firearms_skill=spec.get("firearms_skill", 0),
+                has_ready_firearm=spec.get("has_ready_firearm", False),
+                damage_bonus=spec.get("damage_bonus", "none"),
+                magic_points=spec.get("magic_points", 0),
+                armor=spec.get("armor", 0),
+                armor_rule=spec.get("armor_rule"),
             )
             session.participants[spec["actor_id"]]["hp_current"] = spec["hp_current"]
+        for preparation in payload.get("preparations", []) or []:
+            participant = session.participants.get(preparation["actor_id"])
+            if participant is None:
+                raise _error("combat_actor_missing", "commands[0].payload.preparations", "preparation actor is absent")
+            before = int(participant["magic_points"])
+            cost = int(preparation["cost"])
+            if before < cost:
+                raise _error("insufficient_combat_resource", "commands[0].payload.preparations", "combat preparation lacks magic points")
+            participant["magic_points"] = before - cost
+            armor_rolls: list[int] = []
+            armor_points = 0
+            armor_dice = preparation.get("armor_dice")
+            if isinstance(armor_dice, str):
+                dice_count = int(armor_dice.split("D", 1)[0])
+                armor_rolls = [rng.randint(1, 6) for _ in range(dice_count)]
+                armor_points = sum(armor_rolls)
+                participant["armor"] = armor_points
+                participant["armor_rule"] = preparation.get("armor_rule")
+            session.apply_effect(
+                preparation["actor_id"], preparation["effect_kind"],
+                preparation["actor_id"], int(preparation["duration_rounds"]),
+                metadata={"rule_ref": preparation["rule_ref"]},
+            )
+            preparation_event = {
+                "event_type": "resource_change",
+                "actor_id": preparation["actor_id"],
+                "resource": "magic_points",
+                "reason": preparation["effect_kind"],
+                "before": before,
+                "cost": cost,
+                "delta": -cost,
+                "after": participant["magic_points"],
+                "armor_rolls": armor_rolls,
+                "armor_points": armor_points,
+                "duration_rounds": preparation["duration_rounds"],
+                "rule_ref": preparation["rule_ref"],
+                "source_command_id": command_id,
+            }
+            if armor_dice is not None:
+                preparation_event["roll_id"] = f"{command_id}:{preparation['effect_id']}"
+                preparation_event["dice"] = {
+                    "expression": armor_dice,
+                    "raw": armor_rolls,
+                    "total": armor_points,
+                }
+            additional_events.append(preparation_event)
         session.begin_round()
         session.revision = 1
         session.save(campaign_dir)
@@ -5026,6 +6715,26 @@ def _dispatch_combat(
         target_id = payload["target_actor_id"]
         if actor_id not in session.participants or target_id not in session.participants:
             raise _error("combat_actor_missing", "commands[0].payload", "attack actor or target is absent")
+        resource_cost = payload.get("resource_cost")
+        if isinstance(resource_cost, dict):
+            participant = session.participants[actor_id]
+            before = int(participant.get("magic_points", 0))
+            cost = int(resource_cost["cost"])
+            if before < cost:
+                raise _error("insufficient_combat_resource", "commands[0].payload.resource_cost", "combat attack lacks magic points")
+            participant["magic_points"] = before - cost
+            additional_events.append({
+                "event_type": "resource_change",
+                "actor_id": actor_id,
+                "resource": "magic_points",
+                "reason": resource_cost["reason"],
+                "before": before,
+                "cost": cost,
+                "delta": -cost,
+                "after": participant["magic_points"],
+                "rule_ref": resource_cost["rule_ref"],
+                "source_command_id": command_id,
+            })
         _normalize_combat_cursor(session)
         initiative = session._current_initiative
         if (
@@ -5043,6 +6752,10 @@ def _dispatch_combat(
             "declared_intent": payload["declared_intent"],
             "resolution_hint": hint,
             "weapon_id": payload.get("weapon_id"),
+            "rulebook_exception": payload.get("rulebook_exception"),
+            "on_success": _json_copy(payload.get("on_success")),
+            "victory_outcome": payload.get("victory_outcome"),
+            "defeat_outcome": payload.get("defeat_outcome"),
             "allowed_defenses": allowed,
         }
         session.revision += 1
@@ -5068,18 +6781,136 @@ def _dispatch_combat(
         defense = payload["defense_kind"]
         if defense not in pending["allowed_defenses"]:
             raise _error("combat_defense_illegal", "commands[0].payload.defense_kind", "defense is not legal for this attack")
+        luck_precommit: dict[str, Any] | None = None
+        if payload.get("luck_spend_max") is not None:
+            if pending.get("resolution_hint") != "opposed_melee":
+                raise _error(
+                    "combat_luck_precommit_unsupported",
+                    "commands[0].payload.luck_spend_max",
+                    "combat Luck precommit currently requires a single opposed melee roll",
+                )
+            if payload.get("luck_actor_id") != investigator_id:
+                raise _error(
+                    "combat_luck_actor_mismatch",
+                    "commands[0].payload.luck_actor_id",
+                    "combat Luck may only be pre-authorized for the active investigator",
+                )
+            luck_state = _investigator_state(campaign_dir, investigator_id)
+            characteristics = (
+                character.get("characteristics")
+                if isinstance(character.get("characteristics"), dict)
+                else {}
+            )
+            current_luck = int(
+                luck_state.get("current_luck", characteristics.get("LUCK", 0))
+            )
+            if current_luck <= 0:
+                raise _error(
+                    "insufficient_luck",
+                    "save/investigator-state.current_luck",
+                    "the investigator has no Luck available",
+                )
+            luck_precommit = {
+                "actor_id": investigator_id,
+                "max_points": min(int(payload["luck_spend_max"]), current_luck),
+                "current_luck": current_luck,
+            }
         turn = session.declare_and_resolve_turn(
             pending["actor_id"], pending["declared_intent"],
             target_actor_id=pending["target_actor_id"], defense_kind=defense,
             weapon_id=pending.get("weapon_id"),
+            rulebook_exception=pending.get("rulebook_exception"),
             resolution_hint=pending["resolution_hint"],
+            luck_precommit=luck_precommit,
             resolution_command_id=command_id,
         )
         rolls, engine_events = session.drain_pending()
+        luck_events = [
+            candidate
+            for candidate in engine_events
+            if isinstance(candidate, dict)
+            and candidate.get("event_type") == "combat_luck_spent"
+        ]
+        if len(luck_events) > 1:
+            raise _error(
+                "invalid_combat_luck_settlement",
+                "combat.engine_events",
+                "one combat resolution may spend Luck at most once",
+            )
+        if luck_events:
+            luck_event = luck_events[0]
+            luck_state = _investigator_state(campaign_dir, investigator_id)
+            before = luck_state.get("current_luck")
+            if before is None:
+                characteristics = (
+                    character.get("characteristics")
+                    if isinstance(character.get("characteristics"), dict)
+                    else {}
+                )
+                before = int(characteristics.get("LUCK", 0))
+            if (
+                isinstance(before, bool)
+                or not isinstance(before, int)
+                or before != luck_event.get("luck_before")
+                or luck_event.get("actor_id") != investigator_id
+            ):
+                raise _error(
+                    "combat_luck_state_mismatch",
+                    "save/investigator-state.current_luck",
+                    "combat Luck receipt diverges from authoritative investigator state",
+                )
+            luck_state["current_luck"] = int(luck_event["luck_after"])
+            luck_path = (
+                campaign_dir / "save" / "investigator-state"
+                / f"{investigator_id}.json"
+            )
+            coc_fileio.write_json_atomic(
+                luck_path,
+                luck_state,
+                indent=2,
+                ensure_ascii=False,
+                trailing_newline=True,
+            )
+            additional_events.append({
+                **_json_copy(luck_event),
+                "source_command_id": command_id,
+            })
         session.pending_attack = None
         session.mark_current_initiative_acted()
         session.initiative_cursor += 1
         _normalize_combat_cursor(session)
+        special_resolution: dict[str, Any] | None = None
+        on_success = pending.get("on_success")
+        if (
+            isinstance(on_success, dict)
+            and on_success.get("kind") == "destroy_target"
+            and turn.get("outcome") in {"hit", "hit_after_cover"}
+        ):
+            target = session.participants[pending["target_actor_id"]]
+            target["hp_current"] = 0
+            if "dead" not in target["conditions"]:
+                target["conditions"].append("dead")
+            session.conclude(on_success["outcome"])
+            session.ended_at_turn = session.started_at_turn + session._turn_counter
+            special_resolution = {
+                "event_type": "combat_special_resolution",
+                "combat_id": session.combat_id,
+                "actor_id": pending["actor_id"],
+                "target_actor_id": pending["target_actor_id"],
+                "effect_kind": "destroy_target",
+                "outcome": on_success["outcome"],
+                "rule_ref": on_success["rule_ref"],
+                "source_command_id": command_id,
+            }
+        elif not _combat_actor_eligible(session.participants[pending["target_actor_id"]]):
+            outcome = (
+                pending.get("victory_outcome")
+                if pending["actor_id"] == investigator_id
+                else pending.get("defeat_outcome")
+            )
+            if outcome in coc_combat.VALID_OUTCOMES - {None}:
+                session.conclude(outcome)
+                session.ended_at_turn = session.started_at_turn + session._turn_counter
         session.revision += 1
         session.save(campaign_dir)
         _sync_investigator_from_combat(campaign_dir, investigator_id, session)
@@ -5090,6 +6921,20 @@ def _dispatch_combat(
             "engine_events": _json_copy(engine_events),
             "source_command_id": command_id,
         }
+        if special_resolution is not None:
+            additional_events.append(special_resolution)
+        if session.status == "concluded":
+            # Mechanical conclusion and its receipt are one transaction.  A
+            # host may stop immediately for death/dying after this command and
+            # never grant the Keeper another turn to call combat.end.
+            additional_events.append({
+                "event_type": "combat_ended",
+                "combat_id": session.combat_id,
+                "revision": session.revision,
+                "outcome": session.outcome,
+                "ended_at_turn": session.ended_at_turn,
+                "source_command_id": command_id,
+            })
         damage_payloads = {
             row["payload"]["roll_id"]: row["payload"]
             for row in session.damage_evidence_rows(
@@ -5109,7 +6954,11 @@ def _dispatch_combat(
                 "difficulty": record.get("difficulty") or (
                     "damage" if record.get("skill") == "HP Damage" else "regular"
                 ),
-                "raw_roll": record.get("roll"),
+                "raw_roll": (
+                    damage_payloads.get(record.get("roll_id"), {})
+                    .get("combat_damage_receipt", {}).get("raw_damage", record.get("roll"))
+                    if record.get("skill") == "HP Damage" else record.get("roll")
+                ),
                 "dice": {
                     "expression": (
                         damage_payloads.get(record.get("roll_id"), {})
@@ -5118,12 +6967,18 @@ def _dispatch_combat(
                     ),
                     "raw": (
                         damage_payloads.get(record.get("roll_id"), {})
-                        .get("dice", {}).get("raw", list(record.get("die_rolls") or []))
+                        .get("combat_damage_receipt", {}).get(
+                            "die_rolls", list(record.get("die_rolls") or [])
+                        )
                         if record.get("skill") == "HP Damage"
                         else [record.get("roll")]
                         if isinstance(record.get("roll"), int) else []
                     ),
-                    "total": record.get("roll"),
+                    "total": (
+                        damage_payloads.get(record.get("roll_id"), {})
+                        .get("combat_damage_receipt", {}).get("raw_damage", record.get("roll"))
+                        if record.get("skill") == "HP Damage" else record.get("roll")
+                    ),
                 },
                 **(
                     {"combat_damage_receipt": _json_copy(
@@ -5135,12 +6990,16 @@ def _dispatch_combat(
             for record in rolls
             if isinstance(record, dict) and isinstance(record.get("roll_id"), str)
         ]
-    elif kind in {"dying_tick", "stabilize"}:
+    elif kind in {"dying_tick", "stabilize", "weekly_recovery"}:
         if kind == "stabilize":
             _persist_legacy_wound_ledger_if_needed(campaign_dir, investigator_id)
         healing = _healing_session(campaign_dir, character, investigator_id, rng)
         if "dead" in healing.conditions:
             raise _error("investigator_dead", "save/investigator-state", "dead investigators cannot be rescued")
+        care_event: dict[str, Any] | None = None
+        recovery_wound_id: str | None = None
+        recovery_baseline: int | None = None
+        recovery_elapsed: int | None = None
         if kind == "dying_tick":
             if "dying" not in healing.conditions:
                 raise _error("dying_clock_not_active", "save/investigator-state", "dying condition is absent")
@@ -5152,12 +7011,66 @@ def _dispatch_combat(
                 if "stabilized" in healing.conditions:
                     raise _error("wrong_dying_clock", "commands[0].payload.clock_kind", "stabilized state uses the hourly clock")
                 event = healing.dying_con_roll()
+        elif kind == "weekly_recovery":
+            (
+                recovery_wound_id,
+                recovery_baseline,
+                recovery_elapsed,
+            ) = _authoritative_major_wound_recovery_scope(
+                campaign_dir, investigator_id
+            )
+            medical_care_success = False
+            medicine_fumbled = False
+            if payload.get("medicine_skill_value") is not None:
+                care_roll = coc_roll.percentile_check(
+                    int(payload["medicine_skill_value"]), rng=rng
+                )
+                care_outcome = care_roll.get("outcome")
+                medical_care_success = care_outcome in SUCCESS_OUTCOMES
+                medicine_fumbled = care_outcome == "fumble"
+                care_event = {
+                    "event_type": "weekly_medical_care",
+                    "skill": "Medicine",
+                    "target": int(payload["medicine_skill_value"]),
+                    "difficulty": "regular",
+                    "roll": care_roll.get("roll"),
+                    "outcome": care_outcome,
+                    "caregiver_id": payload["caregiver_id"],
+                    "success": medical_care_success,
+                    "fumbled": medicine_fumbled,
+                    "rule_ref": "core.combat.major_wound_recovery_care",
+                    "source_command_id": command_id,
+                }
+                additional_events.append(care_event)
+            event = healing.major_wound_recovery_roll(
+                complete_rest=payload["complete_rest"],
+                medical_care_success=medical_care_success,
+                poor_environment=payload["poor_environment"],
+                medicine_fumbled=medicine_fumbled,
+            )
+            event.update({
+                "wound_id": recovery_wound_id,
+                "interval_start_elapsed_minutes": recovery_baseline,
+                "attempt_elapsed_minutes": recovery_elapsed,
+                "elapsed_minutes_since_prior_attempt": (
+                    recovery_elapsed - recovery_baseline
+                ),
+            })
+            additional_events.extend(
+                candidate
+                for candidate in healing.events
+                if candidate is not event
+            )
         elif payload["method"] == "first_aid":
             wound_id, day_id, _same_day = _authoritative_treatment_scope(
                 campaign_dir, investigator_id, payload
             )
             healing.set_usage_scope(wound_id, day_id)
-            event = healing.first_aid(payload["skill_value"])
+            if _latest_healing_result_reopens_pushed_first_aid(state):
+                healing.reopen_subsequent_first_aid_attempt()
+            event = healing.first_aid(
+                payload["skill_value"], pushed=bool(payload.get("pushed", False))
+            )
         else:
             wound_id, day_id, same_day = _authoritative_treatment_scope(
                 campaign_dir, investigator_id, payload
@@ -5167,19 +7080,38 @@ def _dispatch_combat(
                 payload["skill_value"], same_day=same_day
             )
         healing.save(campaign_dir)
+        if kind == "weekly_recovery":
+            assert recovery_wound_id is not None
+            assert recovery_elapsed is not None
+            _record_major_wound_recovery_attempt(
+                campaign_dir,
+                investigator_id,
+                command_id=command_id,
+                wound_id=recovery_wound_id,
+                elapsed=recovery_elapsed,
+                outcome=event.get("outcome"),
+                medical_care_outcome=(
+                    care_event.get("outcome") if care_event is not None else None
+                ),
+            )
         roll_evidence = _healing_roll_evidence(command_id, payload, event)
         healing_evidence = _medicine_healing_evidence(command_id, payload, event)
+        care_evidence = _weekly_care_roll_evidence(
+            command_id, payload, care_event
+        )
         if kind == "stabilize":
             event["treatment_scope"] = {"wound_id": wound_id, "day_id": day_id}
         event = {
             **_json_copy(event), "source_command_id": command_id,
             "roll_evidence": _json_copy(roll_evidence),
         }
+        combat_active = False
         if combat_path.exists():
             session = _load_combat_session(
                 campaign_dir, rng=random.Random(0), investigator_id=investigator_id,
             )
             if session.status == "active" and investigator_id in session.participants:
+                combat_active = True
                 participant = session.participants[investigator_id]
                 participant["hp_current"] = healing.current_hp
                 participant["conditions"] = list(healing.conditions)
@@ -5187,6 +7119,12 @@ def _dispatch_combat(
                 session.save(campaign_dir)
                 event["combat_revision"] = session.revision
                 _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+        if not combat_active:
+            cleared = _clear_inactive_combat_conditions(
+                campaign_dir, investigator_id
+            )
+            if cleared:
+                event["cleared_transient_conditions"] = cleared
     else:
         session = _load_combat_session(
             campaign_dir, rng=rng, investigator_id=investigator_id,
@@ -5210,25 +7148,38 @@ def _dispatch_combat(
         session.ended_at_turn = turn_number
         session.revision += 1
         session.save(campaign_dir)
-        # Ending combat is metadata-only.  Never overwrite healing/rescue state
-        # with a stale participant snapshot.
+        # Never overwrite healing/rescue state with a stale participant
+        # snapshot.  Only remove position markers that have no owner once the
+        # combat is concluded; HP and injury conditions remain authoritative.
+        cleared = _clear_inactive_combat_conditions(
+            campaign_dir, investigator_id
+        )
         event = {
             "event_type": "combat_ended", "combat_id": session.combat_id,
             "revision": session.revision, "outcome": session.outcome,
             "ended_at_turn": session.ended_at_turn,
             "source_command_id": command_id,
+            "cleared_transient_conditions": cleared,
         }
     refs = [f"save/investigator-state/{investigator_id}.json#current_hp"]
-    if kind not in {"dying_tick", "stabilize"}:
+    if kind == "combat_defend" and luck_events:
+        refs.append(
+            f"save/investigator-state/{investigator_id}.json#current_luck"
+        )
+    if kind not in {"dying_tick", "stabilize", "weekly_recovery"}:
         refs.insert(0, "save/combat.json")
-    events = [event]
+    events = [event, *additional_events]
     if kind == "combat_defend":
         events.extend(roll_events)
-    elif kind in {"dying_tick", "stabilize"} and event.get("roll_evidence") is not None:
+    elif kind in {"dying_tick", "stabilize", "weekly_recovery"} and event.get("roll_evidence") is not None:
         events.append(event["roll_evidence"])
+        if care_evidence is not None:
+            events.append(care_evidence)
         if healing_evidence is not None:
             events.append(healing_evidence)
-    if kind in {"combat_defend", "dying_tick", "stabilize"} and len(events) > 1:
+    if kind in {
+        "combat_defend", "dying_tick", "stabilize", "weekly_recovery"
+    } and len(events) > 1:
         refs.append(f"logs/rolls.jsonl#{command_id}")
     return {
         "command_id": command_id, "kind": kind, "status": "completed",
@@ -5246,6 +7197,175 @@ def _dispatch(
 ) -> dict[str, Any]:
     command_id = command["command_id"]
     kind = command["kind"]
+    if kind in AUTHORED_OPERATION_COMMAND_KINDS:
+        assert character is not None
+        payload = command["payload"]
+        inv = _investigator_state(campaign_dir, investigator_id)
+        inv.setdefault("investigator_id", investigator_id)
+        inv.setdefault("current_hp", int((character.get("derived") or {}).get("HP", 10)))
+        inv.setdefault("hp_max", int((character.get("derived") or {}).get("HP", inv["current_hp"])))
+        inv.setdefault("conditions", [])
+        events: list[dict[str, Any]] = []
+        refs = [f"save/investigator-state/{investigator_id}.json"]
+        if kind == "environmental_hazard":
+            characteristics = character.get("characteristics") or {}
+            skills = character.get("skills") or {}
+            def target_for(name: str) -> int:
+                return int(skills.get(name, characteristics.get(name.upper(), 50)))
+            luck = coc_roll.percentile_check(target_for(payload["luck_skill"]), rng=rng)
+            luck_event = {
+                "roll_id": f"{command_id}:luck", "decision_id": payload.get("decision_id"),
+                "kind": kind, "skill": payload["luck_skill"], "target": luck["target"],
+                "difficulty": "regular", "roll": luck["roll"],
+                "effective_target": luck["effective_target"], "outcome": luck["outcome"],
+                "success": luck["outcome"] in SUCCESS_OUTCOMES,
+                "reason": payload["source"], "rule_ref": payload["rule_ref"],
+                "source_command_id": command_id,
+            }
+            events.append(luck_event)
+            success = bool(luck_event["success"])
+            if not success:
+                jump = coc_roll.percentile_check(target_for(payload["jump_skill"]), rng=rng)
+                jump_event = {
+                    "roll_id": f"{command_id}:jump", "decision_id": payload.get("decision_id"),
+                    "kind": kind, "skill": payload["jump_skill"], "target": jump["target"],
+                    "difficulty": "regular", "roll": jump["roll"],
+                    "effective_target": jump["effective_target"], "outcome": jump["outcome"],
+                    "success": jump["outcome"] in SUCCESS_OUTCOMES,
+                    "reason": payload["source"], "depends_on": luck_event["roll_id"],
+                    "rule_ref": payload["rule_ref"],
+                    "source_command_id": command_id,
+                }
+                events.append(jump_event)
+                success = bool(jump_event["success"])
+                if not success:
+                    participant = {"id": investigator_id, **inv}
+                    damage = coc_hazards.apply_other_damage(
+                        participant, damage_expr=payload["damage_expr"], rng=rng,
+                        source=payload["source"],
+                    )
+                    inv["current_hp"] = participant["current_hp"]
+                    inv["conditions"] = list(participant.get("conditions") or [])
+                    roll = damage["damage_roll"]
+                    events.append({
+                        "roll_id": f"{command_id}:damage", "decision_id": payload.get("decision_id"),
+                        "kind": kind, "skill": "HP Damage", "target": None,
+                        "difficulty": "damage", "roll": roll["total"],
+                        "dice": {"expression": roll["expression"], "raw": roll["rolls"], "total": roll["total"]},
+                        "outcome": "damage_applied", "success": False,
+                        "reason": payload["source"],
+                        "hp_before": damage["hp_before"], "hp_after": damage["hp_after"],
+                        "hp_delta": damage["hp_delta"], "rule_ref": payload["rule_ref"],
+                        "source_command_id": command_id,
+                    })
+            events.append({
+                "event_type": "authored_hazard_resolved", "success": success,
+                "source": payload["source"], "rule_ref": payload["rule_ref"],
+                "request_id": payload.get("request_id"),
+                "source_command_id": command_id,
+            })
+        else:
+            skills = character.get("skills") or {}
+            language_target = int(skills.get(payload["language_skill"], 0))
+            success = language_target >= int(payload["language_threshold"])
+            if not success:
+                read_roll = coc_roll.percentile_check(language_target, rng=rng)
+                success = read_roll["outcome"] in SUCCESS_OUTCOMES
+                events.append({
+                    "roll_id": f"{command_id}:language", "decision_id": payload.get("decision_id"),
+                    "kind": kind, "skill": payload["language_skill"], "target": language_target,
+                    "difficulty": "regular", "roll": read_roll["roll"],
+                    "effective_target": read_roll["effective_target"], "outcome": read_roll["outcome"],
+                    "success": success, "reason": f"study {payload['tome_id']}",
+                    "rule_ref": payload["rule_ref"],
+                    "source_command_id": command_id,
+                })
+            time_result = coc_time.advance_time(
+                campaign_dir, int(payload["duration_minutes"]),
+                decision_id=str(payload.get("decision_id") or command_id),
+                reason=f"study {payload['tome_id']}", source="authored_operation",
+                category="tome_study",
+            )
+            refs.extend(["save/time-state.json", "logs/time.jsonl"])
+            if success:
+                cm_before = int(inv.get("cm_value", skills.get("Cthulhu Mythos", 0)) or 0)
+                max_before = int(inv.get("max_san", 99 - cm_before))
+                inv["cm_value"] = cm_before + int(payload["mythos_gain"])
+                inv["max_san"] = max(0, max_before - int(payload["max_san_reduction"]))
+                if "current_san" in inv:
+                    inv["current_san"] = min(int(inv["current_san"]), inv["max_san"])
+                events.append({
+                    "event_type": "mythos_tome_studied", "success": True,
+                    "tome_id": payload["tome_id"], "cm_before": cm_before,
+                    "cm_after": inv["cm_value"], "max_san_before": max_before,
+                    "max_san_after": inv["max_san"], "time_advance": time_result,
+                    "rule_ref": payload["rule_ref"], "source_command_id": command_id,
+                    "request_id": payload.get("request_id"),
+                })
+            else:
+                events.append({
+                    "event_type": "mythos_tome_studied", "success": False,
+                    "tome_id": payload["tome_id"], "time_advance": time_result,
+                    "rule_ref": payload["rule_ref"], "source_command_id": command_id,
+                    "request_id": payload.get("request_id"),
+                })
+        path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+        coc_fileio.write_json_atomic(path, inv, indent=2, ensure_ascii=False, trailing_newline=True)
+        return {
+            "command_id": command_id, "kind": kind, "status": "completed",
+            "events": events, "pending_choice": None, "state_refs": refs,
+        }
+    if kind == "sanity_reward":
+        assert character is not None
+        characteristics = character.get("characteristics") or {}
+        skills = character.get("skills") or {}
+        derived = character.get("derived") or {}
+        session = coc_sanity.SanitySession.load(
+            campaign_dir,
+            investigator_id,
+            int_value=int(characteristics.get("INT", 50)),
+            rng=rng,
+            cm_value=int(skills.get("Cthulhu Mythos", 0)),
+        )
+        sanity_path = campaign_dir / "save" / "sanity.json"
+        if not sanity_path.exists():
+            sheet_san = int(derived.get("SAN", characteristics.get("POW", 50)))
+            session.san_max = sheet_san
+            session.san_current = sheet_san
+            session.day_start_san = sheet_san
+        before = int(session.san_current)
+        rolled = rng.randint(1, 6)
+        session.gain_san(rolled, source=str(command["payload"]["source"]))
+        after = int(session.san_current)
+        session.save(campaign_dir, strict_mirror=True)
+        event = {
+            "event_type": "sanity_rewarded",
+            "roll_id": str(command["payload"].get("roll_id") or command_id),
+            "decision_id": command["payload"].get("decision_id"),
+            "skill": "SAN Reward",
+            "source": command["payload"]["source"],
+            "rule_ref": command["payload"]["rule_ref"],
+            "die": "1D6",
+            "dice": {"expression": "1D6", "raw": [rolled], "total": rolled},
+            "roll": rolled,
+            "san_before": before,
+            "san_delta": after - before,
+            "san_after": after,
+            "outcome": "sanity_reward",
+            "source_command_id": command_id,
+        }
+        return {
+            "command_id": command_id,
+            "kind": kind,
+            "status": "completed",
+            "events": [event],
+            "pending_choice": None,
+            "state_refs": [
+                f"logs/rolls.jsonl#{command_id}",
+                f"save/sanity.json#{investigator_id}",
+                f"save/investigator-state/{investigator_id}.json#current_san",
+            ],
+        }
     if kind in CHASE_COMMAND_KINDS:
         return _dispatch_chase(
             campaign_dir, investigator_id, command, rng, state
@@ -5253,7 +7373,7 @@ def _dispatch(
     if kind in COMBAT_COMMAND_KINDS:
         assert character is not None
         return _dispatch_combat(
-            campaign_dir, character, investigator_id, command, rng
+            campaign_dir, character, investigator_id, command, rng, state
         )
     if kind in BOUT_COMMAND_KINDS:
         assert character is not None
@@ -5397,9 +7517,13 @@ def _dispatch(
         choice_id = payload["choice_id"]
         history = state["choice_history"][choice_id]
         original = history["original_roll"]
-        target = int(original["target"])
-        difficulty = str(original.get("difficulty") or "regular")
-        modifier = int(original.get("bonus_penalty_dice", 0) or 0)
+        capsule = history["continuation_capsule"]
+        roll_spec = capsule["roll_spec"]
+        if payload.get("continuation_id") != capsule.get("continuation_id"):
+            raise _error("push_continuation_unbound", "push_resolve.continuation_id", "resolve command lacks the exact continuation capability")
+        target = int(roll_spec["target"])
+        difficulty = str(roll_spec.get("difficulty") or "regular")
+        modifier = int(roll_spec.get("bonus_penalty_dice", 0) or 0)
         resolved = coc_roll.percentile_check(
             target,
             difficulty=difficulty,
@@ -5408,22 +7532,34 @@ def _dispatch(
             rng=rng,
         )
         outcome = str(resolved.get("outcome") or "failure")
+        roll_contract, _original_fumble = _settle_percentile_fumble_contract(
+            roll_spec.get("roll_contract"),
+            outcome,
+            path=f"commands.{command_id}.payload.roll_contract",
+        )
         event = {
             "roll_id": str(payload.get("roll_id") or command_id),
             "decision_id": payload.get("decision_id"),
-            "kind": original.get("kind"),
-            "skill": original.get("skill"),
+            "kind": roll_spec.get("kind"),
+            "skill": roll_spec.get("skill"),
             "target": target,
             "difficulty": difficulty,
-            "reason": original.get("reason"),
-            "request_id": original.get("request_id"),
+            "reason": roll_spec.get("reason"),
+            "request_id": capsule["settlement"]["request_id"],
             "bonus_penalty_dice": modifier,
             "roll": resolved.get("roll"),
             "effective_target": resolved.get("effective_target"),
             "outcome": outcome,
             "success": outcome in SUCCESS_OUTCOMES,
-            "roll_contract": _json_copy(original.get("roll_contract")),
-            "resolution_context": _json_copy(history["resolution_context"]),
+            "roll_contract": roll_contract,
+            "resolution_context": {
+                **_json_copy(capsule["settlement"]["plan_slice"]),
+                **(
+                    {"route_resolution": _json_copy(capsule["settlement"]["route_resolution"])}
+                    if isinstance(capsule["settlement"].get("route_resolution"), dict)
+                    else {}
+                ),
+            },
             "pushed": True,
             "push_gate": {
                 "method_changed": True,
@@ -5437,7 +7573,13 @@ def _dispatch(
                 history["response_changed_method_evidence"]
             ),
             "source_command_id": command_id,
+            "continuation_id": capsule["continuation_id"],
+            "continuation_idempotency_key": capsule["idempotency"]["key"],
         }
+        if outcome == "fumble":
+            event["fumble_consequence"] = _json_copy(
+                history["announced_consequence"]
+            )
         return {
             "command_id": command_id,
             "kind": kind,
@@ -5451,11 +7593,28 @@ def _dispatch(
         }
     if kind == "push_offer":
         choice_id = _push_choice_id(command_id)
-        origin = state["result_snapshots"][command["payload"]["original_command_id"]]
-        original_roll = origin["events"][0]
+        found = _find_push_capsule(
+            state,
+            continuation_id=command["payload"].get("continuation_id"),
+            legacy_origin_command_id=(
+                command["payload"].get("original_command_id")
+                if command["payload"].get("continuation_id") is None
+                else None
+            ),
+        )
+        if found is None:
+            raise _error("push_origin_not_found", "push_offer", "continuation capsule disappeared")
+        _origin_id, original_roll, _capsule = found
         skill = str(original_roll.get("skill") or "ordinary")
-        consequence_summary = str(
-            command["payload"]["announced_consequence"]["summary"]
+        consequence = command["payload"]["announced_consequence"]
+        play_language = _campaign_play_language(campaign_dir)
+        consequence_summary = _localized_consequence_summary(
+            consequence, play_language
+        )
+        prompt, options = _push_choice_content(
+            skill,
+            consequence_summary,
+            play_language,
         )
         choice = {
             "choice_id": choice_id,
@@ -5463,11 +7622,8 @@ def _dispatch(
             "command_id": command_id,
             "responder": "player",
             "revision": 0,
-            "prompt": (
-                f"Push the failed {skill} roll? Failure consequence: "
-                f"{consequence_summary}"
-            ),
-            "options": _json_copy(PENDING_CHOICE_CONTRACTS["push_offer"]["options"]),
+            "prompt": prompt,
+            "options": options,
         }
         return {
             "command_id": command_id,
@@ -5484,6 +7640,16 @@ def _dispatch(
     event = _roll_result(campaign_dir, character, investigator_id, command, rng)
     session_events = event.pop("_session_events", [])
     bout_state = event.pop("_bout_state", None)
+    if kind in {"skill_check", "characteristic_check"}:
+        capsule = _mint_push_continuation_capsule(
+            campaign_dir,
+            investigator_id,
+            character["id"],
+            command,
+            event,
+        )
+        if capsule is not None:
+            event["push_continuation_capsule"] = capsule
     refs = [f"logs/rolls.jsonl#{command_id}"]
     if kind == "sanity_check" and "san_loss_fail_expr" in command["payload"]:
         refs.extend([
@@ -5537,10 +7703,21 @@ def _push_pending_context(
     choice: dict[str, Any],
 ) -> dict[str, Any]:
     payload = command["payload"]
-    origin_id = payload["original_command_id"]
+    found = _find_push_capsule(
+        state,
+        continuation_id=payload.get("continuation_id"),
+        legacy_origin_command_id=(
+            payload.get("original_command_id")
+            if payload.get("continuation_id") is None
+            else None
+        ),
+    )
+    if found is None:
+        raise _error("push_origin_not_found", "push_offer", "continuation capsule disappeared")
+    origin_id, original_roll, capsule = found
     origin_snapshot = state["result_snapshots"][origin_id]
     origin_provenance = state["command_provenance"][origin_id]
-    original_roll = origin_snapshot["events"][0]
+    _ = origin_snapshot
     return {
         "choice_id": choice["choice_id"],
         "kind": choice["kind"],
@@ -5552,9 +7729,11 @@ def _push_pending_context(
         "original_roll": _json_copy(original_roll),
         "changed_method_evidence": _json_copy(payload["changed_method_evidence"]),
         "announced_consequence": _json_copy(payload["announced_consequence"]),
+        "source_time_profile": _json_copy(payload.get("source_time_profile")),
         "resolution_context": _json_copy(original_roll.get("resolution_context") or {}),
         "origin_decision_id": origin_provenance.get("decision_id"),
         "offer_command": _json_copy(command),
+        "continuation_capsule": _json_copy(capsule),
     }
 
 
@@ -5569,11 +7748,28 @@ def _append_roll_event(
     # applied-command ledger.  The legacy async callback is intentionally not
     # used here: an in-memory recorder queue cannot be recovered after a crash.
     _ = append_jsonl
+    payload = _json_copy(event)
+    visibility = str(
+        payload.get("visibility")
+        or (
+            "consequence_public"
+            if payload.get("skill") == "HP Damage"
+            else "public"
+        )
+    )
+    payload["visibility"] = visibility
+    roll_id = str(payload["roll_id"])
+    actor = payload.get("actor_id") or investigator_id
     record = {
+        "event_type": "roll",
         "type": "roll",
-        "actor": investigator_id,
+        "roll_id": roll_id,
+        "actor": actor,
+        "visibility": visibility,
+        "source": "subsystem_executor",
+        "source_ref": f"logs/rolls.jsonl#{roll_id}",
         "command_id": command_id,
-        "payload": event,
+        "payload": payload,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     path = Path(campaign_dir) / "logs" / "rolls.jsonl"
@@ -5666,10 +7862,33 @@ def _push_origin_in_use(state: dict[str, Any], origin_command_id: str) -> bool:
     return False
 
 
+def _find_push_capsule(
+    state: dict[str, Any],
+    *,
+    continuation_id: str | None = None,
+    legacy_origin_command_id: str | None = None,
+) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    for command_id in reversed(state.get("applied_command_ids", [])):
+        if legacy_origin_command_id is not None and command_id != legacy_origin_command_id:
+            continue
+        snapshot = state.get("result_snapshots", {}).get(command_id)
+        events = snapshot.get("events") if isinstance(snapshot, dict) else None
+        if not isinstance(events, list) or len(events) != 1 or not isinstance(events[0], dict):
+            continue
+        capsule = events[0].get("push_continuation_capsule")
+        if not isinstance(capsule, dict):
+            continue
+        if continuation_id is not None and capsule.get("continuation_id") != continuation_id:
+            continue
+        return command_id, events[0], capsule
+    return None
+
+
 def _preflight_push_offers(
     commands_with_hashes: list[tuple[dict[str, Any], str]],
     state: dict[str, Any],
     *,
+    campaign_dir: Path,
     investigator_id: str,
     character: dict[str, Any] | None,
 ) -> None:
@@ -5678,8 +7897,29 @@ def _preflight_push_offers(
             continue
         assert character is not None
         payload = command["payload"]
-        origin_id = payload["original_command_id"]
-        path = f"commands[{index}].payload.original_command_id"
+        continuation_id = payload.get("continuation_id")
+        legacy_origin_id = payload.get("original_command_id")
+        path = (
+            f"commands[{index}].payload.continuation_id"
+            if continuation_id is not None
+            else f"commands[{index}].payload.original_command_id"
+        )
+        found = _find_push_capsule(
+            state,
+            continuation_id=continuation_id if isinstance(continuation_id, str) else None,
+            legacy_origin_command_id=(
+                legacy_origin_id if continuation_id is None and isinstance(legacy_origin_id, str) else None
+            ),
+        )
+        if found is None:
+            raise _error(
+                "push_origin_not_found",
+                path,
+                "push offer must reference a persisted continuation capsule",
+            )
+        origin_id, original, capsule = found
+        if legacy_origin_id is not None and legacy_origin_id != origin_id:
+            raise _error("push_continuation_unbound", path, "legacy audit origin does not match the continuation capsule")
         snapshot = state["result_snapshots"].get(origin_id)
         provenance = state["command_provenance"].get(origin_id)
         if not isinstance(snapshot, dict) or not isinstance(provenance, dict):
@@ -5703,14 +7943,31 @@ def _preflight_push_offers(
                 path,
                 "only ordinary skill or characteristic checks may be pushed",
             )
-        events = snapshot.get("events") or []
-        if len(events) != 1 or not isinstance(events[0], dict):
+        capsule = _validate_push_capsule(
+            capsule,
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            character_id=str(character.get("id")),
+        )
+        settlement = capsule["settlement"]
+        if not _json_deep_equal(
+            payload.get("announced_consequence"),
+            settlement["announced_consequence"],
+        ):
             raise _error(
-                "push_origin_incomplete",
-                path,
-                "original roll evidence is incomplete",
+                "push_origin_context_mismatch",
+                f"commands[{index}].payload.announced_consequence",
+                "offer cannot replace the consequence sealed by the continuation capsule",
             )
-        original = events[0]
+        if not _json_deep_equal(
+            payload.get("source_time_profile"),
+            settlement["source_time_profile"],
+        ):
+            raise _error(
+                "push_origin_context_mismatch",
+                f"commands[{index}].payload.source_time_profile",
+                "offer cannot replace the time cost sealed by the continuation capsule",
+            )
         outcome = str(original.get("outcome") or "")
         if outcome == "fumble":
             raise _error(
@@ -5779,6 +8036,7 @@ def _preflight_pending_resolution_batch(
     state: dict[str, Any],
     commands_with_hashes: list[tuple[dict[str, Any], str]],
     *,
+    campaign_dir: Path,
     investigator_id: str,
 ) -> bool:
     if not state["pending_choices"] or not commands_with_hashes:
@@ -5815,7 +8073,9 @@ def _preflight_pending_resolution_batch(
             "revision": payload.get("revision"),
             "action": payload.get("action"),
         }
-    expected_plan = _pending_resume_plan_from_state(state, investigator_id, response)
+    expected_plan = _pending_resume_plan_from_state(
+        state, campaign_dir, investigator_id, response
+    )
     expected_commands = commands_from_rules_requests(expected_plan)
     if not _json_deep_equal(commands, expected_commands):
         raise _error(
@@ -5915,6 +8175,7 @@ def execute_commands(
     _preflight_push_offers(
         new_commands_with_hashes,
         state,
+        campaign_dir=campaign,
         investigator_id=investigator_id,
         character=character,
     )
@@ -5922,6 +8183,7 @@ def execute_commands(
     resolving_pending = _preflight_pending_resolution_batch(
         state,
         new_commands_with_hashes,
+        campaign_dir=campaign,
         investigator_id=investigator_id,
     )
     if state["pending_choices"] and new_commands_with_hashes and not resolving_pending:
@@ -5953,6 +8215,7 @@ def execute_commands(
         investigator_id,
         validated,
         applied,
+        state,
     )
 
     inflight = _build_inflight(
@@ -6114,7 +8377,7 @@ def execute_commands(
             _append_integrity_evidence(campaign, _CHASE_GENESIS_LEDGER, evidence)
 
         for command, result in new_results:
-            if command["kind"] not in ROLL_EVIDENCE_COMMAND_KINDS:
+            if not _command_requires_roll_evidence(command):
                 continue
             for event in result["events"]:
                 if not isinstance(event.get("roll_id"), str):

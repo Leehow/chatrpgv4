@@ -19,6 +19,7 @@ Files managed:
 from __future__ import annotations
 
 import json
+import hashlib
 import random
 import time
 from pathlib import Path
@@ -67,6 +68,10 @@ def _investigator_dir(campaign_dir: Path, investigator_id: str) -> Path:
 
 def _development_path(campaign_dir: Path, investigator_id: str) -> Path:
     return _investigator_dir(campaign_dir, investigator_id) / "development.jsonl"
+
+
+def _investigator_state_path(campaign_dir: Path, investigator_id: str) -> Path:
+    return Path(campaign_dir) / "save" / "investigator-state" / f"{investigator_id}.json"
 
 
 def _character_path(campaign_dir: Path, investigator_id: str) -> Path:
@@ -203,6 +208,108 @@ def _read_ticked_skills(path: Path) -> list[str]:
     return seen
 
 
+def _campaign_ticked_skills(campaign_dir: Path, investigator_id: str) -> list[str]:
+    """Read toolbox-earned ticks from the campaign's transient investigator state."""
+    path = _investigator_state_path(campaign_dir, investigator_id)
+    if not path.is_file():
+        return []
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    earned = state.get("skill_checks_earned") if isinstance(state, dict) else None
+    if not isinstance(earned, list):
+        return []
+    return list(dict.fromkeys(str(skill).strip() for skill in earned if str(skill).strip()))
+
+
+def _clear_campaign_ticks(campaign_dir: Path, investigator_id: str) -> None:
+    path = _investigator_state_path(campaign_dir, investigator_id)
+    if not path.is_file():
+        return
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(state, dict):
+        return
+    state["skill_checks_earned"] = []
+    coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False)
+
+
+def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
+    """Return the latest persisted ending plus any authored scenario reward.
+
+    The match is entirely structured: the ending event supplies the scene and
+    ending kind, the story graph supplies its conclusion contract, and a
+    same-named flag proves the conclusion when a SAN reward is present.
+    """
+    campaign_dir = Path(campaign_dir)
+    event_path = campaign_dir / "logs" / "events.jsonl"
+    if not event_path.is_file():
+        return None
+    ending: dict[str, Any] | None = None
+    ending_index = 0
+    for index, line in enumerate(event_path.read_text(encoding="utf-8").splitlines(), start=1):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict) and row.get("event_type") == "session_ending":
+            ending = row
+            ending_index = index
+    if ending is None:
+        return None
+
+    contract: dict[str, Any] = {}
+    graph_path = campaign_dir / "scenario" / "story-graph.json"
+    if graph_path.is_file():
+        try:
+            graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            graph = {}
+        for scene in graph.get("scenes") or []:
+            if isinstance(scene, dict) and scene.get("scene_id") == ending.get("scene_id"):
+                candidate = scene.get("conclusion_contract")
+                if isinstance(candidate, dict) and candidate.get("session_ending") is True:
+                    contract = candidate
+                break
+
+    conclusion_id = contract.get("conclusion_id")
+    conclusion_proven = False
+    if ending.get("kind") == "conclusion" and isinstance(conclusion_id, str):
+        flags_path = campaign_dir / "save" / "flags.json"
+        try:
+            flags = json.loads(flags_path.read_text(encoding="utf-8")) if flags_path.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            flags = {}
+        conclusion_proven = (flags.get("flags") or {}).get(conclusion_id) is True
+
+    reward = contract.get("sanity_reward") if conclusion_proven else None
+    reward_expr = reward.get("die") if isinstance(reward, dict) else None
+    identity_payload = {
+        "event_line": ending_index,
+        "scene_id": ending.get("scene_id"),
+        "kind": ending.get("kind"),
+        "ts": ending.get("ts"),
+        "conclusion_id": conclusion_id if conclusion_proven else None,
+    }
+    ending_id = "ending-" + hashlib.sha256(
+        json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:20]
+    return {
+        "ending_id": ending_id,
+        "event_line": ending_index,
+        "scene_id": ending.get("scene_id"),
+        "kind": ending.get("kind"),
+        "conclusion_id": conclusion_id if conclusion_proven else None,
+        "scenario_san_reward_expr": reward_expr if isinstance(reward_expr, str) else None,
+        "scenario_san_reward_rule_ref": (
+            reward.get("rule_ref") if isinstance(reward, dict) else None
+        ),
+    }
+
+
 def _read_character(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
     path = _character_path(campaign_dir, investigator_id)
     if not path.exists():
@@ -288,13 +395,17 @@ def run_development_phase(
     san_expr = str(rule.get("sanity_reward", {}).get("reward", "2D6"))
 
     tick_path = _development_path(campaign_dir, investigator_id)
-    skills_checked = _read_ticked_skills(tick_path)
+    skills_checked = list(dict.fromkeys(
+        _read_ticked_skills(tick_path)
+        + _campaign_ticked_skills(campaign_dir, investigator_id)
+    ))
     sheet = _read_character(campaign_dir, investigator_id)
     skills = sheet.setdefault("skills", {})
     if not isinstance(skills, dict):
         skills = {}
         sheet["skills"] = skills
 
+    improvement_checks: list[dict[str, Any]] = []
     skills_improved: list[dict[str, Any]] = []
     san_reward_expr: str | None = None
 
@@ -303,17 +414,28 @@ def run_development_phase(
         check_roll = rng.randint(1, 100)
         improved = check_roll > current or check_roll > always_above
         if not improved:
+            improvement_checks.append({
+                "skill": skill,
+                "check_roll": check_roll,
+                "value_before": current,
+                "improved": False,
+                "gain": None,
+                "value_after": current,
+            })
             continue
         gain = rng.randint(1, 10)
         new_value = current + gain
         skills[skill] = new_value
-        skills_improved.append({
+        row = {
             "skill": skill,
             "check_roll": check_roll,
             "gain": gain,
             "value_before": current,
             "value_after": new_value,
-        })
+            "improved": True,
+        }
+        improvement_checks.append(dict(row))
+        skills_improved.append(row)
         if new_value >= threshold:
             san_reward_expr = san_expr
 
@@ -330,11 +452,19 @@ def run_development_phase(
 
     tick_path.parent.mkdir(parents=True, exist_ok=True)
     tick_path.write_text("", encoding="utf-8")
+    _clear_campaign_ticks(campaign_dir, investigator_id)
+
+    ending = structured_ending_evidence(campaign_dir)
 
     return {
         "skills_checked": skills_checked,
+        "improvement_checks": improvement_checks,
         "skills_improved": skills_improved,
         "san_reward_expr": san_reward_expr,
+        "ending_evidence": ending,
+        "scenario_san_reward_expr": (
+            ending.get("scenario_san_reward_expr") if ending else None
+        ),
         "luck_recovery": luck_recovery,
         "awfulness_decay": awfulness_decay,
     }

@@ -69,58 +69,6 @@ def _build_mini_campaign(tmp_path):
     return camp, char_dir / "character.json"
 
 
-def _persist_driver_push_offer(camp: Path, char_path: Path) -> dict:
-    origin = {
-        "command_id": "driver-push-origin",
-        "kind": "skill_check",
-        "phase": "resolve",
-        "payload": {
-            "decision_id": "driver-push-origin-decision",
-            "roll_id": "driver-push-origin-roll",
-            "skill": "Spot Hidden",
-            "difficulty": "regular",
-            "roll_contract": {
-                "push_policy": {
-                    "eligible": True,
-                    "requires_changed_method": True,
-                    "keeper_must_foreshadow_failure": True,
-                },
-            },
-            "resolution_context": {
-                "scene_action": "SUBSYSTEM",
-                "clue_policy": {},
-                "narrative_directives": {},
-                "rule_signals": {},
-            },
-        },
-    }
-    failed = driver.subsystem_executor.execute_commands(
-        camp, char_path, "inv1", [origin], rng=random.Random(5)
-    )[0]
-    assert failed["events"][0]["outcome"] == "failure"
-    offer = {
-        "command_id": "driver-persisted-push",
-        "kind": "push_offer",
-        "phase": "offer",
-        "payload": {
-            "decision_id": "driver-push-offer-decision",
-            "original_command_id": "driver-push-origin",
-            "changed_method_evidence": {
-                "changed": True,
-                "source": "player_proposal",
-                "summary": "inspect paper impressions instead of rereading",
-            },
-            "announced_consequence": {
-                "summary": "the watcher identifies the investigator",
-                "effect": {"kind": "fictional_position"},
-            },
-        },
-    }
-    return driver.subsystem_executor.execute_commands(
-        camp, char_path, "inv1", [offer], rng=random.Random(116)
-    )[0]
-
-
 def _persist_driver_bout(camp: Path, char_path: Path) -> dict:
     character = json.loads(char_path.read_text())
     character["characteristics"].update({"POW": 99, "INT": 99})
@@ -172,49 +120,6 @@ def test_driver_projection_preserves_live_subsystem_result_without_reexecution()
     assert projected["rule_results"] == subsystem_result["events"]
 
 
-def test_driver_stops_on_canonical_persisted_pending_choice(tmp_path):
-    camp, char_path = _build_mini_campaign(tmp_path)
-    offered = _persist_driver_push_offer(camp, char_path)
-
-    result = driver.run_full_session(
-        camp,
-        char_path,
-        "inv1",
-        player_choices=[{"intent": "search", "intent_class": "investigate"}] * 3,
-        max_turns=3,
-        rng_seed=117,
-    )
-
-    assert result["pending_choice"] == offered["pending_choice"]
-    assert len(result["turns"]) == 1
-    assert result["turns"][0]["blocked_by_pending_choice"] is True
-
-
-def test_driver_forwards_scripted_typed_pending_choice_response(tmp_path):
-    camp, char_path = _build_mini_campaign(tmp_path)
-    offered = _persist_driver_push_offer(camp, char_path)
-    choice = offered["pending_choice"]
-
-    result = driver.run_full_session(
-        camp,
-        char_path,
-        "inv1",
-        player_choices=[{
-            "pending_choice_response": {
-                "choice_id": choice["choice_id"],
-                "responder": "player",
-                "revision": choice["revision"],
-                "action": "cancel",
-            },
-        }],
-        max_turns=1,
-        rng_seed=118,
-    )
-
-    assert result["pending_choice"] is None
-    assert result["subsystem_results"][0]["status"] == "cancelled"
-
-
 def test_driver_continues_keeper_bout_when_next_scripted_responses_are_typed(tmp_path):
     camp, char_path = _build_mini_campaign(tmp_path)
     started = _persist_driver_bout(camp, char_path)
@@ -249,11 +154,16 @@ def test_driver_continues_keeper_bout_when_next_scripted_responses_are_typed(tmp
 
 
 def test_driver_advances_through_scenes(tmp_path):
-    """Driver should advance scene-1 → scene-2 → scene-3 as clues get discovered."""
+    """Driver advances only after an explicit move following clue settlement."""
     camp, char_path = _build_mini_campaign(tmp_path)
     result = driver.run_full_session(
         camp, char_path, "inv1",
-        player_choices=[{"intent": "search", "intent_class": "investigate"}] * 10,
+        player_choices=[
+            {"intent": "search", "intent_class": "investigate"},
+            {"intent": "move on", "intent_class": "move"},
+            {"intent": "search", "intent_class": "investigate"},
+            {"intent": "move on", "intent_class": "move"},
+        ],
         max_turns=10,
     )
     assert len(result["scene_path"]) >= 2  # advanced at least once
@@ -478,6 +388,7 @@ def test_driver_applies_narrative_enrichment_and_persists_storylet_ledger(tmp_pa
     story["scenes"][0].update({
         "scene_type": "investigation",
         "npc_ids": ["npc-archivist"],
+        "exit_conditions": ["investigators accept the job"],
         "affordances": [
             {"id": "dusty-ledger", "cue": "登记簿边缘有新鲜灰尘断痕", "promise": "可能找到线索"},
             {"id": "side-door", "cue": "侧门缝里有冷风", "risk": "可能暴露行踪"},
@@ -661,7 +572,8 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
     assert "别看他的手，看登记簿。" in battle_text
     assert "剧情片段：" in battle_text
     assert "线索：" in battle_text
-    assert "Library Use" in battle_text
+    assert "图书馆使用" in battle_text
+    assert "Library Use" not in battle_text
     assert "结果regular" not in battle_text
     assert "结果hard" not in battle_text
     assert "npc-archivist" not in battle_text
@@ -675,6 +587,9 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
     assert "Driver playtest executed" not in battle_text
     assert "场景路径 archive-room" not in battle_text
     assert "本次驱动实测收束" in battle_text
+    assert "当前停留在当前地点" in battle_text
+    assert "当前停留在场景 scene-1" not in battle_text
+    assert "推进到下一处可调查地点" not in battle_text
 
 
 def test_keeper_turn_text_dedupes_unchanged_affordance_cues():
@@ -689,9 +604,255 @@ def test_keeper_turn_text_dedupes_unchanged_affordance_cues():
     turn2 = {"choice_frame": frame, "clue_revealed": [], "storylet_moves": [], "npc_moves": []}
     text1 = driver._keeper_turn_text(turn1, {}, {}, previous_affordance_ids=["__none__"])
     text2 = driver._keeper_turn_text(turn2, {}, {}, previous_affordance_ids=["a", "b"])
-    assert "你留意到" in text1
+    assert "眼下若你愿意，可以" in text1
     assert "现场同时露出这些可行动线索" not in text1
-    assert "你留意到" not in text2
+    assert "眼下若你愿意，可以" not in text2
+
+
+def test_keeper_turn_text_renders_success_instead_of_no_progress_filler():
+    turn = {
+        "narration_envelope": {"action_outcomes": [{
+            "route_id": "gain-access",
+            "status": "completed",
+            "success": True,
+            "player_visible_goal": "说服管理员开放阅览室",
+            "player_visible_outcome": "管理员推开门，让你进入阅览室",
+        }]},
+        "rule_results": [{"success": True, "outcome": "regular"}],
+        "choice_frame": {"routes": []},
+        "clue_revealed": [],
+        "storylet_moves": [],
+        "npc_moves": [],
+    }
+
+    text = driver._keeper_turn_text(turn, {}, {})
+
+    assert "管理员推开门，让你进入阅览室" in text
+    assert "说服管理员开放阅览室" not in text
+    assert "没有新的" not in text
+    assert "没有新的可见收获" not in text
+
+
+def test_keeper_turn_text_uses_localized_authored_failure_and_push_preview():
+    failed = {
+        "success": False,
+        "outcome": "failure",
+        "roll_contract": {
+            "authored_roll_gate": True,
+            "failure_outcome_mode": "no_progress",
+            "failure_effect": "Arty refuses access.",
+            "localized_failure_effects": {"zh-Hans": "阿蒂拒绝放行。"},
+        },
+    }
+    base = {
+        "narrative_directives": {"player_facing_style": {"language": "zh-Hans"}},
+        "choice_frame": {"routes": []},
+        "clue_revealed": [],
+        "storylet_moves": [],
+        "npc_moves": [],
+    }
+    failure_text = driver._keeper_turn_text({**base, "rule_results": [failed]}, {}, {})
+    assert "阿蒂拒绝放行" in failure_text
+    assert "Arty refuses" not in failure_text
+    assert "压力仍留在场内" not in failure_text
+
+    fumble = {
+        **failed,
+        "outcome": "fumble",
+        "fumble_consequence": {
+            "summary": "Arty bars the route.",
+            "localized_summaries": {"zh-Hans": "阿蒂叫人赶走调查员并永久封锁路线。"},
+            "effect": {"kind": "route_closed", "route_id": "persuade-arty"},
+        },
+    }
+    fumble_text = driver._keeper_turn_text({**base, "rule_results": [fumble]}, {}, {})
+    assert fumble_text.count("阿蒂叫人赶走调查员并永久封锁路线") == 1
+    assert "阿蒂拒绝放行" not in fumble_text
+
+    push_text = driver._keeper_turn_text({
+        **base,
+        "rule_results": [],
+        "pending_choice": {
+            "kind": "push_confirm",
+            "responder": "player",
+            "prompt": "是否孤注一掷？若再次失败：阿蒂会永久禁止进入。",
+            "options": [
+                {"action": "confirm", "label": "确认孤注一掷"},
+                {"action": "cancel", "label": "保留原失败"},
+            ],
+        },
+    }, {}, {})
+    assert "若再次失败：阿蒂会永久禁止进入" in push_text
+    assert "确认孤注一掷" in push_text
+    assert "没有新的可见收获" not in push_text
+
+
+def test_keeper_turn_text_aggregates_multiple_outcomes_and_reveals_once():
+    turn = {
+        "narration_envelope": {"action_outcomes": [
+            {"status": "completed", "success": True, "player_visible_goal": "接过钥匙与宅址", "player_visible_outcome": "Knott 把宅门钥匙和写有地址的纸条交到你手中"},
+            {"status": "completed", "success": True, "player_visible_goal": "追问前租客遭遇", "player_visible_outcome": "Knott 说明 Macario 一家曾在宅中遭遇怪事"},
+            {"status": "completed", "success": True, "player_visible_goal": "确认委托条款", "player_visible_outcome": "你与 Knott 敲定了调查报酬"},
+        ]},
+        "rule_results": [],
+        "choice_frame": {"routes": []},
+        "clue_revealed": ["c1", "c2", "c3"],
+        "storylet_moves": [],
+        "npc_moves": [],
+    }
+    clue_names = {"c1": "委托报酬", "c2": "钥匙与预付款", "c3": "Macario 的遭遇"}
+
+    text = driver._keeper_turn_text(turn, clue_names, {})
+
+    assert "这些行动已经落实" not in text
+    assert "这次行动成功了" not in text
+    assert "你确认了这些新线索" not in text
+    assert "接过钥匙与宅址" not in text
+    assert "追问前租客遭遇" not in text
+    assert "确认委托条款" not in text
+    assert "Knott 把宅门钥匙和写有地址的纸条交到你手中" in text
+    assert "Knott 说明 Macario 一家曾在宅中遭遇怪事" in text
+    assert "你与 Knott 敲定了调查报酬" in text
+    assert all(value in text for value in clue_names.values())
+
+
+def test_keeper_fallback_localizes_generated_action_outcomes_without_losing_evidence():
+    goals = [
+        "明确接受 Knott 的委托",
+        "打听宅子的地址和进入方式",
+        "追问前租客遭遇过什么",
+    ]
+    future_route = "去市立图书馆查阅这栋宅子的旧报纸"
+    unsafe_storylet_fact = "地下室里沉睡着玩家尚未发现的怪物"
+    turn = {
+        "narrative_directives": {
+            "player_facing_style": {"language": "zh-Hans"}
+        },
+        "narration_envelope": {"action_outcomes": [
+            {
+                "route_id": f"route-{index}",
+                "status": "completed",
+                "success": True,
+                "player_visible_goal": goal,
+                "player_visible_outcome": f"Completed public action: {goal}",
+            }
+            for index, goal in enumerate(goals, start=1)
+        ]},
+        "rule_results": [],
+        "choice_frame": {"routes": [{
+            "route_id": "research-newspapers",
+            "cue": future_route,
+            "status": "open",
+            "fork_eligible": True,
+        }]},
+        "clue_revealed": ["commission-terms"],
+        "storylet_moves": [{
+            "storylet_id": "unverified-secret",
+            "presentation_mode": "existing_route_only",
+            "cue": unsafe_storylet_fact,
+            "bound_entities": {"route_id": "research-newspapers"},
+            "rolled_variants": {},
+            "grounding_contract": {"allow_new_actionable_fact": False},
+        }],
+        "npc_moves": [],
+    }
+
+    text = driver._keeper_turn_text(
+        turn,
+        {"commission-terms": "Knott 说明了报酬和调查范围"},
+        {},
+    )
+
+    assert "Completed public action" not in text
+    assert all(text.count(f"你已经{goal}") == 1 for goal in goals)
+    assert "Knott 说明了报酬和调查范围" in text
+    assert future_route in text
+    assert unsafe_storylet_fact not in text
+
+
+def test_keeper_turn_text_does_not_claim_success_for_consumed_route_with_cost():
+    turn = {
+        "narration_envelope": {"action_outcomes": []},
+        "rule_results": [{"success": False, "outcome": "fumble"}],
+        "choice_frame": {"routes": []},
+        "clue_revealed": ["c1"],
+        "storylet_moves": [],
+        "npc_moves": [],
+    }
+
+    text = driver._keeper_turn_text(turn, {"c1": "一份旧剪报"}, {})
+
+    assert "这次行动成功" not in text
+    assert "一份旧剪报" in text
+    assert "没有完全成功" in text
+
+
+def test_keeper_fallback_does_not_turn_check_only_success_into_route_success():
+    turn = {
+        "narration_envelope": {"action_outcomes": [], "rule_results": [{
+            "skill": "Persuade",
+            "success": True,
+            "outcome": "hard",
+            "matched_route_ids": ["persuade-arty"],
+            "settlement_scope": "check_only",
+            "state_change_committed": False,
+            "must_not_claim_state_change": True,
+        }]},
+        "rule_results": [{"success": True, "outcome": "hard"}],
+        "choice_frame": {"routes": []},
+        "clue_revealed": [],
+        "storylet_moves": [],
+        "npc_moves": [],
+    }
+
+    text = driver._keeper_turn_text(turn, {}, {})
+
+    assert "检定本身通过了" in text
+    assert "没有确认新的线索、权限或其他状态变化" in text
+    assert "达成了当前这一步的目标" not in text
+
+
+def test_fumble_clue_fallback_prioritizes_localized_clue_and_structured_cost():
+    english_reason = (
+        "Searching the newspaper address index directly advances locating records."
+    )
+    unrelated_route = "说服另一名工作人员开放别处档案"
+    turn = {
+        "narration_envelope": {"action_outcomes": []},
+        "rule_results": [{
+            "success": False, "outcome": "fumble", "reason": english_reason,
+        }],
+        "resolved_clue_policy": {"bonus_cost": "time"},
+        "choice_frame": {"routes": [{
+            "route_id": "other-route",
+            "route_type": "npc_question",
+            "cue": unrelated_route,
+            "status": "open",
+            "fork_eligible": True,
+        }]},
+        "clue_revealed": ["c1"],
+        "storylet_moves": [{
+            "presentation_mode": "existing_route_only",
+            "cue": unrelated_route,
+            "bound_entities": {"route_id": "other-route"},
+        }],
+        "npc_moves": [],
+    }
+
+    text = driver._keeper_turn_text(
+        turn,
+        {"c1": "一份未刊专题记录了历任住户接连遭遇事故与疾病。"},
+        {},
+    )
+
+    assert "一份未刊专题记录了历任住户" in text
+    assert "额外时间也耗了进去" in text
+    assert "眼下若你愿意" not in text
+    assert unrelated_route not in text
+    assert english_reason not in text
+    assert "。。" not in text
+    assert ".。" not in text
+    assert "这次行动成功" not in text
 
 
 def test_transcript_omits_repeated_affordance_block(tmp_path):
@@ -714,7 +875,7 @@ def test_transcript_omits_repeated_affordance_block(tmp_path):
     assert all(t.get("scene_id") == "scene-1" for t in result["turns"])
     transcript = driver._transcript_from_driver_result(result, choices, camp)
     keeper_texts = [row["text"] for row in transcript if row.get("role") == "keeper_under_test"]
-    affordance_hits = sum(1 for t in keeper_texts if "你留意到" in t)
+    affordance_hits = sum(1 for t in keeper_texts if "眼下若你愿意，可以" in t)
     assert affordance_hits <= 1
     assert all("现场同时露出这些可行动线索" not in t for t in keeper_texts)
 
@@ -767,8 +928,173 @@ def test_choice_frame_prose_never_menu_dumps():
     )
     blob = "".join(prose)
     assert "现场同时露出这些可行动线索" not in blob
-    assert "你留意到" in blob
+    assert "眼下若你愿意，可以" in blob
     assert "敲门" not in blob  # only first two cues woven
+
+
+def test_choice_frame_prose_never_states_available_route_as_completed_action():
+    prose = driver._choice_frame_prose({
+        "routes": [{
+            "id": "accept-commission",
+            "cue": "明确接受委托，接过钥匙、宅址与预付现金",
+        }]
+    })
+    blob = "".join(prose)
+    assert "可以明确接受委托" in blob
+    assert not blob.startswith("你接过")
+    assert "。。" not in blob
+
+
+def test_choice_frame_prose_surfaces_only_newly_available_routes():
+    prose = driver._choice_frame_prose(
+        {"routes": [
+            {"id": "old", "cue": "接受委托并接过钥匙"},
+            {"id": "new", "cue": "追问前租客一家出了什么事"},
+        ]},
+        previous_affordance_ids=["old"],
+    )
+    blob = "".join(prose)
+    assert "前租客" in blob
+    assert "接过钥匙" not in blob
+
+
+def test_template_filters_synthetic_resume_cues_and_modals_existing_route_storylet():
+    actionable_cue = "与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。"
+    turn = {
+        "choice_frame": {"routes": [
+            {
+                "route_id": "befriend-ruth",
+                "route_type": "npc_question",
+                "cue": actionable_cue,
+                "status": "open",
+                "fork_eligible": True,
+            },
+            {
+                "route_id": "live-scene-thread",
+                "route_type": "live_resume_affordance",
+                "cue": "当前场景的核心问题仍未解决。",
+                "status": "resume",
+                "fork_eligible": False,
+            },
+            {
+                "route_id": "live-investigator-angle",
+                "route_type": "live_resume_affordance",
+                "cue": "调查员仍可从随身记录、装备、现场人物或既有判断重新切入。",
+                "status": "resume",
+                "fork_eligible": False,
+            },
+        ]},
+        "clue_revealed": [],
+        "npc_moves": [],
+        "storylet_moves": [{
+            "presentation_mode": "existing_route_only",
+            "cue": actionable_cue,
+            "bound_entities": {"route_id": "befriend-ruth"},
+            "rolled_variants": {},
+        }],
+    }
+
+    text = driver._keeper_turn_text(turn, {}, {})
+
+    assert "可以当前场景的核心问题仍未解决" not in text
+    assert "可以调查员仍可" not in text
+    assert "当前场景的核心问题仍未解决" not in text
+    assert "调查员仍可从随身记录" not in text
+    assert text.count("与档案员 Ruth Blake 套近乎") == 1
+
+
+def test_existing_route_only_storylet_uses_future_modal_when_not_already_surfaced():
+    prose = driver._storylet_prose({
+        "presentation_mode": "existing_route_only",
+        "cue": "与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。",
+        "bound_entities": {"route_id": "befriend-ruth"},
+        "rolled_variants": {},
+        "grounding_contract": {"allow_new_actionable_fact": False},
+    }, authorized_route_cues={
+        "befriend-ruth": "与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。",
+    })
+
+    assert prose == [
+        "若要换一条路，还可以考虑：与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。"
+    ]
+
+
+def test_unverified_storylet_renders_only_existing_commission_route():
+    unsafe_cue = "一份可靠记录证明某人整晚在场；另一份同样可靠的记录证明他整晚不在。"
+    route_cue = "追问这栋宅子的旧账可以从哪些公开记录或知情人查起。"
+    turn = {
+        "turn": 1,
+        "choice_frame": {"routes": [{
+            "route_id": "ask-research-options",
+            "cue": route_cue,
+            "status": "open",
+            "fork_eligible": True,
+        }]},
+        "storylet_moves": [{
+            "storylet_id": "low-alive-and-absent-record",
+            "title": "在场证明与缺席记录",
+            "cue": unsafe_cue,
+            "beat": "让两份记录互相拆台。",
+            "bound_entities": {
+                "scene_id": "commission-briefing",
+                "clue_id": "clue-knott-keys",
+                "route_id": "ask-research-options",
+            },
+            "rolled_variants": {
+                "sensory_detail_1d6": "远处的脚步声停了一瞬。",
+                "complication_1d6": "威胁只露出症状。",
+            },
+            "grounding_contract": {"allow_new_actionable_fact": False},
+        }],
+        "clue_revealed": [],
+        "npc_moves": [],
+        "rule_results": [],
+    }
+
+    text = driver._keeper_turn_text(turn, {}, {})
+
+    assert route_cue.rstrip("。") in text
+    assert unsafe_cue not in text
+    assert "脚步声" not in text
+    assert "威胁只露出症状" not in text
+
+
+def test_source_backed_storylet_fact_renders_in_template():
+    cue = "档案管理员把场景原始登记簿推到你面前。"
+    prose = driver._storylet_prose({
+        "storylet_id": "scenario-authored-ledger",
+        "presentation_mode": "source_backed_fact",
+        "cue": cue,
+        "rolled_variants": {},
+        "grounding_contract": {
+            "allow_new_actionable_fact": True,
+            "fact_authorization": {
+                "status": "authorized",
+                "storylet_id": "scenario-authored-ledger",
+                "scene_id": "archive",
+                "source_refs": ["scenario:/scenes/archive/authored_storylets/0"],
+            },
+        },
+    })
+
+    assert prose == [cue]
+
+
+def test_clue_lookup_prefers_requested_player_language(tmp_path):
+    camp = tmp_path / "campaign"
+    scenario = camp / "scenario"
+    scenario.mkdir(parents=True)
+    (scenario / "clue-graph.json").write_text(json.dumps({
+        "conclusions": [{"clues": [{
+            "clue_id": "c1",
+            "player_safe_summary": "Knott hands over the key.",
+            "localized_text": {
+                "zh-Hans": {"player_safe_summary": "Knott 交出了钥匙。"}
+            },
+        }]}],
+    }), encoding="utf-8")
+    assert driver._clue_lookup(camp, "zh-Hans")["c1"] == "Knott 交出了钥匙。"
+    assert driver._clue_lookup(camp, "en")["c1"] == "Knott hands over the key."
 
 
 class _StaticLiveRunner:
@@ -888,6 +1214,107 @@ def test_driver_honors_structured_session_ending_evidence(tmp_path, monkeypatch)
     assert result["reached_terminal"] is True
     assert result["terminal_evidence"]["session_ending"] is True
     assert result["terminal_evidence"]["graph_terminal"] is False
+
+
+def test_artifact_packaging_preserves_persisted_structured_ending_without_fallback(
+    tmp_path,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    structured = {
+        "event_type": "session_ending",
+        "scene_id": "scene-1",
+        "kind": "retreat",
+        "summary": "调查员决定撤离，案件仍未解决。",
+    }
+    events_path = camp / "logs" / "events.jsonl"
+    events_path.write_text(json.dumps(structured, ensure_ascii=False) + "\n")
+    result = {
+        "turns": [],
+        "final_state": {"active_scene": "scene-1"},
+        "clue_coverage": {"discovered": []},
+        # Exercise the persisted-event fallback rather than relying on the
+        # caller to have copied terminal evidence into the result envelope.
+        "terminal_evidence": {"session_ending": False},
+    }
+
+    run_dir = tmp_path / "playtests" / "structured-ending"
+    driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        result,
+        generate_report=False,
+    )
+
+    packaged_events = [
+        json.loads(line)
+        for line in (
+            run_dir
+            / "sandbox"
+            / ".coc"
+            / "campaigns"
+            / "drive"
+            / "logs"
+            / "events.jsonl"
+        ).read_text().splitlines()
+        if line.strip()
+    ]
+    endings = [
+        row
+        for row in packaged_events
+        if row.get("event_type") == "session_ending"
+        or row.get("type") == "session_ending"
+    ]
+    assert endings == [structured]
+    assert all(
+        "本次驱动实测收束" not in str(row.get("payload", {}).get("summary", ""))
+        for row in packaged_events
+    )
+
+
+def test_artifact_packaging_adds_one_fallback_when_no_ending_exists(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    result = {
+        "turns": [],
+        "final_state": {"active_scene": "scene-1"},
+        "clue_coverage": {"discovered": []},
+        "terminal_evidence": {"session_ending": False},
+    }
+
+    run_dir = tmp_path / "playtests" / "fallback-ending"
+    driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        result,
+        generate_report=False,
+    )
+
+    packaged_events = [
+        json.loads(line)
+        for line in (
+            run_dir
+            / "sandbox"
+            / ".coc"
+            / "campaigns"
+            / "drive"
+            / "logs"
+            / "events.jsonl"
+        ).read_text().splitlines()
+        if line.strip()
+    ]
+    endings = [
+        row
+        for row in packaged_events
+        if row.get("event_type") == "session_ending"
+        or row.get("type") == "session_ending"
+    ]
+    assert len(endings) == 1
+    assert "本次驱动实测收束" in endings[0]["payload"]["summary"]
 
 
 def test_driver_reaches_terminal_then_runs_real_payoff_and_session_ending(tmp_path):

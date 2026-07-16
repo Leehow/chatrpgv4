@@ -599,6 +599,159 @@ def _execute(module, campaign: Path, character: Path, commands: list[dict], rng)
     )
 
 
+def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_path):
+    executor = _executor("coc_subsystem_executor_authored_operations")
+    campaign, character = _campaign_and_character(tmp_path)
+    sheet = json.loads(character.read_text())
+    sheet["characteristics"].update({"LUCK": 1})
+    sheet["derived"]["HP"] = 12
+    sheet["skills"].update({"Jump": 1, "Read Latin": 100, "Cthulhu Mythos": 0})
+    character.write_text(json.dumps(sheet))
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 12, "hp_max": 12, "conditions": [], "max_san": 99, "cm_value": 0})
+    inv_path.write_text(json.dumps(inv))
+
+    hazard = _command("chapel-floor", "environmental_hazard", payload={
+        "decision_id": "chapel-floor", "roll_id": "chapel-floor",
+        "luck_skill": "Luck", "jump_skill": "Jump", "damage_expr": "1D6",
+        "source": "weak floor", "rule_ref": "module.test.floor",
+    })
+    first = _execute(executor, campaign, character, [hazard], random.Random(2))[0]
+    assert [row.get("skill") for row in first["events"] if row.get("roll_id")][:2] == [
+        "Luck", "Jump",
+    ]
+    assert any(row.get("skill") == "HP Damage" for row in first["events"])
+    after_hazard = json.loads(inv_path.read_text())
+    roll_lines = (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
+    replay_rng = random.Random(999)
+    rng_before = replay_rng.getstate()
+    assert _execute(executor, campaign, character, [hazard], replay_rng)[0] == first
+    assert replay_rng.getstate() == rng_before
+    assert json.loads(inv_path.read_text()) == after_hazard
+    assert (campaign / "logs" / "rolls.jsonl").read_text().splitlines() == roll_lines
+
+    tome = _command("damaged-tome", "mythos_tome_study", payload={
+        "decision_id": "damaged-tome", "roll_id": "damaged-tome",
+        "tome_id": "damaged-liber", "language_skill": "Read Latin",
+        "language_threshold": 50, "duration_minutes": 180,
+        "mythos_gain": 2, "max_san_reduction": 2,
+        "rule_ref": "module.test.damaged_tome",
+    })
+    studied = _execute(executor, campaign, character, [tome], random.Random(3))[0]
+    assert not any(row.get("roll_id") for row in studied["events"])
+    after_tome = json.loads(inv_path.read_text())
+    assert after_tome["cm_value"] == 2
+    assert after_tome["max_san"] == 97
+    time_path = campaign / "save" / "time-state.json"
+    time_after = json.loads(time_path.read_text())
+    assert time_after["clock"]["elapsed_minutes"] == 180
+    rolls_after = (campaign / "logs" / "rolls.jsonl").read_text()
+    time_log_after = (campaign / "logs" / "time.jsonl").read_text()
+    assert _execute(executor, campaign, character, [tome], random.Random(88))[0] == studied
+    assert json.loads(inv_path.read_text()) == after_tome
+    assert json.loads(time_path.read_text()) == time_after
+    assert (campaign / "logs" / "rolls.jsonl").read_text() == rolls_after
+    assert (campaign / "logs" / "time.jsonl").read_text() == time_log_after
+
+
+def test_authored_tome_failure_rolls_back_time_state_logs_and_rng(tmp_path, monkeypatch):
+    executor = _executor("coc_subsystem_executor_authored_tome_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    sheet = json.loads(character.read_text())
+    sheet["skills"].update({"Read Latin": 100})
+    character.write_text(json.dumps(sheet))
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    before_inv = inv_path.read_bytes()
+    rng = random.Random(9)
+    rng_before = rng.getstate()
+    real_write = executor.coc_fileio.write_json_atomic
+
+    def fail_inv(path, payload, **kwargs):
+        if Path(path) == inv_path:
+            raise OSError("injected authored operation mirror failure")
+        return real_write(path, payload, **kwargs)
+
+    monkeypatch.setattr(executor.coc_fileio, "write_json_atomic", fail_inv)
+    tome = _command("rollback-tome", "mythos_tome_study", payload={
+        "decision_id": "rollback-tome", "roll_id": "rollback-tome",
+        "tome_id": "damaged-liber", "language_skill": "Read Latin",
+        "language_threshold": 50, "duration_minutes": 180,
+        "mythos_gain": 2, "max_san_reduction": 2,
+        "rule_ref": "module.test.damaged_tome",
+    })
+    with pytest.raises(executor.SubsystemExecutorError) as exc:
+        _execute(executor, campaign, character, [tome], rng)
+    assert exc.value.code == "subsystem_transaction_failed"
+    assert rng.getstate() == rng_before
+    assert inv_path.read_bytes() == before_inv
+    assert not (campaign / "save" / "time-state.json").exists()
+    assert not (campaign / "logs" / "time.jsonl").exists()
+    state = json.loads((campaign / "save" / "subsystem-state.json").read_text())
+    assert state["applied_command_ids"] == []
+    assert state["inflight"] is None
+
+
+def test_authored_operation_success_failure_branches_and_source_trace(tmp_path):
+    executor = _executor("coc_subsystem_executor_authored_branches")
+
+    def setup(root, *, luck, jump, latin):
+        campaign, character = _campaign_and_character(root)
+        sheet = json.loads(character.read_text())
+        sheet["characteristics"]["LUCK"] = luck
+        sheet["derived"]["HP"] = 12
+        sheet["skills"].update({"Jump": jump, "Read Latin": latin, "Cthulhu Mythos": 0})
+        character.write_text(json.dumps(sheet))
+        inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+        inv = json.loads(inv_path.read_text())
+        inv.update({"current_hp": 12, "hp_max": 12, "conditions": [], "cm_value": 0, "max_san": 99})
+        inv_path.write_text(json.dumps(inv))
+        return campaign, character, inv_path
+
+    def hazard(command_id):
+        return _command(command_id, "environmental_hazard", payload={
+            "decision_id": command_id, "roll_id": command_id,
+            "luck_skill": "Luck", "jump_skill": "Jump", "damage_expr": "1D6",
+            "source": "chapel weakened floor", "rule_ref": "module.haunting.floor",
+        })
+
+    luck_camp, luck_char, luck_inv = setup(tmp_path / "luck", luck=50, jump=1, latin=1)
+    luck_result = _execute(executor, luck_camp, luck_char, [hazard("luck-safe")], random.Random(0))[0]
+    assert [row.get("skill") for row in luck_result["events"] if row.get("roll_id")] == ["Luck"]
+    assert json.loads(luck_inv.read_text())["current_hp"] == 12
+    assert luck_result["events"][-1]["success"] is True
+
+    jump_camp, jump_char, jump_inv = setup(tmp_path / "jump", luck=1, jump=50, latin=1)
+    jump_result = _execute(executor, jump_camp, jump_char, [hazard("jump-safe")], random.Random(2))[0]
+    assert [row.get("skill") for row in jump_result["events"] if row.get("roll_id")] == ["Luck", "Jump"]
+    assert json.loads(jump_inv.read_text())["current_hp"] == 12
+    assert jump_result["events"][-1]["success"] is True
+    roll_rows = [json.loads(line) for line in (jump_camp / "logs" / "rolls.jsonl").read_text().splitlines()]
+    assert all(row["payload"]["reason"] == "chapel weakened floor" for row in roll_rows)
+
+    tome_camp, tome_char, tome_inv = setup(tmp_path / "tome", luck=1, jump=1, latin=1)
+    tome = _command("latin-fails", "mythos_tome_study", payload={
+        "decision_id": "latin-fails", "roll_id": "latin-fails",
+        "tome_id": "damaged-liber", "language_skill": "Read Latin",
+        "language_threshold": 50, "duration_minutes": 180,
+        "mythos_gain": 2, "max_san_reduction": 2,
+        "rule_ref": "module.haunting.damaged_liber",
+    })
+    failed = _execute(executor, tome_camp, tome_char, [tome], random.Random(2))[0]
+    assert failed["events"][0]["skill"] == "Read Latin"
+    assert failed["events"][0]["success"] is False
+    inv_failed = json.loads(tome_inv.read_text())
+    assert inv_failed["cm_value"] == 0 and inv_failed["max_san"] == 99
+    inv_failed_text = tome_inv.read_text()
+    time_failed = (tome_camp / "save" / "time-state.json").read_text()
+    logs_failed = (tome_camp / "logs" / "rolls.jsonl").read_text()
+    assert json.loads(time_failed)["clock"]["elapsed_minutes"] == 180
+    assert _execute(executor, tome_camp, tome_char, [tome], random.Random(99))[0] == failed
+    assert tome_inv.read_text() == inv_failed_text
+    assert (tome_camp / "save" / "time-state.json").read_text() == time_failed
+    assert (tome_camp / "logs" / "rolls.jsonl").read_text() == logs_failed
+
+
 def _combat_start_command(command_id: str = "combat-start") -> dict:
     return _command(command_id, "combat_start", phase="start", payload={
         "decision_id": "combat-decision",
@@ -678,6 +831,62 @@ def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
     assert replay == resolved
 
 
+def test_combat_luck_precommit_spends_minimum_and_preserves_raw_die(tmp_path):
+    executor = _executor("coc_subsystem_executor_combat_luck_precommit")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({"current_hp": 11, "current_luck": 55, "conditions": []})
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+    _execute(
+        executor, campaign, character, [_combat_start_command()], random.Random(1)
+    )
+    attack = _command("luck-attack", "combat_attack", phase="declare", payload={
+        "decision_id": "combat-luck", "revision": 1,
+        "actor_id": "cultist", "target_actor_id": "inv1",
+        "declared_intent": "strike the investigator",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+    })
+    _execute(executor, campaign, character, [attack], random.Random(2))
+    defend = _command("luck-defense", "combat_defend", payload={
+        "decision_id": "combat-luck", "revision": 2,
+        "actor_id": "inv1", "attack_command_id": "luck-attack",
+        "defense_kind": "dodge", "luck_spend_max": 40,
+        "luck_actor_id": "inv1",
+    })
+
+    resolved = _execute(
+        executor, campaign, character, [defend], random.Random(3)
+    )[0]
+    replay = _execute(
+        executor, campaign, character, [defend], random.Random(999)
+    )[0]
+
+    assert replay == resolved
+    turn = resolved["events"][0]["turn"]
+    assert turn["outcome"] == "miss"
+    assert turn["opposed_outcome"] == "tie_defender_wins"
+    luck_event = next(
+        event for event in resolved["events"]
+        if event.get("event_type") == "combat_luck_spent"
+    )
+    assert luck_event["original_roll"] == 76
+    assert luck_event["adjusted_roll"] == 40
+    assert luck_event["luck_spent"] == 36
+    assert luck_event["luck_after"] == 19
+    roll = next(
+        event for event in resolved["events"]
+        if event.get("event_type") == "combat_roll"
+        and event.get("actor_id") == "inv1"
+    )
+    assert roll["roll"] == 76
+    assert roll["adjusted_roll"] == 40
+    assert roll["dice"] == {"expression": "1D100", "raw": [76], "total": 76}
+    assert roll["outcome"] == "regular"
+    final_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert final_state["current_luck"] == 19
+
+
 def test_dying_tick_and_stabilize_use_structured_healing_rules(tmp_path):
     executor = _executor("coc_subsystem_executor_rescue")
     campaign, character = _campaign_and_character(tmp_path)
@@ -704,6 +913,111 @@ def test_dying_tick_and_stabilize_use_structured_healing_rules(tmp_path):
     final_state = json.loads(state_path.read_text(encoding="utf-8"))
     assert "stabilized" in final_state["conditions"]
     assert "dead" not in final_state["conditions"]
+
+
+def test_deteriorated_stabilization_reopens_first_aid_window_and_migrates_legacy_usage(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_rescue_reopen")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    first = _command("aid-initial", "stabilize", payload={
+        "decision_id": "aid-initial",
+        "method": "first_aid",
+        "skill_value": 99,
+    })
+    _execute(executor, campaign, character, [first], random.Random(1))
+    tick = _command("stabilized-hour-fails", "dying_tick", payload={
+        "decision_id": "stabilized-hour-fails",
+        "clock_kind": "hour",
+    })
+    ticked = _execute(executor, campaign, character, [tick], random.Random(5))[0]
+    assert ticked["events"][0]["deteriorated"] is True
+
+    # Simulate the pre-fix producer: it recorded the structured deterioration
+    # result but left the old treatment flags locked in investigator-state.
+    legacy = json.loads(state_path.read_text(encoding="utf-8"))
+    for days in legacy["healing_usage"]["records"].values():
+        for flags in days.values():
+            flags["first_aid_used"] = True
+            flags["first_aid_push_used"] = True
+    state_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    retry = _command("aid-after-deterioration", "stabilize", payload={
+        "decision_id": "aid-after-deterioration",
+        "method": "first_aid",
+        "skill_value": 99,
+        "pushed": True,
+        "changed_method": "replace packing and maintain the airway",
+        "failure_consequence": "resolve the next dying CON clock immediately",
+    })
+    rescued = _execute(
+        executor, campaign, character, [retry], random.Random(1)
+    )[0]
+    assert rescued["events"][0]["event_type"] == "first_aid_stabilize"
+    assert rescued["events"][0]["pushed"] is True
+    final_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert final_state["current_hp"] == 1
+    assert "stabilized" in final_state["conditions"]
+
+
+def test_survived_dying_round_reopens_one_subsequent_pushed_first_aid_attempt(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_rescue_next_round")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "dying", "unconscious"],
+    })
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+
+    failed = _command("aid-round-1", "stabilize", payload={
+        "decision_id": "aid-round-1",
+        "method": "first_aid",
+        "skill_value": 1,
+    })
+    _execute(executor, campaign, character, [failed], random.Random(1))
+    pushed = _command("aid-round-1-push", "stabilize", payload={
+        "decision_id": "aid-round-1-push",
+        "method": "first_aid",
+        "skill_value": 1,
+        "pushed": True,
+        "changed_method": "replace packing",
+        "failure_consequence": "resolve the dying CON clock",
+    })
+    _execute(executor, campaign, character, [pushed], random.Random(1))
+    tick = _command("dying-round-1", "dying_tick", payload={
+        "decision_id": "dying-round-1",
+        "clock_kind": "round",
+    })
+    survived = _execute(
+        executor, campaign, character, [tick], random.Random(1)
+    )[0]
+    assert survived["events"][0]["died"] is False
+
+    next_attempt = _command("aid-round-2-push", "stabilize", payload={
+        "decision_id": "aid-round-2-push",
+        "method": "first_aid",
+        "skill_value": 99,
+        "pushed": True,
+        "changed_method": "second-round airway support",
+        "failure_consequence": "resolve the next dying CON clock",
+    })
+    rescued = _execute(
+        executor, campaign, character, [next_attempt], random.Random(1)
+    )[0]
+    assert rescued["events"][0]["event_type"] == "first_aid_stabilize"
+    assert rescued["events"][0]["pushed"] is True
 
 
 def test_combat_start_rejects_forged_investigator_hp(tmp_path):
@@ -771,7 +1085,7 @@ def test_combat_end_does_not_restore_stale_participant_hp(tmp_path):
     inv_path.write_text(json.dumps(inv))
     _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
     inv = json.loads(inv_path.read_text())
-    inv.update({"current_hp": 7, "conditions": ["major_wound"]})
+    inv.update({"current_hp": 7, "conditions": ["major_wound", "prone"]})
     inv_path.write_text(json.dumps(inv))
     ended = _command("combat-end-safe", "combat_end", phase="end", payload={
         "decision_id": "combat-end-safe", "revision": 1, "outcome": "stalemate",
@@ -802,6 +1116,79 @@ def test_combat_end_persists_trusted_turn_and_concluded_snapshot_reloads(tmp_pat
     assert loaded.ended_at_turn == 17
     assert result["events"][0]["ended_at_turn"] == 17
     assert _execute(executor, campaign, character, [ended], random.Random(999))[0] == result
+
+
+def test_mechanical_combat_conclusion_emits_ended_receipt_in_same_transaction(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_atomic_combat_end")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": ["prone"]})
+    inv_path.write_text(json.dumps(inv))
+    start = _combat_start_command()
+    start["payload"]["participants"][0]["conditions"] = ["prone"]
+    start["payload"]["participants"][0]["dex"] = 80
+    start["payload"]["participants"][0]["combat_skill"] = 100
+    start["payload"]["participants"][1]["dodge_skill"] = 0
+    _execute(executor, campaign, character, [start], random.Random(1))
+    attack = _command("atomic-end-attack", "combat_attack", phase="declare", payload={
+        "decision_id": "atomic-end-attack",
+        "revision": 1,
+        "actor_id": "inv1",
+        "target_actor_id": "cultist",
+        "declared_intent": "end the encounter",
+        "resolution_hint": "opposed_melee",
+        "weapon_id": "unarmed",
+        "on_success": {
+            "kind": "destroy_target",
+            "outcome": "investigators_win",
+            "rule_ref": "test.atomic_combat_end",
+        },
+    })
+    _execute(executor, campaign, character, [attack], random.Random(1))
+    defend = _command("atomic-end-defense", "combat_defend", payload={
+        "decision_id": "atomic-end-defense",
+        "revision": 2,
+        "actor_id": "cultist",
+        "attack_command_id": "atomic-end-attack",
+        "defense_kind": "dodge",
+    })
+    result = _execute(
+        executor, campaign, character, [defend], random.Random(1)
+    )[0]
+    assert any(event["event_type"] == "combat_ended" for event in result["events"])
+    saved = json.loads((campaign / "save" / "combat.json").read_text())
+    assert saved["status"] == "concluded"
+    assert saved["outcome"] == "investigators_win"
+    final_inv = json.loads(inv_path.read_text())
+    assert final_inv["conditions"] == []
+
+
+def test_combat_end_receipt_can_backfill_after_investigator_death(tmp_path):
+    executor = _executor("coc_subsystem_executor_dead_combat_end")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text())
+    inv.update({"current_hp": 11, "conditions": []})
+    inv_path.write_text(json.dumps(inv))
+    _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
+    inv.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "unconscious", "dying", "dead"],
+    })
+    inv_path.write_text(json.dumps(inv))
+    ended = _command("combat-end-after-death", "combat_end", phase="end", payload={
+        "decision_id": "combat-end-after-death",
+        "revision": 1,
+        "outcome": "monsters_win",
+    })
+    result = _execute(executor, campaign, character, [ended], random.Random(2))[0]
+    assert result["events"][0]["event_type"] == "combat_ended"
+    final = json.loads(inv_path.read_text())
+    assert final["current_hp"] == 0
+    assert "dead" in final["conditions"]
 
 
 def test_initiative_cursor_advances_round_without_modulo(tmp_path):
@@ -966,6 +1353,13 @@ def _pushable_roll_command(command_id: str = "original-failed-roll") -> dict:
                     "eligible": True,
                     "requires_changed_method": True,
                     "keeper_must_foreshadow_failure": True,
+                },
+                "push_failure_consequence": {
+                    "summary": "the watcher will identify the investigator if the push fails",
+                    "effect": {
+                        "kind": "fictional_position",
+                        "severity": "serious",
+                    },
                 },
                 "roll_density_group": "clue:clue-ledger",
                 "must_not": ["do not reveal clue-ledger on failure"],
@@ -1189,6 +1583,151 @@ def test_push_offer_validates_origin_and_keeps_private_context_out_of_public_cho
     )
 
 
+def test_push_offer_and_confirmation_use_only_opaque_continuation_capability(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_capsule_only")
+    campaign, character = _campaign_and_character(tmp_path)
+    original = _persist_failed_pushable_roll(executor, campaign, character)
+    capsule = original["events"][0]["push_continuation_capsule"]
+    assert capsule["schema_version"] == 1
+    assert capsule["kind"] == "push_continuation"
+    assert capsule["idempotency"]["mode"] == "exact_once"
+    assert "audit_compatibility" not in capsule
+    malformed_time = json.loads(json.dumps(capsule))
+    malformed_time["settlement"]["source_time_profile"] = {
+        "mode": "instant", "category": None, "delta_minutes": 1,
+    }
+    with pytest.raises(executor.SubsystemExecutorError) as malformed_error:
+        executor._validate_push_capsule(
+            malformed_time,
+            campaign_dir=campaign,
+            investigator_id="inv1",
+            character_id="inv1",
+        )
+    assert malformed_error.value.code == "push_continuation_unbound"
+    assert malformed_error.value.path == (
+        "continuation_capsule.settlement.source_time_profile"
+    )
+    audited = json.loads(json.dumps(capsule))
+    audited["audit_compatibility"] = {
+        "original_request_id": "legacy-request",
+        "route_id": "legacy-route",
+        "clue_ids": ["legacy-clue"],
+    }
+    validated_audited = executor._validate_push_capsule(
+        audited,
+        campaign_dir=campaign,
+        investigator_id="inv1",
+        character_id="inv1",
+    )
+    assert validated_audited["continuation_id"] == capsule["continuation_id"]
+    assert validated_audited["settlement"] == capsule["settlement"]
+
+    offer = _valid_push_offer()
+    offer["payload"].pop("original_command_id")
+    offer["payload"]["continuation_id"] = capsule["continuation_id"]
+    offered = _execute(
+        executor, campaign, character, [offer], random.Random(211)
+    )[0]
+    public_json = json.dumps(offered["pending_choice"], ensure_ascii=False)
+    assert "push-cont:" not in public_json
+    assert "continuation_capsule" not in public_json
+
+    response = _push_response(offered["pending_choice"], "confirm")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    resolve = plan["rules_requests"][-1]
+    assert resolve["continuation_id"] == capsule["continuation_id"]
+    assert resolve["request_id"] == capsule["settlement"]["request_id"]
+    assert "original_command_id" not in resolve
+    assert "route_id" not in resolve
+    assert "clue_id" not in resolve
+
+
+def test_forged_continuation_capability_fails_before_rng_or_state_mutation(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_capsule_forged")
+    campaign, character = _campaign_and_character(tmp_path)
+    _persist_failed_pushable_roll(executor, campaign, character)
+    offer = _valid_push_offer()
+    offer["payload"].pop("original_command_id")
+    offer["payload"]["continuation_id"] = "push-cont:" + ("0" * 64)
+    rng = random.Random(211)
+    rng_before = rng.getstate()
+    state_path = campaign / "save" / "subsystem-state.json"
+    state_before = state_path.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [offer], rng)
+
+    assert exc_info.value.code == "push_origin_not_found"
+    assert rng.getstate() == rng_before
+    assert state_path.read_bytes() == state_before
+
+
+def test_continuation_capsule_rejects_wrong_campaign_and_actor_bindings(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_capsule_scope")
+    campaign, character = _campaign_and_character(tmp_path / "one")
+    original = _persist_failed_pushable_roll(executor, campaign, character)
+    capsule = original["events"][0]["push_continuation_capsule"]
+    other_campaign, _other_character = _campaign_and_character(tmp_path / "two")
+
+    with pytest.raises(executor.SubsystemExecutorError) as campaign_error:
+        executor._validate_push_capsule(
+            capsule,
+            campaign_dir=other_campaign,
+            investigator_id="inv1",
+            character_id="inv1",
+        )
+    assert campaign_error.value.code == "push_continuation_campaign_mismatch"
+
+    with pytest.raises(executor.SubsystemExecutorError) as actor_error:
+        executor._validate_push_capsule(
+            capsule,
+            campaign_dir=campaign,
+            investigator_id="inv2",
+            character_id="inv2",
+        )
+    assert actor_error.value.code == "push_origin_actor_mismatch"
+
+
+def test_push_offer_localizes_prompt_and_options_from_structured_campaign_locale(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_offer_zh")
+    campaign, character = _campaign_and_character(tmp_path)
+    (campaign / "campaign.json").write_text(
+        json.dumps({"play_language": "zh-Hans"}), encoding="utf-8"
+    )
+    origin = _pushable_roll_command()
+    origin["payload"]["roll_contract"]["push_failure_consequence"][
+        "localized_summaries"
+    ] = {"zh-Hans": "若再次失败，监视者会认出调查员。"}
+    _execute(executor, campaign, character, [origin], random.Random(5))
+    command = _valid_push_offer()
+    command["payload"]["announced_consequence"]["localized_summaries"] = {
+        "zh-Hans": "若再次失败，监视者会认出调查员。"
+    }
+
+    offered = _execute(
+        executor, campaign, character, [command], random.Random(202)
+    )[0]
+
+    choice = offered["pending_choice"]
+    assert choice["prompt"] == (
+        "是否要孤注一掷这次失败的Spot Hidden检定？"
+        "若再次失败：若再次失败，监视者会认出调查员。"
+    )
+    assert "the watcher" not in choice["prompt"]
+    assert choice["options"] == [
+        {"action": "confirm", "label": "确认孤注一掷"},
+        {"action": "cancel", "label": "保留原失败"},
+    ]
+    assert command["payload"]["announced_consequence"]["effect"] == {
+        "kind": "fictional_position",
+        "severity": "serious",
+    }
+
+
 def test_push_offer_final_state_failure_rolls_back_independent_evidence(
     tmp_path, monkeypatch,
 ):
@@ -1311,8 +1850,8 @@ def test_push_offer_rejects_incomplete_gate_before_rng_or_state_mutation(
 @pytest.mark.parametrize(
     ("seed", "expected_outcome", "expected_code"),
     [
-        (1, "hard", "push_origin_not_failed"),
-        (23, "fumble", "push_origin_fumble"),
+        (1, "hard", "push_origin_not_found"),
+        (23, "fumble", "push_origin_not_found"),
     ],
 )
 def test_push_offer_rejects_success_and_fumble_origins_without_side_effects(
@@ -1331,6 +1870,15 @@ def test_push_offer_rejects_success_and_fumble_origins_without_side_effects(
         random.Random(seed),
     )[0]
     assert original["events"][0]["outcome"] == expected_outcome
+    if expected_outcome == "fumble":
+        assert original["events"][0]["roll_contract"]["push_policy"] == {
+            "eligible": False,
+            "requires_changed_method": False,
+            "keeper_must_foreshadow_failure": False,
+        }
+        assert executor.project_latest_eligible_push_candidate(
+            campaign, "inv1", "inv1",
+        ) is None
     rng = random.Random(204)
     rng_before = rng.getstate()
     state_path = campaign / "save" / "subsystem-state.json"
@@ -1377,7 +1925,7 @@ def test_push_offer_rejects_missing_or_false_persisted_push_eligibility(
             random.Random(206),
         )
 
-    assert exc_info.value.code == "push_origin_ineligible"
+    assert exc_info.value.code == "push_origin_not_found"
     assert state_path.read_bytes() == before
 
 
@@ -1500,6 +2048,13 @@ def test_push_confirm_resolve_rerolls_once_from_private_origin_and_replays_exact
     offered = _offer_push(executor, campaign, character)
     response = _push_response(offered["pending_choice"], "confirm")
     plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    binding = plan["push_continuation"]["binding"]
+    assert binding["schema_version"] == 2
+    assert binding["mode"] == "continuation_capsule"
+    assert binding["continuation_id"].startswith("push-cont:")
+    assert binding["request_id"].startswith("push-settle:")
+    assert binding["route_id"] is None
+    assert binding["route_transaction_sha256"] is None
     commands = executor.commands_from_rules_requests(plan)
     assert [command["kind"] for command in commands] == ["push_confirm", "push_resolve"]
     assert [command["phase"] for command in commands] == ["confirm", "resolve"]
@@ -1547,6 +2102,206 @@ def test_push_confirm_resolve_rerolls_once_from_private_origin_and_replays_exact
     assert reloaded.plan_from_pending_choice_response(campaign, "inv1", response) == plan
 
 
+def test_route_bearing_push_with_malformed_source_binding_fails_before_roll(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_unbound_route")
+    campaign, character = _campaign_and_character(tmp_path)
+    origin = _pushable_roll_command()
+    origin["payload"]["request_id"] = "route-request-1"
+    origin["payload"]["resolution_context"].update({
+        "turn_input": {
+            "active_scene_id": "archive",
+            "player_intent_rich": {
+                "action_resolution": {
+                    "matched_affordance_ids": ["route-ledger"],
+                    "no_match": False,
+                },
+            },
+        },
+        "clue_policy": {
+            "matched_route_ids": ["route-ledger"],
+            "reveal": [],
+        },
+        # Deliberately no route_resolution receipt: route-bearing continuations
+        # must not guess the source route from adjacent structured fields.
+    })
+    failed = _execute(
+        executor, campaign, character, [origin], random.Random(5)
+    )[0]
+    assert failed["events"][0]["success"] is False
+    rng = random.Random(1)
+    rng_before = rng.getstate()
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    log_before = roll_log.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [_valid_push_offer()], rng)
+
+    assert exc_info.value.code == "push_origin_not_found"
+    assert rng.getstate() == rng_before
+    assert roll_log.read_bytes() == log_before
+
+
+def test_sealed_route_time_profile_is_exact_authored_authority_or_null(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_route_time")
+    campaign, _character = _campaign_and_character(tmp_path)
+    story_path = campaign / "scenario" / "story-graph.json"
+    story_path.parent.mkdir(parents=True, exist_ok=True)
+    route = {
+        "id": "persuade-arty",
+        "cue": "Persuade Arty to grant access.",
+        "player_visible_outcome": "Arty grants supervised access.",
+        "status": "open",
+    }
+    story = {
+        "schema_version": 1,
+        "scenes": [{
+            "scene_id": "newspaper-morgue",
+            "affordances": [route],
+        }],
+    }
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+
+    missing = executor._seal_authored_route_transaction(
+        campaign,
+        scene_id="newspaper-morgue",
+        route_id="persuade-arty",
+    )
+    assert missing["source_time_profile"] is None
+
+    exact = {
+        "mode": "elapsed",
+        "category": "library_research",
+        "delta_minutes": 240,
+    }
+    route["time_profile"] = exact
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    sealed = executor._seal_authored_route_transaction(
+        campaign,
+        scene_id="newspaper-morgue",
+        route_id="persuade-arty",
+    )
+    assert sealed["source_time_profile"] == exact
+
+    route["time_profile"] = {
+        "mode": "instant", "category": None, "delta_minutes": 1,
+    }
+    story_path.write_text(json.dumps(story), encoding="utf-8")
+    assert executor._seal_authored_route_transaction(
+        campaign,
+        scene_id="newspaper-morgue",
+        route_id="persuade-arty",
+    ) is None
+
+
+def test_non_route_push_preserves_exact_structured_time_and_rejects_malformed(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_non_route_time")
+    exact = {
+        "mode": "elapsed",
+        "category": "library_research",
+        "delta_minutes": 240,
+    }
+    valid_campaign, valid_character = _campaign_and_character(tmp_path / "valid")
+    valid_origin = _pushable_roll_command()
+    valid_origin["payload"]["resolution_context"]["source_time_profile"] = exact
+    valid_result = _execute(
+        executor,
+        valid_campaign,
+        valid_character,
+        [valid_origin],
+        random.Random(5),
+    )[0]
+    valid_capsule = valid_result["events"][0]["push_continuation_capsule"]
+    assert valid_capsule["settlement"]["route_transaction"] is None
+    assert valid_capsule["settlement"]["source_time_profile"] == exact
+
+    valid_offer = _valid_push_offer()
+    valid_offer["payload"]["source_time_profile"] = exact
+    offered = _execute(
+        executor,
+        valid_campaign,
+        valid_character,
+        [valid_offer],
+        random.Random(211),
+    )[0]
+    assert offered["status"] == "pending_choice"
+
+    invalid_campaign, invalid_character = _campaign_and_character(
+        tmp_path / "invalid"
+    )
+    invalid_origin = _pushable_roll_command()
+    invalid_origin["payload"]["resolution_context"]["source_time_profile"] = {
+        "mode": "instant", "category": None, "delta_minutes": 1,
+    }
+    invalid_result = _execute(
+        executor,
+        invalid_campaign,
+        invalid_character,
+        [invalid_origin],
+        random.Random(5),
+    )[0]
+    assert "push_continuation_capsule" not in invalid_result["events"][0]
+    assert executor.project_latest_eligible_push_candidate(
+        invalid_campaign, "inv1", "inv1"
+    ) is None
+
+
+def test_generated_clue_push_missing_exact_clue_binding_fails_before_roll(tmp_path):
+    executor = _executor("coc_subsystem_executor_push_unbound_generated_clue")
+    campaign, character = _campaign_and_character(tmp_path)
+    origin = _pushable_roll_command()
+    origin["payload"]["request_id"] = "generated-clue:source-request"
+    origin["payload"]["roll_contract"]["generated_clue_gate"] = True
+    origin["payload"]["roll_contract"]["fumble_consequence"] = {
+        "summary": "The route closes before the clue is secured.",
+        "effect": {"kind": "route_closed", "route_id": "route-ledger"},
+        "source_binding": {
+            "schema_version": 1,
+            "kind": "generated_obscured_clue_gate",
+            "clue_id": "clue-ledger",
+            "route_ids": ["route-ledger"],
+        },
+    }
+    origin["payload"]["resolution_context"].update({
+        "turn_input": {
+            "active_scene_id": "archive",
+            "player_intent_rich": {
+                "action_resolution": {
+                    "matched_affordance_ids": ["route-ledger"],
+                    "no_match": False,
+                },
+            },
+        },
+        "clue_policy": {
+            "matched_route_ids": ["route-ledger"],
+            "reveal": ["clue-ledger"],
+        },
+        "route_resolution": {
+            "schema_version": 1,
+            "matched_route_ids": ["route-ledger"],
+            "request_id": "generated-clue:source-request",
+            # Deliberately missing clue_ids.  Confirmation must not infer the
+            # clue from the adjacent clue_policy after the original roll.
+        },
+    })
+    failed = _execute(
+        executor, campaign, character, [origin], random.Random(5)
+    )[0]
+    assert failed["events"][0]["success"] is False
+    rng = random.Random(1)
+    rng_before = rng.getstate()
+    roll_log = campaign / "logs" / "rolls.jsonl"
+    log_before = roll_log.read_bytes()
+
+    with pytest.raises(executor.SubsystemExecutorError) as exc_info:
+        _execute(executor, campaign, character, [_valid_push_offer()], rng)
+
+    assert exc_info.value.code == "push_origin_not_found"
+    assert rng.getstate() == rng_before
+    assert roll_log.read_bytes() == log_before
+
+
 def test_pushed_failure_preserves_exact_announced_consequence_and_stable_identity(
     tmp_path,
 ):
@@ -1565,6 +2320,28 @@ def test_pushed_failure_preserves_exact_announced_consequence_and_stable_identit
     assert pushed["announced_consequence"] == _valid_push_offer()["payload"]["announced_consequence"]
     assert pushed["source_command_id"] == commands[-1]["command_id"]
     assert pushed["original_roll_id"] == "original-failed-roll-roll"
+
+
+def test_pushed_fumble_contract_is_non_pushable_and_has_structured_consequence(
+    tmp_path,
+):
+    executor = _executor("coc_subsystem_executor_push_confirm_fumble")
+    campaign, character = _campaign_and_character(tmp_path)
+    offered = _offer_push(executor, campaign, character)
+    response = _push_response(offered["pending_choice"], "confirm")
+    plan = executor.plan_from_pending_choice_response(campaign, "inv1", response)
+    commands = executor.commands_from_rules_requests(plan)
+
+    results = _execute(executor, campaign, character, commands, random.Random(23))
+
+    pushed = results[-1]["events"][0]
+    assert pushed["roll"] == 100 and pushed["outcome"] == "fumble"
+    assert pushed["roll_contract"]["push_policy"] == {
+        "eligible": False,
+        "requires_changed_method": False,
+        "keeper_must_foreshadow_failure": False,
+    }
+    assert pushed["fumble_consequence"] == pushed["announced_consequence"]
 
 
 @pytest.mark.parametrize(

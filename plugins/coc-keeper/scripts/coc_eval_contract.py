@@ -22,6 +22,11 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_language import default_localized_terms
+
 REPO_ROOT = SCRIPT_DIR.parents[2]
 EVAL_SPEC_DIR = Path("evaluation/spec/v1")
 EVAL_SPEC = "eval-spec-v1"
@@ -121,6 +126,10 @@ def load_benchmark_manifest(root: Path | str = REPO_ROOT) -> dict[str, Any]:
         isinstance(value, str) and value for value in capabilities
     ):
         raise ValueError("benchmark manifest has invalid implemented_capabilities")
+    pack_registry_path = Path(root) / EVAL_SPEC_DIR / "benchmark-packs.json"
+    if pack_registry_path.is_file():
+        packs = _load_sibling("coc_eval_packs_contract", "coc_eval_packs.py")
+        packs.load_benchmark_pack_registry(root, manifest=payload)
     return payload
 
 
@@ -306,6 +315,9 @@ def roll_visibility(event: dict[str, Any]) -> str:
 
 def _is_non_percentile(event: dict[str, Any]) -> bool:
     payload = _payload(event)
+    dice = payload.get("dice")
+    if isinstance(dice, dict) and dice.get("expression") not in (None, ""):
+        return True
     if payload.get("die") not in (None, "") or payload.get("die_expression") not in (
         None,
         "",
@@ -339,15 +351,21 @@ def _missing_fields(event: dict[str, Any], missing_id: bool) -> list[str]:
         missing.append("actor_id")
 
     if _is_non_percentile(event):
-        if payload.get("die") in (None, "") and payload.get("die_expression") in (
-            None,
-            "",
+        dice = payload.get("dice") if isinstance(payload.get("dice"), dict) else {}
+        if (
+            payload.get("die") in (None, "")
+            and payload.get("die_expression") in (None, "")
+            and dice.get("expression") in (None, "")
         ):
             missing.append("die_expression")
-        faces = payload.get("die_rolls", payload.get("individual_faces"))
+        faces = payload.get(
+            "die_rolls", payload.get("individual_faces", dice.get("raw"))
+        )
         if not isinstance(faces, list) or not faces:
             missing.append("individual_faces")
-        if payload.get("roll", payload.get("final_total")) is None:
+        if payload.get(
+            "roll", payload.get("final_total", dice.get("total"))
+        ) is None:
             missing.append("final_total")
     else:
         if payload.get("skill", payload.get("characteristic")) in (None, ""):
@@ -368,19 +386,32 @@ def _missing_fields(event: dict[str, Any], missing_id: bool) -> list[str]:
         if payload.get("pushed") is True and not (
             payload.get("failure_consequence")
             or payload.get("foreshadowed_failure")
+            or payload.get("announced_consequence")
         ):
             missing.append("pushed_failure_consequence")
+        if (
+            payload.get("outcome") == "fumble"
+            and not payload.get("fumble_consequence")
+            and not (
+                payload.get("skill") == "SAN"
+                and payload.get("san_loss") is not None
+                and payload.get("san_before") is not None
+                and payload.get("san_after") is not None
+            )
+        ):
+            missing.append("fumble_consequence")
     return list(dict.fromkeys(missing))
 
 
 def _localized_terms(metadata: dict[str, Any], language: str) -> dict[str, str]:
     outer = metadata.get("localized_terms")
     selected = outer.get(language) if isinstance(outer, dict) else None
-    if not isinstance(selected, dict):
-        return {}
+    merged = default_localized_terms(language)
+    if isinstance(selected, dict):
+        merged.update(selected)
     return {
         str(key): str(value)
-        for key, value in selected.items()
+        for key, value in merged.items()
         if key not in (None, "") and value not in (None, "")
     }
 
@@ -467,6 +498,7 @@ def _render_non_percentile(
     terms: dict[str, str],
 ) -> str:
     payload = _payload(event)
+    dice = payload.get("dice") if isinstance(payload.get("dice"), dict) else {}
     actor = _display_actor(event, actor_names, terms)
     purpose = _localize(
         payload.get("purpose")
@@ -475,15 +507,24 @@ def _render_non_percentile(
         or "die roll",
         terms,
     )
-    die = payload.get("die") or payload.get("die_expression") or "?"
-    faces = payload.get("die_rolls", payload.get("individual_faces"))
+    die = (
+        payload.get("die")
+        or payload.get("die_expression")
+        or dice.get("expression")
+        or "?"
+    )
+    faces = payload.get(
+        "die_rolls", payload.get("individual_faces", dice.get("raw"))
+    )
     face_text = (
         " + ".join(str(value) for value in faces)
         if isinstance(faces, list) and faces
         else "?"
     )
     modifier = _format_modifier(payload.get("flat_modifier", 0))
-    total = payload.get("roll", payload.get("final_total", "?"))
+    total = payload.get(
+        "roll", payload.get("final_total", dice.get("total", "?"))
+    )
     details = _state_delta_details(payload, language)
     if language == "zh-Hans":
         tail = f"；{'；'.join(details)}" if details else ""
@@ -544,6 +585,15 @@ def _render_percentile(
             if language == "zh-Hans"
             else f"pushed: yes, failure consequence: {consequence or '?'}"
         )
+    fumble_consequence = payload.get("fumble_consequence")
+    if payload.get("outcome") == "fumble" and isinstance(fumble_consequence, dict):
+        summary = fumble_consequence.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            details.append(
+                f"大失败后果：{summary.strip()}"
+                if language == "zh-Hans"
+                else f"fumble consequence: {summary.strip()}"
+            )
     if payload.get("luck_spent") not in (None, 0, ""):
         details.append(
             f"消耗幸运：{payload['luck_spent']}"
@@ -722,8 +772,26 @@ def render_run_identity_section(
     eligible = evidence.get("eligible") is True
     reasons = evidence.get("reasons")
     reason_text = ", ".join(str(value) for value in reasons) if reasons else "none"
-    kp_model = _public_identity_value(run_manifest.get("kp_model"))
-    player_model = _public_identity_value(run_manifest.get("player_model"))
+    receipt = evidence.get("receipt") if isinstance(evidence.get("receipt"), dict) else {}
+    runners = receipt.get("runners") if isinstance(receipt.get("runners"), dict) else {}
+
+    def evidenced_model(role: str) -> Any:
+        runner = runners.get(role) if isinstance(runners.get(role), dict) else {}
+        identities = runner.get("model_identities")
+        if not isinstance(identities, list) or not identities:
+            return None
+        return identities[0] if len(identities) == 1 else identities
+
+    kp_model = _public_identity_value(
+        run_manifest.get("kp_model")
+        or metadata.get("kp_model")
+        or evidenced_model("narrator")
+    )
+    player_model = _public_identity_value(
+        run_manifest.get("player_model")
+        or metadata.get("player_model")
+        or evidenced_model("player")
+    )
     host_id = _public_identity_value(run_manifest.get("host_id"))
     benchmark = _public_identity_value(run_manifest.get("benchmark_version"))
 
@@ -959,6 +1027,30 @@ def _evaluation_contract_section(
     )
 
 
+def _synchronize_overall_result(report: str, status: str) -> str:
+    """Keep the human summary heading aligned with the strict contract.
+
+    The evaluation report is generated before dice/evidence completeness can
+    be finalized.  This controlled heading update makes the final contract the
+    sole authority instead of leaving an earlier optimistic PASS at the top.
+    """
+    lines = report.splitlines()
+    try:
+        heading = lines.index("## Overall Result")
+    except ValueError:
+        return report
+    for index in range(heading + 1, len(lines)):
+        if lines[index].startswith("## "):
+            break
+        if lines[index].strip():
+            lines[index] = status
+            suffix = "\n" if report.endswith("\n") else ""
+            return "\n".join(lines) + suffix
+    lines.insert(heading + 1, status)
+    suffix = "\n" if report.endswith("\n") else ""
+    return "\n".join(lines) + suffix
+
+
 def update_evaluation_contract_section(
     path: Path,
     *,
@@ -969,7 +1061,10 @@ def update_evaluation_contract_section(
     if not path.is_file():
         return path
     current = path.read_text(encoding="utf-8")
-    clean = remove_anchored_section(current, EVALUATION_CONTRACT_ANCHOR)
+    clean = _synchronize_overall_result(
+        remove_anchored_section(current, EVALUATION_CONTRACT_ANCHOR),
+        status,
+    )
     while clean.endswith("\n\n"):
         clean = clean[:-1]
     section = _evaluation_contract_section(

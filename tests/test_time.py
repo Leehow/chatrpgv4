@@ -97,10 +97,31 @@ def test_advance_time_writes_time_jsonl(campaign):
 
 def test_advance_time_updates_gregorian_datetime(campaign):
     """In gregorian mode, local_datetime should advance."""
-    coc_time.advance_time(campaign, 120, decision_id="d1", reason="2 hours")
+    result = coc_time.advance_time(campaign, 120, decision_id="d1", reason="2 hours")
     state = coc_time.read_time_state(campaign)
     # Started at 20:00, +120 min = 22:00
     assert "22:00" in state["clock"]["local_datetime"]
+    assert state["clock"]["display"] == "1925-01-15 22:00, Arkham"
+    assert result["current_time"]["local_datetime"] == "1925-01-15T22:00:00"
+    assert result["current_time"]["display"] == "1925-01-15 22:00, Arkham"
+    assert result["current_time"]["day_phase"] == "night"
+
+
+def test_day_phase_uses_local_calendar_hour_not_elapsed_minutes(tmp_path):
+    camp = tmp_path / "morning"
+    (camp / "save").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    coc_time.initialize_time_state(camp, start={
+        "calendar_mode": "gregorian",
+        "local_datetime": "1920-10-12T10:00:00",
+        "display": "1920-10-12 10:00",
+    })
+    assert coc_time.current_stamp(camp)["day_phase"] == "morning"
+    coc_time.advance_time(camp, 75, decision_id="morning-advance", reason="research")
+    stamp = coc_time.current_stamp(camp)
+    assert stamp["local_datetime"] == "1920-10-12T11:15:00"
+    assert stamp["display"] == "1920-10-12 11:15"
+    assert stamp["day_phase"] == "morning"
 
 
 def test_meta_turn_does_not_advance_time(campaign):

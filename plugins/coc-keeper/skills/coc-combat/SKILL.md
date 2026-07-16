@@ -9,11 +9,33 @@ Combat in Call of Cthulhu is **not** a single roll that decides a fight. Per Kee
 
 ## Workflow
 
-1. Construct a `CombatSession` (via `../../scripts/coc_combat.py`) when a combat scene begins.
-2. `add_participant` for each combatant with full attributes.
-3. Each round: `begin_round` (computes initiative), then for each participant in DEX order: ask "What is your character doing?" (`declare_and_resolve_turn` with the player's declared intent).
-4. Continue rounds until one side is eliminated, flees, or concedes; then `conclude(outcome)`.
-5. `save(campaign_dir)` writes `save/combat.json`. Audit reads this file to machine-verify rulebook compliance — **never trust transcript prose for combat mechanics**.
+1. For an authored scene operation, call toolbox `combat.resolve` with its
+   stable `affordance_id`; the tool constructs and persists `CombatSession`
+   through the canonical subsystem executor. The selected affordance must
+   match the player's explicit action. Never substitute an `action_kind:
+   attack` route for retreat, refusal to attack, or another
+   `keeper_adjudication` choice merely because the attack route has a typed
+   operation.
+2. Read `combat.context` after each beat. If `pending_defense` targets the
+   investigator, ask the player and call `combat.resolve` again with the
+   selected `defense_kind`.
+3. Continue in initiative order until the session mechanically concludes, the
+   player flees, or a side concedes. A mechanically concluded `combat.resolve`
+   emits `combat_ended` in the same transaction. Call `combat.end` only to end
+   an otherwise-active fight (flee/concede/stalemate), or to backfill a legacy
+   concluded snapshot that predates the atomic receipt.
+4. `save/combat.json` and combat roll rows are synchronous outputs of these
+   tools. Audit reads them to machine-verify compliance — **never replace the
+   session with transcript prose or generic dice/damage tools**.
+
+Module weapons may override the inherited weapon `skill` with another
+structured check source. For example, Corbitt's floating knife inherits the
+medium-knife damage profile but rolls `POW` against Dodge; report the emitted
+skill label and target exactly rather than relabeling it as Fighting.
+
+`coc_combat.py` remains the internal engine API for subsystem tests and new
+typed integrations; a Keeper host should not hand-assemble participants or
+write the snapshot directly.
 
 ## Initiative (p.114, p.124)
 
@@ -196,11 +218,62 @@ Derived from the damage chain and effects, stored in `participants[].conditions[
 - `dying`: hp_current = 0 with a major wound.
 - `unconscious`, `prone`, `grappled`, `surprised`, `outnumbered`: applied by maneuvers, surprise, or positioning.
 
+### Dying rescue chain (p.121)
+
+- Call `rules.first_aid` for the immediate rescue attempt. A success gives 1
+  temporary HP and `stabilized` but deliberately keeps the dying chain active.
+- The first attempt is regular. Second and subsequent attempts on the same
+  wound are pushed rolls and must record a changed method plus the announced
+  failure consequence. Surviving an unstabilized dying CON roll, or losing
+  temporary stabilization, opens one new pushed-attempt window; it never
+  resets the wound to a regular first attempt.
+- Until Medicine succeeds, call `rules.dying_check(clock_kind="hour")` after
+  each elapsed hour. Before stabilization the end-of-round clock is
+  `rules.dying_check(clock_kind="round")`.
+- Call `rules.medicine` to clear `dying`/`stabilized` and apply the canonical
+  1D3 healing. Successful completion also clears the stale combat
+  `unconscious` marker so host playability consumers can resume.
+- An investigator who is unconscious from a major wound but still above
+  0 HP is not in the dying chain and is not dead. Successful ordinary First
+  Aid clears that stale `unconscious` marker so the same campaign can resume.
+- Pass a stable `rescuer_id`; roll evidence uses that actor rather than always
+  attributing NPC care to the investigator. These calls are transactional and
+  require distinct `decision_id` values.
+- Once immediate First Aid/Medicine is settled, Major Wound natural recovery
+  is weekly, not a new Medicine healing roll every day. Advance game time to
+  the end of the recovery week and call `rules.weekly_recovery` with explicit
+  rest/environment facts and, when applicable, the caregiver's stable ID and
+  Medicine value. The tool enforces the due interval and records the care,
+  CON, and healing dice. On failure, wait another full week before retrying.
+- `prone`, `grappled`, `surprised`, `outnumbered`, and `fled` are
+  combat-position markers, not long-term injuries. A concluded combat removes
+  them from the investigator projection. For a legacy/out-of-combat marker,
+  narrate the action that ends it and call `state.clear_transient_condition`;
+  never use that tool to erase an injury, unconsciousness, dying, or death.
+
+Never substitute generic HP healing or a hand-edited condition list for this
+chain. If a host pauses on `pending_resolution`, settle the rescue tools first
+and then resume the same run/evidence chain.
+
+### Luck authorization in combat
+
+Combat rolls cannot be pushed. When an opposed melee beat has life-or-death or
+plot-critical stakes, ask before rolling how many Luck points the player is
+willing to authorize, unless their current action already states a ceiling.
+Pass it as `combat.resolve(luck_spend_max=N)`. The combat transaction spends
+the minimum amount that changes the opposed outcome, spends nothing when the
+result is already favorable or the ceiling cannot change it, retains the raw
+D100 in dice evidence, and updates current Luck atomically. Do not call
+standalone `rules.luck_spend` after a combat turn has already applied damage.
+
 ## Environmental / Other Forms of Damage (Table III, p.124)
 
-Weapon combat stays in `coc_combat.py`. Falls, fire, drowning, poison, and similar
-non-weapon harm use `../../scripts/coc_hazards.py` + `references/rules-json/hazards.json`
-(and `poisons.json`):
+Weapon combat stays in the canonical combat subsystem. Falls, fire, drowning,
+poison, and similar non-weapon harm use the shared `hazard.apply`,
+`hazard.suffocation.start/tick/end`, and `hazard.poison` operations in
+`../../scripts/coc_runtime_ops.py`; Pi uses the same operations through
+`runtime.sdk.api.operate(...)`. Rules data remains in `hazards.json` and
+`poisons.json`:
 
 - `apply_other_damage(...)` — Table III severity ladder (`minor`…`splat`); always
   `bypass_armor: true`.

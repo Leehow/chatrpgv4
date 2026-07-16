@@ -466,14 +466,9 @@ def _load_public_state():
     return _load_module("runtime_public_state", _engine_dir() / "public_state.py")
 
 
-def _load_debug_adapter():
-    path = _repo_root() / "runtime" / "adapters" / "debug" / "adapter.py"
-    return _load_module("runtime_debug_adapter", path)
-
-
-def _load_pi_adapter():
-    path = _repo_root() / "runtime" / "adapters" / "pi" / "adapter.py"
-    return _load_module("runtime_pi_adapter", path)
+def _load_keeper_adapter():
+    path = _repo_root() / "runtime" / "adapters" / "keeper" / "adapter.py"
+    return _load_module("runtime_keeper_adapter", path)
 
 
 _PUBLIC_PLAYER_INTENT_FIELDS = frozenset({
@@ -578,39 +573,6 @@ def _validate_rng_seed(rng_seed: Any) -> int | str:
     return rng_seed
 
 
-def _ensure_worker_pool(registry: SessionRegistry):
-    if registry._worker_pool is not None:
-        return registry._worker_pool
-    with registry._lock:
-        if registry._worker_pool is None:
-            pool_mod = _load_module(
-                "runtime_session_worker_pool",
-                _repo_root() / "runtime" / "adapters" / "worker_pool.py",
-            )
-            runner = (
-                _repo_root()
-                / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
-            )
-            registry._worker_pool = pool_mod.JsonlWorkerPool(
-                lambda _key: ["node", str(runner), "--server"],
-                cwd=runner.parent,
-            )
-    return registry._worker_pool
-
-
-def _narrator_worker_key(record: Mapping[str, Any]) -> dict[str, str]:
-    runner = (
-        _repo_root()
-        / "runtime" / "adapters" / "narrator" / "run_narration.mjs"
-    )
-    return {
-        "session_id": str(record["session_id"]),
-        "campaign_id": str(record["campaign_id"]),
-        "match_id": str(record["campaign_id"]),
-        "role": f"narrator:{runner.resolve()}",
-    }
-
-
 def _load_events_module():
     path = _engine_dir() / "events.py"
     return _load_module("runtime_session_events", path)
@@ -621,130 +583,263 @@ def _load_telemetry_module():
     return _load_module("runtime_session_telemetry", path)
 
 
-def _load_secret_audit_module():
+def _load_runtime_ops_module():
     path = (
         _repo_root()
         / "plugins"
         / "coc-keeper"
         / "scripts"
-        / "coc_secret_audit.py"
+        / "coc_runtime_ops.py"
     )
-    return _load_module("runtime_session_secret_audit", path)
+    return _load_module("runtime_session_coc_runtime_ops", path)
 
 
-def _replace_turn_narration(
-    events: list[dict[str, Any]],
-    raw_turn: dict[str, Any],
-    narration: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Replace only a corresponding player narration event with safe Pi prose."""
-    final_text = narration.get("final_text")
-    if not isinstance(final_text, str) or not final_text.strip():
-        return events
-    decision_id = raw_turn.get("decision_id")
-    retained = [
-        event for event in events
-        if not (
-            isinstance(event, dict)
-            and event.get("type") == "narration"
-            and isinstance(event.get("payload"), dict)
-            and event["payload"].get("decision_id") == decision_id
-        )
-    ]
-    payload: dict[str, Any] = {"text": final_text.strip()}
-    if isinstance(decision_id, str) and decision_id:
-        payload["decision_id"] = decision_id
-    retained.append(_load_events_module().make_event("narration", payload))
-    return retained
+def _load_operation_router_module():
+    path = _repo_root() / "runtime" / "adapters" / "pi" / "operation_router.py"
+    return _load_module("runtime_session_operation_router", path)
 
 
-def _safe_narration_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
-    """Defense in depth before an optional narrator adapter sees the envelope."""
-    def clean(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {
-                key: clean(item)
-                for key, item in value.items()
-                if key not in {"rationale", "keeper_secrets", "director_rationale"}
-            }
-        if isinstance(value, list):
-            return [clean(item) for item in value]
-        return copy.deepcopy(value)
-    return clean(envelope)
+def setup_workspace_operation(
+    workspace: Path | str,
+    operation: dict[str, Any],
+) -> dict[str, Any]:
+    """Execute canonical onboarding before a runtime session exists."""
+    root = _load_paths().workspace_root(workspace)
+    return _load_runtime_ops_module().execute_setup_operation(
+        root, operation=operation
+    )
 
 
-def _allowed_narrator_assertion_refs(envelope: Any) -> set[str]:
-    """Derive a closed fact-ref set from structure, never generated prose."""
-
-    omitted = {
-        "must_not_reveal", "rationale", "keeper_secrets", "director_rationale",
-    }
-    refs: set[str] = set()
-
-    def pointer_token(value: str) -> str:
-        return value.replace("~", "~0").replace("/", "~1")
-
-    def visit(value: Any, parts: list[str]) -> None:
-        if isinstance(value, list):
-            for index, item in enumerate(value):
-                visit(item, [*parts, str(index)])
-            return
-        if isinstance(value, dict):
-            for key in sorted(value):
-                if isinstance(key, str) and key not in omitted:
-                    visit(value[key], [*parts, key])
-            return
-        if value is None or type(value) in {str, int, float, bool}:
-            pointer = "/" + "/".join(pointer_token(part) for part in parts)
-            refs.add(f"envelope:{pointer}")
-
-    if isinstance(envelope, dict):
-        visit(envelope, [])
-    return refs
-
-
-def _validated_narrator_secret_audit(
-    envelope: Any,
-    narration: Any,
-) -> dict[str, Any] | None:
-    """Return canonical exact-coverage evidence, else force template fallback."""
-
-    if (
-        not isinstance(envelope, dict)
-        or not isinstance(narration, dict)
-        or narration.get("response_mode") != "tool"
-        or narration.get("secret_audit_complete") is not True
-    ):
-        return None
-    asserted = narration.get("asserted_fact_refs")
-    semantic = narration.get("semantic_audit")
-    if (
-        not isinstance(asserted, list)
-        or not isinstance(semantic, list)
-        or any(
-            not isinstance(ref, str) or not ref or ref != ref.strip()
-            for ref in asserted
-        )
-        or len(set(asserted)) != len(asserted)
-        or not set(asserted) <= _allowed_narrator_assertion_refs(envelope)
-    ):
-        return None
-    raw_forbidden = envelope.get("must_not_reveal", [])
-    if not isinstance(raw_forbidden, list):
-        return None
-    forbidden: list[str] = []
-    for row in raw_forbidden:
-        ref = row.get("id") if isinstance(row, dict) else None
-        if not isinstance(ref, str) or not ref or ref != ref.strip() or ref in forbidden:
-            return None
-        forbidden.append(ref)
+def _file_size(path: Path) -> int:
     try:
-        receipt = _load_secret_audit_module().audit_secret_claims(
-            forbidden, asserted, semantic
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _read_new_jsonl_rows(path: Path, offset: int) -> list[dict[str, Any]]:
+    """Read JSONL rows appended after ``offset`` bytes; tolerant of bad lines."""
+    rows: list[dict[str, Any]] = []
+    try:
+        with path.open("rb") as handle:
+            handle.seek(offset)
+            payload = handle.read()
+    except OSError:
+        return rows
+    for encoded in payload.split(b"\n"):
+        if not encoded.strip():
+            continue
+        try:
+            row = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+_ROLL_EVENT_STRING_FIELDS = (
+    "roll_id", "decision_id", "kind", "skill", "characteristic",
+    "difficulty", "outcome", "damage_kind", "reward_kind", "die",
+)
+_ROLL_EVENT_INT_FIELDS = (
+    "target", "effective_target", "bonus_penalty_dice", "san_loss",
+    "san_before", "san_after", "hp_before", "hp_delta", "hp_after",
+    "flat_modifier",
+)
+_ROLL_EVENT_BOOL_FIELDS = ("success", "pushed", "bout_triggered")
+_PLAYER_ROLL_VISIBILITIES = frozenset({"public", "consequence_public", "player"})
+
+
+def _project_roll_event(events_mod: Any, row: dict[str, Any]) -> dict[str, Any] | None:
+    """Project one canonical or legacy roll-log row onto the public schema.
+
+    Canonical v2 logs place mechanics inside ``payload`` and reserve the outer
+    row for identity, visibility and provenance.  Older logs kept those fields
+    flat.  Read both shapes through a closed allowlist so the runtime neither
+    drops new evidence nor forwards keeper-only metadata.
+    """
+    nested = row.get("payload")
+    sources = [nested, row] if isinstance(nested, dict) else [row]
+
+    visibilities = [
+        source.get("visibility")
+        for source in sources
+        if isinstance(source.get("visibility"), str)
+        and source.get("visibility")
+    ]
+    if any(value not in _PLAYER_ROLL_VISIBILITIES for value in visibilities):
+        return None
+
+    if isinstance(nested, dict):
+        outer_roll_id = row.get("roll_id")
+        inner_roll_id = nested.get("roll_id")
+        if (
+            isinstance(outer_roll_id, str)
+            and outer_roll_id
+            and isinstance(inner_roll_id, str)
+            and inner_roll_id
+            and outer_roll_id != inner_roll_id
+        ):
+            return None
+
+    def first(field: str) -> Any:
+        for source in sources:
+            if field in source:
+                return source[field]
+        return None
+
+    payload: dict[str, Any] = {}
+    roll = first("roll")
+    check = first("check")
+    if roll is None and isinstance(check, dict):
+        roll = check.get("roll")
+    if roll is None:
+        for alias in ("total", "final_total", "raw_roll"):
+            candidate = first(alias)
+            if isinstance(candidate, int) and not isinstance(candidate, bool):
+                roll = candidate
+                break
+    dice = first("dice")
+    if roll is None and isinstance(dice, dict):
+        roll = dice.get("total")
+    if isinstance(roll, bool) or not isinstance(roll, int):
+        return None
+    payload["roll"] = roll
+    for field in _ROLL_EVENT_STRING_FIELDS:
+        value = first(field)
+        if isinstance(value, str) and value:
+            payload[field] = value
+    if "decision_id" not in payload:
+        command_id = first("command_id")
+        if isinstance(command_id, str) and command_id:
+            payload["decision_id"] = command_id
+    if "kind" not in payload:
+        semantic_event_type = first("event_type")
+        if (
+            isinstance(semantic_event_type, str)
+            and semantic_event_type
+            and semantic_event_type != "roll"
+        ):
+            payload["kind"] = semantic_event_type
+    if "die" not in payload:
+        for alias in ("die_expression", "expression"):
+            value = first(alias)
+            if isinstance(value, str) and value:
+                payload["die"] = value
+                break
+        if "die" not in payload and isinstance(dice, dict):
+            value = dice.get("expression")
+            if isinstance(value, str) and value:
+                payload["die"] = value
+    for field in _ROLL_EVENT_INT_FIELDS:
+        value = first(field)
+        if not isinstance(value, bool) and isinstance(value, int):
+            payload[field] = value
+    for field in _ROLL_EVENT_BOOL_FIELDS:
+        value = first(field)
+        if isinstance(value, bool):
+            payload[field] = value
+    if "success" not in payload and isinstance(payload.get("outcome"), str):
+        payload["success"] = payload["outcome"] in {
+            "regular", "hard", "extreme", "critical",
+            "regular_success", "hard_success", "extreme_success",
+            "critical_success", "success",
+        }
+    raw_die_rolls = None
+    for alias in ("die_rolls", "rolls", "individual_faces"):
+        candidate = first(alias)
+        if isinstance(candidate, list):
+            raw_die_rolls = candidate
+            break
+    if raw_die_rolls is None and isinstance(dice, dict):
+        raw_die_rolls = dice.get("raw")
+    if isinstance(raw_die_rolls, list) and all(
+        isinstance(value, int) and not isinstance(value, bool)
+        for value in raw_die_rolls
+    ):
+        payload["die_rolls"] = list(raw_die_rolls)
+    try:
+        return events_mod.make_event("roll", payload)
+    except ValueError:
+        return None
+
+
+def _project_keeper_turn_events(
+    campaign_dir: Path,
+    offsets: dict[str, int],
+    narration_text: str,
+    *,
+    workspace: Path,
+    campaign_id: str,
+) -> list[dict[str, Any]]:
+    """Build the event stream for one keeper-agent turn from journal receipts."""
+    events_mod = _load_events_module()
+    events: list[dict[str, Any]] = []
+    for row in _read_new_jsonl_rows(
+        campaign_dir / "logs" / "toolbox-calls.jsonl", offsets["toolbox"]
+    ):
+        events.append(events_mod.make_event(
+            "tool_call",
+            {
+                "tool": row.get("tool"),
+                "ok": row.get("ok"),
+                "args": row.get("args"),
+                "warnings": row.get("warnings"),
+            },
+            visibility="keeper",
+        ))
+    for row in _read_new_jsonl_rows(
+        campaign_dir / "logs" / "rolls.jsonl", offsets["rolls"]
+    ):
+        event = _project_roll_event(events_mod, row)
+        if event is not None:
+            events.append(event)
+    events.append(events_mod.make_event("narration", {"text": narration_text}))
+    try:
+        state = _load_public_state().build_public_state(
+            workspace, campaign_id, None,
         )
     except Exception:
-        return None
-    return receipt if isinstance(receipt, dict) and receipt.get("passed") is True else None
+        state = None
+    if isinstance(state, dict):
+        final_state: dict[str, Any] = {}
+        scene = state.get("active_scene_id")
+        if isinstance(scene, str) and scene:
+            final_state["active_scene"] = scene
+        tension = state.get("tension_level")
+        if isinstance(tension, str) and tension:
+            final_state["tension"] = tension
+        turn_number = state.get("turn_number")
+        if isinstance(turn_number, int) and not isinstance(turn_number, bool):
+            final_state["turn_number"] = turn_number
+        if final_state:
+            try:
+                events.append(events_mod.make_event(
+                    "state_patch",
+                    {
+                        "final_state": final_state,
+                        "state_patch": {"applied": True},
+                    },
+                ))
+            except ValueError:
+                pass
+    return events
+
+
+def _keeper_turn_decision_ids(campaign_dir: Path, toolbox_offset: int) -> list[str]:
+    """Project committed toolbox decision IDs into the runtime attestation."""
+    result: list[str] = []
+    for row in _read_new_jsonl_rows(
+        campaign_dir / "logs" / "toolbox-calls.jsonl", toolbox_offset
+    ):
+        args = row.get("args")
+        value = args.get("decision_id") if isinstance(args, dict) else None
+        if value is None:
+            value = row.get("decision_id")
+        if isinstance(value, str) and value and value not in result:
+            result.append(value)
+    return result
 
 
 def _validated_session_record(session_id: str, record: dict[str, Any]) -> dict[str, Any]:
@@ -823,190 +918,223 @@ def get_session(session_id: str) -> dict[str, Any]:
     return _validated_session_record(session_id, _REGISTRY.get(session_id))
 
 
+_KEEPER_TURN_RETRY_MAX = 1
+
+
+def _recent_public_transcript(campaign_dir: Path, limit: int = 12) -> list[dict[str, str]]:
+    """Rebuild a short player/keeper transcript tail from journal receipts."""
+    tail: list[dict[str, str]] = []
+    rows = _read_new_jsonl_rows(campaign_dir / "logs" / "events.jsonl", 0)
+    for row in rows:
+        if row.get("event_type") != "turn":
+            continue
+        player_action = row.get("player_action")
+        summary = row.get("summary")
+        if isinstance(player_action, str) and player_action.strip():
+            tail.append({"role": "player", "text": player_action.strip()})
+        if isinstance(summary, str) and summary.strip():
+            tail.append({"role": "keeper", "text": summary.strip()})
+    return tail[-limit:]
+
+
 def send(
     session_id: str,
     player_input: str,
     *,
     player_intent: dict[str, Any] | None = None,
     rng_seed: int | str | None = None,
-    subsystem_request: dict[str, Any] | None = None,
-    pending_choice_response: dict[str, Any] | None = None,
-    durability_mode: str = "normal",
 ) -> list[dict[str, Any]]:
+    """Run one keeper turn through the skills-enabled keeper coding agent.
+
+    The keeper LLM reads the canonical skill tree and drives the turn with
+    ``coc_toolbox.py`` calls; this engine projects the resulting journal
+    receipts into protocol events. There is no narration envelope, secret
+    audit, or deterministic template fallback — a failed spawn raises after a
+    bounded network/timeout-level retry.
+    """
     total_started = time.perf_counter()
-    turn_kwargs: dict[str, Any] = {}
-    if durability_mode not in {"normal", "checkpoint"}:
-        raise ValueError("durability_mode must be normal or checkpoint")
-    if durability_mode == "checkpoint":
-        turn_kwargs["recording_mode"] = "sync"
-        turn_kwargs["recording_flush"] = "manual"
     if player_intent is not None:
-        normalized = _validate_player_intent(player_intent)
-        turn_kwargs["intent_class"] = normalized["primary_intent"]
-        turn_kwargs["player_intent_rich"] = normalized
+        player_intent = _validate_player_intent(player_intent)
     if rng_seed is not None:
-        turn_kwargs["rng_seed"] = _validate_rng_seed(rng_seed)
+        rng_seed = _validate_rng_seed(rng_seed)
     record = get_session(session_id)
-    pipeline = record["resolved_config"]
     workspace = record["workspace"]
     campaign_id = record["campaign_id"]
     campaign_dir = record["campaign_dir"]
-    character_path = record["character_path"]
-    investigator_id = record["investigator_id"]
-    forwarded_pending_response: dict[str, Any] | None = None
-    if pending_choice_response is not None:
-        if subsystem_request is not None:
-            raise ValueError("submit either subsystem_request or pending_choice_response")
-        state = _load_public_state().build_public_state(workspace, campaign_id, investigator_id)
-        pending = state.get("pending_choice")
-        if (
-            not isinstance(pending, dict)
-            or not isinstance(pending_choice_response, dict)
-            or pending_choice_response.get("choice_id") != pending.get("choice_id")
-            or pending_choice_response.get("responder") != "player"
-            or pending_choice_response.get("revision") != pending.get("revision")
-            or pending_choice_response.get("action") not in {
-                option.get("action") for option in pending.get("options", []) if isinstance(option, dict)
-            }
-        ):
-            raise ValueError("pending_choice_response does not match canonical player choice")
-        if pending.get("kind") == "combat_defense":
-            subsystem_request = {
-                "kind": "combat_defend",
-                "payload": {
-                    "decision_id": f"runtime-defense-{pending['attack_id']}-{pending['revision']}",
-                    "revision": pending["revision"], "actor_id": investigator_id,
-                    "attack_command_id": pending["attack_id"],
-                    "defense_kind": pending_choice_response["action"],
-                },
-            }
-        else:
-            forwarded_pending_response = dict(pending_choice_response)
-    # Planner and rules are deliberately deterministic for every v2 pipeline.
-    # Pi gets only an already-player-safe narration envelope after that work.
-    dispatched = _load_debug_adapter().debug_send_turn(
-        workspace, campaign_dir, character_path, investigator_id, player_input,
-        include_result=True,
-        subsystem_request=subsystem_request, pending_choice_response=forwarded_pending_response,
-        **turn_kwargs,
+
+    play_language = "zh-Hans"
+    try:
+        state = _load_public_state().build_public_state(
+            workspace, campaign_id, record["investigator_id"]
+        )
+        if isinstance(state.get("play_language"), str) and state["play_language"]:
+            play_language = state["play_language"]
+    except Exception:
+        pass
+
+    request: dict[str, Any] = {
+        "workspace": str(workspace),
+        "campaign_id": campaign_id,
+        "investigator_id": record["investigator_id"],
+        "player_input": player_input,
+        "play_language": play_language,
+        "transcript_tail": _recent_public_transcript(campaign_dir),
+    }
+    if player_intent is not None:
+        request["player_intent"] = player_intent
+    if rng_seed is not None:
+        request["rng_seed"] = rng_seed
+
+    offsets = {
+        "toolbox": _file_size(campaign_dir / "logs" / "toolbox-calls.jsonl"),
+        "rolls": _file_size(campaign_dir / "logs" / "rolls.jsonl"),
+    }
+
+    keeper = _load_keeper_adapter()
+    runner_override = os.environ.get("COC_KEEPER_RUNNER") or None
+    result: dict[str, Any] | None = None
+    last_error: Exception | None = None
+    for _ in range(_KEEPER_TURN_RETRY_MAX + 1):
+        try:
+            result = keeper.keeper_send_turn(request, runner_path=runner_override)
+            break
+        except RuntimeError as exc:
+            last_error = exc
+    if result is None:
+        raise RuntimeError(f"keeper turn failed: {last_error}") from last_error
+
+    narration_text = str(result["narration"])
+    events = _project_keeper_turn_events(
+        campaign_dir, offsets, narration_text,
+        workspace=workspace, campaign_id=campaign_id,
     )
-    events, raw_result = dispatched
-    narrator_ms = 0.0
-    fallback = False
-    narrator_outcomes: list[dict[str, Any]] = []
-    if not (
-        isinstance(pipeline.get("narrator"), dict)
-        and pipeline["narrator"].get("kind") == "pi"
-    ):
-        try:
-            _record_turn_telemetry(
-                record, raw_result, total_started, narrator_ms=0.0, fallback=False,
-                input_tokens=None, output_tokens=None,
-                narrator=_summarize_narrator_outcomes([]),
-            )
-        except Exception as exc:
-            raise TelemetryPersistenceError() from exc
-        return events
-    usage_input: int | None = None
-    usage_output: int | None = None
-    secret_audits: list[dict[str, Any]] = []
-    worker_pool = _ensure_worker_pool(_REGISTRY)
-    worker_key = _narrator_worker_key(record)
-    _REGISTRY.register_worker_scope(session_id, worker_key)
-    for raw_turn in raw_result.get("turns") or []:
-        if not isinstance(raw_turn, dict):
-            continue
-        envelope = raw_turn.get("narration_envelope")
-        if not isinstance(envelope, dict):
-            continue
-        safe_envelope = _safe_narration_envelope(envelope)
-        narrator_started = time.perf_counter()
-        try:
-            narrated = _narrate_with_coverage_retry(
-                safe_envelope,
-                player_text=player_input,
-                pi_narrate=_load_pi_adapter().pi_narrate,
-                worker_pool=worker_pool,
-                worker_key=worker_key,
-            )
-        except Exception:  # narration rendering fails open to deterministic events
-            narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
-            fallback = True
-            narrator_outcomes.append({
-                "model_identity": None,
-                "response_mode": None,
-                "deterministic_fallback": True,
-            })
-            continue
-        narrator_ms += (time.perf_counter() - narrator_started) * 1000.0
-        narration = narrated["narration"]
-        deterministic_fallback = narrated["deterministic_fallback"]
-        usage = narration.get("usage") if isinstance(narration, dict) else None
-        if isinstance(usage, dict):
-            raw_input = usage.get("input_tokens")
-            raw_output = usage.get("output_tokens")
-            if isinstance(raw_input, int) and not isinstance(raw_input, bool):
-                usage_input = (usage_input or 0) + raw_input
-            if isinstance(raw_output, int) and not isinstance(raw_output, bool):
-                usage_output = (usage_output or 0) + raw_output
-        narrator_outcomes.append({
-            "model_identity": copy.deepcopy(narration.get("model_identity"))
-            if isinstance(narration, dict) else None,
-            "response_mode": narration.get("response_mode")
-            if isinstance(narration, dict) else None,
-            "deterministic_fallback": deterministic_fallback,
-        })
-        if deterministic_fallback:
-            fallback = True
-            continue
-        secret_audits.append(copy.deepcopy(narrated["secret_audit"]))
-        events = _replace_turn_narration(events, raw_turn, narration)
+    decision_ids = _keeper_turn_decision_ids(campaign_dir, offsets["toolbox"])
     try:
         _record_turn_telemetry(
-            record, raw_result, total_started, narrator_ms=narrator_ms, fallback=fallback,
-            input_tokens=usage_input, output_tokens=usage_output,
-            narrator=_summarize_narrator_outcomes(narrator_outcomes),
-            secret_audits=secret_audits,
+            record, total_started,
+            narration_text=narration_text,
+            model_identity=result.get("model_identity"),
+            usage=result.get("usage"),
+            decision_ids=decision_ids,
         )
     except Exception as exc:
         raise TelemetryPersistenceError() from exc
     return events
 
 
-def _write_secret_audit_receipt(
-    campaign_dir: Path | str,
-    *,
+def interact(
     session_id: str,
-    investigator_id: str,
-    runtime_receipt_sha256: str,
-    decision_ids: list[str],
-    secret_audits: list[dict[str, Any]],
-) -> None:
-    """Persist narrator secret-audit receipts bound to the turn runtime digest."""
-    telemetry = _load_telemetry_module()
-    receipt = {
+    player_input: str,
+    *,
+    semantic_route: dict[str, Any] | None = None,
+    rng_seed: int | str | None = None,
+) -> dict[str, Any]:
+    """Natural-language entry that semantically selects turn vs typed operation.
+
+    Coding-plugin hosts may provide their own structured semantic evidence.
+    A Pi composition obtains the same shape from its constrained semantic
+    router.  No runtime code classifies free prose with keyword heuristics.
+    """
+    if not isinstance(player_input, str) or not player_input.strip():
+        raise ValueError("player_input must be non-empty")
+    record = get_session(session_id)
+    ops = _load_runtime_ops_module()
+    provenance: dict[str, Any] = {"source": "host_semantic_evidence"}
+    if semantic_route is None:
+        pipeline = record["resolved_config"]
+        if (
+            isinstance(pipeline.get("narrator"), dict)
+            and pipeline["narrator"].get("kind") == "pi"
+        ):
+            routed = _load_operation_router_module().route_player_action(
+                player_input,
+                _load_public_state().build_public_state(
+                    record["workspace"], record["campaign_id"], record["investigator_id"]
+                ),
+            )
+            semantic_route = routed["semantic_route"]
+            provenance = {
+                "source": "pi_semantic_router",
+                "model_identity": copy.deepcopy(routed.get("model_identity")),
+                "fallback": routed.get("fallback") is True,
+                "error_type": routed.get("error_type"),
+            }
+        else:
+            semantic_route = {
+                "schema_version": 1,
+                "route": "ordinary_turn",
+                "reason": "deterministic_runtime_has_no_semantic_operation_evidence",
+                "operation": None,
+            }
+            provenance = {"source": "deterministic_fallback", "fallback": True}
+    route = ops.validate_semantic_route(semantic_route)
+    route_receipt = ops.record_semantic_route(
+        record["campaign_dir"],
+        route,
+        player_text=player_input,
+        provenance=provenance,
+    )
+    if route["route"] == "operation":
+        receipt = operate(
+            session_id,
+            route["operation"],
+            rng_seed=rng_seed,
+        )
+        return {
+            "schema_version": 1,
+            "mode": "operation",
+            "routing": route_receipt,
+            "receipt": receipt,
+        }
+    return {
         "schema_version": 1,
-        "session_id": session_id,
-        "investigator_id": investigator_id,
-        "decision_ids": list(decision_ids),
-        "runtime_receipt_sha256": runtime_receipt_sha256,
-        "secret_audits": copy.deepcopy(secret_audits),
+        "mode": "turn",
+        "routing": route_receipt,
+        "events": send(session_id, player_input, rng_seed=rng_seed),
     }
-    encoded = (
-        json.dumps(receipt, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-        + "\n"
+
+
+def operate(
+    session_id: str,
+    operation: dict[str, Any],
+    *,
+    rng_seed: int | str | None = None,
+) -> dict[str, Any]:
+    """Execute one canonical non-turn operation for an active session.
+
+    This is the Pi/headless entry to the same operation gateway documented for
+    Codex, Cursor, and Claude plugin hosts.
+    """
+    record = get_session(session_id)
+    return _load_runtime_ops_module().execute_operation(
+        record["workspace"],
+        campaign_id=record["campaign_id"],
+        investigator_id=record["investigator_id"],
+        character_path=record["character_path"],
+        operation=operation,
+        rng_seed=_validate_rng_seed(rng_seed) if rng_seed is not None else None,
+    )
+
+
+def _append_runtime_row(campaign_dir: Path | str, row: dict[str, Any]) -> str:
+    """Durably append one keeper runtime row; return its canonical SHA-256."""
+    telemetry = _load_telemetry_module()
+    encoded_row = json.dumps(
+        row, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
     ).encode("utf-8")
+    digest = hashlib.sha256(encoded_row).hexdigest()
     logs_fd = telemetry._open_logs_dir(campaign_dir, create=True)
     fd = -1
     try:
         fd = telemetry._open_log_file(
             logs_fd,
-            "narrator-secret-audits.jsonl",
+            "live-turn-runtime.jsonl",
             os.O_WRONLY | os.O_CREAT | os.O_APPEND,
         )
         fcntl.flock(fd, fcntl.LOCK_EX)
         try:
-            telemetry._write_all(fd, encoded)
+            telemetry._write_all(fd, encoded_row + b"\n")
             os.fsync(fd)
         finally:
             fcntl.flock(fd, fcntl.LOCK_UN)
@@ -1015,116 +1143,88 @@ def _write_secret_audit_receipt(
         if fd >= 0:
             os.close(fd)
         os.close(logs_fd)
-
-
-def _read_secret_audits_for_runtime(
-    campaign_dir: Path | str,
-    runtime_receipt_sha256: str,
-) -> list[dict[str, Any]]:
-    """Load secret-audit receipts for one runtime turn digest; missing means []."""
-    telemetry = _load_telemetry_module()
-    try:
-        payload = telemetry._read_log_bytes(
-            campaign_dir, "narrator-secret-audits.jsonl", missing_ok=True
-        )
-    except ValueError:
-        return []
-    if not payload:
-        return []
-    matches: list[list[dict[str, Any]]] = []
-    for encoded in payload.split(b"\n"):
-        if not encoded:
-            continue
-        try:
-            row = json.loads(encoded.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if (
-            not isinstance(row, dict)
-            or row.get("schema_version") != 1
-            or row.get("runtime_receipt_sha256") != runtime_receipt_sha256
-            or not isinstance(row.get("secret_audits"), list)
-        ):
-            continue
-        audits = [item for item in row["secret_audits"] if isinstance(item, dict)]
-        if len(audits) != len(row["secret_audits"]):
-            continue
-        matches.append(copy.deepcopy(audits))
-    if len(matches) != 1:
-        return []
-    return matches[0]
+    return digest
 
 
 def _record_turn_telemetry(
     record: dict[str, Any],
-    raw_result: dict[str, Any],
     total_started: float,
     *,
-    narrator_ms: float,
-    fallback: bool,
-    input_tokens: int | None,
-    output_tokens: int | None,
-    narrator: dict[str, Any],
-    secret_audits: list[dict[str, Any]] | None = None,
+    narration_text: str,
+    model_identity: dict[str, Any] | None,
+    usage: dict[str, Any] | None,
+    decision_ids: list[str],
 ) -> None:
     """Persist only timing/attestation metadata, never prompts or player text."""
-    phase = raw_result.get("runtime_phase_ms") if isinstance(raw_result, dict) else {}
-    phase = phase if isinstance(phase, dict) else {}
-    pipeline = record["resolved_config"]
-    runner = {
-        name: str(component.get("kind"))
-        for name, component in pipeline.items()
-        if name in {"planner", "rules", "narrator", "player"}
-        and isinstance(component, dict)
-        and isinstance(component.get("kind"), str)
-    }
-    runner["worker"] = (
-        "jsonl_pool" if pipeline.get("narrator", {}).get("kind") == "pi"
-        else "in_process"
-    )
     total_ms = max(0.0, (time.perf_counter() - total_started) * 1000.0)
-    parts = (
-        float(phase.get("intent_ms") or 0.0),
-        float(phase.get("director_ms") or 0.0),
-        float(phase.get("rules_ms") or 0.0),
-        float(phase.get("persistence_ms") or 0.0),
-        0.0,
-        max(0.0, narrator_ms),
-    )
+    identity: dict[str, str] | None = None
+    if (
+        isinstance(model_identity, dict)
+        and isinstance(model_identity.get("provider"), str)
+        and isinstance(model_identity.get("id"), str)
+    ):
+        identity = {
+            "provider": model_identity["provider"],
+            "id": model_identity["id"],
+        }
+    if identity is not None:
+        narrator = {
+            "call_count": 1,
+            "model_identity": identity,
+            "response_mode": "tool",
+            "consistent": True,
+            "deterministic_fallback": False,
+        }
+        fallback = False
+    else:
+        # The keeper agent completed but did not attest its model identity;
+        # record the turn as unattested rather than inventing an identity.
+        narrator = {
+            "call_count": 1,
+            "model_identity": None,
+            "response_mode": None,
+            "consistent": False,
+            "deterministic_fallback": True,
+        }
+        fallback = True
+    input_tokens = None
+    output_tokens = None
+    if isinstance(usage, dict):
+        raw_input = usage.get("input_tokens")
+        raw_output = usage.get("output_tokens")
+        if isinstance(raw_input, int) and not isinstance(raw_input, bool) and raw_input >= 0:
+            input_tokens = raw_input
+        if isinstance(raw_output, int) and not isinstance(raw_output, bool) and raw_output >= 0:
+            output_tokens = raw_output
     telemetry = _load_telemetry_module().make_telemetry(
-        intent_ms=max(0.0, parts[0]), director_ms=max(0.0, parts[1]),
-        rules_ms=max(0.0, parts[2]), persistence_ms=max(0.0, parts[3]),
-        player_llm_ms=0.0, narrator_llm_ms=parts[5],
-        total_ms=max(total_ms, sum(parts)), input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        fallback=bool(fallback), runner=runner,
+        intent_ms=0.0, director_ms=0.0, rules_ms=0.0, persistence_ms=0.0,
+        player_llm_ms=0.0, narrator_llm_ms=total_ms, total_ms=total_ms,
+        input_tokens=input_tokens, output_tokens=output_tokens,
+        fallback=fallback,
+        runner={"keeper": "pi_coding_agent", "worker": "subprocess"},
         narrator=narrator,
     )
-    decisions = [
-        turn.get("decision_id") for turn in (raw_result.get("turns") or [])
-        if isinstance(turn, dict) and isinstance(turn.get("decision_id"), str)
-    ]
-    runtime_digest = str(raw_result.get("runtime_receipt_sha256") or "")
+    runtime_row = {
+        "schema_version": 1,
+        "event_type": "live_turn_runtime",
+        "row_id": f"keeper_{uuid.uuid4().hex}",
+        "session_id": record["session_id"],
+        "investigator_id": record["investigator_id"],
+        "decision_ids": list(decision_ids),
+        "recording_mode": "sync",
+        "recording_flush": "auto",
+        "engine": "keeper_agent",
+        "narration_sha256": hashlib.sha256(
+            narration_text.encode("utf-8")
+        ).hexdigest(),
+    }
+    runtime_digest = _append_runtime_row(record["campaign_dir"], runtime_row)
     _load_telemetry_module().write_receipt(
         record["campaign_dir"], session_id=record["session_id"],
         investigator_id=record["investigator_id"], telemetry=telemetry,
         runtime_receipt_sha256=runtime_digest,
-        decision_ids=decisions,
+        decision_ids=list(decision_ids),
     )
-    audits = [
-        copy.deepcopy(item)
-        for item in (secret_audits or [])
-        if isinstance(item, dict)
-    ]
-    if runtime_digest and re.fullmatch(r"[0-9a-f]{64}", runtime_digest):
-        _write_secret_audit_receipt(
-            record["campaign_dir"],
-            session_id=record["session_id"],
-            investigator_id=record["investigator_id"],
-            runtime_receipt_sha256=runtime_digest,
-            decision_ids=decisions,
-            secret_audits=audits,
-        )
 
 
 def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
@@ -1134,107 +1234,6 @@ def get_telemetry_receipts(session_id: str) -> list[dict[str, Any]]:
         receipt for receipt in _load_telemetry_module().read_receipts(record["campaign_dir"])
         if receipt.get("session_id") == session_id
     ]
-
-
-# Bounded retries for an intermittent narrator coverage-fail. The GLM tool call
-# is non-deterministic: the same player-safe envelope can fail the secret-audit
-# coverage check on one invocation and pass on the next. A single coverage-fail
-# must not force a deterministic fallback (which makes ``validate_attestation``
-# reject the whole turn as inconsistent). Retry the *same* envelope a small,
-# bounded number of times before degrading. This never relaxes the audit: every
-# attempt still passes through ``_validated_narrator_secret_audit``, so a
-# narration that would leak a secret can never pass — it only gives an
-# intermittently-failing-but-correct narration another chance.
-_NARRATOR_COVERAGE_RETRY_MAX = 2
-
-
-def _narrate_with_coverage_retry(
-    envelope: dict[str, Any],
-    *,
-    player_text: str,
-    pi_narrate: Any,
-    worker_pool: Any = None,
-    worker_key: Any = None,
-) -> dict[str, Any]:
-    """Call ``pi_narrate`` for one envelope, retrying on coverage-fail.
-
-    Returns a dict with: ``narration`` (the last narration returned, even when
-    the audit failed), ``secret_audit`` (the validated receipt, or None when the
-    budget was exhausted), ``deterministic_fallback`` (True when no audit), and
-    ``attempts`` (number of ``pi_narrate`` invocations made).
-
-    A hard exception from ``pi_narrate`` is not retried here (the caller's
-    ``except`` path owns the fails-open fallback) — this helper only retries the
-    case where the model returned a result but the secret-audit coverage check
-    rejected it.
-    """
-    request = {
-        "narration_envelope": envelope,
-        "last_player_text": player_text,
-        "play_language": "zh-Hans",
-        "recent_narrations": [],
-    }
-    narration: Any = None
-    attempts = 0
-    for _ in range(_NARRATOR_COVERAGE_RETRY_MAX + 1):
-        attempts += 1
-        narration = pi_narrate(
-            request, worker_pool=worker_pool, worker_key=worker_key
-        )
-        secret_audit = _validated_narrator_secret_audit(envelope, narration)
-        if secret_audit is not None:
-            return {
-                "narration": narration,
-                "secret_audit": secret_audit,
-                "deterministic_fallback": False,
-                "attempts": attempts,
-            }
-    return {
-        "narration": narration,
-        "secret_audit": None,
-        "deterministic_fallback": True,
-        "attempts": attempts,
-    }
-
-
-def _summarize_narrator_outcomes(
-    outcomes: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Collapse adapter outcomes without retaining prose, prompts, or envelopes."""
-    if not outcomes:
-        return {
-            "call_count": 0,
-            "model_identity": None,
-            "response_mode": None,
-            "consistent": True,
-            "deterministic_fallback": False,
-        }
-    first_identity = copy.deepcopy(outcomes[0].get("model_identity"))
-    first_mode = outcomes[0].get("response_mode")
-    deterministic_fallback = any(
-        outcome.get("deterministic_fallback") is True for outcome in outcomes
-    )
-    consistent = (
-        isinstance(first_identity, dict)
-        and set(first_identity) == {"provider", "id"}
-        and all(isinstance(first_identity.get(key), str) and first_identity[key]
-                for key in ("provider", "id"))
-        and first_mode in {"tool", "prose_fallback"}
-        and not deterministic_fallback
-        and all(
-            outcome.get("model_identity") == first_identity
-            and outcome.get("response_mode") == first_mode
-            and outcome.get("deterministic_fallback") is False
-            for outcome in outcomes
-        )
-    )
-    return {
-        "call_count": len(outcomes),
-        "model_identity": first_identity if isinstance(first_identity, dict) else None,
-        "response_mode": first_mode if first_mode in {"tool", "prose_fallback"} else None,
-        "consistent": consistent,
-        "deterministic_fallback": deterministic_fallback,
-    }
 
 
 def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
@@ -1311,9 +1310,6 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
         or latency in (float("inf"), float("-inf"))
     ):
         raise RuntimeError("last turn narrator latency is unavailable")
-    secret_audits = _read_secret_audits_for_runtime(
-        record["campaign_dir"], runtime_receipt_sha256
-    )
     return {
         "schema_version": 1,
         "session_id": session_id,
@@ -1326,7 +1322,6 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
         "usage": usage,
         "narrator_llm_ms": float(latency),
         "narrator": copy.deepcopy(narrator),
-        "secret_audits": secret_audits,
     }
 
 

@@ -35,6 +35,9 @@ IDENTITY_KEYS = (
     "case_ids",
     "persona_ids",
     "seeds",
+    "benchmark_pack_registry_version",
+    "benchmark_pack_registry_sha256",
+    "benchmark_pack_ids",
 )
 
 

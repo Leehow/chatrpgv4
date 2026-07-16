@@ -14,6 +14,39 @@ def _load(name, rel):
     return m
 
 coc_scenario_compile = _load("coc_scenario_compile", "plugins/coc-keeper/scripts/coc_scenario_compile.py")
+HAUNTING_STORY = Path(
+    "plugins/coc-keeper/references/starter-scenarios/the-haunting/story-graph.json"
+)
+HAUNTING_CLUES = Path(
+    "plugins/coc-keeper/references/starter-scenarios/the-haunting/clue-graph.json"
+)
+
+
+def test_haunting_research_affordance_is_action_only_not_the_clue_answer():
+    story = json.loads(HAUNTING_STORY.read_text(encoding="utf-8"))
+    briefing = next(
+        scene for scene in story["scenes"]
+        if scene.get("scene_id") == "commission-briefing"
+    )
+    route = next(
+        row for row in briefing["affordances"]
+        if row.get("id") == "ask-research-options"
+    )
+    assert route["cue"] == "追问这栋宅子的旧账可以从哪些公开记录或知情人查起。"
+
+
+def test_haunting_globe_clue_has_canonical_zh_hans_player_summary():
+    graph = json.loads(HAUNTING_CLUES.read_text(encoding="utf-8"))
+    clue = next(
+        clue
+        for conclusion in graph["conclusions"]
+        for clue in conclusion.get("clues", [])
+        if clue.get("clue_id") == "clue-globe-unpublished-story"
+    )
+
+    summary = clue["localized_text"]["zh-Hans"]["player_safe_summary"]
+    assert "1918 年专题" in summary
+    assert "Macario 一家" in summary
 
 
 def _make_valid_scenario(tmp_path):
@@ -71,6 +104,43 @@ def test_validate_npc_without_agenda(tmp_path):
     (sc/"npc-agendas.json").write_text(json.dumps(g))
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("agenda" in e for e in result["errors"])
+
+
+def test_npc_presence_requirement_requires_scene_npc_and_scene_route(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    story_path = sc / "story-graph.json"
+    story = json.loads(story_path.read_text())
+    story["scenes"][0].update({
+        "npc_ids": ["n1"],
+        "affordances": [{"id": "open-door", "cue": "Open the door."}],
+        "npc_presence_requirements": [{
+            "npc_id": "n1",
+            "requires_completed_route_ids": ["missing-route"],
+        }],
+    })
+    story_path.write_text(json.dumps(story))
+
+    findings = coc_scenario_compile.validate_compiled_scenario(
+        coc_scenario_compile.load_compiled_from_dir(sc)
+    )
+
+    assert any(
+        row["code"] == "invalid_npc_presence_requirement"
+        for row in findings
+    )
+
+
+def test_haunting_ruth_presence_gate_is_structurally_valid():
+    story = json.loads(HAUNTING_STORY.read_text(encoding="utf-8"))
+    newspaper = next(
+        scene for scene in story["scenes"]
+        if scene.get("scene_id") == "newspaper-morgue"
+    )
+
+    assert newspaper["npc_presence_requirements"] == [{
+        "npc_id": "npc-ruth-blake",
+        "requires_completed_route_ids": ["persuade-arty"],
+    }]
 
 
 def test_social_clue_requires_registered_source_npc_in_both_validators(tmp_path):
@@ -583,49 +653,72 @@ def _set_first_clue_bonus(sc, bonus):
     (sc/"clue-graph.json").write_text(json.dumps(g))
 
 
+def _valid_clue_bonus(**updates):
+    bonus = {
+        "schema_version": 1,
+        "origin": "improvised",
+        "skill": "Library Use",
+        "extra_summary": "Extra player-safe detail.",
+        "fumble_consequence": {
+            "summary": "The search leaves the investigator visibly rattled.",
+            "effect": {
+                "kind": "condition", "condition_id": "archive-rattled",
+            },
+        },
+    }
+    bonus.update(updates)
+    return bonus
+
+
 def test_validate_clue_bonus_good_shape_passes(tmp_path):
     sc = _make_valid_scenario(tmp_path)
-    _set_first_clue_bonus(sc, {
-        "skill": "Library Use",
-        "difficulty": "hard",
-        "extra_summary": "Extra player-safe detail.",
-        "on_fail_cost": "pressure",
-    })
+    _set_first_clue_bonus(sc, _valid_clue_bonus(
+        difficulty="hard",
+        on_fail_cost="pressure",
+    ))
     result = coc_scenario_compile.validate_scenario(sc)
     assert not any("bonus" in e for e in result["errors"])
 
 
 def test_validate_clue_bonus_defaults_pass_without_optionals(tmp_path):
     sc = _make_valid_scenario(tmp_path)
-    _set_first_clue_bonus(sc, {"skill": "Spot Hidden", "extra_summary": "More detail."})
+    _set_first_clue_bonus(sc, _valid_clue_bonus(
+        skill="Spot Hidden", extra_summary="More detail.",
+    ))
     result = coc_scenario_compile.validate_scenario(sc)
     assert not any("bonus" in e for e in result["errors"])
 
 
 def test_validate_clue_bonus_missing_skill_errors(tmp_path):
     sc = _make_valid_scenario(tmp_path)
-    _set_first_clue_bonus(sc, {"extra_summary": "Detail."})
+    bonus = _valid_clue_bonus(extra_summary="Detail.")
+    bonus.pop("skill")
+    _set_first_clue_bonus(sc, bonus)
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("clue 'a'" in e and "bonus.skill" in e for e in result["errors"])
 
 
 def test_validate_clue_bonus_bad_difficulty_errors(tmp_path):
     sc = _make_valid_scenario(tmp_path)
-    _set_first_clue_bonus(sc, {"skill": "Law", "extra_summary": "x", "difficulty": "impossible"})
+    _set_first_clue_bonus(sc, _valid_clue_bonus(
+        skill="Law", extra_summary="x", difficulty="impossible",
+    ))
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("clue 'a'" in e and "bonus.difficulty" in e for e in result["errors"])
 
 
 def test_validate_clue_bonus_bad_on_fail_cost_errors(tmp_path):
     sc = _make_valid_scenario(tmp_path)
-    _set_first_clue_bonus(sc, {"skill": "Law", "extra_summary": "x", "on_fail_cost": "sanity"})
+    _set_first_clue_bonus(sc, _valid_clue_bonus(
+        skill="Law", extra_summary="x", on_fail_cost="sanity",
+    ))
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("clue 'a'" in e and "bonus.on_fail_cost" in e for e in result["errors"])
 
 
 def test_validate_clue_bonus_non_string_extra_summary_errors(tmp_path):
     sc = _make_valid_scenario(tmp_path)
-    _set_first_clue_bonus(sc, {"skill": "Law", "extra_summary": 42})
+    _set_first_clue_bonus(sc, _valid_clue_bonus(skill="Law", extra_summary=42))
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("clue 'a'" in e and "bonus.extra_summary" in e for e in result["errors"])
 
@@ -635,6 +728,22 @@ def test_validate_clue_bonus_non_object_errors(tmp_path):
     _set_first_clue_bonus(sc, "roll Library Use")
     result = coc_scenario_compile.validate_scenario(sc)
     assert any("clue 'a'" in e and "bonus must be an object" in e for e in result["errors"])
+
+
+def test_validate_clue_bonus_requires_typed_fumble_consequence(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    bonus = _valid_clue_bonus()
+    bonus.pop("fumble_consequence")
+    _set_first_clue_bonus(sc, bonus)
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("bonus.fumble_consequence" in e for e in result["errors"])
+
+
+def test_validate_source_clue_bonus_requires_its_own_source_refs(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    _set_first_clue_bonus(sc, _valid_clue_bonus(origin="source"))
+    result = coc_scenario_compile.validate_scenario(sc)
+    assert any("source bonus requires its own" in e for e in result["errors"])
 
 
 # ---------------------------------------------------------------------------
@@ -751,6 +860,10 @@ def test_validate_compiled_broken_leads_to_and_exit_target():
     compiled["story_graph"]["scenes"][0]["exit_targets"] = ["no-such-scene"]
     compiled["story_graph"]["scenes"][0]["npc_ids"] = ["ghost-npc"]
     compiled["story_graph"]["scenes"][0]["available_clues"] = ["ghost-clue"]
+    compiled["story_graph"]["scenes"][0]["affordances"] = [{
+        "id": "broken-route", "cue": "Inspect it.",
+        "clue_id": "ghost-route-clue",
+    }]
     findings = coc_scenario_compile.validate_compiled_scenario(compiled)
     refs = _findings_by_code(findings, "broken_reference")
     assert refs
@@ -760,6 +873,7 @@ def test_validate_compiled_broken_leads_to_and_exit_target():
     assert "no-such-scene" in joined
     assert "ghost-npc" in joined
     assert "ghost-clue" in joined
+    assert "ghost-route-clue" in joined
 
 
 def test_validate_compiled_orphan_scene_is_warning():
@@ -983,3 +1097,164 @@ def test_validate_compiled_location_tags_absent_is_ok():
     compiled["story_graph"]["scenes"][0].pop("location_tags", None)
     findings = coc_scenario_compile.validate_compiled_scenario(compiled)
     assert not [f for f in findings if f["code"] == "invalid_location_tags"]
+
+
+def test_validate_compiled_destination_access_accepts_public_independent():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["destination_access"] = {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent",
+    }
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert not [
+        row for row in findings if row["code"] == "invalid_destination_access"
+    ]
+
+
+@pytest.mark.parametrize("discoverability", ["hidden", "evidence_gated"])
+def test_validate_compiled_destination_access_rejects_nonpublic_independent(
+    discoverability,
+):
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["destination_access"] = {
+        "schema_version": 1,
+        "discoverability": discoverability,
+        "direct_entry": "independent",
+    }
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert [
+        row for row in findings if row["code"] == "invalid_destination_access"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("affordance", "code"),
+    [
+        (
+            {"id": "bad", "cue": "Bad policy", "completion_policy": "automatic"},
+            "invalid_affordance_completion",
+        ),
+        (
+            {"id": "bad", "cue": "No durable effect", "completion_policy": "matched_no_roll"},
+            "invalid_affordance_completion",
+        ),
+        (
+            {
+                "id": "bad", "cue": "Undeclared minimum", "skills": ["Law"],
+                "skill_minimums": {"Credit Rating": 75},
+            },
+            "invalid_affordance_skill_minimum",
+        ),
+        (
+            {
+                "id": "bad", "cue": "Out-of-range minimum",
+                "skills": ["Credit Rating"],
+                "skill_minimums": {"Credit Rating": 101},
+            },
+            "invalid_affordance_skill_minimum",
+        ),
+        (
+            {"id": "bad", "cue": "Unknown runtime status", "runtime_status": "BLOCKED"},
+            "invalid_affordance_runtime_status",
+        ),
+        (
+            {"id": "bad", "cue": "Missing operation", "runtime_status": "NOT_IMPLEMENTED"},
+            "invalid_affordance_runtime_status",
+        ),
+        (
+            {
+                "id": "bad", "cue": "Gate with an undeclared approach.",
+                "verbs": ["persuade"], "skills": ["Persuade"],
+                "roll_gate": {
+                    "kind": "skill_check", "difficulty": "regular",
+                    "stakes": "archive access",
+                    "approaches": [{"verb": "charm", "skill": "Charm"}],
+                },
+            },
+            "invalid_affordance_roll_gate",
+        ),
+        (
+            {
+                "id": "bad", "cue": "Gate without typed approaches.",
+                "verbs": ["persuade"], "skills": ["Persuade"],
+                "roll_gate": {
+                    "kind": "skill_check", "difficulty": "regular",
+                    "stakes": "archive access", "approaches": [],
+                },
+            },
+            "invalid_affordance_roll_gate",
+        ),
+        (
+            {
+                "id": "bad", "cue": "Gate with duplicate approaches.",
+                "verbs": ["persuade"], "skills": ["Persuade"],
+                "roll_gate": {
+                    "kind": "skill_check", "difficulty": "regular",
+                    "stakes": "archive access",
+                    "approaches": [
+                        {"verb": "persuade", "skill": "Persuade"},
+                        {"verb": "persuade", "skill": "Persuade"},
+                    ],
+                },
+            },
+            "invalid_affordance_roll_gate",
+        ),
+    ],
+)
+def test_validate_compiled_affordance_completion_and_skill_minimums_fail_closed(
+    affordance, code,
+):
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["affordances"] = [affordance]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert _findings_by_code(findings, code)
+
+
+def test_validate_compiled_accepts_typed_no_roll_completion_and_skill_minimum():
+    compiled = _minimal_compiled()
+    compiled["story_graph"]["scenes"][0]["affordances"] = [
+        {
+            "id": "redirect", "cue": "Ask for the correct office.",
+            "completion_policy": "matched_no_roll", "sets_flags": ["office-known"],
+        },
+        {
+            "id": "petition", "cue": "Petition for the file.",
+            "skills": ["Persuade", "Credit Rating"],
+            "skill_minimums": {"Credit Rating": 75},
+        },
+        {
+            "id": "hazard", "cue": "Cross the weak floor.",
+            "runtime_status": "NOT_IMPLEMENTED",
+            "required_typed_operations": ["environmental_hazard"],
+        },
+        {
+            "id": "access", "cue": "Convince the editor to allow access.",
+            "verbs": ["persuade", "charm"],
+            "skills": ["Persuade", "Charm"],
+            "roll_gate": {
+                "kind": "skill_check", "difficulty": "regular",
+                "stakes": "archive access",
+                "ordinary_failure": {
+                    "mode": "no_progress", "summary": "Access is refused.",
+                },
+                "fumble_consequence": {
+                    "summary": "The petitioner is escorted from the building.",
+                    "effect": {"kind": "condition", "condition_id": "barred-access"},
+                },
+                "push_failure_consequence": {
+                    "summary": "The petitioner is permanently barred.",
+                    "effect": {"kind": "route_closed", "route_id": "access"},
+                },
+                "approaches": [
+                    {"verb": "persuade", "skill": "Persuade"},
+                    {"verb": "charm", "skill": "Charm"},
+                ],
+            },
+        },
+    ]
+    findings = coc_scenario_compile.validate_compiled_scenario(compiled)
+    assert not _findings_by_code(findings, "invalid_affordance_completion")
+    assert not _findings_by_code(findings, "invalid_affordance_skill_minimum")
+    assert not _findings_by_code(findings, "invalid_affordance_runtime_status")
+    assert not _findings_by_code(findings, "invalid_affordance_roll_gate")

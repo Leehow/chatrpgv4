@@ -2,6 +2,12 @@
   "schema_version": 1,
   "scenario_id": "the-haunting",
   "title": "The Haunting",
+  "localized_text": {
+    "zh-Hans": {
+      "title": "《鬼屋》",
+      "opening_scene": "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
+    }
+  },
   "one_liner": "1920 年波士顿，房东委托你调查恶名昭彰的 Corbitt 宅——前租客疯了，邻居说闹鬼，地下室里埋着不该被埋葬的人。开箱即玩，无需剧本 PDF。",
   "structure_type": "branching_investigation",
   "era": "1920s",

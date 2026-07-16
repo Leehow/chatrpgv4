@@ -16,7 +16,8 @@
         "session_ending",
         "spoiler_gate",
         "system",
-        "error"
+        "error",
+        "tool_call"
       ]
     },
     "id": {"type": "string", "minLength": 1},

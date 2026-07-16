@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Persistent player-belief snapshot and append-only epistemic event reducer.
 
-Beliefs describe the player's model and never mutate module truth. Semantic
-bindings are accepted only from structured evaluator/compiler output.
+Beliefs describe the player's model and never mutate module truth. Bindings
+are accepted only from structured evaluator/compiler output or authored
+clue-to-conclusion relationships, never inferred from prose.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -100,6 +102,117 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _opaque_conclusion_question_id(conclusion_id: str) -> str:
+    digest = hashlib.sha256(conclusion_id.encode("utf-8")).hexdigest()[:16]
+    return f"conclusion-ref:{digest}"
+
+
+def _conclusion_projection(
+    campaign_dir: Path,
+    state: dict[str, Any],
+    committed_clue_ids: list[str],
+    explicitly_projected_clue_ids: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """Project authored links when a clue has no semantic evidence link.
+
+    This is deliberately narrower than semantic compilation.  It never reads a
+    conclusion description or infers an effect from prose: a projection exists
+    only for a newly committed clue nested under a structured conclusion with a
+    stable ID, positive ``minimum_routes``, and source origin.  Explicit
+    epistemic evidence links take precedence for their clue IDs.
+    """
+    committed = set(_ordered_strings(committed_clue_ids))
+    if not committed:
+        return [], {"open_question_ids": [], "answer_question_ids": []}
+
+    scenario_dir = Path(campaign_dir) / "scenario"
+    clue_graph = _read_json_object(scenario_dir / "clue-graph.json")
+    epistemic_graph = _read_json_object(scenario_dir / "epistemic-graph.json")
+    explicit_clues = set(_ordered_strings(explicitly_projected_clue_ids)) | {
+        clue_id
+        for link in epistemic_graph.get("evidence_links") or []
+        if isinstance(link, dict)
+        for clue_id in _ordered_strings(link.get("clue_id"))
+        if link.get("question_id")
+    }
+    eligible_committed = committed - explicit_clues
+    if not eligible_committed:
+        return [], {"open_question_ids": [], "answer_question_ids": []}
+
+    world = _read_json_object(Path(campaign_dir) / "save" / "world-state.json")
+    discovered = set(_ordered_strings(world.get("discovered_clue_ids"))) | committed
+    active = set(_ordered_strings(state.get("active_question_ids")))
+    answered = set(_ordered_strings(state.get("answered_question_ids")))
+    effects: list[dict[str, Any]] = []
+    to_open: list[str] = []
+    to_answer: list[str] = []
+
+    for conclusion in clue_graph.get("conclusions") or []:
+        if not isinstance(conclusion, dict):
+            continue
+        conclusion_id = str(conclusion.get("conclusion_id") or "").strip()
+        minimum_routes = _positive_int(conclusion.get("minimum_routes"))
+        source_origin = str(conclusion.get("origin") or "").strip()
+        if not conclusion_id or minimum_routes is None or not source_origin:
+            continue
+        authored_clues = {
+            clue_id: clue_origin
+            for clue in conclusion.get("clues") or []
+            if isinstance(clue, dict)
+            for clue_origin in [str(clue.get("origin") or "").strip()]
+            if clue_origin
+            for clue_id in _ordered_strings(clue.get("clue_id"))
+        }
+        newly_supported = sorted(set(authored_clues) & eligible_committed)
+        if not newly_supported:
+            continue
+
+        # Question IDs are surfaced by curiosity metrics in battle reports.
+        # Keep the truth-bearing conclusion ID only on internal evidence events.
+        question_id = _opaque_conclusion_question_id(conclusion_id)
+        for clue_id in newly_supported:
+            effects.append({
+                "effect_id": f"clue-graph:{conclusion_id}:{clue_id}:expand",
+                "mode": "EXPAND",
+                "target_question_id": question_id,
+                "deliver_clue_ids": [clue_id],
+                "conclusion_id": conclusion_id,
+                "minimum_routes": minimum_routes,
+                "projection_source": "clue_graph_conclusion_link",
+                "source_origin": authored_clues[clue_id],
+                "conclusion_origin": source_origin,
+            })
+
+        support_count = len(set(authored_clues) & discovered)
+        if question_id not in active and question_id not in answered:
+            to_open.append(question_id)
+        if support_count >= minimum_routes and question_id not in answered:
+            to_answer.append(question_id)
+
+    return effects, {
+        "open_question_ids": _ordered_strings(to_open),
+        "answer_question_ids": _ordered_strings(to_answer),
+    }
 
 
 def _bounded_confidence(value: Any, default: float = 0.5) -> float:
@@ -344,6 +457,15 @@ def _apply_effect(
         "compile_confidence": effect.get("compile_confidence"),
         "ts": ts,
     }
+    for key in (
+        "conclusion_id",
+        "minimum_routes",
+        "projection_source",
+        "source_origin",
+        "conclusion_origin",
+    ):
+        if effect.get(key) is not None:
+            event[key] = effect[key]
     return [event]
 
 
@@ -428,8 +550,13 @@ def apply_belief_turn(
     contract = plan.get("epistemic_contract")
     open_from_effects: list[str] = []
     payoff_questions: list[str] = []
+    explicitly_projected_clues: list[str] = []
     if isinstance(contract, dict):
         for effect in _contract_effects(contract):
+            if str(effect.get("mode") or "NONE").upper() not in {"NONE", "HOLD"}:
+                explicitly_projected_clues.extend(
+                    _ordered_strings(effect.get("deliver_clue_ids"))
+                )
             before = len(events)
             events.extend(_apply_effect(
                 state,
@@ -446,12 +573,34 @@ def apply_belief_turn(
                 if str(effect.get("mode") or "").upper() == "PAYOFF" and effect.get("target_question_id"):
                     payoff_questions.append(str(effect["target_question_id"]))
 
+    projected_effects, projected_transitions = _conclusion_projection(
+        campaign_dir,
+        state,
+        committed_clue_ids,
+        explicitly_projected_clues,
+    )
+    for effect in projected_effects:
+        events.extend(_apply_effect(
+            state,
+            effect,
+            committed_clue_ids,
+            decision_id=decision_id,
+            turn_number=turn_number,
+            investigator_id=investigator_id,
+            ts=ts,
+            newly_asserted_id=newly_asserted_id,
+        ))
+
     merged_transitions = dict(question_transitions or {})
     merged_transitions["open_question_ids"] = _ordered_strings([
-        *merged_transitions.get("open_question_ids", []), *open_from_effects
+        *merged_transitions.get("open_question_ids", []),
+        *open_from_effects,
+        *projected_transitions["open_question_ids"],
     ])
     merged_transitions["answer_question_ids"] = _ordered_strings([
-        *merged_transitions.get("answer_question_ids", []), *payoff_questions
+        *merged_transitions.get("answer_question_ids", []),
+        *payoff_questions,
+        *projected_transitions["answer_question_ids"],
     ])
     events.extend(_apply_question_transitions(
         state,

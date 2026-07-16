@@ -2,9 +2,12 @@
   "pacing_curve": [
     {"scene_id": "commission-briefing", "tension_target": "low", "horror_stage": "ordinary", "note": "Daylight hire; wrongness is only rumor."},
     {"scene_id": "newspaper-morgue", "tension_target": "low", "horror_stage": "ordinary", "note": "Paper trail of accidents — still deniable."},
+    {"scene_id": "central-library", "tension_target": "low", "horror_stage": "ordinary", "note": "Half-day public-record research builds Corbitt's documentary history."},
     {"scene_id": "hall-of-records", "tension_target": "low", "horror_stage": "wrongness", "note": "Basement burial lawsuit and cult church link."},
+    {"scene_id": "higher-courts-central-police", "tension_target": "medium", "horror_stage": "pattern", "note": "The suppressed 1912 raid file links mass death, official interference, and the chapel."},
     {"scene_id": "neighborhood-gossip", "tension_target": "medium", "horror_stage": "wrongness", "note": "Burning eyes and madness enter living memory."},
     {"scene_id": "previous-tenants", "tension_target": "medium", "horror_stage": "wrongness", "note": "First-person night visitor; dagger hint."},
+    {"scene_id": "chapel-of-contemplation-ruins", "tension_target": "high", "horror_stage": "pattern", "note": "Fresh cult symbol, dangerous ruins, dead cultists, Corbitt's burial journal, and Liber Ivonis."},
     {"scene_id": "corbitt-house-ground", "tension_target": "medium", "horror_stage": "pattern", "note": "Wards, nailed windows, upstairs answers."},
     {"scene_id": "upper-floor-bedroom", "tension_target": "high", "horror_stage": "pattern", "note": "Poltergeist violence; Mythos reek."},
     {"scene_id": "basement-rites", "tension_target": "high", "horror_stage": "revelation", "note": "Sealed boards, floating knife, body ahead."},

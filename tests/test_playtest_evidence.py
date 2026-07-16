@@ -14,13 +14,16 @@ EVIDENCE_SCRIPT = (
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_evidence.py"
 )
 REPORT_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_report.py"
+OPERATOR_REVIEW_SCRIPT = (
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_operator_review.py"
+)
 SECRET_AUDIT_SCRIPT = REPO / "plugins" / "coc-keeper" / "scripts" / "coc_secret_audit.py"
 TRUSTED_RUNNER_REGISTRY = (
     REPO / "plugins" / "coc-keeper" / "references" / "trusted-playtest-runners.json"
 )
 CANONICAL_RUNNERS = {
     "player": REPO / "runtime" / "adapters" / "player" / "run_player_turn.mjs",
-    "narrator": REPO / "runtime" / "adapters" / "narrator" / "run_narration.mjs",
+    "narrator": REPO / "runtime" / "adapters" / "keeper" / "run_keeper_turn.mjs",
 }
 
 
@@ -84,9 +87,6 @@ def _complete_provenance(run_dir: Path) -> dict:
                 "fallback_kind": None,
             }
         )
-        if role == "narrator":
-            audit_mod = _load("coc_secret_audit_fixture", SECRET_AUDIT_SCRIPT)
-            ledger_rows[-1]["secret_audit"] = audit_mod.audit_secret_claims([], [], [])
     (run_dir / "runner-invocations.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in ledger_rows),
         encoding="utf-8",
@@ -95,6 +95,78 @@ def _complete_provenance(run_dir: Path) -> dict:
         "started_at": "2026-07-10T01:02:03Z",
         "ended_at": "2026-07-10T01:03:04Z",
         "user_claimed_live": True,
+        "transcript_path": "transcript.jsonl",
+        "invocation_ledger_path": "runner-invocations.jsonl",
+        "event_log_paths": ["logs/events.jsonl", "logs/rolls.jsonl"],
+    }
+
+
+def _operator_provenance(run_dir: Path) -> dict:
+    registry = json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))[
+        "runners"
+    ]
+    _write_bytes(
+        run_dir / "transcript.jsonl",
+        (
+            b'{"turn":1,"role":"player_simulator","text":"look"}\n'
+            b'{"turn":2,"role":"keeper_under_test","text":"rain"}\n'
+        ),
+    )
+    _write_bytes(
+        run_dir / "logs" / "events.jsonl",
+        b'{"event_type":"scene","scene_id":"office"}\n',
+    )
+    _write_bytes(run_dir / "logs" / "rolls.jsonl", b"")
+    _write_bytes(
+        run_dir
+        / "sandbox"
+        / ".coc"
+        / "campaigns"
+        / "operator-campaign"
+        / "logs"
+        / "rolls.jsonl",
+        b"",
+    )
+    narrator = registry["narrator"]
+    rows = [
+        {
+            "schema_version": 1,
+            "role": "player",
+            "attempt": 1,
+            "transcript_turn": 1,
+            "runner_kind": "operator",
+            "runner_identity": None,
+            "runner_path": None,
+            "runner_sha256": None,
+            "model_identity": {"provider": "operator", "id": "human_or_codex"},
+            "outcome": "operator_input",
+            "response_mode": "operator_jsonl",
+            "fallback_kind": None,
+        },
+        {
+            "schema_version": 1,
+            "role": "narrator",
+            "attempt": 1,
+            "transcript_turn": 2,
+            "runner_kind": narrator["kind"],
+            "runner_identity": narrator["identity"],
+            "runner_path": str(CANONICAL_RUNNERS["narrator"].resolve()),
+            "runner_sha256": narrator["sha256"],
+            "model_identity": {"provider": "zhipu-coding", "id": "glm-5.2"},
+            "outcome": "external_success",
+            "response_mode": "keeper_agent",
+            "fallback_kind": None,
+        },
+    ]
+    (run_dir / "runner-invocations.jsonl").write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    return {
+        "started_at": "2026-07-14T01:02:03Z",
+        "ended_at": "2026-07-14T01:03:04Z",
+        "user_claimed_live": True,
+        "operator_long_play": True,
         "transcript_path": "transcript.jsonl",
         "invocation_ledger_path": "runner-invocations.jsonl",
         "event_log_paths": ["logs/events.jsonl", "logs/rolls.jsonl"],
@@ -115,10 +187,17 @@ def test_trusted_runner_registry_pins_canonical_entrypoints_and_hashes():
     assert TRUSTED_RUNNER_REGISTRY.is_file()
     registry = json.loads(TRUSTED_RUNNER_REGISTRY.read_text(encoding="utf-8"))
     assert registry["schema_version"] == 1
-    assert set(registry["runners"]) == {"player", "narrator", "interactive_driver"}
+    assert set(registry["runners"]) == {
+        "player", "narrator", "action_resolver", "interactive_driver"
+    }
     for role, expected_path, expected_kind in (
         ("player", "runtime/adapters/player/run_player_turn.mjs", "external_model_bridge"),
-        ("narrator", "runtime/adapters/narrator/run_narration.mjs", "external_model_bridge"),
+        ("narrator", "runtime/adapters/keeper/run_keeper_turn.mjs", "external_model_bridge"),
+        (
+            "action_resolver",
+            "runtime/adapters/compiler/run_action_resolve.mjs",
+            "external_model_bridge",
+        ),
         (
             "interactive_driver",
             "plugins/coc-keeper/scripts/coc_interactive_playtest.py",
@@ -131,6 +210,9 @@ def test_trusted_runner_registry_pins_canonical_entrypoints_and_hashes():
         assert entry["kind"] == expected_kind
         assert entry["identity"]
         assert entry["sha256"] == _sha256((REPO / expected_path).read_bytes())
+    assert registry["runners"]["narrator"]["identity"] == (
+        "coc-runtime-keeper-agent@0.79.9"
+    )
 
 
 @pytest.mark.parametrize(
@@ -230,17 +312,154 @@ def test_complete_attested_receipt_qualifies_and_hashes_actual_bytes(tmp_path, e
     assert receipt["eligible_as_gameplay_evidence"] is True
 
 
-def test_narrator_external_success_requires_recomputable_audit_receipt(tmp_path, evidence):
+def test_approved_operator_review_qualifies_actual_play_and_renders_battle_report(
+    tmp_path, evidence
+):
+    run_dir = tmp_path / "operator-reviewed-run"
+    provenance = _operator_provenance(run_dir)
+    receipt = evidence.build_evidence_receipt(run_dir, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert receipt["operator_review_status"] == "pending"
+    evidence.write_evidence_receipt(run_dir, receipt)
+
+    (run_dir / "playtest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_dir.name,
+                "campaign_id": "operator-campaign",
+                "scenario": "Operator Module",
+                "scenario_id": "operator-module",
+                "play_language": "en-US",
+                "operator_long_play": True,
+                "operator_review_protocol": "operator_codex_black_box_v2",
+                "operator_review_status": "pending",
+                "simulation_method": "operator_long_play_pending_review",
+                "player_profile": "operator_player",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dimensions = {
+        name: {
+            "decision": "pass",
+            "notes": f"Reviewed {name} against the transcript and event log.",
+            "evidence_refs": ["transcript.jsonl#line-1"],
+        }
+        for name in ("rules", "facts", "progression", "style")
+    }
+    review_input = {
+        "schema_version": 1,
+        "protocol": "operator_codex_black_box_v2",
+        "run_id": run_dir.name,
+        "reviewer": {"kind": "codex", "id": "test-reviewer"},
+        "dimensions": dimensions,
+    }
+    review_input_path = run_dir / "operator-review-input.json"
+    review_input_path.write_text(
+        json.dumps(review_input, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _load("coc_operator_review_record", OPERATOR_REVIEW_SCRIPT).record_review(
+        run_dir, review_input_path
+    )
+    qualified = evidence.read_evidence_receipt(run_dir)
+
+    assert qualified["eligible_as_gameplay_evidence"] is True
+    assert qualified["play_kind"] == "operator_reviewed_actual_play"
+    assert qualified["qualification_method"] == "structured_operator_review"
+    assert qualified["external_model_turns"] == 1
+    assert qualified["evidence_reasons"] == []
+
+    metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
+    assert metadata["operator_reviewed_actual_play"] is True
+    assert metadata["simulation_method"] == "operator_reviewed_actual_play"
+    assert metadata["official_suite_status"] == "NOT_RUN"
+    report = run_dir / "artifacts" / "battle-report.md"
+    report_text = report.read_text(encoding="utf-8")
+    assert report.name == "battle-report.md"
+    assert not report_text.startswith("# NON-GAMEPLAY")
+    assert "<!-- report-schema-version: 2 -->" in report_text
+    approved_completeness = json.loads(
+        (run_dir / "artifacts" / "report-completeness.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert approved_completeness["passed"] is True
+    assert approved_completeness["required_public_roll_count"] == 0
+    assert "operator_reviewed_actual_play" in report_text
+    assert "Official suite status: NOT_RUN" in report_text
+
+    review_input["dimensions"]["facts"]["decision"] = "fail"
+    review_input["dimensions"]["facts"]["notes"] = "A fact mismatch requires repair."
+    review_input_path.write_text(
+        json.dumps(review_input, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _load("coc_operator_review_rerecord", OPERATOR_REVIEW_SCRIPT).record_review(
+        run_dir, review_input_path
+    )
+    downgraded = evidence.read_evidence_receipt(run_dir)
+    downgraded_metadata = json.loads(
+        (run_dir / "playtest.json").read_text(encoding="utf-8")
+    )
+    verification = run_dir / "artifacts" / "verification-sample.md"
+    assert downgraded["eligible_as_gameplay_evidence"] is False
+    assert downgraded["play_kind"] is None
+    assert "no_external_player_turns" not in downgraded["evidence_reasons"]
+    assert "no_external_model_turns" not in downgraded["evidence_reasons"]
+    assert downgraded_metadata["simulation_method"] == "operator_long_play_changes_required"
+    assert verification.is_file()
+    verification_text = verification.read_text(encoding="utf-8")
+    assert "<!-- report-schema-version: 2 -->" in verification_text
+    downgraded_completeness = json.loads(
+        (run_dir / "artifacts" / "report-completeness.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert downgraded_completeness["passed"] is True
+    assert downgraded_completeness["required_public_roll_count"] == 0
+    assert not report.exists()
+
+
+def test_fact_fidelity_fallback_is_counted_without_malformed_ledger(
+    tmp_path, evidence
+):
     provenance = _complete_provenance(tmp_path)
 
-    def forge(rows):
+    def record_fallback(rows):
         narrator = next(row for row in rows if row["role"] == "narrator")
-        narrator["secret_audit"]["coverage_digest"] = "0" * 64
+        narrator.update(
+            outcome="template_fallback",
+            fallback_kind="fact_fidelity",
+            response_mode="audit_failure",
+        )
 
-    _rewrite_ledger(tmp_path, forge)
+    _rewrite_ledger(tmp_path, record_fallback)
     receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+
+    assert receipt["fallback_turns"] == 1
+    assert "invocation_ledger_malformed" not in receipt["evidence_reasons"]
+    assert receipt["eligible_as_gameplay_evidence"] is True
+
+
+def test_unknown_fallback_kind_still_fails_closed(tmp_path, evidence):
+    provenance = _complete_provenance(tmp_path)
+    _rewrite_ledger(
+        tmp_path,
+        lambda rows: next(
+            row for row in rows if row["role"] == "narrator"
+        ).update(
+            outcome="template_fallback",
+            fallback_kind="unknown_fidelity_mode",
+            response_mode="audit_failure",
+        ),
+    )
+
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+
     assert receipt["eligible_as_gameplay_evidence"] is False
-    assert "narrator_secret_audit_invalid" in receipt["evidence_reasons"]
+    assert "invocation_ledger_malformed" in receipt["evidence_reasons"]
 
 
 def test_write_evidence_receipt_replaces_symlink_without_touching_outside_target(
@@ -289,7 +508,7 @@ def test_caller_runner_claims_cannot_override_trusted_ledger(tmp_path, evidence)
         ("model_missing", "model_identity_missing"),
         ("untrusted_player", "untrusted_player_runner_used"),
         ("ledger_malformed", "invocation_ledger_malformed"),
-        ("no_external_player", "no_external_model_turns"),
+        ("no_external_player", "no_external_player_turns"),
         ("transcript_missing", "transcript_hash_missing"),
         ("event_logs_missing", "event_log_hash_missing"),
     ],
@@ -535,7 +754,6 @@ def _complete_interactive_provenance(run_dir: Path, *, run_kind: str) -> dict:
     )
 
     narrator = registry["narrator"]
-    audit_mod = _load("coc_secret_audit_interactive", SECRET_AUDIT_SCRIPT)
     ledger_row = {
         "schema_version": 1,
         "role": "narrator",
@@ -549,7 +767,6 @@ def _complete_interactive_provenance(run_dir: Path, *, run_kind: str) -> dict:
         "outcome": "external_success",
         "response_mode": "tool",
         "fallback_kind": None,
-        "secret_audit": audit_mod.audit_secret_claims([], [], []),
     }
     (run_dir / "runner-invocations.jsonl").write_text(
         json.dumps(ledger_row, sort_keys=True) + "\n",

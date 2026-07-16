@@ -134,12 +134,9 @@ _SCENE_ACTION_ZH = {
     "CUT": "场景切换",
     "DEEPEN": "深化谜团",
 }
-_RULE_REASON_ZH = {
-    "obscured clue in scene": "线索检定",
-}
-
-
-def _clue_lookup(campaign_dir: Path) -> dict[str, str]:
+def _clue_lookup(
+    campaign_dir: Path, play_language: str = "zh-Hans"
+) -> dict[str, str]:
     graph = apply_mod._read_json(campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []})
     lookup: dict[str, str] = {}
     for conclusion in graph.get("conclusions", []):
@@ -153,8 +150,28 @@ def _clue_lookup(campaign_dir: Path) -> dict[str, str]:
                 continue
             # Prefer player-safe prose; never fall back to the raw id here —
             # callers treat a missing/empty lookup as a generic reveal line.
+            localized = clue.get("localized_text")
+            localized_row = (
+                localized.get(play_language)
+                if isinstance(localized, dict)
+                and isinstance(localized.get(play_language), (dict, str))
+                else None
+            )
+            if isinstance(localized_row, dict):
+                localized_label = next(
+                    (
+                        localized_row.get(key)
+                        for key in ("player_safe_summary", "summary", "text")
+                        if isinstance(localized_row.get(key), str)
+                        and localized_row[key].strip()
+                    ),
+                    None,
+                )
+            else:
+                localized_label = localized_row
             label = (
-                clue.get("player_safe_summary")
+                localized_label
+                or clue.get("player_safe_summary")
                 or clue.get("summary")
                 or clue.get("delivery")
                 or clue.get("title")
@@ -173,9 +190,9 @@ _SCENE_TRANSITION_LINES = (
 )
 
 _NO_NEW_CLUE_LINES = (
-    "现场暂时没有新的发现，气氛却并未放松。",
-    "这一轮没有新的可见收获，你仍站在可调查的现场。",
-    "场景在推进，但还没有露出新的可确认细节。",
+    "眼前暂时没有新的发现，气氛却并未放松。",
+    "周围仍有可查之处，只是关键细节尚未浮现。",
+    "线索暂时沉在表面之下，现场的压力并没有消失。",
 )
 
 
@@ -196,11 +213,34 @@ def _clue_reveal_prose(clue_id: Any, clue_names: dict[str, str]) -> str:
     label = clue_names.get(cid, "").strip() if cid else ""
     if not label or label == cid:
         return "你注意到一条新的线索。"
-    return f"你注意到：{label}。"
+    return f"你注意到：{label.rstrip('。！？.!?')}。"
 
 
-def _storylet_prose(move: dict[str, Any]) -> list[str]:
+def _storylet_prose(
+    move: dict[str, Any],
+    *,
+    surfaced_route_ids: set[str] | None = None,
+    authorized_route_cues: dict[str, str] | None = None,
+) -> list[str]:
     parts: list[str] = []
+    grounding = move.get("grounding_contract")
+    grounding = grounding if isinstance(grounding, dict) else {}
+    fact_authorization = grounding.get("fact_authorization")
+    fact_authorized = (
+        grounding.get("allow_new_actionable_fact") is True
+        and isinstance(fact_authorization, dict)
+        and fact_authorization.get("status") == "authorized"
+    )
+    if not fact_authorized:
+        bound = move.get("bound_entities") or {}
+        route_id = str(bound.get("route_id") or "") if isinstance(bound, dict) else ""
+        route_cue = (authorized_route_cues or {}).get(route_id)
+        if not route_id or not route_cue:
+            return []
+        if route_id in (surfaced_route_ids or set()):
+            return []
+        return [f"若要换一条路，还可以考虑：{route_cue.strip()}"]
+
     cue = move.get("cue") or move.get("title")
     if cue:
         parts.append(str(cue))
@@ -213,12 +253,34 @@ def _storylet_prose(move: dict[str, Any]) -> list[str]:
     return parts
 
 
-def _npc_lookup(campaign_dir: Path) -> dict[str, str]:
+def _npc_lookup(
+    campaign_dir: Path, play_language: str = "zh-Hans"
+) -> dict[str, str]:
     agendas = apply_mod._read_json(campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []})
     lookup: dict[str, str] = {}
     for npc in agendas.get("npcs", []):
         if isinstance(npc, dict) and npc.get("npc_id"):
-            lookup[str(npc["npc_id"])] = str(npc.get("name") or npc["npc_id"])
+            localized_name = None
+            for container_key in ("localized_text", "localized_names"):
+                container = npc.get(container_key)
+                localized = (
+                    container.get(play_language)
+                    if isinstance(container, dict) else None
+                )
+                if isinstance(localized, dict):
+                    localized_name = next((
+                        localized.get(key)
+                        for key in ("display_name", "name")
+                        if isinstance(localized.get(key), str)
+                        and localized[key].strip()
+                    ), None)
+                elif isinstance(localized, str) and localized.strip():
+                    localized_name = localized
+                if localized_name:
+                    break
+            lookup[str(npc["npc_id"])] = str(
+                localized_name or npc.get("display_name") or npc.get("name") or "NPC"
+            )
     return lookup
 
 
@@ -226,7 +288,7 @@ def _npc_reaction_prose(npc_moves: list[dict[str, Any]], npc_names: dict[str, st
     lines: list[str] = []
     for npc in npc_moves:
         npc_id = str(npc.get("npc_id") or "")
-        npc_name = npc.get("name") or npc_names.get(npc_id) or "NPC"
+        npc_name = npc_names.get(npc_id) or npc.get("display_name") or npc.get("name") or "NPC"
         for reaction in npc.get("active_reactions", []) or []:
             if not isinstance(reaction, dict):
                 continue
@@ -239,7 +301,7 @@ def _npc_reaction_prose(npc_moves: list[dict[str, Any]], npc_names: dict[str, st
 
 
 def _choice_frame_route_ids(choice_frame: dict[str, Any]) -> list[str]:
-    routes = choice_frame.get("routes", []) if isinstance(choice_frame, dict) else []
+    routes = _actionable_choice_routes(choice_frame)
     ids: list[str] = []
     for route in routes:
         if not isinstance(route, dict):
@@ -250,23 +312,221 @@ def _choice_frame_route_ids(choice_frame: dict[str, Any]) -> list[str]:
     return ids
 
 
+def _actionable_choice_routes(choice_frame: dict[str, Any]) -> list[dict[str, Any]]:
+    routes = choice_frame.get("routes", []) if isinstance(choice_frame, dict) else []
+    return [
+        route
+        for route in routes
+        if isinstance(route, dict)
+        and route.get("cue")
+        and str(route.get("route_type") or "") != "live_resume_affordance"
+        and str(route.get("status") or "open") == "open"
+        and route.get("fork_eligible") is not False
+    ]
+
+
 def _choice_frame_prose(
     choice_frame: dict[str, Any],
     *,
     previous_affordance_ids: list[str] | None = None,
 ) -> list[str]:
-    routes = choice_frame.get("routes", []) if isinstance(choice_frame, dict) else []
-    cues = [str(route.get("cue")) for route in routes if isinstance(route, dict) and route.get("cue")]
-    if not cues:
-        return []
+    routes = _actionable_choice_routes(choice_frame)
     current_ids = _choice_frame_route_ids(choice_frame)
     if previous_affordance_ids is not None and current_ids and current_ids == list(previous_affordance_ids):
         return []
-    # Weave at most two affordances as in-fiction perception (no menu dump).
-    woven = cues[:2]
+    previous = set(previous_affordance_ids or [])
+    visible_routes = [
+        route for route in routes
+        if isinstance(route, dict)
+        and route.get("cue")
+        and (
+            previous_affordance_ids is None
+            or str(route.get("id") or route.get("route_id") or "") not in previous
+        )
+    ]
+    if not visible_routes:
+        return []
+    # These are future affordances, not observations or completed actions.  The
+    # explicit modal wording is important on the deterministic fallback path:
+    # an AI player must never infer that a key, payment, clue, or agreement has
+    # already changed hands merely because the route is currently available.
+    woven = [
+        str(route["cue"]).strip().rstrip("。！？.!?")
+        for route in visible_routes[:2]
+    ]
     if len(woven) == 1:
-        return [f"你留意到{woven[0]}。"]
-    return [f"你留意到{woven[0]}；{woven[1]}也许也值得一看。"]
+        return [f"眼下若你愿意，可以{woven[0]}。"]
+    return [f"眼下若你愿意，可以{woven[0]}；也可以{woven[1]}。"]
+
+
+def _successful_action_prose(
+    turn: dict[str, Any], play_language: str
+) -> list[str]:
+    envelope = turn.get("narration_envelope")
+    outcomes = (
+        envelope.get("action_outcomes")
+        if isinstance(envelope, dict)
+        else []
+    )
+    visible_outcomes: list[str] = []
+    completed_success = False
+    for outcome in outcomes or []:
+        if not isinstance(outcome, dict):
+            continue
+        if outcome.get("success") is not True or outcome.get("status") != "completed":
+            continue
+        completed_success = True
+        raw_goal = str(outcome.get("player_visible_goal") or "").strip()
+        raw_visible_outcome = str(
+            outcome.get("player_visible_outcome") or ""
+        ).strip()
+        goal = raw_goal.rstrip("。！？.!?")
+        visible_outcome = raw_visible_outcome.rstrip("。！？.!?")
+        # Some completed routes have no authored public outcome.  The apply
+        # layer then records this exact protocol fallback from the structured
+        # goal.  Recover that known shape by equality, rather than classifying
+        # free prose by keywords, so an internal English label cannot leak
+        # when the LLM narrator falls back to this deterministic renderer.
+        generated_default = f"Completed public action: {raw_goal}".rstrip(
+            "。！？.!?"
+        )
+        if goal and visible_outcome == generated_default:
+            visible_outcome = (
+                f"你已经{goal}"
+                if play_language.startswith("zh")
+                else f"You completed this step: {goal}"
+            )
+        if visible_outcome and visible_outcome not in visible_outcomes:
+            visible_outcomes.append(visible_outcome)
+    if visible_outcomes:
+        return visible_outcomes
+    if completed_success:
+        return ["这一步已经顺利完成，眼前的局面也随之有了进展。"]
+    projected_rules = (
+        envelope.get("rule_results") if isinstance(envelope, dict) else []
+    )
+    if any(
+        isinstance(result, dict)
+        and result.get("success") is True
+        and result.get("matched_route_ids")
+        and result.get("state_change_committed") is False
+        for result in projected_rules or []
+    ):
+        return ["检定本身通过了，但这次还没有确认新的线索、权限或其他状态变化。"]
+    # A settled successful self-contained roll is still progress. Route-bound
+    # success reaches this branch only after its apply receipt is projected.
+    if any(
+        isinstance(result, dict) and result.get("success") is True
+        for result in projected_rules or []
+    ):
+        return ["这次行动成功了，你达成了当前这一步的目标。"]
+    return []
+
+
+def _pending_choice_prose(turn: dict[str, Any]) -> list[str]:
+    pending = turn.get("pending_choice")
+    if not isinstance(pending, dict) or pending.get("responder") != "player":
+        return []
+    if pending.get("kind") != "push_confirm":
+        return []
+    prompt = pending.get("prompt")
+    options = pending.get("options")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return []
+    labels = [
+        str(option.get("label") or "").strip()
+        for option in (options or [])
+        if isinstance(option, dict) and str(option.get("label") or "").strip()
+    ]
+    if labels:
+        return [prompt.strip(), f"可选回应：{'；'.join(labels)}"]
+    return [prompt.strip()]
+
+
+def _typed_limitation_prose(turn: dict[str, Any], play_language: str) -> list[str]:
+    directives = turn.get("narrative_directives")
+    limitation = (
+        directives.get("typed_player_safe_limitation")
+        if isinstance(directives, dict) else None
+    )
+    if not isinstance(limitation, dict):
+        return []
+    localized = limitation.get("localized_messages")
+    message = (
+        localized.get(play_language)
+        if isinstance(localized, dict) else None
+    ) or limitation.get("message")
+    return [message.strip()] if isinstance(message, str) and message.strip() else []
+
+
+def _ordinary_failure_prose(
+    result: dict[str, Any], play_language: str
+) -> str | None:
+    consequence = (
+        result.get("fumble_consequence")
+        if result.get("outcome") == "fumble"
+        else result.get("announced_consequence")
+        if result.get("pushed") is True
+        else None
+    )
+    if isinstance(consequence, dict):
+        localized_consequence = consequence.get("localized_summaries")
+        summary = (
+            localized_consequence.get(play_language)
+            if isinstance(localized_consequence, dict)
+            else None
+        ) or consequence.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+    contract = result.get("roll_contract")
+    if not isinstance(contract, dict):
+        return None
+    localized = contract.get("localized_failure_effects")
+    summary = (
+        localized.get(play_language)
+        if isinstance(localized, dict)
+        else None
+    ) or contract.get("failure_effect")
+    if (
+        contract.get("authored_roll_gate") is True
+        and result.get("outcome") != "fumble"
+        and result.get("pushed") is not True
+        and contract.get("failure_outcome_mode") == "no_progress"
+        and isinstance(summary, str)
+        and summary.strip()
+    ):
+        return summary.strip()
+    return None
+
+
+def _clue_reveals_prose(
+    clue_ids: list[Any], clue_names: dict[str, str]
+) -> list[str]:
+    """Aggregate structured clue reveals without repetitive template beats."""
+    labels: list[str] = []
+    unknown_count = 0
+    seen_ids: set[str] = set()
+    for raw_id in clue_ids:
+        clue_id = str(raw_id or "").strip()
+        if not clue_id or clue_id in seen_ids:
+            continue
+        seen_ids.add(clue_id)
+        label = str(clue_names.get(clue_id) or "").strip().rstrip("。！？.!?")
+        if label and label != clue_id:
+            if label not in labels:
+                labels.append(label)
+        else:
+            unknown_count += 1
+    if labels:
+        items = list(labels)
+        if unknown_count:
+            items.append(f"你还注意到{unknown_count}条尚待整理的新线索")
+        return items
+    if unknown_count == 1:
+        return ["你注意到一条新的线索。"]
+    if unknown_count > 1:
+        return [f"你注意到{unknown_count}条新的线索。"]
+    return []
 
 
 def _keeper_turn_text(
@@ -282,33 +542,87 @@ def _keeper_turn_text(
         if isinstance(final, str) and final.strip():
             return final.strip()
 
-    parts: list[str] = []
-    parts.extend(
-        _choice_frame_prose(
-            turn.get("choice_frame", {}),
-            previous_affordance_ids=previous_affordance_ids,
-        )
+    failed = [
+        result
+        for result in turn.get("rule_results", [])
+        if isinstance(result, dict)
+        and result.get("success") is False
+        and not result.get("skipped")
+    ]
+    style = (turn.get("narrative_directives") or {}).get("player_facing_style") or {}
+    play_language = (
+        str(style.get("language") or "zh-Hans")
+        if isinstance(style, dict) else "zh-Hans"
     )
-    for clue_id in turn.get("clue_revealed", []):
-        parts.append(_clue_reveal_prose(clue_id, clue_names))
-    for move in turn.get("storylet_moves", []):
-        if isinstance(move, dict):
-            parts.extend(_storylet_prose(move))
-    parts.extend(_npc_reaction_prose(turn.get("npc_moves", []), npc_names))
+    failure_progress = bool(failed and (turn.get("clue_revealed") or []))
+    parts: list[str] = []
+    parts.extend(_typed_limitation_prose(turn, play_language))
+    parts.extend(_pending_choice_prose(turn))
+    if not failure_progress:
+        parts.extend(_successful_action_prose(turn, play_language))
+    visible_choice_routes = _actionable_choice_routes(turn.get("choice_frame", {}))
+    previous = set(previous_affordance_ids or [])
+    surfaced_route_ids = set(
+        route_id
+        for route_id in [
+            str(route.get("id") or route.get("route_id") or "")
+            for route in visible_choice_routes
+            if (
+                previous_affordance_ids is None
+                or str(route.get("id") or route.get("route_id") or "") not in previous
+            )
+        ][:2]
+        if route_id
+    )
+    authorized_route_cues = {
+        str(route.get("id") or route.get("route_id")): str(route.get("cue")).strip()
+        for route in visible_choice_routes
+        if str(route.get("id") or route.get("route_id") or "")
+        and isinstance(route.get("cue"), str)
+        and route.get("cue").strip()
+    }
+    if not failure_progress:
+        parts.extend(
+            _choice_frame_prose(
+                turn.get("choice_frame", {}),
+                previous_affordance_ids=previous_affordance_ids,
+            )
+        )
+    parts.extend(_clue_reveals_prose(turn.get("clue_revealed", []), clue_names))
+    if not failure_progress:
+        for move in turn.get("storylet_moves", []):
+            if isinstance(move, dict):
+                parts.extend(
+                    _storylet_prose(
+                        move,
+                        surfaced_route_ids=surfaced_route_ids,
+                        authorized_route_cues=authorized_route_cues,
+                    )
+                )
+        parts.extend(_npc_reaction_prose(turn.get("npc_moves", []), npc_names))
     failure = turn.get("failure_consequence") or {}
     if isinstance(failure, dict) and failure.get("narration_mode") == "withhold_exact_clue_with_cost":
         parts.append("你没能确认关键细节，时间压力逼近，只能保留另一条可查方向。")
-    failed = [
-        r for r in turn.get("rule_results", [])
-        if isinstance(r, dict) and r.get("success") is False and not r.get("skipped")
-        and r.get("reason") != "obscured clue in scene"
-    ]
-    for result in failed:
-        reason = _RULE_REASON_ZH.get(
-            str(result.get("reason") or ""),
-            result.get("reason") or result.get("skill") or "行动",
+    if failure_progress:
+        resolved_policy = turn.get("resolved_clue_policy") or {}
+        bonus_cost = (
+            str(resolved_policy.get("bonus_cost") or "")
+            if isinstance(resolved_policy, dict)
+            else ""
         )
-        parts.append(f"{reason}没有完全成功，压力仍留在场内。")
+        if bonus_cost == "time":
+            parts.append("关键材料虽然找到了，检索过程却出了岔子，额外时间也耗了进去。")
+        elif bonus_cost == "pressure":
+            parts.append("关键材料虽然找到了，检索过程却并不顺利，局势的压力随之加重。")
+        else:
+            parts.append("关键材料虽然找到了，这次尝试却没有完全成功，代价也随之落下。")
+        parts.extend(_npc_reaction_prose(turn.get("npc_moves", []), npc_names))
+    else:
+        for result in failed:
+            parts.append(
+                _ordinary_failure_prose(result, play_language)
+                or "这次尝试没有完全成功，压力仍留在场内。"
+            )
     turn_number = turn.get("turn") or turn.get("turn_number") or 0
     if turn.get("scene_transition"):
         parts.append(_rotated_line(_SCENE_TRANSITION_LINES, turn_number))
@@ -351,8 +665,8 @@ def _transcript_from_driver_result(
     campaign_dir: Path,
     play_language: str = "zh-Hans",
 ) -> list[dict[str, Any]]:
-    clue_names = _clue_lookup(campaign_dir)
-    npc_names = _npc_lookup(campaign_dir)
+    clue_names = _clue_lookup(campaign_dir, play_language)
+    npc_names = _npc_lookup(campaign_dir, play_language)
     transcript: list[dict[str, Any]] = []
     turn_counter = 1
     previous_affordance_ids: list[str] | None = None
@@ -420,13 +734,52 @@ def _append_report_summary_events(
             "ts": ts,
         })
     discovered = result.get("clue_coverage", {}).get("discovered", [])
+    terminal_evidence = result.get("terminal_evidence") or {}
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    persisted_ending = False
+    if events_path.is_file():
+        persisted_events: list[dict[str, Any]] = []
+        for line in events_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                persisted_events.append(row)
+        persisted_ending = bool(
+            coc_scene_graph.terminal_evidence({}, {}, persisted_events).get(
+                "session_ending"
+            )
+        )
+    if bool(terminal_evidence.get("session_ending")) or persisted_ending:
+        # A schema-rich ending was already emitted by the live turn.  Keep the
+        # summary below as a fallback only; appending it as a second ending
+        # makes reports look as though the session concluded twice.
+        return
+    active_scene_id = str(
+        (result.get("final_state") or {}).get("active_scene") or "unknown"
+    )
+    story = apply_mod._read_json(
+        campaign_dir / "scenario" / "story-graph.json", {"scenes": []}
+    )
+    active_scene = next((
+        scene for scene in story.get("scenes", []) or []
+        if isinstance(scene, dict) and scene.get("scene_id") == active_scene_id
+    ), {})
+    active_scene_display = next((
+        str(active_scene.get(key)).strip()
+        for key in ("display_name", "title", "player_safe_summary")
+        if isinstance(active_scene.get(key), str) and active_scene[key].strip()
+    ), "当前地点")
     _append_jsonl(campaign_dir / "logs" / "events.jsonl", {
         "type": "session_ending",
         "actor": "keeper_under_test",
         "payload": {
             "summary": (
-                f"本次驱动实测收束：发现 {len(discovered)} 条线索，"
-                "并推进到下一处可调查地点。"
+                f"本次驱动实测收束：发现 {len(discovered)} 条线索；"
+                f"当前停留在{active_scene_display}。"
             )
         },
         "ts": ts,
@@ -553,6 +906,7 @@ def _project_driver_turn(live_turn: dict[str, Any], turn_num: int) -> dict[str, 
         "apply_path": live_turn.get("apply_path"),
         "clue_revealed": list(live_turn.get("clue_revealed") or []),
         "rule_results": live_turn.get("rule_results") or [],
+        "public_roll_block": live_turn.get("public_roll_block") or {},
         "subsystem_results": live_turn.get("subsystem_results") or [],
         "pending_choice": live_turn.get("pending_choice"),
         "blocked_by_pending_choice": bool(live_turn.get("blocked_by_pending_choice")),
@@ -701,7 +1055,14 @@ def run_full_session(
         },
         "tension_curve": tension_curve,
         "scene_path": scene_path,
-        "reached_terminal": ending_evidence["reached_terminal"],
+        # Driver navigation coverage historically reports reaching a graph
+        # leaf even before a PAYOFF emits session_ending. Keep that convenience
+        # separate from terminal_evidence.reached_terminal, whose public
+        # completion semantics remain structured-session-ending only.
+        "reached_terminal": bool(
+            ending_evidence["graph_terminal"]
+            or ending_evidence["session_ending"]
+        ),
         "terminal_evidence": ending_evidence,
         "pipeline": "run_live_turn",
         "simulation_method": "driver_executed_virtual_table_not_live_llm",

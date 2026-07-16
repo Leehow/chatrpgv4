@@ -28,10 +28,6 @@ coc_epistemic_narration = _load(
     "coc_epistemic_narration_tests",
     "plugins/coc-keeper/scripts/coc_epistemic_narration.py",
 )
-coc_narration_contract = _load(
-    "coc_narration_contract_epistemic_tests",
-    "plugins/coc-keeper/scripts/coc_narration_contract.py",
-)
 coc_epistemic_metrics = _load(
     "coc_epistemic_metrics_tests",
     "plugins/coc-keeper/scripts/coc_epistemic_metrics.py",
@@ -224,25 +220,6 @@ def test_hold_projection_forbids_planned_update():
     assert projection["mode"] == "HOLD"
     assert projection["planned_mode"] == "REFRAME"
     assert "do not narrate the planned belief update" in projection["must_not"]
-
-
-def test_narration_envelope_includes_belief_projection():
-    plan = _plan("CONFIRM", "fact")
-    plan.update({
-        "decision_id": "d-1",
-        "handoff": "narration",
-        "dramatic_question": "What changed?",
-        "pressure_moves": [],
-        "storylet_moves": [],
-        "rules_requests": [],
-    })
-    envelope = coc_narration_contract.build_narration_envelope(
-        plan,
-        clue_graph={"conclusions": []},
-        epistemic_graph=_graph(),
-    )
-    assert envelope["belief_update"]["mode"] == "CONFIRM"
-    assert "keeper-truth" not in json.dumps(envelope["belief_update"], ensure_ascii=False)
 
 
 def _belief_events():

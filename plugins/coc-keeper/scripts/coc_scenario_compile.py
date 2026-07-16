@@ -108,6 +108,52 @@ def _is_string_list(value: Any) -> bool:
     )
 
 
+def _is_localized_summary_map(value: Any) -> bool:
+    return value is None or (
+        isinstance(value, dict)
+        and all(
+            isinstance(language, str) and language.strip()
+            and isinstance(summary, str) and summary.strip()
+            for language, summary in value.items()
+        )
+    )
+
+
+def _is_typed_consequence_effect(value: Any) -> bool:
+    """Validate the shared closed consequence-effect vocabulary."""
+    if not isinstance(value, dict):
+        return False
+    kind = value.get("kind")
+    if kind == "fictional_position":
+        return set(value) in ({"kind"}, {"kind", "severity"}) and (
+            "severity" not in value
+            or value.get("severity") in {"minor", "serious", "critical"}
+        )
+    if kind == "pressure_tick":
+        ticks = value.get("ticks")
+        return (
+            set(value) == {"kind", "clock_id", "ticks"}
+            and isinstance(value.get("clock_id"), str)
+            and bool(value["clock_id"].strip())
+            and isinstance(ticks, int)
+            and not isinstance(ticks, bool)
+            and 1 <= ticks <= 4
+        )
+    if kind == "condition":
+        return (
+            set(value) == {"kind", "condition_id"}
+            and isinstance(value.get("condition_id"), str)
+            and bool(value["condition_id"].strip())
+        )
+    if kind == "route_closed":
+        return (
+            set(value) == {"kind", "route_id"}
+            and isinstance(value.get("route_id"), str)
+            and bool(value["route_id"].strip())
+        )
+    return False
+
+
 def _is_canonical_string_list(value: Any) -> bool:
     """True for an exact list of non-empty, already-trimmed strings."""
     return _is_string_list(value) and all(item == item.strip() for item in value)
@@ -303,16 +349,46 @@ def validate_npc_a21_contract(
 
 
 def _check_clue_bonus(clue: dict[str, Any]) -> list[str]:
-    """Shape-check an optional clue ``bonus`` block (storylet-schema.md).
-
-    Non-gating dice texture: skill + extra_summary are required strings;
-    difficulty defaults to regular, on_fail_cost defaults to time.
-    """
+    """Validate a provenance-bound, fumble-safe optional clue bonus."""
     cid = clue.get("clue_id")
     bonus = clue.get("bonus")
     if not isinstance(bonus, dict):
         return [f"clue '{cid}' bonus must be an object"]
     errors: list[str] = []
+    allowed = {
+        "schema_version", "origin", "source_refs", "skill", "difficulty",
+        "extra_summary", "on_fail_cost", "fumble_consequence",
+    }
+    unknown = sorted(set(bonus) - allowed)
+    if unknown:
+        errors.append(f"clue '{cid}' bonus has unsupported fields: {unknown}")
+    if bonus.get("schema_version") != 1:
+        errors.append(f"clue '{cid}' bonus.schema_version must be 1")
+    origin = bonus.get("origin")
+    if origin not in VALID_ORIGINS:
+        errors.append(
+            f"clue '{cid}' bonus.origin must be one of {sorted(VALID_ORIGINS)}"
+        )
+    if origin == "source":
+        refs = bonus.get("source_refs")
+        if not isinstance(refs, list) or not refs:
+            errors.append(
+                f"clue '{cid}' source bonus requires its own non-empty source_refs"
+            )
+        elif any(
+            not isinstance(ref, dict)
+            or not (
+                bool(ref.get("path")) and isinstance(ref.get("page"), int)
+                or bool(ref.get("source_id")) and (
+                    isinstance(ref.get("printed_page"), int)
+                    or isinstance(ref.get("pdf_index"), int)
+                )
+            )
+            for ref in refs
+        ):
+            errors.append(
+                f"clue '{cid}' bonus.source_refs contains a malformed source reference"
+            )
     skill = bonus.get("skill")
     if not isinstance(skill, str) or not skill.strip():
         errors.append(f"clue '{cid}' bonus.skill must be a non-empty string")
@@ -328,6 +404,18 @@ def _check_clue_bonus(clue: dict[str, Any]) -> list[str]:
     if on_fail not in VALID_BONUS_FAIL_COSTS:
         errors.append(
             f"clue '{cid}' bonus.on_fail_cost '{on_fail}' not in {sorted(VALID_BONUS_FAIL_COSTS)}"
+        )
+    fumble = bonus.get("fumble_consequence")
+    if (
+        not isinstance(fumble, dict)
+        or set(fumble) != {"summary", "effect"}
+        or not isinstance(fumble.get("summary"), str)
+        or not fumble["summary"].strip()
+        or not _is_typed_consequence_effect(fumble.get("effect"))
+    ):
+        errors.append(
+            f"clue '{cid}' bonus.fumble_consequence must contain an exact "
+            "non-empty summary and typed effect"
         )
     return errors
 
@@ -469,6 +557,194 @@ def _check_reference_integrity(
                         path=f"{base}.available_clues",
                     )
                 )
+        for j, affordance in enumerate(scene.get("affordances") or []):
+            if not isinstance(affordance, dict):
+                continue
+            bound_clue_ids = [
+                affordance.get("clue_id"),
+                *(affordance.get("grants_clue_ids") or []),
+            ]
+            for clue_id in bound_clue_ids:
+                if clue_id and clue_id not in clue_ids:
+                    findings.append(
+                        _finding(
+                            "broken_reference",
+                            "error",
+                            f"affordance clue binding '{clue_id}' does not resolve to a clue_id",
+                            path=f"{base}.affordances[{j}]",
+                        )
+                    )
+            completion_policy = affordance.get("completion_policy")
+            if completion_policy is not None and completion_policy not in {
+                "matched_no_roll", "repeatable",
+            }:
+                findings.append(_finding(
+                    "invalid_affordance_completion", "error",
+                    "completion_policy must be matched_no_roll or repeatable",
+                    path=f"{base}.affordances[{j}].completion_policy",
+                ))
+            if completion_policy == "matched_no_roll" and not _is_string_list(
+                affordance.get("sets_flags")
+            ):
+                findings.append(_finding(
+                    "invalid_affordance_completion", "error",
+                    "matched_no_roll completion requires non-empty sets_flags",
+                    path=f"{base}.affordances[{j}].sets_flags",
+                ))
+            runtime_status = affordance.get("runtime_status")
+            if runtime_status is not None and runtime_status != "NOT_IMPLEMENTED":
+                findings.append(_finding(
+                    "invalid_affordance_runtime_status", "error",
+                    "runtime_status may only be NOT_IMPLEMENTED",
+                    path=f"{base}.affordances[{j}].runtime_status",
+                ))
+            if runtime_status == "NOT_IMPLEMENTED" and not _is_string_list(
+                affordance.get("required_typed_operations")
+            ):
+                findings.append(_finding(
+                    "invalid_affordance_runtime_status", "error",
+                    "NOT_IMPLEMENTED routes require non-empty required_typed_operations",
+                    path=f"{base}.affordances[{j}].required_typed_operations",
+                ))
+            authored_operation = affordance.get("authored_operation")
+            if authored_operation is not None and (
+                not isinstance(authored_operation, dict)
+                or set(authored_operation) != {"kind", "payload"}
+                or authored_operation.get("kind") not in {
+                    "environmental_hazard", "mythos_tome_study",
+                }
+                or not isinstance(authored_operation.get("payload"), dict)
+            ):
+                findings.append(_finding(
+                    "invalid_authored_operation", "error",
+                    "authored_operation requires supported kind and payload",
+                    path=f"{base}.affordances[{j}].authored_operation",
+                ))
+            skill_minimums = affordance.get("skill_minimums")
+            if skill_minimums is not None and (
+                not isinstance(skill_minimums, dict)
+                or not skill_minimums
+                or any(
+                    not isinstance(skill, str)
+                    or not skill.strip()
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or not 0 <= minimum <= 100
+                    or skill not in (affordance.get("skills") or [])
+                    for skill, minimum in (
+                        skill_minimums.items()
+                        if isinstance(skill_minimums, dict)
+                        else []
+                    )
+                )
+            ):
+                findings.append(_finding(
+                    "invalid_affordance_skill_minimum", "error",
+                    "skill_minimums must map declared skills to integer 0..100",
+                    path=f"{base}.affordances[{j}].skill_minimums",
+                ))
+            roll_gate = affordance.get("roll_gate")
+            if roll_gate is not None:
+                approaches = (
+                    roll_gate.get("approaches")
+                    if isinstance(roll_gate, dict)
+                    else None
+                )
+                declared_verbs = affordance.get("verbs")
+                declared_skills = affordance.get("skills")
+                ordinary_failure = (
+                    roll_gate.get("ordinary_failure")
+                    if isinstance(roll_gate, dict)
+                    else None
+                )
+                push_consequence = (
+                    roll_gate.get("push_failure_consequence")
+                    if isinstance(roll_gate, dict)
+                    else None
+                )
+                push_effect = (
+                    push_consequence.get("effect")
+                    if isinstance(push_consequence, dict)
+                    else None
+                )
+                fumble_consequence = (
+                    roll_gate.get("fumble_consequence")
+                    if isinstance(roll_gate, dict)
+                    else None
+                )
+                fumble_effect = (
+                    fumble_consequence.get("effect")
+                    if isinstance(fumble_consequence, dict)
+                    else None
+                )
+                valid_approaches = bool(
+                    isinstance(approaches, list)
+                    and approaches
+                    and all(
+                        isinstance(approach, dict)
+                        and set(approach) == {"verb", "skill"}
+                        and isinstance(approach.get("verb"), str)
+                        and approach["verb"].strip()
+                        and isinstance(approach.get("skill"), str)
+                        and approach["skill"].strip()
+                        and approach["verb"] in (declared_verbs or [])
+                        and approach["skill"] in (declared_skills or [])
+                        for approach in approaches
+                    )
+                    and len({
+                        (approach["verb"], approach["skill"])
+                        for approach in approaches
+                    }) == len(approaches)
+                )
+                if (
+                    not isinstance(roll_gate, dict)
+                    or set(roll_gate) != {
+                        "kind", "difficulty", "stakes", "ordinary_failure",
+                        "fumble_consequence", "push_failure_consequence",
+                        "approaches",
+                    }
+                    or roll_gate.get("kind") != "skill_check"
+                    or roll_gate.get("difficulty") not in {
+                        "regular", "hard", "extreme",
+                    }
+                    or not isinstance(roll_gate.get("stakes"), str)
+                    or not roll_gate["stakes"].strip()
+                    or not _is_string_list(declared_verbs)
+                    or not _is_string_list(declared_skills)
+                    or len(set(declared_verbs)) != len(declared_verbs)
+                    or len(set(declared_skills)) != len(declared_skills)
+                    or not valid_approaches
+                    or not isinstance(ordinary_failure, dict)
+                    or not {"mode", "summary"} <= set(ordinary_failure)
+                    or set(ordinary_failure) - {"mode", "summary", "localized_summaries"}
+                    or ordinary_failure.get("mode") != "no_progress"
+                    or not isinstance(ordinary_failure.get("summary"), str)
+                    or not ordinary_failure["summary"].strip()
+                    or not _is_localized_summary_map(ordinary_failure.get("localized_summaries"))
+                    or not isinstance(fumble_consequence, dict)
+                    or not {"summary", "effect"} <= set(fumble_consequence)
+                    or set(fumble_consequence) - {"summary", "effect", "localized_summaries"}
+                    or not isinstance(fumble_consequence.get("summary"), str)
+                    or not fumble_consequence["summary"].strip()
+                    or not _is_localized_summary_map(fumble_consequence.get("localized_summaries"))
+                    or not _is_typed_consequence_effect(fumble_effect)
+                    or not isinstance(push_consequence, dict)
+                    or not {"summary", "effect"} <= set(push_consequence)
+                    or set(push_consequence) - {"summary", "effect", "localized_summaries"}
+                    or not isinstance(push_consequence.get("summary"), str)
+                    or not push_consequence["summary"].strip()
+                    or not _is_localized_summary_map(push_consequence.get("localized_summaries"))
+                    or not isinstance(push_effect, dict)
+                    or set(push_effect) != {"kind", "route_id"}
+                    or push_effect.get("kind") != "route_closed"
+                    or push_effect.get("route_id") != affordance.get("id")
+                ):
+                    findings.append(_finding(
+                        "invalid_affordance_roll_gate", "error",
+                        "roll_gate requires declared unique verbs/skills and "
+                        "one or more exact {verb, skill} approaches",
+                        path=f"{base}.affordances[{j}].roll_gate",
+                    ))
         for npc_id in scene.get("npc_ids") or []:
             if npc_id not in npc_ids:
                 findings.append(
@@ -479,6 +755,54 @@ def _check_reference_integrity(
                         path=f"{base}.npc_ids",
                     )
                 )
+        scene_npc_ids = {
+            str(value) for value in (scene.get("npc_ids") or [])
+            if str(value or "").strip()
+        }
+        scene_route_ids = {
+            str(value.get("id") or value.get("route_id"))
+            for value in (scene.get("affordances") or [])
+            if isinstance(value, dict)
+            and str(value.get("id") or value.get("route_id") or "").strip()
+        }
+        presence_rows = scene.get("npc_presence_requirements") or []
+        seen_presence_npc_ids: set[str] = set()
+        if not isinstance(presence_rows, list):
+            findings.append(_finding(
+                "invalid_npc_presence_requirements", "error",
+                "npc_presence_requirements must be a list",
+                path=f"{base}.npc_presence_requirements",
+            ))
+            presence_rows = []
+        for j, row in enumerate(presence_rows):
+            row_path = f"{base}.npc_presence_requirements[{j}]"
+            if not isinstance(row, dict) or set(row) != {
+                "npc_id", "requires_completed_route_ids",
+            }:
+                findings.append(_finding(
+                    "invalid_npc_presence_requirement", "error",
+                    "each NPC presence requirement must contain exactly npc_id and requires_completed_route_ids",
+                    path=row_path,
+                ))
+                continue
+            presence_npc_id = str(row.get("npc_id") or "").strip()
+            required_routes = row.get("requires_completed_route_ids")
+            if (
+                not presence_npc_id
+                or presence_npc_id not in scene_npc_ids
+                or presence_npc_id in seen_presence_npc_ids
+                or not _is_string_list(required_routes)
+                or not required_routes
+                or len(set(required_routes)) != len(required_routes)
+                or not set(required_routes).issubset(scene_route_ids)
+            ):
+                findings.append(_finding(
+                    "invalid_npc_presence_requirement", "error",
+                    "npc_id must be unique and present in scene.npc_ids; required route IDs must be a non-empty unique subset of scene affordances",
+                    path=row_path,
+                ))
+                continue
+            seen_presence_npc_ids.add(presence_npc_id)
         for exit_cond in scene.get("exit_conditions") or []:
             if isinstance(exit_cond, dict) and exit_cond.get("kind") == "clue_discovered":
                 cid = exit_cond.get("clue_id")
@@ -818,6 +1142,40 @@ def _check_location_tags(compiled: dict[str, Any]) -> list[dict[str, str]]:
                 "invalid_location_tags",
                 "warning",
                 "location_tags must be a list of non-empty strings",
+                path=path,
+            ))
+    return findings
+
+
+def _check_destination_access(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate optional structured discoverability/direct-entry authority."""
+    findings: list[dict[str, str]] = []
+    expected_keys = {"schema_version", "discoverability", "direct_entry"}
+    for i, scene in enumerate((compiled.get("story_graph") or {}).get("scenes") or []):
+        if not isinstance(scene, dict) or "destination_access" not in scene:
+            continue
+        path = f"story_graph.scenes[{scene.get('scene_id') or i}].destination_access"
+        access = scene.get("destination_access")
+        valid = bool(
+            isinstance(access, dict)
+            and set(access) == expected_keys
+            and access.get("schema_version") == 1
+            and access.get("discoverability") in {
+                "public", "evidence_gated", "hidden",
+            }
+            and access.get("direct_entry") in {
+                "independent", "requires_unlock",
+            }
+            and not (
+                access.get("direct_entry") == "independent"
+                and access.get("discoverability") != "public"
+            )
+        )
+        if not valid:
+            findings.append(_finding(
+                "invalid_destination_access",
+                "error",
+                "destination_access must be exact schema v1; only public destinations may use independent direct entry",
                 path=path,
             ))
     return findings
@@ -1388,6 +1746,7 @@ def validate_compiled_scenario(
     findings.extend(_check_provenance(compiled))
     findings.extend(_check_clue_affordances(compiled))
     findings.extend(_check_location_tags(compiled))
+    findings.extend(_check_destination_access(compiled))
     findings.extend(_check_scene_function_contract(compiled))
     findings.extend(_check_scene_affinity_contract(compiled))
     findings.extend(_check_threat_affinity_contract(compiled))
@@ -1548,12 +1907,48 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
     if "setting_tags" in meta and not _is_string_list(meta.get("setting_tags")):
         errors.append("module-meta.setting_tags must be a list of non-empty strings")
 
+    handoff = meta.get("chapter_handoff")
+    if handoff is not None:
+        if not isinstance(handoff, dict) or set(handoff) != {"mode", "target_module_id"}:
+            errors.append(
+                "module-meta.chapter_handoff must contain exactly mode and target_module_id"
+            )
+        else:
+            if handoff.get("mode") != "auto_on_terminal":
+                errors.append("module-meta.chapter_handoff.mode must be auto_on_terminal")
+            target = handoff.get("target_module_id")
+            if not isinstance(target, str) or not target.strip():
+                errors.append("module-meta.chapter_handoff.target_module_id is required")
+
     story = _read(scenario_dir / "story-graph.json")
     for scene in story.get("scenes", []):
         if not scene.get("dramatic_question"):
             errors.append(f"scene '{scene.get('scene_id')}' missing dramatic_question")
         if not scene.get("scene_id"):
             errors.append("scene missing scene_id")
+        if "destination_access" in scene:
+            access = scene.get("destination_access")
+            if not (
+                isinstance(access, dict)
+                and set(access) == {
+                    "schema_version", "discoverability", "direct_entry",
+                }
+                and access.get("schema_version") == 1
+                and access.get("discoverability") in {
+                    "public", "evidence_gated", "hidden",
+                }
+                and access.get("direct_entry") in {
+                    "independent", "requires_unlock",
+                }
+                and not (
+                    access.get("direct_entry") == "independent"
+                    and access.get("discoverability") != "public"
+                )
+            ):
+                errors.append(
+                    f"scene '{scene.get('scene_id')}' destination_access invalid: "
+                    "only exact schema v1 public+independent or gated/hidden+requires_unlock is allowed"
+                )
         authored_function_fields = [key for key in SCENE_FUNCTION_KEYS if key in scene]
         if authored_function_fields:
             try:

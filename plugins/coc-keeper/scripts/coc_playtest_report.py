@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections import Counter
+import hashlib
 import json
 import os
 import re
@@ -15,22 +17,30 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_language import BASE_REPORT_LABELS
+from coc_language import default_localized_terms
 from coc_language import language_profile as build_language_profile
 from coc_playtest_evidence import read_evidence_receipt
 from coc_roll import format_percentile_result
 import coc_epistemic_metrics
 
 
+CLUE_EVENT_TYPES = frozenset({"clue", "clue_reveal", "clue_discovered"})
+COMBAT_EVENT_TYPES = frozenset({
+    "combat",
+    "combat_started",
+    "combat_turn_resolved",
+    "combat_ended",
+})
+SANITY_EVENT_TYPES = frozenset({"sanity", "sanity_loss", "bout_of_madness"})
+
 SCENE_REPLAY_EVENT_TYPES = {
     "scene",
-    "clue",
-    "clue_reveal",
+    *CLUE_EVENT_TYPES,
     "storylet_move",
     "scene_transition",
     "damage",
-    "sanity",
-    "bout_of_madness",
-    "combat",
+    *SANITY_EVENT_TYPES,
+    *COMBAT_EVENT_TYPES,
     "chase",
     "item_transfer",
     "resource_change",
@@ -209,8 +219,12 @@ def _write_report_artifact_atomic(
 
 def _is_non_percentile_die_roll(event: dict[str, Any]) -> bool:
     payload = event.get("payload", {})
-    if not isinstance(payload, dict) or not payload.get("die"):
+    if not isinstance(payload, dict):
         return False
+    expression = _roll_dice_expression(payload)
+    if expression:
+        normalized = expression.upper().replace(" ", "")
+        return normalized not in {"D100", "1D100"}
     return (
         event.get("type") in {"damage", "reward"}
         or payload.get("damage_kind") not in (None, "", [], {})
@@ -218,16 +232,100 @@ def _is_non_percentile_die_roll(event: dict[str, Any]) -> bool:
     )
 
 
+def _roll_dice_expression(payload: dict[str, Any]) -> str:
+    dice = payload.get("dice")
+    if isinstance(dice, dict) and dice.get("expression") not in (None, "", [], {}):
+        return str(dice["expression"])
+    for key in ("die", "die_expression", "expression"):
+        if payload.get(key) not in (None, "", [], {}):
+            return str(payload[key])
+    return ""
+
+
+def _roll_dice_faces(payload: dict[str, Any]) -> list[int | float]:
+    dice = payload.get("dice")
+    candidates = [
+        dice.get("raw") if isinstance(dice, dict) else None,
+        payload.get("die_rolls"),
+        payload.get("individual_faces"),
+        payload.get("rolls"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, list) and candidate and all(
+            isinstance(value, int | float) and not isinstance(value, bool)
+            for value in candidate
+        ):
+            return list(candidate)
+    return []
+
+
+def _roll_total(payload: dict[str, Any]) -> Any:
+    dice = payload.get("dice")
+    if isinstance(dice, dict) and dice.get("total") not in (None, "", [], {}):
+        return dice["total"]
+    for key in ("roll", "final_total", "total"):
+        if payload.get(key) not in (None, "", [], {}):
+            return payload[key]
+    return "?"
+
+
+def _roll_display_skill(event: dict[str, Any]) -> str:
+    payload = event.get("payload", {})
+    if isinstance(payload, dict) and payload.get("skill") not in (None, "", [], {}):
+        return str(payload["skill"])
+    kind = str(event.get("kind") or "")
+    payload_type = str(payload.get("event_type") or "") if isinstance(payload, dict) else ""
+    event_type = str(event.get("type") or event.get("event_type") or "")
+    if kind == "hp_damage" or event_type == "damage":
+        return "HP Damage"
+    if kind in {"san_reward", "sanity_reward"}:
+        return "SAN Reward"
+    if event_type == "reward":
+        return "Reward"
+    if payload_type == "combat_healing_roll":
+        return "HP Healing"
+    if payload_type == "resource_change":
+        reason = str(payload.get("reason") or "")
+        return "Flesh Ward" if reason == "flesh_ward" else "Resource Roll"
+    return "Dice"
+
+
+def _roll_display_outcome(event: dict[str, Any]) -> str:
+    payload = event.get("payload", {})
+    if isinstance(payload, dict) and payload.get("outcome") not in (None, "", [], {}):
+        return str(payload["outcome"])
+    kind = str(event.get("kind") or "")
+    event_type = str(event.get("type") or event.get("event_type") or "")
+    payload_type = str(payload.get("event_type") or "") if isinstance(payload, dict) else ""
+    if kind == "hp_damage" or event_type == "damage":
+        return "damage_applied"
+    if kind in {"san_reward", "sanity_reward"} or event_type == "reward":
+        return "reward_applied"
+    if payload_type == "combat_healing_roll":
+        return "healing_applied"
+    if payload_type == "resource_change":
+        return "applied"
+    return "unknown"
+
+
 def _die_roll_breakdown(payload: dict[str, Any], labels: dict[str, Any]) -> str:
     die_face = str(labels.get("die_face", "die roll"))
-    die_rolls = payload.get("die_rolls")
-    flat_modifier = payload.get("flat_modifier", 0)
-    if isinstance(die_rolls, list) and die_rolls:
-        parts = [str(roll) for roll in die_rolls]
-        if isinstance(flat_modifier, int | float) and flat_modifier:
-            parts.append(f"{flat_modifier:g}")
-        return f"{die_face} {' + '.join(parts).replace('+ -', '- ')}"
-    return f"{die_face} {payload.get('roll', '?')}"
+    die_rolls = _roll_dice_faces(payload)
+    if die_rolls:
+        face_text = f"{die_face} {' + '.join(f'{roll:g}' for roll in die_rolls)}"
+        flat_modifier = payload.get("flat_modifier")
+        if not isinstance(flat_modifier, int | float) or isinstance(flat_modifier, bool):
+            total = _roll_total(payload)
+            if isinstance(total, int | float) and not isinstance(total, bool):
+                flat_modifier = total - sum(die_rolls)
+            else:
+                flat_modifier = 0
+        if flat_modifier:
+            modifier_label = str(labels.get("fixed_modifier", "fixed modifier"))
+            separator = str(labels.get("roll_breakdown_separator", "; "))
+            return f"{face_text}{separator}{modifier_label} {flat_modifier:+g}"
+        return face_text
+    return f"{die_face} {_roll_total(payload)}"
 
 
 def _format_die_roll_line(
@@ -245,8 +343,8 @@ def _format_die_roll_line(
     return str(template).format(
         skill=skill,
         actor=actor,
-        die=payload.get("die", "?"),
-        roll=payload.get("roll", "?"),
+        die=_roll_dice_expression(payload) or "?",
+        roll=_roll_total(payload),
         breakdown=_die_roll_breakdown(payload, labels),
         outcome=outcome,
     )
@@ -254,11 +352,11 @@ def _format_die_roll_line(
 
 def _format_roll_source_line(event: dict[str, Any]) -> str:
     payload = event.get("payload", {})
-    skill = payload.get("skill", "check")
+    skill = _roll_display_skill(event)
     actor = event.get("actor", "unknown")
-    roll = payload.get("roll", "?")
+    roll = _roll_total(payload)
     target = payload.get("effective_target", payload.get("target", "?"))
-    outcome = payload.get("outcome", "unknown")
+    outcome = _roll_display_outcome(event)
     if _is_non_percentile_die_roll(event):
         return _format_die_roll_line(
             event,
@@ -284,6 +382,15 @@ def _format_roll(event: dict[str, Any]) -> str:
             lines.append(f"  - {label}: {payload[key]}")
     if payload.get("pushed"):
         lines.append("  - Pushed Roll: yes")
+        announced = payload.get("announced_consequence")
+        if isinstance(announced, dict) and announced.get("summary"):
+            lines.append(
+                f"  - Pushed Failure Consequence: {announced['summary']}"
+            )
+    if payload.get("outcome") == "fumble":
+        consequence = payload.get("fumble_consequence")
+        if isinstance(consequence, dict) and consequence.get("summary"):
+            lines.append(f"  - Fumble Consequence: {consequence['summary']}")
     if payload.get("push_justification"):
         lines.append(f"  - Push Justification: {payload['push_justification']}")
     if payload.get("foreshadowed_failure"):
@@ -306,7 +413,12 @@ def _slug(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
 
 
-def _localized_actor_names(characters: list[dict[str, Any]], localized_terms: dict[str, str]) -> dict[str, str]:
+def _localized_actor_names(
+    characters: list[dict[str, Any]],
+    localized_terms: dict[str, str],
+    npc_agendas: dict[str, Any] | None = None,
+    play_language: str = "en-US",
+) -> dict[str, str]:
     names: dict[str, str] = {}
     for character in characters:
         investigator_id = character.get("investigator_id") or character.get("id")
@@ -315,8 +427,24 @@ def _localized_actor_names(characters: list[dict[str, Any]], localized_terms: di
         for key in (investigator_id, canonical_name, _slug(canonical_name or "")):
             if key:
                 names[str(key)] = localized_name
+    for npc in (npc_agendas or {}).get("npcs") or []:
+        if not isinstance(npc, dict):
+            continue
+        npc_id = npc.get("npc_id")
+        canonical_name = npc.get("name")
+        localized_name = _localized_visible_field(
+            npc,
+            "name",
+            localized_terms,
+            play_language,
+        ) or _localize_text(canonical_name or npc_id or "Unknown NPC", localized_terms)
+        for key in (npc_id, canonical_name, _slug(canonical_name or "")):
+            if key:
+                names[str(key)] = localized_name
     for canonical, localized in sorted(localized_terms.items(), key=lambda item: len(item[0]), reverse=True):
-        names.setdefault(_slug(canonical), localized)
+        canonical_slug = _slug(canonical)
+        names.setdefault(canonical_slug, localized)
+        names.setdefault(f"npc-{canonical_slug}", localized)
     return names
 
 
@@ -352,6 +480,21 @@ def _localized_field(
         if isinstance(language_text, dict) and language_text.get(key) not in (None, "", [], {}):
             return _localize_text(language_text[key], localized_terms)
     return None
+
+
+def _merge_localized_text(base: Any, overlay: Any) -> dict[str, Any]:
+    merged = dict(base) if isinstance(base, dict) else {}
+    if not isinstance(overlay, dict):
+        return merged
+    for language, values in overlay.items():
+        if isinstance(values, dict):
+            existing = merged.get(language)
+            language_values = dict(existing) if isinstance(existing, dict) else {}
+            language_values.update(values)
+            merged[str(language)] = language_values
+        else:
+            merged[str(language)] = values
+    return merged
 
 
 def _localized_event_text(event: dict[str, Any], localized_terms: dict[str, str], play_language: str) -> str:
@@ -412,11 +555,11 @@ def _format_roll_recap(
     outcome_labels = language_profile.get("outcome_labels", {})
     difficulty_labels = language_profile.get("difficulty_labels", {})
     allow_raw_fallback = bool(language_profile.get("raw_payload_fallback"))
-    skill = _display_skill_name(payload.get("skill", "check"), localized_terms)
+    skill = _display_skill_name(_roll_display_skill(event), localized_terms)
     actor = _display_roll_actor(event.get("actor", "unknown"), actor_names)
-    roll = payload.get("roll", "?")
+    roll = _roll_total(payload)
     target = payload.get("effective_target", payload.get("target", "?"))
-    outcome = _localized_rule_value(payload.get("outcome", "unknown"), outcome_labels, localized_terms)
+    outcome = _localized_rule_value(_roll_display_outcome(event), outcome_labels, localized_terms)
     if _is_non_percentile_die_roll(event):
         lines = [
             _format_die_roll_line(
@@ -455,6 +598,21 @@ def _format_roll_recap(
             lines.append(f"  - {label}：{value}")
     if payload.get("pushed"):
         lines.append(f"  - {report_labels.get('pushed_roll', 'Pushed Roll')}：{report_labels.get('yes', 'yes')}")
+        announced = payload.get("announced_consequence")
+        if isinstance(announced, dict) and announced.get("summary"):
+            label = report_labels.get(
+                "pushed_failure_consequence",
+                report_labels.get("failure_consequence", "Pushed Failure Consequence"),
+            )
+            lines.append(f"  - {label}：{announced['summary']}")
+    if payload.get("outcome") == "fumble":
+        consequence = payload.get("fumble_consequence")
+        if isinstance(consequence, dict) and consequence.get("summary"):
+            label = report_labels.get(
+                "fumble_consequence",
+                report_labels.get("failure_consequence", "Fumble Consequence"),
+            )
+            lines.append(f"  - {label}：{consequence['summary']}")
     push_justification = _localized_payload_text(
         payload,
         "push_justification",
@@ -488,6 +646,174 @@ def _format_roll_recap(
         if rule_refs:
             lines.append(f"  <!-- rule-refs: {rule_refs} -->")
     return "\n".join(lines)
+
+
+def _format_roll_overview(
+    rolls: list[dict[str, Any]],
+    localized_terms: dict[str, str],
+    language_profile: dict[str, Any],
+    play_language: str,
+) -> list[str]:
+    if not rolls:
+        return []
+    outcome_labels = language_profile.get("outcome_labels", {})
+    skills = Counter(
+        _display_skill_name(_roll_display_skill(event), localized_terms)
+        for event in rolls
+    )
+    outcomes = Counter(
+        _localized_rule_value(_roll_display_outcome(event), outcome_labels, localized_terms)
+        for event in rolls
+    )
+    skill_blob = "；".join(f"{name}×{count}" for name, count in skills.most_common())
+    outcome_blob = "；".join(f"{name}×{count}" for name, count in outcomes.most_common())
+    if play_language == "zh-Hans":
+        return [
+            f"- 本次共记录 {len(rolls)} 次掷骰；逐骰证据见唯一的“规则与骰子”规范章节。",
+            f"- 按项目：{skill_blob}",
+            f"- 按结果：{outcome_blob}",
+        ]
+    return [
+        f"- {len(rolls)} rolls recorded; per-roll evidence appears once in the canonical Rules & Dice section.",
+        f"- By check: {skill_blob}",
+        f"- By outcome: {outcome_blob}",
+    ]
+
+
+def _important_roll(event: dict[str, Any]) -> bool:
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    outcome = _roll_display_outcome(event)
+    kind = str(event.get("kind") or payload.get("kind") or "")
+    return bool(
+        outcome in {
+            "critical",
+            "critical_success",
+            "extreme",
+            "extreme_success",
+            "hard",
+            "hard_success",
+            "fumble",
+            "damage_applied",
+            "healing_applied",
+            "reward_applied",
+        }
+        or payload.get("pushed")
+        or payload.get("san_loss") not in (None, "", 0, [], {})
+        or kind in {"hp_damage", "san_reward", "sanity_reward"}
+    )
+
+
+def _format_transcript_receipt(
+    transcript: list[dict[str, Any]],
+    transcript_path: Path,
+    play_language: str,
+) -> list[str]:
+    if not transcript:
+        return []
+    roles = Counter(str(event.get("role") or event.get("speaker") or "unknown") for event in transcript)
+    role_blob = ", ".join(f"{role}={count}" for role, count in sorted(roles.items()))
+    digest = hashlib.sha256(transcript_path.read_bytes()).hexdigest() if transcript_path.is_file() else "missing"
+    if play_language == "zh-Hans":
+        return [
+            "- 完整逐轮内容已在上方回放中呈现；本节只保留来源收据，避免重复整份对话。",
+            f"- 来源：transcript.jsonl；记录数：{len(transcript)}；角色计数：{role_blob}；SHA-256：`{digest}`",
+        ]
+    return [
+        "- The complete turn-by-turn rendering appears above; this section keeps only a source receipt to avoid duplicating the dialogue.",
+        f"- Source: transcript.jsonl; records: {len(transcript)}; roles: {role_blob}; SHA-256: `{digest}`",
+    ]
+
+
+def _format_tool_reliability(
+    records: list[dict[str, Any]],
+    play_language: str,
+    language_profile: dict[str, Any],
+) -> list[str]:
+    heading = _report_heading(2, "Tool Reliability", language_profile)
+    if not records:
+        if play_language == "zh-Hans":
+            return [heading, "- 未发现工具调用日志；这是可观察性缺口，不会阻断战报生成。", ""]
+        return [heading, "- No tool-call log was found; this is an observability gap and does not block report generation.", ""]
+
+    failures = [row for row in records if row.get("ok") is not True]
+    errors = Counter(str(row.get("error") or "unknown") for row in failures)
+    calls = Counter(str(row.get("tool") or "unknown") for row in records)
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for index, row in enumerate(records):
+        args = row.get("args") if isinstance(row.get("args"), dict) else {}
+        decision_id = str(args.get("decision_id") or f"__receipt_{index}")
+        grouped.setdefault((str(row.get("tool") or "unknown"), decision_id), []).append(row)
+    recovered = sum(
+        1
+        for rows in grouped.values()
+        if any(row.get("ok") is not True for row in rows)
+        and rows[-1].get("ok") is True
+    )
+    error_blob = "；".join(f"{code}×{count}" for code, count in errors.most_common()) or "无"
+    director_count = calls.get("director.advise", 0)
+    storylet_count = calls.get("storylets.suggest", 0)
+    if play_language == "zh-Hans":
+        lines = [
+            heading,
+            "- 本节仅用于诊断和改进重试策略，不是叙事合法性门控。",
+            f"- 调用收据：{len(records)}；成功：{len(records) - len(failures)}；失败尝试：{len(failures)}；同一决策重试后恢复：{recovered}。",
+            f"- 失败类别：{error_blob}",
+            f"- 可选叙事工具观测：director.advise={director_count}；storylets.suggest={storylet_count}。未调用不计为失败。",
+        ]
+    else:
+        lines = [
+            heading,
+            "- Diagnostic only: these observations tune recovery behavior and are not narrative-legality gates.",
+            f"- Receipts: {len(records)}; successful: {len(records) - len(failures)}; failed attempts: {len(failures)}; recovered on same-decision retry: {recovered}.",
+            f"- Failure classes: {error_blob}",
+            f"- Optional narrative tools observed: director.advise={director_count}; storylets.suggest={storylet_count}. Absence is not a failure.",
+        ]
+    lines.append("")
+    return lines
+
+
+def _format_state_change_summary(
+    events: list[dict[str, Any]],
+    rendered_lines: list[str],
+    play_language: str,
+) -> list[str]:
+    state_types = {
+        "flag_set",
+        "npc_update",
+        "resource_change",
+        "hp_change",
+        "damage",
+        "sanity_loss",
+        "sanity_reward",
+        "luck_spend",
+        "item_transfer",
+        "transient_condition_cleared",
+        "first_aid",
+        "medicine",
+        "major_wound_recovery",
+        "weekly_medical_care",
+        "development",
+        "development_settled",
+        "time_advanced",
+        "game_time",
+        "scene_unlocked",
+    }
+    selected: list[str] = []
+    omitted = Counter()
+    for event, rendered in zip(events, rendered_lines):
+        event_type = _event_type(event)
+        if event_type in state_types:
+            selected.append(rendered)
+        else:
+            omitted[event_type or "unknown"] += 1
+    if omitted:
+        omitted_count = sum(omitted.values())
+        selected.append(
+            (f"- 其余 {omitted_count} 条事件收据已在对应章节呈现，此处不再重复。")
+            if play_language == "zh-Hans"
+            else f"- {omitted_count} other event receipts are rendered in their dedicated sections and are not repeated here."
+        )
+    return selected
 
 
 def _format_roll_mechanical(
@@ -560,6 +886,133 @@ def _format_roll_transcript_text(
     return text
 
 
+def _roll_decision_id(roll: dict[str, Any]) -> str:
+    payload = roll.get("payload")
+    if isinstance(payload, dict) and payload.get("decision_id"):
+        return str(payload["decision_id"])
+    return str(roll.get("decision_id") or "")
+
+
+def _roll_id(roll: dict[str, Any]) -> str:
+    payload = roll.get("payload")
+    if isinstance(payload, dict) and payload.get("roll_id"):
+        return str(payload["roll_id"])
+    return str(roll.get("roll_id") or "")
+
+
+def _ordered_transcript_for_report(
+    transcript: list[dict[str, Any]],
+    rolls: list[dict[str, Any]],
+    match_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Place structurally linked public rolls before their KP consequence.
+
+    Older transcript rows did not carry decision ids, so the only safe legacy
+    bridge is the ordered match-turn contract: one KP row per structured turn.
+    If that cardinality is not exact, preserve the source transcript unchanged
+    instead of guessing from prose.
+    """
+    events = [dict(event) for event in transcript]
+    match_turns = [
+        turn
+        for turn in match_result.get("turns", [])
+        if isinstance(turn, dict) and turn.get("decision_id")
+    ] if isinstance(match_result, dict) else []
+    if not match_turns:
+        return events
+
+    keeper_indices = [
+        index
+        for index, event in enumerate(events)
+        if event.get("role") == "keeper_under_test"
+    ]
+    if len(keeper_indices) != len(match_turns):
+        return events
+
+    decision_ids = [str(turn["decision_id"]) for turn in match_turns]
+    if len(set(decision_ids)) != len(decision_ids):
+        return events
+    expected_roll_ids = {
+        str(turn["decision_id"]): {
+            str(result["roll_id"])
+            for result in turn.get("rule_results", [])
+            if isinstance(result, dict) and result.get("roll_id")
+        }
+        for turn in match_turns
+    }
+    for index, decision_id in zip(keeper_indices, decision_ids):
+        explicit = str(events[index].get("decision_id") or "")
+        if explicit and explicit != decision_id:
+            return [dict(event) for event in transcript]
+        events[index]["_report_decision_id"] = decision_id
+
+    roll_cursor = 0
+    for event in events:
+        if event.get("mode") != "roll":
+            continue
+        count = _event_roll_count(event, len(rolls) - roll_cursor)
+        linked_rolls = rolls[roll_cursor: roll_cursor + count]
+        roll_cursor += count
+        if not linked_rolls:
+            continue
+        linked_decisions = {
+            decision_id
+            for roll in linked_rolls
+            for decision_id in [_roll_decision_id(roll)]
+            if decision_id
+        }
+        explicit = str(event.get("decision_id") or "")
+        if explicit:
+            linked_decisions.add(explicit)
+        if len(linked_decisions) == 1:
+            decision_id = linked_decisions.pop()
+            linked_roll_ids = {_roll_id(roll) for roll in linked_rolls}
+            allowed_roll_ids = expected_roll_ids.get(decision_id, set())
+            if (
+                linked_roll_ids
+                and "" not in linked_roll_ids
+                and allowed_roll_ids
+                and linked_roll_ids <= allowed_roll_ids
+            ):
+                event["_report_decision_id"] = decision_id
+
+    source_order = [id(event) for event in events]
+    for decision_id in decision_ids:
+        keeper_index = next(
+            (
+                index
+                for index, event in enumerate(events)
+                if event.get("role") == "keeper_under_test"
+                and event.get("_report_decision_id") == decision_id
+            ),
+            None,
+        )
+        if keeper_index is None:
+            continue
+        linked_rolls = [
+            event
+            for event in events
+            if event.get("mode") == "roll"
+            and event.get("_report_decision_id") == decision_id
+        ]
+        if not linked_rolls:
+            continue
+        linked_event_ids = {id(event) for event in linked_rolls}
+        events = [event for event in events if id(event) not in linked_event_ids]
+        keeper_index = events.index(next(
+            event
+            for event in events
+            if event.get("role") == "keeper_under_test"
+            and event.get("_report_decision_id") == decision_id
+        ))
+        events[keeper_index:keeper_index] = linked_rolls
+
+    if [id(event) for event in events] != source_order:
+        for display_turn, event in enumerate(events, start=1):
+            event["turn"] = display_turn
+    return events
+
+
 def _display_actor(actor: str) -> str:
     if actor == "keeper_under_test":
         return "KP"
@@ -609,6 +1062,9 @@ def _format_storylet_event(event: dict[str, Any], play_language: str = "en-US") 
     variants = _storylet_event_value(event, "rolled_variants", {})
     if not isinstance(variants, dict):
         variants = {}
+    presentation_mode = _storylet_event_value(event, "presentation_mode")
+    grounding = _storylet_event_value(event, "grounding_contract", {})
+    grounding = grounding if isinstance(grounding, dict) else {}
 
     cue = _storylet_event_value(event, "cue") or _storylet_event_value(event, "title") or "一个轻微异常被推到台前"
     details = [
@@ -625,6 +1081,15 @@ def _format_storylet_event(event: dict[str, Any], play_language: str = "en-US") 
         ("clock-id", bound.get("clock_id")),
     )
 
+    if (
+        presentation_mode == "suppressed_unverified_fact"
+        or grounding.get("allow_new_actionable_fact") is False
+        and presentation_mode != "existing_route_only"
+    ):
+        if play_language == "zh-Hans":
+            return f"- 剧情片段：未向玩家呈现（缺少来源授权）。{anchors}"
+        return f"- Story beat: not presented to the player (source authorization missing).{anchors}"
+
     if play_language == "zh-Hans":
         prose = "".join(_sentence(part, play_language) for part in [cue, *details] if part)
         return f"- 剧情片段：{prose}{anchors}"
@@ -638,10 +1103,53 @@ def _load_clue_lookup(
     localized_terms: dict[str, str],
     play_language: str,
 ) -> dict[str, str]:
+    records = _load_clue_records(campaign_dir)
+    return _clue_lookup_from_records(records, localized_terms, play_language)
+
+
+def _clue_lookup_from_records(
+    records: dict[str, dict[str, Any]],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for clue_id, clue in records.items():
+        localized = next(
+            (
+                value
+                for key in ("player_safe_summary", "summary", "delivery", "title")
+                for value in [_localized_field(clue, key, localized_terms, play_language)]
+                if value
+            ),
+            None,
+        )
+        if localized:
+            lookup[clue_id] = localized
+            continue
+        raw = next(
+            (
+                _localize_text(str(clue[key]), localized_terms)
+                for key in ("player_safe_summary", "summary", "delivery", "title")
+                if clue.get(key) not in (None, "", [], {})
+            ),
+            clue_id,
+        )
+        if (
+            play_language == "zh-Hans"
+            and raw != clue_id
+            and re.search(r"[A-Za-z]", raw)
+            and not re.search(r"[\u4e00-\u9fff]", raw)
+        ):
+            raw = f"［源数据未提供中文，显示原文］{raw}"
+        lookup[clue_id] = raw
+    return lookup
+
+
+def _load_clue_records(campaign_dir: Path | None) -> dict[str, dict[str, Any]]:
     if campaign_dir is None:
         return {}
     graph = _read_json(campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []})
-    lookup: dict[str, str] = {}
+    records: dict[str, dict[str, Any]] = {}
     for conclusion in graph.get("conclusions", []):
         if not isinstance(conclusion, dict):
             continue
@@ -651,14 +1159,87 @@ def _load_clue_lookup(
             clue_id = clue.get("clue_id") or clue.get("id")
             if not clue_id:
                 continue
-            text = (
-                _localized_visible_field(clue, "summary", localized_terms, play_language)
-                or _localized_visible_field(clue, "delivery", localized_terms, play_language)
-                or _localized_visible_field(clue, "title", localized_terms, play_language)
-                or str(clue_id)
-            )
-            lookup[str(clue_id)] = text
-    return lookup
+            records[str(clue_id)] = clue
+    return records
+
+
+def _player_safe_handout_from_clue(
+    clue_id: str,
+    clue: dict[str, Any],
+) -> dict[str, Any] | None:
+    # ``delivery_kind`` owns the rules gate (for example, a Library Use
+    # ``skill_check``), while ``presentation_kind`` owns the artifact shown
+    # after discovery.  Keep legacy handout clues working, but do not force a
+    # source-authored rolled handout to masquerade as an automatic clue.
+    if (
+        clue.get("delivery_kind") != "handout"
+        and clue.get("presentation_kind") != "handout"
+    ):
+        return None
+    if clue.get("visibility") not in {"player-safe", "public"}:
+        return None
+
+    embedded = clue.get("handout")
+    handout = dict(embedded) if isinstance(embedded, dict) else {}
+    handout.setdefault("id", clue_id)
+    handout.setdefault("clue_id", clue_id)
+    handout_number = clue.get("handout_number")
+    if isinstance(handout_number, int) and not isinstance(handout_number, bool):
+        handout.setdefault("label", f"Handout {handout_number}")
+    if clue.get("title") not in (None, "", [], {}):
+        handout.setdefault("title", clue["title"])
+    if clue.get("player_safe_summary") not in (None, "", [], {}):
+        handout.setdefault("summary", clue["player_safe_summary"])
+
+    clue_localized = clue.get("localized_text")
+    handout_localized = handout.get("localized_text")
+    localized_text = dict(handout_localized) if isinstance(handout_localized, dict) else {}
+    if isinstance(clue_localized, dict):
+        for language, localized in clue_localized.items():
+            if not isinstance(localized, dict):
+                continue
+            existing = localized_text.get(language)
+            localized_handout = dict(existing) if isinstance(existing, dict) else {}
+            if localized.get("title") not in (None, "", [], {}):
+                localized_handout.setdefault("title", localized["title"])
+            if localized.get("player_safe_summary") not in (None, "", [], {}):
+                localized_handout.setdefault("summary", localized["player_safe_summary"])
+            if localized_handout:
+                localized_text[str(language)] = localized_handout
+    if localized_text:
+        handout["localized_text"] = localized_text
+
+    if not any(handout.get(key) not in (None, "", [], {}) for key in ("label", "title", "summary", "content", "route")):
+        return None
+    return handout
+
+
+def _merge_discovered_clue_handouts(
+    explicit_handouts: list[Any],
+    state_events: list[dict[str, Any]],
+    clue_records: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = [handout for handout in explicit_handouts if isinstance(handout, dict)]
+    known_ids = {
+        str(handout.get("id") or handout.get("handout_id") or handout.get("clue_id"))
+        for handout in merged
+        if handout.get("id") or handout.get("handout_id") or handout.get("clue_id")
+    }
+    for event in state_events:
+        if _event_type(event) not in CLUE_EVENT_TYPES:
+            continue
+        clue_id = _clue_event_id(event)
+        if not clue_id or clue_id in known_ids:
+            continue
+        clue = clue_records.get(clue_id)
+        if not isinstance(clue, dict):
+            continue
+        handout = _player_safe_handout_from_clue(clue_id, clue)
+        if handout is None:
+            continue
+        merged.append(handout)
+        known_ids.add(clue_id)
+    return merged
 
 
 def _clue_event_id(event: dict[str, Any]) -> str:
@@ -707,7 +1288,9 @@ def _format_clue_reveal_event(
 
 def _format_scene_transition_event(event: dict[str, Any], play_language: str = "en-US") -> str:
     label = "场景推进" if play_language == "zh-Hans" else "Scene advanced"
-    return f"- {_sentence(label, play_language)}{_inline_anchors(('from-scene', _event_value(event, 'from_scene')), ('to-scene', _event_value(event, 'to_scene')))}"
+    from_scene = _event_value(event, "from_scene") or _event_value(event, "from_scene_id")
+    to_scene = _event_value(event, "to_scene") or _event_value(event, "to_scene_id")
+    return f"- {_sentence(label, play_language)}{_inline_anchors(('from-scene', from_scene), ('to-scene', to_scene))}"
 
 
 def _format_scene_unlocked_event(event: dict[str, Any], play_language: str = "en-US") -> str:
@@ -756,7 +1339,7 @@ def _format_state_event(
     event_type = _event_type(event)
     if event_type == "storylet_move":
         return _format_storylet_event(event, play_language)
-    if event_type == "clue_reveal":
+    if event_type in CLUE_EVENT_TYPES:
         label = "线索已记录" if play_language == "zh-Hans" else "Clue recorded"
         return _format_clue_reveal_event(event, terms, play_language, clue_lookup, label=label)
     if event_type == "scene_transition":
@@ -765,6 +1348,12 @@ def _format_state_event(
         return _format_scene_unlocked_event(event, play_language)
     if event_type == "game_time":
         return _format_game_time_event(event, play_language)
+    if event_type == "sanity_loss":
+        return _format_sanity_loss_event(event, terms, play_language, actor_names)
+    if event_type in COMBAT_EVENT_TYPES - {"combat"}:
+        return _format_combat_event(event, terms, play_language, actor_names)
+    if event_type == "session_ending":
+        return _format_session_ending_event(event, terms, play_language)
     event_type = event.get("type") or event_type
     event_label = event_type.replace("_", " ")
     payload = event.get("payload", {})
@@ -838,7 +1427,7 @@ def _format_clue(
     play_language: str = "en-US",
     clue_lookup: dict[str, str] | None = None,
 ) -> str:
-    if _event_type(event) == "clue_reveal":
+    if _event_type(event) in CLUE_EVENT_TYPES:
         label = "线索" if play_language == "zh-Hans" else "Clue"
         return _format_clue_reveal_event(event, localized_terms or {}, play_language, clue_lookup, label=label)
     summary = _event_summary(event, "clue recorded", localized_terms, play_language)
@@ -895,6 +1484,127 @@ def _format_subsystem_event_lines(
     return lines
 
 
+def _format_sanity_loss_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
+) -> str:
+    terms = localized_terms or {}
+    investigator_id = _event_value(event, "investigator_id") or event.get("actor") or "unknown"
+    actor = _display_roll_actor(investigator_id, actor_names or {})
+    loss = _event_value(event, "loss", "?")
+    source = _localize_text(_event_value(event, "source", "an unsettling event"), terms)
+    anchors = _inline_anchors(("san-trigger-id", _event_value(event, "trigger_id")))
+    if play_language == "zh-Hans":
+        return f"- {actor}因{source}失去 {loss} SAN。{anchors}"
+    return f"- {actor} lost {loss} SAN because of {source}.{anchors}"
+
+
+_COMBAT_ACTION_LABELS_ZH = {
+    "opposed_melee": "近战对抗",
+    "attack": "攻击",
+    "dodge": "闪避",
+    "fight_back": "反击",
+    "maneuver": "战技",
+}
+_COMBAT_OUTCOME_LABELS_ZH = {
+    "hit": "命中",
+    "miss": "未命中",
+    "no_damage": "未造成伤害",
+    "damage": "造成伤害",
+    "fled": "调查员撤退",
+    "monsters_win": "怪物获胜",
+    "investigators_win": "调查员获胜",
+    "stalemate": "僵持",
+}
+_OPPOSED_OUTCOME_LABELS_ZH = {
+    "attacker_higher": "攻击方成功级别更高",
+    "defender_higher": "防守方成功级别更高",
+    "tie_defender_wins": "同级时防守方获胜",
+    "both_fail": "双方失败",
+}
+
+
+def _format_combat_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+    actor_names: dict[str, str] | None = None,
+) -> str:
+    """Project canonical toolbox combat events into a player-readable summary."""
+    terms = localized_terms or {}
+    names = actor_names or {}
+    event_type = _event_type(event)
+    combat_id = _event_value(event, "combat_id")
+    anchors = _inline_anchors(("combat-id", combat_id))
+    if event_type == "combat_started":
+        initiative = _event_value(event, "initiative_order", [])
+        order: list[str] = []
+        if isinstance(initiative, list):
+            for row in initiative:
+                if not isinstance(row, dict):
+                    continue
+                actor = _display_roll_actor(row.get("actor_id"), names)
+                dex = row.get("dex")
+                order.append(f"{actor}（DEX {dex}）" if play_language == "zh-Hans" else f"{actor} (DEX {dex})")
+        rendered = "、".join(order) if play_language == "zh-Hans" else ", ".join(order)
+        if play_language == "zh-Hans":
+            return f"- 战斗开始：行动顺序为 {rendered or '未记录'}。{anchors}"
+        return f"- Combat began; initiative: {rendered or 'not recorded'}.{anchors}"
+    if event_type == "combat_turn_resolved":
+        turn = _event_value(event, "turn", {})
+        turn = turn if isinstance(turn, dict) else {}
+        actor = _display_roll_actor(turn.get("actor_id"), names)
+        target = _display_roll_actor(turn.get("target_actor_id"), names)
+        action = str(turn.get("action") or "action")
+        outcome = str(turn.get("outcome") or "unknown")
+        opposed = str(turn.get("opposed_outcome") or "")
+        if play_language == "zh-Hans":
+            action_label = _COMBAT_ACTION_LABELS_ZH.get(action, _localize_text(action.replace("_", " "), terms))
+            outcome_label = _COMBAT_OUTCOME_LABELS_ZH.get(outcome, _localize_text(outcome.replace("_", " "), terms))
+            opposed_label = _OPPOSED_OUTCOME_LABELS_ZH.get(opposed, _localize_text(opposed.replace("_", " "), terms))
+            suffix = f"（{opposed_label}）" if opposed else ""
+            return f"- {actor}对{target}的{action_label}：{outcome_label}{suffix}。{anchors}"
+        opposed_suffix = f" ({opposed.replace('_', ' ')})" if opposed else ""
+        return f"- {actor} used {action.replace('_', ' ')} against {target}: {outcome.replace('_', ' ')}{opposed_suffix}.{anchors}"
+    if event_type == "combat_ended":
+        outcome = str(_event_value(event, "outcome", "unknown"))
+        if play_language == "zh-Hans":
+            label = _COMBAT_OUTCOME_LABELS_ZH.get(outcome, _localize_text(outcome.replace("_", " "), terms))
+            return f"- 战斗结束：{label}。{anchors}"
+        return f"- Combat ended: {outcome.replace('_', ' ')}.{anchors}"
+    return _format_subsystem_event(event, terms, play_language, names)
+
+
+def _format_session_ending_event(
+    event: dict[str, Any],
+    localized_terms: dict[str, str] | None = None,
+    play_language: str = "en-US",
+) -> str:
+    terms = localized_terms or {}
+    kind = str(_event_value(event, "kind", "session_ending"))
+    summary = _event_summary(event, "session ending recorded", terms, play_language)
+    anchors = _inline_anchors(("ending-kind", kind), ("scene-id", _event_value(event, "scene_id")))
+    kind_labels_zh = {
+        "conclusion": "结案",
+        "tpk": "全员覆没",
+        "retreat": "退场",
+        "cliffhanger": "悬念收束",
+    }
+    if play_language == "zh-Hans":
+        label = kind_labels_zh.get(kind, "会话结束")
+        return f"- {label}：{_sentence(summary, play_language)}{anchors}"
+    return f"- {kind.replace('_', ' ').title()}: {_sentence(summary, play_language)}{anchors}"
+
+
+def _session_ending_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prefer schema-rich ending receipts over legacy report-only placeholders."""
+    ending_events = [event for event in events if _event_type(event) == "session_ending"]
+    structured = [event for event in ending_events if _event_value(event, "kind") not in (None, "", [], {})]
+    return structured or ending_events
+
+
 def _naturalize_player_event_summary(event_type: str, actor: str, summary: str) -> str:
     if event_type == "damage" and actor not in {"", "KP", "unknown"} and actor not in summary:
         match = DAMAGE_SUMMARY_RE.match(summary)
@@ -923,16 +1633,19 @@ def _format_scene_replay_event(
     if event_type == "scene":
         summary = _event_summary(event, "scene recorded", terms, play_language)
         return f"- {summary}"
-    if event_type == "clue":
-        summary = _event_summary(event, "clue recorded", terms, play_language)
-        return f"- {summary}"
-    if event_type == "clue_reveal":
+    if event_type in CLUE_EVENT_TYPES:
         label = "调查员确认了线索" if play_language == "zh-Hans" else "Investigators confirmed a clue"
         return _format_clue_reveal_event(event, terms, play_language, clue_lookup, label=label)
     if event_type == "storylet_move":
         return _format_storylet_event(event, play_language)
     if event_type == "scene_transition":
         return _format_scene_transition_event(event, play_language)
+    if event_type == "sanity_loss":
+        return _format_sanity_loss_event(event, terms, play_language, names)
+    if event_type in COMBAT_EVENT_TYPES - {"combat"}:
+        return _format_combat_event(event, terms, play_language, names)
+    if event_type == "session_ending":
+        return _format_session_ending_event(event, terms, play_language)
     event_label = event_type.replace("_", " ")
     actor = _display_roll_actor(event.get("actor", "unknown"), names)
     summary = _event_summary(event, f"{event_label} recorded", terms, play_language)
@@ -982,10 +1695,15 @@ def _format_handout(
 
 
 def _scene_replay_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected_endings = {id(event) for event in _session_ending_events(events)}
     return [
         event
         for event in events
         if _event_type(event) in SCENE_REPLAY_EVENT_TYPES
+        and (
+            _event_type(event) != "session_ending"
+            or id(event) in selected_endings
+        )
     ]
 
 
@@ -1064,11 +1782,12 @@ def _localized_terms(metadata: dict[str, Any]) -> dict[str, str]:
     play_language = metadata.get("play_language")
     localized_terms = metadata.get("localized_terms", {})
     terms = localized_terms.get(play_language, {}) if isinstance(localized_terms, dict) else {}
-    if not isinstance(terms, dict):
-        return {}
+    merged = default_localized_terms(str(play_language)) if play_language else {}
+    if isinstance(terms, dict):
+        merged.update(terms)
     return {
         str(canonical): str(localized)
-        for canonical, localized in terms.items()
+        for canonical, localized in merged.items()
         if canonical and localized and str(canonical) != str(localized)
     }
 
@@ -1198,12 +1917,27 @@ def _load_campaign_context(run_dir: Path, metadata: dict[str, Any]) -> dict[str,
     if isinstance(scenario_file, dict):
         for key, value in scenario_file.items():
             if value not in (None, "", [], {}):
+                if key == "localized_text":
+                    scenario[key] = _merge_localized_text(scenario.get(key), value)
+                    continue
                 scenario[key] = value
+    if (
+        scenario.get("module_source") == "driver-generated scenario fixture"
+        and isinstance(module_meta, dict)
+        and module_meta.get("scenario_id")
+    ):
+        scenario["module_source"] = (
+            f"compiled scenario package: {module_meta['scenario_id']}"
+        )
     return {
         "campaign_dir": campaign_dir,
         "campaign": campaign,
         "party": party,
         "scenario": scenario,
+        "npc_agendas": (
+            _read_json(campaign_dir / "scenario" / "npc-agendas.json", {})
+            if campaign_dir else {}
+        ),
         "characters": _load_characters(run_dir, party),
     }
 
@@ -2387,9 +3121,132 @@ def _format_combat_tracker(
     return lines
 
 
+def _combat_id_from_event(event: dict[str, Any]) -> str:
+    combat_id = event.get("combat_id")
+    if combat_id not in (None, ""):
+        return str(combat_id)
+    roll_id = str(event.get("roll_id") or "")
+    if ":cr" in roll_id:
+        return roll_id.rsplit(":cr", 1)[0]
+    return ""
+
+
+def _format_combat_history_trackers(
+    events: list[dict[str, Any]],
+    current_state: dict[str, Any],
+    localized_terms: dict[str, str],
+    play_language: str,
+    actor_names: dict[str, str],
+    language_profile: dict[str, Any],
+) -> list[str]:
+    """Render every structured encounter; save/combat.json remains the latest snapshot."""
+    histories: dict[str, dict[str, Any]] = {}
+    for event in events:
+        event_type = _event_type(event)
+        if event_type not in {*COMBAT_EVENT_TYPES, "combat_roll"}:
+            continue
+        combat_id = _combat_id_from_event(event)
+        if not combat_id:
+            continue
+        history = histories.setdefault(
+            combat_id,
+            {
+                "combat_id": combat_id,
+                "status": "active",
+                "outcome": None,
+                "initiative_order": [],
+                "turns": [],
+                "damage_chain": [],
+            },
+        )
+        if event_type == "combat_started":
+            history["initiative_order"] = list(event.get("initiative_order") or [])
+        elif event_type == "combat_turn_resolved" and isinstance(event.get("turn"), dict):
+            history["turns"].append(dict(event["turn"]))
+        elif event_type == "combat_roll" and isinstance(event.get("combat_damage_receipt"), dict):
+            history["damage_chain"].append(dict(event["combat_damage_receipt"]))
+        elif event_type == "combat_ended":
+            history["status"] = "concluded"
+            history["outcome"] = event.get("outcome")
+
+    if not histories:
+        return _format_combat_tracker(
+            current_state,
+            localized_terms,
+            play_language,
+            actor_names,
+            language_profile,
+        )
+
+    zh = play_language == "zh-Hans"
+    lines: list[str] = []
+    current_id = str(current_state.get("combat_id") or "")
+    for index, history in enumerate(histories.values(), start=1):
+        combat_id = str(history["combat_id"])
+        lines.extend([
+            f"### {'遭遇' if zh else 'Encounter'} {index}: `{combat_id}`",
+            _html_anchor("combat-id", combat_id),
+            f"- {'状态' if zh else 'Status'}: {history['status']}",
+            f"- {'结果' if zh else 'Outcome'}: {history.get('outcome') or 'unknown'}",
+            f"- {'证据来源：结构化事件回放' if zh else 'Evidence source: structured event replay'}",
+        ])
+        initiative = history.get("initiative_order") or []
+        if initiative:
+            order = " → ".join(
+                f"{_display_roll_actor(row.get('actor_id'), actor_names)}@{row.get('dex', '?')}"
+                for row in initiative
+                if isinstance(row, dict)
+            )
+            lines.append(f"- {'先攻顺序' if zh else 'Initiative'}: {order}")
+        turns_by_round: dict[str, list[dict[str, Any]]] = {}
+        for turn in history.get("turns") or []:
+            turn_id = str(turn.get("turn_id") or "?")
+            match = re.match(r"t(\d+)-", turn_id)
+            round_id = match.group(1) if match else "?"
+            turns_by_round.setdefault(round_id, []).append(turn)
+        for round_id, turns in turns_by_round.items():
+            lines.append(f"- {'第' + round_id + '轮' if zh else 'Round ' + round_id}:")
+            for turn in turns:
+                actor = _display_roll_actor(turn.get("actor_id"), actor_names)
+                target = _display_roll_actor(turn.get("target_actor_id"), actor_names)
+                lines.append(
+                    f"  - {actor} → {target}: {turn.get('action', '?')} / "
+                    f"{turn.get('outcome', '?')}"
+                    + (
+                        f" / damage={turn['damage_roll_id']}"
+                        if turn.get("damage_roll_id") else ""
+                    )
+                )
+        damage_chain = history.get("damage_chain") or []
+        if damage_chain:
+            lines.append(f"- {'伤害链' if zh else 'Damage chain'}:")
+            for damage in damage_chain:
+                source = _display_roll_actor(damage.get("source_actor_id"), actor_names)
+                target = _display_roll_actor(damage.get("target_actor_id"), actor_names)
+                lines.append(
+                    f"  - {source} → {target}: {damage.get('die', '?')}={damage.get('raw_damage', damage.get('total', '?'))}; "
+                    f"HP {damage.get('hp_before', '?')}→{damage.get('hp_after', '?')}"
+                )
+        if combat_id == current_id and current_state.get("participants"):
+            lines.append(f"- {'最终快照参与者' if zh else 'Final snapshot participants'}:")
+            for participant in current_state.get("participants") or []:
+                if not isinstance(participant, dict):
+                    continue
+                actor = _display_roll_actor(participant.get("actor_id"), actor_names)
+                lines.append(
+                    f"  - {actor}: HP {participant.get('hp_current', '?')}/{participant.get('hp_max', '?')}; "
+                    f"DEX {participant.get('dex', '?')}; armor {participant.get('armor', 0)}"
+                )
+            lines.append(_html_anchor("combat-state-file", "save/combat.json"))
+        lines.append("")
+    return lines
+
+
 def _render_epistemic_experience_section(
     metrics: dict[str, Any],
     language_profile: dict[str, Any],
+    *,
+    observed: bool,
 ) -> list[str]:
     """Render deterministic belief/question diagnostics without prose inference."""
     keys = (
@@ -2403,6 +3260,13 @@ def _render_epistemic_experience_section(
         "epistemic_health",
     )
     lines = [_report_heading(2, "Epistemic Experience", language_profile)]
+    language = str(language_profile.get("language") or "en-US")
+    if not observed:
+        lines.append(
+            "- 观测状态：本次没有产生认知状态事件；以下默认值仅表示功能未被测到，不计为失败。"
+            if language == "zh-Hans"
+            else "- Observation status: no epistemic-state events were produced; defaults mean not exercised, not failed."
+        )
     for key in keys:
         payload = metrics.get(key, {}) if isinstance(metrics, dict) else {}
         lines.append(
@@ -2413,7 +3277,10 @@ def _render_epistemic_experience_section(
     return lines
 
 
-def _render_narrative_adherence_section(adherence: Any) -> list[str]:
+def _render_narrative_adherence_section(
+    adherence: Any,
+    language_profile: dict[str, Any],
+) -> list[str]:
     """Optional 叙事贴合 / Narrative Adherence section (SENNA checklist).
 
     Emitted only when metadata carries structured adherence data. Fail-open:
@@ -2429,9 +3296,19 @@ def _render_narrative_adherence_section(adherence: Any) -> list[str]:
     except (TypeError, ValueError):
         coverage = 0.0
     pct = int(round(coverage * 100))
+    language = str(language_profile.get("language") or "en-US")
     lines = [
-        "## 叙事贴合 / Narrative Adherence",
-        f"- Required coverage: {pct}% ({coverage:.2f})",
+        _report_heading(2, "Narrative Adherence", language_profile),
+        (
+            "- 这是结构化知识/路径观测，不是胜利、结局质量或叙事合法性的判定。"
+            if language == "zh-Hans"
+            else "- Structured knowledge/route observation only; this is not a victory, ending-quality, or narrative-legality verdict."
+        ),
+        (
+            f"- 已观测结构化路径：{pct}%（{coverage:.2f}）"
+            if language == "zh-Hans"
+            else f"- Structured routes observed: {pct}% ({coverage:.2f})"
+        ),
         "",
     ]
     for stmt in statements:
@@ -2442,8 +3319,14 @@ def _render_narrative_adherence_section(adherence: Any) -> list[str]:
         desc = str(stmt.get("description") or stmt.get("statement_id") or "").strip()
         if not desc:
             continue
-        lines.append(f"- {mark} [{kind}] {desc}")
-    if len(lines) <= 3:
+        kind_label = {
+            "conclusion": "知识结论",
+            "scene": "场景路径",
+            "required": "必经路径",
+            "optional": "可选路径",
+        }.get(kind, kind) if language == "zh-Hans" else kind
+        lines.append(f"- {mark} [{kind_label}] {desc}")
+    if len(lines) <= 4:
         return []
     lines.append("")
     return lines
@@ -2479,6 +3362,12 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
 def _evidence_sensitive_metadata(
     receipt: dict[str, Any], metadata: dict[str, Any]
 ) -> dict[str, str]:
+    if receipt.get("play_kind") == "operator_reviewed_actual_play":
+        return {
+            "audit_profile": str(metadata.get("audit_profile") or "full_module"),
+            "simulation_method": "operator_reviewed_actual_play",
+            "player_profile": "operator_player",
+        }
     if receipt.get("eligible_as_gameplay_evidence") is True:
         return {
             "audit_profile": "evidence_grade_player_bridge_match",
@@ -2513,7 +3402,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     evidence_receipt = read_evidence_receipt(run_dir)
     # Classification is derived only from the recomputed receipt. Metadata is
     # descriptive and cannot self-attest an unknown/scripted runner as actual play.
-    run_kind = evidence_receipt.get("run_kind")
+    run_kind = evidence_receipt.get("run_kind") or evidence_receipt.get("play_kind")
     eligible = evidence_receipt.get("eligible_as_gameplay_evidence") is True
     if run_kind == "diagnostic_spoiler_run":
         report_basename = "diagnostic-play-report.md"
@@ -2537,6 +3426,54 @@ def generate_battle_report(run_dir: Path) -> Path:
         **metadata,
         **_evidence_sensitive_metadata(evidence_receipt, metadata),
     }
+    operator_review = _read_json(run_dir / "operator-review.json", {})
+    operator_review_lines: list[str] = []
+    if metadata.get("operator_long_play") is True:
+        operator_protocol = str(
+            metadata.get("operator_review_protocol")
+            or operator_review.get("protocol")
+            or "operator_long_play_v1"
+        )
+        operator_contract = metadata.get("operator_contract") or {}
+        model_boundary = (
+            operator_contract.get("model_call_boundary")
+            if isinstance(operator_contract, dict)
+            else {}
+        )
+        if isinstance(operator_review, dict) and operator_review.get("status") in {
+            "approved", "changes_required",
+        }:
+            reviewer = operator_review.get("reviewer") or {}
+            operator_review_lines = [
+                _report_heading(2, "Operator Review", _selected_language_profile(
+                    str(metadata.get("play_language") or "zh-Hans"), metadata, {}
+                )),
+                f"- Protocol: {operator_protocol}",
+                f"- Status: {operator_review['status']}",
+                f"- Reviewer: {reviewer.get('kind', 'unknown')} / {reviewer.get('id', 'unknown')}",
+                "- Automated fact-fidelity PASS: false",
+                "- Player/reviewer: main Codex black-box operator / self-review",
+                "- Additional player or judge model: NOT_CONFIGURED",
+                f"- Model call boundary: {json.dumps(model_boundary, ensure_ascii=False, sort_keys=True)}",
+                "- Official suite status: NOT_RUN; this review cannot establish nightly or release PASS.",
+            ]
+            for dimension in ("rules", "facts", "progression", "style"):
+                row = (operator_review.get("dimensions") or {}).get(dimension) or {}
+                operator_review_lines.append(
+                    f"- {dimension}: {row.get('decision', 'missing')} — {row.get('notes', '')}"
+                )
+        else:
+            operator_review_lines = [
+                "## Operator Review",
+                f"- Protocol: {operator_protocol}",
+                "- Status: pending",
+                "- Player/reviewer: main Codex black-box operator / self-review",
+                "- Additional player or judge model: NOT_CONFIGURED",
+                f"- Model call boundary: {json.dumps(model_boundary, ensure_ascii=False, sort_keys=True)}",
+                "- Operator review is required for rules, facts, progression, and style.",
+                "- Automated fact-fidelity PASS: false (independent model verification NOT_RUN).",
+                "- This run cannot establish nightly or release PASS.",
+            ]
     localized_terms = _localized_terms(metadata)
     context = _load_campaign_context(run_dir, metadata)
     campaign = context["campaign"]
@@ -2574,7 +3511,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    handouts = (
+    explicit_handouts = (
         _read_json(context["campaign_dir"] / "scenario" / "handouts.json", [])
         if context["campaign_dir"]
         else []
@@ -2582,6 +3519,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     transcript = _read_jsonl(run_dir / "transcript.jsonl")
     rolls = _read_jsonl_files(_campaign_log_paths(run_dir, "rolls.jsonl"))
     state_events = _read_jsonl_files(_campaign_log_paths(run_dir, "events.jsonl"))
+    toolbox_records = _read_jsonl_files(
+        _campaign_log_paths(run_dir, "toolbox-calls.jsonl")
+    )
+    match_result = _read_json(run_dir / "match-result.json", {})
+    transcript = _ordered_transcript_for_report(transcript, rolls, match_result)
     session_summaries = _read_jsonl_files(_campaign_memory_paths(run_dir, "session-summaries.jsonl"))
     player_feedback = _read_jsonl(run_dir / "player-feedback.jsonl")
     chase_state = (
@@ -2644,11 +3586,22 @@ def generate_battle_report(run_dir: Path) -> Path:
     language_profile = _selected_language_profile(str(play_language), metadata, campaign)
     profile_labels = _localized_profile_labels(metadata)
 
-    actor_names = _localized_actor_names(characters, localized_terms)
-    clue_lookup = _load_clue_lookup(
-        context["campaign_dir"],
+    actor_names = _localized_actor_names(
+        characters,
+        localized_terms,
+        context.get("npc_agendas"),
+        str(play_language),
+    )
+    clue_records = _load_clue_records(context["campaign_dir"])
+    clue_lookup = _clue_lookup_from_records(
+        clue_records,
         localized_terms,
         str(play_language),
+    )
+    handouts = _merge_discovered_clue_handouts(
+        explicit_handouts if isinstance(explicit_handouts, list) else [],
+        state_events,
+        clue_records,
     )
     handout_lines = [
         _format_handout(handout, localized_terms, str(play_language))
@@ -2659,6 +3612,17 @@ def generate_battle_report(run_dir: Path) -> Path:
         _format_roll_recap(event, actor_names, localized_terms, str(play_language), language_profile)
         for event in rolls
     ]
+    roll_overview_lines = _format_roll_overview(
+        rolls,
+        localized_terms,
+        language_profile,
+        str(play_language),
+    )
+    transcript_receipt_lines = _format_transcript_receipt(
+        transcript,
+        run_dir / "transcript.jsonl",
+        str(play_language),
+    )
     transcript_lines: list[str] = []
     actual_play_lines: list[str] = []
     roll_cursor = 0
@@ -2688,11 +3652,17 @@ def generate_battle_report(run_dir: Path) -> Path:
     roll_lines = [
         _format_roll_mechanical(event, actor_names, localized_terms, str(play_language), language_profile)
         for event in rolls
+        if _important_roll(event)
     ]
-    state_lines = [
+    rendered_state_lines = [
         _format_state_event(event, localized_terms, str(play_language), actor_names, clue_lookup)
         for event in state_events
     ]
+    state_lines = _format_state_change_summary(
+        state_events,
+        rendered_state_lines,
+        str(play_language),
+    )
     decision_lines = [
         _format_decision(event, localized_terms, str(play_language))
         for event in state_events
@@ -2701,7 +3671,7 @@ def generate_battle_report(run_dir: Path) -> Path:
     clue_lines = [
         _format_clue(event, localized_terms, str(play_language), clue_lookup)
         for event in state_events
-        if _event_type(event) in {"clue", "clue_reveal"}
+        if _event_type(event) in CLUE_EVENT_TYPES
     ]
     scene_replay_lines = [
         line
@@ -2715,30 +3685,46 @@ def generate_battle_report(run_dir: Path) -> Path:
         )
     ]
     combat_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
+        (
+            _format_combat_event(event, localized_terms, str(play_language), actor_names)
+            if _event_type(event) != "combat"
+            else _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
+        )
         for event in state_events
-        if event.get("type") == "combat"
+        if _event_type(event) in COMBAT_EVENT_TYPES
     ]
     chase_lines = [
         _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
         for event in state_events
         if event.get("type") == "chase"
     ]
-    sanity_lines = [
-        line
-        for event in state_events
-        if event.get("type") in {"sanity", "bout_of_madness"}
-        for line in _format_subsystem_event_lines(
-            event,
-            localized_terms,
-            str(play_language),
-            actor_names,
-        )
-    ]
+    sanity_lines: list[str] = []
+    for event in state_events:
+        event_type = _event_type(event)
+        if event_type not in SANITY_EVENT_TYPES:
+            continue
+        if event_type == "sanity_loss":
+            sanity_lines.append(
+                _format_sanity_loss_event(
+                    event,
+                    localized_terms,
+                    str(play_language),
+                    actor_names,
+                )
+            )
+        else:
+            sanity_lines.extend(
+                _format_subsystem_event_lines(
+                    event,
+                    localized_terms,
+                    str(play_language),
+                    actor_names,
+                )
+            )
+    ending_events = _session_ending_events(state_events)
     ending_lines = [
-        _format_subsystem_event(event, localized_terms, str(play_language), actor_names)
-        for event in state_events
-        if event.get("type") == "session_ending"
+        _format_session_ending_event(event, localized_terms, str(play_language))
+        for event in ending_events[-1:]
     ]
     creation_lines: list[str] = []
     for character in characters:
@@ -2770,6 +3756,25 @@ def generate_battle_report(run_dir: Path) -> Path:
         _format_session_summary(event, localized_terms, str(play_language))
         for event in session_summaries
     ]
+    if ending_events:
+        final_ending_summary = _event_summary(
+            ending_events[-1],
+            "",
+            localized_terms,
+            str(play_language),
+        )
+        if final_ending_summary and not any(
+            _event_summary(event, "", localized_terms, str(play_language))
+            == final_ending_summary
+            for event in session_summaries
+        ):
+            recap_lines.append(
+                _format_session_ending_event(
+                    ending_events[-1],
+                    localized_terms,
+                    str(play_language),
+                )
+            )
     feedback_lines = [
         _format_feedback(event, localized_terms, str(play_language), profile_labels, language_profile)
         for event in player_feedback
@@ -2781,11 +3786,17 @@ def generate_battle_report(run_dir: Path) -> Path:
         actor_names,
         language_profile,
     )
-    combat_tracker_lines = _format_combat_tracker(
+    combat_tracker_lines = _format_combat_history_trackers(
+        state_events,
         combat_state,
         localized_terms,
         str(play_language),
         actor_names,
+        language_profile,
+    )
+    tool_reliability_lines = _format_tool_reliability(
+        toolbox_records,
+        str(play_language),
         language_profile,
     )
 
@@ -2851,8 +3862,15 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         *_evidence_report_lines(evidence_receipt, str(play_language)),
         "",
+        *operator_review_lines,
+        *( [""] if operator_review_lines else [] ),
         _report_heading(2, "Module", language_profile),
-        _report_field("Scenario", _localize_text(scenario_title, localized_terms), language_profile),
+        _report_field(
+            "Scenario",
+            _localized_visible_field(scenario, "title", localized_terms, str(play_language))
+            or _localize_text(scenario_title, localized_terms),
+            language_profile,
+        ),
         _report_field("Scenario ID", scenario_id, language_profile),
         _html_anchor("scenario-id", scenario_id),
         _report_field("Source", _localize_text(module_source, localized_terms), language_profile),
@@ -2878,13 +3896,14 @@ def generate_battle_report(run_dir: Path) -> Path:
         *_list_lines(actual_play_lines, "- No actual play events recorded."),
         "",
         _report_heading(2, "Session Transcript", language_profile),
-        *_list_lines(transcript_lines, "- No transcript events recorded."),
+        *_list_lines(transcript_receipt_lines, "- No transcript events recorded."),
         "",
+        *tool_reliability_lines,
         _report_heading(2, "Major Player Decisions", language_profile),
         *_list_lines(decision_lines, "- No major decisions recorded."),
         "",
         _report_heading(2, "Rules & Rolls Recap", language_profile),
-        *_list_lines(roll_recap_lines, "- No roll recap recorded."),
+        *_list_lines(roll_overview_lines, "- No roll recap recorded."),
         "",
         _report_heading(2, "Mechanical Log", language_profile),
         _report_heading(3, "Important Rolls", language_profile),
@@ -2926,8 +3945,15 @@ def generate_battle_report(run_dir: Path) -> Path:
         _report_heading(2, "Clues Found", language_profile),
         *_list_lines(clue_lines, "- No clues recorded."),
         "",
-        *_render_epistemic_experience_section(epistemic_metrics, language_profile),
-        *_render_narrative_adherence_section(metadata.get("narrative_adherence")),
+        *_render_epistemic_experience_section(
+            epistemic_metrics,
+            language_profile,
+            observed=bool(belief_events or belief_state),
+        ),
+        *_render_narrative_adherence_section(
+            metadata.get("narrative_adherence"),
+            language_profile,
+        ),
         _report_heading(2, "Session Ending", language_profile),
         *_list_lines(ending_lines, "- Session ending not recorded."),
         "",

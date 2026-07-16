@@ -1261,6 +1261,8 @@ def test_nightly_uses_versioned_continuity_budgets_and_records_them(
     assert observed == {"continuity-25": 900.0, "continuity-50": 1800.0}
     assert result["execution_budgets"] == {
         "matrix_seconds": 3.5,
+        "matrix_judge_seconds": 3.5,
+        "matrix_max_workers": 2,
         "continuity-25_seconds": 900.0,
         "continuity-50_seconds": 1800.0,
     }
@@ -1992,14 +1994,42 @@ def test_completion_audit_requires_evidence_grade_matrix_and_continuity_results(
                 "kp_model": {"provider": "zhipu-coding", "id": "glm-5.2"},
                 "judge_model": {"provider": "coding-relay", "id": "gpt-5.6-sol"},
                 "runner_result": {"status": "PASS"},
-                "judge_result": {
-                    "evaluator": {"provider": "coding-relay", "id": "gpt-5.6-sol"}
+                "judge_results": {
+                    rubric_id: {
+                        "evaluator": {
+                            "provider": "coding-relay",
+                            "id": "gpt-5.6-sol",
+                        }
+                    }
+                    for rubric_id in requirements[
+                        "matrix_required_rubric_ids_by_case"
+                    ][case_id]
                 },
+                "judge_gates": [
+                    {"rubric_id": rubric_id, "status": "PASS"}
+                    for rubric_id in requirements[
+                        "matrix_required_rubric_ids_by_case"
+                    ][case_id]
+                ],
                 "artifact_hashes": {
                     "run-manifest.json": digest,
                     "player-request.json": digest,
                     "kp-request.json": digest,
-                    "judge-result.json": digest,
+                    **{
+                        (
+                            "judge-result.json"
+                            if len(
+                                requirements["matrix_required_rubric_ids_by_case"][
+                                    case_id
+                                ]
+                            )
+                            == 1
+                            else f"judge-result.{rubric_id}.json"
+                        ): digest
+                        for rubric_id in requirements[
+                            "matrix_required_rubric_ids_by_case"
+                        ][case_id]
+                    },
                 },
             }
             for persona in requirements["persona_ids"]
@@ -2044,7 +2074,12 @@ def test_completion_audit_requires_evidence_grade_matrix_and_continuity_results(
         "continuity-50",
     }
 
-    matrix_results["cells"][0]["artifact_hashes"].pop("judge-result.json")
+    missing_judge_artifact = next(
+        name
+        for name in matrix_results["cells"][0]["artifact_hashes"]
+        if name.startswith("judge-result")
+    )
+    matrix_results["cells"][0]["artifact_hashes"].pop(missing_judge_artifact)
     continuity_results["continuity-50"]["evidence_class"] = "fixture"
     incomplete = audit.assess_eval_contract_coverage(
         REPO,

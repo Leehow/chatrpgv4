@@ -317,8 +317,6 @@ def _maybe_emit_session_ending(
     and the active story-graph scene is terminal via ``is_final``,
     ``scene_type == "resolution"``, no outgoing edges, or legacy last-in-``scenes``.
     """
-    if plan.get("scene_action") != "PAYOFF":
-        return None
     story_graph_path = campaign_dir / "scenario" / "story-graph.json"
     if not story_graph_path.exists():
         return None
@@ -329,6 +327,21 @@ def _maybe_emit_session_ending(
         (s for s in scenes if s.get("scene_id") == current_scene_id),
         None,
     )
+    conclusion = current_scene.get("conclusion_contract") if isinstance(current_scene, dict) else None
+    outcome_receipt = None
+    if isinstance(conclusion, dict):
+        outcome_receipt = next((
+            item for item in world.get("scenario_outcome_receipts", []) or []
+            if isinstance(item, dict)
+            and item.get("status") == "completed"
+            and item.get("conclusion_id") == conclusion.get("conclusion_id")
+            and item.get("scene_id") == current_scene_id
+            and item.get("session_ending") is True
+        ), None)
+        if outcome_receipt is None:
+            return None
+    elif plan.get("scene_action") != "PAYOFF":
+        return None
     if current_scene is None or not _is_terminal_scene(
         current_scene, scenes, story_graph=story
     ):
@@ -343,13 +356,149 @@ def _maybe_emit_session_ending(
         "payload": {
             "scenario_id": scenario_id,
             "scene_id": current_scene_id,
-            "summary": f"scenario ending on scene {current_scene_id}",
+            "summary": (
+                outcome_receipt.get("player_visible_outcome")
+                if isinstance(outcome_receipt, dict)
+                else f"scenario ending on scene {current_scene_id}"
+            ),
         },
         "scenario_id": scenario_id,
         "scene_id": current_scene_id,
         "ts": ts,
         "rule_ref": "core.keeper.ending_a_story",
     }
+
+
+def _commit_structured_scenario_outcome(
+    campaign_dir: Path,
+    world: dict[str, Any],
+    rules_results: list[dict[str, Any]],
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> dict[str, Any] | None:
+    story = _read_json(campaign_dir / "scenario" / "story-graph.json", {"scenes": []})
+    scene_id = str(world.get("active_scene_id") or "")
+    scene = next((
+        row for row in story.get("scenes", []) or []
+        if isinstance(row, dict) and str(row.get("scene_id") or "") == scene_id
+    ), None)
+    conclusion = scene.get("conclusion_contract") if isinstance(scene, dict) else None
+    if not isinstance(conclusion, dict):
+        return None
+    reward = conclusion.get("sanity_reward")
+    if not isinstance(reward, dict):
+        return None
+    settled = next((
+        row for row in rules_results
+        if isinstance(row, dict)
+        and row.get("event_type") == "sanity_rewarded"
+        and row.get("source") == conclusion.get("conclusion_id")
+        and row.get("rule_ref") == reward.get("rule_ref")
+    ), None)
+    if settled is None:
+        return None
+    receipts = [
+        dict(item) for item in world.get("scenario_outcome_receipts", []) or []
+        if isinstance(item, dict)
+    ]
+    if any(
+        item.get("conclusion_id") == conclusion.get("conclusion_id")
+        and item.get("status") == "completed"
+        for item in receipts
+    ):
+        return None
+    receipt = {
+        "schema_version": 1,
+        "conclusion_id": conclusion.get("conclusion_id"),
+        "scene_id": scene_id,
+        "status": "completed",
+        "combat_outcome": conclusion.get("requires_combat_outcome"),
+        "reward_roll_id": settled.get("roll_id"),
+        "player_visible_outcome": conclusion.get("player_visible_outcome"),
+        "session_ending": conclusion.get("session_ending") is True,
+        "decision_id": decision_id,
+        "ts": ts,
+    }
+    receipts.append(receipt)
+    world["scenario_outcome_receipts"] = receipts[-64:]
+    _write_json(campaign_dir / "save" / "world-state.json", world)
+    return {
+        "event_type": "scenario_outcome_committed",
+        "decision_id": decision_id,
+        "investigator_id": investigator_id,
+        **receipt,
+        "summary": f"structured scenario outcome committed: {receipt['conclusion_id']}",
+    }
+
+
+def _typed_completion_milestones(
+    campaign_dir: Path,
+    world: dict[str, Any],
+    rules_results: list[dict[str, Any]],
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Project strict completion milestones from settled subsystem evidence.
+
+    The detailed subsystem ledger remains authoritative.  These compact
+    wrappers give full-module evaluation a stable ``combat`` / ``reward``
+    vocabulary without pretending that merely starting combat completed it.
+    """
+    milestones: list[dict[str, Any]] = []
+    combat_sources = [
+        row for row in rules_results
+        if isinstance(row, dict)
+        and row.get("event_type") in {
+            "combat_turn_resolved", "combat_special_resolution", "combat_ended",
+        }
+    ]
+    combat_state = _read_json(campaign_dir / "save" / "combat.json", {})
+    if combat_sources and combat_state.get("status") == "concluded":
+        source = combat_sources[-1]
+        milestones.append({
+            "type": "combat",
+            "event_type": "combat",
+            "actor": investigator_id,
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "command_id": source.get("command_id"),
+            "scenario_id": _resolve_scenario_id(campaign_dir, world),
+            "scene_id": world.get("active_scene_id"),
+            "payload": {
+                "combat_id": combat_state.get("combat_id"),
+                "outcome": combat_state.get("outcome"),
+                "source_event_type": source.get("event_type"),
+            },
+            "ts": ts,
+        })
+    reward_source = next((
+        row for row in rules_results
+        if isinstance(row, dict) and row.get("event_type") == "sanity_rewarded"
+    ), None)
+    if reward_source is not None:
+        milestones.append({
+            "type": "reward",
+            "event_type": "reward",
+            "actor": investigator_id,
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "command_id": reward_source.get("command_id"),
+            "scenario_id": _resolve_scenario_id(campaign_dir, world),
+            "scene_id": world.get("active_scene_id"),
+            "payload": {
+                "reward_kind": "sanity",
+                "roll_id": reward_source.get("roll_id"),
+                "delta": reward_source.get("delta"),
+                "source": reward_source.get("source"),
+                "rule_ref": reward_source.get("rule_ref"),
+            },
+            "ts": ts,
+        })
+    return milestones
 
 
 def _lookup_clock_def(campaign_dir: Path, clock_id: str) -> dict[str, Any] | None:
@@ -716,7 +865,6 @@ def _gate_social_clues_and_persist_disclosure(
         return plan, []
 
     events: list[dict[str, Any]] = []
-    approved: list[str] = []
     planned = [str(cid) for cid in (policy.get("reveal") or []) if cid]
     npc_agendas = _read_json(
         campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []}
@@ -736,6 +884,29 @@ def _gate_social_clues_and_persist_disclosure(
         for clue in conclusion.get("clues") or []:
             if isinstance(clue, dict) and clue.get("clue_id"):
                 clue_rows.setdefault(str(clue["clue_id"]), []).append(clue)
+
+    # A single natural-language turn may intentionally combine an ordinary
+    # authored affordance (for example accepting keys) with an NPC disclosure
+    # request.  The A21 gate owns only clues whose structured delivery kind is
+    # social; applying it to the whole clue_policy would silently discard the
+    # non-social half of that same turn.
+    social_planned = {
+        clue_id
+        for clue_id in planned
+        if len(clue_rows.get(clue_id, [])) == 1
+        and clue_rows[clue_id][0].get("delivery_kind")
+        in coc_npc_state.SOCIAL_CLUE_DELIVERY_KINDS
+    }
+    non_social_planned = {
+        clue_id
+        for clue_id in planned
+        if len(clue_rows.get(clue_id, [])) == 1
+        and clue_rows[clue_id][0].get("delivery_kind")
+        not in coc_npc_state.SOCIAL_CLUE_DELIVERY_KINDS
+    }
+    approved: list[str] = [
+        clue_id for clue_id in planned if clue_id in non_social_planned
+    ]
 
     decision_keys = [
         (str(d.get("npc_id") or ""), str(d.get("fact_id") or ""), str(d.get("clue_id") or ""))
@@ -791,7 +962,7 @@ def _gate_social_clues_and_persist_disclosure(
                 about=str(decision.get("fact_id") or "") or None,
             )
         reveal_valid = outcome == "reveal" and canonical_reveal(decision)
-        if reveal_valid and clue_id and clue_id in planned:
+        if reveal_valid and clue_id and clue_id in social_planned:
             approved.append(clue_id)
         recorded_outcome = outcome if outcome != "reveal" or reveal_valid else "withhold"
         record = {
@@ -1377,6 +1548,488 @@ def _resolve_committed_clues(
     return [], events, pressure
 
 
+def _commit_sealed_push_route_completion(
+    plan: dict[str, Any],
+    world: dict[str, Any],
+    committed_clues: list[str],
+    *,
+    rules_results: list[dict[str, Any]] | None,
+    decision_id: str,
+    investigator_id: str,
+    ts: str,
+) -> list[dict[str, Any]] | None:
+    """Settle a pushed authored route solely from its failure-time snapshot."""
+    continuation = plan.get("push_continuation")
+    if not isinstance(continuation, dict):
+        return None
+    transaction = continuation.get("sealed_route_transaction")
+    if transaction is None:
+        return None
+    binding = continuation.get("binding")
+    if (
+        not isinstance(transaction, dict)
+        or transaction.get("schema_version") != 1
+        or transaction.get("kind") != "authored_route_completion"
+        or not isinstance(binding, dict)
+        or binding.get("schema_version") != 2
+        or binding.get("mode") != "continuation_capsule"
+        or transaction.get("scene_id") != binding.get("scene_id")
+        or transaction.get("route_id") != binding.get("route_id")
+        or coc_subsystem_executor._canonical_json_hash(transaction)
+        != binding.get("route_transaction_sha256")
+    ):
+        raise ValueError("sealed Push route transaction is detached from capsule authority")
+    pushed_result = next(
+        (
+            result for result in (rules_results or [])
+            if isinstance(result, dict)
+            and result.get("pushed") is True
+            and result.get("success") is True
+            and result.get("continuation_id") == binding.get("continuation_id")
+            and result.get("continuation_idempotency_key")
+            == binding.get("idempotency_key")
+            and result.get("request_id") == binding.get("request_id")
+        ),
+        None,
+    )
+    if pushed_result is None:
+        return []
+    if transaction.get("repeatable") is True:
+        return []
+    route_id = str(transaction["route_id"])
+    scene_id = str(transaction["scene_id"])
+    receipts = [
+        dict(item)
+        for item in world.get("route_completion_receipts", []) or []
+        if isinstance(item, dict)
+    ]
+    if any(
+        str(item.get("route_id") or "") == route_id
+        and str(item.get("scene_id") or scene_id) == scene_id
+        and item.get("status") in {"consumed", "blocked"}
+        for item in receipts
+    ):
+        return []
+    completed = {
+        str(item.get("route_id"))
+        for item in receipts
+        if item.get("status") == "consumed"
+        and str(item.get("route_id") or "").strip()
+        and (
+            not str(item.get("scene_id") or "").strip()
+            or str(item.get("scene_id")) == scene_id
+        )
+    }
+    required = set(transaction.get("requires_completed_route_ids") or [])
+    if not required.issubset(completed):
+        raise ValueError("sealed Push route prerequisites changed before settlement")
+    direct_grants = [str(value) for value in transaction.get("direct_grant_clue_ids") or []]
+    discovered_after = {
+        str(value) for value in world.get("discovered_clue_ids", []) or [] if value
+    }
+    receipt_clues = [
+        clue_id for clue_id in direct_grants if clue_id in set(committed_clues)
+    ]
+    if direct_grants and (
+        not receipt_clues or not set(direct_grants).issubset(discovered_after)
+    ):
+        return []
+    flags = sorted({str(value) for value in transaction.get("sets_flags") or []})
+    remaining = list(dict.fromkeys(
+        str(value)
+        for value in [
+            *direct_grants,
+            *(transaction.get("remaining_clue_ids") or []),
+        ]
+        if value and str(value) not in discovered_after
+    ))
+    request_id = str(binding["request_id"])
+    outcome = str(pushed_result.get("outcome") or "success")
+    receipt = {
+        "schema_version": 1,
+        "route_id": route_id,
+        "scene_id": scene_id,
+        "status": "consumed",
+        "committed_clue_ids": receipt_clues,
+        "committed_flag_ids": flags,
+        "remaining_clue_ids": remaining,
+        "rule_request_ids": [request_id],
+        "rule_outcomes": [outcome],
+        "success": True,
+        "completion_quality": "clean",
+        "decision_id": decision_id,
+        "source": "push_capsule_rule_success",
+        "ts": ts,
+        "push_continuation": {
+            "schema_version": 2,
+            "choice_id": str(continuation.get("choice_id") or ""),
+            "continuation_id": str(binding.get("continuation_id") or ""),
+            "original_command_id": str(
+                pushed_result.get("original_command_id") or ""
+            ),
+            "source_command_id": str(
+                pushed_result.get("source_command_id") or ""
+            ),
+            "settlement_request_id": request_id,
+            "settlement": "sealed_route_transaction_exact_once",
+        },
+    }
+    receipts = [
+        item for item in receipts
+        if not (
+            str(item.get("route_id") or "") == route_id
+            and str(item.get("scene_id") or "") == scene_id
+        )
+    ]
+    receipts.append(receipt)
+    world["route_completion_receipts"] = receipts[-256:]
+    public_goal = str(transaction.get("player_visible_goal") or "")
+    public_outcome = str(transaction.get("player_visible_outcome") or "")
+    return [{
+        "event_type": "route_completed",
+        "decision_id": decision_id,
+        "route_id": route_id,
+        "scene_id": scene_id,
+        "committed_clue_ids": receipt_clues,
+        "committed_flag_ids": flags,
+        "remaining_clue_ids": remaining,
+        "rule_request_ids": [request_id],
+        "rule_outcomes": [outcome],
+        "status": "completed",
+        "success": True,
+        "completion_quality": "clean",
+        "player_visible_goal": public_goal,
+        "player_visible_outcome": public_outcome,
+        "source": "push_capsule_rule_success",
+        "investigator_id": investigator_id,
+        "summary": f"sealed Push route completed: {route_id}",
+        "ts": ts,
+        "push_continuation": dict(receipt["push_continuation"]),
+    }]
+
+
+def _commit_resolved_route_completions(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    world: dict[str, Any],
+    committed_clues: list[str],
+    *,
+    rules_results: list[dict[str, Any]] | None = None,
+    decision_id: str,
+    investigator_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Persist completed authored routes from structured settlement.
+
+    A direct clue/grant route closes when its exact authored grants are durable
+    and at least one of them committed on this turn.  A generic route closes
+    only when either its structured clue-affordance binding committed a
+    concrete clue, or every rule request explicitly bound to that route settled
+    successfully.  Free prose is never inspected.
+    Repeatable/resume routes remain open, and explicitly modeled remaining
+    grant IDs are recorded for choice-frame filtering.
+    """
+    sealed_push = _commit_sealed_push_route_completion(
+        plan,
+        world,
+        committed_clues,
+        rules_results=rules_results,
+        decision_id=decision_id,
+        investigator_id=investigator_id,
+        ts=ts,
+    )
+    if sealed_push is not None:
+        return sealed_push
+    turn_input = plan.get("turn_input") or {}
+    rich = turn_input.get("player_intent_rich") or {}
+    resolution = rich.get("action_resolution") if isinstance(rich, dict) else None
+    if not isinstance(resolution, dict) or resolution.get("no_match") is True:
+        return []
+    matched_route_ids = {
+        str(value)
+        for value in (
+            resolution.get("matched_affordance_ids")
+            or (plan.get("clue_policy") or {}).get("matched_route_ids")
+            or []
+        )
+        if value
+    }
+    if not matched_route_ids:
+        return []
+    scene_id = str(turn_input.get("active_scene_id") or world.get("active_scene_id") or "")
+    story = _read_json(
+        campaign_dir / "scenario" / "story-graph.json", {"scenes": []}
+    )
+    scene = next(
+        (
+            item for item in story.get("scenes", [])
+            if isinstance(item, dict) and str(item.get("scene_id") or "") == scene_id
+        ),
+        {},
+    )
+    affordances = {
+        str(item.get("id") or item.get("route_id") or ""): item
+        for item in scene.get("affordances", []) or []
+        if isinstance(item, dict) and (item.get("id") or item.get("route_id"))
+    }
+    planned = {
+        str(value) for value in (plan.get("clue_policy") or {}).get("reveal", []) if value
+    }
+    bound_committed = [
+        str(value) for value in committed_clues if str(value) in planned
+    ]
+    linked_requests: dict[str, list[dict[str, Any]]] = {}
+    for request in plan.get("rules_requests") or []:
+        if not isinstance(request, dict):
+            continue
+        route_resolution = request.get("route_resolution")
+        if not isinstance(route_resolution, dict):
+            continue
+        request_route_ids = list(dict.fromkeys(
+            str(value or "").strip()
+            for value in route_resolution.get("matched_route_ids") or []
+            if str(value or "").strip()
+        ))
+        # One settled request may own one route only.  A legacy/malformed
+        # multi-route receipt cannot turn one roll into multiple completions.
+        if len(request_route_ids) != 1:
+            continue
+        linked_requests.setdefault(request_route_ids[0], []).append(request)
+    result_by_request_id = {
+        str(result.get("request_id")): result
+        for result in (rules_results or [])
+        if isinstance(result, dict) and result.get("request_id")
+    }
+    discovered_after = {
+        str(value) for value in [*(world.get("discovered_clue_ids") or []), *committed_clues]
+        if value
+    }
+    receipts = [
+        dict(item)
+        for item in world.get("route_completion_receipts", []) or []
+        if isinstance(item, dict)
+    ]
+    completed_route_ids = {
+        str(item.get("route_id"))
+        for item in receipts
+        if item.get("status") == "consumed"
+        and str(item.get("route_id") or "").strip()
+        and (
+            not str(item.get("scene_id") or "").strip()
+            or str(item.get("scene_id")) == scene_id
+        )
+    }
+    blocked_route_ids = {
+        str(item.get("route_id"))
+        for item in receipts
+        if item.get("status") == "blocked"
+        and str(item.get("route_id") or "").strip()
+        and (
+            not str(item.get("scene_id") or "").strip()
+            or str(item.get("scene_id")) == scene_id
+        )
+    }
+    durable_flags = _truthy_flag_ids(
+        _read_json(campaign_dir / "save" / "flags.json", {})
+    )
+    events: list[dict[str, Any]] = []
+    generic_candidates: list[str] = []
+    for route_id in sorted(matched_route_ids):
+        affordance = affordances.get(route_id)
+        if not isinstance(affordance, dict):
+            continue
+        if route_id in completed_route_ids or route_id in blocked_route_ids:
+            continue
+        required_route_ids = {
+            str(value).strip()
+            for value in affordance.get("requires_completed_route_ids", []) or []
+            if str(value or "").strip()
+        }
+        # Re-check prerequisites at settlement.  This protects execution from
+        # stale/forged resolver receipts even though the candidate projection
+        # normally hides the route before semantic matching.
+        if not required_route_ids.issubset(completed_route_ids):
+            continue
+        if (
+            affordance.get("repeatable") is True
+            or str(affordance.get("status") or "") in {"repeatable", "resume"}
+            or str(affordance.get("completion_policy") or "") == "repeatable"
+        ):
+            continue
+        direct_grants = [
+            str(value).strip()
+            for value in [
+                affordance.get("clue_id"),
+                *(affordance.get("grants_clue_ids") or []),
+            ]
+            if str(value or "").strip()
+        ]
+        if not direct_grants:
+            generic_candidates.append(route_id)
+    unique_clue_route_id = (
+        generic_candidates[0] if len(generic_candidates) == 1 else None
+    )
+    for route_id in sorted(matched_route_ids):
+        affordance = affordances.get(route_id)
+        if not isinstance(affordance, dict):
+            continue
+        if route_id in completed_route_ids or route_id in blocked_route_ids:
+            continue
+        required_route_ids = {
+            str(value).strip()
+            for value in affordance.get("requires_completed_route_ids", []) or []
+            if str(value or "").strip()
+        }
+        if not required_route_ids.issubset(completed_route_ids):
+            continue
+        if (
+            affordance.get("repeatable") is True
+            or str(affordance.get("status") or "") in {"repeatable", "resume"}
+            or str(affordance.get("completion_policy") or "") == "repeatable"
+        ):
+            continue
+        direct_grants = []
+        for value in [
+            affordance.get("clue_id"),
+            *(affordance.get("grants_clue_ids") or []),
+        ]:
+            clue_id = str(value or "").strip()
+            if clue_id and clue_id not in direct_grants:
+                direct_grants.append(clue_id)
+        route_requests = linked_requests.get(route_id, [])
+        route_request_ids = [
+            str(request.get("request_id"))
+            for request in route_requests
+            if request.get("request_id")
+        ]
+        linked_results = [
+            result_by_request_id[request_id]
+            for request_id in route_request_ids
+            if request_id in result_by_request_id
+        ]
+        has_bound_rules = bool(route_request_ids)
+        rule_success = has_bound_rules and (
+            len(linked_results) == len(route_request_ids)
+            and all(result.get("success") is True for result in linked_results)
+        )
+        direct_committed = [
+            clue_id for clue_id in direct_grants if clue_id in bound_committed
+        ]
+        if direct_grants:
+            clue_commit = bool(direct_committed) and set(direct_grants).issubset(
+                discovered_after
+            )
+            receipt_clues = direct_committed
+        else:
+            clue_commit = bool(bound_committed) and route_id == unique_clue_route_id
+            receipt_clues = list(bound_committed)
+        route_flags = {
+            str(value).strip()
+            for value in affordance.get("sets_flags", []) or []
+            if str(value or "").strip()
+        }
+        flag_commit = (
+            affordance.get("completion_policy") == "matched_no_roll"
+            and bool(route_flags)
+            and route_flags.issubset(durable_flags)
+            and route_flags.issubset({
+                str(value) for value in (plan.get("flags_set") or []) if value
+            })
+        )
+        if not clue_commit and not rule_success and not flag_commit:
+            continue
+        # A direct grant route is not a generic successful action: its durable
+        # clue commit is the settlement authority.  A bound roll by itself
+        # cannot consume it while the clue remains withheld.
+        if direct_grants and not clue_commit:
+            continue
+        # Consuming an authored route and cleanly succeeding at its bound roll
+        # are separate facts. Fail-forward may legally commit the core clue and
+        # consume the route after a failed/fumbled bonus check, but that must
+        # never become a public claim that the attempted action succeeded.
+        completion_success = rule_success if has_bound_rules else True
+        completion_quality = "clean" if completion_success else "with_cost"
+        remaining = [
+            str(value)
+            for value in [
+                *direct_grants,
+                *(affordance.get("remaining_clue_ids", []) or []),
+            ]
+            if value and str(value) not in discovered_after
+        ]
+        completion_source = (
+            "resolver_bound_direct_clue_commit"
+            if direct_grants
+            else "resolver_bound_clue_commit"
+            if clue_commit
+            else "resolver_bound_flag_commit"
+            if flag_commit
+            else "resolver_bound_rule_success"
+        )
+        public_goal = str(
+            affordance.get("cue")
+            or affordance.get("player_visible_cue")
+            or ""
+        ).strip()
+        public_outcome = str(
+            affordance.get("player_visible_outcome")
+            or affordance.get("player_visible_success")
+            or affordance.get("on_success_visible")
+            or affordance.get("visible_benefit")
+            or (f"Completed public action: {public_goal}" if public_goal else "")
+        ).strip()
+        receipt = {
+            "schema_version": 1,
+            "route_id": route_id,
+            "scene_id": scene_id,
+            "status": "consumed",
+            "committed_clue_ids": list(receipt_clues),
+            "committed_flag_ids": sorted(route_flags) if flag_commit else [],
+            "remaining_clue_ids": list(dict.fromkeys(remaining)),
+            "rule_request_ids": route_request_ids,
+            "rule_outcomes": [
+                str(result.get("outcome") or "success") for result in linked_results
+            ],
+            "success": completion_success,
+            "completion_quality": completion_quality,
+            "decision_id": decision_id,
+            "source": completion_source,
+            "ts": ts,
+        }
+        receipts = [
+            item for item in receipts
+            if not (
+                str(item.get("route_id") or "") == route_id
+                and str(item.get("scene_id") or "") == scene_id
+            )
+        ]
+        receipts.append(receipt)
+        event = {
+            "event_type": "route_completed",
+            "decision_id": decision_id,
+            "route_id": route_id,
+            "scene_id": scene_id,
+            "committed_clue_ids": list(receipt_clues),
+            "committed_flag_ids": receipt["committed_flag_ids"],
+            "remaining_clue_ids": receipt["remaining_clue_ids"],
+            "rule_request_ids": route_request_ids,
+            "rule_outcomes": receipt["rule_outcomes"],
+            "status": "completed",
+            "success": completion_success,
+            "completion_quality": completion_quality,
+            "player_visible_goal": public_goal,
+            "player_visible_outcome": public_outcome,
+            "source": completion_source,
+            "investigator_id": investigator_id,
+            "summary": f"structured route completed: {route_id}",
+            "ts": ts,
+        }
+        events.append(event)
+    if events:
+        world["route_completion_receipts"] = receipts[-256:]
+    return events
+
+
 def _copy_jsonable(payload: dict[str, Any]) -> dict[str, Any]:
     """Deep-copy a JSON-shaped DirectorPlan without importing copy for stable output."""
     return json.loads(json.dumps(payload, ensure_ascii=False))
@@ -1485,12 +2138,25 @@ def backfill_rule_results(plan: dict[str, Any], rules_results: list[dict[str, An
         }
     elif (failed_contract := _first_failed_contract_result(resolved_plan, resolved_results)) is not None:
         result, contract = failed_contract
-        mode = contract.get("failure_outcome_mode", "goal_with_cost")
+        is_authored_fumble = (
+            result.get("outcome") == "fumble"
+            and isinstance(result.get("fumble_consequence"), dict)
+        )
+        mode = (
+            "authored_fumble_consequence"
+            if is_authored_fumble
+            else contract.get("failure_outcome_mode", "goal_with_cost")
+        )
+        failure_effect = (
+            result["fumble_consequence"].get("summary")
+            if is_authored_fumble
+            else contract.get("failure_effect")
+        )
         directives["failure_consequence"] = {
             "narration_mode": mode,
             "goal": contract.get("goal"),
             "success_effect": contract.get("success_effect"),
-            "failure_effect": contract.get("failure_effect"),
+            "failure_effect": failure_effect,
             "consequence_type": mode,
             "severity": "hard" if str(result.get("outcome")) == "fumble" else "regular",
             "costs": [mode],
@@ -1791,6 +2457,29 @@ def _apply_typed_push_consequences(
         }
         if kind == "fictional_position":
             record["severity"] = effect.get("severity", "serious")
+        elif kind == "route_closed":
+            route_id = str(effect["route_id"])
+            scene_id = str(world.get("active_scene_id") or "")
+            receipts = world.setdefault("route_completion_receipts", [])
+            if not isinstance(receipts, list):
+                raise ValueError("world-state route_completion_receipts must be a list")
+            if not any(
+                isinstance(row, dict)
+                and row.get("route_id") == route_id
+                and row.get("status") == "blocked"
+                for row in receipts
+            ):
+                receipts.append({
+                    "route_id": route_id,
+                    "scene_id": scene_id,
+                    "status": "blocked",
+                    "source": "pushed_failure_consequence",
+                    "source_command_id": source_id,
+                    "summary": summary,
+                })
+            record["route_id"] = route_id
+            record["scene_id"] = scene_id
+            evidence["route_id"] = route_id
         elif kind == "condition":
             condition_id = str(effect["condition_id"])
             inv_path = campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
@@ -1836,6 +2525,204 @@ def _apply_typed_push_consequences(
             if existing_record.get("clock_transition") != record.get("clock_transition"):
                 raise ValueError("world pushed-consequence receipt diverges from threat transition")
             continue
+        records.append(record)
+        known.add(source_id)
+        applied.append(evidence)
+    return applied
+
+
+def _process_authored_fumble_consequences(
+    rules_results: list[dict[str, Any]] | None,
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Project exact typed fumble effects; ordinary/pushed failure stays separate."""
+    events: list[dict[str, Any]] = []
+    for result in rules_results or []:
+        if (
+            not isinstance(result, dict)
+            or result.get("outcome") != "fumble"
+            or result.get("pushed") is True
+        ):
+            continue
+        contract = result.get("roll_contract")
+        if not isinstance(contract, dict) or not (
+            contract.get("authored_roll_gate") is True
+            or contract.get("authored_clue_bonus") is True
+            or contract.get("generated_clue_gate") is True
+        ):
+            continue
+        consequence = result.get("fumble_consequence")
+        effect = consequence.get("effect") if isinstance(consequence, dict) else None
+        policy = contract.get("push_policy")
+        kind = effect.get("kind") if isinstance(effect, dict) else None
+        valid_effect = (
+            isinstance(effect, dict)
+            and (
+                kind == "fictional_position"
+                and set(effect) in ({"kind"}, {"kind", "severity"})
+                and (
+                    "severity" not in effect
+                    or effect.get("severity") in {"minor", "serious", "critical"}
+                )
+                or kind == "pressure_tick"
+                and set(effect) == {"kind", "clock_id", "ticks"}
+                and isinstance(effect.get("clock_id"), str)
+                and bool(effect["clock_id"].strip())
+                and isinstance(effect.get("ticks"), int)
+                and not isinstance(effect.get("ticks"), bool)
+                and 1 <= effect["ticks"] <= 4
+                or kind == "condition"
+                and set(effect) == {"kind", "condition_id"}
+                and isinstance(effect.get("condition_id"), str)
+                and bool(effect["condition_id"].strip())
+                or kind == "route_closed"
+                and set(effect) == {"kind", "route_id"}
+                and isinstance(effect.get("route_id"), str)
+                and bool(effect["route_id"].strip())
+            )
+        )
+        if (
+            not isinstance(consequence, dict)
+            or not isinstance(consequence.get("summary"), str)
+            or not consequence["summary"].strip()
+            or not valid_effect
+            or not isinstance(policy, dict)
+            or policy.get("eligible") is not False
+        ):
+            raise ValueError("authored fumble result lacks its immediate typed consequence")
+        events.append({
+            "event_type": (
+                "generated_fumble_consequence"
+                if contract.get("generated_clue_gate") is True
+                else "authored_fumble_consequence"
+            ),
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "skill": result.get("skill"),
+            "roll_id": result.get("roll_id"),
+            "source_command_id": result.get("source_command_id") or result.get("roll_id"),
+            "fumble_consequence": _copy_jsonable(consequence),
+            "source_binding": _copy_jsonable(consequence.get("source_binding")),
+            "ts": ts,
+        })
+    return events
+
+
+def _apply_typed_fumble_consequences(
+    campaign_dir: Path,
+    world: dict[str, Any],
+    fumble_events: list[dict[str, Any]],
+    *,
+    investigator_id: str,
+    decision_id: str,
+    ts: str,
+) -> list[dict[str, Any]]:
+    """Apply typed fumble effects immediately and exactly once."""
+    records = world.setdefault("fumble_consequences", [])
+    if not isinstance(records, list):
+        raise ValueError("world-state fumble_consequences must be a list")
+    known = {
+        str(row.get("source_command_id")) for row in records if isinstance(row, dict)
+    }
+    applied: list[dict[str, Any]] = []
+    for event in fumble_events:
+        source_id = str(event.get("source_command_id") or "")
+        if not source_id or source_id in known:
+            continue
+        consequence = event["fumble_consequence"]
+        effect = consequence["effect"]
+        kind = str(effect["kind"])
+        scene_id = str(world.get("active_scene_id") or "")
+        summary = str(consequence["summary"])
+        record: dict[str, Any] = {
+            "source_command_id": source_id,
+            "decision_id": decision_id,
+            "kind": kind,
+            "summary": summary,
+        }
+        source_binding = event.get("source_binding")
+        if isinstance(source_binding, dict):
+            record["source_binding"] = _copy_jsonable(source_binding)
+        evidence: dict[str, Any] = {
+            "event_type": "fumble_consequence_applied",
+            "decision_id": decision_id,
+            "investigator_id": investigator_id,
+            "source_command_id": source_id,
+            "effect_kind": kind,
+            "consequence_summary": summary,
+            "ts": ts,
+        }
+        if isinstance(source_binding, dict):
+            evidence["source_binding"] = _copy_jsonable(source_binding)
+        if kind == "fictional_position":
+            record["severity"] = effect.get("severity", "serious")
+        elif kind == "condition":
+            condition_id = str(effect["condition_id"])
+            inv_path = (
+                campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+            )
+            investigator = _read_investigator_state(campaign_dir, investigator_id)
+            conditions = investigator.setdefault("conditions", [])
+            if not isinstance(conditions, list):
+                raise ValueError("investigator conditions must be a list")
+            if condition_id not in conditions:
+                conditions.append(condition_id)
+            _write_json(inv_path, investigator)
+            record["condition_id"] = condition_id
+            evidence["condition_id"] = condition_id
+        elif kind == "pressure_tick":
+            clock_id = str(effect["clock_id"])
+            ticks = int(effect["ticks"])
+            clock_def = _lookup_clock_def(campaign_dir, clock_id)
+            if coc_threat_state is None or clock_def is None:
+                raise ValueError(f"unknown fumble-consequence threat clock: {clock_id}")
+            total_segments = int(clock_def.get("segments", 0) or 0)
+            if total_segments < 1:
+                raise ValueError(f"invalid fumble-consequence threat clock: {clock_id}")
+            coc_threat_state.apply_clock_effect_once(
+                campaign_dir / "save",
+                clock_id,
+                total_segments,
+                ticks=ticks,
+                effect_id=f"fumble-consequence:{source_id}",
+            )
+            transition = coc_threat_state.get_clock_effect_receipt(
+                campaign_dir / "save", f"fumble-consequence:{source_id}"
+            )
+            record.update({
+                "clock_id": clock_id, "ticks": ticks,
+                "clock_transition": transition,
+            })
+            evidence.update({
+                "clock_id": clock_id, "ticks": ticks,
+                "clock_transition": transition,
+            })
+        elif kind == "route_closed":
+            route_id = str(effect["route_id"])
+            receipts = world.setdefault("route_completion_receipts", [])
+            if not isinstance(receipts, list):
+                raise ValueError("world-state route_completion_receipts must be a list")
+            if not any(
+                isinstance(row, dict)
+                and row.get("route_id") == route_id
+                and row.get("status") == "blocked"
+                for row in receipts
+            ):
+                receipts.append({
+                    "route_id": route_id,
+                    "scene_id": scene_id,
+                    "status": "blocked",
+                    "source": "fumble_consequence",
+                    "source_command_id": source_id,
+                    "summary": summary,
+                })
+            record.update({"route_id": route_id, "scene_id": scene_id})
+            evidence["route_id"] = route_id
+        else:
+            raise ValueError(f"unsupported fumble consequence effect kind: {kind!r}")
         records.append(record)
         known.add(source_id)
         applied.append(evidence)
@@ -1999,6 +2886,15 @@ def _apply_plan_impl(
     for ev in push_events:
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
+    fumble_events = _process_authored_fumble_consequences(
+        rules_results,
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    )
+    for ev in fumble_events:
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
 
     # 0b. development ticks (Keeper Rulebook p.94) — after push demotion so
     # luck/push bookkeeping on the result is settled before tick eligibility.
@@ -2031,6 +2927,16 @@ def _apply_plan_impl(
         investigator_id,
         push_events,
         world=world,
+        decision_id=decision_id,
+        ts=ts,
+    ):
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
+    for ev in _apply_typed_fumble_consequences(
+        campaign_dir,
+        world,
+        fumble_events,
+        investigator_id=investigator_id,
         decision_id=decision_id,
         ts=ts,
     ):
@@ -2072,6 +2978,18 @@ def _apply_plan_impl(
             events.append(ev)
             _append_jsonl(logs / "events.jsonl", ev)
     world["discovered_clue_ids"] = discovered
+    for ev in _commit_resolved_route_completions(
+        campaign_dir,
+        clue_plan,
+        world,
+        committed_clues,
+        rules_results=rules_results,
+        decision_id=decision_id,
+        investigator_id=investigator_id,
+        ts=ts,
+    ):
+        events.append(ev)
+        _append_jsonl(logs / "events.jsonl", ev)
     # Epistemic state updates only after clue commitment is resolved. Question
     # opening/closure is evaluated from structured authored conditions.
     epistemic_graph = _read_json(
@@ -2317,6 +3235,8 @@ def _apply_plan_impl(
                 "target_conflict_level": move.get("target_conflict_level"),
                 "bound_entities": move.get("bound_entities", {}),
                 "rolled_variants": move.get("rolled_variants", {}),
+                "presentation_mode": move.get("presentation_mode"),
+                "grounding_contract": move.get("grounding_contract", {}),
                 "serves": move.get("serves", []),
                 "investigator_id": investigator_id,
                 "ts": ts,
@@ -2370,14 +3290,12 @@ def _apply_plan_impl(
                 source_events=[decision_id],
             )
 
-    # 7. scene transition — advance when current scene is exhausted, plan CUTs,
-    # or scene-progress governance explicitly forces a transition/montage.
-    # "Exhausted" means all available_clues are discovered AND the scene's
-    # exit_conditions are satisfiable: machine-checkable exit_conditions
-    # must hold; narrative exit_conditions block clue-reveal auto-advance
-    # until an explicit CUT / force_transition. Targets come from the scene
-    # graph (R-3): only unlocked, non-exhausted edge destinations. CUT is
-    # cinematic travel among already-unlocked targets — never an unlock.
+    # 7. scene transition — only an explicit CUT or typed force_transition may
+    # commit travel. Satisfying an exit condition makes the current scene ready
+    # to leave and unlocks authored destinations, but does not choose one on the
+    # player's behalf. Targets come from the scene graph (R-3): only unlocked,
+    # non-exhausted edge destinations. CUT is cinematic travel among already-
+    # unlocked targets — never an unlock.
     story_graph_path = campaign_dir / "scenario" / "story-graph.json"
     if story_graph_path.exists():
         story = _read_json(story_graph_path, {"scenes": []})
@@ -2386,34 +3304,100 @@ def _apply_plan_impl(
         current_scene = next((s for s in scenes if s.get("scene_id") == current_scene_id), None)
         if current_scene:
             available = current_scene.get("available_clues", [])
-            should_advance = False
-            if action == "CUT":
-                should_advance = True
-            elif isinstance(scene_progress, dict) and scene_progress.get("action") == "force_transition":
-                should_advance = True
-            elif available and all(c in discovered for c in available):
-                # Clue exhaustion alone is not a scene goal met: a scene with a
-                # *narrative* exit_condition that _director_exit_eval can't
-                # machine-check must NOT auto-advance on clue reveal — it waits
-                # for an explicit CUT / force_transition. Only scenes whose
-                # exit_conditions are empty or machine-checkable & satisfied
-                # advance.
-                flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
-                exit_conditions = current_scene.get("exit_conditions", [])
-                exit_met = (
-                    not exit_conditions
-                    or any(
-                        _director_exit_eval(
-                            e, discovered, campaign_dir, save, flags_set=flags_set
-                        )
-                        for e in exit_conditions
+            flags_set = _truthy_flag_ids(_read_json(save / "flags.json", {}))
+            exit_conditions = current_scene.get("exit_conditions", [])
+            exit_met = (
+                any(
+                    _director_exit_eval(
+                        condition,
+                        discovered,
+                        campaign_dir,
+                        save,
+                        flags_set=flags_set,
                     )
+                    for condition in exit_conditions
                 )
-                should_advance = exit_met
+                if exit_conditions
+                else bool(available and all(clue_id in discovered for clue_id in available))
+            )
+            should_advance = (
+                action == "CUT"
+                or (
+                    isinstance(scene_progress, dict)
+                    and scene_progress.get("action") == "force_transition"
+                )
+            )
+            if exit_met and not should_advance:
+                ready = list(world.get("exit_ready_scene_ids") or [])
+                if str(current_scene_id) not in {str(value) for value in ready}:
+                    ready.append(str(current_scene_id))
+                    world["exit_ready_scene_ids"] = ready
+                    ready_event = {
+                        "schema_version": 1,
+                        "event_type": "scene_exit_ready",
+                        "decision_id": decision_id,
+                        "scene_id": current_scene_id,
+                        "investigator_id": investigator_id,
+                        "ts": ts,
+                        "reason": "structured_exit_condition_satisfied",
+                    }
+                    events.append(ready_event)
+                    _append_jsonl(logs / "events.jsonl", ready_event)
+                    _write_json(world_path, world)
             if should_advance:
                 requested = plan.get("transition_to")
                 if not requested and isinstance(scene_progress, dict):
                     requested = scene_progress.get("to_scene")
+                direct_entry_receipt: dict[str, Any] | None = None
+                raw_entry_authority = plan.get("destination_entry_authority")
+                if requested and isinstance(raw_entry_authority, dict):
+                    requested_scene = next(
+                        (
+                            item for item in scenes
+                            if isinstance(item, dict)
+                            and str(item.get("scene_id") or "") == str(requested)
+                        ),
+                        None,
+                    )
+                    canonical_authority = (
+                        coc_scene_graph.public_direct_entry_authority(
+                            requested_scene
+                        )
+                    )
+                    has_exact_edge = any(
+                        str(edge.get("to") or "") == str(requested)
+                        for edge in coc_scene_graph.derive_scene_edges(story).get(
+                            str(current_scene_id), []
+                        )
+                        if isinstance(edge, dict)
+                    )
+                    if (
+                        canonical_authority is not None
+                        and raw_entry_authority == canonical_authority
+                        and has_exact_edge
+                    ):
+                        unlocked = list(world.get("unlocked_scene_ids") or [])
+                        if str(requested) not in {str(value) for value in unlocked}:
+                            unlocked.append(str(requested))
+                            world["unlocked_scene_ids"] = unlocked
+                            unlock_event = {
+                                "schema_version": 1,
+                                "event_type": "scene_unlocked",
+                                "decision_id": decision_id,
+                                "scene_id": str(requested),
+                                "investigator_id": investigator_id,
+                                "source": "public_direct_entry_authority",
+                                "ts": ts,
+                            }
+                            events.append(unlock_event)
+                            _append_jsonl(logs / "events.jsonl", unlock_event)
+                            _write_json(world_path, world)
+                        direct_entry_receipt = {
+                            "schema_version": 1,
+                            "destination_scene_id": str(requested),
+                            "authority": canonical_authority,
+                            "source": "scenario.destination_access",
+                        }
                 next_id = coc_scene_graph.pick_transition_target(
                     current_scene_id,
                     story,
@@ -2446,6 +3430,8 @@ def _apply_plan_impl(
                             "investigator_id": investigator_id,
                             "ts": ts,
                         }
+                        if direct_entry_receipt is not None:
+                            ev["destination_entry_receipt"] = direct_entry_receipt
                         events.append(ev)
                         _append_jsonl(logs / "events.jsonl", ev)
                         _apply_scene_on_enter(
@@ -2462,6 +3448,28 @@ def _apply_plan_impl(
     # Re-read world in case a prior step advanced active_scene_id; terminal
     # detection uses only structured scene fields (see module docstring).
     world = _read_json(world_path, world)
+    for milestone in _typed_completion_milestones(
+        campaign_dir,
+        world,
+        rules_results or [],
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    ):
+        events.append(milestone)
+        _append_jsonl(logs / "events.jsonl", milestone)
+    outcome_ev = _commit_structured_scenario_outcome(
+        campaign_dir,
+        world,
+        rules_results or [],
+        investigator_id=investigator_id,
+        decision_id=decision_id,
+        ts=ts,
+    )
+    if outcome_ev is not None:
+        events.append(outcome_ev)
+        _append_jsonl(logs / "events.jsonl", outcome_ev)
+        world = _read_json(world_path, world)
     ending_ev = _maybe_emit_session_ending(
         campaign_dir,
         plan,

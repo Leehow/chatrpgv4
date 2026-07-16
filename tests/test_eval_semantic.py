@@ -145,13 +145,19 @@ def test_load_personas_and_persona_hash_is_stable():
 def test_load_rubrics_exposes_closed_finding_label_sets():
     semantic = _load()
     rubrics = semantic.load_rubrics(REPO)
-    assert set(rubrics) >= {"agency-and-fun", "zh-prose", "module-fidelity"}
+    assert set(rubrics) >= {
+        "rulebook-procedure",
+        "agency-and-fun",
+        "zh-prose",
+        "module-fidelity",
+    }
 
     agency = rubrics["agency-and-fun"]
     zh = rubrics["zh-prose"]
     fidelity = rubrics["module-fidelity"]
+    rules = rubrics["rulebook-procedure"]
 
-    for rubric in (agency, zh, fidelity):
+    for rubric in (rules, agency, zh, fidelity):
         assert rubric["schema_version"] == 1
         assert rubric["eval_spec"] == "eval-spec-v1"
         assert rubric["rubric_id"]
@@ -165,6 +171,7 @@ def test_load_rubrics_exposes_closed_finding_label_sets():
     assert set(agency["finding_codes"]) >= set(AGENCY_FINDING_CODES)
     assert set(zh["finding_codes"]) >= set(ZH_PROSE_FINDING_CODES)
     assert all(isinstance(code, str) and code for code in fidelity["finding_codes"])
+    assert set(rules["hard_finding_codes"]) <= set(rules["finding_codes"])
 
 
 def test_blind_pair_request_hides_baseline_candidate_and_keeper_secrets():

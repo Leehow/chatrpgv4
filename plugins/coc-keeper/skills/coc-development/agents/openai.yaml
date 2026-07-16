@@ -1,0 +1,4 @@
+interface:
+  display_name: "COC Development"
+  short_description: "Settle post-session investigator development and rewards"
+  default_prompt: "Use $coc-development to settle this completed COC session from structured ending evidence."

@@ -46,10 +46,10 @@ player-facing prose.
 ## Tome Reading
 
 When an investigator studies a Mythos tome (Keeper Rulebook Ch11 p.217-226),
-drive the mechanical phases through `coc_tomes.TomeSession` (`skim` →
-`initial` → `full` → `research`). Route returned `san_loss_expr` through
-SanitySession; merge returned CM gains into the character sheet. Do not invent
-study weeks, CMI/CMF, or Mythos Rating — read them from `tomes.json`.
+call the canonical `tome.read` operation in `coc_runtime_ops.py` for each
+`skim` → `initial` → `full` → `research` phase. The gateway owns TomeSession,
+SAN-loss settlement, CM/max-SAN and reusable-sheet updates, persistence, and
+public dice evidence. Do not call TomeSession or patch SAN/CM from host prose.
 
 **Sensory description (p.224-226).** Present the physical book before its
 contents: binding, smell, weight, ink that seems wrong, pages that resist or

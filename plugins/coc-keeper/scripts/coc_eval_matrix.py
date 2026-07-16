@@ -13,7 +13,9 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from functools import lru_cache
 from collections import deque
@@ -50,6 +52,8 @@ _JUDGE_IDENTITY_KEYS = (
     "runner_hashes",
     "scenario_sha256",
     "initial_state_sha256",
+    "evaluation_profile_sha256",
+    "evaluation_contract",
 )
 _RUN_MANIFEST_IDENTITY_KEYS = (
     "cell_id",
@@ -65,6 +69,10 @@ _RUN_MANIFEST_IDENTITY_KEYS = (
     "runner_hashes",
     "scenario_sha256",
     "initial_state_sha256",
+)
+_PROFILE_RUN_IDENTITY_KEYS = (
+    "evaluation_profile_sha256",
+    "evaluation_contract",
 )
 _MATRIX_PLAN_KEYS = frozenset(
     {
@@ -89,6 +97,9 @@ _MATRIX_CELL_KEYS = frozenset(
         "runner_path",
         "scenario_fixture",
         "initial_state_fixture",
+        "evaluation_profile",
+        "evaluation_profile_sha256",
+        "evaluation_contract",
         "max_turns",
         "player_model",
         "kp_model",
@@ -104,6 +115,29 @@ _MATRIX_CELL_KEYS = frozenset(
         "not_run_reasons",
     }
 )
+_SCENARIO_BUNDLE_FILES = (
+    "module-meta.json",
+    "story-graph.json",
+    "clue-graph.json",
+    "npc-agendas.json",
+    "threat-fronts.json",
+    "pacing-map.json",
+    "improvisation-boundaries.json",
+)
+_SCENARIO_BUNDLE_KEYS = {
+    "module-meta.json": "module_meta",
+    "story-graph.json": "story_graph",
+    "clue-graph.json": "clue_graph",
+    "npc-agendas.json": "npc_agendas",
+    "threat-fronts.json": "threat_fronts",
+    "pacing-map.json": "pacing_map",
+    "improvisation-boundaries.json": "improvisation_boundaries",
+}
+_REUSABLE_CELL_STATUSES = frozenset({"PASS", "FAIL", "INELIGIBLE", "NON_COMPARABLE"})
+_CELL_CHECKPOINT = "cell-result.json"
+_RUNNER_CHECKPOINT = "runner-result.json"
+_ACTIVE_RUNNERS: dict[int, subprocess.Popen[Any]] = {}
+_ACTIVE_RUNNERS_LOCK = threading.Lock()
 
 
 def _utc_now() -> str:
@@ -168,6 +202,129 @@ def _write_json_atomic(path: Path, payload: Any) -> Path:
     )
 
 
+def _cell_identity_sha256(cell: dict[str, Any]) -> str:
+    payload = _run_manifest_identity_payload(cell)
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _write_cell_checkpoint(
+    cell_dir: Path,
+    cell: dict[str, Any],
+    result: dict[str, Any],
+) -> Path:
+    return _write_json_atomic(cell_dir / _CELL_CHECKPOINT, {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "cell_id": cell["cell_id"],
+        "cell_identity_sha256": _cell_identity_sha256(cell),
+        "completed_at": _utc_now(),
+        "result": result,
+    })
+
+
+def _load_reusable_cell_checkpoint(
+    cell_dir: Path,
+    cell: dict[str, Any],
+) -> dict[str, Any] | None:
+    path = cell_dir / _CELL_CHECKPOINT
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        payload = _read_json(path)
+    except ValueError:
+        return None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or payload.get("eval_spec") != EVAL_SPEC
+        or payload.get("cell_id") != cell.get("cell_id")
+        or payload.get("cell_identity_sha256") != _cell_identity_sha256(cell)
+    ):
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict) or result.get("status") not in _REUSABLE_CELL_STATUSES:
+        return None
+    if any(
+        result.get(key) != cell.get(key)
+        for key in _run_manifest_identity_keys(cell)
+    ):
+        return None
+    hashes = result.get("artifact_hashes")
+    if not isinstance(hashes, dict):
+        return None
+    for relative, digest in hashes.items():
+        if (
+            not isinstance(relative, str)
+            or not relative
+            or Path(relative).is_absolute()
+            or ".." in Path(relative).parts
+            or not _is_sha256(digest)
+        ):
+            return None
+        artifact = cell_dir / relative
+        if artifact.is_symlink() or not artifact.is_file() or _sha256_file(artifact) != digest:
+            return None
+    reused = json.loads(json.dumps(result, ensure_ascii=False))
+    reused["resumed_from_checkpoint"] = True
+    reused["checkpoint_path"] = _CELL_CHECKPOINT
+    return reused
+
+
+def _write_runner_checkpoint(
+    cell_dir: Path,
+    cell: dict[str, Any],
+    runner_result: dict[str, Any],
+) -> None:
+    bounded = {
+        key: value
+        for key, value in runner_result.items()
+        if key not in {"stdout", "stderr"}
+    }
+    _write_json_atomic(cell_dir / _RUNNER_CHECKPOINT, {
+        "schema_version": 1,
+        "eval_spec": EVAL_SPEC,
+        "cell_id": cell["cell_id"],
+        "cell_identity_sha256": _cell_identity_sha256(cell),
+        "completed_at": _utc_now(),
+        "runner_result": bounded,
+    })
+
+
+def _load_reusable_runner_checkpoint(
+    cell_dir: Path,
+    cell: dict[str, Any],
+) -> dict[str, Any] | None:
+    path = cell_dir / _RUNNER_CHECKPOINT
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        payload = _read_json(path)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    result = payload.get("runner_result")
+    if (
+        payload.get("schema_version") != 1
+        or payload.get("eval_spec") != EVAL_SPEC
+        or payload.get("cell_id") != cell.get("cell_id")
+        or payload.get("cell_identity_sha256") != _cell_identity_sha256(cell)
+        or not isinstance(result, dict)
+        or result.get("status") not in {"PASS", "FAIL", "INELIGIBLE"}
+        or result.get("timed_out") is True
+    ):
+        return None
+    manifest = cell_dir / "run-manifest.json"
+    if manifest.is_symlink() or not manifest.is_file():
+        return None
+    reused = json.loads(json.dumps(result, ensure_ascii=False))
+    reused["resumed_from_runner_checkpoint"] = True
+    return reused
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -183,6 +340,188 @@ def _resolve_path(root: Path, value: str | Path | None) -> Path | None:
     if not path.is_absolute():
         path = root / path
     return path
+
+
+def _contained_repo_path(root: Path, value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} must be a non-empty repository-relative path")
+    path = (root / value).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{label} escaped repository root") from exc
+    return path
+
+
+def _scenario_fixture_components(root: Path, fixture: Path) -> list[tuple[str, Path]]:
+    payload = _read_json(fixture)
+    if not isinstance(payload, dict):
+        raise ValueError("scenario fixture must be an object")
+    bundle_value = payload.get("scenario_bundle")
+    if bundle_value is None:
+        return [("scenario-fixture", fixture)]
+    bundle = _contained_repo_path(root, bundle_value, "scenario_bundle")
+    if bundle.is_symlink() or not bundle.is_dir():
+        raise ValueError("scenario_bundle must be a real directory")
+    components = [("scenario-fixture", fixture)]
+    for filename in _SCENARIO_BUNDLE_FILES:
+        path = bundle / filename
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"scenario_bundle missing required file: {filename}")
+        components.append((f"scenario-bundle/{filename}", path))
+    return components
+
+
+def _load_scenario_fixture(root: Path, fixture: Path) -> dict[str, Any]:
+    payload = _read_json(fixture)
+    if not isinstance(payload, dict):
+        raise ValueError("scenario fixture must be an object")
+    bundle_value = payload.get("scenario_bundle")
+    if bundle_value is None:
+        return payload
+    allowed = {
+        "schema_version",
+        "scenario_bundle",
+        "scene_id",
+        "play_language",
+    }
+    if set(payload) - allowed:
+        raise ValueError("scenario bundle fixture has unsupported override fields")
+    components = _scenario_fixture_components(root, fixture)
+    artifacts = {
+        _SCENARIO_BUNDLE_KEYS[path.name]: _read_json(path)
+        for _label, path in components[1:]
+    }
+    meta = artifacts["module_meta"]
+    story = artifacts["story_graph"]
+    if not isinstance(meta, dict) or not isinstance(story, dict):
+        raise ValueError("scenario bundle metadata and story graph must be objects")
+    scenes = story.get("scenes")
+    if not isinstance(scenes, list) or not scenes:
+        raise ValueError("scenario bundle story graph has no scenes")
+    requested_scene = payload.get("scene_id")
+    if requested_scene is None:
+        start = next(
+            (scene for scene in scenes if isinstance(scene, dict) and scene.get("is_start")),
+            scenes[0],
+        )
+        requested_scene = start.get("scene_id") if isinstance(start, dict) else None
+    start_scene = next(
+        (
+            scene
+            for scene in scenes
+            if isinstance(scene, dict) and scene.get("scene_id") == requested_scene
+        ),
+        None,
+    )
+    if start_scene is None:
+        raise ValueError("scenario bundle start scene does not exist")
+    return {
+        "schema_version": payload.get("schema_version", 1),
+        "scenario_id": meta.get("scenario_id"),
+        "scene_id": requested_scene,
+        "title": meta.get("title"),
+        "dramatic_question": start_scene.get("dramatic_question"),
+        "era": meta.get("era"),
+        "play_language": payload.get("play_language", "zh-Hans"),
+        **artifacts,
+    }
+
+
+_EVALUATION_PROFILE_KEYS = frozenset(
+    {
+        "schema_version",
+        "profile_id",
+        "require_structured_action_resolution",
+        "min_public_rolls",
+        "min_scene_count",
+        "min_clues_discovered",
+        "require_terminal",
+        "required_completion_receipts",
+        "required_rubric_ids",
+    }
+)
+_MODULE_EXPECTATION_KEYS = frozenset({"min_scene_count", "min_clues_discovered"})
+
+
+def _load_evaluation_contract(
+    root: Path, case: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Resolve a reusable evaluation method plus case-specific module coverage."""
+    path = _resolve_path(root, case.get("evaluation_profile"))
+    if path is None:
+        if case.get("runner") == "live_match":
+            raise ValueError("live_match cases require evaluation_profile")
+        if case.get("module_expectations") not in (None, {}):
+            raise ValueError("module_expectations require evaluation_profile")
+        return None, None
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("evaluation_profile must be a real file")
+    profile = _read_json(path)
+    if not isinstance(profile, dict) or set(profile) != _EVALUATION_PROFILE_KEYS:
+        raise ValueError("evaluation profile schema mismatch")
+    if profile.get("schema_version") != 1:
+        raise ValueError("evaluation profile schema_version mismatch")
+    _safe_identifier(profile.get("profile_id"), label="evaluation profile_id")
+    expectations = case.get("module_expectations") or {}
+    if not isinstance(expectations, dict) or set(expectations) - _MODULE_EXPECTATION_KEYS:
+        raise ValueError("module_expectations schema mismatch")
+    resolved = dict(profile)
+    for key, value in expectations.items():
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"module_expectations.{key} must be a non-negative integer")
+        resolved[key] = value
+    return resolved, _sha256_file(path)
+
+
+def _run_manifest_identity_keys(expected: dict[str, Any]) -> tuple[str, ...]:
+    keys = _RUN_MANIFEST_IDENTITY_KEYS
+    if expected.get("evaluation_profile_sha256") is not None:
+        keys = (*keys, *_PROFILE_RUN_IDENTITY_KEYS)
+    return keys
+
+
+def _run_manifest_identity_payload(cell: dict[str, Any]) -> dict[str, Any]:
+    return {key: cell.get(key) for key in _run_manifest_identity_keys(cell)}
+
+
+def _initial_fixture_components(root: Path, fixture: Path) -> list[tuple[str, Path]]:
+    payload = _read_json(fixture)
+    if not isinstance(payload, dict):
+        raise ValueError("initial state fixture must be an object")
+    character_value = payload.get("character_fixture")
+    if character_value is None:
+        return [("initial-state-fixture", fixture)]
+    character = _contained_repo_path(root, character_value, "character_fixture")
+    if character.is_symlink() or not character.is_file():
+        raise ValueError("character_fixture must be a real file")
+    return [("initial-state-fixture", fixture), ("character-fixture", character)]
+
+
+def _load_initial_state_fixture(root: Path, fixture: Path) -> dict[str, Any]:
+    payload = _read_json(fixture)
+    if not isinstance(payload, dict):
+        raise ValueError("initial state fixture must be an object")
+    components = _initial_fixture_components(root, fixture)
+    if len(components) == 1:
+        return payload
+    expanded = dict(payload)
+    expanded.pop("character_fixture", None)
+    character = _read_json(components[1][1])
+    if not isinstance(character, dict):
+        raise ValueError("character_fixture must contain an object")
+    expanded["character"] = character
+    return expanded
+
+
+def _composite_sha256(components: list[tuple[str, Path]]) -> str:
+    digest = hashlib.sha256()
+    for label, path in components:
+        digest.update(label.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _safe_identifier(value: Any, *, label: str) -> str:
@@ -300,7 +639,28 @@ def _validate_matrix_plan(plan: Any) -> dict[str, Any]:
             cell.get("judge"), dict
         ):
             raise ValueError(f"matrix plan cell[{index}] structured field mismatch")
-        for key in ("scenario_sha256", "initial_state_sha256"):
+        profile_path = cell.get("evaluation_profile")
+        profile_hash = cell.get("evaluation_profile_sha256")
+        evaluation_contract = cell.get("evaluation_contract")
+        if cell.get("runner") == "live_match":
+            if not isinstance(profile_path, str) or not profile_path:
+                raise ValueError(f"matrix plan cell[{index}] evaluation profile missing")
+            if not _is_sha256(profile_hash) or not isinstance(evaluation_contract, dict):
+                raise ValueError(f"matrix plan cell[{index}] evaluation contract missing")
+        elif not (
+            (profile_path is None and profile_hash is None and evaluation_contract is None)
+            or (
+                isinstance(profile_path, str)
+                and bool(profile_path)
+                and _is_sha256(profile_hash)
+                and isinstance(evaluation_contract, dict)
+            )
+        ):
+            raise ValueError(f"matrix plan cell[{index}] evaluation profile binding mismatch")
+        for key in (
+            "scenario_sha256",
+            "initial_state_sha256",
+        ):
             value = cell.get(key)
             if required and not _is_sha256(value):
                 raise ValueError(f"matrix plan cell[{index}].{key} required")
@@ -428,6 +788,44 @@ def load_matrix_suite_config(
     }
 
 
+def load_matrix_execution_policy(
+    root: Path | str,
+    suite: str,
+    *,
+    configuration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load the versioned bounded scheduler policy for a matrix suite."""
+    source: Any = configuration
+    if source is None:
+        manifest = contract.load_benchmark_manifest(root)
+        source = (((manifest.get("matrix") or {}).get("suites") or {}).get(suite))
+    policy = source.get("execution_policy") if isinstance(source, dict) else None
+    if policy is None:
+        return {
+            "runner_timeout_seconds": 120.0,
+            "judge_timeout_seconds": 120.0,
+            "max_workers": 1,
+        }
+    if not isinstance(policy, dict) or set(policy) != {
+        "runner_timeout_seconds", "judge_timeout_seconds", "max_workers"
+    }:
+        raise ValueError("matrix execution_policy schema mismatch")
+    runner_timeout = _positive_timeout(
+        policy.get("runner_timeout_seconds"), label="runner_timeout_seconds"
+    )
+    judge_timeout = _positive_timeout(
+        policy.get("judge_timeout_seconds"), label="judge_timeout_seconds"
+    )
+    workers = policy.get("max_workers")
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 8:
+        raise ValueError("matrix execution_policy.max_workers must be in 1..8")
+    return {
+        "runner_timeout_seconds": runner_timeout,
+        "judge_timeout_seconds": judge_timeout,
+        "max_workers": workers,
+    }
+
+
 def _cell_id(persona_id: str, seed: int, case_id: str) -> str:
     persona = _safe_identifier(persona_id, label="persona_id")
     case = _safe_identifier(case_id, label="case_id")
@@ -455,6 +853,11 @@ def _collect_not_run_reasons(
     initial_state = _resolve_path(root, case.get("initial_state_fixture"))
     if initial_state is None or not initial_state.is_file():
         reasons.append("missing_initial_state_fixture")
+    evaluation_profile = _resolve_path(root, case.get("evaluation_profile"))
+    if case.get("runner") == "live_match" and (
+        evaluation_profile is None or not evaluation_profile.is_file()
+    ):
+        reasons.append("missing_evaluation_profile")
     if player_model is None:
         reasons.append("missing_player_model_identity")
     if kp_model is None:
@@ -502,14 +905,14 @@ def _initial_state_sha256(root: Path, case: dict[str, Any]) -> str | None:
     path = _resolve_path(root, case.get("initial_state_fixture"))
     if path is None or not path.is_file():
         return None
-    return _sha256_file(path)
+    return _composite_sha256(_initial_fixture_components(root, path))
 
 
 def _scenario_sha256(root: Path, case: dict[str, Any]) -> str | None:
     path = _resolve_path(root, case.get("scenario_fixture"))
     if path is None or not path.is_file():
         return None
-    return _sha256_file(path)
+    return _composite_sha256(_scenario_fixture_components(root, path))
 
 
 def _prompt_hashes(
@@ -575,6 +978,9 @@ def build_matrix_plan(
                 if not isinstance(case_id, str) or not case_id:
                     raise ValueError("matrix case_id required")
                 case_id = _safe_identifier(case_id, label="case_id")
+                evaluation_contract, evaluation_profile_sha256 = (
+                    _load_evaluation_contract(root_path, case)
+                )
                 player_model = _model_identity(
                     case.get("player_model"), label="player_model"
                 )
@@ -599,6 +1005,17 @@ def build_matrix_plan(
                     ),
                 )
                 prompt_hashes = _prompt_hashes(root_path, case, reasons)
+                judge_config = (
+                    dict(case.get("judge"))
+                    if isinstance(case.get("judge"), dict)
+                    else {}
+                )
+                if evaluation_contract is not None and not (
+                    "rubric_id" in judge_config or "rubric_ids" in judge_config
+                ):
+                    judge_config["rubric_ids"] = list(
+                        evaluation_contract["required_rubric_ids"]
+                    )
                 cell = {
                     "cell_id": _cell_id(str(persona_id), int(seed), str(case_id)),
                     "persona_id": persona_id,
@@ -608,6 +1025,9 @@ def build_matrix_plan(
                     "runner_path": case.get("runner_path"),
                     "scenario_fixture": case.get("scenario_fixture"),
                     "initial_state_fixture": case.get("initial_state_fixture"),
+                    "evaluation_profile": case.get("evaluation_profile"),
+                    "evaluation_profile_sha256": evaluation_profile_sha256,
+                    "evaluation_contract": evaluation_contract,
                     "max_turns": case.get("max_turns", 3),
                     "player_model": declared_player,
                     "kp_model": declared_kp,
@@ -626,7 +1046,7 @@ def build_matrix_plan(
                     "runner_hashes": _runner_hashes(root_path, case),
                     "scenario_sha256": _scenario_sha256(root_path, case),
                     "initial_state_sha256": _initial_state_sha256(root_path, case),
-                    "judge": case.get("judge") if isinstance(case.get("judge"), dict) else {},
+                    "judge": judge_config,
                     "status": "NOT_RUN" if reasons else "READY",
                     "not_run_reasons": reasons,
                 }
@@ -884,13 +1304,33 @@ def _invoke_fake_or_script_runner(
         bufsize=0,
         **process_kwargs,
     )
-    (
-        stdout_capture,
-        stderr_capture,
-        timed_out,
-        tree_terminated,
-        output_drained,
-    ) = _drain_runner_pipes(proc, timeout_s)
+    with _ACTIVE_RUNNERS_LOCK:
+        _ACTIVE_RUNNERS[proc.pid] = proc
+    try:
+        (
+            stdout_capture,
+            stderr_capture,
+            timed_out,
+            tree_terminated,
+            output_drained,
+        ) = _drain_runner_pipes(proc, timeout_s)
+    except BaseException:
+        # Operator cancellation and interpreter shutdown must not orphan the
+        # live-cell runner or its persistent player/narrator server children.
+        _terminate_process_tree(proc)
+        for pipe in (proc.stdout, proc.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
+        try:
+            proc.wait(timeout=0.1)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        with _ACTIVE_RUNNERS_LOCK:
+            _ACTIVE_RUNNERS.pop(proc.pid, None)
+        raise
     raw_stdout = stdout_capture.evidence_text()
     raw_stderr = stderr_capture.evidence_text()
     payload: dict[str, Any]
@@ -931,54 +1371,103 @@ def _invoke_fake_or_script_runner(
     payload["stderr"] = raw_stderr
     payload["stdout_truncated"] = stdout_capture.truncated
     payload["stderr_truncated"] = stderr_capture.truncated
+    with _ACTIVE_RUNNERS_LOCK:
+        _ACTIVE_RUNNERS.pop(proc.pid, None)
     return payload
+
+
+def _terminate_active_matrix_runners() -> None:
+    with _ACTIVE_RUNNERS_LOCK:
+        active = list(_ACTIVE_RUNNERS.values())
+    for proc in active:
+        _terminate_process_tree(proc)
 
 
 def _supports_process_tree_supervisor() -> bool:
     """Whether timeout execution can own and stop a complete process tree."""
-    return (
-        os.name == "posix"
-        and hasattr(os, "setsid")
-        and hasattr(os, "killpg")
-    )
+    return os.name == "posix" and hasattr(os, "kill")
+
+
+def _descendant_pids(root_pid: int) -> list[int]:
+    """Snapshot descendants without signalling a possibly shared process group."""
+    try:
+        completed = subprocess.run(
+            ["ps", "-axo", "pid=,ppid="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=1.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    children: dict[int, list[int]] = {}
+    for line in (completed.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        try:
+            pid, parent = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        children.setdefault(parent, []).append(pid)
+    result: list[int] = []
+    pending = list(children.get(root_pid, []))
+    while pending:
+        pid = pending.pop()
+        if pid in result or pid == os.getpid():
+            continue
+        result.append(pid)
+        pending.extend(children.get(pid, []))
+    return result
 
 
 def _terminate_process_tree(proc: subprocess.Popen[str]) -> bool:
-    """Boundedly terminate a runner-owned POSIX process group."""
+    """Boundedly terminate descendants and then the runner leader.
+
+    Descendant enumeration is intentionally used instead of ``killpg``. Even
+    with ``start_new_session=True``, signalling a guessed process-group ID is
+    too dangerous at an evaluator boundary: a platform anomaly or PID reuse
+    must never terminate the evaluator itself.
+    """
     if not _supports_process_tree_supervisor():
         return False
-    group_id = proc.pid
     confirmed = True
-    try:
-        os.killpg(group_id, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    except OSError:
-        confirmed = False
-    leader_reaped = False
-    grace_deadline = time.monotonic() + 0.5
-    while time.monotonic() < grace_deadline:
-        if not leader_reaped:
-            try:
-                proc.wait(timeout=0.02)
-                leader_reaped = True
-            except subprocess.TimeoutExpired:
-                pass
-        else:
-            time.sleep(0.02)
-    # The leader may have exited while a descendant ignored SIGTERM.
-    # Always target the original group after the grace period.
-    try:
-        os.killpg(group_id, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    except OSError:
-        confirmed = False
-    if not leader_reaped:
+    descendants = _descendant_pids(proc.pid)
+    for pid in descendants:
         try:
-            proc.wait(timeout=0.5)
-        except subprocess.TimeoutExpired:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
             confirmed = False
+    # Keep the leader alive while descendants receive TERM, so ancestry can be
+    # revalidated before SIGKILL and a recycled PID is never targeted.
+    grace_deadline = time.monotonic() + 0.2
+    while time.monotonic() < grace_deadline:
+        time.sleep(0.02)
+    remaining = _descendant_pids(proc.pid)
+    for pid in remaining:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            confirmed = False
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        pass
+    except OSError:
+        confirmed = False
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except OSError:
+            confirmed = False
+    try:
+        proc.wait(timeout=0.5)
+    except subprocess.TimeoutExpired:
+        confirmed = False
     return confirmed
 
 
@@ -1250,7 +1739,7 @@ def _baseline_result_cells(
             key not in item
             or item.get(key) != baseline_cell.get(key)
             or item.get(key) != manifest.get(key)
-            for key in _RUN_MANIFEST_IDENTITY_KEYS
+            for key in _run_manifest_identity_keys(baseline_cell)
         ):
             return {}, ["cell_manifest_binding"]
         for field in ("not_run_reasons", "hard_findings"):
@@ -1380,6 +1869,83 @@ def _append_reason(result: dict[str, Any], reason: str) -> None:
         reasons.append(reason)
 
 
+def _judge_rubric_ids(
+    config: dict[str, Any], rubrics: dict[str, dict[str, Any]]
+) -> list[str]:
+    has_single = "rubric_id" in config
+    has_many = "rubric_ids" in config
+    if has_single and has_many:
+        raise ValueError("judge config cannot declare both rubric_id and rubric_ids")
+    raw = config.get("rubric_ids") if has_many else [config.get("rubric_id") or "agency-and-fun"]
+    if not isinstance(raw, list) or not raw or any(
+        not isinstance(value, str) or not value for value in raw
+    ):
+        raise ValueError("judge rubric_ids must be a non-empty string list")
+    if len(set(raw)) != len(raw):
+        raise ValueError("judge rubric_ids must be unique")
+    missing = [value for value in raw if value not in rubrics]
+    if missing:
+        raise ValueError(f"unknown judge rubric_ids: {missing}")
+    return list(raw)
+
+
+def _judge_artifact_name(kind: str, rubric_id: str, count: int) -> str:
+    return f"judge-{kind}.json" if count == 1 else f"judge-{kind}.{rubric_id}.json"
+
+
+def _judge_gate(
+    rubric: dict[str, Any],
+    result: dict[str, Any],
+    mapping: dict[str, str],
+) -> dict[str, Any]:
+    candidate_side = next(
+        (side for side, identity in mapping.items() if identity == "candidate"), None
+    )
+    baseline_side = next(
+        (side for side, identity in mapping.items() if identity == "baseline"), None
+    )
+    if candidate_side not in {"A", "B"} or baseline_side not in {"A", "B"}:
+        raise ValueError("judge label mapping is malformed")
+    rubric_id = str(rubric["rubric_id"])
+    hard_codes = set(rubric.get("hard_finding_codes") or [])
+    candidate_hard_findings = sorted(
+        {
+            str(finding.get("label"))
+            for finding in (result.get("findings") or [])
+            if isinstance(finding, dict)
+            and finding.get("side") == candidate_side
+            and finding.get("label") in hard_codes
+        }
+    )
+    hard_findings = [
+        f"semantic_hard_finding:{rubric_id}:{code}"
+        for code in candidate_hard_findings
+    ]
+    winner = result.get("winner")
+    if hard_findings:
+        status = "FAIL"
+        reason = "candidate_hard_finding"
+    elif winner == baseline_side:
+        status = "FAIL"
+        reason = "baseline_preferred"
+        hard_findings = [f"semantic_regression:{rubric_id}"]
+    elif winner == "uncertain":
+        status = "NOT_RUN"
+        reason = "judge_uncertain"
+    else:
+        status = "PASS"
+        reason = "candidate_not_worse"
+    return {
+        "rubric_id": rubric_id,
+        "status": status,
+        "reason": reason,
+        "winner": winner,
+        "candidate_side": candidate_side,
+        "baseline_side": baseline_side,
+        "hard_findings": hard_findings,
+    }
+
+
 def _validated_run_manifest(
     cell_dir: Path,
     cell_id: str,
@@ -1408,7 +1974,7 @@ def _validated_run_manifest(
         payload[field] = list(values)
     if expected_identity is not None and any(
         key not in payload or payload.get(key) != expected_identity.get(key)
-        for key in _RUN_MANIFEST_IDENTITY_KEYS
+        for key in _run_manifest_identity_keys(expected_identity)
     ):
         raise ValueError("run manifest identity mismatch")
     if require_clean and (payload["hard_findings"] or payload["evidence_findings"]):
@@ -1426,6 +1992,7 @@ def execute_matrix_plan(
     judge_api_key: str | None = None,
     judge_timeout_s: float = 120.0,
     runner_timeout_s: float = 120.0,
+    max_workers: int = 1,
 ) -> dict[str, Any]:
     """Execute READY cells only; write plan/results/evidence atomically."""
     judge_timeout_s = _positive_timeout(
@@ -1434,6 +2001,8 @@ def execute_matrix_plan(
     runner_timeout_s = _positive_timeout(
         runner_timeout_s, label="runner_timeout_s"
     )
+    if isinstance(max_workers, bool) or not isinstance(max_workers, int) or not 1 <= max_workers <= 8:
+        raise ValueError("max_workers must be an integer in 1..8")
     plan = _validate_matrix_plan(plan)
     root_path = Path(root).resolve()
     out, baseline_path = _validated_matrix_paths(output, baseline_dir)
@@ -1454,50 +2023,61 @@ def execute_matrix_plan(
     _write_json_atomic(plan_path, plan)
 
     cell_results: list[dict[str, Any]] = []
+
+    def record_cell(
+        cell: dict[str, Any],
+        cell_dir: Path,
+        result: dict[str, Any],
+        *,
+        checkpoint: bool = True,
+    ) -> None:
+        if checkpoint:
+            _write_cell_checkpoint(cell_dir, cell, result)
+        cell_results.append(result)
+        _write_json_atomic(out / "matrix-progress.json", {
+            "schema_version": 1,
+            "eval_spec": EVAL_SPEC,
+            "suite": plan.get("suite"),
+            "updated_at": _utc_now(),
+            "completed_cell_count": len(cell_results),
+            "total_cell_count": len(plan.get("cells") or []),
+            "completed_cell_ids": [row.get("cell_id") for row in cell_results],
+            "status_counts": {
+                status: sum(1 for row in cell_results if row.get("status") == status)
+                for status in (
+                    "PASS", "FAIL", "NOT_RUN", "INELIGIBLE", "NON_COMPARABLE"
+                )
+            },
+        })
+
+    reusable_by_id: dict[str, dict[str, Any]] = {}
+    prepared_by_id: dict[str, dict[str, Any]] = {}
+    runner_results_by_id: dict[str, dict[str, Any]] = {}
+    cell_by_id: dict[str, dict[str, Any]] = {}
     for cell in plan.get("cells") or []:
         if not isinstance(cell, dict):
             raise ValueError("plan cell must be an object")
         cell_id = _safe_identifier(cell.get("cell_id"), label="cell_id")
+        cell_by_id[cell_id] = cell
         _safe_identifier(cell.get("persona_id"), label="persona_id")
         _safe_identifier(cell.get("case_id"), label="case_id")
         cell_dir = _contained_cell_dir(out, cell_id)
         cell_dir.mkdir(parents=True, exist_ok=True)
-        result = {
-            **{key: cell.get(key) for key in _RUN_MANIFEST_IDENTITY_KEYS},
-            "status": cell.get("status"),
-            "not_run_reasons": list(cell.get("not_run_reasons") or []),
-            "artifact_hashes": {},
-        }
-        if cell.get("status") != "READY":
-            manifest_path = cell_dir / "run-manifest.json"
-            _write_json_atomic(
-                manifest_path,
-                {
-                    **{
-                        key: cell.get(key)
-                        for key in _RUN_MANIFEST_IDENTITY_KEYS
-                    },
-                    "schema_version": 1,
-                    "eval_spec": EVAL_SPEC,
-                    "status": "NOT_RUN",
-                    "evidence_eligible": False,
-                    "not_run_reasons": result["not_run_reasons"],
-                },
-            )
-            result["artifact_hashes"]["run-manifest.json"] = _sha256_file(manifest_path)
-            cell_results.append(result)
+        reusable = _load_reusable_cell_checkpoint(cell_dir, cell)
+        if reusable is not None:
+            reusable_by_id[cell_id] = reusable
             continue
-
+        if cell.get("status") != "READY":
+            continue
         persona = personas[str(cell["persona_id"])]
         scenario_path = _resolve_path(root_path, cell.get("scenario_fixture"))
         state_path = _resolve_path(root_path, cell.get("initial_state_fixture"))
         runner_path = _resolve_path(root_path, cell.get("runner_path"))
         assert scenario_path is not None and state_path is not None and runner_path is not None
-        scenario = _read_json(scenario_path)
-        initial_state = _read_json(state_path)
+        scenario = _load_scenario_fixture(root_path, scenario_path)
+        initial_state = _load_initial_state_fixture(root_path, state_path)
         if not isinstance(scenario, dict) or not isinstance(initial_state, dict):
             raise ValueError(f"cell fixtures must be objects: {cell_id}")
-
         player_request = build_player_request_payload(
             initial_state=initial_state,
             scenario=scenario,
@@ -1529,16 +2109,112 @@ def execute_matrix_plan(
             "runner_hashes": cell.get("runner_hashes"),
             "scenario_sha256": cell.get("scenario_sha256"),
             "initial_state_sha256": cell.get("initial_state_sha256"),
+            "evaluation_profile_sha256": cell.get("evaluation_profile_sha256"),
+            "evaluation_contract": cell.get("evaluation_contract"),
         }
         input_path = cell_dir / "cell-input.json"
         _write_json_atomic(input_path, cell_input)
+        prepared_by_id[cell_id] = {
+            "cell_dir": cell_dir,
+            "runner_path": runner_path,
+            "input_path": input_path,
+            "player_request": player_request,
+            "kp_request": kp_request,
+        }
+        runner_checkpoint = _load_reusable_runner_checkpoint(cell_dir, cell)
+        if runner_checkpoint is not None:
+            runner_results_by_id[cell_id] = runner_checkpoint
 
-        runner_result = _invoke_fake_or_script_runner(
-            runner_path=runner_path,
-            cell_input=input_path,
-            cell_dir=cell_dir,
-            timeout_s=runner_timeout_s,
+    runner_jobs = {
+        cell_id: prepared
+        for cell_id, prepared in prepared_by_id.items()
+        if cell_id not in runner_results_by_id
+    }
+    if runner_jobs and max_workers == 1:
+        for completed_id, prepared in runner_jobs.items():
+            completed = _invoke_fake_or_script_runner(
+                runner_path=prepared["runner_path"],
+                cell_input=prepared["input_path"],
+                cell_dir=prepared["cell_dir"],
+                timeout_s=runner_timeout_s,
+            )
+            runner_results_by_id[completed_id] = completed
+            _write_runner_checkpoint(
+                prepared["cell_dir"], cell_by_id[completed_id], completed
+            )
+    elif runner_jobs:
+        executor = ThreadPoolExecutor(
+            max_workers=min(max_workers, len(runner_jobs)),
+            thread_name_prefix="coc-matrix-runner",
         )
+        futures = {
+            executor.submit(
+                _invoke_fake_or_script_runner,
+                runner_path=prepared["runner_path"],
+                cell_input=prepared["input_path"],
+                cell_dir=prepared["cell_dir"],
+                timeout_s=runner_timeout_s,
+            ): cell_id
+            for cell_id, prepared in runner_jobs.items()
+        }
+        try:
+            for future in as_completed(futures):
+                completed_id = futures[future]
+                completed = future.result()
+                runner_results_by_id[completed_id] = completed
+                _write_runner_checkpoint(
+                    prepared_by_id[completed_id]["cell_dir"],
+                    cell_by_id[completed_id],
+                    completed,
+                )
+        except BaseException:
+            _terminate_active_matrix_runners()
+            for future in futures:
+                future.cancel()
+            executor.shutdown(wait=True, cancel_futures=True)
+            raise
+        else:
+            executor.shutdown(wait=True)
+
+    for cell in plan.get("cells") or []:
+        if not isinstance(cell, dict):
+            raise ValueError("plan cell must be an object")
+        cell_id = _safe_identifier(cell.get("cell_id"), label="cell_id")
+        _safe_identifier(cell.get("persona_id"), label="persona_id")
+        _safe_identifier(cell.get("case_id"), label="case_id")
+        cell_dir = _contained_cell_dir(out, cell_id)
+        cell_dir.mkdir(parents=True, exist_ok=True)
+        reusable = reusable_by_id.get(cell_id)
+        if reusable is not None:
+            record_cell(cell, cell_dir, reusable, checkpoint=False)
+            continue
+        result = {
+            **_run_manifest_identity_payload(cell),
+            "status": cell.get("status"),
+            "not_run_reasons": list(cell.get("not_run_reasons") or []),
+            "artifact_hashes": {},
+        }
+        if cell.get("status") != "READY":
+            manifest_path = cell_dir / "run-manifest.json"
+            _write_json_atomic(
+                manifest_path,
+                {
+                    **_run_manifest_identity_payload(cell),
+                    "schema_version": 1,
+                    "eval_spec": EVAL_SPEC,
+                    "status": "NOT_RUN",
+                    "evidence_eligible": False,
+                    "not_run_reasons": result["not_run_reasons"],
+                },
+            )
+            result["artifact_hashes"]["run-manifest.json"] = _sha256_file(manifest_path)
+            record_cell(cell, cell_dir, result)
+            continue
+
+        prepared = prepared_by_id[cell_id]
+        player_request = prepared["player_request"]
+        kp_request = prepared["kp_request"]
+        runner_result = runner_results_by_id[cell_id]
         # Ensure view-separation evidence exists even if the adapter forgot to echo.
         player_request_path = cell_dir / "player-request.json"
         kp_request_path = cell_dir / "kp-request.json"
@@ -1578,10 +2254,7 @@ def execute_matrix_plan(
             _write_json_atomic(
                 manifest_path,
                 {
-                    **{
-                        key: cell.get(key)
-                        for key in _RUN_MANIFEST_IDENTITY_KEYS
-                    },
+                    **_run_manifest_identity_payload(cell),
                     "schema_version": 1,
                     "eval_spec": EVAL_SPEC,
                     "status": "NOT_RUN",
@@ -1601,7 +2274,7 @@ def execute_matrix_plan(
                     "kp-request.json": _sha256_file(kp_request_path),
                 }
             )
-            cell_results.append(result)
+            record_cell(cell, cell_dir, result)
             continue
 
         if str(runner_result.get("status") or "FAIL") == "NOT_RUN":
@@ -1626,10 +2299,7 @@ def execute_matrix_plan(
             _write_json_atomic(
                 manifest_path,
                 {
-                    **{
-                        key: cell.get(key)
-                        for key in _RUN_MANIFEST_IDENTITY_KEYS
-                    },
+                    **_run_manifest_identity_payload(cell),
                     "schema_version": 1,
                     "eval_spec": EVAL_SPEC,
                     "status": "NOT_RUN",
@@ -1644,7 +2314,7 @@ def execute_matrix_plan(
                     "kp-request.json": _sha256_file(kp_request_path),
                 }
             )
-            cell_results.append(result)
+            record_cell(cell, cell_dir, result)
             continue
 
         status = str(runner_result.get("status") or "FAIL")
@@ -1706,8 +2376,7 @@ def execute_matrix_plan(
             judge_enabled
             and result["status"] == "PASS"
         ):
-            rubric_id = str(judge_cfg.get("rubric_id") or "agency-and-fun")
-            rubric = rubrics[rubric_id]
+            rubric_ids = _judge_rubric_ids(judge_cfg, rubrics)
             declared_judge = cell.get("judge_model")
             if declared_judge and declared_judge != judge.SOL_EVALUATOR:
                 result["status"] = "NOT_RUN"
@@ -1767,76 +2436,131 @@ def execute_matrix_plan(
                                     for turn in (*baseline_turns, *candidate_turns)
                                 )
                             )
-                            request, mapping = semantic.build_blind_pair_request(
-                                pair_id=f"judge:{cell_id}",
-                                rubric_id=rubric["rubric_id"],
-                                rubric_version=rubric["rubric_version"],
-                                public_context={
-                                    "case_id": cell.get("case_id"),
-                                    "persona_id": cell.get("persona_id"),
-                                    "seed": cell.get("seed"),
-                                },
-                                turn_ids=turn_ids,
-                                baseline_turns=baseline_turns,
-                                candidate_turns=candidate_turns,
-                                seed=secrets.randbits(256),
-                            )
-                            judge_request_path = cell_dir / "judge-request.json"
-                            _write_json_atomic(judge_request_path, request)
-                            # Operator-only mapping; never included in the request.
-                            mapping_path = cell_dir / "judge-label-mapping.json"
-                            _write_json_atomic(mapping_path, mapping)
-                            result["artifact_hashes"][
-                                "judge-request.json"
-                            ] = _sha256_file(judge_request_path)
-                            result["artifact_hashes"][
-                                "judge-label-mapping.json"
-                            ] = _sha256_file(mapping_path)
-                            try:
-                                judge_result = judge.invoke_sol_judge(
-                                    request,
-                                    rubric,
-                                    base_url=judge_base_url,
-                                    api_key=(
-                                        judge_api_key
-                                        if judge_api_key is not None
-                                        else judge.resolve_api_key()
-                                    ),
-                                    timeout_s=judge_timeout_s,
+                            judge_results: dict[str, dict[str, Any]] = {}
+                            judge_gates: list[dict[str, Any]] = []
+                            judge_failures: dict[str, dict[str, Any]] = {}
+                            for rubric_id in rubric_ids:
+                                rubric = rubrics[rubric_id]
+                                request, mapping = semantic.build_blind_pair_request(
+                                    pair_id=f"judge:{cell_id}:{rubric_id}",
+                                    rubric_id=rubric["rubric_id"],
+                                    rubric_version=rubric["rubric_version"],
+                                    public_context={
+                                        "case_id": cell.get("case_id"),
+                                        "persona_id": cell.get("persona_id"),
+                                        "seed": cell.get("seed"),
+                                    },
+                                    turn_ids=turn_ids,
+                                    baseline_turns=baseline_turns,
+                                    candidate_turns=candidate_turns,
+                                    seed=secrets.randbits(256),
                                 )
-                                semantic.validate_judge_result(
-                                    request, judge_result, rubric=rubric
+                                request_name = _judge_artifact_name(
+                                    "request", rubric_id, len(rubric_ids)
                                 )
-                            except (RuntimeError, ValueError) as exc:
-                                result["status"] = "NOT_RUN"
-                                result["judge_failure"] = _safe_failure(
-                                    exc, default_code="judge_unavailable_or_invalid"
+                                mapping_name = _judge_artifact_name(
+                                    "label-mapping", rubric_id, len(rubric_ids)
                                 )
-                                if _is_timeout_exception(exc):
-                                    _append_reason(result, "execution_timeout")
-                                    result["timeout_phase"] = "semantic_judge"
-                                    result["timeout_seconds"] = judge_timeout_s
-                                else:
-                                    _append_reason(
-                                        result, "judge_unavailable_or_invalid"
+                                request_path = cell_dir / request_name
+                                mapping_path = cell_dir / mapping_name
+                                _write_json_atomic(request_path, request)
+                                # Operator-only mapping; never included in the request.
+                                _write_json_atomic(mapping_path, mapping)
+                                result["artifact_hashes"][request_name] = _sha256_file(
+                                    request_path
+                                )
+                                result["artifact_hashes"][mapping_name] = _sha256_file(
+                                    mapping_path
+                                )
+                                try:
+                                    judge_result = judge.invoke_sol_judge(
+                                        request,
+                                        rubric,
+                                        base_url=judge_base_url,
+                                        api_key=(
+                                            judge_api_key
+                                            if judge_api_key is not None
+                                            else judge.resolve_api_key()
+                                        ),
+                                        timeout_s=judge_timeout_s,
                                     )
-                            else:
-                                judge_result_path = cell_dir / "judge-result.json"
+                                    semantic.validate_judge_result(
+                                        request, judge_result, rubric=rubric
+                                    )
+                                except (RuntimeError, ValueError) as exc:
+                                    failure = _safe_failure(
+                                        exc,
+                                        default_code="judge_unavailable_or_invalid",
+                                    )
+                                    judge_failures[rubric_id] = failure
+                                    if _is_timeout_exception(exc):
+                                        _append_reason(result, "execution_timeout")
+                                        result["timeout_phase"] = "semantic_judge"
+                                        result["timeout_seconds"] = judge_timeout_s
+                                    else:
+                                        _append_reason(
+                                            result, "judge_unavailable_or_invalid"
+                                        )
+                                    break
+                                result_name = _judge_artifact_name(
+                                    "result", rubric_id, len(rubric_ids)
+                                )
+                                judge_result_path = cell_dir / result_name
                                 _write_json_atomic(judge_result_path, judge_result)
-                                result["artifact_hashes"][
-                                    "judge-result.json"
-                                ] = _sha256_file(judge_result_path)
-                                result["judge_result"] = judge_result
+                                result["artifact_hashes"][result_name] = _sha256_file(
+                                    judge_result_path
+                                )
+                                judge_results[rubric_id] = judge_result
+                                judge_gates.append(
+                                    _judge_gate(rubric, judge_result, mapping)
+                                )
+
+                            if judge_results:
+                                result["judge_results"] = judge_results
+                                result["judge_gates"] = judge_gates
+                                if len(rubric_ids) == 1:
+                                    result["judge_result"] = judge_results[
+                                        rubric_ids[0]
+                                    ]
+                            if judge_failures:
+                                result["judge_failures"] = judge_failures
+                                if len(rubric_ids) == 1:
+                                    result["judge_failure"] = judge_failures[
+                                        rubric_ids[0]
+                                    ]
+                            gate_hard_findings = sorted(
+                                {
+                                    finding
+                                    for gate in judge_gates
+                                    for finding in gate.get("hard_findings") or []
+                                }
+                            )
+                            if gate_hard_findings:
+                                existing = result.get("hard_findings") or []
+                                result["hard_findings"] = sorted(
+                                    set(existing + gate_hard_findings)
+                                )
+                                result["status"] = "FAIL"
+                            elif judge_failures:
+                                result["status"] = "NOT_RUN"
+                            elif any(
+                                gate.get("status") == "NOT_RUN"
+                                for gate in judge_gates
+                            ):
+                                result["status"] = "NOT_RUN"
+                                for gate in judge_gates:
+                                    if gate.get("status") == "NOT_RUN":
+                                        _append_reason(
+                                            result,
+                                            f"judge_uncertain:{gate['rubric_id']}",
+                                        )
 
         manifest_path = cell_dir / "run-manifest.json"
         if not manifest_path.is_file():
             _write_json_atomic(
                 manifest_path,
                 {
-                    **{
-                        key: cell.get(key)
-                        for key in _RUN_MANIFEST_IDENTITY_KEYS
-                    },
+                    **_run_manifest_identity_payload(cell),
                     "schema_version": 1,
                     "eval_spec": EVAL_SPEC,
                     "status": result["status"],
@@ -1848,7 +2572,7 @@ def execute_matrix_plan(
             player_request_path
         )
         result["artifact_hashes"]["kp-request.json"] = _sha256_file(kp_request_path)
-        cell_results.append(result)
+        record_cell(cell, cell_dir, result)
 
     hard_findings = [
         reason
@@ -1881,6 +2605,12 @@ def execute_matrix_plan(
         "cells": cell_results,
         "aggregate": aggregate,
         "artifact_hashes": {},
+        "execution_policy": {
+            "runner_timeout_seconds": runner_timeout_s,
+            "judge_timeout_seconds": judge_timeout_s,
+            "max_workers": max_workers,
+            "checkpointing": "runner_and_cell",
+        },
     }
     results_path = out / "matrix-results.json"
     aggregate_path = out / "aggregate-summary.json"
@@ -1899,12 +2629,33 @@ def run_matrix_cli(
     suite: str,
     output: Path | str | None,
     plan_only: bool,
+    configuration: Path | str | None = None,
+    baseline: Path | str | None = None,
+    runner_timeout_s: float | None = None,
+    judge_timeout_s: float | None = None,
+    max_workers: int | None = None,
 ) -> dict[str, Any]:
     root_path = Path(root).resolve()
     out = Path(output).resolve() if output else (
         root_path / ".coc" / "evaluations" / f"matrix-{suite}-{os.getpid()}"
     )
-    plan = build_matrix_plan(root=root_path, suite=suite)
+    configuration_payload = None
+    configuration_path = Path(configuration).resolve() if configuration else None
+    if configuration_path is not None:
+        if configuration_path.is_symlink() or not configuration_path.is_file():
+            raise ValueError("matrix configuration must be a real JSON file")
+        configuration_payload = _read_json(configuration_path)
+    plan = build_matrix_plan(
+        root=root_path, suite=suite, configuration=configuration_payload
+    )
+    diagnostic = (
+        {
+            "custom_configuration": str(configuration_path),
+            "custom_configuration_sha256": _sha256_file(configuration_path),
+            "official_suite_claim": False,
+        }
+        if configuration_path is not None else None
+    )
     if plan_only:
         out.mkdir(parents=True, exist_ok=True)
         plan_path = out / "matrix-plan.json"
@@ -1912,6 +2663,8 @@ def run_matrix_cli(
         payload = dict(plan)
         payload["output"] = str(out)
         payload["artifact_hashes"] = {"matrix-plan.json": _sha256_file(plan_path)}
+        if diagnostic is not None:
+            payload["diagnostic"] = diagnostic
         # Plan-only is an evidence artifact write, not a suite PASS claim.
         if payload.get("ready_count", 0) == 0 and payload.get("not_run_count", 0) > 0:
             payload["status"] = "NOT_RUN"
@@ -1920,4 +2673,33 @@ def run_matrix_cli(
         else:
             payload["status"] = "NOT_RUN"
         return payload
-    return execute_matrix_plan(plan, root=root_path, output=out)
+    policy = load_matrix_execution_policy(
+        root_path, suite, configuration=configuration_payload
+    )
+    result = execute_matrix_plan(
+        plan,
+        root=root_path,
+        output=out,
+        baseline_dir=baseline,
+        runner_timeout_s=(
+            runner_timeout_s if runner_timeout_s is not None
+            else policy["runner_timeout_seconds"]
+        ),
+        judge_timeout_s=(
+            judge_timeout_s if judge_timeout_s is not None
+            else policy["judge_timeout_seconds"]
+        ),
+        max_workers=(max_workers if max_workers is not None else policy["max_workers"]),
+    )
+    counts = (result.get("aggregate") or {}).get("status_counts") or {}
+    result["status"] = next(
+        (
+            status
+            for status in ("FAIL", "INELIGIBLE", "NON_COMPARABLE", "NOT_RUN", "PASS")
+            if int(counts.get(status, 0) or 0) > 0
+        ),
+        "NOT_RUN",
+    )
+    if diagnostic is not None:
+        result["diagnostic"] = diagnostic
+    return result

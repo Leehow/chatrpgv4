@@ -237,6 +237,104 @@ class SanitySession:
     # ------------------------------------------------------------------ #
     # Core: SAN roll + loss
     # ------------------------------------------------------------------ #
+    def apply_direct_loss(
+        self,
+        source: str,
+        loss_expr: str,
+        *,
+        multiplier: float = 1.0,
+        alone: bool = False,
+        module_bout_override: dict | None = None,
+    ) -> dict[str, Any]:
+        """Apply unavoidable SAN loss such as reading a Mythos tome.
+
+        Unlike :meth:`sanity_check`, this rolls only the configured loss
+        expression: there is no percentile resistance check.  The ordinary
+        Mythos-hardened and insanity thresholds still apply, and the dice are
+        retained as public structured evidence.
+        """
+        if self.permanently_insane:
+            return self._event(
+                "sanity_loss_skipped", "Investigator is permanently insane"
+            )
+        if self.bout_active:
+            return self._event(
+                "sanity_loss_skipped",
+                "No further SAN loss during an active bout of madness (p.157)",
+            )
+        if isinstance(multiplier, bool) or not isinstance(multiplier, (int, float)):
+            raise ValueError("direct SAN loss multiplier must be numeric")
+        if multiplier < 0 or multiplier > 1:
+            raise ValueError("direct SAN loss multiplier must be between 0 and 1")
+        parsed = validate_san_loss_expression(loss_expr)
+        if parsed["kind"] == "constant":
+            raw_loss = int(parsed["value"])
+            die_rolls = [raw_loss]
+        else:
+            rolled = coc_roll.roll_expression(loss_expr, self._rng)
+            raw_loss = int(rolled["total"])
+            die_rolls = list(rolled["rolls"])
+        lost = int(raw_loss * float(multiplier))
+        san_before = self.san_current
+        mythos_hardened = self.cm_value > san_before
+        if mythos_hardened and lost > 0:
+            lost //= 2
+        self.san_current = max(0, self.san_current - lost)
+        self.daily_san_lost += lost
+        if lost >= 1:
+            self.delusion_resistant = False
+            self.symptoms_suppressed_until_next_san_loss = False
+
+        roll_id = self._roll_id()
+        self.pending_rolls.append({
+            "roll_id": roll_id,
+            "actor_id": self.investigator_id,
+            "skill": "SAN Loss",
+            "goal": source,
+            "die": loss_expr,
+            "roll": raw_loss,
+            "die_rolls": die_rolls,
+            "outcome": "sanity_loss",
+            "san_before": san_before,
+            "san_loss": lost,
+            "san_delta": -lost,
+            "san_after": self.san_current,
+            "mythos_hardened": mythos_hardened,
+            "multiplier": float(multiplier),
+            "expression_kind": parsed["kind"],
+            "marker": (
+                f"[roll]SAN loss {loss_expr}->{raw_loss}; multiplier={multiplier}; "
+                f"SAN {san_before}->{self.san_current}[/roll]"
+            ),
+        })
+        event = self._event("sanity_loss", {
+            "source": source,
+            "loss_expr": loss_expr,
+            "raw_loss": raw_loss,
+            "multiplier": float(multiplier),
+            "san_before": san_before,
+            "san_loss": lost,
+            "san_after": self.san_current,
+            "mythos_hardened": mythos_hardened,
+            "summary": (
+                f"{self.investigator_id} {source}: SAN "
+                f"{san_before}->{self.san_current} (lost {lost})."
+            ),
+        })
+        underlying = self.temporary_insane or self.indefinite_insane
+        if underlying and lost >= 1:
+            self._start_bout(source, alone, module_bout_override)
+        elif lost >= 5:
+            self._check_temporary_insanity(source, alone, module_bout_override)
+        if (
+            self.daily_san_lost >= max(1, self.day_start_san // 5)
+            and not self.indefinite_insane
+        ):
+            self._trigger_indefinite_insanity()
+        if self.san_current == 0 and not self.permanently_insane:
+            self._trigger_permanent_insanity()
+        return event
+
     def sanity_check(self, source: str, san_loss_success: int,
                      san_loss_fail_expr: str,
                      involuntary_kind: str | None = None,

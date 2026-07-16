@@ -38,6 +38,7 @@
   - `edition` (string, optional，**遗留**)：仅有此字段时，registry/校验器将其视为 `rules_edition`（结构化迁移，不做自由文本猜测）。新编译应写 `rules_edition` + 可选 `module_edition`。
   - `parent_module_id` (string, optional)：巨册分章时的父模组 id（如 `masks-of-nyarlathotep`）。同 parent 的兄弟章可用 `coc_module_registry.py list-family --parent <id>` 聚合。
   - `aliases` (object[], optional)：`{title, locale, source_label?}`——其它译名/版次标签；运行时只做规范化精确匹配（title + rules_edition），禁止模糊标题扫描。
+- `chapter_handoff` (object, optional)：巨册分章的自动交接合同，必须恰好为 `{"mode":"auto_on_terminal","target_module_id":"<canonical_module_id>"}`。运行时只在结构化终局证据成立后切换，并要求目标是同一 `parent_module_id` 的已注册兄弟章；绝不从标题、自由文本或章节顺序猜测目标。
 
 **示例：**
 
@@ -120,6 +121,7 @@
   - `is_start` (bool, optional)：开场场景；缺省时运行时把数组第一项当作 start 并默认解锁。
   - `is_final` (bool, optional)：终局场景标记。
   - `location_tags` (string[], optional)：场景地点匹配标签（大小写不敏感的结构化 ID/短语）。导演在 `intent_class=move` 时用意图路由器的 `target_entities` 与这些标签（外加精确 `scene_id`）做集合交集，唯一命中则优先 CUT 到该场景；零命中或并列回退出边确定性顺序。标签是编译期数据，不是运行时关键词扫描（Semantic Matcher Constitution）。双语模组应同时收录玩家可能说出的中英标签。缺省合法；形状须为非空字符串列表（R-5 `invalid_location_tags` warning）。
+  - `destination_access` (object, optional)：目的地的结构化认知/直达权限，必须恰好含 `schema_version: 1`、`discoverability` 与 `direct_entry`。`discoverability` ∈ `{public, evidence_gated, hidden}`；`direct_entry` ∈ `{independent, requires_unlock}`。只有 `public + independent` 允许玩家在语义路由器**精确选择该玩家安全目的地候选**时绕过“先听 NPC 提示”的边门控；它不会让 KP 主动剧透或自动传送。`evidence_gated` / `hidden` 必须使用 `requires_unlock`，继续依赖既有 clue/flag/route 证据。缺省等同保守门控。运行时只消费枚举与 ID，不从场景名、玩家文本或 KP 叙述猜测公开性。
   - `available_clues` (string[])：该场景可交付的 clue_id 列表（引用 clue-graph.json）。
   - `affordances` (object[], optional)：该场景自然露出的可行动线（diegetic routes，非玩家菜单）。开场与多分叉场景应至少 2 条，让玩家有选择权、不被线性推向单一出口。每条含 `id`（route 标识）、`cue`（可行动的感官/叙事提示）、可选 `route_type`（**固定枚举**，选最贴切的：`tenant_history` 前租客/房史、`reward_scope` 报酬范围、`direct_entry` 直接进入、`npc_question` 向 NPC 追问、`environment` 环境调查、`investigative_lead` 调查线索、`scene_affordance` 场景通用——运行时 focus 提取按此枚举匹配玩家结构化意图）、可选 `status`（`open`/`suggested`/`exhausted`/`locked`，缺省视为 `open`）。引擎据此结构化计算 `is_real_fork`（≥2 条 open route），仅在真分叉时才把选择交给玩家。
   - `storylet_tags` (string[], optional)：该场景在进入时可触发的 storylet 语义标签（如 `opening_briefing`/`arrival`/`first_contact`）。当玩家首次进入该场景（source_event_type 为 `scene_transition`/`scene_enter`）时，引擎会触发 `storylet_tags` 匹配的 storylet beat（storylet 端用其 `scene_tags` 字段匹配）。调查/社交开场场景宜标 1-2 个，让开场不只靠骰子事件也能调度剧情片段。

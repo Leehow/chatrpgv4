@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 PLAYER_REQUEST_KEYS = (
-    "public_state",
     "narration",
     "character_card",
     "transcript_tail",
     "pending_choice",
+    "play_language",
 )
 PLAYER_OPTIONAL_REQUEST_KEYS = ("persona_id", "persona_prompt_directives")
 _SAFE_PERSONA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -35,6 +35,21 @@ CANONICAL_INTENT_CLASSES = frozenset(
         "montage",
         "cast",
     }
+)
+RISK_POSTURES = frozenset({"cautious", "neutral", "reckless"})
+_PLAYER_INTENT_RICH_KEYS = frozenset(
+    {
+        "primary_intent",
+        "secondary_intents",
+        "target_entities",
+        "risk_posture",
+        "explicit_roll_request",
+        "player_hypothesis",
+        "action_atoms",
+    }
+)
+_ACTION_ATOM_KEYS = frozenset(
+    {"id", "verb", "target", "topic", "requires_roll", "skill", "reason", "stakes"}
 )
 
 # Fixed protocol markers from coc_player_action — format recovery only, not
@@ -161,6 +176,19 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
                 f"intent class (bridge contract violation)"
             )
         result["intent_class"] = intent_class
+    rich = raw.get("player_intent_rich")
+    if rich is not None:
+        clean_rich = _validate_player_intent_rich(rich)
+        if intent_class is not None and clean_rich["primary_intent"] != intent_class:
+            result["intent_normalization"] = {
+                "source": "player_intent_rich.primary_intent",
+                "from": intent_class,
+                "to": clean_rich["primary_intent"],
+                "reason": "same-submission intent enums disagreed",
+            }
+            result["intent_class"] = clean_rich["primary_intent"]
+        result["player_intent_rich"] = clean_rich
+        result.setdefault("intent_class", clean_rich["primary_intent"])
     model_identity = raw.get("model_identity")
     if model_identity is not None:
         if not (
@@ -205,6 +233,92 @@ def parse_runner_response(raw: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _validate_string_list(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) or not item.strip() for item in value
+    ):
+        raise RuntimeError(f"{label} must be a string list")
+    return [item.strip() for item in value]
+
+
+def _validate_player_intent_rich(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) - _PLAYER_INTENT_RICH_KEYS:
+        raise RuntimeError("player_intent_rich has unsupported fields")
+    required = _PLAYER_INTENT_RICH_KEYS - {"player_hypothesis"}
+    if not required <= set(value):
+        raise RuntimeError("player_intent_rich is missing required fields")
+    primary = value.get("primary_intent")
+    if primary not in CANONICAL_INTENT_CLASSES:
+        raise RuntimeError("player_intent_rich.primary_intent is not canonical")
+    risk = value.get("risk_posture")
+    if risk not in RISK_POSTURES:
+        raise RuntimeError("player_intent_rich.risk_posture is invalid")
+    explicit_roll_request = value.get("explicit_roll_request")
+    if not isinstance(explicit_roll_request, bool):
+        raise RuntimeError("player_intent_rich.explicit_roll_request must be boolean")
+    hypothesis = value.get("player_hypothesis")
+    if hypothesis is not None and (
+        not isinstance(hypothesis, str) or not hypothesis.strip()
+    ):
+        raise RuntimeError("player_intent_rich.player_hypothesis must be non-empty or null")
+    atoms = value.get("action_atoms")
+    if not isinstance(atoms, list) or not 1 <= len(atoms) <= 3:
+        raise RuntimeError("player_intent_rich.action_atoms must contain 1 to 3 atoms")
+    clean_atoms: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for atom in atoms:
+        if not isinstance(atom, dict) or set(atom) - _ACTION_ATOM_KEYS:
+            extras = sorted(set(atom) - _ACTION_ATOM_KEYS) if isinstance(atom, dict) else []
+            raise RuntimeError(
+                "player_intent_rich action atom has unsupported fields: "
+                + ", ".join(extras)
+            )
+        atom_id = atom.get("id")
+        verb = atom.get("verb")
+        requires_roll = atom.get("requires_roll")
+        if (
+            not isinstance(atom_id, str)
+            or not atom_id.strip()
+            or atom_id in seen_ids
+            or not isinstance(verb, str)
+            or not verb.strip()
+            or not isinstance(requires_roll, bool)
+        ):
+            raise RuntimeError("player_intent_rich action atom is malformed")
+        seen_ids.add(atom_id)
+        skill = atom.get("skill")
+        if requires_roll and (not isinstance(skill, str) or not skill.strip()):
+            raise RuntimeError("rollable player_intent_rich action atom requires skill")
+        clean_atom: dict[str, Any] = {
+            "id": atom_id.strip(),
+            "verb": verb.strip(),
+            "requires_roll": requires_roll,
+        }
+        for key in ("target", "topic", "skill", "reason", "stakes"):
+            item = atom.get(key)
+            if item is not None:
+                if not isinstance(item, str) or not item.strip():
+                    raise RuntimeError(
+                        f"player_intent_rich action atom {key} must be non-empty"
+                    )
+                clean_atom[key] = item.strip()
+        clean_atoms.append(clean_atom)
+    clean: dict[str, Any] = {
+        "primary_intent": primary,
+        "secondary_intents": _validate_string_list(
+            value.get("secondary_intents"), "player_intent_rich.secondary_intents"
+        ),
+        "target_entities": _validate_string_list(
+            value.get("target_entities"), "player_intent_rich.target_entities"
+        ),
+        "risk_posture": risk,
+        "explicit_roll_request": explicit_roll_request,
+        "player_hypothesis": hypothesis.strip() if isinstance(hypothesis, str) else None,
+        "action_atoms": clean_atoms,
+    }
+    return clean
+
+
 def _validate_usage(value: Any) -> dict[str, int | None]:
     if not isinstance(value, dict) or set(value) != {"input_tokens", "output_tokens"}:
         raise RuntimeError("usage must contain exactly input_tokens and output_tokens")
@@ -230,10 +344,11 @@ def player_send_turn(
     """Run one investigator turn through the player-brain bridge.
 
     ``request`` must include only player-safe fields:
-    public_state, narration, character_card, transcript_tail, pending_choice,
+    narration, character_card, transcript_tail, pending_choice, play_language,
     plus the optional structured persona pair.
     Never include director plans, keeper secrets, clue-graph, story-graph, or
-    npc-agendas in the request — callers are responsible for spoiler isolation.
+    npc-agendas in the request. Raw PublicState is a frontend rendering
+    contract, not player cognition, and must not be sent to this adapter.
     """
     if not isinstance(request, dict):
         raise ValueError("player_send_turn request must be a dict")

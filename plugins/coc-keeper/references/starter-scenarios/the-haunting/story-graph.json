@@ -2,6 +2,7 @@
   "scenes": [
     {
       "scene_id": "commission-briefing",
+      "display_name": "Knott 的办公室",
       "location_tags": [
         "briefing",
         "knott",
@@ -27,6 +28,7 @@
       "available_clues": [
         "clue-knott-commission",
         "clue-knott-research-leads",
+        "clue-knott-macario-summary",
         "clue-knott-keys"
       ],
       "npc_ids": [
@@ -41,21 +43,46 @@
       ],
       "affordances": [
         {
-          "id": "accept-commission",
-          "cue": "接受委托，确认日薪、钥匙与地址。",
+          "id": "confirm-commission-terms",
+          "cue": "向 Knott 逐项确认日薪、结算方式、调查范围与宅址。",
           "route_type": "npc_question",
+          "clue_id": "clue-knott-commission",
+          "npc_interaction": {
+            "npc_id": "npc-steven-knott",
+            "fact_id": "fact-knott-commission",
+            "tactic": "request_fact"
+          },
+          "status": "open"
+        },
+        {
+          "id": "accept-commission",
+          "cue": "明确接受委托，接过钥匙、宅址与预付现金。",
+          "route_type": "npc_question",
+          "clue_id": "clue-knott-keys",
           "status": "open"
         },
         {
           "id": "ask-research-options",
-          "cue": "追问还能去哪里查这栋宅子的旧账——报馆、档案厅、街坊？",
+          "cue": "追问这栋宅子的旧账可以从哪些公开记录或知情人查起。",
           "route_type": "investigative_lead",
+          "clue_id": "clue-knott-research-leads",
+          "npc_interaction": {
+            "npc_id": "npc-steven-knott",
+            "fact_id": "fact-knott-research-leads",
+            "tactic": "request_fact"
+          },
           "status": "open"
         },
         {
           "id": "ask-macario-tragedy",
           "cue": "打听前租客 Macario 一家究竟出了什么事。",
           "route_type": "npc_question",
+          "clue_id": "clue-knott-macario-summary",
+          "npc_interaction": {
+            "npc_id": "npc-steven-knott",
+            "fact_id": "fact-knott-macario-tragedy",
+            "tactic": "request_fact"
+          },
           "status": "open"
         }
       ],
@@ -70,7 +97,23 @@
       ],
       "scene_edges": [
         {
+          "to": "chapel-of-contemplation-ruins",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-chapel-ruins-location"
+          }
+        },
+        {
           "to": "newspaper-morgue",
+          "kind": "unlock",
+          "when": {
+            "kind": "clue_discovered",
+            "clue_id": "clue-knott-research-leads"
+          }
+        },
+        {
+          "to": "central-library",
           "kind": "unlock",
           "when": {
             "kind": "clue_discovered",
@@ -120,15 +163,30 @@
     },
     {
       "scene_id": "newspaper-morgue",
+      "destination_identity": {
+        "canonical_name": "Boston Globe offices",
+        "localized_names": {
+          "zh-Hans": "《波士顿环球报》报社"
+        },
+        "aliases": [
+          "Boston Globe",
+          "Globe offices",
+          "Globe clippings morgue",
+          "《波士顿环球报》报社",
+          "环球报剪报库"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent"
+      },
       "location_tags": [
         "newspaper morgue",
         "newspaper",
         "报馆",
         "morgue",
-        "archive",
-        "records-office",
-        "library",
-        "office",
+        "press-office",
         "newspaper-morgue"
       ],
       "scene_type": "investigation",
@@ -145,6 +203,14 @@
         "npc-arty-wilmot",
         "npc-ruth-blake"
       ],
+      "npc_presence_requirements": [
+        {
+          "npc_id": "npc-ruth-blake",
+          "requires_completed_route_ids": [
+            "persuade-arty"
+          ]
+        }
+      ],
       "pressure_moves": [
         "Arty Wilmot enjoys denying access and makes them work for every courtesy",
         "Knott telephones if research stretches past a day — time is money"
@@ -156,18 +222,103 @@
         {
           "id": "persuade-arty",
           "cue": "用说服、恐吓、魅力或花言巧语拿下编辑 Arty，进入剪报库。",
+          "player_visible_outcome": "Arty 最终同意让你进入地下室剪报库，并让 Ruth Blake 带你下楼查阅 Corbitt 宅的旧档。",
+          "target_entities": [
+            "Arty Wilmot"
+          ],
+          "verbs": [
+            "persuade",
+            "intimidate",
+            "charm",
+            "fast-talk"
+          ],
+          "skills": [
+            "Persuade",
+            "Intimidate",
+            "Charm",
+            "Fast Talk"
+          ],
+          "roll_gate": {
+            "kind": "skill_check",
+            "difficulty": "regular",
+            "stakes": "permission to enter the newspaper clipping room",
+          "ordinary_failure": {
+            "mode": "no_progress",
+            "summary": "Arty refuses access to the clipping room; the investigator may try another route or propose a changed method for a pushed attempt.",
+            "localized_summaries": {
+              "zh-Hans": "阿蒂把名片推回柜台，拒绝让调查员进入剪报库；调查员可以另寻门路，或换一种做法再孤注一掷。"
+            }
+            },
+          "fumble_consequence": {
+            "summary": "Arty takes grave offence, summons the maintenance staff, and has the investigator ejected and permanently barred from the clipping room.",
+            "localized_summaries": {
+              "zh-Hans": "阿蒂被彻底激怒，叫来勤杂人员把调查员赶出去，并永久禁止其进入剪报库。"
+            },
+            "effect": {
+                "kind": "route_closed",
+                "route_id": "persuade-arty"
+              }
+            },
+          "push_failure_consequence": {
+            "summary": "Arty has the investigator ejected and permanently bars them from the newspaper clipping room.",
+            "localized_summaries": {
+              "zh-Hans": "阿蒂会叫人把调查员赶出报馆，并永久禁止其进入剪报库。"
+            },
+            "effect": {
+                "kind": "route_closed",
+                "route_id": "persuade-arty"
+              }
+            },
+            "approaches": [
+              {
+                "verb": "persuade",
+                "skill": "Persuade"
+              },
+              {
+                "verb": "intimidate",
+                "skill": "Intimidate"
+              },
+              {
+                "verb": "charm",
+                "skill": "Charm"
+              },
+              {
+                "verb": "fast-talk",
+                "skill": "Fast Talk"
+              }
+            ]
+          },
           "route_type": "npc_question",
           "status": "open"
         },
         {
           "id": "search-clippings",
           "cue": "在地下室剪报库按街道地址翻找 Corbitt 宅相关稿件。",
+          "grants_clue_ids": [
+            "clue-globe-unpublished-story",
+            "clue-macario-tragedy"
+          ],
+          "requires_completed_route_ids": [
+            "persuade-arty"
+          ],
           "route_type": "investigative_lead",
           "status": "open"
         },
         {
           "id": "befriend-ruth",
           "cue": "与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。",
+          "clue_id": "clue-globe-fire-cutoff",
+          "requires_completed_route_ids": [
+            "persuade-arty"
+          ],
+          "target_entities": [
+            "Ruth Blake"
+          ],
+          "npc_interaction": {
+            "npc_id": "npc-ruth-blake",
+            "fact_id": "fact-globe-fire-cutoff",
+            "tactic": "request_fact"
+          },
           "route_type": "npc_question",
           "status": "open"
         }
@@ -182,6 +333,13 @@
         "never_invent pre-1878 Globe clippings about the house"
       ],
       "scene_edges": [
+        {
+          "to": "central-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
         {
           "to": "hall-of-records",
           "kind": "travel",
@@ -227,16 +385,195 @@
       ]
     },
     {
+      "scene_id": "central-library",
+      "destination_identity": {
+        "canonical_name": "Central Library",
+        "localized_names": {
+          "zh-Hans": "波士顿中央图书馆"
+        },
+        "aliases": [
+          "Boston Central Library",
+          "the Central Library",
+          "中央图书馆",
+          "波士顿中央图书馆"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent"
+      },
+      "location_tags": [
+        "central library",
+        "public library",
+        "municipal library",
+        "中央图书馆",
+        "research library"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "How much of the Corbitt House's nineteenth-century history can the investigators reconstruct from library records?",
+      "entry_conditions": [],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-house-built-1835",
+        "clue-neighbor-lawsuit-1852",
+        "clue-basement-burial-lawsuit",
+        "clue-second-lawsuit-outcome-unrecorded"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "Each search attempt consumes half a day of research",
+        "After more than a day, Knott contacts the investigators and reminds them that time is money"
+      ],
+      "storylet_tags": [
+        "research"
+      ],
+      "affordances": [
+        {
+          "id": "central-library-search-1835",
+          "cue": "用图书馆使用技能投入半天，按宅址追查现存最早的建造与转手记录。",
+          "clue_id": "clue-house-built-1835",
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "central-library-search-1852",
+          "cue": "再投入半天，沿 Walter Corbitt 的姓名继续查邻里诉讼记录。",
+          "clue_id": "clue-neighbor-lawsuit-1852",
+          "requires_discovered_clue_ids": [
+            "clue-house-built-1835"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "central-library-search-1866",
+          "cue": "再投入半天，继续查 Walter Corbitt 的讣告及其遗嘱引发的诉讼。",
+          "clue_id": "clue-basement-burial-lawsuit",
+          "requires_discovered_clue_ids": [
+            "clue-neighbor-lawsuit-1852"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "central-library-search-lawsuit-outcome",
+          "cue": "再投入半天，追查阻止 Corbitt 葬于自宅地下室的第二场诉讼结果。",
+          "clue_id": "clue-second-lawsuit-outcome-unrecorded",
+          "requires_discovered_clue_ids": [
+            "clue-basement-burial-lawsuit"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        }
+      ],
+      "tone": [
+        "quiet",
+        "scholarly",
+        "time-consuming"
+      ],
+      "allowed_improvisation": [
+        "invent reference clerks, catalog drawers, and reading-room details",
+        "never invent a recorded outcome for the second burial lawsuit"
+      ],
+      "scene_edges": [
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "commission-briefing",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 437,
+          "grep_anchor": "The Central Library"
+        }
+      ]
+    },
+    {
       "scene_id": "hall-of-records",
+      "destination_identity": {
+        "canonical_name": "Hall of Records",
+        "localized_names": {
+          "zh-Hans": "市档案厅"
+        },
+        "aliases": [
+          "the Hall of Records",
+          "city Hall of Records",
+          "档案厅",
+          "市档案厅"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "public",
+        "direct_entry": "independent"
+      },
       "location_tags": [
         "hall of records",
-        "archives",
         "档案厅",
-        "records",
-        "archive",
-        "records-office",
-        "library",
-        "office"
+        "civil records",
+        "church register",
+        "municipal records office"
       ],
       "scene_type": "investigation",
       "origin": "source",
@@ -245,10 +582,7 @@
       "exit_conditions": [],
       "available_clues": [
         "clue-will-executor-chapel",
-        "clue-chapel-closed-1912",
-        "clue-basement-burial-lawsuit",
-        "clue-police-raid-chapel",
-        "clue-chapel-journal-burial"
+        "clue-chapel-closed-1912"
       ],
       "npc_ids": [
         "npc-records-clerk"
@@ -264,18 +598,26 @@
         {
           "id": "library-use-civil",
           "cue": "用图书馆使用技能翻查民事法庭与遗嘱登记。",
-          "route_type": "investigative_lead",
-          "status": "open"
-        },
-        {
-          "id": "trace-chapel-register",
-          "cue": "在教堂登记册里追查「默想礼拜堂」的下落。",
+          "grants_clue_ids": [
+            "clue-will-executor-chapel",
+            "clue-chapel-closed-1912"
+          ],
+          "time_profile": {
+            "mode": "elapsed",
+            "category": "library_research",
+            "delta_minutes": 240
+          },
           "route_type": "investigative_lead",
           "status": "open"
         },
         {
           "id": "ask-clerk-redirect",
           "cue": "礼貌询问书记员：重罪卷宗该去哪一级法院或警局。",
+          "player_visible_outcome": "书记员解释：重罪由县、州或联邦法院处理，参与逮捕与查封的市警记录则在 Central Police Station。",
+          "completion_policy": "matched_no_roll",
+          "sets_flags": [
+            "records-serious-crime-destination-known"
+          ],
           "route_type": "npc_question",
           "status": "open"
         }
@@ -291,7 +633,22 @@
       ],
       "scene_edges": [
         {
+          "to": "higher-courts-central-police",
+          "kind": "unlock",
+          "when": {
+            "kind": "flag_set",
+            "flag_id": "records-serious-crime-destination-known"
+          }
+        },
+        {
           "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -324,6 +681,176 @@
           "path": "Call of Cthulhu 7e Keeper Rulebook",
           "page": 438,
           "grep_anchor": "Hall of Records"
+        }
+      ]
+    },
+    {
+      "scene_id": "higher-courts-central-police",
+      "destination_identity": {
+        "canonical_name": "Higher Courts; Central Police Station",
+        "localized_names": {
+          "zh-Hans": "高等法院与中央警察局"
+        },
+        "aliases": [
+          "Higher Courts",
+          "the Higher Courts",
+          "Central Police Station",
+          "the Central Police Station",
+          "county courts",
+          "commonwealth courts",
+          "federal courts",
+          "高等法院",
+          "中央警察局"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "evidence_gated",
+        "direct_entry": "requires_unlock"
+      },
+      "location_tags": [
+        "higher courts",
+        "central police station",
+        "court offices",
+        "police records",
+        "criminal records",
+        "高等法院",
+        "中央警察局",
+        "法院档案",
+        "警方卷宗"
+      ],
+      "scene_type": "investigation",
+      "origin": "source",
+      "dramatic_question": "Can the investigators gain access to the sealed 1912 Chapel of Contemplation raid file?",
+      "entry_conditions": [
+        {
+          "kind": "flag_set",
+          "flag_id": "records-serious-crime-destination-known"
+        }
+      ],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-police-raid-chapel"
+      ],
+      "npc_ids": [
+        "npc-kim-debrun"
+      ],
+      "pressure_moves": [
+        "Access is difficult and at least one investigator must succeed at an authored social or legal approach",
+        "A pushed social failure can earn police hostility, a shakedown, or threats"
+      ],
+      "storylet_tags": [
+        "research",
+        "institutional_resistance"
+      ],
+      "affordances": [
+        {
+          "id": "use-law-contact-for-raid-file",
+          "cue": "用法律技能证明自己认识法院书记员 Kim Debrun，请他调出 1912 年礼拜堂突袭卷宗；失败后可改变方法冒险 Push。",
+          "clue_id": "clue-police-raid-chapel",
+          "target_entities": [
+            "kim-debrun",
+            "chapel-raid-file"
+          ],
+          "verbs": [
+            "request access",
+            "establish contact",
+            "retrieve file"
+          ],
+          "skills": [
+            "Law"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "petition-for-raid-file",
+          "cue": "以充分理由、个人魅力或可信身份争取查看卷宗：Persuade、Charm、Fast Talk，或成功且至少 75 的 Credit Rating。",
+          "clue_id": "clue-police-raid-chapel",
+          "target_entities": [
+            "court-clerk",
+            "police-records-clerk",
+            "chapel-raid-file"
+          ],
+          "verbs": [
+            "persuade",
+            "charm",
+            "fast talk",
+            "impress",
+            "request access"
+          ],
+          "skills": [
+            "Persuade",
+            "Charm",
+            "Fast Talk",
+            "Credit Rating"
+          ],
+          "skill_minimums": {
+            "Credit Rating": 75
+          },
+          "route_type": "investigative_lead",
+          "status": "open"
+        }
+      ],
+      "tone": [
+        "formal",
+        "guarded",
+        "institutional"
+      ],
+      "allowed_improvisation": [
+        "invent desk procedure and the exact clerk who receives the request",
+        "never_invent public newspaper coverage of the secret raid",
+        "never_invent detailed autopsy findings absent from Handout 8"
+      ],
+      "scene_edges": [
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "previous-tenants",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 438,
+          "grep_anchor": "Higher Courts; Central Police Station"
         }
       ]
     },
@@ -362,12 +889,17 @@
         {
           "id": "chat-dooley",
           "cue": "向卖雪茄报纸的 Dooley 打听这栋宅子与 Macario 一家。",
+          "grants_clue_ids": [
+            "clue-dooley-macario-madness",
+            "clue-burning-eyes-form"
+          ],
           "route_type": "npc_question",
           "status": "open"
         },
         {
           "id": "ask-chapel",
           "cue": "追问几条街外那座被烧掉的礼拜堂废墟。",
+          "clue_id": "clue-chapel-ruins-location",
           "route_type": "investigative_lead",
           "status": "open"
         },
@@ -390,6 +922,13 @@
       "scene_edges": [
         {
           "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -420,7 +959,7 @@
       "source_refs": [
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
-          "page": 438,
+          "page": 439,
           "grep_anchor": "Mr. Dooley"
         }
       ]
@@ -462,18 +1001,21 @@
         {
           "id": "interview-gabriela",
           "cue": "温和询问 Gabriela：夜里那东西如何俯身、如何迁怒她丈夫。",
+          "clue_id": "clue-gabriela-night-visitor",
           "route_type": "npc_question",
           "status": "open"
         },
         {
           "id": "observe-vittorio",
           "cue": "观察 Vittorio 紧抱的圣经与他突然指出的那句「伪经」。",
+          "clue_id": "clue-vittorio-bible-weapon",
           "route_type": "investigative_lead",
           "status": "open"
         },
         {
           "id": "ask-staff-boys",
           "cue": "向院方打听两个孩子被亲戚接走前说过什么噩梦。",
+          "clue_id": "clue-boys-burning-eyes",
           "route_type": "npc_question",
           "status": "open"
         }
@@ -490,6 +1032,13 @@
       "scene_edges": [
         {
           "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -520,8 +1069,231 @@
       "source_refs": [
         {
           "path": "Call of Cthulhu 7e Keeper Rulebook",
-          "page": 438,
+          "page": 439,
           "grep_anchor": "Roxbury Sanitarium"
+        }
+      ]
+    },
+    {
+      "scene_id": "chapel-of-contemplation-ruins",
+      "destination_identity": {
+        "canonical_name": "The Chapel of Contemplation",
+        "localized_names": {
+          "zh-Hans": "沉思礼拜堂废墟"
+        },
+        "aliases": [
+          "Chapel of Contemplation",
+          "the ruined Chapel of Contemplation",
+          "chapel ruins",
+          "礼拜堂废墟",
+          "沉思礼拜堂",
+          "沉思礼拜堂废墟"
+        ]
+      },
+      "destination_access": {
+        "schema_version": 1,
+        "discoverability": "hidden",
+        "direct_entry": "requires_unlock"
+      },
+      "location_tags": [
+        "chapel of contemplation",
+        "chapel ruins",
+        "ruined church",
+        "cult site",
+        "礼拜堂废墟",
+        "教堂废墟",
+        "邪教遗址"
+      ],
+      "scene_type": "exploration",
+      "origin": "source",
+      "dramatic_question": "What survived beneath the burned Chapel of Contemplation, and why does Corbitt's name appear there?",
+      "entry_conditions": [
+        {
+          "kind": "clue_discovered",
+          "clue_id": "clue-chapel-ruins-location"
+        }
+      ],
+      "exit_conditions": [],
+      "available_clues": [
+        "clue-chapel-eye-symbol",
+        "clue-chapel-cellar-remains",
+        "clue-chapel-journal-burial",
+        "clue-liber-ivonis-tome"
+      ],
+      "npc_ids": [],
+      "pressure_moves": [
+        "Fresh white three-Y eye symbols make nearby foreheads prickle until investigators step away",
+        "Weak floorboards call for Luck, then Jump on failure; a ten-foot fall deals 1D6 damage",
+        "The base floor hazard resolves Luck, then Jump on failure, then a ten-foot fall; do not offer a pushed Jump until its typed possession consequence is available"
+      ],
+      "storylet_tags": [
+        "ruins",
+        "cult_residue",
+        "physical_hazard"
+      ],
+      "affordances": [
+        {
+          "id": "inspect-chapel-eye-symbol",
+          "cue": "查看残墙上新刷的白色三重 Y 与中央凝视之眼，并留意靠近时额头的刺痛。",
+          "clue_id": "clue-chapel-eye-symbol",
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "descend-ruined-chapel-cellar",
+          "cue": "在松软地板塌陷后，或找到安全下法，进入十英尺深的封闭地窖查看两具丝袍骸骨。",
+          "clue_id": "clue-chapel-cellar-remains",
+          "authored_operation": {
+            "kind": "environmental_hazard",
+            "payload": {
+              "luck_skill": "Luck",
+              "jump_skill": "Jump",
+              "damage_expr": "1D6",
+              "source": "chapel weakened floorboards, ten-foot fall",
+              "rule_ref": "module.haunting.chapel_weakened_floor"
+            }
+          },
+          "route_type": "environment",
+          "status": "open"
+        },
+        {
+          "id": "search-under-chapel-cabinet",
+          "cue": "搜查腐朽柜子并查看柜底；若没有明确查看柜下，需 Spot Hidden，彻底搜查可 Push。",
+          "grants_clue_ids": [
+            "clue-chapel-journal-burial",
+            "clue-liber-ivonis-tome"
+          ],
+          "target_entities": [
+            "moldering-cabinet",
+            "chapel-journal",
+            "liber-ivonis"
+          ],
+          "verbs": [
+            "search",
+            "look under",
+            "inspect"
+          ],
+          "skills": [
+            "Spot Hidden"
+          ],
+          "requires_discovered_clue_ids": [
+            "clue-chapel-cellar-remains"
+          ],
+          "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "study-liber-ivonis",
+          "cue": "至少花三小时初读残损的拉丁文《Liber Ivonis》；拉丁文低于 50 时必须检定，读懂后获得 2 点 Cthulhu Mythos，最大 SAN 降低 2。",
+          "target_entities": [
+            "liber-ivonis"
+          ],
+          "verbs": [
+            "study",
+            "read",
+            "translate"
+          ],
+          "skills": [
+            "Read Latin"
+          ],
+          "requires_discovered_clue_ids": [
+            "clue-liber-ivonis-tome"
+          ],
+          "authored_operation": {
+            "kind": "mythos_tome_study",
+            "payload": {
+              "tome_id": "haunting-damaged-liber-ivonis",
+              "language_skill": "Read Latin",
+              "language_threshold": 50,
+              "duration_minutes": 180,
+              "mythos_gain": 2,
+              "max_san_reduction": 2,
+              "rule_ref": "module.haunting.damaged_liber_ivonis_initial_read"
+            }
+          },
+          "route_type": "mythos_tome",
+          "status": "open"
+        }
+      ],
+      "tone": [
+        "weathered",
+        "overgrown",
+        "headache-prickle",
+        "fire-scarred"
+      ],
+      "allowed_improvisation": [
+        "invent mundane rubble and half-burned timbers",
+        "never_invent legible Liber Ivonis sections beyond the authored fragment",
+        "never_invent additional survivors of the 1912 raid"
+      ],
+      "optional_rules": {
+        "weakened_floor": {
+          "sequence": [
+            "Luck",
+            "Jump_on_failed_Luck"
+          ],
+          "fall_distance_feet": 10,
+          "damage": "1D6",
+          "push_allowed": true,
+          "push_runtime_status": "NOT_IMPLEMENTED",
+          "pushed_failure_extra": "lose_or_break_personal_possession",
+          "source_ref": {
+            "page": 440,
+            "grep_anchor": "Call for Luck rolls"
+          }
+        },
+        "liber_ivonis_initial_read": {
+          "minimum_hours": 3,
+          "read_latin_threshold_or_roll": 50,
+          "cthulhu_mythos_gain": 2,
+          "maximum_sanity_reduction": 2,
+          "source_ref": {
+            "page": 440,
+            "grep_anchor": "minimum of three hours"
+          }
+        }
+      },
+      "scene_edges": [
+        {
+          "to": "neighborhood-gossip",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "hall-of-records",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "higher-courts-central-police",
+          "kind": "travel",
+          "when": {
+            "kind": "flag_set",
+            "flag_id": "records-serious-crime-destination-known"
+          }
+        },
+        {
+          "to": "corbitt-house-ground",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        }
+      ],
+      "source_refs": [
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 439,
+          "grep_anchor": "The Chapel of Contemplation"
+        },
+        {
+          "path": "Call of Cthulhu 7e Keeper Rulebook",
+          "page": 440,
+          "grep_anchor": "moldering church records"
         }
       ]
     },
@@ -563,19 +1335,29 @@
         {
           "id": "force-cupboard",
           "cue": "撬开储藏室被钉死的橱柜，查看里面的旧书。",
+          "clue_id": "clue-corbitt-diaries",
           "route_type": "environment",
           "status": "open"
         },
         {
           "id": "survey-locks-bolts",
           "cue": "检查侧门多重门闩与钉死的一楼窗户——谁在防什么。",
+          "clue_id": "clue-nailed-windows",
           "route_type": "environment",
           "status": "open"
         },
         {
           "id": "listen-upstairs",
           "cue": "站在客厅听楼上传来的敲击与刮擦。",
+          "clue_id": "clue-upstairs-disturbance",
           "route_type": "investigative_lead",
+          "status": "open"
+        },
+        {
+          "id": "inspect-catholic-wards",
+          "cue": "查看客厅与卧室里密集摆放的十字架、圣母像、念珠和蜡烛。",
+          "clue_id": "clue-catholic-wards",
+          "route_type": "environment",
           "status": "open"
         }
       ],
@@ -607,6 +1389,13 @@
         },
         {
           "to": "newspaper-morgue",
+          "kind": "travel",
+          "when": {
+            "kind": "always"
+          }
+        },
+        {
+          "to": "central-library",
           "kind": "travel",
           "when": {
             "kind": "always"
@@ -676,12 +1465,17 @@
         {
           "id": "inspect-spare-window",
           "cue": "去检查那扇自己咔咔作响的备用卧室窗户。",
+          "clue_id": "clue-poltergeist-bed",
           "route_type": "environment",
           "status": "open"
         },
         {
           "id": "document-phenomena",
           "cue": "记录血泊、敲击与恶臭出现的时机与位置。",
+          "grants_clue_ids": [
+            "clue-blood-pool-manifest",
+            "clue-mythos-reek"
+          ],
           "route_type": "investigative_lead",
           "status": "open"
         },
@@ -756,6 +1550,7 @@
       "entry_conditions": [],
       "exit_conditions": [],
       "available_clues": [
+        "clue-rusted-basement-dagger",
         "clue-floating-knife",
         "clue-hollow-boards",
         "clue-corbitt-body-found",
@@ -778,13 +1573,20 @@
         },
         {
           "id": "search-tool-pile",
-          "cue": "在杂物堆里 Spot Hidden，寻找那把锈迹怪异的旧刀。",
+          "cue": "在杂物堆里 Spot Hidden，检查一把带装饰刀柄的锈旧匕首。",
+          "grants_clue_ids": [
+            "clue-rusted-basement-dagger"
+          ],
           "route_type": "investigative_lead",
           "status": "open"
         },
         {
           "id": "tear-boards",
           "cue": "拆开贴墙木板，探入恶臭的夹层与更深处的密室。",
+          "grants_clue_ids": [
+            "clue-hollow-boards",
+            "clue-corbitt-body-found"
+          ],
           "route_type": "environment",
           "status": "open"
         }
@@ -872,23 +1674,153 @@
       "affordances": [
         {
           "id": "strike-with-his-dagger",
-          "cue": "若已持有仪式匕首，用它直取 Corbitt——据说可破其法术。",
+          "action_kind": "attack",
+          "cue": "选择手头合适的武器攻击 Corbitt。",
+          "requires_discovered_clue_ids": [
+            "clue-own-dagger-ends-him"
+          ],
           "route_type": "environment",
-          "status": "open"
+          "status": "open",
+          "rules_operation": {
+            "kind": "combat_engagement",
+            "module_rules_id": "the-haunting",
+            "combat_id": "corbitt-final-combat",
+            "investigator_weapon_id": "corbitt-ritual-dagger",
+            "resolution_hint": "opposed_melee",
+            "opponent_defense": "dodge",
+            "victory_outcome": "investigators_win",
+            "defeat_outcome": "monsters_win",
+            "rulebook_exception": "own_dagger_ignores_spells",
+            "on_success": {
+              "kind": "destroy_target",
+              "outcome": "investigators_win",
+              "rule_ref": "module.haunting.corbitt_own_dagger"
+            },
+            "opponent": {
+              "actor_id": "walter-corbitt",
+              "monster_ref": "Walter Corbitt",
+              "side": "monster",
+              "combat_skill": 90,
+              "dodge_skill": 17,
+              "magic_points": 18,
+              "weapons": [
+                {
+                  "weapon_id": "floating-knife"
+                }
+              ]
+            },
+            "preparations": [
+              {
+                "effect_id": "flesh-ward",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "flesh_ward",
+                "duration_rounds": 14400,
+                "rule_ref": "module.haunting.corbitt_flesh_ward",
+                "armor_dice": "2D6",
+                "armor_rule": "degrades_1_per_damage"
+              },
+              {
+                "effect_id": "animate-body",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "animate_body",
+                "duration_rounds": 5,
+                "rule_ref": "module.haunting.corbitt_animate_body"
+              }
+            ],
+            "opponent_weapon_id": "floating-knife",
+            "opponent_resolution_hint": "opposed_melee",
+            "opponent_attack_resource_cost": {
+              "resource": "magic_points",
+              "cost": 1,
+              "reason": "floating_knife_attack",
+              "rule_ref": "module.haunting.corbitt_floating_knife_mp"
+            }
+          }
         },
         {
           "id": "conventional-assault",
+          "action_kind": "attack",
           "cue": "用枪械或肉搏强攻，并提防 Flesh Ward 与支配。",
           "route_type": "environment",
-          "status": "open"
+          "status": "repeatable",
+          "repeatable": true,
+          "rules_operation": {
+            "kind": "combat_engagement",
+            "module_rules_id": "the-haunting",
+            "combat_id": "corbitt-final-combat",
+            "investigator_weapon_policy": "structured_player_selection",
+            "default_investigator_weapon_id": "unarmed",
+            "resolution_hint": "opposed_melee",
+            "opponent_defense": "dodge",
+            "victory_outcome": "investigators_win",
+            "defeat_outcome": "monsters_win",
+            "opponent": {
+              "actor_id": "walter-corbitt",
+              "monster_ref": "Walter Corbitt",
+              "side": "monster",
+              "combat_skill": 90,
+              "dodge_skill": 17,
+              "magic_points": 18,
+              "weapons": [
+                {
+                  "weapon_id": "floating-knife"
+                }
+              ]
+            },
+            "preparations": [
+              {
+                "effect_id": "flesh-ward",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "flesh_ward",
+                "duration_rounds": 14400,
+                "rule_ref": "module.haunting.corbitt_flesh_ward",
+                "armor_dice": "2D6",
+                "armor_rule": "degrades_1_per_damage"
+              },
+              {
+                "effect_id": "animate-body",
+                "actor_id": "walter-corbitt",
+                "resource": "magic_points",
+                "cost": 2,
+                "effect_kind": "animate_body",
+                "duration_rounds": 5,
+                "rule_ref": "module.haunting.corbitt_animate_body"
+              }
+            ],
+            "opponent_weapon_id": "floating-knife",
+            "opponent_resolution_hint": "opposed_melee",
+            "opponent_attack_resource_cost": {
+              "resource": "magic_points",
+              "cost": 1,
+              "reason": "floating_knife_attack",
+              "rule_ref": "module.haunting.corbitt_floating_knife_mp"
+            }
+          }
         },
         {
           "id": "flee-and-seal",
+          "action_kind": "retreat",
           "cue": "撤出并重新封死夹墙，把问题留给下一任倒霉蛋——或房东。",
           "route_type": "environment",
           "status": "open"
         }
       ],
+      "conclusion_contract": {
+        "conclusion_id": "corbitt-destroyed",
+        "requires_combat_outcome": "investigators_win",
+        "player_visible_outcome": "Walter Corbitt 的尸身崩解成灰，盘踞老宅的意志终于消散。",
+        "sanity_reward": {
+          "die": "1D6",
+          "rule_ref": "module.haunting.conclusion_sanity_reward"
+        },
+        "session_ending": true
+      },
       "tone": [
         "climactic",
         "undead",

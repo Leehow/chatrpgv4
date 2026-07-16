@@ -1,0 +1,1751 @@
+"""Contract tests for the keeper toolbox CLI/registry (coc_toolbox.py)."""
+from __future__ import annotations
+
+import importlib.util
+import json
+import random
+import subprocess
+import sys
+import time
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+SCRIPTS = REPO / "plugins" / "coc-keeper" / "scripts"
+TOOLBOX_SCRIPT = SCRIPTS / "coc_toolbox.py"
+PYTHON = sys.executable
+
+
+def _load(name: str, rel: str | Path):
+    path = Path(rel)
+    if not path.is_absolute():
+        path = REPO / path
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_toolbox = _load("coc_toolbox_under_test", TOOLBOX_SCRIPT)
+coc_starter = _load("coc_starter_for_toolbox", SCRIPTS / "coc_starter.py")
+
+EXPECTED_NAMESPACES = {
+    "rules",
+    "combat",
+    "scene",
+    "clues",
+    "npc",
+    "actions",
+    "director",
+    "storylets",
+    "secrets",
+    "state",
+}
+
+
+def _write_json(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+@pytest.fixture
+def campaign_ws(tmp_path: Path):
+    """Fresh workspace with a the-haunting / thomas-hayes quick-start campaign."""
+    workspace = tmp_path / "workspace"
+    coc_root = workspace / ".coc"
+    campaign_id = "toolbox-test"
+    _write_json(
+        coc_root / "runtime.json",
+        {
+            "schema_version": 2,
+            "planner": {"kind": "deterministic"},
+            "rules": {"kind": "deterministic"},
+            "narrator": {"kind": "template"},
+            "player": {"kind": "human"},
+        },
+    )
+    quick = coc_starter.quick_start(
+        coc_root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id=campaign_id,
+        title="Toolbox Test",
+    )
+    campaign_dir = Path(quick["campaign_dir"])
+    return {
+        "workspace": workspace,
+        "coc_root": coc_root,
+        "campaign_id": campaign_id,
+        "campaign_dir": campaign_dir,
+        "investigator_id": quick["investigator_id"],
+        "quick": quick,
+    }
+
+
+def _run(ws, tool: str, args: dict | None = None) -> dict:
+    return coc_toolbox.run_tool(
+        tool,
+        ws["workspace"],
+        ws["campaign_id"],
+        args or {},
+    )
+
+
+def _first_clue_id(campaign_dir: Path) -> str:
+    clue_graph = json.loads(
+        (campaign_dir / "scenario" / "clue-graph.json").read_text(encoding="utf-8")
+    )
+    for conclusion in clue_graph.get("conclusions") or []:
+        for clue in conclusion.get("clues") or []:
+            if isinstance(clue, dict) and clue.get("clue_id"):
+                return str(clue["clue_id"])
+    raise AssertionError("starter clue-graph has no clue_id")
+
+
+def _first_npc_id(campaign_dir: Path) -> str:
+    agendas = json.loads(
+        (campaign_dir / "scenario" / "npc-agendas.json").read_text(encoding="utf-8")
+    )
+    for npc in agendas.get("npcs") or []:
+        if isinstance(npc, dict) and npc.get("npc_id"):
+            return str(npc["npc_id"])
+    raise AssertionError("starter npc-agendas has no npc_id")
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            out.append(json.loads(line))
+    return out
+
+
+def _run_concurrent_cli(
+    ws: dict,
+    calls: list[tuple[str, dict]],
+    *,
+    barrier_dir: Path,
+) -> list[dict]:
+    """Release real CLI subprocesses through one start barrier."""
+    barrier_dir.mkdir(parents=True, exist_ok=True)
+    gate = barrier_dir / "go"
+    wrapper = """
+import os
+import sys
+import time
+from pathlib import Path
+
+ready = Path(sys.argv[1])
+gate = Path(sys.argv[2])
+ready.write_text("ready", encoding="utf-8")
+deadline = time.monotonic() + 10.0
+while not gate.exists():
+    if time.monotonic() >= deadline:
+        raise SystemExit("barrier timeout")
+    time.sleep(0.001)
+os.execv(sys.executable, [sys.executable, *sys.argv[3:]])
+"""
+    processes: list[subprocess.Popen[str]] = []
+    ready_paths: list[Path] = []
+    try:
+        for index, (tool_name, args) in enumerate(calls):
+            ready = barrier_dir / f"ready-{index}"
+            ready_paths.append(ready)
+            processes.append(
+                subprocess.Popen(
+                    [
+                        PYTHON,
+                        "-c",
+                        wrapper,
+                        str(ready),
+                        str(gate),
+                        str(TOOLBOX_SCRIPT),
+                        tool_name,
+                        "--root",
+                        str(ws["workspace"]),
+                        "--campaign",
+                        ws["campaign_id"],
+                        "--json",
+                        json.dumps(args),
+                    ],
+                    cwd=REPO,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            )
+        deadline = time.monotonic() + 10.0
+        while not all(path.is_file() for path in ready_paths):
+            if time.monotonic() >= deadline:
+                raise AssertionError("concurrent toolbox workers did not reach barrier")
+            time.sleep(0.001)
+        gate.touch()
+        outputs: list[dict] = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=30)
+            assert process.returncode == 0, stderr or stdout
+            outputs.append(json.loads(stdout))
+        return outputs
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+
+
+# --------------------------------------------------------------------------- #
+# Registry / CLI self-description
+# --------------------------------------------------------------------------- #
+
+
+def test_list_tools_covers_expected_namespaces():
+    tools = coc_toolbox.list_tools()
+    names = {entry["name"] for entry in tools}
+    assert names == set(coc_toolbox.TOOLS)
+    namespaces = {name.split(".", 1)[0] for name in names}
+    assert namespaces == EXPECTED_NAMESPACES
+    # Hard / advisory / write surfaces all present.
+    assert any(n.startswith("rules.") for n in names)
+    assert any(n.startswith("scene.") or n.startswith("clues.") for n in names)
+    assert any(n.startswith("director.") or n.startswith("storylets.") for n in names)
+    assert any(n.startswith("state.") for n in names)
+    for entry in tools:
+        assert entry["summary"]
+
+
+def test_describe_known_tool_returns_parameter_schema():
+    described = coc_toolbox._describe("rules.roll_dice")
+    assert described["name"] == "rules.roll_dice"
+    assert described["needs_campaign"] is True
+    assert "expression" in described["params"]
+    assert described["params"]["expression"]["required"] is True
+    assert described["params"]["expression"]["type"] == "string"
+
+
+def test_run_tool_unknown_name_returns_error_envelope():
+    envelope = coc_toolbox.run_tool("no.such.tool", Path("."), None, {})
+    assert envelope["ok"] is False
+    assert envelope["tool"] == "no.such.tool"
+    assert envelope["error"]["code"] == "unknown_tool"
+    assert "unknown tool" in envelope["error"]["message"]
+
+
+def test_describe_cli_unknown_tool_exits_nonzero():
+    proc = subprocess.run(
+        [PYTHON, str(TOOLBOX_SCRIPT), "describe", "no.such.tool"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "unknown_tool"
+
+
+# --------------------------------------------------------------------------- #
+# Envelope contract
+# --------------------------------------------------------------------------- #
+
+
+def test_successful_call_returns_unified_envelope(campaign_ws):
+    envelope = _run(campaign_ws, "director.advise", {})
+    assert envelope["ok"] is True
+    assert envelope["tool"] == "director.advise"
+    assert "data" in envelope
+    assert isinstance(envelope["warnings"], list)
+    assert isinstance(envelope["hints"], list)
+    assert "error" not in envelope
+
+
+def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
+    envelope = _run(campaign_ws, "rules.roll_dice", {})
+    assert envelope["ok"] is False
+    assert envelope["tool"] == "rules.roll_dice"
+    assert envelope["error"]["code"] == "missing_param"
+    assert "expression" in envelope["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        (
+            "rules.luck_spend",
+            {"points": 1, "roll": 51, "target": 50, "outcome": "failure"},
+        ),
+        ("rules.first_aid", {"skill_value": 50}),
+        ("rules.medicine", {"skill_value": 50}),
+        (
+            "rules.weekly_recovery",
+            {"complete_rest": True, "poor_environment": False},
+        ),
+        ("rules.dying_check", {"clock_kind": "round"}),
+        ("state.set_flag", {"flag_id": "missing-id"}),
+        (
+            "state.clear_transient_condition",
+            {"condition": "prone", "reason": "stood up outside combat"},
+        ),
+        (
+            "state.record_npc_engagement",
+            {"npc_id": "npc-steven-knott", "interaction_kind": "dialogue"},
+        ),
+        ("state.npc_update", {"npc_id": "npc-steven-knott", "trust_delta": 1}),
+    ],
+)
+def test_mutating_tools_require_decision_id(campaign_ws, tool_name, args):
+    envelope = _run(campaign_ws, tool_name, args)
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "missing_param"
+    assert "decision_id" in envelope["error"]["message"]
+
+
+def test_invalid_request_does_not_raise_traceback(campaign_ws):
+    # Bad campaign id surfaces as ToolError envelope, not an uncaught exception.
+    envelope = coc_toolbox.run_tool(
+        "scene.context",
+        campaign_ws["workspace"],
+        "missing-campaign-id",
+        {},
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "unknown_campaign"
+
+
+def test_tool_requiring_campaign_without_id_errors():
+    envelope = coc_toolbox.run_tool("scene.context", Path("."), None, {})
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "missing_campaign"
+
+
+# --------------------------------------------------------------------------- #
+# rules.* determinism
+# --------------------------------------------------------------------------- #
+
+
+def test_rules_roll_dice_same_seed_is_deterministic(campaign_ws):
+    args = {
+        "expression": "2D6+1",
+        "seed": 12345,
+        "reason": "toolbox-test",
+        "decision_id": "deterministic-dice-once",
+    }
+    first = _run(campaign_ws, "rules.roll_dice", args)
+    second = _run(campaign_ws, "rules.roll_dice", args)
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert first["data"] == second["data"]
+    data = first["data"]
+    assert data["expression"] == "2D6+1"
+    assert data["count"] == 2
+    assert data["sides"] == 6
+    assert data["modifier"] == 1
+    assert isinstance(data["rolls"], list) and len(data["rolls"]) == 2
+    assert all(isinstance(v, int) for v in data["rolls"])
+    assert isinstance(data["total"], int)
+    assert data["total"] == sum(data["rolls"]) + 1
+
+
+def test_rules_roll_skill_check_returns_success_level_fields(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Library Use",
+            "seed": 7,
+            "reason": "toolbox skill check",
+            "decision_id": "skill-check-fields",
+        },
+    )
+    assert envelope["ok"] is True
+    data = envelope["data"]
+    assert data["investigator_id"] == campaign_ws["investigator_id"]
+    assert data["skill"] == "Library Use"
+    assert isinstance(data["roll"], int)
+    assert isinstance(data["target"], int)
+    assert data["outcome"] in {
+        "critical",
+        "extreme",
+        "hard",
+        "regular",
+        "failure",
+        "fumble",
+    }
+    assert "effective_target" in data
+    assert data["pushed"] is False
+
+
+def test_rules_roll_logs_canonical_traceable_numeric_payload(campaign_ws):
+    before = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Library Use",
+            "seed": 7,
+            "reason": "canonical roll test",
+            "decision_id": "canonical-roll-1",
+        },
+    )
+    assert envelope["ok"] is True
+    repeated = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Library Use",
+            "seed": 999,
+            "reason": "retry must not roll again",
+            "decision_id": "canonical-roll-1",
+        },
+    )
+    assert repeated["ok"] is True
+    assert repeated["data"] == envelope["data"]
+    assert any("duplicate decision_id" in warning for warning in repeated["warnings"])
+    records = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert len(records) == before + 1
+    row = records[-1]
+    assert row["roll_id"].startswith("toolbox-")
+    assert row["visibility"] == "public"
+    assert row["source"] == "keeper_toolbox"
+    assert row["source_ref"] == f"logs/rolls.jsonl#{row['roll_id']}"
+    assert row["actor"] == campaign_ws["investigator_id"]
+    payload = row["payload"]
+    assert payload["roll_id"] == row["roll_id"]
+    assert payload["skill"] == "Library Use"
+    assert isinstance(payload["roll"], int)
+    assert isinstance(payload["effective_target"], int)
+    assert payload["outcome"]
+
+
+def test_rules_roll_uses_rulebook_base_for_known_unlisted_skill(campaign_ws):
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character["skills"].pop("Law", None)
+    _write_json(character_path, character)
+
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "law",
+            "seed": 7,
+            "decision_id": "rulebook-base-law",
+        },
+    )
+
+    assert envelope["ok"] is True
+    assert envelope["data"]["skill"] == "Law"
+    assert envelope["data"]["target"] == 5
+    assert envelope["data"]["target_source"] == "rulebook_base"
+    assert any("base chance 5%" in hint for hint in envelope["hints"])
+
+
+def test_rules_roll_dice_logs_non_percentile_faces_and_total(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {"expression": "2D6+1", "seed": 9, "decision_id": "dice-log-1"},
+    )
+    assert envelope["ok"] is True
+    row = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")[-1]
+    payload = row["payload"]
+    assert payload["die_expression"] == "2D6+1"
+    assert payload["individual_faces"] == envelope["data"]["rolls"]
+    assert payload["final_total"] == envelope["data"]["total"]
+    assert payload["roll"] == envelope["data"]["total"]
+
+
+def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws):
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    before_luck = json.loads(state_path.read_text(encoding="utf-8"))["current_luck"]
+    roll_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before_rolls = len(_read_jsonl(roll_path))
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "points": 1,
+        "roll": 51,
+        "target": 50,
+        "outcome": "failure",
+        "roll_kind": "skill",
+        "decision_id": "luck-once",
+    }
+    first = _run(campaign_ws, "rules.luck_spend", args)
+    second = _run(campaign_ws, "rules.luck_spend", args)
+    assert first["ok"] and second["ok"]
+    assert second["data"] == first["data"]
+    assert any("duplicate decision_id" in warning for warning in second["warnings"])
+    after_luck = json.loads(state_path.read_text(encoding="utf-8"))["current_luck"]
+    assert after_luck == before_luck - 1
+    assert len(_read_jsonl(roll_path)) == before_rolls
+    luck_events = [
+        row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_type") == "luck_spent"
+    ]
+    assert len(luck_events) == 1
+
+
+# --------------------------------------------------------------------------- #
+# state.* transactionality / idempotency / logging
+# --------------------------------------------------------------------------- #
+
+
+def test_state_record_clue_idempotent_on_decision_id(campaign_ws):
+    clue_id = _first_clue_id(campaign_ws["campaign_dir"])
+    decision_id = "toolbox-clue-once"
+    args = {"clue_id": clue_id, "method": "test", "decision_id": decision_id}
+
+    first = _run(campaign_ws, "state.record_clue", args)
+    second = _run(campaign_ws, "state.record_clue", args)
+
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert first["data"]["clue_id"] == clue_id
+    assert first["data"]["already_discovered"] is False
+    assert second["data"] == first["data"]
+    assert any("duplicate decision_id" in w for w in second["warnings"])
+
+    world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert clue_id in world.get("discovered_clue_ids", [])
+    # Exactly one discovery event despite two calls.
+    events = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+    discoveries = [
+        e for e in events
+        if e.get("event_type") == "clue_discovered" and e.get("clue_id") == clue_id
+    ]
+    assert len(discoveries) == 1
+
+
+def test_same_decision_id_is_scoped_by_tool_name(campaign_ws):
+    decision_id = "shared-across-tools"
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "improvised-place", "decision_id": decision_id},
+    )
+    clue_id = _first_clue_id(campaign_ws["campaign_dir"])
+    recorded = _run(
+        campaign_ws,
+        "state.record_clue",
+        {"clue_id": clue_id, "method": "test", "decision_id": decision_id},
+    )
+    repeated = _run(
+        campaign_ws,
+        "state.record_clue",
+        {"clue_id": clue_id, "method": "test", "decision_id": decision_id},
+    )
+    assert moved["ok"] and recorded["ok"] and repeated["ok"]
+    assert recorded["data"]["clue_id"] == clue_id
+    assert "to_scene_id" not in recorded["data"]
+    assert repeated["data"] == recorded["data"]
+    ledger = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    scoped = [
+        entry
+        for entry in ledger["entries"].values()
+        if isinstance(entry, dict) and entry.get("decision_id") == decision_id
+    ]
+    assert {entry["tool"] for entry in scoped} == {
+        "state.move_scene",
+        "state.record_clue",
+    }
+
+
+@pytest.mark.parametrize("shared_decision_id", [True, False])
+def test_concurrent_cli_transactions_preserve_ledger_state_and_events(
+    campaign_ws,
+    tmp_path: Path,
+    shared_decision_id: bool,
+):
+    case = "same-id" if shared_decision_id else "different-ids"
+    scene_id = f"concurrent-{case}-scene"
+    flag_id = f"concurrent-{case}-flag"
+    move_decision = f"concurrent-{case}"
+    flag_decision = move_decision if shared_decision_id else f"{move_decision}-flag"
+    outputs = _run_concurrent_cli(
+        campaign_ws,
+        [
+            (
+                "state.move_scene",
+                {"scene_id": scene_id, "decision_id": move_decision},
+            ),
+            (
+                "state.set_flag",
+                {"flag_id": flag_id, "value": True, "decision_id": flag_decision},
+            ),
+        ],
+        barrier_dir=tmp_path / f"barrier-{case}",
+    )
+    assert all(output["ok"] is True for output in outputs)
+
+    campaign_dir = campaign_ws["campaign_dir"]
+    ledger = json.loads(
+        (campaign_dir / "save" / "toolbox-ledger.json").read_text(encoding="utf-8")
+    )
+    entries = ledger["entries"]
+    assert coc_toolbox.Ctx._ledger_key("state.move_scene", move_decision) in entries
+    assert coc_toolbox.Ctx._ledger_key("state.set_flag", flag_decision) in entries
+
+    world = json.loads(
+        (campaign_dir / "save" / "world-state.json").read_text(encoding="utf-8")
+    )
+    flags = json.loads(
+        (campaign_dir / "save" / "flags.json").read_text(encoding="utf-8")
+    )
+    assert world["active_scene_id"] == scene_id
+    assert flags["flags"][flag_id] is True
+
+    relevant_events = [
+        row
+        for row in _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+        if (
+            row.get("event_type") == "scene_transition"
+            and row.get("to_scene_id") == scene_id
+        ) or (
+            row.get("event_type") == "flag_set"
+            and row.get("flag_id") == flag_id
+        )
+    ]
+    assert len(relevant_events) == 2
+    event_tools = [
+        "state.move_scene"
+        if row["event_type"] == "scene_transition"
+        else "state.set_flag"
+        for row in relevant_events
+    ]
+    relevant_calls = [
+        row
+        for row in _read_jsonl(campaign_dir / "logs" / "toolbox-calls.jsonl")
+        if row.get("tool") in {"state.move_scene", "state.set_flag"}
+        and (row.get("args") or {}).get("decision_id") in {move_decision, flag_decision}
+    ]
+    assert len(relevant_calls) == 2
+    assert [row["tool"] for row in relevant_calls] == event_tools
+
+
+def test_legacy_ledger_entry_matches_only_its_original_tool(campaign_ws):
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    _write_json(
+        ledger_path,
+        {
+            "schema_version": 1,
+            "entries": {
+                "legacy-id": {
+                    "tool": "state.set_flag",
+                    "ts": "2026-01-01T00:00:00Z",
+                    "data": {"flag_id": "legacy", "value": True, "newly_unlocked_scenes": []},
+                }
+            },
+        },
+    )
+    same_tool = _run(
+        campaign_ws,
+        "state.set_flag",
+        {"flag_id": "should-not-write", "decision_id": "legacy-id"},
+    )
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    other_tool = _run(
+        campaign_ws,
+        "state.npc_update",
+        {"npc_id": npc_id, "trust_delta": 1, "decision_id": "legacy-id"},
+    )
+    assert same_tool["data"]["flag_id"] == "legacy"
+    assert any("duplicate decision_id" in warning for warning in same_tool["warnings"])
+    assert other_tool["ok"] is True
+    assert other_tool["data"]["npc_id"] == npc_id
+    assert other_tool["data"]["applied"]["trust"] == 1
+
+
+def test_state_flag_and_npc_updates_are_idempotent(campaign_ws):
+    flag_args = {"flag_id": "one-shot", "value": True, "decision_id": "flag-once"}
+    first_flag = _run(campaign_ws, "state.set_flag", flag_args)
+    second_flag = _run(campaign_ws, "state.set_flag", flag_args)
+    assert first_flag["ok"] and second_flag["ok"]
+    assert second_flag["data"] == first_flag["data"]
+    flag_events = [
+        row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_type") == "flag_set" and row.get("flag_id") == "one-shot"
+    ]
+    assert len(flag_events) == 1
+
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    npc_args = {"npc_id": npc_id, "trust_delta": 1, "decision_id": "npc-once"}
+    first_npc = _run(campaign_ws, "state.npc_update", npc_args)
+    second_npc = _run(campaign_ws, "state.npc_update", npc_args)
+    assert first_npc["ok"] and second_npc["ok"]
+    assert second_npc["data"] == first_npc["data"]
+    assert first_npc["data"]["psych"]["trust"] == 1
+    npc_events = [
+        row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_type") == "npc_update" and row.get("npc_id") == npc_id
+    ]
+    assert len(npc_events) == 1
+
+
+def test_state_write_appends_toolbox_calls_log(campaign_ws):
+    log_path = campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    before = len(_read_jsonl(log_path))
+    envelope = _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "toolbox_seen",
+            "value": True,
+            "reason": "unit-test",
+            "decision_id": "toolbox-seen-once",
+        },
+    )
+    assert envelope["ok"] is True
+
+    flags = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "flags.json").read_text(encoding="utf-8")
+    )
+    assert flags.get("flags", {}).get("toolbox_seen") is True
+
+    records = _read_jsonl(log_path)
+    assert len(records) == before + 1
+    last = records[-1]
+    assert last["tool"] == "state.set_flag"
+    assert last["ok"] is True
+    assert last["args"]["flag_id"] == "toolbox_seen"
+    assert "ts" in last
+
+
+def test_transient_tool_failure_retries_same_call_and_records_recovery(
+    campaign_ws,
+    monkeypatch,
+):
+    name = "state.retry_probe"
+    attempts = 0
+    contexts = []
+
+    def handler(ctx, args):
+        nonlocal attempts
+        attempts += 1
+        contexts.append(ctx)
+        assert "retry-probe" not in ctx._scenario_cache
+        ctx._scenario_cache["retry-probe"] = {"attempt": attempts}
+        if attempts < 3:
+            raise coc_toolbox.ToolError(
+                "subsystem_transaction_failed",
+                "synthetic transient failure",
+            )
+        return {"decision_id": args["decision_id"]}, [], []
+
+    coc_toolbox.TOOLS[name] = {
+        "name": name,
+        "summary": "test-only retry probe",
+        "params": {"decision_id": {"type": "string", "required": True}},
+        "needs_campaign": True,
+        "handler": handler,
+    }
+    monkeypatch.setattr(coc_toolbox, "_TOOL_TRANSIENT_RETRY_DELAY_SECONDS", 0)
+    try:
+        envelope = _run(campaign_ws, name, {"decision_id": "retry-probe-once"})
+    finally:
+        coc_toolbox.TOOLS.pop(name, None)
+
+    assert envelope["ok"] is True
+    assert envelope["attempts"] == 3
+    assert envelope["recovered_after_retry"] is True
+    assert attempts == 3
+    assert len({id(ctx) for ctx in contexts}) == 3
+    receipts = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == name
+    ]
+    assert [row["ok"] for row in receipts] == [False, False, True]
+    assert [row["attempt"] for row in receipts] == [1, 2, 3]
+    assert [row["will_retry"] for row in receipts] == [True, True, False]
+    assert receipts[-1]["recovered_after_retry"] is True
+
+
+def test_campaign_busy_retries_before_handler_and_records_attempts(
+    campaign_ws,
+    monkeypatch,
+):
+    lock_attempts = 0
+    handler_attempts = 0
+    real_lock = coc_toolbox.coc_fileio.campaign_lock
+
+    @contextmanager
+    def flaky_lock(campaign_dir, *, wait_seconds):
+        nonlocal lock_attempts
+        lock_attempts += 1
+        if lock_attempts < 3:
+            raise coc_toolbox.coc_fileio.CampaignLockError("synthetic busy campaign")
+        with real_lock(campaign_dir, wait_seconds=wait_seconds) as lock_path:
+            yield lock_path
+
+    name = "state.busy_retry_probe"
+
+    def handler(ctx, args):
+        nonlocal handler_attempts
+        handler_attempts += 1
+        return {"decision_id": args["decision_id"]}, [], []
+
+    coc_toolbox.TOOLS[name] = {
+        "name": name,
+        "summary": "test-only campaign lock retry probe",
+        "params": {"decision_id": {"type": "string", "required": True}},
+        "needs_campaign": True,
+        "handler": handler,
+    }
+    monkeypatch.setattr(coc_toolbox.coc_fileio, "campaign_lock", flaky_lock)
+    monkeypatch.setattr(coc_toolbox, "_TOOL_TRANSIENT_RETRY_DELAY_SECONDS", 0)
+    try:
+        envelope = _run(campaign_ws, name, {"decision_id": "busy-retry-once"})
+    finally:
+        coc_toolbox.TOOLS.pop(name, None)
+
+    assert envelope["ok"] is True
+    assert envelope["attempts"] == 3
+    assert envelope["recovered_after_retry"] is True
+    assert lock_attempts == 3
+    assert handler_attempts == 1
+    receipts = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == name
+    ]
+    assert [row.get("error") for row in receipts] == [
+        "campaign_busy",
+        "campaign_busy",
+        None,
+    ]
+    assert [row["will_retry"] for row in receipts] == [True, True, False]
+
+
+def test_invalid_payload_is_not_retried_and_returns_recovery_hint(
+    campaign_ws,
+    monkeypatch,
+):
+    name = "state.invalid_retry_probe"
+    attempts = 0
+
+    def handler(ctx, args):
+        nonlocal attempts
+        attempts += 1
+        raise coc_toolbox.ToolError("invalid_param", "synthetic invalid payload")
+
+    coc_toolbox.TOOLS[name] = {
+        "name": name,
+        "summary": "test-only invalid payload probe",
+        "params": {},
+        "needs_campaign": True,
+        "handler": handler,
+    }
+    monkeypatch.setattr(coc_toolbox, "_TOOL_TRANSIENT_RETRY_ATTEMPTS", 5)
+    try:
+        envelope = _run(campaign_ws, name)
+    finally:
+        coc_toolbox.TOOLS.pop(name, None)
+
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "invalid_param"
+    assert envelope["attempts"] == 1
+    assert envelope["retryable"] is False
+    assert envelope["recovered_after_retry"] is False
+    assert attempts == 1
+    assert any("describe" in hint for hint in envelope["hints"])
+    receipts = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == name
+    ]
+    assert len(receipts) == 1
+    assert receipts[0]["retryable"] is False
+    assert receipts[0]["will_retry"] is False
+    assert receipts[0]["error_message"] == "synthetic invalid payload"
+
+
+def test_state_end_session_appends_session_ending_event(campaign_ws):
+    world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    active = world.get("active_scene_id")
+    envelope = _run(
+        campaign_ws,
+        "state.end_session",
+        {
+            "kind": "cliffhanger",
+            "summary": "session closed by toolbox test",
+            "decision_id": "toolbox-end-1",
+        },
+    )
+    assert envelope["ok"] is True
+    assert envelope["data"]["session_ending"] is True
+    assert envelope["data"]["scene_id"] == active
+    assert envelope["data"]["kind"] == "cliffhanger"
+
+    events = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+    endings = [e for e in events if e.get("event_type") == "session_ending"]
+    assert endings
+    last = endings[-1]
+    assert last["scene_id"] == active
+    assert last["kind"] == "cliffhanger"
+    assert last["summary"] == "session closed by toolbox test"
+
+
+def test_state_end_session_idempotent_on_decision_id(campaign_ws):
+    args = {
+        "kind": "conclusion",
+        "summary": "once",
+        "decision_id": "toolbox-end-dup",
+    }
+    first = _run(campaign_ws, "state.end_session", args)
+    second = _run(campaign_ws, "state.end_session", args)
+    assert first["ok"] and second["ok"]
+    assert second["data"] == first["data"]
+    assert any("duplicate decision_id" in w for w in second["warnings"])
+    endings = [
+        e
+        for e in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+        if e.get("event_type") == "session_ending" and e.get("summary") == "once"
+    ]
+    assert len(endings) == 1
+
+
+def test_state_end_session_rejects_unknown_ending_kind(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "state.end_session",
+        {
+            "kind": "combat_finished",
+            "summary": "not a canonical session boundary",
+            "decision_id": "toolbox-end-invalid-kind",
+        },
+    )
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "invalid_param"
+
+
+# --------------------------------------------------------------------------- #
+# Soft-rule advisory behavior
+# --------------------------------------------------------------------------- #
+
+
+def test_director_advise_is_advisory_not_blocking(campaign_ws):
+    envelope = _run(campaign_ws, "director.advise", {})
+    assert envelope["ok"] is True
+    data = envelope["data"]
+    assert "suggestions" in data
+    assert isinstance(data["suggestions"], list)
+    assert data["suggestions"]
+    assert "beat" in data["suggestions"][0]
+    # Advisory channel: hints/warnings, never a hard failure for normal play.
+    assert isinstance(envelope["warnings"], list)
+    assert any("advisory" in h for h in envelope["hints"])
+
+
+def test_clues_query_returns_discovery_state_without_blocking(campaign_ws):
+    envelope = _run(campaign_ws, "clues.query", {"undiscovered_only": True})
+    assert envelope["ok"] is True
+    assert isinstance(envelope["warnings"], list)
+    assert isinstance(envelope["data"]["clues"], list)
+    assert envelope["data"]["clues"]
+    # Undiscovered clues remain marked secret for the keeper.
+    assert all(c.get("secret") is True for c in envelope["data"]["clues"])
+    assert all(c.get("discovered") is False for c in envelope["data"]["clues"])
+    assert all(c.get("player_safe_summary") is None for c in envelope["data"]["clues"])
+    assert all(c.get("localized_text") is None for c in envelope["data"]["clues"])
+    assert all(
+        "description" not in conclusion and "fallback_policy" not in conclusion
+        for conclusion in envelope["data"]["conclusions"]
+    )
+
+
+def test_npc_query_preserves_authored_identity_contract(campaign_ws):
+    envelope = _run(campaign_ws, "npc.query", {"npc_id": "npc-kim-debrun"})
+
+    assert envelope["ok"] is True
+    kim = envelope["data"]["npcs"][0]
+    assert kim["origin"] == "source"
+    assert kim["relationship_to_investigators"] == "court_contact"
+    assert kim["social_role"]["authority_scope"] == ["specialist_knowledge"]
+    assert any("identity contract" in hint for hint in envelope["hints"])
+    assert any("never invent a gendered pronoun" in hint for hint in envelope["hints"])
+
+
+def test_actions_list_gives_noncombat_choices_equal_structured_semantics(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-actions-final"},
+    )
+    assert moved["ok"] is True
+
+    envelope = _run(campaign_ws, "actions.list")
+    by_id = {row["id"]: row for row in envelope["data"]["affordances"]}
+    assert by_id["conventional-assault"]["action_kind"] == "attack"
+    assert by_id["conventional-assault"]["resolution_mode"] == "typed_tool"
+    assert by_id["flee-and-seal"]["action_kind"] == "retreat"
+    assert by_id["flee-and-seal"]["resolution_mode"] == "keeper_adjudication"
+    assert any("must not be replaced" in hint for hint in envelope["hints"])
+
+
+def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws):
+    args = {
+        "npc_id": "npc-kim-debrun",
+        "interaction_kind": "dialogue",
+        "decision_id": "kim-engagement-once",
+    }
+    state_path = campaign_ws["campaign_dir"] / "save" / "npc-state.json"
+    before = state_path.read_bytes() if state_path.is_file() else None
+
+    first = _run(campaign_ws, "state.record_npc_engagement", args)
+    replay = _run(campaign_ws, "state.record_npc_engagement", args)
+
+    assert first["ok"] is True
+    assert replay["data"] == first["data"]
+    assert first["data"]["event_type"] == "npc_engagement"
+    assert first["data"]["interaction_kind"] == "dialogue"
+    after = state_path.read_bytes() if state_path.is_file() else None
+    assert after == before
+    matching = [
+        row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+        if row.get("event_type") == "npc_engagement"
+        and row.get("npc_id") == "npc-kim-debrun"
+    ]
+    assert len(matching) == 1
+
+
+def test_npc_short_name_and_open_interaction_label_degrade_without_blocking(campaign_ws):
+    query = _run(campaign_ws, "npc.query", {"npc_id": "knott"})
+    assert query["ok"] is True
+    assert query["data"]["npcs"][0]["npc_id"] == "npc-steven-knott"
+    assert any("resolved NPC alias" in hint for hint in query["hints"])
+
+    engagement = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": "knott",
+            "interaction_kind": "request_access",
+            "decision_id": "knott-access-soft-label",
+        },
+    )
+    assert engagement["ok"] is True
+    assert engagement["data"]["npc_id"] == "npc-steven-knott"
+    assert engagement["data"]["interaction_kind"] == "other"
+    assert engagement["data"]["interaction_label"] == "request_access"
+    assert any("normalized to 'other'" in warning for warning in engagement["warnings"])
+
+
+def test_npc_structured_alias_normalization_is_unicode_safe_and_unambiguous():
+    agendas = {
+        "npcs": [
+            {
+                "npc_id": "npc-elise-zhou",
+                "name": "Élise 周",
+                "aliases": ["周女士"],
+            },
+            {
+                "npc_id": "npc-zhou-ming",
+                "name": "Ming 周",
+                "aliases": ["周先生"],
+            },
+        ]
+    }
+
+    assert coc_toolbox._npc_by_id(agendas, "ÉLISE")["npc_id"] == "npc-elise-zhou"
+    assert coc_toolbox._npc_by_id(agendas, "周女士")["npc_id"] == "npc-elise-zhou"
+    # The shared structured token stays unresolved instead of selecting one NPC.
+    assert coc_toolbox._npc_by_id(agendas, "周") is None
+
+
+def test_scene_context_projects_and_sanity_check_consumes_authored_trigger(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "upper-floor-bedroom", "decision_id": "move-to-bedroom"},
+    )
+    assert moved["ok"] is True
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is True
+    triggers = context["data"]["pending_san_triggers"]
+    assert [trigger["trigger_id"] for trigger in triggers] == ["bed-moves"]
+    trigger = triggers[0]
+
+    settled = _run(
+        campaign_ws,
+        "rules.sanity_check",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "source": trigger["source"],
+            "loss_success": str(trigger["san_loss_success"]),
+            "loss_failure": trigger["san_loss_fail_expr"],
+            "trigger_id": trigger["trigger_id"],
+            "decision_id": "bed-san-once",
+            "seed": 3,
+        },
+    )
+    assert settled["ok"] is True
+    assert settled["data"]["trigger_id"] == "bed-moves"
+    after = _run(campaign_ws, "scene.context")
+    assert after["data"]["pending_san_triggers"] == []
+
+
+def test_sanity_fumble_records_the_structured_authored_loss_consequence(campaign_ws):
+    settled = _run(
+        campaign_ws,
+        "rules.sanity_check",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "source": "structured horror",
+            "loss_success": "0",
+            "loss_failure": "1D4",
+            "decision_id": "san-fumble-evidence",
+            "seed": 23,
+        },
+    )
+    assert settled["ok"] is True
+    assert settled["data"]["check"]["outcome"] == "fumble"
+    check_roll_id = settled["data"]["check_roll_id"]
+    roll = next(
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+        )
+        if row.get("roll_id") == check_roll_id
+    )
+    consequence = roll["payload"]["fumble_consequence"]
+    assert consequence["effect"]["kind"] == "san_loss"
+    assert consequence["effect"]["amount"] == settled["data"]["san_loss"]
+
+
+def test_rules_push_records_announced_failure_consequence(campaign_ws):
+    result = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Library Use",
+            "method_changed": "cross-check the index against the court docket",
+            "failure_consequence": "the archive closes before the trail is copied",
+            "decision_id": "push-with-consequence",
+            "seed": 2,
+        },
+    )
+    assert result["ok"] is True
+    assert result["data"]["failure_consequence"]["summary"].startswith(
+        "the archive closes"
+    )
+    roll = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")[-1]
+    assert roll["payload"]["announced_consequence"] == result["data"][
+        "failure_consequence"
+    ]
+
+
+def test_dying_check_is_idempotent_and_writes_canonical_roll(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "unconscious", "dying"],
+    })
+    _write_json(state_path, state)
+
+    args = {
+        "investigator": investigator_id,
+        "clock_kind": "round",
+        "decision_id": "dying-clock-round-1",
+        "seed": 1,
+    }
+    before = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
+    first = _run(campaign_ws, "rules.dying_check", args)
+    repeated = _run(campaign_ws, "rules.dying_check", {**args, "seed": 999})
+    assert first["ok"] is True, first
+    assert repeated["ok"] is True
+    assert repeated["data"] == first["data"]
+    assert first["data"]["event"]["event_type"] == "dying_con_roll"
+    assert "dying" in first["data"]["conditions"]
+    rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert len(rolls) == before + 1
+    assert rolls[-1]["actor"] == investigator_id
+    assert rolls[-1]["payload"]["event_type"] == "combat_rescue_roll"
+
+
+def test_failed_first_aid_allows_one_evidenced_push(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "unconscious", "dying"],
+    })
+    _write_json(state_path, state)
+
+    failed = _run(
+        campaign_ws,
+        "rules.first_aid",
+        {
+            "investigator": investigator_id,
+            "skill_value": 1,
+            "rescuer_id": "npc-paramedic",
+            "decision_id": "first-aid-origin",
+            "seed": 1,
+        },
+    )
+    assert failed["ok"] is True, failed
+    assert failed["data"]["event"]["outcome"] == "failure"
+
+    pushed_args = {
+        "investigator": investigator_id,
+        "skill_value": 99,
+        "rescuer_id": "npc-paramedic",
+        "pushed": True,
+        "changed_method": "open the field kit and use a pressure dressing",
+        "failure_consequence": "the dying clock immediately resumes",
+        "decision_id": "first-aid-push",
+        "seed": 1,
+    }
+    pushed = _run(campaign_ws, "rules.first_aid", pushed_args)
+    assert pushed["ok"] is True, pushed
+    assert pushed["data"]["event"]["event_type"] == "first_aid_stabilize"
+    assert pushed["data"]["event"]["pushed"] is True
+    push_roll = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    )[-1]
+    assert push_roll["actor"] == "npc-paramedic"
+    assert push_roll["payload"]["pushed"] is True
+    assert push_roll["payload"]["changed_method"].startswith("open the field kit")
+    assert push_roll["payload"]["announced_consequence"] == {
+        "summary": "the dying clock immediately resumes"
+    }
+
+    second_push = _run(
+        campaign_ws,
+        "rules.first_aid",
+        {**pushed_args, "decision_id": "first-aid-push-again", "seed": 2},
+    )
+    assert second_push["ok"] is False
+    assert second_push["error"]["code"] == "treatment_already_used"
+
+
+def test_first_aid_wakes_non_dying_major_wound_for_resume(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 1,
+        "conditions": ["major_wound", "prone", "unconscious"],
+    })
+    _write_json(state_path, state)
+
+    aid = _run(
+        campaign_ws,
+        "rules.first_aid",
+        {
+            "investigator": investigator_id,
+            "skill_value": 99,
+            "rescuer_id": "npc-ambulance-attendant",
+            "decision_id": "wake-major-wound-first-aid",
+            "seed": 1,
+        },
+    )
+
+    assert aid["ok"] is True, aid
+    assert aid["data"]["current_hp"] == 2
+    assert "unconscious" not in aid["data"]["conditions"]
+    assert "major_wound" in aid["data"]["conditions"]
+
+
+def test_first_aid_then_medicine_closes_dying_consumer_chain(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 0,
+        "conditions": ["major_wound", "unconscious", "dying"],
+    })
+    _write_json(state_path, state)
+    rescuer_id = "npc-paramedic"
+    before = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
+
+    aid_args = {
+        "investigator": investigator_id,
+        "skill_value": 99,
+        "rescuer_id": rescuer_id,
+        "decision_id": "rescue-first-aid-1",
+        "seed": 1,
+    }
+    aid = _run(campaign_ws, "rules.first_aid", aid_args)
+    replay = _run(campaign_ws, "rules.first_aid", {**aid_args, "seed": 999})
+    assert aid["ok"] is True, aid
+    assert replay["data"] == aid["data"]
+    assert aid["data"]["event"]["event_type"] == "first_aid_stabilize"
+    assert aid["data"]["current_hp"] == 1
+    assert {"dying", "stabilized", "unconscious"} <= set(
+        aid["data"]["conditions"]
+    )
+
+    medicine = _run(
+        campaign_ws,
+        "rules.medicine",
+        {
+            "investigator": investigator_id,
+            "skill_value": 99,
+            "rescuer_id": rescuer_id,
+            "decision_id": "rescue-medicine-1",
+            "seed": 1,
+        },
+    )
+    assert medicine["ok"] is True, medicine
+    assert medicine["data"]["event"]["event_type"] == "medicine"
+    assert medicine["data"]["current_hp"] >= 2
+    assert not {"dying", "stabilized", "unconscious"} & set(
+        medicine["data"]["conditions"]
+    )
+
+    rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    new_rolls = rolls[before:]
+    assert len(new_rolls) == 3
+    assert all(row["actor"] == rescuer_id for row in new_rolls)
+    assert all(row["source"] == "subsystem_executor" for row in new_rolls)
+    assert all(row["payload"]["roll_id"] == row["roll_id"] for row in new_rolls)
+
+
+def test_weekly_recovery_uses_authoritative_time_and_is_dice_complete(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    campaign_dir = campaign_ws["campaign_dir"]
+    state_path = (
+        campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+    )
+    time_state = json.loads(
+        (campaign_dir / "save" / "time-state.json").read_text(encoding="utf-8")
+    )
+    elapsed = int(time_state["clock"]["elapsed_minutes"])
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({
+        "current_hp": 2,
+        "conditions": ["major_wound"],
+        "wound_ledger": [{
+            "wound_id": "wound-weekly-test",
+            "source_damage_roll_id": "damage-weekly-test",
+            "occurred_elapsed_minutes": elapsed,
+            "status": "active",
+        }],
+    })
+    _write_json(state_path, state)
+
+    recovery_args = {
+        "investigator": investigator_id,
+        "complete_rest": True,
+        "poor_environment": False,
+        "medicine_skill_value": 99,
+        "caregiver_id": "npc-hospital-doctor",
+        "decision_id": "major-wound-week-1",
+        "seed": 1,
+    }
+    early = _run(campaign_ws, "rules.weekly_recovery", recovery_args)
+    assert early["ok"] is False
+    assert early["error"]["code"] == "weekly_recovery_not_due"
+
+    advanced = _run(
+        campaign_ws,
+        "state.advance_time",
+        {
+            "minutes": 7 * 24 * 60,
+            "reason": "one complete week of hospital rest",
+            "decision_id": "advance-major-wound-week-1",
+        },
+    )
+    assert advanced["ok"] is True
+    before_rolls = len(_read_jsonl(campaign_dir / "logs" / "rolls.jsonl"))
+    settled = _run(campaign_ws, "rules.weekly_recovery", recovery_args)
+    replay = _run(
+        campaign_ws,
+        "rules.weekly_recovery",
+        {**recovery_args, "seed": 999},
+    )
+    assert settled["ok"] is True, settled
+    assert replay["ok"] is True
+    assert replay["data"] == settled["data"]
+    event = settled["data"]["event"]
+    assert event["event_type"] == "major_wound_recovery"
+    assert event["elapsed_minutes_since_prior_attempt"] == 7 * 24 * 60
+    assert event["roll"] is not None
+    assert event["target"] > 0
+    assert len(settled["data"]["major_wound_recovery_ledger"]) == 1
+
+    new_rolls = _read_jsonl(campaign_dir / "logs" / "rolls.jsonl")[before_rolls:]
+    expected_roll_count = 2 + int(event.get("healing_dice") is not None)
+    assert len(new_rolls) == expected_roll_count
+    assert len({row["roll_id"] for row in new_rolls}) == expected_roll_count
+    assert new_rolls[0]["payload"]["event_type"] == "major_wound_recovery_roll"
+    assert new_rolls[0]["actor"] == investigator_id
+    assert new_rolls[1]["payload"]["event_type"] == "weekly_medical_care_roll"
+    assert new_rolls[1]["actor"] == "npc-hospital-doctor"
+    if event.get("healing_dice") is not None:
+        assert new_rolls[2]["payload"]["dice"] == event["healing_dice"]
+
+    too_soon = _run(
+        campaign_ws,
+        "rules.weekly_recovery",
+        {**recovery_args, "decision_id": "major-wound-week-2", "seed": 2},
+    )
+    assert too_soon["ok"] is False
+    if "major_wound" in settled["data"]["conditions"]:
+        assert too_soon["error"]["code"] == "weekly_recovery_not_due"
+    else:
+        assert too_soon["error"]["code"] == "major_wound_not_active"
+    assert len(_read_jsonl(campaign_dir / "logs" / "rolls.jsonl")) == (
+        before_rolls + expected_roll_count
+    )
+
+
+def test_clear_transient_condition_preserves_injury_state_and_replays(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["conditions"] = ["major_wound", "prone"]
+    _write_json(state_path, state)
+    args = {
+        "investigator": investigator_id,
+        "condition": "prone",
+        "reason": "the investigator carefully stood after bed rest",
+        "decision_id": "stand-after-recovery",
+    }
+
+    cleared = _run(campaign_ws, "state.clear_transient_condition", args)
+    replay = _run(campaign_ws, "state.clear_transient_condition", args)
+
+    assert cleared["ok"] is True
+    assert replay["data"] == cleared["data"]
+    assert cleared["data"]["changed"] is True
+    assert cleared["data"]["conditions"] == ["major_wound"]
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted["conditions"] == ["major_wound"]
+
+
+def test_clear_transient_condition_rejects_injury_conditions(campaign_ws):
+    rejected = _run(
+        campaign_ws,
+        "state.clear_transient_condition",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "condition": "major_wound",
+            "reason": "generic narration must not erase a wound",
+            "decision_id": "forged-major-wound-clear",
+        },
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_param"
+
+
+def test_combat_tool_persists_reloadable_session_and_public_rolls(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-to-combat"},
+    )
+    assert moved["ok"] is True
+    args = {
+        "affordance_id": "conventional-assault",
+        "investigator": campaign_ws["investigator_id"],
+        "weapon_id": "unarmed",
+        "luck_spend_max": 50,
+        "decision_id": "combat-beat-1",
+        "seed": 7,
+    }
+    before_rolls = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
+    first = _run(campaign_ws, "combat.resolve", args)
+    assert first["ok"] is True, first
+    repeated = _run(campaign_ws, "combat.resolve", {**args, "seed": 999})
+    assert repeated["ok"] is True
+    assert repeated["data"] == first["data"]
+
+    combat_path = campaign_ws["campaign_dir"] / "save" / "combat.json"
+    saved = json.loads(combat_path.read_text(encoding="utf-8"))
+    assert saved["schema_version"] == 2
+    reloaded = coc_toolbox.coc_subsystem_executor.coc_combat.CombatSession.load(
+        campaign_ws["campaign_dir"],
+        rng=random.Random(99),
+        damage_evidence=coc_toolbox.coc_subsystem_executor.load_combat_damage_evidence(
+            campaign_ws["campaign_dir"]
+        ),
+        damage_evidence_actor=campaign_ws["investigator_id"],
+    )
+    assert reloaded.combat_id == saved["combat_id"]
+    rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert len(rolls) > before_rolls
+    combat_rolls = rolls[before_rolls:]
+    assert all(row.get("event_type") == "roll" for row in combat_rolls)
+    assert all(row.get("actor") for row in combat_rolls)
+    assert all(row.get("roll_id") for row in combat_rolls)
+    assert all(row.get("visibility") in {"public", "consequence_public"}
+               for row in combat_rolls)
+    assert all(row.get("source") == "subsystem_executor" for row in combat_rolls)
+    assert all(row.get("source_ref") == f"logs/rolls.jsonl#{row['roll_id']}"
+               for row in combat_rolls)
+    assert all(row.get("payload", {}).get("roll_id") == row["roll_id"]
+               for row in combat_rolls)
+    assert all(
+        row["actor"] == row["payload"].get("actor_id", campaign_ws["investigator_id"])
+        for row in combat_rolls
+    )
+    assert any(row["actor"] == "walter-corbitt" for row in combat_rolls)
+
+    outcome = reloaded.outcome if reloaded.status == "concluded" else "fled"
+    ended = _run(
+        campaign_ws,
+        "combat.end",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "outcome": outcome,
+            "decision_id": "combat-end-1",
+        },
+    )
+    assert ended["ok"] is True, ended
+    assert any(
+        event.get("event_type") == "combat_ended"
+        for event in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+    )
+
+    prior_combat_id = reloaded.combat_id
+    prior_roll_ids = {row["roll_id"] for row in rolls}
+    rematch = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "conventional-assault",
+            "investigator": campaign_ws["investigator_id"],
+            "weapon_id": "unarmed",
+            "decision_id": "combat-rematch-1",
+            "seed": 17,
+        },
+    )
+    assert rematch["ok"] is True, rematch
+    assert rematch["data"]["combat"]["combat_id"] != prior_combat_id
+    assert "-restart-t" in rematch["data"]["combat"]["combat_id"]
+    assert any("fresh combat/command/roll identity" in row
+               for row in rematch["warnings"])
+    all_rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    all_roll_ids = [row["roll_id"] for row in all_rolls]
+    assert len(all_roll_ids) == len(set(all_roll_ids))
+    assert any(row["roll_id"] not in prior_roll_ids for row in all_rolls)
+
+
+def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-pow-combat"},
+    )
+    assert moved["ok"] is True
+    common = {
+        "affordance_id": "conventional-assault",
+        "investigator": campaign_ws["investigator_id"],
+        "weapon_id": "unarmed",
+    }
+
+    opened = _run(
+        campaign_ws,
+        "combat.resolve",
+        {**common, "decision_id": "pow-combat-open", "seed": 7},
+    )
+    assert opened["ok"] is True, opened
+    assert opened["data"]["combat"]["status"] == "active"
+
+    declared = _run(
+        campaign_ws,
+        "combat.resolve",
+        {**common, "decision_id": "pow-knife-declare", "seed": 8},
+    )
+    assert declared["ok"] is True, declared
+    pending = declared["data"]["pending_defense"]
+    assert pending["actor_id"] == "walter-corbitt"
+    assert pending["weapon_id"] == "floating-knife"
+
+    resolved = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            **common,
+            "defense_kind": "dodge",
+            "decision_id": "pow-knife-defend",
+            "seed": 9,
+        },
+    )
+    assert resolved["ok"] is True, resolved
+    knife_rolls = [
+        row
+        for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+        if row.get("actor") == "walter-corbitt"
+        and row.get("payload", {}).get("skill") == "POW"
+    ]
+    assert len(knife_rolls) == 1
+    assert knife_rolls[0]["payload"]["target"] == 90
+
+
+def test_off_design_clue_records_with_warning_not_exception(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "state.record_clue",
+        {
+            "clue_id": "improvised-toolbox-clue",
+            "method": "improvisation",
+            "decision_id": "toolbox-improv-clue",
+        },
+    )
+    assert envelope["ok"] is True
+    assert envelope["data"]["clue_id"] == "improvised-toolbox-clue"
+    assert any("not in the clue graph" in w for w in envelope["warnings"])
+
+
+# --------------------------------------------------------------------------- #
+# CLI smoke (subprocess)
+# --------------------------------------------------------------------------- #
+
+
+def test_cli_list_prints_parseable_json():
+    proc = subprocess.run(
+        [PYTHON, str(TOOLBOX_SCRIPT), "list"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    payload = json.loads(proc.stdout)
+    names = {entry["name"] for entry in payload["tools"]}
+    assert "rules.roll_dice" in names
+    assert "state.record_clue" in names
+    assert "director.advise" in names
+
+
+def test_cli_tool_call_with_root_and_campaign(campaign_ws):
+    proc = subprocess.run(
+        [
+            PYTHON,
+            str(TOOLBOX_SCRIPT),
+            "rules.roll_dice",
+            "--root",
+            str(campaign_ws["workspace"]),
+            "--campaign",
+            campaign_ws["campaign_id"],
+            "--json",
+            json.dumps({
+                "expression": "1D4",
+                "seed": 99,
+                "decision_id": "cli-dice-once",
+            }),
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    envelope = json.loads(proc.stdout)
+    assert envelope["ok"] is True
+    assert envelope["tool"] == "rules.roll_dice"
+    assert isinstance(envelope["data"]["total"], int)
+    assert envelope["data"]["rolls"]
+
+
+def test_cli_failed_tool_exits_nonzero(campaign_ws):
+    proc = subprocess.run(
+        [
+            PYTHON,
+            str(TOOLBOX_SCRIPT),
+            "rules.roll_dice",
+            "--root",
+            str(campaign_ws["workspace"]),
+            "--campaign",
+            campaign_ws["campaign_id"],
+            "--json",
+            "{}",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    envelope = json.loads(proc.stdout)
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "missing_param"
+
+
+def test_cli_describe_known_tool():
+    proc = subprocess.run(
+        [PYTHON, str(TOOLBOX_SCRIPT), "describe", "state.record_clue"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    payload = json.loads(proc.stdout)
+    assert payload["name"] == "state.record_clue"
+    assert payload["params"]["clue_id"]["required"] is True
+    assert payload["params"]["decision_id"]["required"] is True

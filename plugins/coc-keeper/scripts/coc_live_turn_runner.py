@@ -22,7 +22,7 @@ import random
 import stat
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -50,6 +50,16 @@ coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py"
 coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 coc_state = _load_sibling("coc_state_live_turn", "coc_state.py")
+coc_scenario_hydration = _load_sibling(
+    "coc_scenario_hydration_live_turn", "coc_scenario_hydration.py"
+)
+coc_chapter_switch = _load_sibling(
+    "coc_chapter_switch_live_turn", "coc_chapter_switch.py"
+)
+coc_scene_graph = _load_sibling("coc_scene_graph_live_turn", "coc_scene_graph.py")
+coc_action_resolver = _load_sibling(
+    "coc_action_resolver_live_turn", "coc_action_resolver.py"
+)
 
 
 _INTERRUPT_EVENT_TYPES = {
@@ -95,6 +105,247 @@ def _write_json(path: Path, payload: Any) -> None:
     coc_fileio.write_json_atomic(
         path, payload, indent=2, ensure_ascii=False, trailing_newline=True
     )
+
+
+_COMPOUND_CONTINUATION_LEDGER = "compound-action-continuations.json"
+_CANONICAL_INTENTS = {
+    "investigate", "social", "move", "combat", "flee", "meta", "stuck",
+    "idle", "ambiguous", "montage", "cast",
+}
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _compound_ledger_path(campaign: Path) -> Path:
+    return campaign / "save" / _COMPOUND_CONTINUATION_LEDGER
+
+
+def _load_compound_ledger(campaign: Path) -> dict[str, Any]:
+    value = _read_json(
+        _compound_ledger_path(campaign),
+        {"schema_version": 1, "continuations": {}},
+    )
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
+        or not isinstance(value.get("continuations"), dict)
+    ):
+        raise RuntimeError("compound action continuation ledger is invalid")
+    return value
+
+
+def _write_compound_ledger(campaign: Path, ledger: dict[str, Any]) -> None:
+    _write_json(_compound_ledger_path(campaign), ledger)
+
+
+def _mint_compound_action_capsule(
+    campaign: Path,
+    character_path: Path,
+    investigator_id: str,
+    origin_decision_id: str,
+    origin_scene_id: str,
+    post_arrival_action: dict[str, Any],
+) -> dict[str, Any]:
+    action = _copy_jsonable(post_arrival_action)
+    if (
+        not isinstance(origin_decision_id, str)
+        or not origin_decision_id.strip()
+        or not isinstance(origin_scene_id, str)
+        or not origin_scene_id.strip()
+        or action.get("schema_version") != 1
+        or action.get("kind") != "post_arrival_action"
+        or not isinstance(action.get("destination_scene_id"), str)
+        or not action["destination_scene_id"].strip()
+        or action.get("route_owner_scene_id") != action.get("destination_scene_id")
+        or not isinstance(action.get("route_id"), str)
+        or not action["route_id"].strip()
+        or not isinstance(action.get("action_atom"), dict)
+        or action["action_atom"].get("route_id") != action.get("route_id")
+        or action.get("primary_intent") not in _CANONICAL_INTENTS
+    ):
+        raise RuntimeError("post-arrival action authority is invalid")
+    route = action.get("route_snapshot")
+    if (
+        not isinstance(route, dict)
+        or route.get("affordance_id") != action.get("route_id")
+        or route.get("route_owner_scene_id") != action.get("destination_scene_id")
+        or route.get("execution_phase") != "post_arrival"
+        or route.get("destination_scene_id") != action.get("destination_scene_id")
+    ):
+        raise RuntimeError("post-arrival route snapshot is invalid")
+    character = _read_json(character_path, {})
+    character_id = character.get("id")
+    if not isinstance(character_id, str) or not character_id.strip():
+        raise RuntimeError("compound action requires a bound character ID")
+    capsule = {
+        "schema_version": 1,
+        "kind": "compound_action_continuation",
+        "continuation_id": None,
+        "campaign_binding": subsystem_executor._campaign_binding(campaign),
+        "actor_binding": {
+            "investigator_id": investigator_id,
+            "character_id": character_id,
+        },
+        "authority_revision": 0,
+        "source_evidence": {
+            "origin_decision_id": origin_decision_id,
+            "origin_scene_id": origin_scene_id,
+            "destination_scene_id": action["destination_scene_id"],
+        },
+        "action_authority": action,
+        "idempotency": {
+            "key": None,
+            "mode": "exact_once",
+            "consumption_ledger": _COMPOUND_CONTINUATION_LEDGER,
+        },
+    }
+    digest = _canonical_sha256(capsule)
+    capsule["continuation_id"] = f"compound-cont:{digest}"
+    capsule["idempotency"]["key"] = f"compound-once:{digest}"
+    return capsule
+
+
+def _validate_compound_action_capsule(
+    capsule: Any,
+    *,
+    campaign: Path,
+    character_path: Path,
+    investigator_id: str,
+) -> dict[str, Any]:
+    if not isinstance(capsule, dict) or set(capsule) != {
+        "schema_version", "kind", "continuation_id", "campaign_binding",
+        "actor_binding", "authority_revision", "source_evidence",
+        "action_authority", "idempotency",
+    }:
+        raise RuntimeError("compound action capsule has an invalid field set")
+    if (
+        capsule.get("schema_version") != 1
+        or capsule.get("kind") != "compound_action_continuation"
+        or capsule.get("authority_revision") != 0
+        or capsule.get("campaign_binding")
+        != subsystem_executor._campaign_binding(campaign)
+    ):
+        raise RuntimeError("compound action capsule binding is invalid")
+    character = _read_json(character_path, {})
+    expected_actor = {
+        "investigator_id": investigator_id,
+        "character_id": character.get("id"),
+    }
+    if capsule.get("actor_binding") != expected_actor:
+        raise RuntimeError("compound action capsule actor is invalid")
+    source = capsule.get("source_evidence")
+    if (
+        not isinstance(source, dict)
+        or set(source) != {
+            "origin_decision_id", "origin_scene_id", "destination_scene_id",
+        }
+        or any(
+            not isinstance(source.get(key), str) or not source[key].strip()
+            for key in source
+        )
+    ):
+        raise RuntimeError("compound action capsule source evidence is invalid")
+    idem = capsule.get("idempotency")
+    if not isinstance(idem, dict) or set(idem) != {
+        "key", "mode", "consumption_ledger",
+    } or idem.get("mode") != "exact_once" or idem.get(
+        "consumption_ledger"
+    ) != _COMPOUND_CONTINUATION_LEDGER:
+        raise RuntimeError("compound action capsule idempotency is invalid")
+    material = _copy_jsonable(capsule)
+    material["continuation_id"] = None
+    material["idempotency"]["key"] = None
+    digest = _canonical_sha256(material)
+    if (
+        capsule.get("continuation_id") != f"compound-cont:{digest}"
+        or idem.get("key") != f"compound-once:{digest}"
+    ):
+        raise RuntimeError("compound action capsule authority hash is invalid")
+    expected = _mint_compound_action_capsule(
+        campaign,
+        character_path,
+        investigator_id,
+        source["origin_decision_id"],
+        source["origin_scene_id"],
+        capsule.get("action_authority"),
+    )
+    if expected != capsule:
+        raise RuntimeError("compound action capsule authority is not canonical")
+    return _copy_jsonable(capsule)
+
+
+def _register_compound_action_capsule(
+    campaign: Path, capsule: dict[str, Any]
+) -> dict[str, Any]:
+    ledger = _load_compound_ledger(campaign)
+    continuation_id = capsule["continuation_id"]
+    existing = ledger["continuations"].get(continuation_id)
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("capsule") != capsule:
+            raise RuntimeError("compound action continuation ID collision")
+        return _copy_jsonable(existing)
+    record = {
+        "schema_version": 1,
+        "status": "pending",
+        "capsule": _copy_jsonable(capsule),
+        "result_decision_id": None,
+        "blocker": None,
+    }
+    ledger["continuations"][continuation_id] = record
+    _write_compound_ledger(campaign, ledger)
+    return _copy_jsonable(record)
+
+
+def _update_compound_action_record(
+    campaign: Path,
+    continuation_id: str,
+    *,
+    status: str,
+    result_decision_id: str | None = None,
+    blocker: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    ledger = _load_compound_ledger(campaign)
+    record = ledger["continuations"].get(continuation_id)
+    if not isinstance(record, dict):
+        raise RuntimeError("compound action continuation is not registered")
+    record["status"] = status
+    record["result_decision_id"] = result_decision_id
+    record["blocker"] = _copy_jsonable(blocker) if blocker else None
+    _write_compound_ledger(campaign, ledger)
+    return _copy_jsonable(record)
+
+
+def _compound_blocker(reason_code: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "kind": "compound_action_continuation_blocked",
+        "reason_code": reason_code,
+        "player_safe_message": (
+            "The requested after-arrival action could not continue safely. "
+            "No duplicate action was taken; choose the next action explicitly."
+        ),
+        "localized_messages": {
+            "zh-Hans": (
+                "抵达后的后续行动无法安全继续；系统没有重复执行。"
+                "请明确选择下一步行动。"
+            ),
+        },
+    }
+
+
+def _attach_compound_blocker(turn: dict[str, Any], blocker: dict[str, Any]) -> None:
+    turn["compound_action_continuation"] = {
+        "status": "blocked", "blocker": _copy_jsonable(blocker),
+    }
+    directives = turn.setdefault("narrative_directives", {})
+    directives["typed_player_safe_limitation"] = _copy_jsonable(blocker)
+    envelope = turn.setdefault("narration_envelope", {})
+    envelope["typed_player_safe_limitation"] = _copy_jsonable(blocker)
 
 
 def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> str:
@@ -556,12 +807,180 @@ def _bind_roll_resolution_context(plan: dict[str, Any]) -> None:
     }
     if isinstance(plan.get("turn_input"), dict):
         context["turn_input"] = _copy_jsonable(plan["turn_input"])
+    advance = plan.get("time_advance")
+    if isinstance(advance, dict) and all(
+        key in advance for key in ("mode", "category", "delta_minutes")
+    ):
+        context["source_time_profile"] = {
+            "mode": advance["mode"],
+            "category": advance["category"],
+            "delta_minutes": advance["delta_minutes"],
+        }
     for request in plan.get("rules_requests") or []:
         if not isinstance(request, dict):
             continue
         if request.get("kind") not in {"skill_check", "characteristic_check"}:
             continue
-        request.setdefault("resolution_context", _copy_jsonable(context))
+        _bind_generated_clue_roll_provenance(plan, request)
+        request_context = _copy_jsonable(context)
+        if isinstance(request.get("route_resolution"), dict):
+            request_context["route_resolution"] = _copy_jsonable(
+                request["route_resolution"]
+            )
+        existing_context = request.get("resolution_context")
+        if isinstance(existing_context, dict):
+            # Generated clue provenance is a pre-roll authority.  An existing
+            # context may omit it, but may never replace it with a divergent
+            # route/clue/request receipt.
+            generated_route = request_context.get("route_resolution")
+            existing_route = existing_context.get("route_resolution")
+            if isinstance(generated_route, dict):
+                if isinstance(existing_route, dict) and existing_route != generated_route:
+                    raise ValueError(
+                        "generated clue roll has divergent resolution_context provenance"
+                    )
+                existing_context["route_resolution"] = _copy_jsonable(
+                    generated_route
+                )
+            continue
+        request["resolution_context"] = request_context
+
+
+def _bind_generated_clue_roll_provenance(
+    plan: dict[str, Any], request: dict[str, Any]
+) -> None:
+    """Bind runtime clue dice to one source route, clue, and request pre-roll.
+
+    Director-generated clue gates and authored clue-bonus dice do not always
+    originate in a semantic action atom, so they cannot rely on the atom
+    request ID/route binder.  This function consumes only the already selected
+    structured clue policy.  It neither scans player prose nor repairs a
+    missing binding when a Push is later confirmed.
+    """
+    contract = request.get("roll_contract")
+    if not isinstance(contract, dict) or not (
+        contract.get("generated_clue_gate") is True
+        or contract.get("authored_clue_bonus") is True
+    ):
+        return
+    policy = plan.get("clue_policy")
+    turn_input = plan.get("turn_input")
+    if not isinstance(policy, dict) or not isinstance(turn_input, dict):
+        raise ValueError("generated clue roll lacks structured source policy")
+    clue_id = str(request.get("clue_id") or "").strip()
+    policy_clue_ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in policy.get("reveal") or []
+        if str(value or "").strip()
+    ))
+    route_ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in policy.get("matched_route_ids") or []
+        if str(value or "").strip()
+    ))
+    scene_id = str(turn_input.get("active_scene_id") or "").strip()
+    if not clue_id or policy_clue_ids != [clue_id] or not scene_id:
+        raise ValueError(
+            "generated clue roll cannot bind exactly one source scene/clue"
+        )
+    if len(route_ids) > 1:
+        # There is no safe pushed continuation when one generated roll could
+        # settle several authored routes.  Disable Push at the source
+        # instead of emitting an offer which can only fail at confirmation.
+        push_policy = contract.get("push_policy")
+        if isinstance(push_policy, dict):
+            push_policy.update({
+                "eligible": False,
+                "requires_changed_method": False,
+                "keeper_must_foreshadow_failure": False,
+            })
+        return
+    route_id = route_ids[0] if route_ids else None
+    request_id = request.get("request_id")
+    if not isinstance(request_id, str) or not request_id.strip():
+        material = json.dumps({
+            "schema_version": 1,
+            "source": "director.clue_policy",
+            "scene_id": scene_id,
+            "route_id": route_id,
+            "clue_id": clue_id,
+            "roll_role": (
+                "gate"
+                if contract.get("generated_clue_gate") is True
+                else "bonus"
+            ),
+        }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        request_id = "generated-clue:" + hashlib.sha256(
+            material.encode("utf-8")
+        ).hexdigest()[:32]
+        request["request_id"] = request_id
+    if route_id is None:
+        # A generated clue check with no authored route is a stable check-only
+        # origin.  It may use its request ID on Push, but it cannot consume a
+        # route and therefore receives no route_resolution receipt.
+        return
+    route_resolution = request.get("route_resolution")
+    if isinstance(route_resolution, dict):
+        bound_routes = list(dict.fromkeys(
+            str(value).strip()
+            for value in route_resolution.get("matched_route_ids") or []
+            if str(value or "").strip()
+        ))
+        bound_request = route_resolution.get("request_id")
+        if bound_routes != [route_id] or bound_request not in {None, request_id}:
+            raise ValueError(
+                "generated clue roll conflicts with semantic route provenance"
+            )
+        upstream_binding = route_resolution.get("binding")
+        atom_ids = _copy_jsonable(route_resolution.get("atom_ids") or [])
+    else:
+        upstream_binding = None
+        atom_ids = []
+    receipt = {
+        "schema_version": 1,
+        "matched_route_ids": [route_id],
+        "clue_ids": [clue_id],
+        "request_id": request_id,
+        "binding": "generated_clue_policy",
+        "source": "director.clue_policy",
+    }
+    if upstream_binding and upstream_binding != receipt["binding"]:
+        receipt["upstream_binding"] = upstream_binding
+    if atom_ids:
+        receipt["atom_ids"] = atom_ids
+    request["route_resolution"] = receipt
+
+
+def _source_resolution_request(plan: dict[str, Any]) -> tuple[dict[str, Any] | None, int]:
+    """Return the first structured HOLD repair request and the total count.
+
+    Requests are generated by the epistemic policy from IDs, confidence records,
+    and source refs. This helper deliberately does not inspect narration or any
+    other free text.
+    """
+    contract = plan.get("epistemic_contract")
+    if not isinstance(contract, dict):
+        return None, 0
+    candidates: list[dict[str, Any]] = []
+    effects = contract.get("effects")
+    if not isinstance(effects, list):
+        effects = []
+    for effect in [contract, *effects]:
+        if not isinstance(effect, dict) or effect.get("mode") != "HOLD":
+            continue
+        request = effect.get("source_resolution_request")
+        if isinstance(request, dict):
+            candidates.append(request)
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for request in candidates:
+        encoded = json.dumps(
+            request, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        if encoded not in seen:
+            seen.add(encoded)
+            unique.append(request)
+    return (unique[0] if unique else None), len(unique)
 
 
 def _run_one_turn(
@@ -576,32 +995,60 @@ def _run_one_turn(
     recording_flush: str,
 ) -> dict[str, Any]:
     director_started = time.perf_counter()
-    ctx = director.build_director_context(
-        campaign_dir=campaign_dir,
-        character_path=character_path,
-        investigator_id=investigator_id,
-        player_intent=str(choice.get("player_text") or ""),
-        player_intent_class=str(choice.get("intent_class") or "investigate"),
-        player_intent_rich=choice.get("player_intent_rich"),
-        rng=rng,
-    )
-    ctx["storylet_ledger"] = apply_mod._read_json(
-        campaign_dir / "save" / "storylet-ledger.json",
-        {},
-    )
-    # P1-3: forward prior turns' player-action signatures so enrichment can mark
-    # cross-turn roll density. Only populated within a run_live_turn auto-advance
-    # loop; absent on single-turn calls (backward-compat → no marker).
-    recent_signatures = choice.get("recent_atom_signatures")
-    if isinstance(recent_signatures, list):
-        ctx["recent_atom_signatures"] = recent_signatures
-    for key in ("storylet_policy", "storylet_library", "incident_deck"):
-        if isinstance(choice.get(key), dict):
-            ctx[key] = choice[key]
-    for key, value in (choice.get("signal_overrides") or {}).items():
-        ctx["rule_signals"][key] = value
+    def build_context() -> dict[str, Any]:
+        built = director.build_director_context(
+            campaign_dir=campaign_dir,
+            character_path=character_path,
+            investigator_id=investigator_id,
+            player_intent=str(choice.get("player_text") or ""),
+            player_intent_class=str(choice.get("intent_class") or "investigate"),
+            player_intent_rich=choice.get("player_intent_rich"),
+            rng=rng,
+        )
+        built["storylet_ledger"] = apply_mod._read_json(
+            campaign_dir / "save" / "storylet-ledger.json", {}
+        )
+        recent_signatures = choice.get("recent_atom_signatures")
+        if isinstance(recent_signatures, list):
+            built["recent_atom_signatures"] = recent_signatures
+        for key in ("storylet_policy", "storylet_library", "incident_deck"):
+            if isinstance(choice.get(key), dict):
+                built[key] = choice[key]
+        if "incident_deck" not in built:
+            authored_incidents = _read_json(
+                campaign_dir / "scenario" / "incident-deck.json", {}
+            )
+            if isinstance(authored_incidents, dict) and isinstance(
+                authored_incidents.get("incidents"), list
+            ):
+                built["incident_deck"] = authored_incidents
+        for key, value in (choice.get("signal_overrides") or {}).items():
+            built["rule_signals"][key] = value
+        return built
 
+    rng_state = rng.getstate()
+    ctx = build_context()
     plan = director.generate_director_plan(ctx, decision_id=decision_id)
+    repair_request, repair_count = _source_resolution_request(plan)
+    if repair_request is not None:
+        repair_receipt = coc_scenario_hydration.ensure_scenario_ready(
+            campaign_dir,
+            force_recompile=True,
+            resolution_request=repair_request,
+        )
+        # Re-run the same decision against repaired IR with the same RNG state;
+        # only the newly compiled structured evidence may change the plan.
+        rng.setstate(rng_state)
+        ctx = build_context()
+        plan = director.generate_director_plan(ctx, decision_id=decision_id)
+        plan["source_resolution"] = {
+            "status": repair_receipt.get("status"),
+            "request": _copy_jsonable(repair_request),
+            "receipt": repair_receipt,
+            "requests_detected": repair_count,
+            "requests_deferred": max(0, repair_count - 1),
+            "attempts_this_turn": 1,
+        }
     plan = narrative_enrichment.enrich_director_plan(plan, ctx)
     _bind_roll_resolution_context(plan)
     _recording_defaults(plan, recording_mode, recording_flush)
@@ -651,6 +1098,129 @@ def _run_one_turn(
 
     world = apply_mod._read_json(campaign_dir / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign_dir / "save" / "pacing-state.json", {})
+    # Choice frames are initially compiled before rules/apply so the director
+    # can reason about the current fork.  The player-visible frame must instead
+    # reflect the settled world: successful one-shot clue routes disappear in
+    # the same response, failed gated routes remain, and a committed scene cut
+    # projects the destination scene rather than stale choices from the origin.
+    settled_scene = ctx.get("active_scene") or {}
+    settled_scene_id = str(world.get("active_scene_id") or "")
+    if settled_scene_id and settled_scene_id != str(ctx.get("active_scene_id") or ""):
+        settled_scene = next(
+            (
+                item for item in (ctx.get("story_graph") or {}).get("scenes", [])
+                if isinstance(item, dict) and str(item.get("scene_id") or "") == settled_scene_id
+            ),
+            {},
+        )
+    settled_choice_frame = narrative_enrichment.build_choice_frame(
+        settled_scene,
+        resolved_plan.get("resolved_clue_policy") or resolved_plan.get("clue_policy"),
+        discovered_clue_ids=world.get("discovered_clue_ids"),
+        route_completion_receipts=world.get("route_completion_receipts"),
+    )
+    settled_directives = resolved_plan.get("narrative_directives") or {}
+    settled_style = settled_directives.get("player_facing_style")
+    play_language = (
+        str(settled_style.get("language") or "zh-Hans")
+        if isinstance(settled_style, dict)
+        else "zh-Hans"
+    )
+    # Reaching a structured exit condition unlocks destinations but does not
+    # authorize same-action travel. Surface those exact graph destinations as
+    # future action handles so control returns to the player with a real fork.
+    transition_routes: list[dict[str, Any]] = []
+    scene_rows = {
+        str(item.get("scene_id")): item
+        for item in (ctx.get("story_graph") or {}).get("scenes", [])
+        if isinstance(item, dict) and item.get("scene_id")
+    }
+    ready_to_leave = str(settled_scene_id) in {
+        str(value) for value in (world.get("exit_ready_scene_ids") or [])
+    }
+    for destination_id in (
+        coc_scene_graph.transition_candidates(
+            settled_scene_id,
+            ctx.get("story_graph") or {},
+            world,
+        )
+        if ready_to_leave
+        else []
+    ):
+        destination = scene_rows.get(str(destination_id), {})
+        display_name = narration_contract._scene_display_name(
+            destination,
+            play_language,
+        )
+        localized_travel_cues = destination.get("localized_travel_cues")
+        localized_travel_cue = (
+            localized_travel_cues.get(play_language)
+            if isinstance(localized_travel_cues, dict)
+            else None
+        )
+        authored_travel_cue = (
+            localized_travel_cue
+            if isinstance(localized_travel_cue, str) and localized_travel_cue.strip()
+            else destination.get("player_visible_travel_cue")
+        )
+        transition_routes.append({
+            "route_id": f"move:{destination_id}",
+            "route_type": "scene_transition",
+            "destination_scene_id": str(destination_id),
+            "cue": str(
+                authored_travel_cue
+                or (
+                    f"前往{display_name}继续调查。"
+                    if play_language == "zh-Hans"
+                    else f"Continue the investigation at {display_name}."
+                )
+            ),
+            "cue_scope": "action_only",
+            "visible_benefit": display_name,
+            "visible_cost": None,
+            "visible_risk": None,
+            "status": "open",
+            "fork_eligible": True,
+            "source": "story_graph.transition_candidates",
+        })
+    if transition_routes:
+        existing_routes = list(settled_choice_frame.get("routes") or [])
+        existing_ids = {
+            str(route.get("route_id") or "")
+            for route in existing_routes
+            if isinstance(route, dict)
+        }
+        for route in transition_routes:
+            if route["route_id"] not in existing_ids:
+                existing_routes.append(route)
+        settled_choice_frame["routes"] = existing_routes
+        settled_choice_frame["route_count"] = len(existing_routes)
+        open_routes = [
+            route for route in existing_routes
+            if isinstance(route, dict)
+            and str(route.get("status") or "open") == "open"
+            and route.get("fork_eligible", True) is not False
+        ]
+        settled_choice_frame["open_route_ids"] = [
+            str(route.get("route_id")) for route in open_routes if route.get("route_id")
+        ]
+        settled_choice_frame["open_route_count"] = len(open_routes)
+        settled_choice_frame["is_real_fork"] = len(open_routes) >= 2
+        settled_choice_frame["must_surface_tradeoffs"] = bool(
+            settled_choice_frame.get("must_surface_tradeoffs")
+            or any(
+                route.get("visible_benefit")
+                or route.get("visible_cost")
+                or route.get("visible_risk")
+                for route in transition_routes
+            )
+        )
+    resolved_plan["choice_frame"] = settled_choice_frame
+    settled_directives = resolved_plan.setdefault("narrative_directives", {})
+    settled_directives["choice_frame"] = settled_choice_frame
+    settled_directives["consequence_cues"] = narrative_enrichment.build_consequence_cues(
+        settled_choice_frame
+    )
     directives = resolved_plan.get("narrative_directives") or {}
     character = apply_mod._read_json(character_path, {})
     investigator_display_name = ""
@@ -658,15 +1228,36 @@ def _run_one_turn(
         investigator_display_name = str(
             character.get("name") or character.get("display_name") or investigator_id or ""
         ).strip()
+    style = directives.get("player_facing_style")
+    play_language = (
+        str(style.get("language") or "zh-Hans")
+        if isinstance(style, dict)
+        else "zh-Hans"
+    )
+    public_roll_block = narration_contract.build_rules_owned_public_roll_block(
+        rule_results,
+        decision_id=decision_id,
+        play_language=play_language,
+    )
     # R-2 / envelope grounding: player-safe clue bodies, settled rule results,
     # scene sensory anchors, and NPC dialogue seeds — never keeper secret prose.
     narration_envelope = narration_contract.build_narration_envelope(
         resolved_plan,
         clue_graph=ctx.get("clue_graph"),
-        active_scene=ctx.get("active_scene"),
+        active_scene=settled_scene,
         investigator_display_name=investigator_display_name,
         applied_events=events,
+        route_completion_receipts=world.get("route_completion_receipts"),
     )
+    narration_envelope["rules_owned_roll_rendering"] = {
+        "schema_version": 1,
+        "owner": "deterministic_rules_renderer",
+        "public_roll_count": public_roll_block["public_roll_count"],
+        "narrator_must_not_render_numeric_rolls": True,
+    }
+    projected_pending_choice = narration_contract.project_pending_choice(pending_choice)
+    if projected_pending_choice is not None:
+        narration_envelope["pending_choice"] = projected_pending_choice
     event_types = [event.get("event_type") for event in events if isinstance(event, dict)]
     tension = pacing.get("tension_level")
     turn_record = {
@@ -692,10 +1283,13 @@ def _run_one_turn(
         "event_types": event_types,
         "events_count": len(events),
         "rule_results": rule_results,
+        "public_roll_block": public_roll_block,
         "subsystem_results": subsystem_results,
         "pending_choice": pending_choice,
         "rules_requests": resolved_plan.get("rules_requests", []),
+        "keeper_ruling_receipt": resolved_plan.get("keeper_ruling_receipt"),
         "resolved_clue_policy": resolved_plan.get("resolved_clue_policy", {}),
+        "source_resolution": resolved_plan.get("source_resolution"),
         "failure_consequence": directives.get("failure_consequence"),
         "choice_frame": resolved_plan.get("choice_frame", {}),
         "proposal_transform": (
@@ -770,6 +1364,8 @@ def run_live_turn(
     incident_deck: dict[str, Any] | None = None,
     signal_overrides: dict[str, Any] | None = None,
     state_patch: dict[str, Any] | None = None,
+    resolve_player_action: bool = False,
+    action_evaluator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one live player input through the full Keeper stack.
 
@@ -794,6 +1390,10 @@ def run_live_turn(
     started = time.perf_counter()
     campaign = Path(campaign_dir)
     with coc_fileio.campaign_lock(campaign):
+        # Production resolution boundary: the Keeper-only resolver reuses or
+        # compiles validated IR before any director code reads the scenario.
+        # Raw module text never crosses into the player/narrator requests.
+        scenario_resolution = coc_scenario_hydration.ensure_scenario_ready(campaign)
         result = _run_live_turn_impl(
             campaign,
             character_path,
@@ -814,7 +1414,19 @@ def run_live_turn(
             incident_deck=incident_deck,
             signal_overrides=signal_overrides,
             state_patch=state_patch,
+            resolve_player_action=resolve_player_action,
+            action_evaluator=action_evaluator,
         )
+        chapter_transition = _automatic_chapter_handoff(campaign, result)
+        if chapter_transition is not None:
+            result["chapter_transition"] = chapter_transition
+            result["final_state"]["active_scene"] = chapter_transition.get(
+                "entry_scene_id"
+            )
+            result["final_state"]["scenario_id"] = chapter_transition.get(
+                "scenario_id"
+            )
+        result["scenario_resolution"] = scenario_resolution
     phase = result.get("runtime_phase_ms") if isinstance(result, dict) else None
     if not isinstance(phase, dict):
         phase = {}
@@ -826,6 +1438,52 @@ def run_live_turn(
         "total_ms": max(0.0, (time.perf_counter() - started) * 1000.0),
     }
     return result
+
+
+def _automatic_chapter_handoff(
+    campaign_dir: Path,
+    result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Switch an authored sibling chapter after structured terminal evidence.
+
+    The target is never guessed from titles, chapter order, or narration. An
+    automatic handoff exists only when module-meta declares the exact target.
+    """
+    scenario_dir = campaign_dir / "scenario"
+    meta = _read_json(scenario_dir / "module-meta.json", {})
+    handoff = meta.get("chapter_handoff") if isinstance(meta, dict) else None
+    if handoff is None:
+        return None
+    if not isinstance(handoff, dict) or set(handoff) != {"mode", "target_module_id"}:
+        raise ValueError(
+            "module-meta.chapter_handoff must contain exactly mode and target_module_id"
+        )
+    if handoff.get("mode") != "auto_on_terminal":
+        raise ValueError("module-meta.chapter_handoff.mode must be auto_on_terminal")
+    target = handoff.get("target_module_id")
+    if not isinstance(target, str) or not target.strip():
+        raise ValueError("module-meta.chapter_handoff.target_module_id is required")
+    story = _read_json(scenario_dir / "story-graph.json", {})
+    world = _read_json(campaign_dir / "save" / "world-state.json", {})
+    evidence = coc_scene_graph.terminal_evidence(story, world, result.get("turns"))
+    if evidence["reached_terminal"] is not True:
+        return {
+            "status": "NOT_RUN",
+            "reason": "terminal_not_reached",
+            "target_module_id": target.strip(),
+            "terminal_evidence": evidence,
+        }
+    resolved = campaign_dir.resolve()
+    coc_root = next((parent for parent in (resolved, *resolved.parents) if parent.name == ".coc"), None)
+    if coc_root is None:
+        raise ValueError("automatic chapter handoff requires campaign under workspace .coc")
+    switched = coc_chapter_switch.switch_chapter(
+        coc_root.parent,
+        campaign_dir.name,
+        target.strip(),
+        evidence,
+    )
+    return {"status": "PASS", "terminal_evidence": evidence, **switched}
 
 
 def _pending_choice_blocked_result(
@@ -972,12 +1630,96 @@ def _plan_from_typed_subsystem_request(
 ) -> dict[str, Any]:
     push_keys = {
         "kind",
-        "original_command_id",
+        "continuation_id",
         "changed_method_evidence",
         "announced_consequence",
     }
     if not isinstance(request, dict):
         raise ValueError("subsystem_request must be an object")
+    limitation_keys = {
+        "kind", "original_command_id", "route_id", "reason_code",
+        "player_safe_message", "localized_messages",
+    }
+    destination_limitation_keys = {
+        "kind", "reason_code", "player_safe_message", "localized_messages",
+        "public_prerequisite_cues",
+    }
+    if (
+        set(request) == destination_limitation_keys
+        and request.get("kind") == "destination_limitation"
+    ):
+        material = json.dumps(
+            {"investigator_id": investigator_id, "request": request},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        digest = hashlib.sha256(material).hexdigest()
+        return {
+            "decision_id": f"destination-limitation-{digest[:32]}",
+            "scene_action": "SUBSYSTEM",
+            "rules_requests": [],
+            "clue_policy": {},
+            "narrative_directives": {
+                "typed_player_safe_limitation": {
+                    "schema_version": 1,
+                    "kind": "destination_not_known_and_reachable",
+                    "reason_code": request["reason_code"],
+                    "message": request["player_safe_message"],
+                    "localized_messages": _copy_jsonable(
+                        request["localized_messages"]
+                    ),
+                    "public_prerequisite_cues": _copy_jsonable(
+                        request["public_prerequisite_cues"]
+                    ),
+                    "must_render_exactly_once": True,
+                },
+            },
+            "rule_signals": {},
+            "pressure_moves": [],
+            "memory_writes": [],
+            "time_advance": {
+                "mode": "none",
+                "reason": "destination limitation consumes no game time",
+            },
+        }
+    if set(request) == limitation_keys and request.get("kind") == "push_limitation":
+        material = json.dumps(
+            {"investigator_id": investigator_id, "request": request},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        digest = hashlib.sha256(material).hexdigest()
+        return {
+            "decision_id": f"push-limitation-{digest[:32]}",
+            "scene_action": "SUBSYSTEM",
+            "rules_requests": [],
+            "clue_policy": {},
+            "narrative_directives": {
+                "typed_player_safe_limitation": {
+                    "schema_version": 1,
+                    "kind": "push_resolution_required",
+                    "original_command_id": request["original_command_id"],
+                    "route_id": request["route_id"],
+                    "reason_code": request["reason_code"],
+                    "message": request["player_safe_message"],
+                    "localized_messages": _copy_jsonable(
+                        request["localized_messages"]
+                    ),
+                    "must_render_exactly_once": True,
+                },
+            },
+            "rule_signals": {},
+            "pressure_moves": [],
+            "memory_writes": [],
+            "time_advance": {
+                "mode": "none",
+                "reason": "push limitation consumes no game time",
+            },
+        }
     if set(request) == {"kind", "payload"}:
         kind = request.get("kind")
         supported = {
@@ -1012,7 +1754,7 @@ def _plan_from_typed_subsystem_request(
             "pressure_moves": [],
             "memory_writes": [],
         }
-    if set(request) != push_keys:
+    if not push_keys <= set(request) or set(request) - push_keys - {"source_time_profile"}:
         raise ValueError(
             "subsystem_request must be a typed push offer or exact kind/payload request"
         )
@@ -1033,12 +1775,15 @@ def _plan_from_typed_subsystem_request(
         "rules_requests": [{
             "command_id": f"push-offer:{digest}",
             "kind": "push_offer",
-            "original_command_id": request["original_command_id"],
+            "continuation_id": request["continuation_id"],
             "changed_method_evidence": _copy_jsonable(
                 request["changed_method_evidence"]
             ),
             "announced_consequence": _copy_jsonable(
                 request["announced_consequence"]
+            ),
+            "source_time_profile": _copy_jsonable(
+                request.get("source_time_profile")
             ),
         }],
         "clue_policy": {},
@@ -1065,6 +1810,7 @@ def _run_pending_choice_response(
     state_patch: dict[str, Any] | None,
     plan_override: dict[str, Any] | None = None,
     intent_source: str = "pending_choice_response",
+    action_resolution_receipt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve one canonical subsystem choice without intent/Director routing."""
     mode = coc_async_recorder.normalize_recording_mode(recording_mode)
@@ -1118,19 +1864,62 @@ def _run_pending_choice_response(
         )
     world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
-    active_scene = apply_mod._read_json(campaign / "save" / "active-scene.json", {})
+    story_graph = apply_mod._read_json(campaign / "scenario" / "story-graph.json", {})
+    settled_scene_id = str(world.get("active_scene_id") or "")
+    active_scene = next(
+        (
+            item for item in story_graph.get("scenes", []) or []
+            if isinstance(item, dict)
+            and str(item.get("scene_id") or "") == settled_scene_id
+        ),
+        apply_mod._read_json(campaign / "save" / "active-scene.json", {}),
+    )
     clue_graph = apply_mod._read_json(campaign / "scenario" / "clue-graph.json", {})
+    settled_choice_frame = narrative_enrichment.build_choice_frame(
+        active_scene,
+        resolved_plan.get("resolved_clue_policy") or resolved_plan.get("clue_policy"),
+        discovered_clue_ids=world.get("discovered_clue_ids"),
+        route_completion_receipts=world.get("route_completion_receipts"),
+    )
+    resolved_plan["choice_frame"] = settled_choice_frame
+    settled_directives = resolved_plan.setdefault("narrative_directives", {})
+    settled_directives["choice_frame"] = settled_choice_frame
+    settled_directives["consequence_cues"] = narrative_enrichment.build_consequence_cues(
+        settled_choice_frame
+    )
     character = apply_mod._read_json(character_path, {})
     display_name = str(
         character.get("name") or character.get("display_name") or investigator_id
     ).strip() if isinstance(character, dict) else investigator_id
+    directives = resolved_plan.get("narrative_directives") or {}
+    style = directives.get("player_facing_style")
+    play_language = (
+        str(style.get("language") or "zh-Hans")
+        if isinstance(style, dict)
+        else "zh-Hans"
+    )
+    public_roll_block = narration_contract.build_rules_owned_public_roll_block(
+        rule_results,
+        decision_id=decision_id,
+        play_language=play_language,
+    )
     narration_envelope = narration_contract.build_narration_envelope(
         resolved_plan,
         clue_graph=clue_graph,
         active_scene=active_scene,
         investigator_display_name=display_name,
         applied_events=events,
+        route_completion_receipts=world.get("route_completion_receipts"),
     )
+    narration_envelope["rules_owned_roll_rendering"] = {
+        "schema_version": 1,
+        "owner": "deterministic_rules_renderer",
+        "public_roll_count": public_roll_block["public_roll_count"],
+        "narrator_must_not_render_numeric_rolls": True,
+    }
+    projected_pending_choice = narration_contract.project_pending_choice(pending_choice)
+    if projected_pending_choice is not None:
+        narration_envelope["pending_choice"] = projected_pending_choice
     event_types = [
         event.get("event_type") for event in events if isinstance(event, dict)
     ]
@@ -1156,6 +1945,7 @@ def _run_pending_choice_response(
         "event_types": event_types,
         "events_count": len(events),
         "rule_results": rule_results,
+        "public_roll_block": public_roll_block,
         "subsystem_results": subsystem_results,
         "pending_choice": pending_choice,
         "blocked_by_pending_choice": False,
@@ -1192,6 +1982,8 @@ def _run_pending_choice_response(
         "intent_resolution": {
             "source": intent_source,
             "intent_class": None,
+            **({"action_resolution": _copy_jsonable(action_resolution_receipt)}
+               if isinstance(action_resolution_receipt, dict) else {}),
         },
         "turns": [turn],
         "subsystem_results": subsystem_results,
@@ -1271,6 +2063,172 @@ def _run_pending_choice_response(
     return result
 
 
+def _consume_compound_action_capsule(
+    campaign: Path,
+    character_path: Path,
+    investigator_id: str,
+    capsule: dict[str, Any],
+    *,
+    rng: random.Random,
+    recording_mode: str,
+    recording_flush: str,
+) -> dict[str, Any]:
+    sealed = _validate_compound_action_capsule(
+        capsule,
+        campaign=campaign,
+        character_path=character_path,
+        investigator_id=investigator_id,
+    )
+    continuation_id = sealed["continuation_id"]
+    ledger = _load_compound_ledger(campaign)
+    record = ledger["continuations"].get(continuation_id)
+    if not isinstance(record, dict) or record.get("capsule") != sealed:
+        raise RuntimeError("compound action continuation is not registered exactly")
+    if record.get("status") == "consumed":
+        return {
+            "schema_version": 1,
+            "status": "already_consumed",
+            "continuation_id": continuation_id,
+            "decision_id": record.get("result_decision_id"),
+            "turn": None,
+        }
+    if record.get("status") in {"consuming", "blocked"}:
+        blocker = record.get("blocker") or _compound_blocker(
+            "continuation_consumption_indeterminate"
+        )
+        if record.get("status") == "consuming":
+            _update_compound_action_record(
+                campaign, continuation_id, status="blocked", blocker=blocker
+            )
+        return {
+            "schema_version": 1,
+            "status": "blocked",
+            "continuation_id": continuation_id,
+            "blocker": _copy_jsonable(blocker),
+            "turn": None,
+        }
+    if record.get("status") != "pending":
+        raise RuntimeError("compound action continuation status is invalid")
+    action = sealed["action_authority"]
+    world = _read_json(campaign / "save" / "world-state.json", {})
+    if world.get("active_scene_id") != action["destination_scene_id"]:
+        blocker = _compound_blocker("destination_arrival_not_committed")
+        _update_compound_action_record(
+            campaign, continuation_id, status="blocked", blocker=blocker
+        )
+        return {
+            "schema_version": 1, "status": "blocked",
+            "continuation_id": continuation_id, "blocker": blocker, "turn": None,
+        }
+    _request, affordance_index, _destinations = (
+        coc_action_resolver.build_action_request(
+            campaign,
+            "sealed compound-action continuation",
+            {"primary_intent": action["primary_intent"], "action_atoms": []},
+            character_path=character_path,
+            investigator_id=investigator_id,
+        )
+    )
+    current_route = affordance_index.get(action["route_id"])
+    expected_route = _copy_jsonable(action["route_snapshot"])
+    expected_route.pop("execution_phase", None)
+    expected_route.pop("destination_scene_id", None)
+    if current_route != expected_route:
+        blocker = _compound_blocker("sealed_route_no_longer_open")
+        _update_compound_action_record(
+            campaign, continuation_id, status="blocked", blocker=blocker
+        )
+        return {
+            "schema_version": 1, "status": "blocked",
+            "continuation_id": continuation_id, "blocker": blocker, "turn": None,
+        }
+    _update_compound_action_record(
+        campaign, continuation_id, status="consuming"
+    )
+    decision_id = "compound-" + continuation_id.rsplit(":", 1)[-1][:32]
+    receipt = {
+        "schema_version": 1,
+        "evaluator_id": str(
+            (action.get("semantic_evidence") or {}).get("evaluator_id") or
+            "sealed-compound-action"
+        ),
+        "matched_affordance_ids": [action["route_id"]],
+        "matched_destination_scene_id": None,
+        "primary_intent": action["primary_intent"],
+        "confidence": (action.get("semantic_evidence") or {}).get("confidence"),
+        "reason": (action.get("semantic_evidence") or {}).get("reason"),
+        "no_match": False,
+        "status": "resolved",
+        "source": "sealed_compound_action_continuation",
+        "continuation_id": continuation_id,
+    }
+    rich: dict[str, Any] = {
+        "primary_intent": action["primary_intent"],
+        "target_entities": _copy_jsonable(action.get("target_entities") or []),
+        "action_atoms": [_copy_jsonable(action["action_atom"])],
+        "action_resolution": receipt,
+    }
+    interaction = action.get("npc_interaction")
+    if isinstance(interaction, dict):
+        row = {
+            key: value for key, value in interaction.items()
+            if key in {
+                "npc_id", "tactic", "fact_id", "leverage_id", "skill",
+                "difficulty",
+            }
+        }
+        row["request_id"] = f"{decision_id}-{action['route_id']}"
+        rich["npc_interactions"] = [row]
+    choice = {
+        "player_text": "",
+        "intent_class": action["primary_intent"],
+        "player_intent_rich": rich,
+    }
+    try:
+        turn = _run_one_turn(
+            campaign_dir=campaign,
+            character_path=character_path,
+            investigator_id=investigator_id,
+            choice=choice,
+            decision_id=decision_id,
+            rng=rng,
+            recording_mode=recording_mode,
+            recording_flush=recording_flush,
+        )
+    except Exception as exc:
+        blocker = _compound_blocker("continuation_consumption_indeterminate")
+        _update_compound_action_record(
+            campaign, continuation_id, status="blocked", blocker=blocker
+        )
+        return {
+            "schema_version": 1,
+            "status": "blocked",
+            "continuation_id": continuation_id,
+            "blocker": blocker,
+            "error_type": type(exc).__name__,
+            "turn": None,
+        }
+    _update_compound_action_record(
+        campaign,
+        continuation_id,
+        status="consumed",
+        result_decision_id=decision_id,
+    )
+    turn["compound_action_continuation"] = {
+        "schema_version": 1,
+        "status": "consumed",
+        "continuation_id": continuation_id,
+        "source_decision_id": sealed["source_evidence"]["origin_decision_id"],
+    }
+    return {
+        "schema_version": 1,
+        "status": "consumed",
+        "continuation_id": continuation_id,
+        "decision_id": decision_id,
+        "turn": turn,
+    }
+
+
 def _run_live_turn_impl(
     campaign_dir: Path | str,
     character_path: Path | str,
@@ -1292,6 +2250,8 @@ def _run_live_turn_impl(
     incident_deck: dict[str, Any] | None = None,
     signal_overrides: dict[str, Any] | None = None,
     state_patch: dict[str, Any] | None = None,
+    resolve_player_action: bool = False,
+    action_evaluator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Inner live-turn body; caller must already hold ``campaign_lock``."""
     campaign = Path(campaign_dir)
@@ -1411,12 +2371,76 @@ def _run_live_turn_impl(
     )
 
     intent_started = time.perf_counter()
+    action_resolution = None
+    if resolve_player_action:
+        player_intent_rich, action_resolution = (
+            coc_action_resolver.resolve_player_action(
+                campaign,
+                player_text,
+                player_intent_rich,
+                character_path=character,
+                investigator_id=investigator_id,
+                evaluator=action_evaluator,
+            )
+        )
+        if action_resolution.get("status") == "blocked":
+            blocker_code = str(
+                action_resolution.get("blocker_code")
+                or "AUTHORED_OPERATION_BLOCKED"
+            )
+            operations = ", ".join(
+                str(item)
+                for item in action_resolution.get("required_typed_operations", [])
+            )
+            raise RuntimeError(
+                f"{blocker_code}: cannot narrate selected authored route "
+                f"before typed operations are implemented ({operations})"
+            )
+        resolved_primary = player_intent_rich.get("primary_intent")
+        if isinstance(resolved_primary, str) and resolved_primary:
+            intent_class = resolved_primary
+        semantic_subsystem_request = player_intent_rich.get(
+            "semantic_subsystem_request"
+        )
+        if isinstance(semantic_subsystem_request, dict):
+            intent_ms = (time.perf_counter() - intent_started) * 1000.0
+            result = _run_pending_choice_response(
+                campaign,
+                character,
+                investigator_id,
+                player_text,
+                {},
+                recording_mode=mode,
+                recording_flush=flush_policy,
+                rng=turn_rng,
+                rng_seed=rng_seed,
+                max_auto_advance=max_auto_advance,
+                auto_advance_low_agency=auto_advance_low_agency,
+                state_patch=state_patch,
+                plan_override=_plan_from_typed_subsystem_request(
+                    investigator_id, semantic_subsystem_request
+                ),
+                intent_source=(
+                    "semantic_destination_limitation"
+                    if semantic_subsystem_request.get("kind")
+                    == "destination_limitation"
+                    else "semantic_push_request"
+                ),
+                action_resolution_receipt=action_resolution,
+            )
+            result["runtime_phase_ms"]["intent_ms"] = max(0.0, intent_ms)
+            return result
     resolved_intent_class, resolved_intent_rich, intent_resolution = _resolve_turn_intent(
         campaign,
         player_text,
         intent_class,
         player_intent_rich,
     )
+    if action_resolution is not None:
+        intent_resolution = {
+            **intent_resolution,
+            "action_resolution": _copy_jsonable(action_resolution),
+        }
     intent_ms = (time.perf_counter() - intent_started) * 1000.0
     choice: dict[str, Any] = {
         "player_text": player_text,
@@ -1441,6 +2465,24 @@ def _run_live_turn_impl(
     max_turns = max(1, int(max_auto_advance or 1))
     turns: list[dict[str, Any]] = []
     stop_reason = "max_auto_advance_reached"
+    compound_capsule: dict[str, Any] | None = None
+    compound_outcome: dict[str, Any] | None = None
+    post_arrival_action = (
+        resolved_intent_rich.get("post_arrival_action")
+        if isinstance(resolved_intent_rich, dict)
+        else None
+    )
+    if isinstance(post_arrival_action, dict):
+        world_before_move = _read_json(campaign / "save" / "world-state.json", {})
+        compound_capsule = _mint_compound_action_capsule(
+            campaign,
+            character,
+            investigator_id,
+            f"turn-{start_number:03d}",
+            str(world_before_move.get("active_scene_id") or ""),
+            post_arrival_action,
+        )
+        _register_compound_action_capsule(campaign, compound_capsule)
     # P1-3: collect player action_atom (skill, kind) signatures from prior turns
     # WITHIN this one auto-advance loop so enrichment can mark cross-turn roll
     # density. Cross-invocation persistence (across separate player inputs) is
@@ -1471,6 +2513,35 @@ def _run_live_turn_impl(
         # continuations carry empty action_atoms, so they add nothing.
         recent_atom_signatures.extend(_action_atom_signatures(choice.get("player_intent_rich")))
         turns.append(turn)
+        if compound_capsule is not None and index == 0:
+            compound_outcome = _consume_compound_action_capsule(
+                campaign,
+                character,
+                investigator_id,
+                compound_capsule,
+                rng=turn_rng,
+                recording_mode=mode,
+                recording_flush=flush_policy,
+            )
+            continuation_turn = compound_outcome.get("turn")
+            turn["compound_action_continuation"] = {
+                key: _copy_jsonable(value)
+                for key, value in compound_outcome.items()
+                if key != "turn"
+            }
+            if isinstance(continuation_turn, dict):
+                turns.append(continuation_turn)
+                turn = continuation_turn
+                interrupt = _turn_interrupt_reason(continuation_turn)
+                stop_reason = interrupt or "awaiting_player_input"
+            elif compound_outcome.get("status") == "blocked":
+                blocker = compound_outcome.get("blocker")
+                if isinstance(blocker, dict):
+                    _attach_compound_blocker(turns[-1], blocker)
+                stop_reason = "compound_action_continuation_blocked"
+            else:
+                stop_reason = "awaiting_player_input"
+            break
         interrupt = _turn_interrupt_reason(turn)
         if interrupt is not None:
             stop_reason = interrupt
@@ -1513,6 +2584,7 @@ def _run_live_turn_impl(
         state_patch_status["detail_record_queued"] = bool(state_patch_detail.get("queued"))
 
     active_scene_state = _read_json(campaign / "save" / "active-scene.json", {})
+    world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
     final_turn = turns[-1] if turns else {}
     # P0-4b: 用玩家本轮原始结构化意图（循环替换前的版本）算 turn_focus，
     # 让 stop_actionability 的首条 handle 反映当前轮的 focus
@@ -1534,6 +2606,9 @@ def _run_live_turn_impl(
             active_scene_state if isinstance(active_scene_state, dict) else {},
             stop_reason=stop_reason,
             turn_focus=turn_focus,
+            durable_clue_ids=world.get("discovered_clue_ids")
+            if isinstance(world, dict)
+            else [],
         )
     else:
         stop_actionability = {"schema_version": 1, "immediate_handles": [], "must_surface_handles": False}
@@ -1558,7 +2633,6 @@ def _run_live_turn_impl(
             "result": background_result,
         }
 
-    world = apply_mod._read_json(campaign / "save" / "world-state.json", {})
     pacing = apply_mod._read_json(campaign / "save" / "pacing-state.json", {})
     foreground = {
         "narration_can_return_before_flush": True,
@@ -1603,6 +2677,15 @@ def _run_live_turn_impl(
         },
         "foreground": foreground,
         "state_patch": state_patch_status,
+        "compound_action_continuation": (
+            {
+                key: _copy_jsonable(value)
+                for key, value in compound_outcome.items()
+                if key != "turn"
+            }
+            if isinstance(compound_outcome, dict)
+            else None
+        ),
         "stop_actionability": stop_actionability,
         "narration_audit": {"findings": narration_findings},
         "final_state": {
@@ -1646,6 +2729,9 @@ def _run_live_turn_impl(
         "foreground": foreground,
         "background_work": background_work,
         "state_patch": state_patch_status,
+        "compound_action_continuation": result[
+            "compound_action_continuation"
+        ],
         "stop_actionability": stop_actionability,
         "pending_choice": result["pending_choice"],
         "narration_audit": result["narration_audit"],

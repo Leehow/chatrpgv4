@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 
@@ -24,10 +24,6 @@ checkpoint = _load(
     "coc_playtest_checkpoint_runtime_test",
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_checkpoint.py",
 )
-runtime_fixture = _load(
-    "runtime_checkpoint_fixture_source",
-    REPO / "tests" / "test_runtime_sdk_debug.py",
-)
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -38,8 +34,164 @@ def _write_json(path: Path, value: object) -> None:
     )
 
 
+def _build_live_campaign(workspace: Path) -> tuple[Path, Path]:
+    """Build the public-runtime fixture locally instead of importing a test.
+
+    The former fixture lived in the deleted debug-SDK test module, which made
+    this checkpoint contract impossible to collect after the runtime refactor.
+    """
+    coc = workspace / ".coc"
+    campaign = coc / "campaigns" / "live"
+    scenario = campaign / "scenario"
+    save = campaign / "save"
+    logs = campaign / "logs"
+    (save / "investigator-state").mkdir(parents=True)
+    scenario.mkdir(parents=True)
+    logs.mkdir(parents=True)
+    (logs / "events.jsonl").write_text("", encoding="utf-8")
+    (logs / "rolls.jsonl").write_text("", encoding="utf-8")
+    _write_json(
+        save / "world-state.json",
+        {
+            "schema_version": 1,
+            "campaign_id": "live",
+            "scenario_id": "live-mod",
+            "active_scene_id": "scene-1",
+            "discovered_clue_ids": [],
+            "major_decisions": [],
+        },
+    )
+    _write_json(
+        save / "pacing-state.json",
+        {
+            "schema_version": 1,
+            "tension_level": "low",
+            "lethal_chances_used": 0,
+            "recent_intent_classes": [],
+            "turn_number": 0,
+            "luck_spent_last": 0,
+        },
+    )
+    _write_json(
+        save / "investigator-state" / "inv1.json",
+        {
+            "schema_version": 1,
+            "campaign_id": "live",
+            "investigator_id": "inv1",
+            "current_hp": 12,
+            "current_san": 55,
+            "current_mp": 11,
+            "conditions": [],
+            "skill_checks_earned": [],
+        },
+    )
+    character = coc / "investigators" / "inv1" / "character.json"
+    _write_json(
+        character,
+        {
+            "schema_version": 1,
+            "id": "inv1",
+            "occupation": "Antiquarian",
+            "era": "1920s",
+            "characteristics": {
+                "STR": 60,
+                "CON": 55,
+                "SIZ": 65,
+                "DEX": 50,
+                "APP": 45,
+                "INT": 70,
+                "POW": 55,
+                "EDU": 75,
+                "LUCK": 55,
+            },
+            "derived": {"HP": 12, "MP": 11, "SAN": 55, "MOV": 7},
+            "skills": {
+                "Spot Hidden": 60,
+                "Library Use": 55,
+                "Credit Rating": 50,
+            },
+            "backstory": {},
+        },
+    )
+    _write_json(
+        scenario / "story-graph.json",
+        {
+            "scenes": [
+                {
+                    "scene_id": "scene-1",
+                    "scene_type": "investigation",
+                    "dramatic_question": "Can the investigator find the first lead?",
+                    "entry_conditions": [],
+                    "exit_conditions": ["c1 discovered"],
+                    "available_clues": ["c1"],
+                    "npc_ids": [],
+                    "pressure_moves": [],
+                    "tone": ["tense"],
+                    "allowed_improvisation": [],
+                },
+                {
+                    "scene_id": "scene-2",
+                    "scene_type": "investigation",
+                    "dramatic_question": "What happens after the first lead?",
+                    "entry_conditions": [],
+                    "exit_conditions": [],
+                    "available_clues": [],
+                    "npc_ids": [],
+                    "pressure_moves": [],
+                    "tone": ["tense"],
+                    "allowed_improvisation": [],
+                },
+            ]
+        },
+    )
+    _write_json(
+        scenario / "clue-graph.json",
+        {
+            "conclusions": [
+                {
+                    "conclusion_id": "conclusion-1",
+                    "importance": "critical",
+                    "minimum_routes": 1,
+                    "clues": [
+                        {
+                            "clue_id": "c1",
+                            "delivery": "Handout",
+                            "delivery_kind": "handout",
+                            "visibility": "player-safe",
+                        }
+                    ],
+                    "fallback_policy": "",
+                }
+            ]
+        },
+    )
+    _write_json(scenario / "npc-agendas.json", {"npcs": []})
+    _write_json(scenario / "threat-fronts.json", {"fronts": []})
+    _write_json(scenario / "pacing-map.json", {"pacing_curve": []})
+    _write_json(
+        scenario / "improvisation-boundaries.json",
+        {"invent_allowed": [], "never_invent": [], "keeper_secrets": []},
+    )
+    _write_json(
+        scenario / "module-meta.json",
+        {
+            "schema_version": 1,
+            "scenario_id": "live-mod",
+            "structure_type": "linear_acts",
+            "era": "1920s",
+            "content_flags": [],
+            "win_condition": "continue live play",
+        },
+    )
+    _write_json(
+        campaign / "campaign.json",
+        {"schema_version": 1, "campaign_id": "live", "play_language": "zh-CN"},
+    )
+    return campaign, character
+
+
 def _build_generation(workspace: Path) -> Path:
-    campaign, _character = runtime_fixture._build_live_campaign(workspace)
+    campaign, _character = _build_live_campaign(workspace)
     _write_json(
         campaign / "party.json",
         {
@@ -106,78 +258,52 @@ def _prepare_local_provisioning(workspace: Path) -> None:
 
 
 def _force_sync_adapter(api) -> None:
-    canonical = api._session._load_debug_adapter()
+    """Install the current keeper-agent boundary with synchronous fixture writes."""
 
-    class SyncDebugAdapter:
+    class SyncKeeperAdapter:
         @staticmethod
-        def debug_send_turn(*args, **kwargs):
-            kwargs["recording_mode"] = "sync"
-            kwargs["recording_flush"] = "manual"
-            return canonical.debug_send_turn(*args, **kwargs)
-
-    api._session._load_debug_adapter = lambda: SyncDebugAdapter
-
-
-def _chase_requests() -> tuple[dict, dict]:
-    start = {
-        "kind": "chase_start",
-        "payload": {
-            "decision_id": "checkpoint-chase",
-            "chase_id": "checkpoint-roof",
-            "participants": [
-                {
-                    "actor_id": "inv1",
-                    "side": "quarry",
-                    "mov": 8,
-                    "dex": 70,
-                    "con": 60,
-                    "hp": 12,
-                    "fight": 60,
-                    "dodge": 40,
-                    "build": 0,
-                    "current_position": 0,
-                    "conditions": [],
+        def keeper_send_turn(request, **_kwargs):
+            campaign = (
+                Path(request["workspace"])
+                / ".coc"
+                / "campaigns"
+                / request["campaign_id"]
+            )
+            world_path = campaign / "save" / "world-state.json"
+            world = json.loads(world_path.read_text(encoding="utf-8"))
+            player_input = request["player_input"]
+            if player_input == "checkpoint:inspect":
+                world["discovered_clue_ids"] = ["c1"]
+                tool = "state.record_clue"
+                narration = "The first lead is now durably recorded."
+            elif player_input == "checkpoint:continue":
+                world["active_scene_id"] = "scene-2"
+                tool = "state.move_scene"
+                narration = "The investigation continues into scene two."
+            else:  # pragma: no cover - keeps fixture failure explicit.
+                raise AssertionError(f"unexpected checkpoint fixture input: {player_input}")
+            _write_json(world_path, world)
+            log_path = campaign / "logs" / "toolbox-calls.jsonl"
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({
+                    "tool": tool,
+                    "ok": True,
+                    "args": {"decision_id": player_input},
+                    "warnings": [],
+                }, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            return {
+                "ok": True,
+                "narration": narration,
+                "model_identity": {
+                    "provider": "fixture",
+                    "id": "checkpoint-keeper",
                 },
-                {
-                    "actor_id": "cultist",
-                    "side": "pursuer",
-                    "mov": 8,
-                    "dex": 50,
-                    "con": 50,
-                    "hp": 9,
-                    "fight": 45,
-                    "dodge": 25,
-                    "build": 0,
-                    "current_position": 0,
-                    "conditions": [],
-                },
-            ],
-            "locations": [
-                {"label": "roof", "hazard": None, "barrier": None},
-                {
-                    "label": "door",
-                    "hazard": None,
-                    "barrier": {
-                        "barrier_id": "door",
-                        "hp": 4,
-                        "hp_max": 4,
-                        "skill": "Climb",
-                        "target": 100,
-                    },
-                },
-            ],
-        },
-    }
-    offer = {
-        "kind": "chase_move",
-        "payload": {
-            "decision_id": "checkpoint-chase",
-            "revision": 1,
-            "actor_id": "inv1",
-            "action_id": "choice:offer",
-        },
-    }
-    return start, offer
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            }
+
+    api._session._load_keeper_adapter = lambda: SyncKeeperAdapter
 
 
 def _tree_bytes(root: Path) -> dict[str, bytes]:
@@ -222,7 +348,7 @@ def _restore_with_fresh_api(
     return api, restored_ids
 
 
-def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
+def test_public_sdk_checkpoint_restores_state_and_seeded_continuation(
     tmp_path: Path,
 ):
     workspace = tmp_path / "generation-old"
@@ -232,62 +358,60 @@ def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
     session_id = api.create_session(
         workspace, campaign_id="live", investigator_id="inv1"
     )
-    start, offer = _chase_requests()
-    api.send(session_id, "", subsystem_request=start, rng_seed="checkpoint:start")
     pre_state = copy.deepcopy(api.get_state(session_id))
-    offer_events = api.send(
-        session_id, "", subsystem_request=offer, rng_seed="checkpoint:offer"
+    first_events = api.send(
+        session_id, "checkpoint:inspect", rng_seed="checkpoint:inspect"
     )
     checkpoint_state = copy.deepcopy(api.get_state(session_id))
-    assert checkpoint_state["pending_choice"] is not None
+    assert checkpoint_state["discovered_clue_ids"] == ["c1"]
+    assert checkpoint_state["active_scene_id"] == "scene-1"
     api._session._REGISTRY.snapshot(workspace)
 
     receipt = _last_jsonl_row(campaign / "logs" / "live-turn-runtime.jsonl")
     assert receipt["recording_mode"] == "sync"
-    assert receipt["recording_flush"] == "manual"
-    receipt_payload = json.dumps(
-        receipt, sort_keys=True, separators=(",", ":")
-    ).encode()
+    assert receipt["recording_flush"] == "auto"
+    attestation = api.get_last_turn_attestation(session_id)
     store = checkpoint.CheckpointStore(tmp_path / "run", workspace, "live", "inv1")
     store.append_turn(
-        {"kind": "chase_move", "request": offer},
-        offer_events,
+        {"kind": "keeper_turn", "player_input": "checkpoint:inspect"},
+        first_events,
         pre_state,
         checkpoint_state,
         {
             "player_mode": "whitebox",
-            "model_identity": {},
+            "model_identity": {
+                "provider": "fixture",
+                "id": "checkpoint-keeper",
+            },
             "recording_mode": receipt["recording_mode"],
             "recording_flush": receipt["recording_flush"],
-            "runtime_receipt_sha256": hashlib.sha256(receipt_payload).hexdigest(),
+            "runtime_receipt_sha256": attestation["runtime_receipt_sha256"],
         },
     )
     checkpoint_dir = store.write_checkpoint(session_id, 1, "turn_complete")
 
-    choice = checkpoint_state["pending_choice"]
-    response = {
-        "choice_id": choice["choice_id"],
-        "responder": "player",
-        "revision": choice["revision"],
-        "action": choice["options"][0]["action"],
-    }
     later_events = api.send(
         session_id,
-        "",
-        pending_choice_response=response,
+        "checkpoint:continue",
         rng_seed="checkpoint:continue",
     )
     later_state = copy.deepcopy(api.get_state(session_id))
+    later_attestation = api.get_last_turn_attestation(session_id)
+    assert later_state["active_scene_id"] == "scene-2"
     store.append_turn(
-        {"kind": "pending_choice_response", "response": response},
+        {"kind": "keeper_turn", "player_input": "checkpoint:continue"},
         later_events,
         checkpoint_state,
         later_state,
         {
             "player_mode": "whitebox",
-            "model_identity": {},
+            "model_identity": {
+                "provider": "fixture",
+                "id": "checkpoint-keeper",
+            },
             "recording_mode": "sync",
-            "recording_flush": "manual",
+            "recording_flush": "auto",
+            "runtime_receipt_sha256": later_attestation["runtime_receipt_sha256"],
         },
     )
     assert store._turn_number == 2
@@ -306,8 +430,7 @@ def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
     ).exists()
     events_a = api_a.send(
         session_id,
-        "",
-        pending_choice_response=response,
+        "checkpoint:continue",
         rng_seed="checkpoint:continue",
     )
     state_a = api_a.get_state(session_id)
@@ -320,8 +443,7 @@ def test_public_sdk_checkpoint_restores_pending_state_and_seeded_continuation(
     assert api_b.get_state(session_id) == checkpoint_state
     events_b = api_b.send(
         session_id,
-        "",
-        pending_choice_response=response,
+        "checkpoint:continue",
         rng_seed="checkpoint:continue",
     )
     state_b = api_b.get_state(session_id)

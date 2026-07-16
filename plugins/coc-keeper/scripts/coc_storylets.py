@@ -47,6 +47,11 @@ _VALID_QUESTION_LAYERS = frozenset({
     "fact", "identity", "method", "motive", "causal", "structure",
     "world", "personal",
 })
+_FACT_AUTHORIZATION_METHODS = frozenset({
+    "structured_source_fact",
+    "scenario_authored_compiled_text",
+    "semantic_compilation_receipt",
+})
 _EPISTEMIC_FUNCTION_TO_NEED = {
     "confirm": "belief_confirmation",
     "expand": "belief_expansion",
@@ -141,13 +146,14 @@ def _check_library_context_requirements(library: dict[str, Any]) -> None:
             raise ValueError(
                 f"storylet '{sid}' context_requirements must be an object"
             )
-        if "location_tags_any" not in req:
-            continue
-        _check_tag_list(
-            sid,
-            "context_requirements.location_tags_any",
-            req.get("location_tags_any"),
-        )
+        for field_name in ("location_tags_any", "scene_capabilities_any"):
+            if field_name not in req:
+                continue
+            _check_tag_list(
+                sid,
+                f"context_requirements.{field_name}",
+                req.get(field_name),
+            )
 
 
 def _check_library_epistemic_tags(library: dict[str, Any]) -> None:
@@ -398,6 +404,16 @@ def infer_story_need(plan: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any
         elif action == "RECOVER" or int(signals.get("stalled_turns", 0) or 0) >= 3:
             need_id = "recovery_redirection"
             reason = "recovery_or_stall"
+        elif (
+            (policy.get("force_storylet") or policy.get("force"))
+            and (plan.get("choice_frame") or {}).get("open_route_ids")
+        ):
+            # A forced beat in a sparse/legacy scene may only have authored
+            # public routes as structured anchors. Route-only projection keeps
+            # the beat useful without importing the library's free-standing
+            # props or spatial facts.
+            need_id = "choice_pressure"
+            reason = "forced_existing_choice_frame"
         elif action == "PRESSURE" and ((ctx.get("threat_fronts") or {}).get("fronts") or _has_pressure_tick(plan)):
             need_id = "front_pressure"
             reason = "director_pressure"
@@ -579,6 +595,16 @@ def _scene_location_tags(ctx: dict[str, Any]) -> set[str]:
     return {str(t) for t in _as_list(scene.get("location_tags")) if t}
 
 
+def _scene_storylet_capabilities(ctx: dict[str, Any]) -> set[str]:
+    """Authored phenomena/prop capabilities a storylet may instantiate."""
+    scene = ctx.get("active_scene") or {}
+    return {
+        str(value)
+        for value in _as_list(scene.get("storylet_capabilities"))
+        if _non_empty_str(value)
+    }
+
+
 def _scene_tags(ctx: dict[str, Any]) -> set[str]:
     scene = ctx.get("active_scene") or {}
     tags = set(_as_list(scene.get("tags")))
@@ -711,12 +737,35 @@ def _has_current_scene_anchor(storylet: dict[str, Any], plan: dict[str, Any], ct
         return True
     if req.get("active_front") is True and _anchor_kind_available("active_front", storylet, plan, ctx):
         return True
-    if req.get("scene_pressure") is True and _anchor_kind_available("scene_pressure", storylet, plan, ctx):
-        return True
-
     required_tags = set(_as_list(storylet.get("scene_tags")))
     if required_tags and (required_tags & _scene_tags(ctx)):
         return True
+
+    serves = storylet.get("serves") or {}
+    if (
+        isinstance(serves, dict)
+        and serves.get("can_surface_choice") is True
+        and (plan.get("choice_frame") or {}).get("open_route_ids")
+    ):
+        # A generic choice beat may decorate an existing authored route, but
+        # selection later projects it into route-only presentation mode: the
+        # library cue/variants are not allowed to instantiate world objects.
+        return True
+
+    # Scene pressure says *when* a beat may fire; it does not authorize a new
+    # clock, door, stairwell, sound source, or other actionable world fact.
+    # A pressure-only/generic beat needs an explicit authored scene capability
+    # before it can stand as a concrete anchor. This is a structured gate and
+    # intentionally does not inspect cue/variant prose.
+    context_req = storylet.get("context_requirements") or {}
+    if isinstance(context_req, dict):
+        required_capabilities = set(
+            _as_list(context_req.get("scene_capabilities_any"))
+        )
+        if required_capabilities and (
+            required_capabilities & _scene_storylet_capabilities(ctx)
+        ):
+            return True
 
     return _anchor_contract_met(storylet, plan, ctx)
 
@@ -830,6 +879,13 @@ def _matches_context(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[s
     if isinstance(context_req, dict):
         required_locations = set(_as_list(context_req.get("location_tags_any")))
         if required_locations and not (required_locations & _scene_location_tags(ctx)):
+            return False
+        required_capabilities = set(
+            _as_list(context_req.get("scene_capabilities_any"))
+        )
+        if required_capabilities and not (
+            required_capabilities & _scene_storylet_capabilities(ctx)
+        ):
             return False
 
     intent_tags = _intent_tags(ctx)
@@ -976,13 +1032,137 @@ def _bind_storylet(storylet: dict[str, Any], plan: dict[str, Any], ctx: dict[str
     req = storylet.get("requires") or {}
     bound_npc = rng.choice(npc_pool) if npc_pool and req.get("npc_id") is True else None
     bound_clue = rng.choice(clue_ids) if clue_ids and req.get("unrevealed_clue") is True else None
+    contract = storylet.get("anchor_contract") or {}
+    contract_kinds = {
+        str(value)
+        for value in (
+            _as_list(contract.get("requires_one_of") or contract.get("one_of"))
+            + _as_list(contract.get("requires_all_of") or contract.get("all_of"))
+        )
+    } if isinstance(contract, dict) else set()
+    serves = storylet.get("serves") or {}
+    route_ids = [
+        str(value)
+        for value in (plan.get("choice_frame") or {}).get("open_route_ids", [])
+        if _non_empty_str(value)
+    ]
+    bound_route = (
+        rng.choice(route_ids)
+        if route_ids
+        and isinstance(serves, dict)
+        and serves.get("can_surface_choice") is True
+        else None
+    )
+    needs_front = bool(
+        req.get("active_front") is True
+        or contract_kinds & {"front", "active_front", "threat_front"}
+        or (isinstance(serves, dict) and serves.get("can_tick_front") is True)
+    )
     return {
         "npc_id": bound_npc,
         "clue_id": bound_clue,
-        "front_id": front_id,
-        "clock_id": clock_id,
+        "front_id": front_id if needs_front else None,
+        "clock_id": clock_id if needs_front else None,
+        "route_id": bound_route,
         "scene_id": scene.get("scene_id") or ctx.get("active_scene_id"),
         "location_id": scene.get("location_id") or scene.get("scene_id") or ctx.get("active_scene_id"),
+    }
+
+
+def _grounding_contract(
+    storylet: dict[str, Any],
+    plan: dict[str, Any],
+    ctx: dict[str, Any],
+    bound: dict[str, Any],
+    fact_authorization: dict[str, Any],
+) -> dict[str, Any]:
+    scene = ctx.get("active_scene") or {}
+    entity_refs = [
+        value
+        for key, value in bound.items()
+        if key in {"npc_id", "clue_id", "front_id", "clock_id", "route_id", "scene_id", "location_id"}
+        and _non_empty_str(value)
+    ]
+    route_ids = [
+        route_id
+        for route_id in (plan.get("choice_frame") or {}).get("open_route_ids", [])
+        if _non_empty_str(route_id)
+    ]
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "authorized_entity_refs": list(dict.fromkeys(entity_refs)),
+        "authorized_route_ids": list(dict.fromkeys(str(value) for value in route_ids)),
+        "scene_capabilities": sorted(_scene_storylet_capabilities(ctx)),
+        "allow_new_actionable_fact": fact_authorization.get("status") == "authorized",
+        "fact_authorization": fact_authorization,
+        "fallback_mode": "existing_route_only_or_suppress",
+        "source": "structured_storylet_grounding",
+    }
+
+
+def _storylet_fact_authorization(
+    storylet: dict[str, Any],
+    ctx: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate exact, source-backed authority for storylet-authored facts.
+
+    Binding a generic library card to a scene, clue, NPC, or route is only a
+    scheduling relationship.  It does not authorize the card's prose as a
+    fact in that scenario.  Authorization therefore requires an explicit
+    receipt tied to this storylet and active scene, at least one structured
+    source reference, and exact copies of every text field it authorizes.
+    """
+    raw = storylet.get("fact_authorization")
+    denied = {
+        "schema_version": 1,
+        "status": "not_authorized",
+        "reason": "missing_source_backed_fact_authorization",
+    }
+    if not isinstance(raw, dict):
+        return denied
+    method = str(raw.get("method") or "")
+    storylet_id = str(storylet.get("storylet_id") or "")
+    scene_id = str((ctx.get("active_scene") or {}).get("scene_id") or ctx.get("active_scene_id") or "")
+    refs = [
+        str(ref).strip()
+        for ref in raw.get("source_refs") or []
+        if isinstance(ref, str) and ref.strip()
+    ]
+    authorized_text = raw.get("authorized_text")
+    if (
+        raw.get("status") != "authorized"
+        or method not in _FACT_AUTHORIZATION_METHODS
+        or str(raw.get("storylet_id") or "") != storylet_id
+        or str(raw.get("scene_id") or "") != scene_id
+        or not refs
+        or not isinstance(authorized_text, dict)
+        or authorized_text.get("cue") != storylet.get("cue")
+        or not _non_empty_str(authorized_text.get("cue"))
+    ):
+        denied["reason"] = "fact_authorization_receipt_mismatch"
+        return denied
+
+    authorized_fields = ["cue"]
+    if "beat" in authorized_text:
+        if authorized_text.get("beat") != storylet.get("beat"):
+            denied["reason"] = "fact_authorization_beat_mismatch"
+            return denied
+        authorized_fields.append("beat")
+    if "variants" in authorized_text:
+        variants = storylet.get("variants") or storylet.get("roll_tables") or {}
+        if authorized_text.get("variants") != variants:
+            denied["reason"] = "fact_authorization_variants_mismatch"
+            return denied
+        authorized_fields.append("rolled_variants")
+    return {
+        "schema_version": 1,
+        "status": "authorized",
+        "method": method,
+        "storylet_id": storylet_id,
+        "scene_id": scene_id,
+        "source_refs": list(dict.fromkeys(refs)),
+        "authorized_fields": authorized_fields,
+        "receipt_id": raw.get("receipt_id"),
     }
 
 
@@ -1090,6 +1270,31 @@ def select_storylet_moves(
             trace["rejected_examples"].append(_trace_storylet_ref(storylet, "anti_repeat"))
     scored.sort(key=lambda pair: (pair[1], pair[0].get("storylet_id", "")), reverse=True)
 
+    if (
+        not scored
+        and (policy.get("force_storylet") or policy.get("force"))
+        and (plan.get("choice_frame") or {}).get("open_route_ids")
+    ):
+        # Fail closed to an authored-route projection. This synthetic adapter
+        # carries no library cue, variants, or new fact; _bind_storylet and the
+        # route-only renderer below can only surface an existing choice-frame
+        # cue. It preserves legacy/forced enrichment without weakening the
+        # grounding gate for generic object-producing cards.
+        scored.append(({
+            "storylet_id": "route-grounded-fallback",
+            "title": "Authored route emphasis",
+            "family_id": "route_grounding",
+            "trope_id": "existing_route_only",
+            "conflict_level": target_level,
+            "base_weight": 1.0,
+            "serves": {"mainline": True, "can_surface_choice": True},
+            "story_functions": ["choice_pressure"],
+            "deck_tags": ["choice_pressure", "choice", "route_cost"],
+            "effects": {},
+            "anti_repeat": {"max_per_session": 1},
+            "source": "structured_route_grounding_fallback",
+        }, 1.0))
+
     rng = random.Random(_stable_int_seed(seed or policy.get("seed", "storylet"), ctx.get("turn_number", 0), plan.get("decision_id"), plan.get("scene_action"), target_level))
     moves: list[dict[str, Any]] = []
     working_ledger = ledger
@@ -1099,6 +1304,21 @@ def select_storylet_moves(
             break
         bound = _bind_storylet(pick, plan, {**selection_ctx, "storylet_ledger": working_ledger}, rng)
         rolled = _roll_variants(pick, rng)
+        fact_authorization = _storylet_fact_authorization(pick, selection_ctx)
+        fact_authorized = fact_authorization.get("status") == "authorized"
+        route_cue = next(
+            (
+                route.get("cue")
+                for route in (plan.get("choice_frame") or {}).get("routes", [])
+                if isinstance(route, dict)
+                and str(route.get("route_id") or "") == str(bound.get("route_id"))
+                and _non_empty_str(route.get("cue"))
+            ),
+            None,
+        )
+        route_only = not fact_authorized and bool(route_cue)
+        suppressed = not fact_authorized and not route_only
+        authorized_fields = set(fact_authorization.get("authorized_fields") or [])
         deck_id = _matching_deck_id(pick, story_need)
         selected_ref = _trace_storylet_ref(pick)
         selected_ref["deck_id"] = deck_id
@@ -1114,20 +1334,49 @@ def select_storylet_moves(
             "target_conflict_level": target_level,
             "conflict_score": pick.get("conflict_score", _CONFLICT_RANK.get(pick.get("conflict_level", "low"), 0) + 1),
             "dramatic_function": pick.get("dramatic_function", []),
-            "cue": pick.get("cue"),
-            "beat": pick.get("beat") or (pick.get("effects") or {}).get("narrative_move"),
+            "cue": (
+                route_cue if route_only
+                else pick.get("cue") if fact_authorized
+                else None
+            ),
+            "beat": (
+                pick.get("beat") or (pick.get("effects") or {}).get("narrative_move")
+                if fact_authorized and "beat" in authorized_fields
+                else None
+            ),
             "bound_entities": bound,
-            "rolled_variants": rolled,
+            "grounding_contract": _grounding_contract(
+                pick, plan, selection_ctx, bound, fact_authorization
+            ),
+            "rolled_variants": (
+                rolled
+                if fact_authorized and "rolled_variants" in authorized_fields
+                else {}
+            ),
             "serves": _serve_list(pick),
             "story_need": story_need,
             "deck_id": deck_id,
             "candidate_decks": story_need.get("candidate_decks", []),
             "scheduler_trace": trace,
             "effects": pick.get("effects", {}),
-            "narration_directive": pick.get("narration_directive") or "Bind this beat to the active scenario node; do not introduce a new core truth.",
+            "narration_directive": (
+                "Surface only the bound authored route and its existing visible cost; "
+                "do not use the library cue/variants or introduce any new object, route, or fact."
+                if route_only
+                else "Do not surface this storylet as prose; retain it only for scheduler metrics."
+                if suppressed
+                else pick.get("narration_directive")
+                or "Bind this beat to the active scenario node; do not introduce a new core truth."
+            ),
             "anti_repeat": pick.get("anti_repeat", {}),
-            "source": "storylet-library.json",
+            "source": pick.get("source") or "storylet-library.json",
         }
+        if route_only:
+            move["presentation_mode"] = "existing_route_only"
+        elif suppressed:
+            move["presentation_mode"] = "suppressed_unverified_fact"
+        else:
+            move["presentation_mode"] = "source_backed_fact"
         move["ledger_update"] = project_ledger_update(working_ledger, move)
         move["scheduler_trace"]["ledger_update"] = move["ledger_update"]
         moves.append(move)

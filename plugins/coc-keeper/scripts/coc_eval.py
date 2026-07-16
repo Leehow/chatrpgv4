@@ -24,7 +24,10 @@ import coc_eval_calibration as calibration
 import coc_eval_compare as compare
 import coc_eval_contract as contract
 import coc_eval_matrix as matrix
+import coc_eval_packs as packs
 import coc_eval_pipeline as pipeline
+import coc_eval_replay as replay
+import coc_playtest_route_compare as route_compare
 
 
 EXIT_BY_STATUS = {
@@ -601,7 +604,7 @@ def _base_run_manifest(
     root: Path,
     started_at: str,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "schema_version": 1,
         "eval_spec": manifest["eval_spec"],
         "benchmark_version": manifest["benchmark_version"],
@@ -621,6 +624,17 @@ def _base_run_manifest(
         "commands": [],
         "artifact_hashes": {},
     }
+    pack_path = root / packs.PACK_REGISTRY_PATH
+    if pack_path.is_file():
+        registry = packs.load_benchmark_pack_registry(root, manifest=manifest)
+        payload["benchmark_pack_registry_version"] = registry["registry_version"]
+        payload["benchmark_pack_registry_sha256"] = _sha256(pack_path)
+        payload["benchmark_pack_ids"] = [
+            pack["pack_id"]
+            for pack in registry["packs"]
+            if suite in pack["suites"]
+        ]
+    return payload
 
 
 def _run_registered_cases(
@@ -724,8 +738,9 @@ def run_suite(
     host_id: str,
     baseline: Path | None = None,
     matrix_limit: int | None = None,
-    timeout: float = 120.0,
+    timeout: float | None = None,
     continuity_timeout: float | None = None,
+    matrix_workers: int | None = None,
     chapter_run: Path | None = None,
     holdout_bundle: Path | None = None,
     calibration_reviews: Path | None = None,
@@ -825,6 +840,7 @@ def run_suite(
                 matrix_limit=matrix_limit,
                 timeout=timeout,
                 continuity_timeout=continuity_timeout,
+                matrix_workers=matrix_workers,
             )
             status = str(extended["status"])
             artifact_hashes.update(
@@ -851,6 +867,7 @@ def run_suite(
                     "aggregation_inputs": extended["aggregation_inputs"],
                     "not_run_reasons": extended["not_run_reasons"],
                     "diagnostic": extended["diagnostic"],
+                    "metric_results_path": extended["metric_results_path"],
                     "execution_budgets": extended["execution_budgets"],
                 }
             )
@@ -914,7 +931,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--output", type=Path)
     run.add_argument("--baseline", type=Path)
     run.add_argument("--matrix-limit", type=_positive_int)
-    run.add_argument("--timeout", type=_positive_float, default=120.0)
+    run.add_argument(
+        "--timeout",
+        type=_positive_float,
+        help="override both versioned matrix runner and judge timeouts",
+    )
+    run.add_argument(
+        "--matrix-workers",
+        type=_positive_int,
+        help="override the versioned bounded matrix worker count",
+    )
     run.add_argument(
         "--continuity-timeout",
         type=_positive_float,
@@ -985,10 +1011,26 @@ def build_parser() -> argparse.ArgumentParser:
     matrix_parser.add_argument("--root", type=Path, default=Path.cwd())
     matrix_parser.add_argument("--output", type=Path)
     matrix_parser.add_argument(
+        "--configuration",
+        type=Path,
+        help=(
+            "diagnostic-only custom matrix JSON; it may reuse one evaluation "
+            "profile across multiple modules but is not an official named-suite claim"
+        ),
+    )
+    matrix_parser.add_argument(
+        "--baseline",
+        type=Path,
+        help="baseline matrix directory for paired semantic comparison",
+    )
+    matrix_parser.add_argument(
         "--plan-only",
         action="store_true",
         help="write matrix-plan.json without executing READY cells",
     )
+    matrix_parser.add_argument("--runner-timeout", type=_positive_float)
+    matrix_parser.add_argument("--judge-timeout", type=_positive_float)
+    matrix_parser.add_argument("--max-workers", type=_positive_int)
 
     calibrate = subparsers.add_parser(
         "calibrate",
@@ -1018,7 +1060,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="directory containing holdout artifacts referenced by the manifest",
     )
     holdouts.add_argument("--root", type=Path, default=Path.cwd())
+
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="run one versioned fixed-replay case through the canonical eval CLI",
+    )
+    replay_parser.add_argument("--case", type=Path, required=True)
+    replay_parser.add_argument("--output", type=Path, required=True)
+    replay_parser.add_argument("--root", type=Path, default=Path.cwd())
+
+    route_parser = subparsers.add_parser(
+        "route-compare",
+        help="compare two actual-play route ledgers with bound semantic evidence",
+    )
+    route_parser.add_argument(
+        "--run-a", type=Path, required=True,
+        help="spoiler-aware run directory containing artifacts/route-ledger.json",
+    )
+    route_parser.add_argument(
+        "--run-b", type=Path, required=True,
+        help="spoiler-blind run directory containing artifacts/route-ledger.json",
+    )
+    route_parser.add_argument("--semantic-result", type=Path, required=True)
+    route_parser.add_argument("--request", type=Path)
+    route_parser.add_argument("--output", type=Path, required=True)
     return parser
+
+
+def _read_json_object(path: Path, label: str) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise FileNotFoundError(f"{label} not found: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} must contain a JSON object")
+    return payload
 
 
 def _exit_code(payload: dict[str, Any]) -> int:
@@ -1039,6 +1114,7 @@ def main(argv: list[str] | None = None) -> int:
                 matrix_limit=args.matrix_limit,
                 timeout=args.timeout,
                 continuity_timeout=args.continuity_timeout,
+                matrix_workers=args.matrix_workers,
                 chapter_run=getattr(args, "chapter_run", None),
                 holdout_bundle=getattr(args, "holdout_bundle", None),
                 calibration_reviews=getattr(args, "calibration_reviews", None),
@@ -1064,6 +1140,11 @@ def main(argv: list[str] | None = None) -> int:
                 suite=args.suite,
                 output=args.output,
                 plan_only=bool(args.plan_only),
+                configuration=args.configuration,
+                baseline=args.baseline,
+                runner_timeout_s=args.runner_timeout,
+                judge_timeout_s=args.judge_timeout,
+                max_workers=args.max_workers,
             )
         elif args.command == "calibrate":
             payload = calibration.run_calibrate_cli(
@@ -1081,6 +1162,31 @@ def main(argv: list[str] | None = None) -> int:
                 bundle=args.bundle,
                 root=args.root,
             )
+        elif args.command == "replay":
+            payload = replay.run_fixed_replay(
+                _read_json_object(args.case, "fixed replay case"),
+                root=args.root,
+                output=args.output,
+            )
+        elif args.command == "route-compare":
+            args.output.mkdir(parents=True, exist_ok=True)
+            outcome = route_compare.compare_routes(
+                args.output,
+                _read_json_object(
+                    args.run_a / "artifacts" / "route-ledger.json",
+                    "run A route ledger",
+                ),
+                _read_json_object(
+                    args.run_b / "artifacts" / "route-ledger.json",
+                    "run B route ledger",
+                ),
+                _read_json_object(args.semantic_result, "route semantic result"),
+                request=(
+                    _read_json_object(args.request, "route comparison request")
+                    if args.request else None
+                ),
+            )
+            payload = {"schema_version": 1, "status": "PASS", **outcome}
         else:
             raise ValueError(f"unsupported command: {args.command}")
     except (ValueError, FileNotFoundError, RuntimeError) as exc:

@@ -22,14 +22,20 @@ TRUSTED_RUNNER_REGISTRY_PATH = (
     PLUGIN_DIR / "references" / "trusted-playtest-runners.json"
 )
 LEDGER_OUTCOMES = frozenset(
-    {"external_success", "template", "template_fallback", "runner_failure"}
+    {
+        "external_success", "template", "template_fallback", "runner_failure",
+        "operator_input", "operator_review_pending",
+    }
 )
-FALLBACK_KINDS = frozenset({"template", "prose_degradation", "secret_audit"})
+FALLBACK_KINDS = frozenset(
+    {"template", "prose_degradation", "secret_audit", "fact_fidelity"}
+)
 RUN_KINDS = frozenset({"diagnostic_spoiler_run", "blind_actual_play"})
 EXPECTED_INTERACTIVE_NARRATOR_MODEL = {"provider": "zhipu-coding", "id": "glm-5.2"}
 _TRUSTED_KIND_BY_ROLE = {
     "player": "external_model_bridge",
     "narrator": "external_model_bridge",
+    "action_resolver": "external_model_bridge",
     "interactive_driver": "python_cli",
 }
 _FIXED_ARTIFACT_BASENAMES = {
@@ -38,17 +44,14 @@ _FIXED_ARTIFACT_BASENAMES = {
 }
 
 
-def _load_secret_audit():
+def _load_operator_review():
     spec = importlib.util.spec_from_file_location(
-        "coc_secret_audit_evidence", SCRIPT_DIR / "coc_secret_audit.py"
+        "coc_operator_review_evidence", SCRIPT_DIR / "coc_operator_review.py"
     )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-coc_secret_audit = _load_secret_audit()
 
 
 def sha256_path(path: Path) -> str:
@@ -194,7 +197,7 @@ def _load_trusted_registry(
     if payload.get("schema_version") != 1 or not isinstance(runners, dict):
         _finding(findings, "trusted_runner_registry_invalid", "trusted_runner_registry")
         return {}
-    selected = roles or ("player", "narrator", "interactive_driver")
+    selected = roles or ("player", "narrator", "action_resolver", "interactive_driver")
     valid: dict[str, dict[str, Any]] = {}
     for role in selected:
         entry = runners.get(role)
@@ -365,7 +368,9 @@ def _evaluate_ledger(
     registry: dict[str, dict[str, Any]],
     findings: list[dict[str, str]],
 ) -> tuple[dict[str, Any], int, int]:
-    role_rows: dict[str, list[dict[str, Any]]] = {"player": [], "narrator": []}
+    role_rows: dict[str, list[dict[str, Any]]] = {
+        "player": [], "narrator": [], "action_resolver": [],
+    }
     external_model_turns = 0
     external_player_turns = 0
     fallback_turns = 0
@@ -411,13 +416,6 @@ def _evaluate_ledger(
         if model is None:
             _finding(findings, "model_identity_missing", f"{field}.model_identity")
             continue
-        if role == "narrator":
-            audit_validation = coc_secret_audit.validate_audit_receipt(
-                row.get("secret_audit")
-            )
-            if not audit_validation.get("valid") or not audit_validation.get("passed"):
-                _finding(findings, "narrator_secret_audit_invalid", f"{field}.secret_audit")
-                continue
         external_model_turns += 1
         if role == "player":
             external_player_turns += 1
@@ -432,19 +430,26 @@ def _evaluate_ledger(
         for row in transcript_rows
         if row.get("role") == "keeper_under_test" and isinstance(row.get("turn"), int)
     )
+    expected_action_resolver = expected_player if role_rows["action_resolver"] else Counter()
     observed_player = Counter(row.get("transcript_turn") for row in role_rows["player"])
     observed_narrator = Counter(row.get("transcript_turn") for row in role_rows["narrator"])
+    observed_action_resolver = Counter(
+        row.get("transcript_turn") for row in role_rows["action_resolver"]
+    )
     if not ledger_shape_invalid and (
-        observed_player != expected_player or observed_narrator != expected_narrator
+        observed_player != expected_player
+        or observed_narrator != expected_narrator
+        or observed_action_resolver != expected_action_resolver
     ):
         _finding(findings, "invocation_transcript_mismatch", "invocation_ledger")
 
     if external_player_turns < 1:
         _finding(findings, "no_external_player_turns", "external_model_turns.player")
+    if external_model_turns < 1:
         _finding(findings, "no_external_model_turns", "external_model_turns")
     runners = {
         role: _runner_descriptor(role, registry, role_rows[role])
-        for role in ("player", "narrator")
+        for role in ("player", "narrator", "action_resolver")
     }
     if not role_rows["player"]:
         _finding(findings, "runner_not_trusted", "runners.player")
@@ -624,10 +629,6 @@ def _validate_interactive_narrator_models(
         if row.get("fallback_kind") is not None:
             _finding(findings, "interactive_narrator_fallback", f"{field}.fallback_kind")
             continue
-        audit_validation = coc_secret_audit.validate_audit_receipt(row.get("secret_audit"))
-        if not audit_validation.get("valid") or not audit_validation.get("passed"):
-            _finding(findings, "narrator_secret_audit_invalid", f"{field}.secret_audit")
-            continue
         if model not in models:
             models.append(model)
     return models
@@ -754,7 +755,9 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
         validated["run_kind"] = run_kind if run_kind in RUN_KINDS else None
         return validated
 
-    registry = _load_trusted_registry(findings, roles=("player", "narrator"))
+    registry = _load_trusted_registry(
+        findings, roles=("player", "narrator", "action_resolver")
+    )
 
     artifacts = validated.get("artifacts")
     if not isinstance(artifacts, dict):
@@ -797,10 +800,98 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
         registry,
         findings,
     )
+    operator_review_status = "not_required"
+    operator_review_artifact = artifacts.get("operator_review")
+    if validated.get("operator_long_play") is True:
+        # Operator mode intentionally replaces the external player model with
+        # an attested operator-input lane.  This is a mode fact, independent
+        # of whether the later review approves or requests changes.
+        findings = [
+            item for item in findings
+            if item["code"] != "no_external_player_turns"
+        ]
+        operator_review_status = "pending"
+        if operator_review_artifact is not None:
+            review_path = _validate_artifact(
+                root,
+                operator_review_artifact,
+                findings,
+                field="artifacts.operator_review",
+                missing_code="operator_review_missing",
+                mismatch_code="operator_review_hash_mismatch",
+            )
+            if review_path is not None:
+                try:
+                    review_payload = json.loads(review_path.read_text(encoding="utf-8"))
+                    normalized_review = _load_operator_review().validate_review(
+                        review_payload,
+                        run_id=root.name,
+                    )
+                    if (
+                        review_payload.get("status") != normalized_review["status"]
+                        or review_payload.get("automated_fact_fidelity_pass") is not False
+                    ):
+                        raise ValueError("recorded operator review fields are inconsistent")
+                    operator_review_status = normalized_review["status"]
+                except (OSError, json.JSONDecodeError, ValueError, TypeError):
+                    _finding(
+                        findings,
+                        "operator_review_invalid",
+                        "artifacts.operator_review",
+                    )
+                    operator_review_status = "invalid"
+        if operator_review_status == "approved":
+            player_rows = [row for row in ledger_rows if row.get("role") == "player"]
+            if not player_rows or any(
+                row.get("outcome") != "operator_input" for row in player_rows
+            ):
+                _finding(
+                    findings,
+                    "operator_player_ledger_invalid",
+                    "artifacts.invocation_ledger",
+                )
+            if (runners.get("narrator") or {}).get("kind") != "external_model_bridge":
+                _finding(
+                    findings,
+                    "operator_narrator_runner_untrusted",
+                    "runners.narrator",
+                )
+            disqualifying = {
+                item["code"] for item in findings
+                if item["code"] != "no_external_player_turns"
+            }
+            if not disqualifying:
+                findings = [
+                    item for item in findings
+                    if item["code"] != "no_external_player_turns"
+                ]
+        elif operator_review_status == "pending":
+            _finding(
+                findings,
+                "operator_review_pending",
+                "artifacts.operator_review",
+            )
+        elif operator_review_status == "changes_required":
+            _finding(
+                findings,
+                "operator_review_changes_required",
+                "artifacts.operator_review",
+            )
     reasons = list(dict.fromkeys(item["code"] for item in findings))
     validated["runners"] = runners
     validated["external_model_turns"] = external_model_turns
     validated["fallback_turns"] = fallback_turns
+    validated["operator_review_status"] = operator_review_status
+    validated["play_kind"] = (
+        "operator_reviewed_actual_play"
+        if operator_review_status == "approved" and not reasons
+        else None
+    )
+    validated["qualification_method"] = (
+        "structured_operator_review"
+        if validated["play_kind"] == "operator_reviewed_actual_play"
+        else None
+    )
     validated["validation_findings"] = findings
     validated["evidence_reasons"] = reasons
     validated["eligible_as_gameplay_evidence"] = not reasons
@@ -850,6 +941,7 @@ def build_evidence_receipt(
         "started_at": source.get("started_at"),
         "ended_at": source.get("ended_at"),
         "user_claimed_live": source.get("user_claimed_live") is True,
+        "operator_long_play": source.get("operator_long_play") is True,
         "run_kind": run_kind if run_kind in RUN_KINDS else None,
         "runners": {},
         "external_model_turns": 0,

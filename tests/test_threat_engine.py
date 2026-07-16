@@ -112,15 +112,16 @@ def _campaign_with_on_enter(tmp_path: Path) -> Path:
 
 
 def test_scene_enter_ticks_clock(tmp_path):
-    """Advancing into a scene with on_enter.clock_ticks should tick the clock."""
+    """An explicit scene transition runs the destination's on-enter hooks."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("coc_director_apply2", SCRIPTS_DIR / "coc_director_apply.py")
     apply_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(apply_mod)
 
     camp = _campaign_with_on_enter(tmp_path)
-    # s1's only clue c1 is already discovered → scene should advance to s2
-    plan = {"decision_id": "t1", "scene_action": "REVEAL", "clue_policy": {},
+    # Clue exhaustion makes s1 leaveable; CUT supplies the separate travel
+    # authority required by the tool-centric scene contract.
+    plan = {"decision_id": "t1", "scene_action": "CUT", "clue_policy": {},
             "rules_requests": [], "pressure_moves": []}
     events = apply_mod.apply_plan(camp, plan, "inv1")
 

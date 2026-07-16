@@ -29,6 +29,15 @@ UnknownSessionError = _session.UnknownSessionError
 TelemetryPersistenceError = _session.TelemetryPersistenceError
 
 
+def setup_workspace(
+    workspace: Path | str,
+    operation: dict[str, Any],
+) -> dict[str, Any]:
+    """Inspect or mutate canonical COC onboarding state before a session."""
+    root = _load_paths_module().workspace_root(workspace)
+    return _session.setup_workspace_operation(root, operation)
+
+
 def create_session(
     workspace: Path | str,
     *,
@@ -55,11 +64,8 @@ def send(
     *,
     player_intent: dict[str, Any] | None = None,
     rng_seed: int | str | None = None,
-    subsystem_request: dict[str, Any] | None = None,
-    pending_choice_response: dict[str, Any] | None = None,
-    durability_mode: str = "normal",
 ) -> list[dict[str, Any]]:
-    """Run one player turn or an exact typed subsystem continuation.
+    """Run one full keeper-agent turn for this player input.
 
     Raises:
         UnknownSessionError: with stable ``kind == "unknown_session"`` when
@@ -68,10 +74,36 @@ def send(
     _load_paths_module().validate_id(session_id, "session_id")
     return _session.send(
         session_id, player_input, player_intent=player_intent,
-        rng_seed=rng_seed, subsystem_request=subsystem_request,
-        pending_choice_response=pending_choice_response,
-        durability_mode=durability_mode,
+        rng_seed=rng_seed,
     )
+
+
+def interact(
+    session_id: str,
+    player_input: str,
+    *,
+    semantic_route: dict[str, Any] | None = None,
+    rng_seed: int | str | None = None,
+) -> dict[str, Any]:
+    """Natural-language entry with semantic turn/operation dispatch."""
+    _load_paths_module().validate_id(session_id, "session_id")
+    return _session.interact(
+        session_id,
+        player_input,
+        semantic_route=semantic_route,
+        rng_seed=rng_seed,
+    )
+
+
+def operate(
+    session_id: str,
+    operation: dict[str, Any],
+    *,
+    rng_seed: int | str | None = None,
+) -> dict[str, Any]:
+    """Run a canonical typed non-turn operation through the shared plugin core."""
+    _load_paths_module().validate_id(session_id, "session_id")
+    return _session.operate(session_id, operation, rng_seed=rng_seed)
 
 
 def get_state(session_id: str) -> dict[str, Any]:

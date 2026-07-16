@@ -244,7 +244,7 @@ def test_unanchored_generic_storylet_is_not_selected():
     assert moves == []
 
 
-def test_scene_pressure_requirement_anchors_storylet_to_current_scene():
+def test_scene_pressure_requirement_needs_authored_scene_capability_anchor():
     library = {"storylets": [{
         "storylet_id": "scene-pressure",
         "family_id": "local_pressure",
@@ -254,18 +254,28 @@ def test_scene_pressure_requirement_anchors_storylet_to_current_scene():
         "scene_actions": ["DEEPEN"],
         "eligible_scene_types": ["investigation"],
         "horror_stage": ["wrongness"],
-        "requires": {"scene_pressure": True},
-        "serves": {"mainline": True, "can_surface_choice": True},
-        "cue": "当前场景的压力从既有危险里冒出来。",
-    }]}
+            "requires": {"scene_pressure": True},
+            "serves": {"mainline": True, "can_surface_choice": True},
+            "context_requirements": {
+                "scene_capabilities_any": ["local_pressure_manifestation"],
+            },
+            "cue": "当前场景的压力从既有危险里冒出来。",
+        }]}
     ctx = _ctx("low")
     ctx["active_scene"]["pressure_moves"] = ["档案室门外有人突然停步。"]
 
-    moves = storylets.select_storylet_moves(
+    assert storylets.select_storylet_moves(
         _plan("DEEPEN"),
         ctx,
         library=library,
         seed="scene-pressure",
+    ) == []
+
+    ctx["active_scene"]["storylet_capabilities"] = [
+        "local_pressure_manifestation"
+    ]
+    moves = storylets.select_storylet_moves(
+        _plan("DEEPEN"), ctx, library=library, seed="scene-pressure"
     )
 
     assert moves[0]["storylet_id"] == "scene-pressure"
@@ -1156,4 +1166,224 @@ def test_shipped_low_object_misfiled_declares_location_gate():
     assert "low-object-misfiled" in by_id
     req = by_id["low-object-misfiled"].get("context_requirements") or {}
     tags = set(req.get("location_tags_any") or [])
-    assert tags & {"archive", "records-office", "library", "office"}
+    assert tags & {"archive", "records-office", "library"}
+    assert "office" not in tags
+
+
+def test_shipped_low_object_misfiled_does_not_match_generic_social_office():
+    library = storylets.load_storylet_library()
+    by_id = {s["storylet_id"]: s for s in library["storylets"]}
+    plan = {"scene_action": "REVEAL"}
+    ctx = _ctx_for_location(
+        location_tags=["briefing", "office", "social-hub"],
+        scene_type="social",
+    )
+
+    assert storylets._matches_context(
+        by_id["low-object-misfiled"], plan, ctx, "low"
+    ) is False
+
+
+def test_newspaper_scene_rejects_pressure_only_prop_storylets_without_capability():
+    library = storylets.load_storylet_library()
+    by_id = {s["storylet_id"]: s for s in library["storylets"]}
+    ctx = {
+        **_ctx("medium"),
+        "active_scene": {
+            "scene_id": "newspaper-morgue",
+            "scene_type": "investigation",
+            "location_tags": [
+                "newspaper", "archive", "records-office", "library", "office",
+            ],
+            "npc_ids": ["npc-arty", "npc-ruth"],
+            "pressure_moves": ["editor denies access"],
+            "storylet_tags": ["research"],
+            "affordances": [{"id": "search-clippings"}],
+        },
+        "storylet_trigger": {
+            "triggered": True,
+            "reason": "fumble",
+            "polarity": "negative",
+            "conflict_level": "medium",
+        },
+        "story_need": {
+            "need_id": "complication",
+            "story_functions": ["complication"],
+            "candidate_decks": ["complication", "failure_consequence", "pressure"],
+        },
+    }
+    plan = _plan("PRESSURE")
+
+    assert storylets._matches_context(
+        by_id["low-two-true-times"], plan, ctx, "medium"
+    ) is False
+    assert storylets._matches_context(
+        by_id["low-schedule-pressure"], plan, ctx, "medium"
+    ) is False
+
+    for seed in range(20):
+        moves = storylets.select_storylet_moves(plan, ctx, seed=seed)
+        assert all(
+            move["storylet_id"] not in {"low-two-true-times", "low-schedule-pressure"}
+            for move in moves
+        )
+        assert all(
+            move["grounding_contract"]["allow_new_actionable_fact"] is False
+            for move in moves
+        )
+
+
+def test_pressure_storylet_requires_explicit_scene_capability_for_prop_phenomenon():
+    storylet = {
+        "storylet_id": "authored-clock-echo",
+        "family_id": "clock-echo",
+        "trope_id": "clock-echo",
+        "conflict_level": "low",
+        "scene_actions": ["PRESSURE"],
+        "eligible_scene_types": ["investigation"],
+        "horror_stage": ["wrongness"],
+        "requires": {"scene_pressure": True},
+        "serves": {"mainline": True},
+        "story_functions": ["scene_pressure"],
+        "deck_tags": ["scene_pressure", "pressure"],
+        "context_requirements": {
+            "location_tags_any": ["archive"],
+            "scene_capabilities_any": ["clock_anomaly"],
+        },
+    }
+    plan = _plan("PRESSURE")
+    ctx = _ctx("low")
+    ctx["active_scene"].update({
+        "location_tags": ["archive"],
+        "pressure_moves": ["deadline approaches"],
+    })
+
+    assert storylets._matches_context(storylet, plan, ctx, "low") is False
+    ctx["active_scene"]["storylet_capabilities"] = ["clock_anomaly"]
+    assert storylets._matches_context(storylet, plan, ctx, "low") is True
+
+
+def test_forced_newspaper_fallback_surfaces_only_authored_route():
+    unsafe_generic = {
+        "storylet_id": "generic-pressure-object",
+        "family_id": "generic-pressure",
+        "trope_id": "generic-pressure",
+        "conflict_level": "low",
+        "scene_actions": ["DEEPEN"],
+        "eligible_scene_types": ["investigation"],
+        "horror_stage": ["wrongness"],
+        "requires": {"scene_pressure": True},
+        "serves": {"mainline": True},
+        "story_functions": ["choice_pressure"],
+        "deck_tags": ["choice_pressure", "choice"],
+        "cue": "UNSUPPORTED_LIBRARY_OBJECT",
+        "variants": {"detail": ["UNSUPPORTED_VARIANT_OBJECT"]},
+    }
+    authored_cue = "Search the indexed Corbitt House clippings."
+    plan = _plan("DEEPEN")
+    plan["choice_frame"] = {
+        "open_route_ids": ["search-clippings"],
+        "routes": [{"route_id": "search-clippings", "cue": authored_cue}],
+    }
+    ctx = _ctx("low")
+    ctx["active_scene"].update({
+        "scene_id": "newspaper-morgue",
+        "location_tags": ["archive", "records-office", "library", "office"],
+        "pressure_moves": ["deadline"],
+        "npc_ids": [],
+        "available_clues": [],
+    })
+    ctx["storylet_policy"] = {
+        "conflict_level": "low", "force_storylet": True, "seed": "safe-fallback",
+    }
+
+    moves = storylets.select_storylet_moves(
+        plan, ctx, library={"storylets": [unsafe_generic]}, seed="safe-fallback"
+    )
+
+    assert len(moves) == 1
+    move = moves[0]
+    assert move["storylet_id"] == "route-grounded-fallback"
+    assert move["presentation_mode"] == "existing_route_only"
+    assert move["cue"] == authored_cue
+    assert move["rolled_variants"] == {}
+    assert move["bound_entities"]["route_id"] == "search-clippings"
+    assert move["grounding_contract"]["authorized_route_ids"] == ["search-clippings"]
+    assert move["grounding_contract"]["allow_new_actionable_fact"] is False
+
+
+def test_generic_commission_storylet_cannot_turn_bound_ids_into_fact_authority():
+    library = storylets.load_storylet_library()
+    generic = next(
+        item for item in library["storylets"]
+        if item.get("storylet_id") == "low-alive-and-absent-record"
+    )
+    route_cue = "追问这栋宅子的旧账可以从哪些公开记录或知情人查起。"
+    plan = _plan("REVEAL")
+    plan["clue_policy"] = {"reveal": ["clue-knott-keys"], "leads": []}
+    plan["choice_frame"] = {
+        "open_route_ids": ["ask-research-options"],
+        "routes": [{"route_id": "ask-research-options", "cue": route_cue}],
+    }
+    ctx = _ctx("low")
+    ctx["active_scene"].update({
+        "scene_id": "commission-briefing",
+        "location_tags": ["office"],
+        "available_clues": ["clue-knott-keys"],
+    })
+    ctx["storylet_policy"].update({"force_storylet": True})
+
+    move = storylets.select_storylet_moves(
+        plan, ctx, library={"storylets": [generic]}, seed="rev7"
+    )[0]
+
+    assert move["bound_entities"]["clue_id"] == "clue-knott-keys"
+    assert move["bound_entities"]["route_id"] == "ask-research-options"
+    assert move["presentation_mode"] == "existing_route_only"
+    assert move["cue"] == route_cue
+    assert move["beat"] is None
+    assert move["rolled_variants"] == {}
+    assert move["grounding_contract"]["allow_new_actionable_fact"] is False
+
+
+def test_source_authored_storylet_with_exact_receipt_still_renders():
+    cue = "档案管理员把场景原始登记簿推到你面前。"
+    beat = "这份登记簿是模组编译时明确写入的公开事实。"
+    source_storylet = {
+        "storylet_id": "scenario-authored-ledger",
+        "family_id": "scenario-authored",
+        "trope_id": "source-fact",
+        "conflict_level": "low",
+        "base_weight": 10,
+        "scene_actions": ["REVEAL"],
+        "eligible_scene_types": ["investigation"],
+        "horror_stage": ["wrongness"],
+        "requires": {"unrevealed_clue": True},
+        "serves": {"mainline": True, "can_reveal_clue": True},
+        "story_functions": ["clue_delivery"],
+        "deck_tags": ["clue_delivery", "investigation"],
+        "cue": cue,
+        "beat": beat,
+        "fact_authorization": {
+            "status": "authorized",
+            "method": "scenario_authored_compiled_text",
+            "storylet_id": "scenario-authored-ledger",
+            "scene_id": "archive",
+            "source_refs": ["scenario:/scenes/archive/authored_storylets/0"],
+            "authorized_text": {"cue": cue, "beat": beat},
+            "receipt_id": "compile-receipt-1",
+        },
+    }
+
+    move = storylets.select_storylet_moves(
+        _plan("REVEAL"),
+        _ctx("low"),
+        library={"storylets": [source_storylet]},
+        seed="source-auth",
+    )[0]
+
+    assert move["presentation_mode"] == "source_backed_fact"
+    assert move["cue"] == cue
+    assert move["beat"] == beat
+    assert move["grounding_contract"]["allow_new_actionable_fact"] is True
+    assert move["grounding_contract"]["fact_authorization"]["status"] == "authorized"

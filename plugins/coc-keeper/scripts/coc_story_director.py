@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,8 @@ coc_scenario_compile = _load_sibling("coc_scenario_compile", "coc_scenario_compi
 coc_director_strategies = _load_sibling("coc_director_strategies", "coc_director_strategies.py")
 coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_policy.py")
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
+coc_rules = _load_sibling("coc_story_director_rules", "coc_rules.py")
+coc_keeper_planner = _load_sibling("coc_keeper_planner", "coc_keeper_planner.py")
 
 coc_time = None
 try:
@@ -121,6 +124,76 @@ def _roll_contract(
         },
         "roll_density_group": roll_density_group,
         "must_not": list(must_not or ["do not narrate no progress on ordinary failure"]),
+    }
+
+
+def _generated_clue_fumble_consequence(
+    clue_policy: dict[str, Any], clue_id: str
+) -> dict[str, Any]:
+    """Return a bounded, source-owned cost for a generated clue-gate fumble."""
+    route_ids = [
+        str(route_id).strip()
+        for route_id in (clue_policy.get("matched_route_ids") or [])
+        if isinstance(route_id, str) and route_id.strip()
+    ]
+    source_binding: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "generated_obscured_clue_gate",
+        "clue_id": str(clue_id),
+        "route_ids": list(dict.fromkeys(route_ids)),
+    }
+    if len(source_binding["route_ids"]) == 1:
+        route_id = source_binding["route_ids"][0]
+        effect = {"kind": "route_closed", "route_id": route_id}
+        summary = (
+            "The fumble exhausts this investigative method and closes the "
+            "current route before the clue is secured."
+        )
+        localized = "大失败耗尽了这种调查手段；取得线索前，当前路线已经关闭。"
+    else:
+        effect = {"kind": "fictional_position", "severity": "serious"}
+        summary = (
+            "The fumble immediately creates a serious adverse fictional "
+            "position and exhausts this investigative method."
+        )
+        localized = "大失败立刻造成严重不利局面，而且这种调查手段已经耗尽。"
+    return {
+        "summary": summary,
+        "localized_summaries": {"zh-Hans": localized},
+        "effect": effect,
+        "source_binding": source_binding,
+    }
+
+
+def _generated_clue_push_consequence(
+    clue_policy: dict[str, Any], clue_id: str
+) -> dict[str, Any]:
+    """Seal the bounded Push risk beside the original generated clue roll."""
+    fumble = _generated_clue_fumble_consequence(clue_policy, clue_id)
+    effect = json.loads(json.dumps(fumble["effect"]))
+    if effect.get("kind") == "route_closed":
+        return {
+            "summary": (
+                "Another failed pushed attempt exhausts this method and closes "
+                "the current investigative route before the clue is secured."
+            ),
+            "localized_summaries": {
+                "zh-Hans": (
+                    "若孤注一掷后仍然失败，这种查法将彻底失去机会；"
+                    "当前调查路线会在取得线索前关闭。"
+                ),
+            },
+            "effect": effect,
+        }
+    return {
+        "summary": (
+            "Another failed pushed attempt leaves a serious adverse fictional "
+            "position and exhausts this method."
+        ),
+        "localized_summaries": {
+            "zh-Hans": "若孤注一掷后仍然失败，局面会严重恶化，而且这种做法将无法再试。",
+        },
+        "effect": effect,
     }
 
 
@@ -607,6 +680,39 @@ def build_director_context(
     current_hp = inv_state.get("current_hp", char_derived.get("HP", 10))
     max_hp = char_derived.get("HP", 10)
     current_san = inv_state.get("current_san", char_derived.get("SAN", 50))
+    damage_profile = coc_rules.damage_bonus_build(
+        int(char_chars.get("STR", 50)), int(char_chars.get("SIZ", 50))
+    )
+    authored_weapons = [
+        deepcopy(weapon)
+        for weapon in character.get("weapons", []) or []
+        if isinstance(weapon, dict)
+        and isinstance(weapon.get("weapon_id"), str)
+        and weapon["weapon_id"].strip()
+    ]
+    if not any(weapon.get("weapon_id") == "unarmed" for weapon in authored_weapons):
+        authored_weapons.append({"weapon_id": "unarmed"})
+    investigator_combat_profile = {
+        "actor_id": investigator_id,
+        "side": "investigator",
+        "dex": int(char_chars.get("DEX", 50)),
+        "combat_skill": int(char_skills.get("Fighting (Brawl)", 25)),
+        "dodge_skill": int(char_skills.get("Dodge", max(1, int(char_chars.get("DEX", 50)) // 2))),
+        "firearms_skill": int(char_skills.get("Firearms (Handgun)", 0)),
+        "has_ready_firearm": False,
+        "build": int(damage_profile["build"]),
+        "damage_bonus": str(damage_profile["damage_bonus"]),
+        "hp_max": int(max_hp),
+        "hp_current": int(current_hp),
+        "con": int(char_chars.get("CON", 50)),
+        "magic_points": int(inv_state.get("current_mp", char_derived.get("MP", 0))),
+        "armor": 0,
+        "armor_rule": None,
+        # Weapon identity is authored structure.  Legacy display names are not
+        # guessed here; semantic intent may select only stable owned IDs.
+        "weapons": authored_weapons,
+        "conditions": list(conditions),
+    }
     # Max SAN = 99 - Cthulhu Mythos (p.167 F9); see coc_mythos.max_san_for.
     cthulhu_mythos = int(char_skills.get("Cthulhu Mythos", 0))
     max_san = coc_mythos.max_san_for(cthulhu_mythos)
@@ -739,6 +845,7 @@ def build_director_context(
         # translation on the actual Language skill value without re-reading
         # the character sheet. Slim dict only; the full sheet stays private.
         "investigator_skills": char_skills,
+        "investigator_combat_profile": investigator_combat_profile,
         # W1-2: structured personal-horror hooks (p.193-194). CHARACTER beats
         # weave unwoven hooks; PAYOFF echoes woven ones.
         "personal_horror_hooks": list(inv_state.get("personal_horror_hooks") or []),
@@ -985,20 +1092,92 @@ def _move_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
     locked destination gated solely by ``flag_set``, emit CUT plus
     ``flags_set`` so apply can commit the departure flag, unlock, then travel.
     """
-    if str(ctx.get("player_intent_class") or "") != "move":
-        return None
     scene = ctx.get("active_scene") or {}
     story_graph = ctx.get("story_graph")
     world = ctx.get("world_state") or {}
     rich = ctx.get("player_intent_rich") or {}
-    target_entities = rich.get("target_entities") if isinstance(rich, dict) else None
-    targets = target_entities if isinstance(target_entities, list) else None
+    resolution = rich.get("action_resolution") if isinstance(rich, dict) else None
+    resolved_destination = (
+        str(resolution.get("matched_destination_scene_id") or "").strip()
+        if isinstance(resolution, dict)
+        else ""
+    )
+    # Keep planning consistent with the action-resolver projection when an
+    # authored clue/flag gate is already satisfied but the durable unlock list
+    # has not yet been refreshed (for example, a newly hydrated scene added to
+    # a live campaign). This is a read-only structured projection; apply still
+    # owns persistence and emits the authoritative scene_unlocked event.
+    planning_world = deepcopy(world)
+    direct_entry_authority: dict[str, Any] | None = None
+    if resolved_destination:
+        flags_doc = ctx.get("flags") if isinstance(ctx.get("flags"), dict) else {}
+        raw_flags = flags_doc.get("flags") if isinstance(flags_doc.get("flags"), dict) else {}
+        planning_unlocks = coc_scene_graph.evaluate_unlocks(
+            story_graph,
+            planning_world,
+            discovered_clue_ids={
+                str(value) for value in (planning_world.get("discovered_clue_ids") or [])
+                if value
+            },
+            flags_set={str(key) for key, value in raw_flags.items() if value},
+        )
+        coc_scene_graph.apply_unlocks_to_world(planning_world, planning_unlocks)
+        raw_authority = resolution.get("destination_entry_authority")
+        target_scene = next(
+            (
+                item for item in (story_graph or {}).get("scenes", [])
+                if isinstance(item, dict)
+                and str(item.get("scene_id") or "") == resolved_destination
+            ),
+            None,
+        )
+        canonical_authority = coc_scene_graph.public_direct_entry_authority(
+            target_scene
+        )
+        if (
+            isinstance(raw_authority, dict)
+            and canonical_authority is not None
+            and raw_authority == canonical_authority
+        ):
+            direct_entry_authority = canonical_authority
+            unlocked = list(planning_world.get("unlocked_scene_ids") or [])
+            if resolved_destination not in {str(value) for value in unlocked}:
+                unlocked.append(resolved_destination)
+                planning_world["unlocked_scene_ids"] = unlocked
     candidates = coc_scene_graph.transition_candidates(
         ctx.get("active_scene_id") or scene.get("scene_id"),
         story_graph,
-        world,
+        planning_world,
     )
+    if str(ctx.get("player_intent_class") or "") != "move":
+        return None
+    target_entities = rich.get("target_entities") if isinstance(rich, dict) else None
+    targets = target_entities if isinstance(target_entities, list) else None
+    # Once the KP semantic resolver has evaluated the bounded destination
+    # candidates, a null destination is authoritative.  Falling through to
+    # the legacy ranker would turn an unavailable requested destination into
+    # whichever unrelated unlocked scene happens to sort first (for example,
+    # asking to visit the still-locked newspaper archive teleported play to
+    # the already-unlocked Corbitt House).  Hosts without action_resolution
+    # keep the structured target-tag compatibility path below.
+    if isinstance(resolution, dict) and not resolved_destination:
+        return None
     if candidates:
+        if resolved_destination and resolved_destination in candidates:
+            override = {
+                "scene_action": "CUT",
+                "handoff": "narration",
+                "rationale": "KP semantic action resolution selected an unlocked destination",
+                "transition_to": resolved_destination,
+                "matched_target": resolved_destination,
+            }
+            if direct_entry_authority is not None:
+                override["destination_entry_authority"] = direct_entry_authority
+                override["rationale"] = (
+                    "KP semantic action resolution selected an exact public "
+                    "independent-entry destination"
+                )
+            return override
         chosen, matched = coc_scene_graph.rank_move_targets(
             candidates, story_graph, targets
         )
@@ -1014,6 +1193,41 @@ def _move_transition_override(ctx: dict[str, Any]) -> dict[str, Any] | None:
                 "structured move intent matched unlocked scene via location_tags; commit transition"
             )
         return result
+
+    # A single player action may both take a current public affordance and
+    # depart through the clue gate it satisfies (for example accepting keys
+    # and immediately heading to the house).  The semantic resolver can name
+    # that exact destination, but only authored clue IDs on the matched
+    # affordance authorize the same-turn unlock.  Apply commits clues, runs the
+    # unlock pass, and only then validates/commits the requested transition.
+    if resolved_destination and isinstance(resolution, dict):
+        matched_ids = {
+            str(item) for item in (resolution.get("matched_affordance_ids") or []) if item
+        }
+        granted: set[str] = set()
+        for affordance in scene.get("affordances") or []:
+            if not isinstance(affordance, dict):
+                continue
+            affordance_id = str(
+                affordance.get("id") or affordance.get("route_id") or affordance.get("route") or ""
+            )
+            if affordance_id not in matched_ids:
+                continue
+            for clue_id in [affordance.get("clue_id"), *(affordance.get("grants_clue_ids") or [])]:
+                if clue_id:
+                    granted.add(str(clue_id))
+        for edge in scene.get("scene_edges") or []:
+            if not isinstance(edge, dict) or str(edge.get("to") or "") != resolved_destination:
+                continue
+            when = edge.get("when") if isinstance(edge.get("when"), dict) else {}
+            if when.get("kind") == "clue_discovered" and str(when.get("clue_id") or "") in granted:
+                return {
+                    "scene_action": "CUT",
+                    "handoff": "narration",
+                    "rationale": "matched public affordance grants the destination clue before same-turn travel",
+                    "transition_to": resolved_destination,
+                    "matched_target": resolved_destination,
+                }
 
     gated = coc_scene_graph.resolve_move_flag_commits(
         ctx.get("active_scene_id") or scene.get("scene_id"),
@@ -1425,10 +1639,11 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         return 0.7 if len(avail) >= 2 else 0.0
 
     if action == "CUT":
-        # dramatic question answered OR exit condition met — but only when
-        # at least one unlocked, non-exhausted edge target exists (R-3).
-        # Structured move intent strongly favors transition when a legal
-        # target is already unlocked (acceptance: never prose-scan).
+        # CUT needs structured movement authority. A satisfied exit condition
+        # makes destinations available; it does not itself select one. Explicit
+        # move intent remains compatible for hosts without the semantic action
+        # resolver, while a resolver receipt with a null destination is
+        # authoritative and therefore cannot fall through to candidates[0].
         candidates = coc_scene_graph.transition_candidates(
             ctx.get("active_scene_id") or scene.get("scene_id"),
             ctx.get("story_graph"),
@@ -1437,7 +1652,20 @@ def _base_score(action: str, ctx: dict[str, Any]) -> float:
         if not candidates:
             return 0.0
         if intent == "move":
+            rich = ctx.get("player_intent_rich")
+            resolution = (
+                rich.get("action_resolution")
+                if isinstance(rich, dict)
+                and isinstance(rich.get("action_resolution"), dict)
+                else None
+            )
+            if isinstance(resolution, dict) and not str(
+                resolution.get("matched_destination_scene_id") or ""
+            ).strip():
+                return 0.0
             return 1.0
+        if not _is_low_agency_continue(ctx):
+            return 0.0
         exit_met = any(_eval_exit(e, ctx) for e in scene.get("exit_conditions", []))
         if exit_met:
             return 0.8
@@ -1504,6 +1732,57 @@ def _eval_exit(condition: Any, ctx: dict[str, Any]) -> bool:
     )
 
 
+def _authoritative_route_clue_ids(ctx: dict[str, Any]) -> list[str]:
+    """Return undiscovered clues explicitly granted by resolver-matched routes.
+
+    This is an exact structured binding: the semantic resolver may select only
+    a currently projected authored route, and the route itself must name the
+    clue.  Free-text clue affinity is deliberately not consulted here.
+    """
+    scene = ctx.get("active_scene") if isinstance(ctx.get("active_scene"), dict) else {}
+    rich = (
+        ctx.get("player_intent_rich")
+        if isinstance(ctx.get("player_intent_rich"), dict)
+        else {}
+    )
+    resolution = (
+        rich.get("action_resolution")
+        if isinstance(rich.get("action_resolution"), dict)
+        else {}
+    )
+    if not resolution or resolution.get("no_match") is True:
+        return []
+    matched_route_ids = {
+        str(value).strip()
+        for value in (resolution.get("matched_affordance_ids") or [])
+        if str(value or "").strip()
+    }
+    if not matched_route_ids:
+        return []
+    discovered = {
+        str(value) for value in (ctx.get("world_state") or {}).get("discovered_clue_ids", [])
+        if value
+    }
+    clue_graph = ctx.get("clue_graph") if isinstance(ctx.get("clue_graph"), dict) else {}
+    resolved: list[str] = []
+    for route in scene.get("affordances") or []:
+        if not isinstance(route, dict):
+            continue
+        route_id = str(route.get("id") or route.get("route_id") or route.get("route") or "")
+        if route_id not in matched_route_ids:
+            continue
+        for raw_clue_id in [route.get("clue_id"), *(route.get("grants_clue_ids") or [])]:
+            clue_id = str(raw_clue_id or "").strip()
+            if (
+                clue_id
+                and clue_id not in discovered
+                and clue_id not in resolved
+                and _find_clue(clue_id, clue_graph) is not None
+            ):
+                resolved.append(clue_id)
+    return resolved
+
+
 def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
     """Layer 3: hard overrides. Returns a forced action dict or None.
 
@@ -1534,6 +1813,64 @@ def apply_rule_signal_overrides(ctx: dict[str, Any]) -> dict[str, Any] | None:
     move_override = _move_transition_override(ctx)
     if move_override is not None:
         return move_override
+    keeper_proposal = coc_keeper_planner.proposal_from_context(ctx)
+    if (
+        isinstance(keeper_proposal, dict)
+        and keeper_proposal.get("source") == "model"
+        and keeper_proposal.get("scene_action") in ACTIONS
+    ):
+        # The private Keeper, not a Python score table, owns discretionary
+        # scene direction. Mechanical emergencies and exact movement authority
+        # above remain hard invariants. All other fixed scoring stays available
+        # only as an explicit degraded-mode fallback.
+        return {
+            "scene_action": keeper_proposal["scene_action"],
+            "handoff": (
+                "rules"
+                if keeper_proposal["scene_action"] == "SUBSYSTEM"
+                or (keeper_proposal.get("rule_ruling") or {}).get("decision")
+                == "roll"
+                else "narration"
+            ),
+            "rationale": "validated private KeeperProposal",
+            "keeper_proposal_authority": "llm_keeper_discretion",
+        }
+    route_clue_ids = _authoritative_route_clue_ids(ctx)
+    if route_clue_ids:
+        return {
+            "scene_action": "REVEAL",
+            "handoff": "narration",
+            "rationale": (
+                "resolver matched an authored route with explicit undiscovered "
+                "clue grants; settle that route before generic scene scoring"
+            ),
+            "route_clue_ids": route_clue_ids,
+        }
+    rich = (
+        ctx.get("player_intent_rich")
+        if isinstance(ctx.get("player_intent_rich"), dict)
+        else {}
+    )
+    resolution = (
+        rich.get("action_resolution")
+        if isinstance(rich.get("action_resolution"), dict)
+        else {}
+    )
+    scene = ctx.get("active_scene") if isinstance(ctx.get("active_scene"), dict) else {}
+    has_open_authored_route = any(
+        isinstance(item, dict)
+        and str(item.get("status") or "open") in {"open", "resume"}
+        for item in (scene.get("affordances") or [])
+    )
+    if resolution and resolution.get("no_match") is True and has_open_authored_route:
+        return {
+            "scene_action": "CHOICE",
+            "handoff": "narration",
+            "rationale": (
+                "KP semantic resolver found no current authored route; surface "
+                "the public choices without inventing a clue or rolling"
+            ),
+        }
     if sig.get("low_agency_continue_count", 0) >= 2 and sig.get("scene_pressure_available", False):
         return {"scene_action": "PRESSURE", "handoff": "narration",
                 "rationale": "repeated low-agency continuation yields initiative to authored scene pressure"}
@@ -1926,17 +2263,75 @@ def _structured_intent_time_category(ctx: dict[str, Any]) -> str | None:
     return None
 
 
+def _matched_route_time_profile(ctx: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Return one unambiguous authored time profile from resolved route IDs.
+
+    Route IDs are structured semantic-resolver output.  This lets an authored
+    half-day research action own its exact elapsed-time cost without making all
+    actions in the surrounding library scene (including travel) cost half a
+    day.  Multiple matched routes must agree on the exact profile or the
+    override fails closed.
+    """
+    scene = ctx.get("active_scene")
+    rich = ctx.get("player_intent_rich")
+    resolution = rich.get("action_resolution") if isinstance(rich, dict) else None
+    if not isinstance(scene, dict) or not isinstance(resolution, dict):
+        return None, None
+    matched_ids = {
+        str(value).strip()
+        for value in (resolution.get("matched_affordance_ids") or [])
+        if str(value or "").strip()
+    }
+    if not matched_ids:
+        return None, None
+    profiles: list[dict[str, Any]] = []
+    for affordance in scene.get("affordances") or []:
+        if not isinstance(affordance, dict):
+            continue
+        route_id = str(
+            affordance.get("id") or affordance.get("route_id") or ""
+        ).strip()
+        if route_id not in matched_ids:
+            continue
+        if isinstance(affordance.get("authored_operation"), dict):
+            profiles.append({"mode": "none"})
+            continue
+        if "time_profile" not in affordance:
+            continue
+        normalized, reason = _validate_time_profile(affordance.get("time_profile"))
+        if normalized is None:
+            return None, reason
+        profiles.append(normalized)
+    if not profiles:
+        return None, None
+    first = profiles[0]
+    if any(profile != first for profile in profiles[1:]):
+        return None, "matched_route_time_profiles_conflict"
+    return first, None
+
+
 def _time_profile_for_action(action: str, ctx: dict[str, Any]) -> dict[str, Any]:
     """Select an action's structured time profile in author-first priority.
 
-    Priority is an authored active-scene ``time_profile``, then an exact
-    category enum from structured intent metadata, then the action default.
-    Scene tags and player prose are never interpreted as intent.
+    Priority is an authored matched-route ``time_profile``, an authored
+    active-scene ``time_profile``, then an exact category enum from structured
+    intent metadata, then the action default. Scene tags and player prose are
+    never interpreted as intent.
     """
     fallback = dict(_ACTION_TIME_PROFILES.get(action, {"mode": "none"}))
     scene = ctx.get("active_scene")
     if not isinstance(scene, dict):
         scene = {}
+
+    route_authored, route_reason = _matched_route_time_profile(ctx)
+    if route_authored is not None:
+        return _complete_time_profile(route_authored, fallback=fallback)
+    if route_reason is not None:
+        _record_time_profile_warning(
+            ctx,
+            source="matched_route",
+            reason_code=route_reason,
+        )
 
     authored, reason_code = _validate_time_profile(scene.get("time_profile"))
     if authored is not None:
@@ -2101,13 +2496,41 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
         ctx.get("player_intent_rich"), clue_graph, available
     )
     hit_by_clue = {hit["clue_id"]: hit for hit in affordance_hits}
-
+    rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
+    resolution = rich.get("action_resolution") if isinstance(rich.get("action_resolution"), dict) else {}
+    matched_affordance_ids = {
+        str(item) for item in (resolution.get("matched_affordance_ids") or []) if item
+    }
+    # Once the shared KP resolver is in the loop, authored public routes are a
+    # closed set.  A miss (including a fail-closed unresolved receipt) must not
+    # fall back to the scene's highest-priority clue: that would narrate and
+    # roll for knowledge the player did not actually pursue, while the apply
+    # layer may correctly refuse to persist it.  Hosts that supply reviewed
+    # structured intent without an action_resolution keep the legacy semantic
+    # affordance path for compatibility.
+    has_authored_affordances = any(
+        isinstance(item, dict)
+        and str(item.get("status") or "open") in {"open", "resume"}
+        for item in (scene.get("affordances") or [])
+    )
+    resolution_is_authoritative = bool(resolution) and has_authored_affordances
+    # Exact authored route grants outrank conclusion-sufficiency pruning.  A
+    # conclusion may already have enough evidence while a concrete handoff
+    # item is still unknown and required by a later structured gate.
+    resolved_clue_ids = _authoritative_route_clue_ids(ctx)
     def _rank_score(cid: str) -> float:
         boost = _AFFORDANCE_SCORE_WEIGHT * (hit_by_clue.get(cid) or {}).get("score", 0)
         return _clue_route_priority(cid, clue_graph) + boost
 
-    # REVEAL: rank eligible clues by route_priority + affordance boost, take the top one.
-    if action == "REVEAL" and available:
+    # REVEAL: an authoritative public route may reveal only its explicitly
+    # authored clue_id/grants_clue_ids.  Scene-wide clue-affordance similarity
+    # is not a route binding: shared skills such as Spot Hidden can match an
+    # unrelated clue and prematurely unlock another scene.  Unbound authored
+    # routes therefore fail closed.  Hosts without an authoritative route keep
+    # the legacy structured clue-affordance ranking below.
+    if resolved_clue_ids:
+        reveal = resolved_clue_ids
+    elif action == "REVEAL" and available and not resolution_is_authoritative:
         ranked = sorted(available, key=_rank_score, reverse=True)
         reveal = [ranked[0]]
     else:
@@ -2173,27 +2596,114 @@ def _select_clue_policy(ctx: dict[str, Any], action: str) -> dict[str, Any]:
     # discovery feel earned (structured entities/verbs/skills only, no prose).
     if selected_clue_id and selected_clue_id in hit_by_clue:
         policy["matched_affordance"] = hit_by_clue[selected_clue_id]
-    # Optional non-gating bonus block (dice texture). Shape is validated lightly
-    # here; full schema validation belongs to the scenario compiler owner.
+    if matched_affordance_ids:
+        policy["matched_route_ids"] = sorted(matched_affordance_ids)
+    # Optional non-gating bonus block. Runtime repeats the compiler's
+    # provenance/fumble-safety gate because hydrated or legacy scenario data
+    # may reach play without a fresh compile.
     bonus_source_id = selected_clue_id
     if not bonus_source_id and action == "RECOVER" and fallback:
         bonus_source_id = fallback[0]
     if bonus_source_id:
         bonus_clue = _find_clue(bonus_source_id, clue_graph)
         bonus = (bonus_clue or {}).get("bonus") if isinstance(bonus_clue, dict) else None
-        if isinstance(bonus, dict) and bonus.get("skill"):
-            policy["bonus"] = {
-                "skill": str(bonus.get("skill")),
-                "difficulty": str(bonus.get("difficulty") or "regular"),
-                "extra_summary": str(bonus.get("extra_summary") or ""),
-                "on_fail_cost": str(bonus.get("on_fail_cost") or "time"),
-            }
+        projected_bonus = _project_clue_bonus_contract(bonus)
+        if projected_bonus is not None:
+            policy["bonus"] = projected_bonus
     return policy
+
+
+def _typed_fumble_effect(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    kind = value.get("kind")
+    if kind == "fictional_position":
+        return set(value) in ({"kind"}, {"kind", "severity"}) and (
+            "severity" not in value
+            or value.get("severity") in {"minor", "serious", "critical"}
+        )
+    if kind == "pressure_tick":
+        return (
+            set(value) == {"kind", "clock_id", "ticks"}
+            and isinstance(value.get("clock_id"), str)
+            and bool(value["clock_id"].strip())
+            and isinstance(value.get("ticks"), int)
+            and not isinstance(value.get("ticks"), bool)
+            and 1 <= value["ticks"] <= 4
+        )
+    if kind == "condition":
+        return (
+            set(value) == {"kind", "condition_id"}
+            and isinstance(value.get("condition_id"), str)
+            and bool(value["condition_id"].strip())
+        )
+    if kind == "route_closed":
+        return (
+            set(value) == {"kind", "route_id"}
+            and isinstance(value.get("route_id"), str)
+            and bool(value["route_id"].strip())
+        )
+    return False
+
+
+def _project_clue_bonus_contract(value: Any) -> dict[str, Any] | None:
+    """Return only a versioned, provenance-bound, fumble-safe bonus."""
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        return None
+    origin = value.get("origin")
+    if origin not in {"source", "inferred", "improvised"}:
+        return None
+    if origin == "source":
+        refs = value.get("source_refs")
+        if not isinstance(refs, list) or not refs or any(
+            not isinstance(ref, dict)
+            or not (
+                bool(ref.get("path")) and isinstance(ref.get("page"), int)
+                or bool(ref.get("source_id")) and (
+                    isinstance(ref.get("printed_page"), int)
+                    or isinstance(ref.get("pdf_index"), int)
+                )
+            )
+            for ref in refs
+        ):
+            return None
+    skill = value.get("skill")
+    extra = value.get("extra_summary")
+    difficulty = value.get("difficulty", "regular")
+    on_fail = value.get("on_fail_cost", "time")
+    fumble = value.get("fumble_consequence")
+    if (
+        not isinstance(skill, str) or not skill.strip()
+        or not isinstance(extra, str) or not extra.strip()
+        or difficulty not in {"regular", "hard", "extreme"}
+        or on_fail not in {"time", "pressure"}
+        or not isinstance(fumble, dict)
+        or set(fumble) != {"summary", "effect"}
+        or not isinstance(fumble.get("summary"), str)
+        or not fumble["summary"].strip()
+        or not _typed_fumble_effect(fumble.get("effect"))
+    ):
+        return None
+    projected = {
+        "schema_version": 1,
+        "origin": origin,
+        "skill": skill.strip(),
+        "difficulty": difficulty,
+        "extra_summary": extra.strip(),
+        "on_fail_cost": on_fail,
+        "fumble_consequence": json.loads(json.dumps(fumble)),
+    }
+    if isinstance(value.get("source_refs"), list):
+        projected["source_refs"] = json.loads(json.dumps(value["source_refs"]))
+    return projected
 
 
 def _clue_bonus_eligible(ctx: dict[str, Any], clue_policy: dict[str, Any] | None) -> bool:
     """Offer a non-gating bonus roll on investigate intent or affordance skill hit."""
-    if not isinstance(clue_policy, dict) or not isinstance(clue_policy.get("bonus"), dict):
+    if (
+        not isinstance(clue_policy, dict)
+        or _project_clue_bonus_contract(clue_policy.get("bonus")) is None
+    ):
         return False
     intent = str(ctx.get("player_intent_class") or "").strip().lower()
     if intent == "investigate":
@@ -2210,7 +2720,29 @@ def _clue_bonus_eligible(ctx: dict[str, Any], clue_policy: dict[str, Any] | None
     return bool(bonus_skill and bonus_skill in matched_skills)
 
 
-def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[str]:
+def _localized_clue_summary(clue: dict[str, Any], language: str) -> str:
+    localized = clue.get("localized_text")
+    language_keys = [str(language or "").strip()]
+    if "-" in language_keys[0]:
+        language_keys.append(language_keys[0].split("-", 1)[0])
+    if isinstance(localized, dict):
+        for key in language_keys:
+            row = localized.get(key)
+            if isinstance(row, str) and row.strip():
+                return row.strip()
+            if isinstance(row, dict):
+                for field in ("player_safe_summary", "summary", "text"):
+                    value = row.get(field)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+    return str(
+        clue.get("player_safe_summary") or clue.get("player_visible_anchor") or ""
+    ).strip()
+
+
+def _collect_anchors(
+    clue_ids: list[str], clue_graph: dict[str, Any], language: str = "zh-Hans"
+) -> list[str]:
     """Collect player-visible anchor strings for given clue ids from clue-graph.
     Used to populate narrative_directives.must_include so the narrator knows
     what concrete visible detail a REVEAL must surface.
@@ -2222,8 +2754,7 @@ def _collect_anchors(clue_ids: list[str], clue_graph: dict[str, Any]) -> list[st
     for concl in clue_graph.get("conclusions", []):
         for clue in concl.get("clues", []):
             if clue.get("clue_id") in clue_ids:
-                # prefer player_safe_summary (new structured field), fallback to player_visible_anchor
-                anchor = clue.get("player_safe_summary") or clue.get("player_visible_anchor")
+                anchor = _localized_clue_summary(clue, language)
                 if anchor:
                     anchors.append(anchor)
     return anchors
@@ -2425,7 +2956,9 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
         if secret_id:
             move["secret_id"] = secret_id
         moves.append(move)
-    return moves
+    return coc_keeper_planner.apply_npc_ruling(
+        moves, coc_keeper_planner.proposal_from_context(ctx)
+    )
 
 
 def _personal_horror_directive(ctx: dict[str, Any], action: str) -> dict[str, Any] | None:
@@ -2589,7 +3122,20 @@ def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
     if not pressure_moves:
         return None
     count = max(1, int((ctx.get("rule_signals") or {}).get("low_agency_continue_count", 1) or 1))
-    raw = pressure_moves[min(count - 1, len(pressure_moves) - 1)]
+    pressure_index = min(count - 1, len(pressure_moves) - 1)
+    raw = pressure_moves[pressure_index]
+    scene_id = str(ctx.get("active_scene_id") or scene.get("scene_id") or "")
+    grounding_receipt = {
+        "schema_version": 1,
+        "status": "authorized",
+        "source": "active_scene.pressure_moves",
+        "active_scene_id": scene_id,
+        "pressure_move_index": pressure_index,
+        "rule": (
+            "Narrate only this authored active-scene consequence; do not add "
+            "a threat symptom, object, route, or location from another source."
+        ),
+    }
     if isinstance(raw, dict):
         symptom = (
             raw.get("visible_symptom")
@@ -2611,6 +3157,7 @@ def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
             "reason": "low_agency_scene_pressure",
             "source": "active_scene.pressure_moves",
             "pressure_move_id": raw.get("id"),
+            "grounding_receipt": grounding_receipt,
         }
         # Optional structured lethal flag (schema: pressure_moves[].lethal).
         if raw.get("lethal") is True:
@@ -2622,6 +3169,7 @@ def _build_scene_pressure_move(ctx: dict[str, Any]) -> dict[str, Any] | None:
         "visible_symptom": _short_text(raw, 140),
         "reason": "low_agency_scene_pressure",
         "source": "active_scene.pressure_moves",
+        "grounding_receipt": grounding_receipt,
     }
 
 
@@ -2749,11 +3297,26 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
     scene_tags = {str(value) for value in scene.get("scene_tags", []) if value}
     scene_factions = {str(value) for value in scene.get("faction_ids", []) if value}
     scene_front_ids = set(scene.get("threat_front_ids") or [])
+    scene_clock_ids = {
+        str(item.get("clock_id"))
+        for item in ((scene.get("on_enter") or {}).get("clock_ticks") or [])
+        if isinstance(item, dict) and item.get("clock_id")
+    }
+    scene_danger_ids = {
+        str(item.get("danger_id"))
+        for item in ((scene.get("on_enter") or {}).get("danger_attacks") or [])
+        if isinstance(item, dict) and item.get("danger_id")
+    }
     candidates: list[tuple[Any, ...]] = []
     for front_index, front in enumerate(ctx.get("threat_fronts", {}).get("fronts", [])):
         if not isinstance(front, dict):
             continue
         front_id = str(front.get("front_id") or "")
+        front_danger_ids = {
+            str(item.get("id"))
+            for item in front.get("dangers", []) or []
+            if isinstance(item, dict) and item.get("id")
+        }
         front_severity = front.get("severity", 0)
         front_severity = front_severity if isinstance(front_severity, int) and not isinstance(front_severity, bool) else 0
         for clock_index, clock in enumerate(front.get("clocks", [])):
@@ -2779,7 +3342,14 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
                 [*(front.get("faction_ids") or []), *(clock.get("faction_ids") or [])]
                 if value
             }
-            if scene_id and scene_id in scene_ids:
+            clock_id = str(clock.get("clock_id") or "")
+            if clock_id and clock_id in scene_clock_ids:
+                affinity_kind, matched, affinity_rank = "scene_clock_refs", [clock_id], 6
+            elif scene_danger_ids & front_danger_ids:
+                affinity_kind, matched, affinity_rank = (
+                    "danger_ids", sorted(scene_danger_ids & front_danger_ids), 5
+                )
+            elif scene_id and scene_id in scene_ids:
                 affinity_kind, matched, affinity_rank = "scene_ids", [scene_id], 4
             elif front_id and front_id in scene_front_ids:
                 affinity_kind, matched, affinity_rank = "threat_front_ids", [front_id], 3
@@ -2789,15 +3359,21 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
                 affinity_kind, matched, affinity_rank = "faction_ids", sorted(scene_factions & factions), 1
             else:
                 affinity_kind, matched, affinity_rank = "fallback", [], 0
-            candidates.append((
-                -affinity_rank, -severity, front_id, str(clock.get("clock_id") or ""),
-                front_index, clock_index, front, {**clock, "_selection_reason": {
-                    "affinity_kind": affinity_kind,
-                    "matched_ids": matched,
-                    "front_id": front_id,
-                    "severity": severity,
-                }},
-            ))
+            # A scenario-wide clock is not automatically observable in every
+            # location. Without a structured scene/front/tag/faction match its
+            # symptom could instantiate a supernatural object or route in the
+            # wrong scene. Fail closed below to active-scene pressure or none;
+            # never select affinity_kind=fallback merely because a clock exists.
+            if affinity_rank > 0:
+                candidates.append((
+                    -affinity_rank, -severity, front_id, str(clock.get("clock_id") or ""),
+                    front_index, clock_index, front, {**clock, "_selection_reason": {
+                        "affinity_kind": affinity_kind,
+                        "matched_ids": matched,
+                        "front_id": front_id,
+                        "severity": severity,
+                    }},
+                ))
     if candidates:
         _, _, _, _, _, _, _front, clock = min(candidates)
         current = _clock_segments(clock, "current_segments", 0)
@@ -2808,8 +3384,24 @@ def _build_pressure_moves(ctx: dict[str, Any], action: str) -> list[dict[str, An
             "visible_symptom": symptom[idx] if isinstance(symptom, list) and symptom else "tension rises",
             "reason": f"stalled_{ctx['rule_signals']['stalled_turns']}_turns" if ctx["rule_signals"]["stalled_turns"] else "pressure_action",
             "selection_reason": clock["_selection_reason"],
+            "grounding_receipt": {
+                "schema_version": 1,
+                "status": "authorized",
+                "source": "threat_fronts.clock",
+                "active_scene_id": scene_id,
+                "front_id": clock["_selection_reason"].get("front_id"),
+                "clock_id": clock.get("clock_id"),
+                "affinity_kind": clock["_selection_reason"].get("affinity_kind"),
+                "matched_ids": list(clock["_selection_reason"].get("matched_ids") or []),
+                "rule": (
+                    "This threat symptom is authorized only by the recorded "
+                    "structured affinity; do not extend it beyond the matched scene source."
+                ),
+            },
         })
-    return moves
+        return moves
+    scene_move = _build_scene_pressure_move(ctx)
+    return [scene_move] if scene_move is not None else []
 
 
 def _build_rules_requests(ctx: dict[str, Any], action: str,
@@ -2820,6 +3412,17 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
     # loss via SanitySession. This makes horror scenes (seeing carnage, witnessing
     # the entity) auto-trigger SAN checks without requiring a stalled player.
     requests: list[dict[str, Any]] = []
+    keeper_proposal = coc_keeper_planner.proposal_from_context(ctx)
+    keeper_rule_ruling = (
+        keeper_proposal.get("rule_ruling")
+        if isinstance(keeper_proposal, dict)
+        and keeper_proposal.get("source") == "model"
+        and isinstance(keeper_proposal.get("rule_ruling"), dict)
+        else {}
+    )
+    keeper_waived_discretionary_roll = (
+        keeper_rule_ruling.get("decision") == "no_roll"
+    )
     combat_state = ctx.get("combat_state") or {}
     pending_attack = combat_state.get("pending_attack")
     rich_intent = ctx.get("player_intent_rich") or {}
@@ -3010,7 +3613,11 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 ),
                 "reason": "structured death-clock continuation",
             }]
-    if action == "REVEAL":
+    if (
+        action == "REVEAL"
+        and (clue_policy or {}).get("reveal")
+        and not keeper_waived_discretionary_roll
+    ):
         # Only request a skill check when the revealed clue is obscured (its
         # delivery requires a die roll). Obvious clues — Handouts, direct gives,
         # plain location/event descriptions — are delivered by the narrator
@@ -3021,25 +3628,43 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         if clue_type != "obvious":
             skill = (clue_policy or {}).get("skill") or "Spot Hidden"
             difficulty = (clue_policy or {}).get("difficulty") or "regular"
-            clue_id = ((clue_policy or {}).get("reveal") or ["clue"])[0]
+            clue_id = (clue_policy or {}).get("reveal")[0]
+            fumble_consequence = _generated_clue_fumble_consequence(
+                clue_policy or {}, str(clue_id)
+            )
+            roll_contract = _roll_contract(
+                goal="surface the current obscured clue",
+                success_effect="commit the exact planned clue",
+                failure_effect="withhold the exact clue while keeping a fallback route or cost in motion",
+                failure_outcome_mode="clue_with_cost",
+                roll_density_group=f"clue:{clue_id}",
+                must_not=[
+                    "do not narrate no progress on ordinary failure",
+                    "do not reveal exact withheld clue on failure",
+                ],
+            )
+            roll_contract.update({
+                "generated_clue_gate": True,
+                "fumble_consequence": fumble_consequence,
+                "push_failure_consequence": _generated_clue_push_consequence(
+                    clue_policy or {}, str(clue_id)
+                ),
+            })
             requests.append({"kind": "skill_check", "skill": skill, "reason": "obscured clue in scene",
                      "difficulty": difficulty, "bonus_penalty_dice": 0,
-                     "roll_contract": _roll_contract(
-                         goal="surface the current obscured clue",
-                         success_effect="commit the exact planned clue",
-                         failure_effect="withhold the exact clue while keeping a fallback route or cost in motion",
-                         failure_outcome_mode="clue_with_cost",
-                         roll_density_group=f"clue:{clue_id}",
-                         must_not=[
-                             "do not narrate no progress on ordinary failure",
-                             "do not reveal exact withheld clue on failure",
-                         ],
-                     )})
-    if action in ("REVEAL", "RECOVER") and _clue_bonus_eligible(ctx, clue_policy):
+                     "clue_gate": True, "clue_id": clue_id,
+                     "roll_contract": roll_contract})
+    if (
+        action in ("REVEAL", "RECOVER")
+        and _clue_bonus_eligible(ctx, clue_policy)
+        and not keeper_waived_discretionary_roll
+    ):
         # Non-gating dice texture: core clue still lands; bonus success adds
         # extra_summary, failure costs time/pressure. Density group keeps
         # enrichment from merging unrelated rolls into this axis.
-        bonus = (clue_policy or {}).get("bonus") or {}
+        bonus = _project_clue_bonus_contract((clue_policy or {}).get("bonus"))
+        if bonus is None:
+            bonus = {}
         clue_id = ((clue_policy or {}).get("reveal") or (clue_policy or {}).get("fallback_routes") or ["clue"])[0]
         density_group = f"clue-bonus:{clue_id}"
         already = any(
@@ -3049,6 +3674,32 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
         )
         if not already and bonus.get("skill"):
             on_fail = str(bonus.get("on_fail_cost") or "time")
+            roll_contract = _roll_contract(
+                goal="gain extra investigative detail without gating the core clue",
+                success_effect="attach bonus_reveal (extra_summary) alongside the core clue",
+                failure_effect=(
+                    "core clue still lands; spend time"
+                    if on_fail == "time"
+                    else "core clue still lands; pressure rises"
+                ),
+                failure_outcome_mode="bonus_with_cost",
+                roll_density_group=density_group,
+                must_not=[
+                    "do not withhold the core clue on bonus failure",
+                    "do not narrate no progress on ordinary failure",
+                ],
+            )
+            roll_contract.update({
+                "authored_clue_bonus": True,
+                "fumble_consequence": json.loads(json.dumps(
+                    bonus["fumble_consequence"]
+                )),
+                "push_failure_consequence": {
+                    key: json.loads(json.dumps(value))
+                    for key, value in bonus["fumble_consequence"].items()
+                    if key in {"summary", "effect", "localized_summaries"}
+                },
+            })
             requests.append({
                 "kind": "skill_check",
                 "skill": bonus.get("skill"),
@@ -3058,23 +3709,9 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 "clue_bonus": True,
                 "clue_id": clue_id,
                 "bonus": bonus,
-                "roll_contract": _roll_contract(
-                    goal="gain extra investigative detail without gating the core clue",
-                    success_effect="attach bonus_reveal (extra_summary) alongside the core clue",
-                    failure_effect=(
-                        "core clue still lands; spend time"
-                        if on_fail == "time"
-                        else "core clue still lands; pressure rises"
-                    ),
-                    failure_outcome_mode="bonus_with_cost",
-                    roll_density_group=density_group,
-                    must_not=[
-                        "do not withhold the core clue on bonus failure",
-                        "do not narrate no progress on ordinary failure",
-                    ],
-                ),
+                "roll_contract": roll_contract,
             })
-    if action == "RECOVER":
+    if action == "RECOVER" and not keeper_waived_discretionary_roll:
         # Idea Roll recovery valve (Keeper Rulebook ~p.199). Never-signposted
         # leads are given free; mentioned → Regular; obvious-but-missed → Extreme.
         fallback_ids = [
@@ -3120,11 +3757,57 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     # the REVEAL skill-check decision matches the clue_type that lands in the
     # emitted plan (Spec v1.1 gap #1: obvious clues should not roll Spot Hidden).
     clue_policy = _select_clue_policy(ctx, action)
+    requested_action = action
+    empty_reveal_adjustment = None
+    if action == "REVEAL" and not clue_policy.get("reveal"):
+        # REVEAL is a claim about a concrete module fact, not a generic synonym
+        # for "the investigator did something investigative".  When no clue is
+        # bound, keep any structured action-atom gate for its declared goal/cost
+        # but do not emit reveal progress or manufacture a default Spot Hidden
+        # check against a sentinel clue.
+        action = "DEEPEN"
+        empty_reveal_adjustment = {
+            "schema_version": 1,
+            "requested_action": requested_action,
+            "effective_action": action,
+            "reason": "no_concrete_planned_clue",
+            "source": "clue_policy.reveal",
+        }
     epistemic_contract = coc_epistemic_policy.plan_epistemic_contract(
         ctx, clue_policy, action
     )
     rules_requests = _build_rules_requests(ctx, action, clue_policy)
     rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
+    resolution = rich.get("action_resolution") if isinstance(rich.get("action_resolution"), dict) else {}
+    matched_operation_routes = {
+        str(value) for value in (resolution.get("matched_affordance_ids") or []) if value
+    } if resolution.get("no_match") is not True else set()
+    for affordance in scene.get("affordances") or []:
+        if not isinstance(affordance, dict):
+            continue
+        route_id = str(affordance.get("id") or affordance.get("route_id") or "")
+        operation = affordance.get("authored_operation")
+        if route_id not in matched_operation_routes or not isinstance(operation, dict):
+            continue
+        kind = operation.get("kind")
+        payload = operation.get("payload")
+        if kind not in {"environmental_hazard", "mythos_tome_study"} or not isinstance(payload, dict):
+            continue
+        rules_requests = [
+            request for request in rules_requests
+            if route_id not in (
+                (request.get("route_resolution") or {}).get("matched_route_ids", [])
+                if isinstance(request, dict)
+                and isinstance(request.get("route_resolution"), dict)
+                else []
+            )
+        ]
+        rules_requests.append({
+            "kind": kind,
+            **json.loads(json.dumps(payload, ensure_ascii=False)),
+            "request_id": f"route:{route_id}:operation",
+            "route_resolution": {"matched_route_ids": [route_id]},
+        })
     for interaction in rich.get("npc_interactions") or []:
         if not isinstance(interaction, dict):
             continue
@@ -3253,6 +3936,7 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "must_include": _collect_anchors(
             clue_policy.get("reveal", []) + clue_policy.get("fallback_routes", []),
             ctx.get("clue_graph", {}),
+            ctx.get("play_language") or "zh-Hans",
         ),
         "must_not_reveal": secret_refs,
         "improvisation_allowed": ctx.get("improvisation_boundaries", {}).get("invent_allowed", []),
@@ -3265,6 +3949,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
             {"horror_stage": horror_stage},
         ),
     }
+    keeper_proposal = coc_keeper_planner.proposal_from_context(ctx)
+    keeper_public_plan = coc_keeper_planner.public_projection(keeper_proposal)
+    if keeper_public_plan is not None:
+        narrative_directives["keeper_plan"] = keeper_public_plan
     # Layer-3 Fair Warning (p.209): downgrade lethal structured evidence while
     # lethal_chances_used < 3; attach fair_warning directive for apply/narration.
     pressure_moves = _apply_fair_warning_ladder(
@@ -3348,6 +4036,25 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "handoff": handoff,
         "rationale": overrides["rationale"] if overrides else f"top-scored action {action} (score={scores.get(action, 0)})",
     }
+    if isinstance(keeper_proposal, dict):
+        plan["keeper_proposal"] = deepcopy(keeper_proposal)
+        resolution_receipt = (
+            rich.get("action_resolution")
+            if isinstance(rich.get("action_resolution"), dict)
+            else {}
+        )
+        plan["keeper_ruling_receipt"] = {
+            "schema_version": 1,
+            "source": keeper_proposal.get("source"),
+            "rule_advice": deepcopy(resolution_receipt.get("rule_advice") or []),
+            "rule_ruling": deepcopy(keeper_proposal.get("rule_ruling") or {}),
+            "proposal_rejection": deepcopy(
+                resolution_receipt.get("keeper_proposal_rejection")
+            ),
+            "hard_invariants_remain_kernel_owned": True,
+        }
+    if empty_reveal_adjustment is not None:
+        plan["action_adjustment"] = empty_reveal_adjustment
     if action == "CUT":
         candidates = coc_scene_graph.transition_candidates(
             ctx.get("active_scene_id") or scene.get("scene_id"),
@@ -3366,17 +4073,80 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
                 override_target = overrides["transition_to"]
             if override_target in candidates:
                 plan["transition_to"] = override_target
+            elif overrides and isinstance(
+                overrides.get("destination_entry_authority"), dict
+            ):
+                # The original durable world does not contain a public direct
+                # entry until apply validates and persists its exact receipt.
+                # Never replace that explicit selection with candidates[0].
+                plan["transition_to"] = override_target
+                candidates = [str(override_target)]
             else:
                 plan["transition_to"] = candidates[0]
             plan["transition_candidates"] = candidates
+            if overrides and isinstance(
+                overrides.get("destination_entry_authority"), dict
+            ):
+                plan["destination_entry_authority"] = deepcopy(
+                    overrides["destination_entry_authority"]
+                )
             if overrides and isinstance(overrides.get("matched_target"), dict):
                 plan["matched_target"] = overrides["matched_target"]
         elif overrides and isinstance(overrides.get("transition_to"), str):
             # Flag-gated move: destination unlocks during apply after flags_set.
             plan["transition_to"] = overrides["transition_to"]
             plan["transition_candidates"] = [overrides["transition_to"]]
+            if isinstance(overrides.get("destination_entry_authority"), dict):
+                plan["destination_entry_authority"] = deepcopy(
+                    overrides["destination_entry_authority"]
+                )
             if overrides and isinstance(overrides.get("matched_target"), dict):
                 plan["matched_target"] = overrides["matched_target"]
+
+    # A clue-less authored route may declare a deterministic no-roll
+    # completion effect (for example, a courteous clerk giving the address of
+    # the correct records office).  Only an exact semantic-resolver match can
+    # commit these flags, and any rule request bound to the same route disables
+    # this shortcut so failed checks never become successful route effects.
+    resolution = (
+        rich.get("action_resolution")
+        if isinstance(rich.get("action_resolution"), dict)
+        else {}
+    )
+    matched_route_ids = {
+        str(route_id)
+        for route_id in (resolution.get("matched_affordance_ids") or [])
+        if route_id
+    } if resolution.get("no_match") is not True else set()
+    rule_bound_route_ids: set[str] = set()
+    for request in rules_requests:
+        if not isinstance(request, dict):
+            continue
+        route_resolution = request.get("route_resolution")
+        if not isinstance(route_resolution, dict):
+            continue
+        for route_id in route_resolution.get("matched_route_ids") or []:
+            if route_id:
+                rule_bound_route_ids.add(str(route_id))
+    completion_flags: list[str] = []
+    for affordance in scene.get("affordances") or []:
+        if not isinstance(affordance, dict):
+            continue
+        route_id = str(affordance.get("id") or affordance.get("route_id") or "")
+        if (
+            route_id not in matched_route_ids
+            or route_id in rule_bound_route_ids
+            or affordance.get("completion_policy") != "matched_no_roll"
+        ):
+            continue
+        for flag_id in affordance.get("sets_flags") or []:
+            normalized = str(flag_id or "").strip()
+            if normalized and normalized not in completion_flags:
+                completion_flags.append(normalized)
+    if completion_flags:
+        plan["flags_set"] = list(dict.fromkeys([
+            *(plan.get("flags_set") or []), *completion_flags,
+        ]))
 
     # Authored scene flag_commits (structured intent ∩ target_tags).
     scene_flags = coc_scene_graph.resolve_scene_flag_commits(

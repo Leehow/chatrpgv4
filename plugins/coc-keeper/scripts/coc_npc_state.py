@@ -674,6 +674,118 @@ def enrich_plan_after_rules(
     """
     rich = ctx.get("player_intent_rich") if isinstance(ctx.get("player_intent_rich"), dict) else {}
     interactions = [i for i in (rich.get("npc_interactions") or []) if isinstance(i, dict)]
+    route_ids = [
+        str(atom.get("route_id"))
+        for atom in (rich.get("action_atoms") or [])
+        if isinstance(atom, dict) and atom.get("route_id")
+    ]
+    resolution = (
+        rich.get("action_resolution")
+        if isinstance(rich.get("action_resolution"), dict)
+        else {}
+    )
+    if resolution.get("no_match") is not True:
+        route_ids.extend(
+            str(route_id)
+            for route_id in (resolution.get("matched_affordance_ids") or [])
+            if str(route_id or "").strip()
+        )
+    route_ids = list(dict.fromkeys(route_ids))
+    clue_rows = {
+        str(clue.get("clue_id")): clue
+        for conclusion in ((ctx.get("clue_graph") or {}).get("conclusions") or [])
+        if isinstance(conclusion, dict)
+        for clue in (conclusion.get("clues") or [])
+        if isinstance(clue, dict) and clue.get("clue_id")
+    }
+    agenda_rows = {
+        str(agenda.get("npc_id")): agenda
+        for agenda in ((ctx.get("npc_agendas") or {}).get("npcs") or [])
+        if isinstance(agenda, dict) and agenda.get("npc_id")
+    }
+    authored_routes: dict[str, list[dict[str, Any]]] = {}
+    for route in (ctx.get("active_scene") or {}).get("affordances") or []:
+        if not isinstance(route, dict):
+            continue
+        route_id = route.get("id") or route.get("route_id")
+        interaction = route.get("npc_interaction")
+        if isinstance(route_id, str) and isinstance(interaction, dict):
+            authored_routes.setdefault(route_id, []).append(interaction)
+            continue
+        # Imported modules do not always duplicate an NPC fact binding onto
+        # the public route.  An exact one-to-one route clue -> clue source NPC
+        # -> authored NPC fact relation is sufficient structured evidence to
+        # compile a no-roll request_fact interaction.  Ambiguity fails closed;
+        # no prose, names, or agenda text are scanned.
+        direct_grants = list(dict.fromkeys(
+            str(clue_id).strip()
+            for clue_id in [route.get("clue_id"), *(route.get("grants_clue_ids") or [])]
+            if str(clue_id or "").strip()
+        ))
+        if not isinstance(route_id, str) or len(direct_grants) != 1:
+            continue
+        clue = clue_rows.get(direct_grants[0])
+        if not isinstance(clue, dict) or clue.get("delivery_kind") not in SOCIAL_CLUE_DELIVERY_KINDS:
+            continue
+        source_npc_ids = _string_list(clue.get("source_npc_ids"))
+        if len(source_npc_ids) != 1:
+            continue
+        npc_id = source_npc_ids[0]
+        agenda = agenda_rows.get(npc_id)
+        if not isinstance(agenda, dict):
+            continue
+        fact_matches = [
+            fact
+            for fact in _authored_fact_specs(agenda)
+            if str(fact.get("clue_id") or "") == direct_grants[0]
+            and str(fact.get("fact_id") or "").strip()
+        ]
+        if len(fact_matches) != 1:
+            continue
+        authored_routes.setdefault(route_id, []).append({
+            "npc_id": npc_id,
+            "fact_id": str(fact_matches[0]["fact_id"]),
+            "tactic": "request_fact",
+            "binding_source": "route_clue_source_fact",
+        })
+    for route_id in route_ids:
+        matches = authored_routes.get(route_id, [])
+        if len(matches) != 1:
+            continue
+        source = matches[0]
+        npc_id = source.get("npc_id")
+        fact_id = source.get("fact_id")
+        if (
+            not isinstance(npc_id, str)
+            or not npc_id
+            or not isinstance(fact_id, str)
+            or not fact_id
+        ):
+            continue
+        if any(
+            str(item.get("npc_id") or "") == npc_id
+            and str(item.get("fact_id") or "") == fact_id
+            for item in interactions
+        ):
+            continue
+        compiled = {
+            "npc_id": npc_id,
+            "tactic": str(source.get("tactic") or "request_fact"),
+            "request_id": f"route:{route_id}",
+            "fact_id": fact_id,
+        }
+        if source.get("binding_source"):
+            compiled["binding_source"] = source["binding_source"]
+        skill = source.get("skill")
+        if isinstance(skill, str) and skill:
+            compiled["skill"] = skill
+            difficulty = source.get("difficulty")
+            compiled["difficulty"] = (
+                difficulty
+                if difficulty in {"regular", "hard", "extreme"}
+                else "regular"
+            )
+        interactions.append(compiled)
     enriched = json.loads(json.dumps(plan))
     if not interactions:
         return enriched
