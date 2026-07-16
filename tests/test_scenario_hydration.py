@@ -404,6 +404,63 @@ def test_base_revision_uses_best_parent_after_regression_and_then_passes(tmp_pat
     )
 
 
+def test_rejection_evidence_retains_independent_raw_and_normalized_candidates(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    (campaign / "scenario" / "scenario.json").write_text(json.dumps({
+        "scenario_id": "normalization-evidence",
+        "resolution_policy": "source_first",
+        "source": {"path": "/private/local/module.pdf", "pdf_index_start": 446},
+    }), encoding="utf-8")
+    monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
+    raw = _bundle_with_dangling_refs(1, "raw-dangling")
+    first_scene = raw["story-graph.json"]["scenes"][0]
+    original_edges = first_scene.pop("scene_edges")
+    first_scene["edges"] = [{
+        **{key: value for key, value in edge.items() if key != "to"},
+        "to_scene_id": edge["to"],
+    } for edge in original_edges]
+    calls = []
+
+    def compile_source(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return {"ok": True, "scenario_bundle": raw}
+        parent = json.loads(json.dumps(request["previous_scenario_bundle"]))
+        defined = {
+            clue["clue_id"]
+            for conclusion in parent["clue-graph.json"]["conclusions"]
+            for clue in conclusion.get("clues") or []
+        }
+        for scene in parent["story-graph.json"]["scenes"]:
+            scene["available_clues"] = [
+                clue_id for clue_id in scene.get("available_clues") or []
+                if clue_id in defined
+            ]
+        return {"ok": True, "scenario_bundle": parent}
+
+    receipt = hydration.ensure_scenario_ready(campaign, compiler=compile_source)
+    evidence_path = next(
+        (campaign / "logs/scenario-resolution").glob("*.rejected-1.json")
+    )
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    raw_evidence = evidence["raw_scenario_bundle"]
+    normalized_evidence = evidence["scenario_bundle"]
+
+    assert receipt["status"] == "PASS"
+    assert evidence["visibility"] == "keeper_only"
+    assert raw_evidence is not normalized_evidence
+    assert raw_evidence != normalized_evidence
+    assert "edges" in raw_evidence["story-graph.json"]["scenes"][0]
+    assert "scene_edges" not in raw_evidence["story-graph.json"]["scenes"][0]
+    assert "edges" not in normalized_evidence["story-graph.json"]["scenes"][0]
+    assert "scene_edges" in normalized_evidence["story-graph.json"]["scenes"][0]
+    assert hydration._json_digest(raw_evidence) == evidence["raw_bundle_sha256"]
+    assert hydration._json_digest(normalized_evidence) == evidence["normalized_bundle_sha256"]
+    assert calls[1]["previous_scenario_bundle"] == normalized_evidence
+    assert calls[1]["previous_scenario_bundle"] != raw_evidence
+    assert calls[1]["parent_bundle_sha256"] == evidence["normalized_bundle_sha256"]
+
+
 def test_repeated_missing_origin_findings_keep_exact_distinct_paths():
     findings = hydration.coc_scenario_compile.validate_compiled_scenario({
         "story_graph": {"scenes": [

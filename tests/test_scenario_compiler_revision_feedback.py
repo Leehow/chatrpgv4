@@ -99,6 +99,43 @@ def test_adapter_rejects_boolean_parent_attempt():
         })
 
 
+def test_adapter_rejects_oversized_previous_bundle_without_echoing_content():
+    marker = "private-parent-sentinel-"
+    request = {
+        **_request(),
+        "revision_attempt": 2,
+        "previous_scenario_bundle": {
+            "blob": marker + "x" * adapter.MAX_PARENT_BUNDLE_BYTES,
+        },
+    }
+
+    with pytest.raises(ValueError, match="previous_scenario_bundle exceeds byte limit") as exc:
+        adapter.prepare_compile_request(request)
+
+    assert marker not in str(exc.value)
+
+
+def test_adapter_rejects_oversized_total_revision_request_without_truncation():
+    parent_padding = "x" * (adapter.MAX_PARENT_BUNDLE_BYTES - 100)
+    source_padding = "y" * (
+        adapter.MAX_REVISION_REQUEST_BYTES - adapter.MAX_PARENT_BUNDLE_BYTES + 1_000
+    )
+    request = {
+        **_request(),
+        "revision_attempt": 2,
+        "source": {"source_id": "pdf:test", "private_padding": source_padding},
+        "previous_scenario_bundle": {"blob": parent_padding},
+    }
+
+    with pytest.raises(
+        ValueError, match="scenario compile revision request exceeds byte limit"
+    ):
+        adapter.prepare_compile_request(request)
+
+    assert request["previous_scenario_bundle"]["blob"] == parent_padding
+    assert request["source"]["private_padding"] == source_padding
+
+
 def test_runner_prompt_uses_structured_best_parent_contract_and_exact_clue_self_check():
     request = {
         **_request(),

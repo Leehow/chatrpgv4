@@ -1114,7 +1114,13 @@ def ensure_scenario_ready(
                 str((response or {}).get("error") or "scenario compiler returned no result")
             )
         try:
-            raw_bundle = response.get("scenario_bundle") or {}
+            # Retain an independent immutable-by-convention evidence object.
+            # Normalization always receives this copy and produces another
+            # deep copy; only the normalized object may become a revision
+            # parent or publication candidate.
+            raw_bundle = json.loads(json.dumps(
+                response.get("scenario_bundle") or {}, ensure_ascii=False
+            ))
             raw_bundle_sha256 = _json_digest(raw_bundle)
             normalized_bundle = _normalize_compiler_bundle(
                 raw_bundle
@@ -1189,6 +1195,7 @@ def ensure_scenario_ready(
                 / f"{request_digest}.rejected-{attempt}.json",
                 {
                     "schema_version": 1,
+                    "visibility": "keeper_only",
                     "attempt": attempt,
                     "parent_attempt": parent_attempt,
                     "parent_bundle_sha256": parent_bundle_sha256,
@@ -1202,6 +1209,7 @@ def ensure_scenario_ready(
                     "validation_findings": candidate_findings,
                     "regression_findings": regressions,
                     "reference_snapshot": candidate_snapshot,
+                    "raw_scenario_bundle": raw_bundle,
                     "scenario_bundle": response.get("scenario_bundle"),
                     "model_identity": response.get("model_identity"),
                 },

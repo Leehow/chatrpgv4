@@ -17,7 +17,9 @@ REQUIRED_REQUEST_KEYS = (
 )
 MAX_REVISION_ATTEMPT = 5
 MAX_FEEDBACK_FINDINGS = 256
-MAX_FEEDBACK_BYTES = 1_000_000
+MAX_STRUCTURED_FEEDBACK_BYTES = 1_000_000
+MAX_PARENT_BUNDLE_BYTES = 8_000_000
+MAX_REVISION_REQUEST_BYTES = 12_000_000
 
 
 def _adapter_dir() -> Path:
@@ -32,6 +34,18 @@ def _runner_cmd(path: Path) -> list[str]:
     if path.suffix.lower() in {".mjs", ".js"}:
         return ["node", str(path)]
     return [str(path)]
+
+
+def _json_size_bytes(value: Any, *, label: str) -> int:
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be JSON serializable") from exc
+    return len(encoded)
 
 
 def _validate_revision_feedback(request: dict[str, Any]) -> None:
@@ -56,6 +70,10 @@ def _validate_revision_feedback(request: dict[str, Any]) -> None:
     previous = request.get("previous_scenario_bundle")
     if previous is not None and not isinstance(previous, dict):
         raise ValueError("previous_scenario_bundle must be an object")
+    if previous is not None and _json_size_bytes(
+        previous, label="previous_scenario_bundle"
+    ) > MAX_PARENT_BUNDLE_BYTES:
+        raise ValueError("previous_scenario_bundle exceeds byte limit")
     for key in ("validation_findings", "regression_findings"):
         findings = request.get(key)
         if findings is None:
@@ -91,8 +109,14 @@ def _validate_revision_feedback(request: dict[str, Any]) -> None:
         )
         if key in request
     }
-    if len(json.dumps(feedback, ensure_ascii=False).encode("utf-8")) > MAX_FEEDBACK_BYTES:
+    if _json_size_bytes(
+        feedback, label="structured revision feedback"
+    ) > MAX_STRUCTURED_FEEDBACK_BYTES:
         raise ValueError("structured revision feedback exceeds size limit")
+    if _json_size_bytes(
+        request, label="scenario compile revision request"
+    ) > MAX_REVISION_REQUEST_BYTES:
+        raise ValueError("scenario compile revision request exceeds byte limit")
 
 
 def prepare_compile_request(request: dict[str, Any]) -> dict[str, Any]:
