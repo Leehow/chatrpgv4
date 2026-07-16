@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -60,6 +61,22 @@ def _read_jsonl(path: Path) -> list[dict]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def _tree_snapshot(root: Path) -> dict[str, object]:
+    """Capture artifact bytes and directory shape for zero-write assertions."""
+    return {
+        "directories": sorted(
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_dir()
+        ),
+        "files": {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        },
+    }
 
 
 def _write_scripted_player_runner(
@@ -384,10 +401,14 @@ def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
         )
     )
     assert identity == {
-        "schema_version": 1,
+        "schema_version": 2,
         "campaign_id": campaign_id,
         "run_id": run_id,
+        "artifact_location_sha256": hashlib.sha256(
+            str(Path(result["run_dir"]).resolve()).encode("utf-8")
+        ).hexdigest(),
     }
+    assert str(Path(result["run_dir"]).resolve()) not in json.dumps(identity)
     assert result["result"]["run_id"] == run_id
     assert result["result"]["cumulative_run_ids"] == [run_id]
     assert (
@@ -816,6 +837,13 @@ def test_distinct_same_basename_artifacts_get_distinct_run_ids_with_resume(
         first_run_id,
         second_run_id,
     ]
+    driver = json.loads(
+        (Path(second["run_dir"]) / "driver-result.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert second["metadata"]["continuation_of"] == first_run_id
+    assert driver["continuation_of"] == first_run_id
     assert [row["run_id"] for row in second_calls] == [second_run_id]
 
 
@@ -856,6 +884,27 @@ def test_artifact_run_identity_reentry_reuses_atomic_persisted_id(tmp_path):
 
     assert first == second
     assert first.startswith("coc-run-v1:")
+
+
+def test_current_artifact_rejects_schema1_identity_without_location_witness(
+    tmp_path,
+):
+    run_dir = tmp_path / "legacy-current"
+    _write_json(
+        run_dir / "run-identity.json",
+        {
+            "schema_version": 1,
+            "campaign_id": "campaign-a",
+            "run_id": "coc-run-v1:legacy-current",
+        },
+    )
+    before = _tree_snapshot(run_dir)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match._ensure_artifact_run_identity(run_dir, "campaign-a")
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert _tree_snapshot(run_dir) == before
 
 
 def test_concurrent_artifact_identity_reentry_converges_on_one_id(tmp_path):
@@ -909,6 +958,179 @@ def test_resume_rejects_current_identity_already_in_prior_chain_before_keeper(
 
     assert exc_info.value.code == "run_identity_conflict"
     assert calls == []
+
+
+def test_nonresume_rejects_identity_only_copy_before_any_turn_or_state_write(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "identity-source-player"
+    copied_player = tmp_path / "identity-copy-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(copied_player, ["我检查门轴。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "identity-source",
+    )
+    copied = tmp_path / "identity-copy"
+    copied.mkdir()
+    (copied / "run-identity.json").write_bytes(
+        (Path(first["run_dir"]) / "run-identity.json").read_bytes()
+    )
+    artifact_before = _tree_snapshot(copied)
+    workspace_before = _tree_snapshot(workspace)
+    calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=copied_player,
+            max_turns=1,
+            run_dir=copied,
+        )
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert calls == []
+    assert not copied_player.with_suffix(".state").exists()
+    assert _tree_snapshot(copied) == artifact_before
+    assert _tree_snapshot(workspace) == workspace_before
+
+
+def test_nonresume_rejects_whole_artifact_copy_before_any_turn_or_state_write(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "whole-source-player"
+    copied_player = tmp_path / "whole-copy-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(copied_player, ["我检查门轴。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "whole-source",
+    )
+    copied = tmp_path / "whole-copy"
+    shutil.copytree(Path(first["run_dir"]), copied)
+    artifact_before = _tree_snapshot(copied)
+    workspace_before = _tree_snapshot(workspace)
+    calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=copied_player,
+            max_turns=1,
+            run_dir=copied,
+        )
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert calls == []
+    assert not copied_player.with_suffix(".state").exists()
+    assert _tree_snapshot(copied) == artifact_before
+    assert _tree_snapshot(workspace) == workspace_before
+
+
+@pytest.mark.parametrize("transport", ["copy", "move"])
+def test_completed_artifact_is_portable_as_historical_resume_source(
+    tmp_path, monkeypatch, transport,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "portable-source-player"
+    second_player = tmp_path / "portable-current-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+    _install_keeper(monkeypatch, texts=["锁眼里有木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "portable-source",
+    )
+    historical_copy = tmp_path / "moved" / "portable-history"
+    if transport == "copy":
+        shutil.copytree(Path(first["run_dir"]), historical_copy)
+    else:
+        historical_copy.parent.mkdir(parents=True)
+        shutil.move(Path(first["run_dir"]), historical_copy)
+    _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "portable-current",
+        resume_run_dir=historical_copy,
+    )
+
+    assert second["metadata"]["continuation_of"] == first["metadata"]["run_id"]
+    assert second["metadata"]["run_id"] != first["metadata"]["run_id"]
+
+
+@pytest.mark.parametrize("legacy_identity_mode", ["missing", "schema1"])
+def test_legacy_historical_artifact_remains_resume_compatible(
+    tmp_path, monkeypatch, legacy_identity_mode,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "identityless-source-player"
+    second_player = tmp_path / "identityless-current-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+    _install_keeper(monkeypatch, texts=["锁眼里有木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "identityless-source",
+    )
+    prior_id = first["metadata"]["run_id"]
+    identity_path = Path(first["run_dir"]) / "run-identity.json"
+    if legacy_identity_mode == "missing":
+        identity_path.unlink()
+    else:
+        _write_json(
+            identity_path,
+            {
+                "schema_version": 1,
+                "campaign_id": campaign_id,
+                "run_id": prior_id,
+            },
+        )
+    _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "identityless-current",
+        resume_run_dir=first["run_dir"],
+    )
+
+    assert second["metadata"]["continuation_of"] == prior_id
+    assert second["metadata"]["cumulative_run_ids"] == [
+        prior_id,
+        second["metadata"]["run_id"],
+    ]
 
 
 def test_default_run_directory_allocation_survives_concurrent_name_collision(

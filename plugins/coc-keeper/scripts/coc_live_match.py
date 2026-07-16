@@ -1806,7 +1806,7 @@ def _run_live_match_impl(
                     if value
                 ]
             ))
-            merged_driver["continuation_of"] = prior_run.name
+            merged_driver["continuation_of"] = prior_current_run_id
             _write_json_atomic(out / "driver-result.json", merged_driver)
 
     _ = evidence_provenance

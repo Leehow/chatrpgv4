@@ -7,6 +7,7 @@ that same artifact is reopened.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -16,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 
-RUN_IDENTITY_SCHEMA_VERSION = 1
+RUN_IDENTITY_SCHEMA_VERSION = 2
+LEGACY_RUN_IDENTITY_SCHEMA_VERSION = 1
 RUN_IDENTITY_FILENAME = "run-identity.json"
 RUN_ID_PREFIX = "coc-run-v1:"
 
@@ -42,7 +44,23 @@ def mint_run_id() -> str:
     return f"{RUN_ID_PREFIX}{uuid.uuid4().hex}"
 
 
-def _identity_body(campaign_id: str, run_id: str) -> dict[str, Any]:
+def _artifact_location_sha256(run_dir: Path | str) -> str:
+    """Hash the canonical current-artifact location without persisting its path."""
+    try:
+        canonical = Path(run_dir).resolve(strict=True)
+    except OSError as exc:
+        raise RunIdentityError(
+            "artifact location cannot be resolved"
+        ) from exc
+    return hashlib.sha256(str(canonical).encode("utf-8")).hexdigest()
+
+
+def _identity_body(
+    campaign_id: str,
+    run_id: str,
+    *,
+    artifact_location_sha256: str,
+) -> dict[str, Any]:
     campaign = str(campaign_id).strip()
     if not campaign:
         raise RunIdentityError("campaign_id must be a non-empty string")
@@ -50,10 +68,18 @@ def _identity_body(campaign_id: str, run_id: str) -> dict[str, Any]:
         "schema_version": RUN_IDENTITY_SCHEMA_VERSION,
         "campaign_id": campaign,
         "run_id": normalize_run_id(run_id),
+        "artifact_location_sha256": artifact_location_sha256,
     }
 
 
 def read_artifact_run_identity(run_dir: Path | str) -> dict[str, Any] | None:
+    """Read an identity as historical evidence without asserting current location.
+
+    Location validation belongs to :func:`ensure_artifact_run_identity`.  This
+    distinction keeps completed artifacts portable when used only as a resume
+    source while preventing a copied artifact from becoming a second current
+    run instance.
+    """
     path = Path(run_dir) / RUN_IDENTITY_FILENAME
     if not path.exists() and not path.is_symlink():
         return None
@@ -67,19 +93,68 @@ def read_artifact_run_identity(run_dir: Path | str) -> dict[str, Any] | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise RunIdentityError("artifact run identity is unreadable") from exc
+    if not isinstance(payload, dict):
+        raise RunIdentityError("artifact run identity has an invalid contract")
+    schema_version = payload.get("schema_version")
+    expected_keys = (
+        {"schema_version", "campaign_id", "run_id"}
+        if schema_version == LEGACY_RUN_IDENTITY_SCHEMA_VERSION
+        else {
+            "schema_version",
+            "campaign_id",
+            "run_id",
+            "artifact_location_sha256",
+        }
+        if schema_version == RUN_IDENTITY_SCHEMA_VERSION
+        else set()
+    )
+    location_witness = payload.get("artifact_location_sha256")
     if (
-        not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "campaign_id", "run_id"}
-        or payload.get("schema_version") != RUN_IDENTITY_SCHEMA_VERSION
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or set(payload) != expected_keys
         or not isinstance(payload.get("campaign_id"), str)
         or not payload["campaign_id"].strip()
         or payload["campaign_id"] != payload["campaign_id"].strip()
         or not isinstance(payload.get("run_id"), str)
         or not payload["run_id"].strip()
         or payload["run_id"] != payload["run_id"].strip()
+        or (
+            schema_version == RUN_IDENTITY_SCHEMA_VERSION
+            and (
+                not isinstance(location_witness, str)
+                or len(location_witness) != 64
+                or any(char not in "0123456789abcdef" for char in location_witness)
+            )
+        )
     ):
         raise RunIdentityError("artifact run identity has an invalid contract")
     return payload
+
+
+def _validate_current_identity(
+    identity: dict[str, Any],
+    directory: Path,
+    campaign: str,
+    requested: str | None,
+) -> str:
+    if identity["campaign_id"] != campaign:
+        raise RunIdentityError(
+            "artifact run identity belongs to a different campaign"
+        )
+    if identity["schema_version"] != RUN_IDENTITY_SCHEMA_VERSION:
+        raise RunIdentityError(
+            "legacy current artifact identity cannot prove its physical location"
+        )
+    if identity["artifact_location_sha256"] != _artifact_location_sha256(directory):
+        raise RunIdentityError(
+            "artifact run identity belongs to a different physical location"
+        )
+    if requested is not None and identity["run_id"] != requested:
+        raise RunIdentityError(
+            "artifact run identity conflicts with the requested run_id"
+        )
+    return str(identity["run_id"])
 
 
 def _fsync_directory(path: Path) -> None:
@@ -120,18 +195,19 @@ def ensure_artifact_run_identity(
 
     existing = read_artifact_run_identity(directory)
     if existing is not None:
-        if existing["campaign_id"] != campaign:
-            raise RunIdentityError(
-                "artifact run identity belongs to a different campaign"
-            )
-        if requested is not None and existing["run_id"] != requested:
-            raise RunIdentityError(
-                "artifact run identity conflicts with the requested run_id"
-            )
-        return str(existing["run_id"])
+        return _validate_current_identity(
+            existing,
+            directory,
+            campaign,
+            requested,
+        )
 
     candidate = requested or mint_run_id()
-    body = _identity_body(campaign, candidate)
+    body = _identity_body(
+        campaign,
+        candidate,
+        artifact_location_sha256=_artifact_location_sha256(directory),
+    )
     encoded = (
         json.dumps(body, ensure_ascii=False, indent=2) + "\n"
     ).encode("utf-8")
@@ -158,15 +234,12 @@ def ensure_artifact_run_identity(
                 raise RunIdentityError(
                     "artifact run identity publication was indeterminate"
                 )
-            if existing["campaign_id"] != campaign:
-                raise RunIdentityError(
-                    "artifact run identity belongs to a different campaign"
-                )
-            if requested is not None and existing["run_id"] != requested:
-                raise RunIdentityError(
-                    "artifact run identity conflicts with the requested run_id"
-                )
-            return str(existing["run_id"])
+            return _validate_current_identity(
+                existing,
+                directory,
+                campaign,
+                requested,
+            )
     finally:
         try:
             temp.unlink()
