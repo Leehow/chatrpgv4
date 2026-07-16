@@ -86,6 +86,7 @@ playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 playtest_evidence = _load_sibling("coc_playtest_evidence", "coc_playtest_evidence.py")
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
 coc_run_identity = _load_sibling("coc_run_identity", "coc_run_identity.py")
+coc_playtest_runs = _load_sibling("coc_playtest_runs", "coc_playtest_runs.py")
 coc_eval_contract = _load_sibling(
     "coc_eval_contract_live_match", "coc_eval_contract.py"
 )
@@ -1100,6 +1101,9 @@ def _run_live_match_impl(
                 "resume_run_dir cannot be combined with manual initial transcript inputs"
             )
         resume_source = Path(resume_run_dir).resolve()
+        coc_playtest_runs.require_final_run_path(
+            resume_source, purpose="live-match resume"
+        )
         if not resume_source.is_dir():
             raise FileNotFoundError(f"resume run not found: {resume_source}")
         prior_investigator_snapshot = (

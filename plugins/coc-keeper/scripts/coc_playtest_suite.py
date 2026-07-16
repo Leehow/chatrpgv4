@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from coc_language import language_profile as build_language_profile
+from coc_playtest_runs import iter_final_run_metadata
 
 
 CORE_COVERAGE = {
@@ -535,7 +536,7 @@ def _normalize_quality(raw: dict[str, Any]) -> tuple[dict[str, int], dict[str, b
 def _discover_runs(root: Path, evaluator: CoverageEvaluator) -> list[dict[str, Any]]:
     base = _playtests_dir(root)
     runs: list[dict[str, Any]] = []
-    for playtest_path in sorted(base.glob("*/playtest.json")):
+    for playtest_path in iter_final_run_metadata(base):
         run_dir = playtest_path.parent
         metadata = _read_json(playtest_path, {})
         battle_text = _read_text(
@@ -931,7 +932,7 @@ def _semantic_eval_request(context: CoverageContext) -> dict[str, Any]:
 
 def write_semantic_eval_requests(root: Path) -> list[Path]:
     request_paths: list[Path] = []
-    for playtest_path in sorted(_playtests_dir(root).glob("*/playtest.json")):
+    for playtest_path in iter_final_run_metadata(_playtests_dir(root)):
         run_dir = playtest_path.parent
         metadata = _read_json(playtest_path, {})
         run_id = str(metadata.get("run_id") or run_dir.name)

@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from coc_language import default_localized_terms, language_profile as build_language_profile
 from coc_eval_contract import roll_visibility
 from coc_playtest_report import _format_roll_recap, _format_state_event
+from coc_playtest_runs import require_final_run_path
 from coc_rules import cash_and_assets, movement_rate
 
 
@@ -3257,6 +3258,7 @@ def _combat_state_missing_gaps(combat_state: dict[str, Any], events: list[dict[s
 
 
 def audit_run(run_dir: Path) -> dict[str, Any]:
+    require_final_run_path(run_dir, purpose="playtest audit")
     context = _load_context(run_dir)
     findings: list[Finding] = []
 

@@ -20,11 +20,18 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_playtest_runs import require_final_run_path
+
 
 RUN_IDENTITY_SCHEMA_VERSION = 2
 LEGACY_RUN_IDENTITY_SCHEMA_VERSION = 1
 RUN_IDENTITY_FILENAME = "run-identity.json"
 RUN_ID_PREFIX = "coc-run-v1:"
+PRIVATE_GENERATION_NAMESPACE = ".staging"
 
 
 class AnchoredRunPath:
@@ -376,24 +383,37 @@ class AnchoredRunDirectory:
         if self._committed:
             return self.final_path
         self.assert_parent_binding()
+        generation_parent_fd: int | None = None
         generation_fd: int | None = None
-        generation_name = (
-            f".coc-run-generation-{self.final_path.name}-{uuid.uuid4().hex}"
-        )
+        generation_name = uuid.uuid4().hex
         try:
-            os.mkdir(generation_name, mode=0o700, dir_fd=self.parent_fd)
+            try:
+                os.mkdir(
+                    PRIVATE_GENERATION_NAMESPACE,
+                    mode=0o700,
+                    dir_fd=self.parent_fd,
+                )
+            except FileExistsError:
+                pass
+            generation_parent_fd = os.open(
+                PRIVATE_GENERATION_NAMESPACE,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=self.parent_fd,
+            )
+            os.mkdir(generation_name, mode=0o700, dir_fd=generation_parent_fd)
             generation_fd = os.open(
                 generation_name,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                dir_fd=self.parent_fd,
+                dir_fd=generation_parent_fd,
             )
         except FileExistsError as exc:
             raise RunIdentityError("private playtest generation already exists") from exc
         try:
             _copy_tree_fd(self.staging_fd, generation_fd)
             os.fsync(generation_fd)
+            os.fsync(generation_parent_fd)
             _rename_noreplace_at(
-                self.parent_fd,
+                generation_parent_fd,
                 generation_name,
                 self.parent_fd,
                 self.final_path.name,
@@ -413,19 +433,40 @@ class AnchoredRunDirectory:
         finally:
             if generation_fd is not None:
                 if not self._committed:
-                    _remove_owned_generation(self.parent_fd, generation_fd)
+                    if self._official_generation_matches(generation_fd):
+                        self._committed = True
+                    elif generation_parent_fd is not None:
+                        _remove_owned_generation(
+                            generation_parent_fd, generation_fd
+                        )
                 os.close(generation_fd)
+            if generation_parent_fd is not None:
+                os.close(generation_parent_fd)
+
+    def _official_generation_matches(self, generation_fd: int) -> bool:
+        try:
+            official = os.stat(
+                self.final_path.name,
+                dir_fd=self.parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return False
+        owned = os.fstat(generation_fd)
+        return stat.S_ISDIR(official.st_mode) and (
+            official.st_dev,
+            official.st_ino,
+        ) == (owned.st_dev, owned.st_ino)
 
     def close(self) -> None:
         if self._closed:
             return
-        if not self._committed:
-            try:
-                source_name = self._current_source_name()
-                _remove_tree_at(self.source_parent_fd, source_name)
-                self._remove_replacement_source_name()
-            except (FileNotFoundError, RunIdentityError):
-                pass
+        try:
+            source_name = self._current_source_name()
+            _remove_tree_at(self.source_parent_fd, source_name)
+            self._remove_replacement_source_name()
+        except (FileNotFoundError, RunIdentityError):
+            pass
         os.close(self.staging_fd)
         os.close(self.source_parent_fd)
         os.close(self.parent_fd)
@@ -668,6 +709,7 @@ def read_artifact_run_identity(run_dir: Path | str) -> dict[str, Any] | None:
     source while preventing a copied artifact from becoming a second current
     run instance.
     """
+    require_final_run_path(run_dir, purpose="run identity read")
     directory = run_dir if is_anchored_path(run_dir) else Path(run_dir)
     path = directory / RUN_IDENTITY_FILENAME
     if not path.exists() and not path.is_symlink():

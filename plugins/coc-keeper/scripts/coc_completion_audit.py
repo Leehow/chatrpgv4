@@ -29,6 +29,7 @@ from coc_playtest_report import (
     _selected_language_profile,
 )
 from coc_language import localize_terms
+from coc_playtest_runs import is_final_run_name, is_final_run_path
 from coc_validate import validate_rules
 from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
 from coc_eval_packs import load_benchmark_pack_registry
@@ -465,7 +466,17 @@ def _finding(code: str, cause: str, evidence: str, recommendation: str, **extra:
 
 def _active_runs(index: dict[str, Any], loop_decision: dict[str, Any]) -> list[dict[str, Any]]:
     active_ids = set(loop_decision.get("evaluated_runs", []))
-    return [run for run in index.get("runs", []) if run.get("run_id") in active_ids]
+    active: list[dict[str, Any]] = []
+    for run in index.get("runs", []):
+        run_id = run.get("run_id")
+        path = run.get("path")
+        if (
+            run_id in active_ids
+            and is_final_run_name(run_id)
+            and (path is None or is_final_run_path(path))
+        ):
+            active.append(run)
+    return active
 
 
 def _required_profiles(active_runs: list[dict[str, Any]]) -> dict[str, str | None]:

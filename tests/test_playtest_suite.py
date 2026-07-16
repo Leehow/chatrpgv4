@@ -18,6 +18,28 @@ coc_playtest_harness = load_module("coc_playtest_harness", "plugins/coc-keeper/s
 coc_playtest_suite = load_module("coc_playtest_suite", "plugins/coc-keeper/scripts/coc_playtest_suite.py")
 
 
+def test_crash_orphan_playtest_metadata_is_never_discovered_or_indexed(tmp_path):
+    playtests = tmp_path / ".coc" / "playtests"
+    staging_orphan = playtests / ".staging" / "crashed-generation"
+    hidden_orphan = playtests / ".legacy-hidden-generation"
+    for orphan in (staging_orphan, hidden_orphan):
+        orphan.mkdir(parents=True)
+        (orphan / "playtest.json").write_text(
+            json.dumps({"run_id": "must-not-index"}) + "\n",
+            encoding="utf-8",
+        )
+
+    runs = coc_playtest_suite._discover_runs(
+        tmp_path, coc_playtest_suite.StructuredSourceCoverageEvaluator()
+    )
+    requests = coc_playtest_suite.write_semantic_eval_requests(tmp_path)
+
+    assert runs == []
+    assert requests == []
+    assert not (staging_orphan / "artifacts" / "semantic-eval-request.json").exists()
+    assert not (hidden_orphan / "artifacts" / "semantic-eval-request.json").exists()
+
+
 def llm_semantic_provenance():
     return {
         "kind": "llm",

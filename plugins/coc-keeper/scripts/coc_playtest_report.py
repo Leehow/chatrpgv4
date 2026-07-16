@@ -22,6 +22,7 @@ from coc_language import language_profile as build_language_profile
 from coc_language import localize_terms
 from coc_eval_contract import roll_visibility
 from coc_playtest_evidence import read_evidence_receipt
+from coc_playtest_runs import require_final_run_path
 from coc_roll import format_percentile_result
 import coc_epistemic_metrics
 
@@ -3476,6 +3477,7 @@ def _evidence_sensitive_metadata(
 
 
 def generate_battle_report(run_dir: Path) -> Path:
+    require_final_run_path(run_dir, purpose="battle-report generation")
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
     # Classification is derived only from the recomputed receipt. Metadata is
@@ -4073,6 +4075,7 @@ def generate_battle_report(run_dir: Path) -> Path:
 
 
 def generate_evaluation_report(run_dir: Path) -> Path:
+    require_final_run_path(run_dir, purpose="evaluation-report generation")
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
     display_metadata = {

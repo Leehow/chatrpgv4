@@ -1583,9 +1583,7 @@ def test_default_run_no_replace_collision_preserves_existing_run(
             handle.commit()
         assert handle._committed is False
         assert (handle.final_path / "nested" / "important.txt").read_bytes() == important
-        assert not list(
-            handle.final_path.parent.glob(".coc-run-generation-*")
-        )
+        assert not list((handle.final_path.parent / ".staging").iterdir())
     finally:
         handle.close()
 
@@ -1631,9 +1629,7 @@ def test_default_run_partial_copy_is_never_visible_at_final_name(
         with pytest.raises(RuntimeError, match="process-death"):
             handle.commit()
         assert not handle.final_path.exists()
-        assert not list(
-            handle.final_path.parent.glob(".coc-run-generation-*")
-        )
+        assert not list((handle.final_path.parent / ".staging").iterdir())
     finally:
         handle.close()
 
@@ -1676,11 +1672,57 @@ def test_default_run_finalize_failure_precedes_atomic_visibility(
         with pytest.raises(RuntimeError, match="pre-publication"):
             handle.commit()
         assert not handle.final_path.exists()
-        assert not list(
-            handle.final_path.parent.glob(".coc-run-generation-*")
-        )
+        assert not list((handle.final_path.parent / ".staging").iterdir())
     finally:
         handle.close()
+
+
+def test_default_run_publish_then_keyboard_interrupt_preserves_final(
+    tmp_path, monkeypatch,
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    handle = match.coc_run_identity.allocate_default_run_dir(
+        workspace / ".coc" / "playtests",
+        trusted_root=workspace,
+    )
+    anchored = handle.activate()
+    proof = b"published generation must survive async interruption\n"
+    (anchored / "proof.txt").write_bytes(proof)
+    real_publish = match.coc_run_identity._rename_noreplace_at
+
+    def publish_then_interrupt(*args):
+        real_publish(*args)
+        raise KeyboardInterrupt("after successful no-replace syscall")
+
+    monkeypatch.setattr(
+        match.coc_run_identity, "_rename_noreplace_at", publish_then_interrupt
+    )
+    with pytest.raises(KeyboardInterrupt, match="successful no-replace"):
+        handle.commit()
+
+    assert handle._committed is True
+    assert (handle.final_path / "proof.txt").read_bytes() == proof
+    handle.close()
+    assert (handle.final_path / "proof.txt").read_bytes() == proof
+    assert not list((handle.final_path.parent / ".staging").iterdir())
+    assert not list(workspace.glob(".coc-run-stage-*"))
+
+
+def test_live_resume_rejects_private_staging_generation(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    orphan = workspace / ".coc" / "playtests" / ".staging" / "crashed"
+    orphan.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="published final playtest run"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=tmp_path / "unused-player",
+            resume_run_dir=orphan,
+            max_turns=1,
+        )
 
 
 def test_resume_helpers_ignore_system_rows_and_renumber_append():
