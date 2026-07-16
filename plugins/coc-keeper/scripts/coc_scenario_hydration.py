@@ -16,6 +16,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import secrets
 import shutil
 import stat
 import tempfile
@@ -579,17 +580,41 @@ def _record_epistemic_rejections(
             "base_request_sha256": base_request_sha256,
             "attempt": attempt,
         }
-        directory = campaign_dir / "logs" / "scenario-resolution"
-        directory.mkdir(parents=True, exist_ok=True)
-        path = directory / (
+        filename = (
             f"{base_request_sha256}.epistemic-{epistemic_sha}.rejected-{attempt}.json"
         )
-        _write_epistemic_receipt_exclusive(path, payload)
+        _write_epistemic_receipt_exclusive(campaign_dir, filename, payload)
 
 
-def _read_regular_json_nofollow(path: Path) -> dict[str, Any]:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    fd = os.open(path, flags)
+def _open_or_create_directory_at(parent_fd: int, name: str) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        return os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        try:
+            return os.open(name, flags, dir_fd=parent_fd)
+        except OSError as exc:
+            raise ScenarioHydrationError(
+                "epistemic rejection evidence directory is invalid"
+            ) from exc
+    except OSError as exc:
+        raise ScenarioHydrationError(
+            "epistemic rejection evidence directory is invalid"
+        ) from exc
+
+
+def _read_regular_json_nofollow(directory_fd: int, filename: str) -> dict[str, Any]:
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    try:
+        fd = os.open(filename, flags, dir_fd=directory_fd)
+    except OSError as exc:
+        raise ScenarioHydrationError(
+            "epistemic rejection evidence target is invalid"
+        ) from exc
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_size > 8192:
@@ -606,8 +631,22 @@ def _read_regular_json_nofollow(path: Path) -> dict[str, Any]:
     return value
 
 
-def _write_epistemic_receipt_exclusive(path: Path, payload: dict[str, Any]) -> None:
-    """Atomically create or content-confirm one bounded immutable receipt."""
+def _write_epistemic_receipt_exclusive(
+    campaign_dir: Path,
+    filename: str,
+    payload: dict[str, Any],
+    *,
+    _after_directory_open: Callable[[], None] | None = None,
+) -> None:
+    """Create or confirm a receipt through retained no-follow directory fds."""
+    if (
+        not isinstance(filename, str)
+        or not filename
+        or filename in {".", ".."}
+        or Path(filename).name != filename
+        or "\x00" in filename
+    ):
+        raise ScenarioHydrationError("epistemic rejection evidence filename is invalid")
     comparable = dict(payload)
     stored = {**comparable, "recorded_at": _now()}
     encoded = (
@@ -615,25 +654,66 @@ def _write_epistemic_receipt_exclusive(path: Path, payload: dict[str, Any]) -> N
     ).encode("utf-8")
     if len(encoded) > 8192:
         raise ScenarioHydrationError("epistemic rejection evidence exceeds size limit")
-    temp_path: Path | None = None
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    campaign_fd: int | None = None
+    logs_fd: int | None = None
+    resolution_fd: int | None = None
+    temp_name: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb", prefix=".epistemic-rejected-", dir=path.parent, delete=False
-        ) as handle:
-            temp_path = Path(handle.name)
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
         try:
-            os.link(temp_path, path, follow_symlinks=False)
+            campaign_fd = os.open(Path(campaign_dir), directory_flags)
+        except OSError as exc:
+            raise ScenarioHydrationError(
+                "epistemic rejection evidence campaign directory is invalid"
+            ) from exc
+        logs_fd = _open_or_create_directory_at(campaign_fd, "logs")
+        resolution_fd = _open_or_create_directory_at(logs_fd, "scenario-resolution")
+        if _after_directory_open is not None:
+            _after_directory_open()
+        for _attempt in range(16):
+            candidate = f".epistemic-rejected-{secrets.token_hex(12)}"
+            try:
+                temp_fd = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=resolution_fd,
+                )
+            except FileExistsError:
+                continue
+            temp_name = candidate
+            break
+        else:
+            raise ScenarioHydrationError(
+                "epistemic rejection evidence temporary allocation failed"
+            )
+        try:
+            with os.fdopen(temp_fd, "wb", closefd=True) as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.link(
+                temp_name,
+                filename,
+                src_dir_fd=resolution_fd,
+                dst_dir_fd=resolution_fd,
+                follow_symlinks=False,
+            )
+            os.fsync(resolution_fd)
         except FileExistsError:
-            existing = _read_regular_json_nofollow(path)
+            existing = _read_regular_json_nofollow(resolution_fd, filename)
             existing.pop("recorded_at", None)
             if existing != comparable:
                 raise ScenarioHydrationError("epistemic rejection evidence conflict")
     finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+        if temp_name is not None and resolution_fd is not None:
+            try:
+                os.unlink(temp_name, dir_fd=resolution_fd)
+            except FileNotFoundError:
+                pass
+        for fd in (resolution_fd, logs_fd, campaign_fd):
+            if fd is not None:
+                os.close(fd)
 
 
 def _persist_source_bundle(

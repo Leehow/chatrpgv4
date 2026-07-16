@@ -270,8 +270,10 @@ def test_hydration_correction_reuses_base_stage_and_records_safe_receipt(tmp_pat
 
 
 def test_rejection_receipt_is_bounded_concurrent_idempotent_and_conflict_safe(tmp_path):
-    path = tmp_path / "logs/receipt.json"
-    path.parent.mkdir(parents=True)
+    campaign = tmp_path / "campaign"
+    campaign.mkdir()
+    filename = "receipt.json"
+    path = campaign / "logs/scenario-resolution" / filename
     payload = {
         "schema_version": 1,
         "status": "REJECTED",
@@ -285,15 +287,62 @@ def test_rejection_receipt_is_bounded_concurrent_idempotent_and_conflict_safe(tm
         "model_identity": {"provider": "fixture", "id": "terra"},
     }
     with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(lambda _index: hydration._write_epistemic_receipt_exclusive(path, payload), range(8)))
+        list(pool.map(
+            lambda _index: hydration._write_epistemic_receipt_exclusive(
+                campaign, filename, payload
+            ),
+            range(8),
+        ))
     before = path.read_bytes()
-    hydration._write_epistemic_receipt_exclusive(path, payload)
+    hydration._write_epistemic_receipt_exclusive(campaign, filename, payload)
     assert path.read_bytes() == before
     assert len(before) <= 8192
     with pytest.raises(hydration.ScenarioHydrationError, match="conflict"):
         hydration._write_epistemic_receipt_exclusive(
-            path, {**payload, "rejected_result_sha256": "d" * 64}
+            campaign,
+            filename,
+            {**payload, "rejected_result_sha256": "d" * 64},
         )
+
+
+def test_rejection_receipt_rejects_preexisting_symlinked_parent(tmp_path):
+    campaign = tmp_path / "campaign"
+    outside = tmp_path / "outside"
+    (campaign / "logs").mkdir(parents=True)
+    outside.mkdir()
+    (campaign / "logs/scenario-resolution").symlink_to(
+        outside, target_is_directory=True
+    )
+
+    with pytest.raises(hydration.ScenarioHydrationError, match="directory is invalid"):
+        hydration._write_epistemic_receipt_exclusive(
+            campaign, "receipt.json", {"schema_version": 1}
+        )
+
+    assert not (outside / "receipt.json").exists()
+
+
+def test_rejection_receipt_parent_name_swap_stays_in_opened_directory(tmp_path):
+    campaign = tmp_path / "campaign"
+    resolution = campaign / "logs/scenario-resolution"
+    retained = campaign / "logs/scenario-resolution-retained"
+    outside = tmp_path / "outside"
+    resolution.mkdir(parents=True)
+    outside.mkdir()
+
+    def swap_parent_name():
+        resolution.rename(retained)
+        resolution.symlink_to(outside, target_is_directory=True)
+
+    hydration._write_epistemic_receipt_exclusive(
+        campaign,
+        "receipt.json",
+        {"schema_version": 1},
+        _after_directory_open=swap_parent_name,
+    )
+
+    assert not (outside / "receipt.json").exists()
+    assert (retained / "receipt.json").is_file()
 
 
 def test_exhausted_correction_rolls_back_and_records_both_safe_attempts(tmp_path, monkeypatch):
