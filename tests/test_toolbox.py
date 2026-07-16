@@ -1005,6 +1005,161 @@ def test_rev3_document_precommit_interruption_preserves_original_bytes(
     )
 
 
+def test_rev3_duplicate_roll_id_batch_fails_before_any_migration_or_append(
+    campaign_ws,
+):
+    for ordinal, expression in enumerate(("1D6", "1D8")):
+        assert _run(
+            campaign_ws,
+            "rules.roll_dice",
+            {
+                "expression": expression,
+                "decision_id": f"duplicate-rev3-roll-{ordinal}",
+                "seed": ordinal + 1,
+            },
+        )["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    legacy = _downgrade_roll_document_to_real_rev3(receipt_path)
+    by_dice = legacy["receipts"]["rules.roll_dice"]
+    first = by_dice["duplicate-rev3-roll-0"]
+    second = by_dice["duplicate-rev3-roll-1"]
+    duplicate_id = first["roll_id"]
+    second["roll_id"] = duplicate_id
+    second["data"]["roll_id"] = duplicate_id
+    second["roll_record"]["roll_id"] = duplicate_id
+    second["roll_record"]["payload"]["roll_id"] = duplicate_id
+    second["roll_record"]["source_ref"] = f"logs/rolls.jsonl#{duplicate_id}"
+    for receipt in (first, second):
+        receipt["log_prefix_size"] = 0
+        receipt["log_prefix_sha256"] = (
+            f"sha256:{hashlib.sha256(b'').hexdigest()}"
+        )
+        receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+            coc_toolbox._source_receipt_integrity(receipt)
+        )
+    _write_json(receipt_path, legacy)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rolls_path.write_text("", encoding="utf-8")
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
+
+    for _attempt in range(2):
+        rejected = _run(
+            campaign_ws,
+            "state.journal",
+            {"summary": "duplicate must not mutate", "decision_id": "duplicate-cut"},
+        )
+        assert rejected["ok"] is False
+        assert rejected["error"]["code"] == "state_corrupt"
+        assert (
+            receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()
+        ) == before
+
+
+def test_rev4_ghost_pending_fails_before_document_publication_or_state_change(
+    campaign_ws,
+):
+    assert _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {"expression": "1D6", "decision_id": "ghost-pending-source", "seed": 7},
+    )["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    document["schema_version"] = 2
+    document.pop("legacy_receipts")
+    document["pending_side_effects"] = {"ghost-effect": "ghost-roll"}
+    _write_json(receipt_path, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
+
+    for _attempt in range(2):
+        rejected = _run(
+            campaign_ws,
+            "state.journal",
+            {"summary": "ghost pending must not mutate", "decision_id": "ghost-cut"},
+        )
+        assert rejected["ok"] is False
+        assert rejected["error"]["code"] == "state_corrupt"
+        assert (
+            receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()
+        ) == before
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "operation_field", "tampered_value"),
+    [
+        ("rules.roll", "resolved_label", "Stealth"),
+        ("rules.roll", "target", 1),
+        ("rules.roll", "skill", "Stealth"),
+        ("rules.push", "pushed", False),
+    ],
+)
+def test_legacy_percentile_cross_field_tamper_fails_before_migration_or_state(
+    campaign_ws, tool_name, operation_field, tampered_value
+):
+    decision_id = f"legacy-cross-{tool_name}-{operation_field}"
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 99,
+        "decision_id": decision_id,
+        "seed": 1,
+    }
+    if tool_name == "rules.push":
+        args.update({
+            "method_changed": "cross-check another archive",
+            "failure_consequence": "the archive closes",
+        })
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    legacy = _downgrade_roll_document_to_real_rev3(receipt_path)
+    receipt = legacy["receipts"][tool_name][decision_id]
+    receipt["operation"][operation_field] = tampered_value
+    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
+        tool_name, receipt["operation"]
+    )
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, legacy)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "legacy contradiction", "decision_id": f"after-{decision_id}"},
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()) == before
+
+
 @pytest.mark.parametrize(
     ("tool_name", "base", "changed"),
     [
@@ -1432,6 +1587,52 @@ def test_coordinated_resolution_tamper_is_rejected_without_evidence_mutation(
     assert rolls_path.read_bytes() == roll_bytes
 
 
+def test_coordinated_dice_receipt_and_log_tamper_fails_before_any_mutation(
+    campaign_ws,
+):
+    decision_id = "coordinated-dice-log-tamper"
+    assert _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {"expression": "1D6", "decision_id": decision_id, "seed": 7},
+    )["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"]["rules.roll_dice"][decision_id]
+    receipt["resolution"]["sides"] = 999
+    receipt["data"]["sides"] = 999
+    receipt["roll_record"]["sides"] = 999
+    receipt["roll_record"]["payload"]["sides"] = 999
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rolls_path.write_text(
+        json.dumps(receipt["roll_record"], ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "mechanical contradiction", "decision_id": "after-dice-log-tamper"},
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()) == before
+
+
 def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     campaign_ws, monkeypatch
 ):
@@ -1454,7 +1655,17 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
             "rolls": [total],
             "total": total,
         }
-        record = ctx.prepare_roll({**data, "ts": f"bulk-{ordinal:03d}"})
+        record = ctx.prepare_roll({
+            **data,
+            "ts": f"bulk-{ordinal:03d}",
+            "payload": {
+                **data,
+                "die_expression": data["expression"],
+                "individual_faces": list(data["rolls"]),
+                "final_total": data["total"],
+                "roll": data["total"],
+            },
+        })
         data["roll_id"] = record["roll_id"]
         receipt = coc_toolbox._new_roll_receipt(
             tool_name="rules.roll_dice",
