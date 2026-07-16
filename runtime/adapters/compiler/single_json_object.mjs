@@ -97,7 +97,7 @@ function assertNoStandaloneJsonDocument(wrapper, diagnostics) {
 }
 
 function looksLikeMalformedStandaloneJson(segment) {
-  if (markdownLinkEndAt(segment, 0) !== null) return false;
+  if (buildMarkdownLinkEnds(segment, null).has(0)) return false;
   if (segment.startsWith('"')) return isStandaloneStringShaped(segment);
   if (segment.startsWith("{")) return looksLikeJsonContainer(segment, 0);
   if (segment.startsWith("[")) return looksLikeJsonContainer(segment, 0);
@@ -117,16 +117,15 @@ function isStandaloneStringShaped(segment) {
 
 function findContainerCandidates(source, diagnostics) {
   const containers = [];
+  const markdownLinkEnds = buildMarkdownLinkEnds(source, diagnostics);
   const nextNonWhitespace = buildNextNonWhitespace(source, diagnostics);
   let index = 0;
   while (index < source.length) {
     countStep(diagnostics);
-    if (source[index] === "[") {
-      const linkEnd = markdownLinkEndAt(source, index, diagnostics);
-      if (linkEnd !== null) {
-        index = linkEnd;
-        continue;
-      }
+    const linkEnd = markdownLinkEnds.get(index);
+    if (linkEnd !== undefined) {
+      index = linkEnd;
+      continue;
     }
     if (source[index] !== "{" && source[index] !== "[") {
       index += 1;
@@ -194,6 +193,44 @@ function buildNextNonWhitespace(source, diagnostics) {
   return nextNonWhitespace;
 }
 
+function buildMarkdownLinkEnds(source, diagnostics) {
+  const bracketEnds = buildBalancedDelimiterEnds(source, "[", "]", diagnostics);
+  const parenEnds = buildBalancedDelimiterEnds(source, "(", ")", diagnostics);
+  const linkEnds = new Map();
+  for (const [start, bracketEnd] of bracketEnds) {
+    countStep(diagnostics);
+    const destinationEnd = parenEnds.get(bracketEnd);
+    if (source[bracketEnd] === "(" && destinationEnd !== undefined) {
+      linkEnds.set(start, destinationEnd);
+    }
+  }
+  return linkEnds;
+}
+
+function buildBalancedDelimiterEnds(source, opener, closer, diagnostics) {
+  const ends = new Map();
+  const stack = [];
+  let escaped = false;
+  for (let index = 0; index < source.length; index += 1) {
+    countStep(diagnostics);
+    const char = source[index];
+    if (stack.length && escaped) {
+      escaped = false;
+      continue;
+    }
+    if (stack.length && char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === opener) {
+      stack.push(index);
+    } else if (char === closer && stack.length) {
+      ends.set(stack.pop(), index + 1);
+    }
+  }
+  return ends;
+}
+
 function looksLikeJsonContainer(source, start, nextNonWhitespace = null) {
   const opener = source[start];
   let contentStart = nextNonWhitespace ? nextNonWhitespace[start + 1] : start + 1;
@@ -209,35 +246,6 @@ function looksLikeJsonContainer(source, start, nextNonWhitespace = null) {
     source.startsWith(word, contentStart)
     && !/[a-zA-Z0-9_]/.test(source[contentStart + word.length] || "")
   ));
-}
-
-function markdownLinkEndAt(source, start, diagnostics = null) {
-  if (source[start] !== "[") return null;
-  let depth = 1;
-  let escaped = false;
-  let index = start + 1;
-  for (; index < source.length && depth; index += 1) {
-    countStep(diagnostics);
-    const char = source[index];
-    if (escaped) escaped = false;
-    else if (char === "\\") escaped = true;
-    else if (char === "[") depth += 1;
-    else if (char === "]") depth -= 1;
-  }
-  if (depth || source[index] !== "(") return null;
-
-  depth = 1;
-  escaped = false;
-  index += 1;
-  for (; index < source.length && depth; index += 1) {
-    countStep(diagnostics);
-    const char = source[index];
-    if (escaped) escaped = false;
-    else if (char === "\\") escaped = true;
-    else if (char === "(") depth += 1;
-    else if (char === ")") depth -= 1;
-  }
-  return depth ? null : index;
 }
 
 function countStep(diagnostics) {

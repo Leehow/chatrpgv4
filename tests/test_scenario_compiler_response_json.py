@@ -155,29 +155,50 @@ def test_rejects_ambiguous_truncated_or_structurally_invalid_output(invalid, exp
     assert expected in payload["error"]
 
 
-def test_nested_prose_delimiter_scan_is_linear_and_non_recursive():
+def test_wrapper_delimiter_and_markdown_scans_are_linear_and_non_recursive():
     program = """
 import { performance } from 'node:perf_hooks';
 const { parseSingleJsonObject } = await import(process.argv[1]);
+const targets = [16_000, 32_000, 64_000, 128_000, 256_000];
+const shapes = {
+  curly: (depth) => '{draft '.repeat(depth) + 'x' + '}'.repeat(depth),
+  square: (depth) => '[draft '.repeat(depth) + 'x' + ']'.repeat(depth),
+  mixed: (depth) => '{draft [draft '.repeat(depth) + 'x' + ']}'.repeat(depth),
+  repeated_links: (depth) => '[label](target) '.repeat(depth),
+  nested_links: (depth) => '[label '.repeat(depth) + 'core' + '](target)'.repeat(depth),
+};
 const rows = [];
-for (const depth of [2000, 4000, 8000, 12000]) {
-  const input = '{draft '.repeat(depth) + 'x' + '}'.repeat(depth) + ' {"a":1}';
-  const diagnostics = {};
-  const started = performance.now();
-  parseSingleJsonObject(input, diagnostics);
-  rows.push({ bytes: input.length, steps: diagnostics.scan_steps, ms: performance.now() - started });
+for (const [shape, build] of Object.entries(shapes)) {
+  for (const target of targets) {
+    let low = 0;
+    let high = target;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (build(middle).length < target) low = middle;
+      else high = middle;
+    }
+    const input = build(high) + ' {"a":1}';
+    const diagnostics = {};
+    const started = performance.now();
+    parseSingleJsonObject(input, diagnostics);
+    rows.push({ shape, target, bytes: input.length, steps: diagnostics.scan_steps,
+      ms: performance.now() - started });
+  }
 }
 process.stdout.write(JSON.stringify(rows));
 """
     completed = subprocess.run(
         ["node", "--input-type=module", "--eval", program, PARSER.as_uri()],
-        capture_output=True, text=True, check=False, cwd=ROOT, timeout=10,
+        capture_output=True, text=True, check=False, cwd=ROOT, timeout=15,
     )
     assert completed.returncode == 0, completed.stderr
     rows = json.loads(completed.stdout)
-    assert [row["bytes"] // 1000 for row in rows] == [16, 32, 64, 96]
-    assert all(row["steps"] <= row["bytes"] * 6.1 + 100 for row in rows)
-    for previous, current in zip(rows, rows[1:]):
-        byte_ratio = current["bytes"] / previous["bytes"]
-        assert current["steps"] / previous["steps"] <= byte_ratio * 1.05
-    assert rows[-1]["ms"] < 2000
+    assert len(rows) == 25
+    assert all(0 <= row["bytes"] - row["target"] < 40 for row in rows)
+    assert all(row["steps"] <= row["bytes"] * 12 + 200 for row in rows)
+    for shape in {row["shape"] for row in rows}:
+        shape_rows = [row for row in rows if row["shape"] == shape]
+        for previous, current in zip(shape_rows, shape_rows[1:]):
+            byte_ratio = current["bytes"] / previous["bytes"]
+            assert current["steps"] / previous["steps"] <= byte_ratio * 1.08
+        assert shape_rows[-1]["ms"] < 2000
