@@ -494,6 +494,8 @@ def _harvest_npc_engagement_evidence(
     final_state: dict[str, Any],
     *,
     canonical_chain: Any = None,
+    canonical_binding: dict[str, Any] | None = None,
+    canonical_binding_invalid: bool = False,
 ) -> dict[str, Any]:
     """Collect coverage only from a loader-owned canonical capability.
 
@@ -511,7 +513,13 @@ def _harvest_npc_engagement_evidence(
             event_rows.append({"event_type": "npc_engagement", **move})
 
     trusted_rows: list[dict[str, Any]] = []
-    trusted_chain = coc_npc_event_chain.is_canonical_capability(canonical_chain)
+    trusted_chain = (
+        coc_npc_event_chain.is_canonical_capability(canonical_chain)
+        and isinstance(canonical_binding, dict)
+        and coc_npc_event_chain.capability_matches_artifact_binding(
+            canonical_chain, canonical_binding
+        )
+    )
     if trusted_chain:
         canonical_rows, trusted_rows, _manifest = (
             coc_npc_event_chain.capability_rows(canonical_chain)
@@ -580,6 +588,7 @@ def _harvest_npc_engagement_evidence(
         "status": (
             "NON_COMPARABLE"
             if legacy
+            or canonical_binding_invalid
             or (
                 not trusted_chain
                 and bool(explicit_ids or prior_projection or event_rows)
@@ -596,6 +605,8 @@ def _normalize_play_record(
     play: dict[str, Any] | None,
     *,
     canonical_npc_event_chain: Any = None,
+    canonical_npc_binding: dict[str, Any] | None = None,
+    canonical_binding_invalid: bool = False,
 ) -> dict[str, Any]:
     """Normalize session_result / campaign world-state shapes into one record."""
     raw = play if isinstance(play, dict) else {}
@@ -627,6 +638,8 @@ def _normalize_play_record(
         raw,
         final_state,
         canonical_chain=canonical_npc_event_chain,
+        canonical_binding=canonical_npc_binding,
+        canonical_binding_invalid=canonical_binding_invalid,
     )
     return {
         "discovered_clue_ids": _as_str_set(discovered),
@@ -715,12 +728,16 @@ def _evaluate_adherence(
     playtest_result_or_campaign_state: dict[str, Any] | None,
     *,
     canonical_npc_event_chain: Any = None,
+    canonical_npc_binding: dict[str, Any] | None = None,
+    canonical_binding_invalid: bool = False,
 ) -> dict[str, Any]:
     """Mark each checklist statement satisfied/unsatisfied from structured play data."""
     statements_in = list(checklist or [])
     play = _normalize_play_record(
         playtest_result_or_campaign_state,
         canonical_npc_event_chain=canonical_npc_event_chain,
+        canonical_npc_binding=canonical_npc_binding,
+        canonical_binding_invalid=canonical_binding_invalid,
     )
     evaluated: list[dict[str, Any]] = []
     required_total = 0
@@ -790,11 +807,48 @@ def compute_adherence_for_campaign(
         checklist = generate_adherence_checklist(scenario_dir)
         if not checklist:
             return None
-        capability = coc_npc_event_chain.load_canonical_chain(Path(campaign_dir))
+        play = (
+            playtest_result_or_campaign_state
+            if isinstance(playtest_result_or_campaign_state, dict)
+            else {}
+        )
+        campaign_id = play.get("campaign_id")
+        run_id = play.get("run_id")
+        cumulative_run_ids = play.get("cumulative_run_ids")
+        binding = play.get("npc_event_chain_binding")
+        if (
+            not isinstance(campaign_id, str)
+            or not campaign_id.strip()
+            or not isinstance(run_id, str)
+            or not run_id.strip()
+            or not isinstance(cumulative_run_ids, list)
+            or not cumulative_run_ids
+            or not isinstance(binding, dict)
+        ):
+            return _evaluate_adherence(
+                checklist,
+                playtest_result_or_campaign_state,
+                canonical_binding_invalid=True,
+            )
+        try:
+            capability = coc_npc_event_chain.load_canonical_chain(
+                Path(campaign_dir),
+                expected_campaign_id=campaign_id,
+                expected_artifact_run_id=run_id,
+                expected_cumulative_run_ids=cumulative_run_ids,
+                expected_binding=binding,
+            )
+        except (ValueError, TypeError):
+            return _evaluate_adherence(
+                checklist,
+                playtest_result_or_campaign_state,
+                canonical_binding_invalid=True,
+            )
         return _evaluate_adherence(
             checklist,
             playtest_result_or_campaign_state,
             canonical_npc_event_chain=capability,
+            canonical_npc_binding=binding,
         )
     except Exception:
         return None

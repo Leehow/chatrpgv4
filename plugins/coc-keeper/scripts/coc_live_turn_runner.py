@@ -49,6 +49,9 @@ subsystem_executor = _load_sibling(
 coc_async_recorder = _load_sibling("coc_async_recorder", "coc_async_recorder.py")
 coc_intent_router = _load_sibling("coc_intent_router", "coc_intent_router.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_toolbox_continuity = _load_sibling(
+    "coc_toolbox_continuity_live_turn", "coc_toolbox.py"
+)
 coc_state = _load_sibling("coc_state_live_turn", "coc_state.py")
 coc_scenario_hydration = _load_sibling(
     "coc_scenario_hydration_live_turn", "coc_scenario_hydration.py"
@@ -1092,6 +1095,7 @@ def _run_one_turn(
         rules_results_mode="normalized",
         recording_mode=recording_mode,
         recording_flush="manual" if recording_flush == "background" else recording_flush,
+        _campaign_lock_held=True,
     )
     after_pending = _pending_record_count(campaign_dir)
     persistence_ms = (time.perf_counter() - persistence_started) * 1000.0
@@ -1390,6 +1394,7 @@ def run_live_turn(
     started = time.perf_counter()
     campaign = Path(campaign_dir)
     with coc_fileio.campaign_lock(campaign):
+        coc_toolbox_continuity.reconcile_campaign_continuity(campaign)
         # Production resolution boundary: the Keeper-only resolver reuses or
         # compiles validated IR before any director code reads the scenario.
         # Raw module text never crosses into the player/narrator requests.
@@ -1854,6 +1859,7 @@ def _run_pending_choice_response(
         rules_results_mode="normalized",
         recording_mode=mode,
         recording_flush="manual" if flush_policy == "background" else flush_policy,
+        _campaign_lock_held=True,
     )
     after_pending = _pending_record_count(campaign)
     persistence_ms = (time.perf_counter() - persistence_started) * 1000.0

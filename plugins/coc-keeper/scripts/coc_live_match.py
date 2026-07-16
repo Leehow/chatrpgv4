@@ -1490,7 +1490,20 @@ def _run_live_match_impl(
         for cl in concl.get("clues", []) if isinstance(concl, dict) else []:
             if isinstance(cl, dict) and cl.get("clue_id"):
                 total_clues.add(str(cl["clue_id"]))
+    prior_run_ids = (
+        prior_metadata.get("cumulative_run_ids")
+        if isinstance(prior_metadata.get("cumulative_run_ids"), list)
+        else [prior_metadata.get("run_id")]
+        if prior_metadata.get("run_id")
+        else []
+    )
+    cumulative_run_ids = list(dict.fromkeys(
+        [str(value) for value in [*prior_run_ids, out.name] if value]
+    ))
     session_result: dict[str, Any] = {
+        "campaign_id": campaign_id,
+        "run_id": out.name,
+        "cumulative_run_ids": cumulative_run_ids,
         "turns": turns,
         "final_state": {
             "active_scene": world_final.get("active_scene_id"),
@@ -1527,6 +1540,13 @@ def _run_live_match_impl(
         list(discovered_final) if isinstance(discovered_final, list) else []
     )
     if coc_adherence is not None:
+        session_result["npc_event_chain_binding"] = (
+            coc_adherence.coc_npc_event_chain.build_artifact_binding(
+                camp,
+                artifact_run_id=out.name,
+                cumulative_run_ids=cumulative_run_ids,
+            )
+        )
         # Preserve positively attested IDs plus a separate narrow legacy
         # projection.  Raw event payloads can contain keeper-only identity and
         # agenda data, so they are never copied into this public result.
@@ -1580,6 +1600,7 @@ def _run_live_match_impl(
     ))
     metadata_extra: dict[str, Any] = {
         "run_id": out.name,
+        "cumulative_run_ids": cumulative_run_ids,
         "stop_reason": stop_reason,
         "module_coverage": cumulative_coverage,
         "scenario": (

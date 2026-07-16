@@ -823,6 +823,88 @@ def test_director_npc_receipt_recovers_exactly_once_before_different_plan(
     ]
 
 
+def test_director_npc_operation_set_is_frozen_before_events_and_conflicts_typed(
+    tmp_path, monkeypatch,
+):
+    camp = _campaign(tmp_path)
+    decision_id = "director-npc-immutable-operation-set"
+    original_plan = {
+        "decision_id": decision_id,
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-a",
+            "agency_moves": [{"move_id": "move-a", "reason": "first"}],
+        }],
+    }
+    real_save = coc_director_apply._save_npc_receipt_document
+    tripped = {"value": False}
+
+    def crash_after_operation_set(campaign_dir, document):
+        real_save(campaign_dir, document)
+        if (
+            not tripped["value"]
+            and document.get("decision_sets")
+            and not document.get("receipts")
+        ):
+            tripped["value"] = True
+            raise RuntimeError("synthetic crash after NPC operation-set source")
+
+    with monkeypatch.context() as crash:
+        crash.setattr(
+            coc_director_apply,
+            "_save_npc_receipt_document",
+            crash_after_operation_set,
+        )
+        with pytest.raises(RuntimeError, match="operation-set source"):
+            coc_director_apply.apply_plan(
+                camp, original_plan, investigator_id="inv1"
+            )
+    assert tripped["value"] is True
+    source_after_crash = json.loads((
+        camp / "save" / "npc-engagement-receipts.json"
+    ).read_text(encoding="utf-8"))
+    assert len(source_after_crash["decision_sets"]) == 1
+    assert source_after_crash["receipts"] == {}
+
+    changed_plan = {
+        **original_plan,
+        "npc_moves": [{
+            "npc_id": "npc-b",
+            "agency_moves": [{"move_id": "move-b", "reason": "changed"}],
+        }],
+    }
+    with pytest.raises(
+        coc_director_apply.coc_npc_event_chain.NpcOperationSetConflict
+    ) as exc_info:
+        coc_director_apply.apply_plan(
+            camp, changed_plan, investigator_id="inv1"
+        )
+    assert exc_info.value.code == "idempotency_conflict"
+
+    events = coc_director_apply.apply_plan(
+        camp, original_plan, investigator_id="inv1"
+    )
+    produced = [
+        row for row in events
+        if row.get("event_type") in {"npc_engagement", "npc_agency"}
+    ]
+    assert [row["npc_id"] for row in produced] == ["npc-a", "npc-a"]
+    event_rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert [
+        row.get("event_id") for row in event_rows
+        if row.get("decision_id") == decision_id and row.get("event_id")
+    ] == [row["event_id"] for row in produced]
+
+
 def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     tmp_path,
 ):
@@ -888,7 +970,18 @@ def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     evidence = coc_adherence.project_npc_engagement_evidence(produced)
     assert evidence["status"] == "PASS"
     assert evidence["legacy_unverifiable_npc_ids"] == []
-    capability = coc_adherence.coc_npc_event_chain.load_canonical_chain(camp)
+    binding = coc_adherence.coc_npc_event_chain.build_artifact_binding(
+        camp,
+        artifact_run_id="producer-consumer-run",
+        cumulative_run_ids=["producer-consumer-run"],
+    )
+    capability = coc_adherence.coc_npc_event_chain.load_canonical_chain(
+        camp,
+        expected_campaign_id=camp.name,
+        expected_artifact_run_id="producer-consumer-run",
+        expected_cumulative_run_ids=["producer-consumer-run"],
+        expected_binding=binding,
+    )
     consumed = coc_adherence._evaluate_adherence(
         [{
             "statement_id": "npc:npc-authority",
@@ -898,6 +991,7 @@ def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
         }],
         {"events": produced},
         canonical_npc_event_chain=capability,
+        canonical_npc_binding=binding,
     )
     assert consumed["statements"][0]["satisfied"] is True
     assert consumed["npc_engagement_evidence"][

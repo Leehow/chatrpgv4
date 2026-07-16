@@ -760,9 +760,21 @@ def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
         json.dumps(event) + "\n", encoding="utf-8"
     )
 
+    binding = coc_adherence.coc_npc_event_chain.build_artifact_binding(
+        campaign,
+        artifact_run_id="artifact-run-test",
+        cumulative_run_ids=["artifact-run-test"],
+    )
+    play = {
+        "campaign_id": "capability-test",
+        "run_id": "artifact-run-test",
+        "cumulative_run_ids": ["artifact-run-test"],
+        "npc_event_chain_binding": binding,
+        "events": [event],
+    }
     result = coc_adherence.compute_adherence_for_campaign(
         HAUNTING,
-        {"events": [event]},
+        play,
         campaign_dir=campaign,
     )
 
@@ -775,3 +787,91 @@ def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
     assert result["npc_engagement_evidence"]["authored_attested_npc_ids"] == [
         "npc-steven-knott"
     ]
+
+
+def test_campaign_loader_rejects_a_play_bound_to_b_campaign_artifact(
+    tmp_path: Path,
+):
+    campaign_a = tmp_path / "campaign-a"
+    campaign_b = tmp_path / "campaign-b"
+    for campaign, campaign_id in (
+        (campaign_a, "campaign-A"),
+        (campaign_b, "campaign-B"),
+    ):
+        (campaign / "save").mkdir(parents=True)
+        (campaign / "logs").mkdir(parents=True)
+        (campaign / "campaign.json").write_text(
+            json.dumps({"campaign_id": campaign_id}), encoding="utf-8"
+        )
+        event = _attested_npc_event("npc-steven-knott")
+        event_id = coc_adherence.coc_npc_event_chain.stable_event_id(
+            producer="state.record_npc_engagement",
+            campaign_id=campaign_id,
+            run_id=f"event-{campaign_id}",
+            decision_id=f"decision-{campaign_id}",
+            scene_id="scene-test",
+            npc_id="npc-steven-knott",
+            event_type="npc_engagement",
+            ordinal=0,
+        )
+        event.update({
+            "event_id": event_id,
+            "source_receipt_schema_version": 1,
+            "producer": "state.record_npc_engagement",
+            "campaign_id": campaign_id,
+            "run_id": f"event-{campaign_id}",
+            "decision_id": f"decision-{campaign_id}",
+        })
+        receipt = coc_adherence.coc_npc_event_chain.new_receipt(
+            producer="state.record_npc_engagement",
+            campaign_id=campaign_id,
+            run_id=f"event-{campaign_id}",
+            decision_id=f"decision-{campaign_id}",
+            scene_id="scene-test",
+            npc_id="npc-steven-knott",
+            event_type="npc_engagement",
+            ordinal=0,
+            operation={"npc_id": "npc-steven-knott"},
+            event=event,
+        )
+        document = coc_adherence.coc_npc_event_chain.empty_document(campaign_id)
+        coc_adherence.coc_npc_event_chain.put_receipt(document, receipt)
+        (campaign / "save" / "npc-engagement-receipts.json").write_text(
+            json.dumps(document), encoding="utf-8"
+        )
+        (campaign / "logs" / "events.jsonl").write_text(
+            json.dumps(event) + "\n", encoding="utf-8"
+        )
+
+    binding_a = coc_adherence.coc_npc_event_chain.build_artifact_binding(
+        campaign_a,
+        artifact_run_id="play-run-A",
+        cumulative_run_ids=["play-run-A"],
+    )
+    play_a = {
+        "campaign_id": "campaign-A",
+        "run_id": "play-run-A",
+        "cumulative_run_ids": ["play-run-A"],
+        "npc_event_chain_binding": binding_a,
+    }
+
+    result = coc_adherence.compute_adherence_for_campaign(
+        HAUNTING,
+        play_a,
+        campaign_dir=campaign_b,
+    )
+
+    assert result is not None
+    row = next(
+        item for item in result["statements"]
+        if item["criterion"].get("npc_id") == "npc-steven-knott"
+    )
+    assert row["satisfied"] is False
+    assert result["npc_engagement_evidence"] == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE",
+        "authored_attested_npc_ids": [],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": [],
+    }

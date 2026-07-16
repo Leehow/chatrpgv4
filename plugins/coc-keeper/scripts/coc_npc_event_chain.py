@@ -19,10 +19,18 @@ from pathlib import Path
 from typing import Any
 
 
-RECEIPT_DOCUMENT_SCHEMA_VERSION = 1
+RECEIPT_DOCUMENT_SCHEMA_VERSION = 2
+LEGACY_RECEIPT_DOCUMENT_SCHEMA_VERSION = 1
 RECEIPT_SCHEMA_VERSION = 1
+DECISION_SET_RECEIPT_SCHEMA_VERSION = 1
 RECEIPT_FILENAME = "npc-engagement-receipts.json"
 EVENT_TYPES = frozenset({"npc_engagement", "npc_agency"})
+
+
+class NpcOperationSetConflict(ValueError):
+    """One run/decision attempted a different immutable NPC operation set."""
+
+    code = "idempotency_conflict"
 
 
 def canonical_digest(value: Any) -> str:
@@ -118,6 +126,113 @@ def stable_event_id(
         separators=(",", ":"),
     ).encode("utf-8")
     return f"npc-engagement-v1:{hashlib.sha256(encoded).hexdigest()[:40]}"
+
+
+def decision_set_receipt_id(
+    *,
+    producer: str,
+    campaign_id: str,
+    run_id: str,
+    decision_id: str,
+) -> str:
+    """Stable source key intentionally independent of NPC/event payload."""
+    encoded = json.dumps(
+        [
+            "npc-operation-set-v1",
+            str(producer),
+            str(campaign_id),
+            str(run_id),
+            str(decision_id),
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"npc-operation-set-v1:{hashlib.sha256(encoded).hexdigest()[:40]}"
+
+
+def new_decision_set_receipt(
+    *,
+    producer: str,
+    campaign_id: str,
+    run_id: str,
+    decision_id: str,
+    operations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    receipt = {
+        "schema_version": DECISION_SET_RECEIPT_SCHEMA_VERSION,
+        "receipt_id": decision_set_receipt_id(
+            producer=producer,
+            campaign_id=campaign_id,
+            run_id=run_id,
+            decision_id=decision_id,
+        ),
+        "producer": str(producer),
+        "campaign_id": str(campaign_id),
+        "run_id": str(run_id),
+        "decision_id": str(decision_id),
+        "operations": deepcopy(operations),
+        "operation_set_digest": canonical_digest(operations),
+    }
+    receipt["integrity_digest"] = canonical_digest(receipt)
+    return receipt
+
+
+def valid_decision_set_receipt(receipt: Any) -> bool:
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "schema_version",
+        "receipt_id",
+        "producer",
+        "campaign_id",
+        "run_id",
+        "decision_id",
+        "operations",
+        "operation_set_digest",
+        "integrity_digest",
+    }:
+        return False
+    if receipt.get("schema_version") != DECISION_SET_RECEIPT_SCHEMA_VERSION:
+        return False
+    for key in ("receipt_id", "producer", "campaign_id", "run_id", "decision_id"):
+        value = receipt.get(key)
+        if not isinstance(value, str) or not value or value != value.strip():
+            return False
+    expected_id = decision_set_receipt_id(
+        producer=receipt["producer"],
+        campaign_id=receipt["campaign_id"],
+        run_id=receipt["run_id"],
+        decision_id=receipt["decision_id"],
+    )
+    operations = receipt.get("operations")
+    if receipt.get("receipt_id") != expected_id or not isinstance(operations, list):
+        return False
+    for ordinal, operation in enumerate(operations):
+        if not isinstance(operation, dict) or set(operation) != {
+            "event_type", "ordinal", "scene_id", "npc_id", "payload"
+        }:
+            return False
+        if operation.get("event_type") not in EVENT_TYPES:
+            return False
+        if operation.get("ordinal") != ordinal:
+            return False
+        npc_id = operation.get("npc_id")
+        scene_id = operation.get("scene_id")
+        if (
+            not isinstance(npc_id, str)
+            or not npc_id.strip()
+            or not isinstance(scene_id, str)
+            or not scene_id.strip()
+        ):
+            return False
+        if not isinstance(operation.get("payload"), dict):
+            return False
+    if receipt.get("operation_set_digest") != canonical_digest(operations):
+        return False
+    body = {
+        key: deepcopy(value)
+        for key, value in receipt.items()
+        if key != "integrity_digest"
+    }
+    return receipt.get("integrity_digest") == canonical_digest(body)
 
 
 def new_receipt(
@@ -229,6 +344,7 @@ def empty_document(campaign_id: str) -> dict[str, Any]:
         "schema_version": RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "campaign_id": str(campaign_id),
         "receipts": {},
+        "decision_sets": {},
     }
 
 
@@ -242,17 +358,37 @@ def load_receipt_document(campaign_dir: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("NPC engagement receipt source is unreadable") from exc
-    if (
-        not isinstance(payload, dict)
-        or set(payload) != {"schema_version", "campaign_id", "receipts"}
-        or payload.get("schema_version") != RECEIPT_DOCUMENT_SCHEMA_VERSION
-        or payload.get("campaign_id") != campaign_id
-        or not isinstance(payload.get("receipts"), dict)
+    if not isinstance(payload, dict) or payload.get("campaign_id") != campaign_id:
+        raise ValueError("NPC engagement receipt source has an invalid document contract")
+    if payload.get("schema_version") == LEGACY_RECEIPT_DOCUMENT_SCHEMA_VERSION:
+        if set(payload) != {"schema_version", "campaign_id", "receipts"}:
+            raise ValueError("NPC engagement receipt source has an invalid legacy contract")
+        payload = {
+            "schema_version": RECEIPT_DOCUMENT_SCHEMA_VERSION,
+            "campaign_id": campaign_id,
+            "receipts": payload.get("receipts"),
+            "decision_sets": {},
+        }
+    elif (
+        payload.get("schema_version") != RECEIPT_DOCUMENT_SCHEMA_VERSION
+        or set(payload) != {
+            "schema_version", "campaign_id", "receipts", "decision_sets"
+        }
     ):
         raise ValueError("NPC engagement receipt source has an invalid document contract")
+    if not isinstance(payload.get("receipts"), dict) or not isinstance(
+        payload.get("decision_sets"), dict
+    ):
+        raise ValueError("NPC engagement receipt source has invalid receipt maps")
     for event_id, receipt in payload["receipts"].items():
         if str(event_id) != str((receipt or {}).get("event_id") or "") or not valid_receipt(receipt):
             raise ValueError("NPC engagement source receipt failed integrity validation")
+    for receipt_id, receipt in payload["decision_sets"].items():
+        if (
+            str(receipt_id) != str((receipt or {}).get("receipt_id") or "")
+            or not valid_decision_set_receipt(receipt)
+        ):
+            raise ValueError("NPC operation-set receipt failed integrity validation")
     return payload
 
 
@@ -272,7 +408,34 @@ def put_receipt(document: dict[str, Any], receipt: dict[str, Any]) -> bool:
     return True
 
 
+def put_decision_set_receipt(
+    document: dict[str, Any], receipt: dict[str, Any]
+) -> bool:
+    if not valid_decision_set_receipt(receipt):
+        raise ValueError("cannot store an invalid NPC operation-set receipt")
+    decision_sets = document.get("decision_sets")
+    if not isinstance(decision_sets, dict):
+        raise ValueError("NPC operation-set receipt map is invalid")
+    receipt_id = str(receipt["receipt_id"])
+    prior = decision_sets.get(receipt_id)
+    if prior is not None:
+        if prior != receipt:
+            raise NpcOperationSetConflict(
+                f"decision_id '{receipt['decision_id']}' was already applied to a different ordered NPC operation set"
+            )
+        return False
+    decision_sets[receipt_id] = deepcopy(receipt)
+    return True
+
+
 _CAPABILITY_TOKEN = object()
+ARTIFACT_BINDING_SCHEMA_VERSION = 1
+
+
+class NpcCapabilityBindingError(ValueError):
+    """Canonical chain does not belong to the evaluated play artifact."""
+
+    code = "NON_COMPARABLE"
 
 
 class _CanonicalNpcEventChain:
@@ -312,8 +475,13 @@ def capability_rows(
     )
 
 
-def load_canonical_chain(campaign_dir: Path) -> _CanonicalNpcEventChain:
-    """Load and verify the actual campaign event chain and source receipts."""
+def _canonical_chain_material(
+    campaign_dir: Path,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    dict[str, Any],
+]:
     campaign = Path(campaign_dir).resolve()
     campaign_id = resolve_campaign_id(campaign)
     events_path = campaign / "logs" / "events.jsonl"
@@ -321,8 +489,12 @@ def load_canonical_chain(campaign_dir: Path) -> _CanonicalNpcEventChain:
         raw = events_path.read_bytes() if events_path.is_file() else b""
     except OSError as exc:
         raise ValueError("canonical campaign events are unreadable") from exc
+    try:
+        event_text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("canonical campaign events are not UTF-8") from exc
     rows: list[dict[str, Any]] = []
-    for line_number, raw_line in enumerate(raw.decode("utf-8").splitlines(), start=1):
+    for line_number, raw_line in enumerate(event_text.splitlines(), start=1):
         if not raw_line.strip():
             continue
         try:
@@ -356,17 +528,171 @@ def load_canonical_chain(campaign_dir: Path) -> _CanonicalNpcEventChain:
         trusted_rows.append(deepcopy(matches[0]))
         bound_run_ids.add(str(receipt["run_id"]))
 
-    relative = events_path.relative_to(campaign).as_posix()
-    manifest = {
-        "schema_version": 1,
-        "source_path": relative,
+    receipt_path = campaign / "save" / RECEIPT_FILENAME
+    try:
+        receipt_raw = receipt_path.read_bytes() if receipt_path.is_file() else b""
+        receipt_text = receipt_raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError("canonical NPC receipt source is unreadable") from exc
+    source_manifest = {
+        "source_path": events_path.relative_to(campaign).as_posix(),
         "source_digest": file_digest(raw),
-        "line_count": len(raw.decode("utf-8").splitlines()),
+        "source_line_count": len(event_text.splitlines()),
         "event_object_count": len(rows),
         "campaign_id": campaign_id,
-        "run_ids": sorted(bound_run_ids),
+        "event_run_ids": sorted(bound_run_ids),
         "receipt_source_path": f"save/{RECEIPT_FILENAME}",
+        "receipt_source_digest": file_digest(receipt_raw),
+        "receipt_source_line_count": len(receipt_text.splitlines()),
         "receipt_count": len(receipt_map),
+        "decision_set_count": len(document.get("decision_sets") or {}),
+    }
+    return rows, trusted_rows, source_manifest
+
+
+def _artifact_binding_body(binding: Any) -> dict[str, Any] | None:
+    if not isinstance(binding, dict) or set(binding) != {
+        "schema_version",
+        "campaign_id",
+        "artifact_run_id",
+        "cumulative_run_ids",
+        "source_path",
+        "source_digest",
+        "source_line_count",
+        "event_object_count",
+        "event_run_ids",
+        "receipt_source_path",
+        "receipt_source_digest",
+        "receipt_source_line_count",
+        "receipt_count",
+        "decision_set_count",
+        "integrity_digest",
+    }:
+        return None
+    if binding.get("schema_version") != ARTIFACT_BINDING_SCHEMA_VERSION:
+        return None
+    for key in (
+        "campaign_id", "artifact_run_id", "source_path", "source_digest",
+        "receipt_source_path", "receipt_source_digest",
+    ):
+        value = binding.get(key)
+        if not isinstance(value, str) or not value or value != value.strip():
+            return None
+    cumulative = binding.get("cumulative_run_ids")
+    event_runs = binding.get("event_run_ids")
+    if (
+        not isinstance(cumulative, list)
+        or not cumulative
+        or any(not isinstance(value, str) or not value for value in cumulative)
+        or cumulative != list(dict.fromkeys(cumulative))
+        or cumulative[-1] != binding.get("artifact_run_id")
+        or not isinstance(event_runs, list)
+        or any(not isinstance(value, str) or not value for value in event_runs)
+        or event_runs != sorted(set(event_runs))
+    ):
+        return None
+    for key in (
+        "source_line_count", "event_object_count", "receipt_source_line_count",
+        "receipt_count", "decision_set_count",
+    ):
+        value = binding.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return None
+    body = {
+        key: deepcopy(value)
+        for key, value in binding.items()
+        if key != "integrity_digest"
+    }
+    if binding.get("integrity_digest") != canonical_digest(body):
+        return None
+    return body
+
+
+def build_artifact_binding(
+    campaign_dir: Path,
+    *,
+    artifact_run_id: str,
+    cumulative_run_ids: list[str],
+) -> dict[str, Any]:
+    """Bind a play artifact identity to the exact canonical source snapshot."""
+    run_id = str(artifact_run_id).strip()
+    cumulative = [str(value).strip() for value in cumulative_run_ids]
+    if (
+        not run_id
+        or not cumulative
+        or any(not value for value in cumulative)
+        or cumulative != list(dict.fromkeys(cumulative))
+        or cumulative[-1] != run_id
+    ):
+        raise ValueError("artifact run binding is invalid")
+    _rows, _trusted, source = _canonical_chain_material(Path(campaign_dir))
+    body = {
+        "schema_version": ARTIFACT_BINDING_SCHEMA_VERSION,
+        **source,
+        "artifact_run_id": run_id,
+        "cumulative_run_ids": cumulative,
+    }
+    body["integrity_digest"] = canonical_digest(body)
+    return body
+
+
+def capability_matches_artifact_binding(
+    capability: _CanonicalNpcEventChain,
+    binding: dict[str, Any],
+) -> bool:
+    if not is_canonical_capability(capability):
+        return False
+    body = _artifact_binding_body(binding)
+    if body is None:
+        return False
+    _rows, _trusted, manifest = capability_rows(capability)
+    return (
+        manifest.get("schema_version") == 2
+        and manifest.get("artifact_binding") == body
+        and manifest.get("binding_integrity_digest")
+        == binding.get("integrity_digest")
+    )
+
+
+def load_canonical_chain(
+    campaign_dir: Path,
+    *,
+    expected_campaign_id: str,
+    expected_artifact_run_id: str,
+    expected_cumulative_run_ids: list[str],
+    expected_binding: dict[str, Any],
+) -> _CanonicalNpcEventChain:
+    """Load a canonical chain only when it matches the evaluated play."""
+    binding_body = _artifact_binding_body(expected_binding)
+    expected_campaign = str(expected_campaign_id).strip()
+    expected_run = str(expected_artifact_run_id).strip()
+    expected_cumulative = [str(value).strip() for value in expected_cumulative_run_ids]
+    if (
+        binding_body is None
+        or not expected_campaign
+        or not expected_run
+        or not expected_cumulative
+        or binding_body.get("campaign_id") != expected_campaign
+        or binding_body.get("artifact_run_id") != expected_run
+        or binding_body.get("cumulative_run_ids") != expected_cumulative
+    ):
+        raise NpcCapabilityBindingError(
+            "NPC event-chain binding does not match the evaluated play identity"
+        )
+    rows, trusted_rows, source_manifest = _canonical_chain_material(
+        Path(campaign_dir)
+    )
+    if any(
+        binding_body.get(key) != value
+        for key, value in source_manifest.items()
+    ):
+        raise NpcCapabilityBindingError(
+            "NPC event-chain source path, digest, cardinality, campaign, or run binding changed"
+        )
+    manifest = {
+        "schema_version": 2,
+        "artifact_binding": deepcopy(binding_body),
+        "binding_integrity_digest": expected_binding["integrity_digest"],
     }
     return _CanonicalNpcEventChain(
         _CAPABILITY_TOKEN,

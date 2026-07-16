@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -30,6 +30,10 @@ SUPPORTED_FLUSH_POLICIES = {"manual", "background"}
 
 class RecorderLockError(RuntimeError):
     """The recorder serialization domain did not become available in time."""
+
+
+class StableRecordError(RuntimeError):
+    """A stable-id JSONL target is malformed, duplicated, or conflicting."""
 
 
 @contextmanager
@@ -150,6 +154,70 @@ def _append_jsonl_sync(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def ensure_stable_jsonl_record_locked(
+    target: Path,
+    record: dict[str, Any],
+    *,
+    existing_by_id: dict[str, dict[str, Any]] | None = None,
+    append_record: Callable[[Path, dict[str, Any]], None] | None = None,
+) -> bool:
+    """Validate/materialize one stable-id row while ``recorder_lock`` is held.
+
+    Every producer that can race a pending-batch flusher uses this exact
+    check/append primitive.  The caller owns the surrounding recorder lock so
+    a whole batch can reuse one kernel-lock acquisition and one canonical-id
+    cache.  Rows without an ``event_id`` remain ordinary append-only records.
+    """
+    target = Path(target)
+    append = append_record or _append_jsonl_sync
+    event_id = str(record.get("event_id") or "")
+    if not event_id:
+        append(target, record)
+        return True
+
+    stable = existing_by_id
+    if stable is None:
+        stable = {}
+        if target.is_file():
+            try:
+                lines = target.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeError) as exc:
+                raise StableRecordError(
+                    f"stable event target is unreadable: {target}"
+                ) from exc
+            for line_number, line in enumerate(lines, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise StableRecordError(
+                        f"stable event target has malformed JSON at line {line_number}: {target}"
+                    ) from exc
+                if not isinstance(row, dict):
+                    continue
+                stable_id = str(row.get("event_id") or "")
+                if not stable_id:
+                    continue
+                prior = stable.get(stable_id)
+                if prior is not None:
+                    raise StableRecordError(
+                        f"duplicate stable event id '{stable_id}' in {target}"
+                    )
+                stable[stable_id] = row
+
+    existing = stable.get(event_id)
+    if existing is not None:
+        if existing != record:
+            raise StableRecordError(
+                f"stable event id '{event_id}' conflicts in {target}"
+            )
+        return False
+    append(target, record)
+    stable[event_id] = record
+    return True
 
 
 class JsonlRecorder:
@@ -327,18 +395,16 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
                     continue
                 event_id = str(record.get("event_id") or "")
                 if event_id:
-                    existing = stable_events(target).get(event_id)
-                    if existing is not None:
-                        if existing != record:
-                            raise RuntimeError(
-                                f"stable event id '{event_id}' conflicts while flushing {pending.name}"
-                            )
+                    if not ensure_stable_jsonl_record_locked(
+                        target,
+                        record,
+                        existing_by_id=stable_events(target),
+                    ):
                         # A source receipt may have repaired the event while
                         # this durable batch was waiting.
                         continue
-                _append_jsonl_sync(target, record)
-                if event_id:
-                    stable_events(target)[event_id] = record
+                else:
+                    ensure_stable_jsonl_record_locked(target, record)
                 flushed_entries += 1
             pending.unlink()
             flushed_files += 1

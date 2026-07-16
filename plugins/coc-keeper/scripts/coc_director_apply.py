@@ -69,6 +69,10 @@ coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_director_apply",
     "coc_subsystem_executor.py",
 )
+coc_toolbox_continuity = _load_sibling(
+    "coc_toolbox_continuity_director_apply",
+    "coc_toolbox.py",
+)
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 coc_epistemic_resolve = _load_sibling("coc_epistemic_resolve", "coc_epistemic_resolve.py")
 coc_epistemic_lifecycle = _load_sibling("coc_epistemic_lifecycle", "coc_epistemic_lifecycle.py")
@@ -433,10 +437,9 @@ def _ensure_director_flag_event(
             # Materialize synchronously under the same lock used by flushers;
             # any exact queued copy is later consumed by stable-id dedupe.
             path = campaign_dir / "logs" / "events.jsonl"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(expected, ensure_ascii=False) + "\n")
-            return True
+            return coc_async_recorder.ensure_stable_jsonl_record_locked(
+                path, deepcopy(expected)
+            )
         if pending:
             return False
         _append_jsonl(campaign_dir / "logs" / "events.jsonl", deepcopy(expected))
@@ -577,9 +580,9 @@ def _reconcile_director_flag_receipts(campaign_dir: Path) -> None:
                 raise ValueError(f"toolbox flag event '{event_id}' is duplicated")
             if not canonical:
                 path = campaign_dir / "logs" / "events.jsonl"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps(expected, ensure_ascii=False) + "\n")
+                coc_async_recorder.ensure_stable_jsonl_record_locked(
+                    path, deepcopy(expected)
+                )
 
 
 def _next_director_flag_source_sequence(
@@ -1211,10 +1214,9 @@ def _ensure_npc_event_target(
             return False
         if materialize_pending:
             path = campaign_dir / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(event, ensure_ascii=False) + "\n")
-            return True
+            return coc_async_recorder.ensure_stable_jsonl_record_locked(
+                path, deepcopy(event)
+            )
         if pending:
             return False
         _append_jsonl(campaign_dir / relative_path, deepcopy(event))
@@ -1266,11 +1268,148 @@ def _reconcile_all_npc_source_receipts(campaign_dir: Path) -> dict[str, Any]:
     return document
 
 
+def _compile_director_npc_operations(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    investigator_id: str,
+) -> list[dict[str, Any]]:
+    """Compile the complete ordered NPC event set without mutating state."""
+    npc_agendas = _read_json(
+        campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []}
+    )
+    active_scene_id = str(
+        (plan.get("turn_input") or {}).get("active_scene_id")
+        or "scene:unknown"
+    )
+    turn_number = (plan.get("turn_input") or {}).get("turn_number")
+    operations: list[dict[str, Any]] = []
+    for move in plan.get("npc_moves", []) or []:
+        if not isinstance(move, dict):
+            continue
+        requested_npc_id = move.get("npc_id")
+        authored_npc = (
+            coc_npc_identity.resolve_authored_npc(
+                npc_agendas, str(requested_npc_id)
+            )
+            if requested_npc_id
+            else None
+        )
+        npc_id = (
+            str(authored_npc.get("npc_id"))
+            if authored_npc is not None
+            else requested_npc_id
+        )
+        if not npc_id:
+            continue
+        stable_npc_id = str(npc_id)
+        identity_contract = (
+            coc_npc_identity.identity_contract(authored_npc, active_scene_id)
+            if authored_npc is not None
+            else None
+        )
+        identity_binding = coc_npc_identity.identity_binding(
+            identity_contract,
+            structured_producer="director_apply.npc_move",
+        )
+        operations.append({
+            "event_type": "npc_engagement",
+            "ordinal": len(operations),
+            "scene_id": active_scene_id,
+            "npc_id": stable_npc_id,
+            "payload": {
+                "turn_number": turn_number,
+                "interaction_kind": str(move.get("interaction_kind") or "other"),
+                "identity_contract": identity_contract,
+                "identity_binding": identity_binding,
+                "investigator_id": investigator_id,
+            },
+        })
+        for agency_move in move.get("agency_moves", []) or []:
+            if not isinstance(agency_move, dict):
+                continue
+            operations.append({
+                "event_type": "npc_agency",
+                "ordinal": len(operations),
+                "scene_id": active_scene_id,
+                "npc_id": stable_npc_id,
+                "payload": {
+                    "turn_number": turn_number,
+                    "identity_contract": identity_contract,
+                    "identity_binding": identity_binding,
+                    "trigger": agency_move.get("reason"),
+                    "selected_move": deepcopy(agency_move),
+                    "investigator_id": investigator_id,
+                },
+            })
+    return operations
+
+
+def _director_npc_operation_set_candidate(
+    campaign_dir: Path,
+    plan: dict[str, Any],
+    investigator_id: str,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Return source document, immutable candidate, and prior-set presence."""
+    campaign_id = coc_npc_event_chain.resolve_campaign_id(campaign_dir)
+    run_id = coc_npc_event_chain.resolve_run_id(
+        campaign_dir, structured_source=plan
+    )
+    decision_id = str(plan.get("decision_id") or "unknown")
+    candidate = coc_npc_event_chain.new_decision_set_receipt(
+        producer="director_apply.npc_move",
+        campaign_id=campaign_id,
+        run_id=run_id,
+        decision_id=decision_id,
+        operations=_compile_director_npc_operations(
+            campaign_dir, plan, investigator_id
+        ),
+    )
+    document = _npc_receipt_document(campaign_dir)
+    decision_sets = document.get("decision_sets")
+    if not isinstance(decision_sets, dict):
+        raise ValueError("canonical NPC operation-set receipt map is invalid")
+    prior = decision_sets.get(candidate["receipt_id"])
+    if prior is not None:
+        # ``put`` owns both full integrity validation and the typed payload
+        # conflict.  No new state is written on this comparison path.
+        coc_npc_event_chain.put_decision_set_receipt(document, candidate)
+        return document, deepcopy(prior), True
+    return document, candidate, False
+
+
+def _freeze_director_npc_operation_set(
+    campaign_dir: Path,
+    document: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist the whole decision set before its first event receipt/append."""
+    decision_id = str(candidate["decision_id"])
+    legacy_rows = [
+        receipt
+        for receipt in (document.get("receipts") or {}).values()
+        if isinstance(receipt, dict)
+        and receipt.get("producer") == "director_apply.npc_move"
+        and receipt.get("campaign_id") == candidate.get("campaign_id")
+        and receipt.get("run_id") == candidate.get("run_id")
+        and receipt.get("decision_id") == decision_id
+    ]
+    if legacy_rows:
+        error = coc_npc_event_chain.NpcOperationSetConflict(
+            f"decision_id '{decision_id}' has legacy NPC event receipts without a pre-event operation-set receipt"
+        )
+        error.code = "legacy_recovery_unverifiable"
+        raise error
+    coc_npc_event_chain.put_decision_set_receipt(document, candidate)
+    _save_npc_receipt_document(campaign_dir, document)
+    return deepcopy(candidate)
+
+
 def _apply_npc_state_and_agency(
     campaign_dir: Path,
     plan: dict[str, Any],
     investigator_id: str,
     ts: str,
+    operation_set_receipt: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Persist NPC persona cards and write one agency audit record per move."""
     save = campaign_dir / "save"
@@ -1333,26 +1472,40 @@ def _apply_npc_state_and_agency(
     if changed:
         _write_json(state_path, state)
 
-    npc_agendas = _read_json(
-        campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []}
-    )
+    if not coc_npc_event_chain.valid_decision_set_receipt(
+        operation_set_receipt
+    ):
+        raise ValueError("director NPC operation-set receipt is invalid")
     active_scene_id = str(
         (plan.get("turn_input") or {}).get("active_scene_id") or "scene:unknown"
     )
-    decision_id = str(plan.get("decision_id") or "unknown")
-    campaign_id = coc_npc_event_chain.resolve_campaign_id(campaign_dir)
-    run_id = coc_npc_event_chain.resolve_run_id(
-        campaign_dir, structured_source=plan
-    )
+    if any(
+        operation.get("scene_id") != active_scene_id
+        for operation in operation_set_receipt["operations"]
+    ):
+        raise ValueError("director NPC operation-set scene binding mismatch")
+    decision_id = str(operation_set_receipt["decision_id"])
+    campaign_id = str(operation_set_receipt["campaign_id"])
+    run_id = str(operation_set_receipt["run_id"])
+    if (
+        decision_id != str(plan.get("decision_id") or "unknown")
+        or campaign_id != coc_npc_event_chain.resolve_campaign_id(campaign_dir)
+    ):
+        raise ValueError("director NPC operation-set binding mismatch")
     receipt_document = _npc_receipt_document(campaign_dir)
+    stored_set = (receipt_document.get("decision_sets") or {}).get(
+        operation_set_receipt["receipt_id"]
+    )
+    if stored_set != operation_set_receipt:
+        raise ValueError("director NPC operation-set source receipt is not durable")
     receipt_map = receipt_document.get("receipts")
     if not isinstance(receipt_map, dict):
         raise ValueError("canonical NPC engagement receipt map is invalid")
-    ordinal = 0
 
     def settle_npc_event(
         *,
         event_type: str,
+        event_scene_id: str,
         npc_id: str,
         payload: dict[str, Any],
         event_ordinal: int,
@@ -1362,7 +1515,7 @@ def _apply_npc_state_and_agency(
             campaign_id=campaign_id,
             run_id=run_id,
             decision_id=decision_id,
-            scene_id=active_scene_id,
+            scene_id=event_scene_id,
             npc_id=npc_id,
             event_type=event_type,
             ordinal=event_ordinal,
@@ -1394,7 +1547,7 @@ def _apply_npc_state_and_agency(
             "campaign_id": campaign_id,
             "run_id": run_id,
             "decision_id": decision_id,
-            "scene_id": active_scene_id,
+            "scene_id": event_scene_id,
             "npc_id": npc_id,
             "ts": ts,
         }
@@ -1403,7 +1556,7 @@ def _apply_npc_state_and_agency(
             campaign_id=campaign_id,
             run_id=run_id,
             decision_id=decision_id,
-            scene_id=active_scene_id,
+            scene_id=event_scene_id,
             npc_id=npc_id,
             event_type=event_type,
             ordinal=event_ordinal,
@@ -1417,68 +1570,14 @@ def _apply_npc_state_and_agency(
         _ensure_npc_receipt_targets(campaign_dir, receipt)
         return deepcopy(event)
 
-    for move in plan.get("npc_moves", []) or []:
-        if not isinstance(move, dict):
-            continue
-        requested_npc_id = move.get("npc_id")
-        authored_npc = (
-            coc_npc_identity.resolve_authored_npc(
-                npc_agendas, str(requested_npc_id)
-            )
-            if requested_npc_id
-            else None
-        )
-        npc_id = (
-            str(authored_npc.get("npc_id"))
-            if authored_npc is not None
-            else requested_npc_id
-        )
-        identity_contract = (
-            coc_npc_identity.identity_contract(authored_npc, active_scene_id)
-            if authored_npc is not None
-            else None
-        )
-        identity_binding = coc_npc_identity.identity_binding(
-            identity_contract,
-            structured_producer="director_apply.npc_move",
-        )
-        if not npc_id:
-            continue
-        stable_npc_id = str(npc_id)
-        # Append-only engagement record so adherence / audits can see that
-        # this NPC actually moved this turn (agency_moves may be empty).
-        engagement = settle_npc_event(
-            event_type="npc_engagement",
-            npc_id=stable_npc_id,
-            event_ordinal=ordinal,
-            payload={
-                "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
-                "interaction_kind": str(move.get("interaction_kind") or "other"),
-                "identity_contract": identity_contract,
-                "identity_binding": identity_binding,
-                "investigator_id": investigator_id,
-            },
-        )
-        ordinal += 1
-        events.append(engagement)
-        for agency_move in move.get("agency_moves", []) or []:
-            if not isinstance(agency_move, dict):
-                continue
-            record = settle_npc_event(
-                event_type="npc_agency",
-                npc_id=stable_npc_id,
-                event_ordinal=ordinal,
-                payload={
-                "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
-                "identity_contract": identity_contract,
-                "identity_binding": identity_binding,
-                "trigger": agency_move.get("reason"),
-                "selected_move": agency_move,
-                "investigator_id": investigator_id,
-                },
-            )
-            ordinal += 1
-            events.append(record)
+    for operation in operation_set_receipt["operations"]:
+        events.append(settle_npc_event(
+            event_type=str(operation["event_type"]),
+            event_scene_id=str(operation["scene_id"]),
+            npc_id=str(operation["npc_id"]),
+            event_ordinal=int(operation["ordinal"]),
+            payload=deepcopy(operation["payload"]),
+        ))
     return events
 
 
@@ -3497,6 +3596,7 @@ def apply_plan(
     recording_mode: str | None = None,
     recording_flush: str | None = None,
     rules_results_mode: str = "legacy",
+    _campaign_lock_held: bool = False,
 ) -> list[dict[str, Any]]:
     """Apply a DirectorPlan with sync or fast queued JSONL recording.
 
@@ -3510,6 +3610,21 @@ def apply_plan(
     like run_live_turn can iterate it without a shape guard. No state is
     touched and nothing is appended to JSONL logs.
     """
+    if not _campaign_lock_held:
+        with coc_fileio.campaign_lock(
+            Path(campaign_dir), wait_seconds=10.0
+        ):
+            return apply_plan(
+                campaign_dir,
+                plan,
+                investigator_id,
+                rules_results=rules_results,
+                recording_mode=recording_mode,
+                recording_flush=recording_flush,
+                rules_results_mode=rules_results_mode,
+                _campaign_lock_held=True,
+            )
+
     global _ACTIVE_JSONL_RECORDER
 
     decision_id = str(plan.get("decision_id", "unknown"))
@@ -3530,16 +3645,20 @@ def apply_plan(
     previous_recorder = _ACTIVE_JSONL_RECORDER
     _ACTIVE_JSONL_RECORDER = recorder
     try:
-        # A plan ledger can survive a recorder interruption.  Reconcile every
-        # source-owned flag receipt before honoring that early-return marker.
-        _reconcile_director_flag_receipts(Path(campaign_dir))
-        npc_receipt_path = (
+        # A source receipt can survive any event/ledger append interruption.
+        # The same all-family preflight is used by toolbox reads and the live
+        # turn boundary, so a later plan never skips an older flag, marker, or
+        # NPC operation.
+        coc_toolbox_continuity.reconcile_campaign_continuity(
             Path(campaign_dir)
-            / "save"
-            / coc_npc_event_chain.RECEIPT_FILENAME
         )
-        if npc_receipt_path.is_file():
-            _reconcile_all_npc_source_receipts(Path(campaign_dir))
+        (
+            npc_receipt_document,
+            npc_operation_set_candidate,
+            npc_operation_set_exists,
+        ) = _director_npc_operation_set_candidate(
+            Path(campaign_dir), plan, investigator_id
+        )
         if _decision_already_applied(save_dir, decision_id):
             if recorder is not None:
                 pending_batch = recorder.commit()
@@ -3560,6 +3679,15 @@ def apply_plan(
             decision_id=decision_id,
             results_mode=rules_results_mode,
         )
+        npc_operation_set = (
+            npc_operation_set_candidate
+            if npc_operation_set_exists
+            else _freeze_director_npc_operation_set(
+                Path(campaign_dir),
+                npc_receipt_document,
+                npc_operation_set_candidate,
+            )
+        )
 
         strategy_state = plan.get("director_strategy_state")
         if isinstance(strategy_state, dict) and strategy_state:
@@ -3577,6 +3705,7 @@ def apply_plan(
             plan,
             investigator_id,
             settled_rule_results,
+            npc_operation_set_receipt=npc_operation_set,
         )
         if recorder is not None:
             pending_batch = recorder.commit()
@@ -3596,6 +3725,8 @@ def _apply_plan_impl(
     plan: dict[str, Any],
     investigator_id: str,
     rules_results: list[dict[str, Any]] | None = None,
+    *,
+    npc_operation_set_receipt: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Apply a DirectorPlan's effects. Returns the events written to logs/events.jsonl.
 
@@ -3858,7 +3989,13 @@ def _apply_plan_impl(
         _write_json(flags_path, flags)
 
     # 2. NPC state writes + agency audit
-    npc_events = _apply_npc_state_and_agency(campaign_dir, plan, investigator_id, ts)
+    npc_events = _apply_npc_state_and_agency(
+        campaign_dir,
+        plan,
+        investigator_id,
+        ts,
+        npc_operation_set_receipt,
+    )
     events.extend(npc_events)
 
     # 2b. G3: structured npc_effects -> persistent NPC psychological state

@@ -2675,6 +2675,178 @@ def test_background_flusher_and_toolbox_recovery_share_stable_event_lock(
     assert matches == [receipt["event"]]
 
 
+def test_background_flusher_and_director_flag_recovery_share_stable_event_lock(
+    campaign_ws, monkeypatch,
+):
+    decision_id = "director-flag-recovery-vs-background-flush"
+    campaign_dir = campaign_ws["campaign_dir"]
+    coc_director_apply.apply_plan(
+        campaign_dir,
+        {
+            "decision_id": decision_id,
+            "scene_action": "CHARACTER",
+            "flags_set": ["director-stable-event-lock-domain"],
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [],
+            "memory_writes": [],
+            "rule_signals": {},
+        },
+        investigator_id=campaign_ws["investigator_id"],
+    )
+    flags = json.loads(
+        (campaign_dir / "save" / "flags.json").read_text(encoding="utf-8")
+    )
+    receipt = next(
+        row for row in flags[
+            coc_toolbox.coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+        ].values()
+        if row["decision_id"] == decision_id
+    )
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    events_path.write_text(
+        "".join(
+            json.dumps(row) + "\n"
+            for row in _read_jsonl(events_path)
+            if row.get("event_id") != receipt["event_id"]
+        ),
+        encoding="utf-8",
+    )
+    recorder = coc_toolbox.coc_async_recorder.JsonlRecorder(
+        campaign_dir,
+        mode="fast",
+        decision_id=decision_id,
+    )
+    recorder.append_jsonl(events_path, receipt["event"])
+    assert recorder.commit() is not None
+
+    flusher_at_append = Event()
+    release_flusher = Event()
+    recovery_started = Event()
+    real_append = coc_toolbox.coc_async_recorder._append_jsonl_sync
+    real_materialize = coc_toolbox._materialize_stable_receipt_event
+
+    def pause_flusher(path, record):
+        if record.get("event_id") == receipt["event_id"]:
+            flusher_at_append.set()
+            assert release_flusher.wait(timeout=5)
+        return real_append(path, record)
+
+    def observe_recovery(ctx, **kwargs):
+        if kwargs.get("event_id") == receipt["event_id"]:
+            recovery_started.set()
+        return real_materialize(ctx, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_async_recorder, "_append_jsonl_sync", pause_flusher
+    )
+    monkeypatch.setattr(
+        coc_toolbox, "_materialize_stable_receipt_event", observe_recovery
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        flush_future = pool.submit(
+            coc_toolbox.coc_async_recorder.flush_pending_records, campaign_dir
+        )
+        assert flusher_at_append.wait(timeout=5)
+        recovery_future = pool.submit(_run, campaign_ws, "scene.context", {})
+        assert recovery_started.wait(timeout=5)
+        release_flusher.set()
+        assert flush_future.result(timeout=5)["flushed_files"] == 1
+        assert recovery_future.result(timeout=5)["ok"] is True
+
+    matches = [
+        row for row in _read_jsonl(events_path)
+        if row.get("event_id") == receipt["event_id"]
+    ]
+    assert matches == [receipt["event"]]
+
+
+def test_common_preflight_repairs_source_receipts_before_context_and_director(
+    campaign_ws, monkeypatch,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    real_log_event = coc_toolbox.Ctx.log_event
+
+    def crash_flag(self, record):
+        if (
+            record.get("event_type") == "flag_set"
+            and record.get("decision_id") == "flag-before-context"
+        ):
+            raise RuntimeError("synthetic flag source-before-context crash")
+        return real_log_event(self, record)
+
+    with monkeypatch.context() as crash:
+        crash.setattr(coc_toolbox.Ctx, "log_event", crash_flag)
+        with pytest.raises(RuntimeError, match="source-before-context"):
+            _run(
+                campaign_ws,
+                "state.set_flag",
+                {
+                    "flag_id": "context-repair-flag",
+                    "value": False,
+                    "decision_id": "flag-before-context",
+                },
+            )
+
+    context = _run(campaign_ws, "scene.context", {})
+    assert context["ok"] is True
+    repaired_flag = next(
+        row for row in context["data"]["continuity"]["live_world_flags"]
+        if row["flag_id"] == "context-repair-flag"
+    )
+    assert repaired_flag["value"] is False
+    assert repaired_flag["provenance"]["integrity_status"] == "source_anchored"
+
+    def crash_marker(self, record):
+        if (
+            record.get("event_type") == "time_marker_changed"
+            and record.get("decision_id") == "marker-before-director"
+        ):
+            raise RuntimeError("synthetic marker source-before-director crash")
+        return real_log_event(self, record)
+
+    with monkeypatch.context() as crash:
+        crash.setattr(coc_toolbox.Ctx, "log_event", crash_marker)
+        with pytest.raises(RuntimeError, match="source-before-director"):
+            _run(
+                campaign_ws,
+                "state.time_marker",
+                {
+                    "action": "set",
+                    "marker_id": "director-repair-marker",
+                    "minutes_from_now": 5,
+                    "decision_id": "marker-before-director",
+                },
+            )
+
+    coc_director_apply.apply_plan(
+        campaign_dir,
+        {
+            "decision_id": "director-after-marker-source",
+            "scene_action": "PRESSURE",
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [],
+            "memory_writes": [],
+            "rule_signals": {},
+        },
+        investigator_id=campaign_ws["investigator_id"],
+    )
+    marker_events = [
+        row for row in _read_jsonl(campaign_dir / "logs" / "events.jsonl")
+        if row.get("event_type") == "time_marker_changed"
+        and row.get("decision_id") == "marker-before-director"
+    ]
+    assert len(marker_events) == 1
+    marker_ledger = json.loads(
+        (campaign_dir / "save" / "toolbox-ledger.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    marker_key = coc_toolbox.Ctx._ledger_key(
+        "state.time_marker", "marker-before-director"
+    )
+    assert marker_key in marker_ledger["entries"]
+
+
 @pytest.mark.parametrize("source_kind", ["flag", "npc"])
 def test_director_preflight_repairs_interrupted_toolbox_source(
     campaign_ws, monkeypatch, source_kind

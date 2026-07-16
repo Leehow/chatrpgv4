@@ -515,8 +515,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
-            if name in _MUTATING_TOOLS and ctx.campaign_dir is not None:
-                _reconcile_all_canonical_source_receipts(ctx)
+            if spec["needs_campaign"] and ctx.campaign_dir is not None:
+                reconcile_campaign_continuity(ctx.campaign_dir, ctx=ctx)
             data, warnings, hints = spec["handler"](ctx, args)
             envelope = {
                 "ok": True,
@@ -844,41 +844,49 @@ def _npc_receipt_warnings(receipt: dict[str, Any]) -> list[str]:
     return warnings
 
 
-def _ensure_npc_receipt_event(ctx: Ctx, receipt: dict[str, Any]) -> bool:
-    # A background flusher and a later tool recovery both perform the same
-    # stable-id check/append transition.  They must share one serialization
-    # domain or each can observe the event as absent and append it once.
+def _materialize_stable_receipt_event(
+    ctx: Ctx,
+    *,
+    event: dict[str, Any],
+    event_id: str,
+    relative_path: str = "logs/events.jsonl",
+    inspect_pending: bool = True,
+) -> bool:
+    """Materialize a receipt-owned stable row in the recorder lock domain."""
     try:
         with coc_async_recorder.recorder_lock(ctx.campaign_dir):
-            if not coc_npc_event_chain.valid_receipt(receipt):
-                raise ToolError("state_corrupt", "NPC engagement source receipt is invalid")
-            event_id = str(receipt["event_id"])
-            event = receipt["event"]
-            canonical = [
-                row
-                for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl")
-                if str(row.get("event_id") or "") == event_id
-            ]
-            if any(row != event for row in canonical) or len(canonical) > 1:
-                raise ToolError(
-                    "state_corrupt",
-                    f"NPC engagement event '{event_id}' is duplicated or conflicts with its source receipt",
-                )
-            pending = _pending_event_rows(ctx, event_id)
+            if inspect_pending:
+                pending = _pending_jsonl_rows(ctx, relative_path, event_id)
+            else:
+                pending = []
             if any(row != event for row in pending) or len(pending) > 1:
                 raise ToolError(
                     "state_corrupt",
-                    f"pending NPC engagement event '{event_id}' conflicts with its source receipt",
+                    f"pending stable event '{event_id}' conflicts with its source receipt",
                 )
-            if canonical:
-                return False
-            # Global recovery materializes the source-owned event in the
-            # canonical log. Identical pending copies are consumed by stable-ID
-            # dedupe.
-            ctx.log_event(deepcopy(event))
-            return True
+            target = ctx.campaign_dir / relative_path
+            append_record = None
+            if relative_path == "logs/events.jsonl":
+                append_record = lambda _path, row: ctx.log_event(deepcopy(row))
+            return coc_async_recorder.ensure_stable_jsonl_record_locked(
+                target,
+                deepcopy(event),
+                append_record=append_record,
+            )
     except coc_async_recorder.RecorderLockError as exc:
         raise ToolError("campaign_busy", str(exc)) from exc
+    except coc_async_recorder.StableRecordError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _ensure_npc_receipt_event(ctx: Ctx, receipt: dict[str, Any]) -> bool:
+    if not coc_npc_event_chain.valid_receipt(receipt):
+        raise ToolError("state_corrupt", "NPC engagement source receipt is invalid")
+    return _materialize_stable_receipt_event(
+        ctx,
+        event=receipt["event"],
+        event_id=str(receipt["event_id"]),
+    )
 
 
 def _reconcile_all_npc_source_receipts(ctx: Ctx) -> dict[str, Any]:
@@ -900,6 +908,18 @@ def _reconcile_all_npc_source_receipts(ctx: Ctx) -> dict[str, Any]:
         if not coc_npc_event_chain.valid_receipt(receipt):
             raise ToolError("state_corrupt", "NPC engagement source receipt is invalid")
         _ensure_npc_receipt_event(ctx, receipt)
+        if receipt.get("producer") == "director_apply.npc_move":
+            secondary = (
+                "logs/npc-engagement.jsonl"
+                if receipt.get("event_type") == "npc_engagement"
+                else "logs/npc-agency.jsonl"
+            )
+            _materialize_stable_receipt_event(
+                ctx,
+                event=receipt["event"],
+                event_id=str(receipt["event_id"]),
+                relative_path=secondary,
+            )
         if receipt.get("producer") == "state.record_npc_engagement":
             decision_id = str(receipt["decision_id"])
             data = deepcopy(receipt["event"])
@@ -1198,7 +1218,9 @@ def _operation_event_present(ctx: Ctx, receipt: dict[str, Any]) -> bool:
     return False
 
 
-def _pending_event_rows(ctx: Ctx, event_id: str) -> list[dict[str, Any]]:
+def _pending_jsonl_rows(
+    ctx: Ctx, relative_path: str, event_id: str
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     pending_dir = ctx.campaign_dir / "logs" / "pending-turns"
     if not pending_dir.is_dir():
@@ -1218,12 +1240,16 @@ def _pending_event_rows(ctx: Ctx, event_id: str) -> list[dict[str, Any]]:
         for entry in entries:
             if (
                 isinstance(entry, dict)
-                and entry.get("relative_path") == "logs/events.jsonl"
+                and entry.get("relative_path") == relative_path
                 and isinstance(entry.get("record"), dict)
                 and str(entry["record"].get("event_id") or "") == event_id
             ):
                 rows.append(entry["record"])
     return rows
+
+
+def _pending_event_rows(ctx: Ctx, event_id: str) -> list[dict[str, Any]]:
+    return _pending_jsonl_rows(ctx, "logs/events.jsonl", event_id)
 
 
 def _ensure_operation_event(
@@ -1233,27 +1259,16 @@ def _ensure_operation_event(
     inspect_pending: bool = False,
 ) -> bool:
     """Append a receipt-owned event once, repairing a pre-ledger crash."""
-    try:
-        with coc_async_recorder.recorder_lock(ctx.campaign_dir):
-            if _operation_event_present(ctx, receipt):
-                return False
-            event = receipt.get("event")
-            assert isinstance(event, dict)
-            if inspect_pending:
-                event_id = str(receipt.get("event_id") or "")
-                pending = _pending_event_rows(ctx, event_id)
-                if any(row != event for row in pending) or len(pending) > 1:
-                    raise ToolError(
-                        "state_corrupt",
-                        f"pending event '{event_id}' conflicts with its source receipt",
-                    )
-                # Recovery is deliberately written to the canonical log now.
-                # Any identical older pending batch is later consumed by
-                # stable-ID dedupe while holding this same recorder lock.
-            ctx.log_event(deepcopy(event))
-            return True
-    except coc_async_recorder.RecorderLockError as exc:
-        raise ToolError("campaign_busy", str(exc)) from exc
+    if not _stored_toolbox_receipt_valid(receipt):
+        raise ToolError("state_corrupt", "source receipt integrity failed")
+    event = receipt.get("event")
+    assert isinstance(event, dict)
+    return _materialize_stable_receipt_event(
+        ctx,
+        event=event,
+        event_id=str(receipt.get("event_id") or ""),
+        inspect_pending=inspect_pending,
+    )
 
 
 def _replay_source_receipt(
@@ -1895,14 +1910,11 @@ def _reconcile_all_flag_source_receipts(ctx: Ctx, flags: dict[str, Any]) -> None
             continue
         event = receipt["event"]
         event_id = str(receipt["event_id"])
-        if not _director_receipt_event_present(ctx, receipt):
-            pending = _pending_event_rows(ctx, event_id)
-            if any(row != event for row in pending) or len(pending) > 1:
-                raise ToolError(
-                    "state_corrupt",
-                    f"pending director flag event '{event_id}' conflicts with its source receipt",
-                )
-            ctx.log_event(deepcopy(event))
+        _materialize_stable_receipt_event(
+            ctx,
+            event=event,
+            event_id=event_id,
+        )
         entity_ids.add(str(receipt["entity_head"]["entity_id"]))
 
     for flag_id in entity_ids:
@@ -2008,6 +2020,41 @@ def _reconcile_all_canonical_source_receipts(ctx: Ctx) -> None:
 
     if _npc_receipt_path(ctx).is_file():
         _reconcile_all_npc_source_receipts(ctx)
+
+
+def reconcile_campaign_continuity(
+    campaign_dir: Path | str,
+    *,
+    ctx: Ctx | None = None,
+) -> None:
+    """Complete every durable continuity receipt at a turn/read boundary.
+
+    Callers must hold the campaign lock.  Toolbox dispatch passes its existing
+    context; the live-turn and Director apply entrypoints construct an
+    equivalent context for the same canonical preflight.  Repair is limited to
+    already-committed source receipts and therefore does not impose a
+    narrative eligibility gate.
+    """
+    campaign = Path(campaign_dir)
+    if ctx is None:
+        ctx = object.__new__(Ctx)
+        ctx.root = campaign.parent
+        ctx.coc_root = (
+            campaign.parents[1]
+            if campaign.parent.name == "campaigns"
+            else campaign.parent
+        )
+        ctx.campaign_id = coc_npc_event_chain.resolve_campaign_id(campaign)
+        ctx.campaign_dir = campaign
+        ctx._scenario_cache = {}
+        ctx._roll_ids = None
+        ctx._roll_sequence = 0
+    elif Path(ctx.campaign_dir) != campaign:
+        raise ToolError(
+            "state_corrupt",
+            "continuity preflight context does not match its campaign directory",
+        )
+    _reconcile_all_canonical_source_receipts(ctx)
 
 
 def _flag_change_projection(
