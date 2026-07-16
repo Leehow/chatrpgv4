@@ -417,6 +417,22 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
                 "reason": "SENTINEL_FLAG_REASON_MUST_NOT_BE_PUBLIC",
             },
         )
+        match._append_jsonl_fsync(
+            campaign / "logs" / "events.jsonl",
+            {
+                "event_type": "npc_engagement",
+                "npc_id": "npc-legacy-guide",
+                "keeper_only_detail": "SENTINEL_LEGACY_NPC_DETAIL_MUST_NOT_BE_PUBLIC",
+            },
+        )
+        match._append_jsonl_fsync(
+            campaign / "logs" / "events.jsonl",
+            {
+                "event_type": "time_marker_changed",
+                "marker_id": "keeper-deadline",
+                "reason": "SENTINEL_TIME_MARKER_REASON_MUST_NOT_BE_PUBLIC",
+            },
+        )
 
     _install_keeper(monkeypatch, mutation=mutate)
     result = match.run_live_match(
@@ -431,9 +447,18 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     session = result["result"]
     assert session["engaged_npc_ids"] == ["npc-guide"]
     assert session["npc_engagement_coverage_contract"] == {
-        "schema_version": 1,
+        "schema_version": 2,
         "semantics": "authored_identity_attestation",
         "legacy_raw_ids_included": False,
+        "legacy_status": "NON_COMPARABLE",
+    }
+    assert session["npc_engagement_evidence"] == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE",
+        "authored_attested_npc_ids": ["npc-guide"],
+        "legacy_unverifiable_npc_ids": ["npc-legacy-guide"],
+        "unverified_npc_ids": [],
     }
     assert "events" not in session
     public_artifacts = json.dumps(
@@ -443,6 +468,8 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     assert "SENTINEL_NPC_IDENTITY_MUST_NOT_BE_PUBLIC" not in public_artifacts
     assert "SENTINEL_EVENT_DETAIL_MUST_NOT_BE_PUBLIC" not in public_artifacts
     assert "SENTINEL_FLAG_REASON_MUST_NOT_BE_PUBLIC" not in public_artifacts
+    assert "SENTINEL_LEGACY_NPC_DETAIL_MUST_NOT_BE_PUBLIC" not in public_artifacts
+    assert "SENTINEL_TIME_MARKER_REASON_MUST_NOT_BE_PUBLIC" not in public_artifacts
     npc_statement = next(
         row
         for row in result["metadata"]["narrative_adherence"]["statements"]

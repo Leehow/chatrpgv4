@@ -55,6 +55,7 @@ coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_npc_identity = _load_sibling("coc_npc_identity_director", "coc_npc_identity.py")
 coc_director_strategies = _load_sibling(
     "coc_director_strategies_apply", "coc_director_strategies.py"
 )
@@ -721,10 +722,35 @@ def _apply_npc_state_and_agency(
     if changed:
         _write_json(state_path, state)
 
+    npc_agendas = _read_json(
+        campaign_dir / "scenario" / "npc-agendas.json", {"npcs": []}
+    )
+    active_scene_id = (plan.get("turn_input") or {}).get("active_scene_id")
     for move in plan.get("npc_moves", []) or []:
         if not isinstance(move, dict):
             continue
-        npc_id = move.get("npc_id")
+        requested_npc_id = move.get("npc_id")
+        authored_npc = (
+            coc_npc_identity.resolve_authored_npc(
+                npc_agendas, str(requested_npc_id)
+            )
+            if requested_npc_id
+            else None
+        )
+        npc_id = (
+            str(authored_npc.get("npc_id"))
+            if authored_npc is not None
+            else requested_npc_id
+        )
+        identity_contract = (
+            coc_npc_identity.identity_contract(authored_npc, active_scene_id)
+            if authored_npc is not None
+            else None
+        )
+        identity_binding = coc_npc_identity.identity_binding(
+            identity_contract,
+            structured_producer="director_apply.npc_move",
+        )
         if npc_id:
             # Append-only engagement record so adherence / audits can see that
             # this NPC actually moved this turn (agency_moves may be empty).
@@ -735,6 +761,9 @@ def _apply_npc_state_and_agency(
                 "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
                 "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
                 "npc_id": npc_id,
+                "interaction_kind": str(move.get("interaction_kind") or "other"),
+                "identity_contract": identity_contract,
+                "identity_binding": identity_binding,
                 "investigator_id": investigator_id,
                 "ts": ts,
             }
@@ -751,6 +780,8 @@ def _apply_npc_state_and_agency(
                 "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
                 "scene_id": (plan.get("turn_input") or {}).get("active_scene_id"),
                 "npc_id": npc_id,
+                "identity_contract": identity_contract,
+                "identity_binding": identity_binding,
                 "trigger": agency_move.get("reason"),
                 "selected_move": agency_move,
                 "investigator_id": investigator_id,

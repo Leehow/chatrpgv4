@@ -309,19 +309,46 @@ def project_engaged_npc_ids(events: list[dict[str, Any]]) -> set[str]:
     projection lets the adherence consumer receive the semantic IDs it needs
     without losing the producer events or leaking their remaining payload.
     """
-    found: set[str] = set()
+    evidence = project_npc_engagement_evidence(events)
+    return set(evidence["authored_attested_npc_ids"])
+
+
+def project_npc_engagement_evidence(
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project attested, legacy, and explicitly unverified NPC evidence.
+
+    Legacy event existence is retained as ``NON_COMPARABLE`` evidence rather
+    than silently promoted to coverage or silently erased.  Psych-state
+    updates remain outside this projection.
+    """
+    attested: set[str] = set()
+    legacy: set[str] = set()
+    unverified: set[str] = set()
     for event in events:
         if not isinstance(event, dict) or not any(
             coc_event_contract.matches(event, event_type)
             for event_type in _NPC_ENGAGEMENT_EVENT_TYPES
         ):
             continue
-        if not _engagement_coverage_eligible(event):
-            continue
         npc_id = _text(coc_event_contract.value(event, "npc_id"))
-        if npc_id:
-            found.add(npc_id)
-    return found
+        if not npc_id:
+            continue
+        binding = coc_event_contract.value(event, "identity_binding")
+        if _engagement_coverage_eligible(event):
+            attested.add(npc_id)
+        elif not isinstance(binding, dict):
+            legacy.add(npc_id)
+        else:
+            unverified.add(npc_id)
+    return {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE" if legacy else "PASS",
+        "authored_attested_npc_ids": sorted(attested),
+        "legacy_unverifiable_npc_ids": sorted(legacy),
+        "unverified_npc_ids": sorted(unverified),
+    }
 
 
 def _bonus_clue_id_from_request(request: dict[str, Any]) -> str | None:
@@ -391,33 +418,60 @@ def _harvest_bonus_rolls_engaged(raw: dict[str, Any], final_state: dict[str, Any
     return found
 
 
-def _harvest_engaged_npc_ids(raw: dict[str, Any], final_state: dict[str, Any]) -> set[str]:
-    """Collect NPC ids engaged during play from turns / engagement events."""
-    explicit = (
-        raw.get("engaged_npc_ids")
-        or raw.get("npc_interactions")
-        or final_state.get("engaged_npc_ids")
-        or []
-    )
-    found = _as_str_set(explicit)
-
+def _harvest_npc_engagement_evidence(
+    raw: dict[str, Any], final_state: dict[str, Any]
+) -> dict[str, Any]:
+    """Collect coverage evidence without upgrading unversioned raw IDs."""
+    event_rows = _iter_play_events(raw)
     for turn in raw.get("turns") or []:
         if not isinstance(turn, dict):
             continue
         for move in turn.get("npc_moves") or []:
             if not isinstance(move, dict):
                 continue
-            if not _engagement_coverage_eligible(
-                {"event_type": "npc_engagement", **move}
-            ):
-                continue
-            npc_id = _text(move.get("npc_id"))
-            if npc_id:
-                found.add(npc_id)
+            event_rows.append({"event_type": "npc_engagement", **move})
 
-    found.update(project_engaged_npc_ids(_iter_play_events(raw)))
+    projected = project_npc_engagement_evidence(event_rows)
+    attested = set(projected["authored_attested_npc_ids"])
+    legacy = set(projected["legacy_unverifiable_npc_ids"])
+    unverified = set(projected["unverified_npc_ids"])
 
-    return found
+    explicit = (
+        raw.get("engaged_npc_ids")
+        or raw.get("npc_interactions")
+        or final_state.get("engaged_npc_ids")
+        or []
+    )
+    explicit_ids = _as_str_set(explicit)
+    contract = raw.get("npc_engagement_coverage_contract")
+    if not isinstance(contract, dict):
+        contract = final_state.get("npc_engagement_coverage_contract")
+    if (
+        isinstance(contract, dict)
+        and contract.get("semantics") == "authored_identity_attestation"
+    ):
+        attested.update(explicit_ids)
+    else:
+        legacy.update(explicit_ids)
+
+    prior_projection = raw.get("npc_engagement_evidence")
+    if isinstance(prior_projection, dict):
+        attested.update(
+            _as_str_set(prior_projection.get("authored_attested_npc_ids"))
+        )
+        legacy.update(
+            _as_str_set(prior_projection.get("legacy_unverifiable_npc_ids"))
+        )
+        unverified.update(_as_str_set(prior_projection.get("unverified_npc_ids")))
+
+    return {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE" if legacy else "PASS",
+        "authored_attested_npc_ids": sorted(attested),
+        "legacy_unverifiable_npc_ids": sorted(legacy),
+        "unverified_npc_ids": sorted(unverified),
+    }
 
 
 def _normalize_play_record(play: dict[str, Any] | None) -> dict[str, Any]:
@@ -447,12 +501,14 @@ def _normalize_play_record(play: dict[str, Any] | None) -> dict[str, Any]:
         if not clocks and isinstance(final_state.get("clocks"), dict):
             clocks = final_state["clocks"]
 
+    npc_evidence = _harvest_npc_engagement_evidence(raw, final_state)
     return {
         "discovered_clue_ids": _as_str_set(discovered),
         "visited_scene_ids": _as_str_set(visited),
         "clocks": clocks if isinstance(clocks, dict) else {},
         "bonus_rolls_engaged": _harvest_bonus_rolls_engaged(raw, final_state),
-        "engaged_npc_ids": _harvest_engaged_npc_ids(raw, final_state),
+        "engaged_npc_ids": set(npc_evidence["authored_attested_npc_ids"]),
+        "npc_engagement_evidence": npc_evidence,
     }
 
 
@@ -563,6 +619,7 @@ def evaluate_adherence(
         "required_coverage": coverage,
         "required_satisfied": required_hit,
         "required_total": required_total,
+        "npc_engagement_evidence": play["npc_engagement_evidence"],
     }
 
 

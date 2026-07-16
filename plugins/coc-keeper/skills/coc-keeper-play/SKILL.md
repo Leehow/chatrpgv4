@@ -107,6 +107,12 @@ No step is mandatory except honesty; this is the natural rhythm:
 
 If a tool reports a transient transaction or lock failure, retry the same
 call with the same `decision_id` within the toolbox's bounded retry policy.
+`state.set_flag` and `state.time_marker` keep an atomic source receipt: a
+same-payload replay repairs a missing event/ledger stage without recomputing
+the original flag provenance, deadline, or revision from later campaign
+state. Never reuse that `decision_id` for changed arguments; an
+`idempotency_conflict` is structured state evidence, not a narrative gate, so
+use a new decision identity for a genuinely new state transition.
 For invalid arguments or an unavailable semantic target, do not repeat the
 same failing payload: inspect the tool hint, correct the structured argument,
 use an explicit rules target when justified, or continue through another

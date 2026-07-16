@@ -102,6 +102,10 @@ def test_evaluate_adherence_against_synthetic_play_record():
         },
         "bonus_rolls_engaged": [],
         "engaged_npc_ids": ["npc-steven-knott"],
+        "npc_engagement_coverage_contract": {
+            "schema_version": 2,
+            "semantics": "authored_identity_attestation",
+        },
     }
     result = coc_adherence.evaluate_adherence(checklist, play)
     assert "statements" in result
@@ -346,8 +350,39 @@ def test_unverified_or_mismatched_npc_ids_do_not_satisfy_authored_coverage():
         },
     ]
 
+    evidence = coc_adherence.project_npc_engagement_evidence(events)
     assert coc_adherence.project_engaged_npc_ids(events) == {"npc-kim-debrun"}
+    assert evidence == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE",
+        "authored_attested_npc_ids": ["npc-kim-debrun"],
+        "legacy_unverifiable_npc_ids": ["npc-dooley"],
+        "unverified_npc_ids": ["npc-dooley"],
+    }
     result = coc_adherence.evaluate_adherence(checklist, {"events": events})
     by_id = {row["statement_id"]: row for row in result["statements"]}
     assert by_id["npc:npc-dooley"]["satisfied"] is False
     assert by_id["npc:npc-kim-debrun"]["satisfied"] is True
+    assert result["npc_engagement_evidence"]["status"] == "NON_COMPARABLE"
+
+
+def test_unversioned_explicit_npc_ids_are_non_comparable_not_coverage():
+    checklist = [{
+        "statement_id": "npc:npc-dooley",
+        "kind": "optional",
+        "criterion": {"npc_id": "npc-dooley"},
+        "description": "Engage Dooley",
+    }]
+    result = coc_adherence.evaluate_adherence(
+        checklist, {"engaged_npc_ids": ["npc-dooley"]}
+    )
+    assert result["statements"][0]["satisfied"] is False
+    assert result["npc_engagement_evidence"] == {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "NON_COMPARABLE",
+        "authored_attested_npc_ids": [],
+        "legacy_unverifiable_npc_ids": ["npc-dooley"],
+        "unverified_npc_ids": [],
+    }

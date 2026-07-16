@@ -35,7 +35,6 @@ import random
 import re
 import sys
 import time
-import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -60,6 +59,7 @@ coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_npc_identity = _load_sibling("coc_npc_identity_toolbox", "coc_npc_identity.py")
 coc_time = _load_sibling("coc_time", "coc_time.py")
 coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
@@ -577,102 +577,15 @@ def _clue_by_id(clue_graph: dict[str, Any], clue_id: str) -> dict[str, Any] | No
     return None
 
 
-def _entity_key(value: Any) -> str:
-    normalized = unicodedata.normalize("NFKC", str(value)).casefold()
-    return " ".join(
-        "".join(character if character.isalnum() else " " for character in normalized).split()
-    )
-
-
 def _npc_by_id(npc_agendas: dict[str, Any], npc_id: str) -> dict[str, Any] | None:
-    """Resolve a structured NPC id/name/alias, allowing only unambiguous short ids."""
-    query = _entity_key(npc_id)
-    if not query:
-        return None
-    npcs = [npc for npc in (npc_agendas.get("npcs") or []) if isinstance(npc, dict)]
-    exact: list[dict[str, Any]] = []
-    short: list[dict[str, Any]] = []
-    ignored_tokens = {"npc", "mr", "mrs", "ms", "miss", "dr", "the", "of"}
-    for npc in npcs:
-        aliases = npc.get("aliases") or []
-        if isinstance(aliases, str):
-            aliases = [aliases]
-        values = [npc.get("npc_id"), npc.get("name"), *aliases]
-        keys = {_entity_key(value) for value in values if value not in (None, "")}
-        if query in keys:
-            exact.append(npc)
-            continue
-        tokens: set[str] = set()
-        for key in keys:
-            tokens.update(token for token in key.split() if token not in ignored_tokens)
-        if query in tokens:
-            short.append(npc)
-    matches = exact or short
-    return matches[0] if len(matches) == 1 else None
+    return coc_npc_identity.resolve_authored_npc(npc_agendas, npc_id)
 
 
 def _npc_identity_contract(
     npc: dict[str, Any],
     active_scene_id: str | None,
 ) -> dict[str, Any]:
-    """Project one stable authored identity without interpreting free prose.
-
-    ``identity_ref`` binds the exact structured producer fields returned to the
-    Keeper.  It is evidence that the consumer selected this authored identity,
-    not an audit of the narration itself.
-    """
-    schedule = deepcopy(npc.get("schedule") or [])
-    schedule_rows = schedule if isinstance(schedule, list) else [schedule]
-    authored_scene_ids: set[str] = set()
-    for row in schedule_rows:
-        if not isinstance(row, dict):
-            continue
-        for scene_id in row.get("scene_ids") or []:
-            if scene_id not in (None, ""):
-                authored_scene_ids.add(str(scene_id))
-    identity_source = {
-        "npc_id": npc.get("npc_id"),
-        "name": npc.get("name"),
-        "origin": npc.get("origin"),
-        "agenda": npc.get("agenda"),
-        "voice": npc.get("voice"),
-        "relationship_to_investigators": npc.get("relationship_to_investigators"),
-        "social_role": deepcopy(npc.get("social_role")),
-        "schedule": schedule,
-        "source_refs": deepcopy(npc.get("source_refs") or []),
-    }
-    encoded = json.dumps(
-        identity_source,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode("utf-8")
-    identity_ref = f"npc-identity-v1:{hashlib.sha256(encoded).hexdigest()[:24]}"
-    active = str(active_scene_id) if active_scene_id not in (None, "") else None
-    scene_match: bool | None = None
-    if authored_scene_ids:
-        scene_match = bool(active and active in authored_scene_ids)
-    return {
-        "keeper_only": True,
-        "npc_id": npc.get("npc_id"),
-        "name": npc.get("name"),
-        "origin": npc.get("origin"),
-        "identity_ref": identity_ref,
-        "role": {
-            "relationship_to_investigators": npc.get("relationship_to_investigators"),
-            "social_role": deepcopy(npc.get("social_role")),
-        },
-        "agenda": npc.get("agenda"),
-        "voice": npc.get("voice"),
-        "schedule": schedule,
-        "location_provenance": {
-            "active_scene_id": active,
-            "authored_scene_ids": sorted(authored_scene_ids),
-            "active_scene_matches_schedule": scene_match,
-        },
-        "source_refs": deepcopy(npc.get("source_refs") or []),
-    }
+    return coc_npc_identity.identity_contract(npc, active_scene_id)
 
 
 def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
@@ -790,6 +703,161 @@ def _read_jsonl_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+_SOURCE_RECEIPTS_KEY = "operation_receipts"
+_SOURCE_RECEIPT_SCHEMA_VERSION = 1
+
+
+def _operation_fingerprint(tool_name: str, operation: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {"tool": str(tool_name), "operation": operation},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _operation_event_id(tool_name: str, decision_id: str) -> str:
+    encoded = json.dumps(
+        [str(tool_name), str(decision_id)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"tool-operation-v1:{hashlib.sha256(encoded).hexdigest()[:32]}"
+
+
+def _source_receipt(
+    source: dict[str, Any],
+    tool_name: str,
+    decision_id: str,
+) -> dict[str, Any] | None:
+    all_receipts = source.get(_SOURCE_RECEIPTS_KEY)
+    if not isinstance(all_receipts, dict):
+        return None
+    tool_receipts = all_receipts.get(str(tool_name))
+    if not isinstance(tool_receipts, dict):
+        return None
+    receipt = tool_receipts.get(str(decision_id))
+    return receipt if isinstance(receipt, dict) else None
+
+
+def _put_source_receipt(
+    source: dict[str, Any],
+    receipt: dict[str, Any],
+) -> None:
+    all_receipts = source.get(_SOURCE_RECEIPTS_KEY)
+    if not isinstance(all_receipts, dict):
+        all_receipts = {}
+    tool_name = str(receipt["tool"])
+    tool_receipts = all_receipts.get(tool_name)
+    if not isinstance(tool_receipts, dict):
+        tool_receipts = {}
+    tool_receipts[str(receipt["decision_id"])] = deepcopy(receipt)
+    all_receipts[tool_name] = tool_receipts
+    source[_SOURCE_RECEIPTS_KEY] = all_receipts
+
+
+def _new_source_receipt(
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+    event: dict[str, Any],
+    data: dict[str, Any],
+    warnings: list[str] | None = None,
+    hints: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema_version": _SOURCE_RECEIPT_SCHEMA_VERSION,
+        "tool": str(tool_name),
+        "decision_id": str(decision_id),
+        "fingerprint": _operation_fingerprint(tool_name, operation),
+        "operation": deepcopy(operation),
+        "event_id": event.get("event_id"),
+        "event": deepcopy(event),
+        "data": deepcopy(data),
+        "warnings": list(warnings or []),
+        "hints": list(hints or []),
+    }
+
+
+def _validate_source_receipt(
+    receipt: dict[str, Any],
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+) -> None:
+    stored_operation = receipt.get("operation")
+    stored_fingerprint = str(receipt.get("fingerprint") or "")
+    stored_event = receipt.get("event")
+    stable_event_id = _operation_event_id(tool_name, decision_id)
+    if (
+        not isinstance(stored_operation, dict)
+        or stored_fingerprint
+        != _operation_fingerprint(tool_name, stored_operation)
+        or str(receipt.get("event_id") or "") != stable_event_id
+        or not isinstance(stored_event, dict)
+        or str(stored_event.get("event_id") or "") != stable_event_id
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"source receipt for {tool_name} decision_id '{decision_id}' is inconsistent",
+        )
+    expected = _operation_fingerprint(tool_name, operation)
+    if (
+        str(receipt.get("tool")) != str(tool_name)
+        or str(receipt.get("decision_id")) != str(decision_id)
+        or stored_fingerprint != expected
+    ):
+        raise ToolError(
+            "idempotency_conflict",
+            f"decision_id '{decision_id}' was already applied to a different {tool_name} payload",
+        )
+
+
+def _ensure_operation_event(ctx: Ctx, receipt: dict[str, Any]) -> bool:
+    """Append a receipt-owned event once, repairing a pre-ledger crash."""
+    event = receipt.get("event")
+    event_id = str(receipt.get("event_id") or "")
+    if not isinstance(event, dict) or not event_id:
+        raise ToolError("state_corrupt", "source receipt has no stable event payload")
+    for row in _read_jsonl_records(ctx.campaign_dir / "logs" / "events.jsonl"):
+        if str(row.get("event_id") or "") == event_id:
+            if any(row.get(key) != value for key, value in event.items()):
+                raise ToolError(
+                    "state_corrupt",
+                    f"event '{event_id}' conflicts with its source receipt",
+                )
+            return False
+    ctx.log_event(deepcopy(event))
+    return True
+
+
+def _replay_source_receipt(
+    ctx: Ctx,
+    receipt: dict[str, Any],
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Repair append/ledger stages while preserving the original result."""
+    _ensure_operation_event(ctx, receipt)
+    data = deepcopy(receipt.get("data") or {})
+    ledger_entry = ctx.ledger_lookup(
+        str(receipt["tool"]), str(receipt["decision_id"])
+    )
+    if ledger_entry is None or ledger_entry.get("data") != data:
+        ctx.ledger_record(
+            str(receipt["decision_id"]),
+            str(receipt["tool"]),
+            data,
+        )
+    warnings = list(receipt.get("warnings") or [])
+    warnings.append(
+        "duplicate decision_id: recovered the original source-of-truth receipt"
+    )
+    return data, warnings, list(receipt.get("hints") or [])
+
+
 def _flag_change_projection(
     row: dict[str, Any],
     *,
@@ -870,7 +938,13 @@ def _load_time_markers(ctx: Ctx) -> dict[str, Any]:
     markers = payload.get("markers")
     if not isinstance(markers, dict):
         markers = {}
-    return {"schema_version": 1, "markers": markers}
+    receipts = payload.get(_SOURCE_RECEIPTS_KEY)
+    if not isinstance(receipts, dict):
+        receipts = {}
+    payload["schema_version"] = 2
+    payload["markers"] = markers
+    payload[_SOURCE_RECEIPTS_KEY] = receipts
+    return payload
 
 
 def _save_time_markers(ctx: Ctx, payload: dict[str, Any]) -> None:
@@ -949,9 +1023,19 @@ def _project_time_marker(
 def _active_time_markers(ctx: Ctx) -> list[dict[str, Any]]:
     current = coc_time.current_stamp(ctx.campaign_dir)
     payload = _load_time_markers(ctx)
+    return _project_active_time_markers(payload, current)
+
+
+def _project_active_time_markers(
+    payload: dict[str, Any],
+    current: dict[str, Any],
+) -> list[dict[str, Any]]:
+    markers = payload.get("markers")
+    if not isinstance(markers, dict):
+        markers = {}
     active = [
         _project_time_marker(marker, current)
-        for marker in payload["markers"].values()
+        for marker in markers.values()
         if isinstance(marker, dict) and marker.get("status") == "active"
     ]
     return sorted(
@@ -3051,13 +3135,48 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_state_set_flag(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("state.set_flag", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    tool_name = "state.set_flag"
+    decision_id = str(args["decision_id"])
     flag_id = str(args["flag_id"])
     value = bool(args.get("value", True))
+    reason = str(args["reason"]) if args.get("reason") is not None else None
+    operation = {
+        "flag_id": flag_id,
+        "value": value,
+        "reason": reason,
+    }
     flags = ctx.flags()
+    receipt = _source_receipt(flags, tool_name, decision_id)
+    if receipt is not None:
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        # Unlocks are additive.  Repair only the exact IDs frozen in the
+        # original receipt, preserving any later, unrelated world writes.
+        frozen_unlocks = (receipt.get("data") or {}).get(
+            "newly_unlocked_scenes"
+        ) or []
+        world = ctx.world()
+        repaired = coc_scene_graph.apply_unlocks_to_world(
+            world, [str(value) for value in frozen_unlocks if value]
+        )
+        if repaired:
+            ctx.save_world(world)
+        return _replay_source_receipt(ctx, receipt)
+
+    # Compatibility for ledgers written before source receipts existed.
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id (legacy ledger): returning the previously settled result"
+        ], []
+
     flag_map = flags.get("flags") or {}
+    if not isinstance(flag_map, dict):
+        flag_map = {}
     previous_value = flag_map.get(flag_id)
     flag_map[flag_id] = value
     flags["flags"] = flag_map
@@ -3068,33 +3187,56 @@ def _tool_state_set_flag(ctx: Ctx, args: dict[str, Any]):
     provenance_map[flag_id] = {
         "source": "state.set_flag",
         "source_ref": f"save/flags.json#flag_provenance/{flag_id}",
-        "decision_id": args.get("decision_id"),
+        "decision_id": decision_id,
         "changed_at": changed_at,
-        "reason": args.get("reason"),
+        "reason": reason,
         "previous_value": previous_value,
     }
     flags["flag_provenance"] = provenance_map
-    ctx.save_flags(flags)
+
+    # Freeze the unlock result from this exact source transition before any
+    # append/ledger stage.  A replay repairs these IDs additively and never
+    # recalculates previous_value/provenance from later state.
     world = ctx.world()
-    newly_unlocked = _evaluate_and_apply_unlocks(ctx, world)
-    if newly_unlocked:
-        ctx.save_world(world)
-    ctx.log_event({
+    projected_world = deepcopy(world)
+    unlock_candidates = coc_scene_graph.evaluate_unlocks(
+        ctx.story_graph,
+        projected_world,
+        clock_reached=_clock_reached(ctx),
+        flags_set={str(key) for key, enabled in flag_map.items() if enabled},
+    )
+    newly_unlocked = coc_scene_graph.apply_unlocks_to_world(
+        projected_world, unlock_candidates
+    )
+    event = {
         "event_type": "flag_set",
+        "event_id": _operation_event_id(tool_name, decision_id),
         "flag_id": flag_id,
         "value": value,
         "previous_value": previous_value,
-        "reason": args.get("reason"),
-        "decision_id": args.get("decision_id"),
+        "reason": reason,
+        "decision_id": decision_id,
         "ts": changed_at,
-    })
+    }
     data = {
         "flag_id": flag_id,
         "value": value,
         "provenance": deepcopy(provenance_map[flag_id]),
-        "newly_unlocked_scenes": newly_unlocked,
+        "newly_unlocked_scenes": list(newly_unlocked),
     }
-    ctx.ledger_record(args.get("decision_id"), "state.set_flag", data)
+    receipt = _new_source_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        event=event,
+        data=data,
+    )
+    _put_source_receipt(flags, receipt)
+    ctx.save_flags(flags)
+    if newly_unlocked:
+        ctx.save_world(projected_world)
+    _ensure_operation_event(ctx, receipt)
+    ctx.ledger_record(decision_id, tool_name, data)
     return data, [], []
 
 
@@ -3207,46 +3349,19 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         _npc_identity_contract(authored_npc, scene_id) if authored_npc else None
     )
     supplied_identity_ref = str(args.get("identity_ref") or "").strip()
-    expected_identity_ref = (
-        str(identity_contract.get("identity_ref")) if identity_contract else None
+    identity_binding = coc_npc_identity.identity_binding(
+        identity_contract,
+        supplied_identity_ref=supplied_identity_ref,
     )
-    schedule_match = (
-        (identity_contract.get("location_provenance") or {}).get(
-            "active_scene_matches_schedule"
-        )
-        if identity_contract
-        else None
-    )
-    binding_reasons: list[str] = []
-    if authored_npc is None:
-        binding_status = "improvised"
-        binding_reasons.append("npc_id_not_in_authored_agendas")
-    elif not supplied_identity_ref:
-        binding_status = "unverified"
-        binding_reasons.append("identity_ref_missing")
-    elif supplied_identity_ref != expected_identity_ref:
-        binding_status = "mismatch"
-        binding_reasons.append("identity_ref_mismatch")
-    elif schedule_match is False:
-        binding_status = "mismatch"
-        binding_reasons.append("active_scene_outside_authored_schedule")
-    else:
-        binding_status = "authored_bound"
-    coverage_eligible = binding_status == "authored_bound"
+    binding_status = str(identity_binding["status"])
+    binding_reasons = list(identity_binding.get("reasons") or [])
     event = {
         "event_type": "npc_engagement",
         "npc_id": npc_id,
         "scene_id": scene_id,
         "interaction_kind": interaction_kind,
         "identity_contract": identity_contract,
-        "identity_binding": {
-            "status": binding_status,
-            "authored_identity_attested": coverage_eligible,
-            "coverage_eligible": coverage_eligible,
-            "supplied_identity_ref": supplied_identity_ref or None,
-            "expected_identity_ref": expected_identity_ref,
-            "reasons": binding_reasons,
-        },
+        "identity_binding": identity_binding,
     }
     warnings: list[str] = []
     if authored_npc is None:
@@ -3350,12 +3465,8 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.time_marker"
     decision_id = str(args["decision_id"])
-    prior = ctx.ledger_lookup("state.time_marker", decision_id)
-    if prior is not None:
-        return prior.get("data"), [
-            "duplicate decision_id: returning the previously settled result"
-        ], []
     action = str(args["action"]).strip().lower()
     if action not in {"set", "reset", "clear"}:
         raise ToolError("invalid_param", "action must be set, reset, or clear")
@@ -3363,15 +3474,7 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
     if not marker_id:
         raise ToolError("invalid_param", "marker_id must be non-empty")
 
-    payload = _load_time_markers(ctx)
-    markers = payload["markers"]
-    existing = markers.get(marker_id)
-    existing = deepcopy(existing) if isinstance(existing, dict) else None
-    warnings: list[str] = []
-    now_wall = _now_iso()
-    current = coc_time.current_stamp(ctx.campaign_dir)
-    projected_marker: dict[str, Any] | None
-
+    minutes_from_now: int | None = None
     if action in {"set", "reset"}:
         if args.get("minutes_from_now") is None:
             raise ToolError(
@@ -3382,6 +3485,44 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             raise ToolError(
                 "invalid_param", "minutes_from_now must be >= 0 (time is monotonic)"
             )
+    label = str(args["label"]) if args.get("label") is not None else None
+    reason = str(args["reason"]) if args.get("reason") is not None else None
+    operation = {
+        "action": action,
+        "marker_id": marker_id,
+        "minutes_from_now": minutes_from_now,
+        "label": label if action in {"set", "reset"} else None,
+        "reason": reason,
+    }
+
+    payload = _load_time_markers(ctx)
+    receipt = _source_receipt(payload, tool_name, decision_id)
+    if receipt is not None:
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        return _replay_source_receipt(ctx, receipt)
+
+    # Compatibility for ledgers written before source receipts existed.
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id (legacy ledger): returning the previously settled result"
+        ], []
+
+    markers = payload["markers"]
+    existing = markers.get(marker_id)
+    existing = deepcopy(existing) if isinstance(existing, dict) else None
+    warnings: list[str] = []
+    now_wall = _now_iso()
+    current = coc_time.current_stamp(ctx.campaign_dir)
+    projected_marker: dict[str, Any] | None
+
+    if action in {"set", "reset"}:
+        assert minutes_from_now is not None
         if action == "reset" and existing is None:
             warnings.append(
                 f"time marker '{marker_id}' did not exist; reset created it"
@@ -3394,7 +3535,7 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
         marker = {
             "marker_id": marker_id,
             "label": str(
-                args.get("label")
+                label
                 or (existing or {}).get("label")
                 or marker_id
             ),
@@ -3404,10 +3545,9 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             "created_at": (existing or {}).get("created_at") or now_wall,
             "updated_at": now_wall,
             "decision_id": decision_id,
-            "reason": args.get("reason"),
+            "reason": reason,
         }
         markers[marker_id] = marker
-        _save_time_markers(ctx, payload)
         projected_marker = _project_time_marker(marker, current)
     else:
         if existing is None:
@@ -3421,31 +3561,45 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
             existing["updated_at"] = now_wall
             existing["cleared_at"] = now_wall
             existing["decision_id"] = decision_id
-            existing["reason"] = args.get("reason")
+            existing["reason"] = reason
             markers[marker_id] = existing
-            _save_time_markers(ctx, payload)
             projected_marker = _project_time_marker(existing, current)
 
-    ctx.log_event({
+    event = {
         "event_type": "time_marker_changed",
+        "event_id": _operation_event_id(tool_name, decision_id),
         "action": action,
         "marker_id": marker_id,
         "decision_id": decision_id,
-        "reason": args.get("reason"),
+        "reason": reason,
         "previous_due_at": deepcopy((existing or {}).get("due_at")),
         "due_at": deepcopy((markers.get(marker_id) or {}).get("due_at")),
         "status": (markers.get(marker_id) or {}).get("status", "absent"),
-    })
+        "ts": now_wall,
+    }
     data = {
         "action": action,
         "marker": projected_marker,
         "current_time": current,
-        "active_time_markers": _active_time_markers(ctx),
+        "active_time_markers": _project_active_time_markers(payload, current),
     }
-    ctx.ledger_record(decision_id, "state.time_marker", data)
-    return data, warnings, [
+    hints = [
         "time markers are deterministic bookkeeping only; due/overdue status does not auto-trigger rescue, scene movement, or any narrative gate"
     ]
+    receipt = _new_source_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        event=event,
+        data=data,
+        warnings=warnings,
+        hints=hints,
+    )
+    _put_source_receipt(payload, receipt)
+    _save_time_markers(ctx, payload)
+    _ensure_operation_event(ctx, receipt)
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, warnings, hints
 
 
 @tool(

@@ -1527,16 +1527,21 @@ def _run_live_match_impl(
         list(discovered_final) if isinstance(discovered_final, list) else []
     )
     if coc_adherence is not None:
-        # Adherence needs positively attested authored NPC IDs, not raw IDs or
-        # keeper-only identity payloads. Preserve only that narrow projection
-        # so a resumed/cumulative run does not silently forget prior evidence.
-        session_result["engaged_npc_ids"] = sorted(
-            coc_adherence.project_engaged_npc_ids(final_event_rows)
+        # Preserve positively attested IDs plus a separate narrow legacy
+        # projection.  Raw event payloads can contain keeper-only identity and
+        # agenda data, so they are never copied into this public result.
+        npc_evidence = coc_adherence.project_npc_engagement_evidence(
+            final_event_rows
         )
+        session_result["engaged_npc_ids"] = list(
+            npc_evidence["authored_attested_npc_ids"]
+        )
+        session_result["npc_engagement_evidence"] = npc_evidence
         session_result["npc_engagement_coverage_contract"] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "semantics": "authored_identity_attestation",
             "legacy_raw_ids_included": False,
+            "legacy_status": npc_evidence["status"],
         }
     threat_state = _read_json(camp / "save" / "threat-state.json", {})
     if isinstance(threat_state, dict) and isinstance(threat_state.get("clocks"), dict):

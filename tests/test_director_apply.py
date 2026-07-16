@@ -17,6 +17,7 @@ def _load(name, rel):
 
 
 coc_director_apply = _load("coc_director_apply", "plugins/coc-keeper/scripts/coc_director_apply.py")
+coc_adherence = _load("coc_adherence_for_director", "plugins/coc-keeper/scripts/coc_adherence.py")
 
 
 def _clue_roll_contract(clue_id="clue-A"):
@@ -732,6 +733,72 @@ def test_apply_records_npc_engagement_without_agency_moves(tmp_path):
         if line.strip()
     ]
     assert any(e.get("event_type") == "npc_engagement" for e in events)
+
+
+def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
+    tmp_path,
+):
+    """A real apply_plan event uses the same versioned identity binding."""
+    camp = _campaign(tmp_path)
+    (camp / "scenario" / "npc-agendas.json").write_text(
+        json.dumps(
+            {
+                "npcs": [{
+                    "npc_id": "npc-authority",
+                    "name": "Structured Authority",
+                    "origin": "module",
+                    "agenda": "Keep the scene safe",
+                    "voice": "Direct and concise",
+                    "relationship_to_investigators": "scene authority",
+                    "social_role": {"authority_scope": ["scene_safety"]},
+                    "schedule": [{"scene_ids": ["scene-1"]}],
+                    "source_refs": ["npc-agendas.json#npc-authority"],
+                }]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    plan = {
+        "decision_id": "d-npc-producer-consumer-contract",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 2},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{
+            "npc_id": "npc-authority",
+            "interaction_kind": "assistance",
+            "agency_moves": [{
+                "move_id": "secure-scene",
+                "reason": "structured authority move",
+            }],
+        }],
+    }
+
+    events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
+    produced = [
+        row
+        for row in events
+        if row.get("event_type") in {"npc_engagement", "npc_agency"}
+    ]
+    assert {row["event_type"] for row in produced} == {
+        "npc_engagement", "npc_agency",
+    }
+    assert all(
+        row["identity_contract"]["schema_version"] == 1 for row in produced
+    )
+    assert all(
+        row["identity_binding"]["status"] == "authored_bound"
+        and row["identity_binding"]["attestation_source"]
+        == "director_apply.npc_move"
+        for row in produced
+    )
+    assert coc_adherence.project_engaged_npc_ids(produced) == {"npc-authority"}
+    evidence = coc_adherence.project_npc_engagement_evidence(produced)
+    assert evidence["status"] == "PASS"
+    assert evidence["legacy_unverifiable_npc_ids"] == []
 
 
 def test_apply_persists_npc_stat_upgrade_log(tmp_path):
