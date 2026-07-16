@@ -468,21 +468,18 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
     if new_san >= max_san:
         # Fully restored — clear indefinite insanity.
         inv["indefinite_insane"] = False
-        # Also clear the identity-bound authoritative snapshot if it exists.
-        # SanitySession.save maintains the legacy singleton only when this
-        # investigator owns it, so treatment cannot overwrite a party mate.
-        coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
-        if coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
-            try:
-                sanity = coc_sanity.SanitySession.load(
-                    campaign_dir, investigator_id
-                )
-                sanity.san_current = new_san
-                sanity.indefinite_insane = False
-                sanity.save(campaign_dir)
-            except (OSError, ValueError):
-                pass
+    # Write the general investigator state first.  SanitySession.save then
+    # reloads/merges that document while mirroring the authoritative identity
+    # snapshot, so the final write cannot replace freshly mirrored SAN fields
+    # with the stale pre-treatment object above.
     _write_inv_state(campaign_dir, investigator_id, inv)
+    coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
+    if coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
+        sanity = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
+        sanity.san_current = new_san
+        if new_san >= max_san:
+            sanity.indefinite_insane = False
+        sanity.save(campaign_dir)
     return {
         "san_before": current_san,
         "san_after": new_san,

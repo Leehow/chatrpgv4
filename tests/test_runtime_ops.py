@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import random
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -115,6 +119,20 @@ def _prepare_development_cliffhanger(root: Path) -> tuple[Path, Path, dict]:
     }) + "\n", encoding="utf-8")
     operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
     return character, campaign, operation
+
+
+def _exact_development_paths(
+    campaign: Path, investigator_id: str = "inv"
+) -> tuple[str, Path, Path]:
+    ending = ops.coc_development.structured_ending_evidence(campaign)
+    assert ending is not None
+    ending_id = str(ending["ending_id"])
+    settlement = ops.coc_development.ending_settlement_path(
+        campaign, ending_id, investigator_id
+    )
+    return ending_id, settlement, settlement.with_name(
+        f"{investigator_id}.inflight.json"
+    )
 
 
 def _cast_operation() -> dict:
@@ -361,8 +379,11 @@ def test_development_settle_recovers_crash_before_commit_marker(
             rng_seed=5,
         )
     campaign = crash_root / ".coc" / "campaigns" / "camp"
-    inflight = campaign / "save" / "development-settlements" / "inv.inflight.json"
-    settlement = campaign / "save" / "development-settlements" / "inv.json"
+    ending_id = ops.coc_development.structured_ending_evidence(campaign)["ending_id"]
+    settlement = ops.coc_development.ending_settlement_path(
+        campaign, ending_id, "inv"
+    )
+    inflight = settlement.with_name("inv.inflight.json")
     assert inflight.is_file()
     assert not settlement.exists()
 
@@ -445,7 +466,10 @@ def test_canonical_operation_recovers_crashed_settlement_before_its_write(
             operation=operation,
             rng_seed=5,
         )
-    inflight = campaign / "save" / "development-settlements" / "inv.inflight.json"
+    ending_id = ops.coc_development.structured_ending_evidence(campaign)["ending_id"]
+    inflight = ops.coc_development.ending_settlement_path(
+        campaign, ending_id, "inv"
+    ).with_name("inv.inflight.json")
     assert json.loads(inflight.read_text(encoding="utf-8"))["status"] == "prepared"
 
     monkeypatch.setattr(ops.coc_fileio, "write_text_atomic", original_write)
@@ -567,7 +591,230 @@ def test_recovery_conflict_preserves_direct_foreign_deltas_without_restore(
         "foreign_post_crash_write"
     ] == "must-survive"
     assert _read_jsonl(event_path)[-1]["event_type"] == "foreign_post_crash_event"
-    assert (campaign / "save" / "development-settlements" / "inv.inflight.json").exists()
+    ending_id = ops.coc_development.structured_ending_evidence(campaign)["ending_id"]
+    assert ops.coc_development.ending_settlement_path(
+        campaign, ending_id, "inv"
+    ).with_name("inv.inflight.json").exists()
+
+
+@pytest.mark.parametrize("target_kind", ["directory", "symlink"])
+def test_development_rejects_non_regular_target_before_any_mutation(
+    tmp_path, target_kind
+):
+    character, campaign, operation = _prepare_development_cliffhanger(tmp_path)
+    sanity_path = ops.coc_sanity.sanity_snapshot_path(campaign, "inv")
+    sanity_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_kind == "directory":
+        sanity_path.mkdir()
+    else:
+        sanity_path.symlink_to(character)
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+        tmp_path / ".coc" / "investigators" / "inv" / "development.jsonl",
+    ]
+    before = {path: path.read_bytes() for path in tracked}
+    _ending_id, settlement, inflight = _exact_development_paths(campaign)
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as exc_info:
+        ops.execute_operation(
+            tmp_path,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=character,
+            operation=operation,
+            rng_seed=5,
+        )
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert any("sanity-state/inv.json" in path for path in exc_info.value.conflicting_paths)
+    assert {path: path.read_bytes() for path in tracked} == before
+    assert not settlement.exists()
+    assert not inflight.exists()
+    assert sanity_path.is_dir() if target_kind == "directory" else sanity_path.is_symlink()
+
+
+def test_preapply_cas_preserves_planning_window_foreign_write(
+    tmp_path, monkeypatch
+):
+    character, campaign, operation = _prepare_development_cliffhanger(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv.json"
+    events_path = campaign / "logs" / "events.jsonl"
+    inv_before = inv_path.read_bytes()
+    events_before = events_path.read_bytes()
+    original_plan = ops._plan_development_postimages
+
+    def plan_then_foreign_write(*args, **kwargs):
+        planned = original_plan(*args, **kwargs)
+        value = json.loads(character.read_text(encoding="utf-8"))
+        value["foreign_campaign_write"] = "must-survive"
+        character.write_text(json.dumps(value), encoding="utf-8")
+        return planned
+
+    monkeypatch.setattr(
+        ops, "_plan_development_postimages", plan_then_foreign_write
+    )
+    _ending_id, settlement, inflight = _exact_development_paths(campaign)
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as exc_info:
+        ops.execute_operation(
+            tmp_path,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=character,
+            operation=operation,
+            rng_seed=5,
+        )
+
+    assert "foreign_campaign_write" in json.loads(
+        character.read_text(encoding="utf-8")
+    )
+    assert inv_path.read_bytes() == inv_before
+    assert events_path.read_bytes() == events_before
+    assert not settlement.exists()
+    assert inflight.is_file()
+    assert any("character.json" in path for path in exc_info.value.conflicting_paths)
+
+
+@pytest.mark.parametrize("malformed_image", ["file_preimage", "log_postimage"])
+def test_recovery_rejects_malformed_individual_image_before_restore(
+    tmp_path, malformed_image
+):
+    character, campaign, _operation = _prepare_development_cliffhanger(tmp_path)
+    ending = ops.coc_development.structured_ending_evidence(campaign)
+    assert ending is not None
+    ending_id, settlement, inflight = _exact_development_paths(campaign)
+    rng = random.Random(5)
+    journal = ops._capture_development_inflight(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        ending_id=ending_id,
+        settlement_path=settlement,
+        inflight_path=inflight,
+        ending=ending,
+        rng=rng,
+    )
+    _receipt, file_postimages, log_postimages = ops._plan_development_postimages(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        payload={},
+        rng=rng,
+        settlement_path=settlement,
+        ending=ending,
+    )
+    journal.update({
+        "status": "prepared",
+        "file_postimages": file_postimages,
+        "log_postimages": log_postimages,
+    })
+    if malformed_image == "file_preimage":
+        journal["file_preimages"]["character"]["sha256"] = "0" * 64
+    else:
+        journal["log_postimages"]["events"]["suffix_sha256"] = "0" * 64
+    ops._write_development_journal(inflight, journal)
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+    ]
+    before = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict):
+        ops.recover_development_transactions(campaign)
+
+    assert {path: path.read_bytes() for path in tracked} == before
+    assert inflight.is_file()
+    assert not settlement.exists()
+
+
+def test_two_campaigns_shared_investigator_serialize_without_deadlock(tmp_path):
+    character = _workspace(tmp_path)
+    campaign_one = tmp_path / ".coc" / "campaigns" / "camp"
+    state.create_campaign(tmp_path, "camp2", "Second Campaign")
+    state.link_party(tmp_path, "camp2", ["inv"])
+    campaign_two = tmp_path / ".coc" / "campaigns" / "camp2"
+    for campaign, skill, decision in (
+        (campaign_one, "Spot Hidden", "ending-camp-one"),
+        (campaign_two, "Listen", "ending-camp-two"),
+    ):
+        inv_path = campaign / "save" / "investigator-state" / "inv.json"
+        value = json.loads(inv_path.read_text(encoding="utf-8"))
+        value["skill_checks_earned"] = [skill]
+        inv_path.write_text(json.dumps(value), encoding="utf-8")
+        events = campaign / "logs" / "events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(json.dumps({
+            "event_type": "session_ending",
+            "scene_id": "finale",
+            "kind": "cliffhanger",
+            "decision_id": decision,
+            "investigator_ids": ["inv"],
+            "ts": "2026-07-16T00:00:00Z",
+        }) + "\n", encoding="utf-8")
+
+    # Hold the shared lock briefly so both subprocesses first acquire their
+    # own campaign locks and queue in the documented campaign->investigator
+    # order.  communicate(timeout=...) is the deadlock proof.
+    lock_path = ops._development_investigator_lock_path(campaign_one, "inv")
+    command_base = [
+        sys.executable,
+        str(REPO / "plugins" / "coc-keeper" / "scripts" / "coc_runtime_ops.py"),
+        "--workspace", str(tmp_path),
+        "--investigator", "inv",
+        "--character", str(character),
+        "--operation-json", json.dumps({
+            "schema_version": 1,
+            "kind": "development.settle",
+            "payload": {},
+        }),
+        "--rng-seed", "7",
+    ]
+    with ops.coc_fileio.advisory_file_lock(lock_path):
+        processes = [
+            subprocess.Popen(
+                [*command_base, "--campaign", campaign_id],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            )
+            for campaign_id in ("camp", "camp2")
+        ]
+        campaign_locks = [
+            campaign_one / ".campaign.lock",
+            campaign_two / ".campaign.lock",
+        ]
+        deadline = time.monotonic() + 3.0
+        while (
+            not all(path.is_file() for path in campaign_locks)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert all(path.is_file() for path in campaign_locks)
+    outputs: list[tuple[str, str, int]] = []
+    try:
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=12)
+            outputs.append((stdout, stderr, process.returncode))
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=2)
+
+    assert [code for _out, _err, code in outputs] == [0, 0], outputs
+    assert all(json.loads(stdout)["status"] == "PASS" for stdout, _err, _code in outputs)
+    for campaign in (campaign_one, campaign_two):
+        ending = ops.coc_development.structured_ending_evidence(campaign)
+        assert ending is not None
+        assert ops.coc_development.ending_settlement_path(
+            campaign, ending["ending_id"], "inv"
+        ).is_file()
+    # Persistent lock inode is expected; acquiring it proves neither worker
+    # leaked the kernel lock.
+    with ops.coc_fileio.advisory_file_lock(lock_path, wait_seconds=0.2):
+        pass
+    json.loads(character.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize(
@@ -652,8 +899,11 @@ def test_development_settle_recovers_late_scenario_reward_crashes(
         )
     else:
         original = ops.coc_fileio.write_text_atomic
-        settlement_path = (
-            crash_campaign / "save" / "development-settlements" / "inv.json"
+        ending_id = ops.coc_development.structured_ending_evidence(
+            crash_campaign
+        )["ending_id"]
+        settlement_path = ops.coc_development.ending_settlement_path(
+            crash_campaign, ending_id, "inv"
         )
 
         def crash_before_receipt(path, *args, **kwargs):
@@ -711,9 +961,12 @@ def test_development_settle_recovers_late_scenario_reward_crashes(
         and row.get("source") == "conclusion_rewards"
     ]
     assert len(reward_events) == 1
-    assert not (
-        crash_campaign / "save" / "development-settlements" / "inv.inflight.json"
-    ).exists()
+    ending_id = ops.coc_development.structured_ending_evidence(
+        crash_campaign
+    )["ending_id"]
+    assert not ops.coc_development.ending_settlement_path(
+        crash_campaign, ending_id, "inv"
+    ).with_name("inv.inflight.json").exists()
 
 
 def test_development_settle_applies_structured_scenario_san_reward(tmp_path):

@@ -13,7 +13,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from coc_fileio import write_json_atomic as _fileio_write_json_atomic
+from coc_fileio import (
+    advisory_file_lock as _advisory_file_lock,
+    write_json_atomic as _fileio_write_json_atomic,
+)
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 
 
@@ -627,7 +630,7 @@ def ensure_workspace(root: Path) -> dict[str, str]:
     return {"coc_root": str(base)}
 
 
-def create_investigator(
+def _create_investigator_unlocked(
     root: Path,
     investigator_id: str,
     sheet: dict[str, Any],
@@ -659,6 +662,32 @@ def create_investigator(
         },
     )
     return character_path
+
+
+def create_investigator(
+    root: Path,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    *,
+    creation: dict[str, Any] | None = None,
+) -> Path:
+    """Create/replace a reusable investigator under its shared file lock."""
+    lock_path = (
+        coc_root(root)
+        / "locks"
+        / "investigators"
+        / investigator_id
+        / ".investigator.lock"
+    )
+    # Setup paths do not acquire a campaign lock, and never acquire one after
+    # this block.  In-session writers use campaign -> investigator.
+    with _advisory_file_lock(lock_path, wait_seconds=5.0):
+        return _create_investigator_unlocked(
+            root,
+            investigator_id,
+            sheet,
+            creation=creation,
+        )
 
 
 def list_investigators(root: Path) -> list[dict[str, Any]]:

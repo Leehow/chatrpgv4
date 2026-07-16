@@ -815,6 +815,7 @@ class CombatSession:
             mod_str = "[" + ",".join(parts) + "]"
         tens_values = [int(value) for value in (res.get("tens_values") or [])]
         units = res.get("units")
+        unmodified_roll = None
         bonus_die_only_success = False
         if (
             int(res.get("bonus") or 0) > 0
@@ -824,7 +825,10 @@ class CombatSession:
         ):
             units_i = int(units)
             selected = min(tens_values) * 10 + units_i
-            unmodified = max(tens_values) * 10 + units_i
+            # coc_roll records the physical/base tens die first and appends
+            # bonus/penalty dice afterwards.  The largest tens die is not the
+            # base die (and can be either the original or the extra die).
+            unmodified = tens_values[0] * 10 + units_i
             if selected == 0:
                 selected = 100
             if unmodified == 0:
@@ -832,6 +836,11 @@ class CombatSession:
             bonus_die_only_success = (
                 selected <= int(res["effective_target"]) < unmodified
             )
+            unmodified_roll = unmodified
+        elif tens_values and units is not None:
+            unmodified_roll = tens_values[0] * 10 + int(units)
+            if unmodified_roll == 0:
+                unmodified_roll = 100
         record = {
             "roll_id": roll_id,
             "actor_id": actor_id,
@@ -851,6 +860,7 @@ class CombatSession:
             },
             "tens_values": tens_values,
             "units": int(units) if units is not None else None,
+            "unmodified_roll": unmodified_roll,
             "bonus_die_only_success": bonus_die_only_success,
             "excluded_outcome": (
                 "bonus_die_only_success" if bonus_die_only_success else None

@@ -4781,6 +4781,14 @@ def test_linked_second_investigator_sanity_starts_from_sheet_and_stays_identity_
     legacy_before = legacy_path.read_bytes()
     assert json.loads(legacy_before)["investigator_id"] == "inv1"
 
+    # The legacy owner may leave before the new linked investigator's first
+    # SAN use.  The old singleton remains inv1's mirror and must not block or
+    # seed inv2 merely because inv1 is no longer in the active party.
+    (campaign / "party.json").write_text(json.dumps({
+        "schema_version": 1,
+        "investigator_ids": ["inv2"],
+    }), encoding="utf-8")
+
     inv2_character = tmp_path / "investigators" / "inv2" / "character.json"
     inv2_character.parent.mkdir(parents=True)
     inv2_character.write_text(json.dumps({

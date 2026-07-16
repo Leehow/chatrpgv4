@@ -1230,13 +1230,11 @@ class SanitySession:
                 migrated_from_legacy = True
             else:
                 party_ids = _linked_party_ids(campaign_dir)
-                if (
-                    investigator_id in party_ids
-                    and isinstance(legacy_owner, str)
-                    and legacy_owner in party_ids
-                ):
-                    # A different linked member owns the legacy singleton.
-                    # This actor simply has no SAN snapshot yet.
+                if investigator_id in party_ids and isinstance(legacy_owner, str):
+                    # A different investigator owns the identity-bound legacy
+                    # singleton.  A currently linked actor starts from their
+                    # own sheet/state even if that old owner has since left the
+                    # party; the old mirror remains untouched for its owner.
                     save_path = None
                 else:
                     raise SanityStateIdentityError(

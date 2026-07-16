@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import hashlib
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ _SUCCESS_OUTCOMES = frozenset({
     "critical", "extreme", "hard", "regular", "success",
     "extreme_success", "hard_success", "regular_success", "critical_success",
 })
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 def _load_sibling(name: str, filename: str):
@@ -71,6 +73,16 @@ def _development_path(campaign_dir: Path, investigator_id: str) -> Path:
     return _investigator_dir(campaign_dir, investigator_id) / "development.jsonl"
 
 
+def _investigator_lock_path(campaign_dir: Path, investigator_id: str) -> Path:
+    return (
+        _investigators_root(campaign_dir).parent
+        / "locks"
+        / "investigators"
+        / investigator_id
+        / ".investigator.lock"
+    )
+
+
 def _investigator_state_path(campaign_dir: Path, investigator_id: str) -> Path:
     return Path(campaign_dir) / "save" / "investigator-state" / f"{investigator_id}.json"
 
@@ -93,7 +105,9 @@ def _is_bonus_die_only(roll_result: dict[str, Any]) -> bool:
     if roll_result.get("bonus_die_only_success") is True:
         return True
     # Structured reconstruction: bonus die present, no penalty, and the
-    # non-bonus (highest) tens digit would have failed the effective target.
+    # physical/base roll would have failed the effective target.  The roller
+    # stores that explicitly on new receipts; legacy receipts preserve it as
+    # tens_values[0] followed by the extra tens dice.
     bonus = int(roll_result.get("bonus", 0) or 0)
     penalty = int(roll_result.get("penalty", 0) or 0)
     tens_values = roll_result.get("tens_values")
@@ -105,7 +119,12 @@ def _is_bonus_die_only(roll_result: dict[str, Any]) -> bool:
     try:
         target = int(roll_result.get("effective_target", roll_result.get("target", 0)))
         units_i = int(units)
-        without_bonus = max(int(t) for t in tens_values) * 10 + units_i
+        explicit_base = roll_result.get("unmodified_roll")
+        without_bonus = (
+            int(explicit_base)
+            if explicit_base is not None
+            else int(tens_values[0]) * 10 + units_i
+        )
         if without_bonus == 0:
             without_bonus = 100
         with_bonus = min(int(t) for t in tens_values) * 10 + units_i
@@ -192,14 +211,21 @@ def record_skill_tick(
         return None
 
     path = _development_path(campaign_dir, investigator_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
     tick = {
         "skill": skill,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "roll": roll_result.get("roll"),
     }
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(tick, ensure_ascii=False) + "\n")
+    # The reusable tick log is shared by every campaign linked to this
+    # investigator.  Callers already holding a campaign lock therefore follow
+    # the same campaign -> investigator order as settlement.
+    with coc_fileio.advisory_file_lock(
+        _investigator_lock_path(campaign_dir, investigator_id),
+        wait_seconds=5.0,
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(tick, ensure_ascii=False) + "\n")
     return tick
 
 
@@ -250,8 +276,65 @@ def _clear_campaign_ticks(campaign_dir: Path, investigator_id: str) -> None:
     coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False)
 
 
-def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
-    """Return the latest persisted ending plus any authored scenario reward.
+def _consume_development_inputs(
+    campaign_dir: Path,
+    investigator_id: str,
+    development_input: dict[str, Any] | None,
+) -> None:
+    """Consume only the input tokens owned by one ending capsule."""
+    if development_input is None:
+        tick_path = _development_path(campaign_dir, investigator_id)
+        tick_path.parent.mkdir(parents=True, exist_ok=True)
+        tick_path.write_text("", encoding="utf-8")
+        _clear_campaign_ticks(campaign_dir, investigator_id)
+        return
+
+    legacy_tokens = {
+        str(row.get("token"))
+        for row in (development_input.get("legacy_tick_tokens") or [])
+        if isinstance(row, dict) and isinstance(row.get("token"), str)
+    }
+    tick_path = _development_path(campaign_dir, investigator_id)
+    if tick_path.is_file() and legacy_tokens:
+        kept: list[str] = []
+        for raw in tick_path.read_text(encoding="utf-8").splitlines():
+            token = "legacy:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            if token not in legacy_tokens:
+                kept.append(raw)
+        text = "\n".join(kept)
+        if text:
+            text += "\n"
+        coc_fileio.write_text_atomic(tick_path, text)
+
+    captured_skills = {
+        str(row.get("skill"))
+        for row in (development_input.get("campaign_skill_tokens") or [])
+        if isinstance(row, dict) and isinstance(row.get("skill"), str)
+    }
+    state_path = _investigator_state_path(campaign_dir, investigator_id)
+    if state_path.is_file() and captured_skills:
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            state = None
+        if isinstance(state, dict):
+            earned = state.get("skill_checks_earned")
+            if isinstance(earned, list):
+                state["skill_checks_earned"] = [
+                    skill for skill in earned if str(skill) not in captured_skills
+                ]
+                coc_fileio.write_json_atomic(
+                    state_path, state, indent=2, ensure_ascii=False
+                )
+
+
+def _compile_ending_evidence(
+    campaign_dir: Path,
+    ending: dict[str, Any],
+    ending_index: int,
+    event_rows: list[tuple[int, dict[str, Any]]],
+) -> dict[str, Any]:
+    """Compile one exact ending event plus authored mechanical evidence.
 
     The match is entirely structured: the ending event supplies the scene and
     ending kind, the story graph supplies its conclusion contract, and any
@@ -260,24 +343,6 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
     decision-id fragment, or duplicate generic flag participates in matching.
     """
     campaign_dir = Path(campaign_dir)
-    event_path = campaign_dir / "logs" / "events.jsonl"
-    if not event_path.is_file():
-        return None
-    ending: dict[str, Any] | None = None
-    ending_index = 0
-    event_rows: list[tuple[int, dict[str, Any]]] = []
-    for index, line in enumerate(event_path.read_text(encoding="utf-8").splitlines(), start=1):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            event_rows.append((index, row))
-        if isinstance(row, dict) and row.get("event_type") == "session_ending":
-            ending = row
-            ending_index = index
-    if ending is None:
-        return None
 
     contract: dict[str, Any] = {}
     graph_path = campaign_dir / "scenario" / "story-graph.json"
@@ -401,14 +466,28 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
         "decision_id": ending.get("decision_id"),
         "conclusion_id": conclusion_id if conclusion_proven else None,
     }
-    ending_id = "ending-" + hashlib.sha256(
-        json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:20]
+    explicit_ending_id = ending.get("ending_id")
+    ending_id = (
+        str(explicit_ending_id)
+        if isinstance(explicit_ending_id, str) and explicit_ending_id
+        else "ending-" + hashlib.sha256(
+            json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:20]
+    )
+    explicit_event_id = ending.get("event_id")
+    event_id = (
+        str(explicit_event_id)
+        if isinstance(explicit_event_id, str) and explicit_event_id
+        else ending_event_id(ending_id)
+    )
     return {
         "ending_id": ending_id,
+        "event_id": event_id,
         "event_line": ending_index,
+        "event_ref": f"logs/events.jsonl#{event_id}",
         "scene_id": ending.get("scene_id"),
         "kind": ending.get("kind"),
+        "summary": ending.get("summary"),
         "decision_id": ending.get("decision_id"),
         "investigator_ids": (
             [str(value) for value in ending.get("investigator_ids")]
@@ -425,6 +504,574 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
             reward.get("rule_ref") if isinstance(reward, dict) else None
         ),
     }
+
+
+def _canonical_sha256(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _source_image(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {"exists": False, "sha256": None}
+    return {
+        "exists": True,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+
+
+def ending_settlement_capsule_path(campaign_dir: Path, ending_id: str) -> Path:
+    if _SAFE_ID.fullmatch(str(ending_id)) is None:
+        raise ValueError("ending_id is not a safe persisted identity")
+    return (
+        Path(campaign_dir)
+        / "save"
+        / "development-settlements"
+        / "endings"
+        / str(ending_id)
+        / "capsule.json"
+    )
+
+
+def ending_settlement_path(
+    campaign_dir: Path, ending_id: str, investigator_id: str
+) -> Path:
+    if _SAFE_ID.fullmatch(str(investigator_id)) is None:
+        raise ValueError("investigator_id is not a safe persisted identity")
+    return ending_settlement_capsule_path(campaign_dir, ending_id).with_name(
+        f"{investigator_id}.json"
+    )
+
+
+def _safe_campaign_child_target(campaign_dir: Path, path: Path) -> bool:
+    """Require a regular/nonexistent target beneath non-symlink parents."""
+    campaign_dir = Path(campaign_dir)
+    path = Path(path)
+    try:
+        relative = path.relative_to(campaign_dir)
+        path.resolve(strict=False).relative_to(campaign_dir.resolve())
+    except (OSError, ValueError):
+        return False
+    current = campaign_dir
+    if current.is_symlink() or (current.exists() and not current.is_dir()):
+        return False
+    for part in relative.parts[:-1]:
+        current = current / part
+        if current.is_symlink() or (current.exists() and not current.is_dir()):
+            return False
+    return not path.is_symlink() and (not path.exists() or path.is_file())
+
+
+def ending_id_for_event(ending: dict[str, Any]) -> str:
+    """Return a stable idempotent identity before the event is appended."""
+    explicit = ending.get("ending_id")
+    if isinstance(explicit, str) and explicit:
+        return explicit
+    identity = {
+        "decision_id": ending.get("decision_id"),
+        "scene_id": ending.get("scene_id"),
+        "kind": ending.get("kind"),
+    }
+    return "ending-" + _canonical_sha256(identity)[:20]
+
+
+def ending_event_id(ending_id: str) -> str:
+    if _SAFE_ID.fullmatch(str(ending_id)) is None:
+        raise ValueError("ending_id is not a safe persisted identity")
+    return "ending-event-" + hashlib.sha256(
+        str(ending_id).encode("utf-8")
+    ).hexdigest()[:20]
+
+
+def _read_event_rows(campaign_dir: Path) -> list[tuple[int, dict[str, Any]]]:
+    path = Path(campaign_dir) / "logs" / "events.jsonl"
+    if not path.is_file():
+        return []
+    rows: list[tuple[int, dict[str, Any]]] = []
+    for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append((index, row))
+    return rows
+
+
+def _capsule_without_digest(capsule: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in capsule.items() if key != "capsule_sha256"}
+
+
+def _valid_source_image(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {"exists", "sha256"}:
+        return False
+    exists = value.get("exists")
+    digest = value.get("sha256")
+    if not isinstance(exists, bool):
+        return False
+    if not exists:
+        return digest is None
+    return bool(
+        isinstance(digest, str)
+        and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+    )
+
+
+def _valid_development_input(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    required = {
+        "skills_checked",
+        "legacy_tick_tokens",
+        "campaign_skill_tokens",
+        "input_tokens",
+        "source_images",
+        "input_sha256",
+    }
+    if set(value) != required:
+        return False
+    skills = value.get("skills_checked")
+    legacy = value.get("legacy_tick_tokens")
+    campaign = value.get("campaign_skill_tokens")
+    tokens = value.get("input_tokens")
+    source_images = value.get("source_images")
+    if (
+        not isinstance(skills, list)
+        or not all(isinstance(skill, str) and skill for skill in skills)
+        or len(skills) != len(set(skills))
+        or not isinstance(legacy, list)
+        or not all(
+            isinstance(row, dict)
+            and set(row) == {"skill", "token"}
+            and isinstance(row.get("skill"), str)
+            and bool(row.get("skill"))
+            and isinstance(row.get("token"), str)
+            for row in legacy
+        )
+        or not isinstance(campaign, list)
+        or not all(
+            isinstance(row, dict)
+            and set(row) == {"skill", "generation", "token"}
+            and isinstance(row.get("skill"), str)
+            and bool(row.get("skill"))
+            and isinstance(row.get("generation"), int)
+            and not isinstance(row.get("generation"), bool)
+            and row["generation"] >= 0
+            and isinstance(row.get("token"), str)
+            for row in campaign
+        )
+        or not isinstance(tokens, list)
+        or not all(isinstance(token, str) and token for token in tokens)
+        or not isinstance(source_images, dict)
+        or set(source_images) != {"legacy_ticks", "investigator_state"}
+        or not all(_valid_source_image(image) for image in source_images.values())
+    ):
+        return False
+    expected_skills = list(dict.fromkeys(
+        [row["skill"] for row in legacy]
+        + [row["skill"] for row in campaign]
+    ))
+    expected_tokens = [row["token"] for row in [*legacy, *campaign]]
+    return bool(
+        skills == expected_skills
+        and tokens == expected_tokens
+        and value.get("input_sha256")
+        == _canonical_sha256({
+            key: item for key, item in value.items() if key != "input_sha256"
+        })
+    )
+
+
+def _valid_ending_capsule(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    investigator_ids = value.get("investigator_ids")
+    ending_id = value.get("ending_id")
+    development_inputs = value.get("development_inputs")
+    rng_identity = value.get("rng_identity")
+    source_digest = value.get("source_digest")
+    if not (
+        value.get("schema_version") == 1
+        and value.get("capsule_type") == "ending_settlement"
+        and isinstance(ending_id, str)
+        and _SAFE_ID.fullmatch(ending_id) is not None
+        and isinstance(value.get("event_line_at_capture"), int)
+        and not isinstance(value.get("event_line_at_capture"), bool)
+        and value["event_line_at_capture"] >= 1
+        and isinstance(value.get("event_id"), str)
+        and value.get("event_id") == ending_event_id(ending_id)
+        and value.get("event_ref") == f"logs/events.jsonl#{value['event_id']}"
+        and isinstance(value.get("decision_id"), str)
+        and bool(value.get("decision_id"))
+        and value.get("kind") in {"conclusion", "tpk", "retreat", "cliffhanger"}
+        and (
+            value.get("summary") is None
+            or isinstance(value.get("summary"), str)
+        )
+        and isinstance(investigator_ids, list)
+        and all(isinstance(item, str) for item in investigator_ids)
+        and len(investigator_ids) == len(set(investigator_ids))
+        and all(_SAFE_ID.fullmatch(item) is not None for item in investigator_ids)
+        and isinstance(development_inputs, dict)
+        and isinstance(rng_identity, dict)
+        and set(development_inputs) == set(investigator_ids)
+        and set(rng_identity) == set(investigator_ids)
+        and all(
+            _valid_development_input(item)
+            for item in development_inputs.values()
+        )
+        and all(
+            isinstance(identity, dict)
+            and identity == {
+                "algorithm": "python-random-seed-v1",
+                "seed_material": (
+                    f"{ending_id}:{investigator_id}:development.settle"
+                ),
+            }
+            for investigator_id, identity in rng_identity.items()
+        )
+        and isinstance(source_digest, dict)
+        and set(source_digest) == {
+            "campaign", "module_meta", "story_graph", "combat_snapshot"
+        }
+        and all(_valid_source_image(image) for image in source_digest.values())
+        and isinstance(value.get("captured_at"), str)
+        and value.get("capsule_sha256")
+        == _canonical_sha256(_capsule_without_digest(value))
+    ):
+        return False
+    return True
+
+
+def load_ending_settlement_capsule(
+    campaign_dir: Path, ending_id: str
+) -> dict[str, Any] | None:
+    path = ending_settlement_capsule_path(campaign_dir, ending_id)
+    if not _safe_campaign_child_target(campaign_dir, path) or not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return value if _valid_ending_capsule(value) else None
+
+
+def ending_settlement_capsule_for_decision(
+    campaign_dir: Path,
+    decision_id: str,
+) -> dict[str, Any] | None:
+    """Find an event-not-yet-appended capsule by its idempotent decision."""
+    root = (
+        Path(campaign_dir)
+        / "save" / "development-settlements" / "endings"
+    )
+    if not root.is_dir():
+        return None
+    matches: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*/capsule.json")):
+        if not _safe_campaign_child_target(campaign_dir, path):
+            raise ValueError("ending settlement capsule target is unsafe")
+        try:
+            capsule = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("ending settlement capsule is unreadable") from exc
+        if not _valid_ending_capsule(capsule):
+            raise ValueError("ending settlement capsule is invalid")
+        if capsule.get("decision_id") == decision_id:
+            matches.append(capsule)
+    if len(matches) > 1:
+        raise ValueError(
+            "multiple ending settlement capsules share one decision_id"
+        )
+    return matches[0] if matches else None
+
+
+def _has_valid_exact_settlement(
+    campaign_dir: Path,
+    ending_id: str,
+    investigator_id: str,
+) -> bool:
+    path = ending_settlement_path(campaign_dir, ending_id, investigator_id)
+    if not _safe_campaign_child_target(campaign_dir, path) or not path.is_file():
+        return False
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    receipt = value.get("receipt") if isinstance(value, dict) else None
+    return bool(
+        isinstance(value, dict)
+        and value.get("schema_version") == 1
+        and value.get("ending_id") == ending_id
+        and value.get("investigator_id") == investigator_id
+        and isinstance(receipt, dict)
+        and receipt.get("schema_version") == 1
+        and receipt.get("status") == "PASS"
+        and receipt.get("kind") == "development.settle"
+    )
+
+
+def _prior_development_claims(
+    campaign_dir: Path, investigator_id: str
+) -> tuple[set[str], dict[str, int]]:
+    """Return all durable input claims and settled generations per skill."""
+    root = (
+        Path(campaign_dir)
+        / "save"
+        / "development-settlements"
+        / "endings"
+    )
+    claimed: set[str] = set()
+    settled_by_skill: dict[str, int] = {}
+    if not root.is_dir():
+        return claimed, settled_by_skill
+    for capsule_path in sorted(root.glob("*/capsule.json")):
+        if not _safe_campaign_child_target(campaign_dir, capsule_path):
+            continue
+        try:
+            capsule = json.loads(capsule_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not _valid_ending_capsule(capsule):
+            continue
+        inputs = (capsule.get("development_inputs") or {}).get(investigator_id)
+        if not isinstance(inputs, dict):
+            continue
+        tokens = inputs.get("input_tokens") or []
+        claimed.update(str(token) for token in tokens if isinstance(token, str))
+        ending_id = str(capsule["ending_id"])
+        if not _has_valid_exact_settlement(
+            campaign_dir, ending_id, investigator_id
+        ):
+            continue
+        for row in inputs.get("campaign_skill_tokens") or []:
+            if not isinstance(row, dict) or not isinstance(row.get("skill"), str):
+                continue
+            skill = row["skill"]
+            settled_by_skill[skill] = settled_by_skill.get(skill, 0) + 1
+    return claimed, settled_by_skill
+
+
+def _development_input_snapshot(
+    campaign_dir: Path, investigator_id: str
+) -> dict[str, Any]:
+    claimed, settled_by_skill = _prior_development_claims(
+        campaign_dir, investigator_id
+    )
+    legacy_path = _development_path(campaign_dir, investigator_id)
+    legacy_rows: list[dict[str, Any]] = []
+    if legacy_path.is_file():
+        for raw in legacy_path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            skill = str(row.get("skill") or "").strip() if isinstance(row, dict) else ""
+            if not skill:
+                continue
+            token = "legacy:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            if token not in claimed:
+                legacy_rows.append({"skill": skill, "token": token})
+
+    campaign_rows: list[dict[str, Any]] = []
+    for skill in _campaign_ticked_skills(campaign_dir, investigator_id):
+        generation = settled_by_skill.get(skill, 0)
+        token = "campaign:" + _canonical_sha256(
+            {"skill": skill, "generation": generation}
+        )
+        if token not in claimed:
+            campaign_rows.append({
+                "skill": skill,
+                "generation": generation,
+                "token": token,
+            })
+    skills_checked = list(dict.fromkeys(
+        [row["skill"] for row in legacy_rows]
+        + [row["skill"] for row in campaign_rows]
+    ))
+    input_tokens = [
+        row["token"] for row in [*legacy_rows, *campaign_rows]
+    ]
+    snapshot = {
+        "skills_checked": skills_checked,
+        "legacy_tick_tokens": legacy_rows,
+        "campaign_skill_tokens": campaign_rows,
+        "input_tokens": input_tokens,
+        "source_images": {
+            "legacy_ticks": _source_image(legacy_path),
+            "investigator_state": _source_image(
+                _investigator_state_path(campaign_dir, investigator_id)
+            ),
+        },
+    }
+    snapshot["input_sha256"] = _canonical_sha256(snapshot)
+    return snapshot
+
+
+def build_ending_settlement_capsule(
+    campaign_dir: Path,
+    ending_event: dict[str, Any],
+    *,
+    event_line: int | None = None,
+) -> dict[str, Any]:
+    """Freeze one ending's complete mechanical input before settlement."""
+    campaign_dir = Path(campaign_dir)
+    event = json.loads(json.dumps(ending_event, ensure_ascii=False))
+    event["ending_id"] = ending_id_for_event(event)
+    event.setdefault("event_id", ending_event_id(event["ending_id"]))
+    rows = _read_event_rows(campaign_dir)
+    event_path = campaign_dir / "logs" / "events.jsonl"
+    current_line_count = (
+        len(event_path.read_text(encoding="utf-8").splitlines())
+        if event_path.is_file() else 0
+    )
+    line = int(event_line or (current_line_count + 1))
+    evidence = _compile_ending_evidence(campaign_dir, event, line, rows)
+    evidence["event_line_at_capture"] = evidence.pop("event_line")
+    investigator_ids = (
+        [str(item) for item in event["investigator_ids"]]
+        if isinstance(event.get("investigator_ids"), list)
+        and all(isinstance(item, str) for item in event["investigator_ids"])
+        else []
+    )
+    development_inputs = {
+        investigator_id: _development_input_snapshot(
+            campaign_dir, investigator_id
+        )
+        for investigator_id in investigator_ids
+    }
+    rng_identity = {
+        investigator_id: {
+            "algorithm": "python-random-seed-v1",
+            "seed_material": (
+                f"{evidence['ending_id']}:{investigator_id}:development.settle"
+            ),
+        }
+        for investigator_id in investigator_ids
+    }
+    capsule = {
+        "schema_version": 1,
+        "capsule_type": "ending_settlement",
+        **evidence,
+        "investigator_ids": investigator_ids,
+        "source_digest": {
+            "campaign": _source_image(campaign_dir / "campaign.json"),
+            "module_meta": _source_image(
+                campaign_dir / "scenario" / "module-meta.json"
+            ),
+            "story_graph": _source_image(
+                campaign_dir / "scenario" / "story-graph.json"
+            ),
+            "combat_snapshot": _source_image(
+                campaign_dir / "save" / "combat.json"
+            ),
+        },
+        "development_inputs": development_inputs,
+        "rng_identity": rng_identity,
+        "captured_at": str(event.get("ts") or ""),
+    }
+    capsule["capsule_sha256"] = _canonical_sha256(
+        _capsule_without_digest(capsule)
+    )
+    return capsule
+
+
+def persist_ending_settlement_capsule(
+    campaign_dir: Path, capsule: dict[str, Any]
+) -> Path:
+    if not _valid_ending_capsule(capsule):
+        raise ValueError("ending settlement capsule is invalid")
+    path = ending_settlement_capsule_path(campaign_dir, capsule["ending_id"])
+    if not _safe_campaign_child_target(campaign_dir, path):
+        raise ValueError("ending settlement capsule target is unsafe")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not _safe_campaign_child_target(campaign_dir, path):
+        raise ValueError("ending settlement capsule target became unsafe")
+    coc_fileio.write_json_atomic(
+        path,
+        capsule,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return path
+
+
+def structured_ending_evidence(
+    campaign_dir: Path,
+    *,
+    ending_id: str | None = None,
+    decision_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return one exact persisted ending, defaulting to the latest.
+
+    New endings resolve through their immutable settlement capsule.  Legacy
+    events without a capsule retain the old structured compilation path.
+    """
+    campaign_dir = Path(campaign_dir)
+    rows = _read_event_rows(campaign_dir)
+    candidates = [
+        (index, row)
+        for index, row in rows
+        if row.get("event_type") == "session_ending"
+    ]
+    selected: tuple[int, dict[str, Any]] | None = None
+    for index, row in candidates:
+        if ending_id is not None and row.get("ending_id") != ending_id:
+            if row.get("ending_id") is not None:
+                continue
+            # Compatibility for pre-capsule ending events: derive their old
+            # structured identity once so an already-issued ledger ending_id
+            # remains replayable after upgrade.
+            if _compile_ending_evidence(
+                campaign_dir, row, index, rows
+            ).get("ending_id") != ending_id:
+                continue
+        if decision_id is not None and row.get("decision_id") != decision_id:
+            continue
+        selected = (index, row)
+    if selected is None:
+        return None
+    index, ending = selected
+    explicit_id = ending.get("ending_id")
+    if isinstance(explicit_id, str):
+        if _SAFE_ID.fullmatch(explicit_id) is None:
+            return None
+        capsule = load_ending_settlement_capsule(campaign_dir, explicit_id)
+        capsule_contract = (
+            "settlement_capsule_ref" in ending
+            or "settlement_capsule_sha256" in ending
+        )
+        if capsule is None:
+            # A versioned ending that declared a capsule must never drift back
+            # to a fresh compilation from current scenario/combat state.
+            if capsule_contract:
+                return None
+        else:
+            if (
+                capsule.get("decision_id") != ending.get("decision_id")
+                or capsule.get("event_id") != ending.get("event_id")
+                or capsule.get("captured_at") != str(ending.get("ts") or "")
+                or capsule.get("summary") != ending.get("summary")
+                or capsule.get("scene_id") != ending.get("scene_id")
+                or capsule.get("kind") != ending.get("kind")
+                or capsule.get("investigator_ids")
+                != ending.get("investigator_ids")
+            ):
+                return None
+            expected_digest = ending.get("settlement_capsule_sha256")
+            if expected_digest not in (None, capsule.get("capsule_sha256")):
+                return None
+            return capsule
+    return _compile_ending_evidence(campaign_dir, ending, index, rows)
 
 
 def _read_character(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
@@ -483,6 +1130,8 @@ def run_development_phase(
     investigator_id: str,
     *,
     rng: random.Random | None = None,
+    ending_evidence: dict[str, Any] | None = None,
+    development_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Settle the Investigator Development Phase for one investigator (p.94-95).
 
@@ -511,10 +1160,18 @@ def run_development_phase(
     san_expr = str(rule.get("sanity_reward", {}).get("reward", "2D6"))
 
     tick_path = _development_path(campaign_dir, investigator_id)
-    skills_checked = list(dict.fromkeys(
-        _read_ticked_skills(tick_path)
-        + _campaign_ticked_skills(campaign_dir, investigator_id)
-    ))
+    if development_input is not None:
+        frozen_skills = development_input.get("skills_checked")
+        if not isinstance(frozen_skills, list) or not all(
+            isinstance(skill, str) for skill in frozen_skills
+        ):
+            raise ValueError("ending development input skills are invalid")
+        skills_checked = list(dict.fromkeys(frozen_skills))
+    else:
+        skills_checked = list(dict.fromkeys(
+            _read_ticked_skills(tick_path)
+            + _campaign_ticked_skills(campaign_dir, investigator_id)
+        ))
     sheet = _read_character(campaign_dir, investigator_id)
     skills = sheet.setdefault("skills", {})
     if not isinstance(skills, dict):
@@ -566,11 +1223,11 @@ def run_development_phase(
 
     awfulness_decay = _decay_awfulness(campaign_dir, investigator_id)
 
-    tick_path.parent.mkdir(parents=True, exist_ok=True)
-    tick_path.write_text("", encoding="utf-8")
-    _clear_campaign_ticks(campaign_dir, investigator_id)
+    _consume_development_inputs(
+        campaign_dir, investigator_id, development_input
+    )
 
-    ending = structured_ending_evidence(campaign_dir)
+    ending = ending_evidence or structured_ending_evidence(campaign_dir)
 
     return {
         "skills_checked": skills_checked,

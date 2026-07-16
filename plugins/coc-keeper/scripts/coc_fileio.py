@@ -9,6 +9,7 @@ sessions from corrupting one campaign directory.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import tempfile
@@ -20,6 +21,43 @@ from typing import Any, Iterator
 
 class CampaignLockError(RuntimeError):
     """Raised when a campaign advisory lock cannot be acquired."""
+
+
+@contextmanager
+def advisory_file_lock(
+    lock_path: Path,
+    *,
+    wait_seconds: float = 5.0,
+    poll_seconds: float = 0.01,
+) -> Iterator[Path]:
+    """Cross-process flock for shared resources outside one campaign.
+
+    Unlike ``campaign_lock`` this lock is descriptor-owned, so two threads in
+    the same host process still serialize instead of treating the shared PID
+    as an accidental nested campaign entry.  The lock file is stable and may
+    remain on disk; process exit releases the kernel lock automatically.
+    """
+    lock_path = Path(lock_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    deadline = time.monotonic() + max(0.0, float(wait_seconds))
+    try:
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise CampaignLockError(
+                        f"shared resource lock busy at {lock_path}"
+                    ) from None
+                time.sleep(max(0.001, float(poll_seconds)))
+        try:
+            yield lock_path
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
 
 
 def write_text_atomic(path: Path, text: str, encoding: str = "utf-8") -> None:

@@ -27,6 +27,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from copy import deepcopy
 import hashlib
 import importlib.util
@@ -3551,22 +3552,29 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     return data, warnings, []
 
 
-def _ending_rng(ctx: Ctx, investigator_id: str) -> random.Random:
-    ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
-    ending_id = ending.get("ending_id") if isinstance(ending, dict) else "pending-ending"
-    return random.Random(f"{ending_id}:{investigator_id}:development.settle")
+def _ending_rng(ending: dict[str, Any], investigator_id: str) -> random.Random:
+    identities = ending.get("rng_identity")
+    identity = identities.get(investigator_id) if isinstance(identities, dict) else None
+    seed_material = (
+        identity.get("seed_material") if isinstance(identity, dict) else None
+    )
+    if not isinstance(seed_material, str) or not seed_material:
+        seed_material = (
+            f"{ending.get('ending_id', 'pending-ending')}:"
+            f"{investigator_id}:development.settle"
+        )
+    return random.Random(seed_material)
 
 
 def _development_finalizer(
     ctx: Ctx,
-    investigator_ids: list[str],
+    ending: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Synchronously settle deterministic post-ending bookkeeping.
 
     This is deliberately not a narrative gate.  Exhausted retries leave the
     ending in place and return structured pending evidence for later replay.
     """
-    ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
     if ending is None:
         return {
             "status": "PENDING",
@@ -3574,13 +3582,22 @@ def _development_finalizer(
             "settlements": [],
             "error": "persisted ending evidence is unavailable",
         }
-    unique_ids = list(dict.fromkeys(str(value) for value in investigator_ids if str(value)))
-    if not unique_ids:
+    frozen = ending.get("investigator_ids")
+    if not isinstance(frozen, list) or not all(
+        isinstance(value, str) for value in frozen
+    ):
         return {
             "status": "PENDING",
+            "ending_id": ending.get("ending_id"),
+            "settlements": [],
+            "error": "persisted ending target contract is invalid",
+        }
+    unique_ids = list(dict.fromkeys(value for value in frozen if value))
+    if not unique_ids:
+        return {
+            "status": "PASS",
             "ending_id": ending["ending_id"],
             "settlements": [],
-            "error": "campaign party has no investigator identity to settle",
         }
     settlements: list[dict[str, Any]] = []
     for investigator_id in unique_ids:
@@ -3590,7 +3607,8 @@ def _development_finalizer(
                 receipt = coc_runtime_ops.settle_development(
                     ctx.campaign_dir,
                     investigator_id,
-                    rng=_ending_rng(ctx, investigator_id),
+                    rng=_ending_rng(ending, investigator_id),
+                    ending_id=str(ending["ending_id"]),
                 )
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
@@ -3691,6 +3709,7 @@ def _ending_target_retry_conflict(
     "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine.",
     {
         "investigator": {"type": "string", "desc": "investigator id; defaults to the linked party member"},
+        "ending_id": {"type": "string", "desc": "exact persisted ending id; defaults to the latest ending"},
         "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
         "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
     },
@@ -3704,13 +3723,22 @@ def _tool_development_settle(ctx: Ctx, args: dict[str, Any]):
         ], []
     investigator_id = _resolve_investigator(ctx, args)
     try:
+        ending = coc_development.structured_ending_evidence(
+            ctx.campaign_dir,
+            ending_id=(str(args["ending_id"]) if args.get("ending_id") else None),
+        )
+        if ending is None:
+            raise coc_runtime_ops.RuntimeOperationError(
+                "development.settle requires a persisted state.end_session receipt"
+            )
         rng = _rng(args) if args.get("seed") is not None else _ending_rng(
-            ctx, investigator_id
+            ending, investigator_id
         )
         receipt = coc_runtime_ops.settle_development(
             ctx.campaign_dir,
             investigator_id,
             rng=rng,
+            ending_id=str(ending["ending_id"]),
         )
     except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
         raise ToolError("recovery_conflict", str(exc)) from exc
@@ -3744,23 +3772,35 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
     prior = ctx.ledger_lookup("state.end_session", args.get("decision_id"))
     if prior is not None:
         data = deepcopy(prior.get("data") or {})
+        frozen_present = isinstance(data.get("investigator_ids"), list)
         frozen_ids = _normalized_investigator_ids(data.get("investigator_ids"))
-        if not frozen_ids:
+        if not frozen_present:
             frozen_ids = _normalized_investigator_ids([
                 row.get("investigator_id")
                 for row in (data.get("development") or {}).get("settlements", [])
                 if isinstance(row, dict)
             ])
+            frozen_present = bool(frozen_ids)
         target_conflict = _ending_target_retry_conflict(
             ctx, args, frozen_ids
-        ) if frozen_ids else None
+        ) if frozen_present else None
         if target_conflict is not None:
             data["retry_target_conflict"] = target_conflict
         development = data.get("development")
         if not isinstance(development, dict) or development.get("status") != "PASS":
-            development = _development_finalizer(ctx, frozen_ids)
+            ending = coc_development.structured_ending_evidence(
+                ctx.campaign_dir,
+                ending_id=(
+                    str(data["ending_id"]) if data.get("ending_id") else None
+                ),
+                decision_id=(
+                    None if data.get("ending_id") else str(args["decision_id"])
+                ),
+            )
+            development = _development_finalizer(ctx, ending)
             data["development"] = development
-            data["ending_id"] = development.get("ending_id")
+            if development.get("ending_id") is not None:
+                data["ending_id"] = development.get("ending_id")
             data["investigator_ids"] = frozen_ids
             ctx.ledger_record(args.get("decision_id"), "state.end_session", data)
             if development.get("status") != "PASS":
@@ -3809,37 +3849,131 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
     if existing_ending is not None:
         scene_id = existing_ending.get("scene_id")
         kind = str(existing_ending.get("kind") or "conclusion")
-        targets = _normalized_investigator_ids(
-            existing_ending.get("investigator_ids")
-        )
-        if not targets:
+        frozen_present = isinstance(existing_ending.get("investigator_ids"), list)
+        targets = _normalized_investigator_ids(existing_ending.get("investigator_ids"))
+        if not frozen_present:
             # Legacy crash receipts predate frozen targets.  Freeze them once
             # in the reconstructed toolbox receipt; new endings always persist
             # them in the event itself before settlement begins.
             targets = _requested_ending_targets(ctx, args)
         else:
             target_conflict = _ending_target_retry_conflict(ctx, args, targets)
+        ending = coc_development.structured_ending_evidence(
+            ctx.campaign_dir,
+            ending_id=(
+                str(existing_ending["ending_id"])
+                if existing_ending.get("ending_id") else None
+            ),
+            decision_id=(
+                None if existing_ending.get("ending_id") else decision_id
+            ),
+        )
     else:
-        world = ctx.world()
-        scene_id = world.get("active_scene_id")
-        kind = str(args.get("kind") or "conclusion")
-        if kind not in {"conclusion", "tpk", "retreat", "cliffhanger"}:
-            raise ToolError(
-                "invalid_param",
-                "kind must be conclusion, tpk, retreat, or cliffhanger",
+        try:
+            ending = coc_development.ending_settlement_capsule_for_decision(
+                ctx.campaign_dir, decision_id
             )
-        targets = _requested_ending_targets(ctx, args)
-        record: dict[str, Any] = {
-            "event_type": "session_ending",
-            "scene_id": scene_id,
-            "kind": kind,
-            "decision_id": decision_id,
-            "investigator_ids": targets,
-        }
-        if args.get("summary"):
-            record["summary"] = str(args["summary"])
+        except ValueError as exc:
+            raise ToolError(
+                "development_settlement_failed", str(exc)
+            ) from exc
+        if ending is not None:
+            # A capsule may be the sole durable artifact after a process exit
+            # between capsule persistence and event append.  Reconstruct the
+            # event from that capsule, never from the now-current scene/party.
+            scene_id = ending.get("scene_id")
+            kind = str(ending.get("kind") or "conclusion")
+            targets = _normalized_investigator_ids(
+                ending.get("investigator_ids")
+            )
+            target_conflict = _ending_target_retry_conflict(
+                ctx, args, targets
+            )
+            record = {
+                "event_type": "session_ending",
+                "event_id": ending["event_id"],
+                "ending_id": ending["ending_id"],
+                "scene_id": scene_id,
+                "kind": kind,
+                "decision_id": decision_id,
+                "investigator_ids": targets,
+                "ts": ending["captured_at"],
+            }
+            if ending.get("summary") is not None:
+                record["summary"] = ending["summary"]
+            capsule_path = coc_development.ending_settlement_capsule_path(
+                ctx.campaign_dir, ending["ending_id"]
+            )
+        else:
+            world = ctx.world()
+            scene_id = world.get("active_scene_id")
+            kind = str(args.get("kind") or "conclusion")
+            if kind not in {"conclusion", "tpk", "retreat", "cliffhanger"}:
+                raise ToolError(
+                    "invalid_param",
+                    "kind must be conclusion, tpk, retreat, or cliffhanger",
+                )
+            targets = _requested_ending_targets(ctx, args)
+            record = {
+                "event_type": "session_ending",
+                "scene_id": scene_id,
+                "kind": kind,
+                "decision_id": decision_id,
+                "investigator_ids": targets,
+                "ts": _now_iso(),
+            }
+            if args.get("summary"):
+                record["summary"] = str(args["summary"])
+            record["ending_id"] = coc_development.ending_id_for_event(record)
+            record["event_id"] = coc_development.ending_event_id(
+                record["ending_id"]
+            )
+            # Claim shared reusable tick inputs while holding every target's
+            # lock.  The surrounding transaction owns the campaign lock, so
+            # the global order remains campaign -> investigator.
+            with ExitStack() as input_locks:
+                for investigator_id in sorted(set(targets)):
+                    input_locks.enter_context(coc_fileio.advisory_file_lock(
+                        ctx.coc_root
+                        / "locks"
+                        / "investigators"
+                        / investigator_id
+                        / ".investigator.lock",
+                        wait_seconds=5.0,
+                    ))
+                capsule_path = coc_development.ending_settlement_capsule_path(
+                    ctx.campaign_dir, record["ending_id"]
+                )
+                if capsule_path.exists() or capsule_path.is_symlink():
+                    raise ToolError(
+                        "development_settlement_failed",
+                        "persisted ending settlement capsule is invalid",
+                    )
+                ending = coc_development.build_ending_settlement_capsule(
+                    ctx.campaign_dir, record
+                )
+                capsule_path = coc_development.persist_ending_settlement_capsule(
+                    ctx.campaign_dir, ending
+                )
+        if (
+            ending.get("decision_id") != decision_id
+            or ending.get("event_id") != record.get("event_id")
+            or ending.get("captured_at") != record.get("ts")
+            or ending.get("summary") != record.get("summary")
+            or ending.get("scene_id") != scene_id
+            or ending.get("kind") != kind
+            or ending.get("investigator_ids") != targets
+        ):
+            raise ToolError(
+                "development_settlement_failed",
+                "persisted ending capsule identity conflicts with this decision",
+            )
+        record["settlement_capsule_ref"] = capsule_path.relative_to(
+            ctx.campaign_dir
+        ).as_posix()
+        record["settlement_capsule_sha256"] = ending["capsule_sha256"]
         ctx.log_event(record)
-    development = _development_finalizer(ctx, targets)
+    development = _development_finalizer(ctx, ending)
     data = {
         "session_ending": True,
         "scene_id": scene_id,

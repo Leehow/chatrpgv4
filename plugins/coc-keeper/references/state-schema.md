@@ -71,7 +71,10 @@ Campaigns store temporary and scenario-specific state:
 │   ├── sanity-state/               # canonical per-investigator SAN sessions
 │   │   └── <investigator-id>.json  # bouts, episodes, caps, current/max SAN
 │   ├── sanity.json                 # legacy single-investigator compatibility mirror
-│   ├── development-settlements/    # ending receipts, recovery journals, reward receipts
+│   ├── development-settlements/    # exact ending capsules + transactional receipts
+│   │   ├── endings/<ending-id>/    # capsule.json + <investigator>.json/.inflight.json
+│   │   ├── conclusion-rewards/     # once-per-investigator authored reward receipts
+│   │   └── <investigator>.json     # derived latest compatibility mirror; never recovery truth
 │   ├── combat.json                 # combat session state (only during combat)
 │   ├── chase.json                  # chase session state (only during chases)
 │   ├── character-creation-draft.json  # in-progress creation workflow state

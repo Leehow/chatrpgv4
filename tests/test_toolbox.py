@@ -1360,6 +1360,289 @@ def test_state_end_session_keeps_ending_when_settlement_is_pending(
     assert len(endings) == 1
 
 
+def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
+    campaign_ws, monkeypatch
+):
+    investigator_id = campaign_ws["investigator_id"]
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state_value = json.loads(state_path.read_text(encoding="utf-8"))
+    state_value["skill_checks_earned"] = ["Spot Hidden"]
+    _write_json(state_path, state_value)
+
+    original = coc_toolbox.coc_runtime_ops.settle_development
+
+    def unavailable(*_args, **_kwargs):
+        raise OSError("first ending settlement is offline")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops, "settle_development", unavailable
+    )
+    first_args = {
+        "kind": "cliffhanger",
+        "summary": "first ending remains pending",
+        "decision_id": "ending-capsule-first-pending",
+    }
+    first = _run(campaign_ws, "state.end_session", first_args)
+    assert first["ok"] is True
+    assert first["data"]["development"]["status"] == "PENDING"
+    first_ending_id = first["data"]["ending_id"]
+    first_capsule = coc_toolbox.coc_development.load_ending_settlement_capsule(
+        campaign_ws["campaign_dir"], first_ending_id
+    )
+    assert first_capsule is not None
+    assert first_capsule["development_inputs"][investigator_id][
+        "skills_checked"
+    ] == ["Spot Hidden"]
+    first_story_digest = first_capsule["source_digest"]["story_graph"]
+    assert first_story_digest["exists"] is True
+    assert first_capsule["source_digest"]["combat_snapshot"]["exists"] is False
+
+    # Play continues without a narrative gate.  A later ending sees the old
+    # capsule's durable claim and owns only the newly earned Listen check.
+    # Even if current scenario/combat inputs change, retrying the first ending
+    # must continue to consume its own immutable source/evidence snapshot.
+    graph_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    graph["test_revision"] = "newer-ending-only"
+    _write_json(graph_path, graph)
+    combat_path = campaign_ws["campaign_dir"] / "save" / "combat.json"
+    _write_json(combat_path, {"status": "newer-ending-only"})
+    state_value = json.loads(state_path.read_text(encoding="utf-8"))
+    state_value["skill_checks_earned"] = ["Spot Hidden", "Listen"]
+    _write_json(state_path, state_value)
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops, "settle_development", original
+    )
+    second = _run(
+        campaign_ws,
+        "state.end_session",
+        {
+            "kind": "retreat",
+            "summary": "a newer ending settles first",
+            "decision_id": "ending-capsule-second",
+        },
+    )
+    assert second["ok"] is True
+    assert second["data"]["development"]["status"] == "PASS"
+    second_ending_id = second["data"]["ending_id"]
+    assert second_ending_id != first_ending_id
+    second_capsule = coc_toolbox.coc_development.load_ending_settlement_capsule(
+        campaign_ws["campaign_dir"], second_ending_id
+    )
+    assert second_capsule is not None
+    assert second_capsule["source_digest"]["story_graph"] != first_story_digest
+    assert second_capsule["source_digest"]["combat_snapshot"]["exists"] is True
+    second_result = second["data"]["development"]["settlements"][0][
+        "receipt"
+    ]["result"]
+    assert second_result["ending_evidence"]["ending_id"] == second_ending_id
+    assert second_result["skills_checked"] == ["Listen"]
+    assert json.loads(state_path.read_text(encoding="utf-8"))[
+        "skill_checks_earned"
+    ] == ["Spot Hidden"]
+
+    recovered = _run(campaign_ws, "state.end_session", first_args)
+    assert recovered["ok"] is True
+    assert recovered["data"]["ending_id"] == first_ending_id
+    first_result = recovered["data"]["development"]["settlements"][0][
+        "receipt"
+    ]["result"]
+    assert first_result["ending_evidence"]["ending_id"] == first_ending_id
+    assert first_result["ending_evidence"]["source_digest"] == first_capsule[
+        "source_digest"
+    ]
+    assert first_result["ending_evidence"]["conclusion_evidence"] == (
+        first_capsule["conclusion_evidence"]
+    )
+    assert first_result["skills_checked"] == ["Spot Hidden"]
+    assert coc_toolbox.coc_development.ending_settlement_path(
+        campaign_ws["campaign_dir"], first_ending_id, investigator_id
+    ).is_file()
+    assert coc_toolbox.coc_development.ending_settlement_path(
+        campaign_ws["campaign_dir"], second_ending_id, investigator_id
+    ).is_file()
+
+
+def test_versioned_ending_does_not_recompile_when_capsule_is_missing(
+    campaign_ws, monkeypatch
+):
+    original = coc_toolbox.coc_runtime_ops.settle_development
+
+    def unavailable(*_args, **_kwargs):
+        raise OSError("settlement temporarily offline")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops, "settle_development", unavailable
+    )
+    args = {
+        "kind": "cliffhanger",
+        "summary": "capsule loss must fail closed",
+        "decision_id": "ending-capsule-missing",
+    }
+    first = _run(campaign_ws, "state.end_session", args)
+    assert first["ok"] is True
+    assert first["data"]["development"]["status"] == "PENDING"
+    ending_id = first["data"]["ending_id"]
+    capsule_path = coc_toolbox.coc_development.ending_settlement_capsule_path(
+        campaign_ws["campaign_dir"], ending_id
+    )
+    capsule_path.unlink()
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops, "settle_development", original
+    )
+
+    retried = _run(campaign_ws, "state.end_session", args)
+
+    assert retried["ok"] is True
+    assert retried["data"]["development"]["status"] == "PENDING"
+    assert retried["data"]["development"]["error"] == (
+        "persisted ending evidence is unavailable"
+    )
+    assert not coc_toolbox.coc_development.ending_settlement_path(
+        campaign_ws["campaign_dir"], ending_id, campaign_ws["investigator_id"]
+    ).exists()
+
+
+def test_capsule_event_identity_survives_preappend_crash_and_interleaving(
+    campaign_ws, monkeypatch
+):
+    original_log_event = coc_toolbox.Ctx.log_event
+
+    def crash_before_ending_append(self, record):
+        if (
+            record.get("event_type") == "session_ending"
+            and record.get("decision_id") == "ending-preappend-crash"
+        ):
+            raise SystemExit("crash after capsule before ending append")
+        return original_log_event(self, record)
+
+    monkeypatch.setattr(
+        coc_toolbox.Ctx, "log_event", crash_before_ending_append
+    )
+    args = {
+        "kind": "cliffhanger",
+        "summary": "stable event identity",
+        "decision_id": "ending-preappend-crash",
+    }
+    with pytest.raises(SystemExit, match="after capsule before ending append"):
+        _run(campaign_ws, "state.end_session", args)
+
+    monkeypatch.setattr(coc_toolbox.Ctx, "log_event", original_log_event)
+    capsule_paths = list((
+        campaign_ws["campaign_dir"]
+        / "save" / "development-settlements" / "endings"
+    ).glob("*/capsule.json"))
+    assert len(capsule_paths) == 1
+    capsule = json.loads(capsule_paths[0].read_text(encoding="utf-8"))
+
+    interleaved = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "an unrelated event lands before ending retry",
+            "decision_id": "ending-preappend-interleave",
+        },
+    )
+    assert interleaved["ok"] is True
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {
+            "scene_id": "post-capsule-improvised-scene",
+            "decision_id": "ending-preappend-scene-change",
+        },
+    )
+    assert moved["ok"] is True
+    coc_state.link_party(
+        campaign_ws["workspace"], campaign_ws["campaign_id"], []
+    )
+    replay = _run(campaign_ws, "state.end_session", args)
+    assert replay["ok"] is True
+    assert replay["data"]["scene_id"] == capsule["scene_id"]
+    assert replay["data"]["investigator_ids"] == [
+        campaign_ws["investigator_id"]
+    ]
+    assert replay["data"]["retry_target_conflict"] == {
+        "code": "SETTLEMENT_TARGET_CONFLICT",
+        "frozen_investigator_ids": [campaign_ws["investigator_id"]],
+        "retry_investigator_ids": [],
+        "resolution": "frozen_targets_preserved",
+    }
+    events = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+    )
+    actual_line, ending_event = next(
+        (index, row)
+        for index, row in enumerate(events, start=1)
+        if row.get("decision_id") == args["decision_id"]
+        and row.get("event_type") == "session_ending"
+    )
+    assert actual_line != capsule["event_line_at_capture"]
+    assert ending_event["event_id"] == capsule["event_id"]
+    assert capsule["event_ref"] == (
+        f"logs/events.jsonl#{ending_event['event_id']}"
+    )
+    assert replay["data"]["development"]["settlements"][0]["receipt"][
+        "result"
+    ]["ending_evidence"]["event_id"] == ending_event["event_id"]
+
+
+def test_event_only_retry_preserves_explicit_empty_ending_targets(
+    campaign_ws, monkeypatch
+):
+    coc_state.link_party(
+        campaign_ws["workspace"], campaign_ws["campaign_id"], []
+    )
+    original_record = coc_toolbox.Ctx.ledger_record
+
+    def crash_before_ledger(self, decision_id, tool, data):
+        if tool == "state.end_session" and decision_id == "ending-empty-crash":
+            raise SystemExit("crash after empty ending event")
+        return original_record(self, decision_id, tool, data)
+
+    monkeypatch.setattr(coc_toolbox.Ctx, "ledger_record", crash_before_ledger)
+    args = {
+        "kind": "cliffhanger",
+        "summary": "no investigators are linked",
+        "decision_id": "ending-empty-crash",
+    }
+    with pytest.raises(SystemExit, match="empty ending event"):
+        _run(campaign_ws, "state.end_session", args)
+
+    monkeypatch.setattr(coc_toolbox.Ctx, "ledger_record", original_record)
+    coc_state.link_party(
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        [campaign_ws["investigator_id"]],
+    )
+    replay = _run(campaign_ws, "state.end_session", args)
+    assert replay["ok"] is True
+    assert replay["data"]["investigator_ids"] == []
+    assert replay["data"]["development"] == {
+        "status": "PASS",
+        "ending_id": replay["data"]["ending_id"],
+        "settlements": [],
+    }
+    assert replay["data"]["retry_target_conflict"] == {
+        "code": "SETTLEMENT_TARGET_CONFLICT",
+        "frozen_investigator_ids": [],
+        "retry_investigator_ids": [campaign_ws["investigator_id"]],
+        "resolution": "frozen_targets_preserved",
+    }
+    endings = [
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("decision_id") == args["decision_id"]
+        and row.get("event_type") == "session_ending"
+    ]
+    assert len(endings) == 1
+    assert endings[0]["investigator_ids"] == []
+
+
 def test_state_end_session_rejects_unknown_ending_kind(campaign_ws):
     envelope = _run(
         campaign_ws,
@@ -1539,6 +1822,31 @@ def test_combat_conclusion_synchronously_settles_development_once(
     assert settlement["status"] == "PASS"
     receipt = settlement["receipt"]
     result = receipt["result"]
+    ending_id = ended["data"]["ending_id"]
+    capsule = coc_toolbox.coc_development.load_ending_settlement_capsule(
+        campaign_ws["campaign_dir"], ending_id
+    )
+    assert capsule is not None
+    assert capsule["ending_id"] == ending_id
+    assert capsule["event_id"] == (
+        coc_toolbox.coc_development.ending_event_id(ending_id)
+    )
+    assert capsule["event_ref"] == f"logs/events.jsonl#{capsule['event_id']}"
+    assert capsule["decision_id"] == end_args["decision_id"]
+    assert capsule["conclusion_id"] == "corbitt-destroyed"
+    assert capsule["development_inputs"][investigator_id][
+        "skills_checked"
+    ] == ["Fighting (Brawl)"]
+    assert capsule["rng_identity"][investigator_id] == {
+        "algorithm": "python-random-seed-v1",
+        "seed_material": (
+            f"{ending_id}:{investigator_id}:development.settle"
+        ),
+    }
+    assert capsule["source_digest"]["combat_snapshot"]["exists"] is True
+    assert len(capsule["source_digest"]["combat_snapshot"]["sha256"]) == 64
+    assert capsule["source_digest"]["story_graph"]["exists"] is True
+    assert len(capsule["source_digest"]["story_graph"]["sha256"]) == 64
     assert result["skills_checked"] == ["Fighting (Brawl)"]
     assert result["ending_evidence"]["conclusion_id"] == "corbitt-destroyed"
     conclusion_evidence = result["ending_evidence"]["conclusion_evidence"]
@@ -1611,6 +1919,19 @@ def test_combat_conclusion_synchronously_settles_development_once(
     assert duplicate_ending["data"] == ended["data"]
     assert roll_path.read_text(encoding="utf-8") == rolls_before_retry
     events = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+    ending_event = next(
+        row for row in events
+        if row.get("event_type") == "session_ending"
+        and row.get("decision_id") == "settle-ending"
+    )
+    assert ending_event["ending_id"] == ending_id
+    assert ending_event["event_id"] == capsule["event_id"]
+    assert ending_event["settlement_capsule_sha256"] == capsule[
+        "capsule_sha256"
+    ]
+    assert ending_event["settlement_capsule_ref"] == (
+        f"save/development-settlements/endings/{ending_id}/capsule.json"
+    )
     assert len([
         row for row in events
         if row.get("event_type") == "session_ending"
@@ -1833,6 +2154,7 @@ def test_bonus_die_only_combat_success_preserves_06_66_evidence_without_tick(
     }
     assert record["bonus_die_only_success"] is True
     assert record["excluded_outcome"] == "bonus_die_only_success"
+    assert record["unmodified_roll"] == 66
     pending_rolls, pending_events = session.drain_pending()
     assert pending_rolls == [record]
     assert pending_events == []
@@ -1860,6 +2182,38 @@ def test_bonus_die_only_combat_success_preserves_06_66_evidence_without_tick(
     assert recorded == []
     assert state_path.read_bytes() == state_before
     assert legacy_tick_path.read_bytes() == legacy_before
+
+    natural = coc_combat.CombatSession(
+        "combat-natural-bonus-order",
+        "scene/bonus-tick",
+        0,
+        random.Random(5),
+    )
+    natural.add_participant(
+        investigator_id,
+        "investigator",
+        dex=50,
+        combat_skill=50,
+        build=0,
+        hp_max=10,
+    )
+    natural_outcome, natural_record = natural._percentile(
+        investigator_id,
+        "Spot Hidden",
+        50,
+        "notice without needing the bonus die",
+        bonus=1,
+    )
+    assert natural_outcome == "regular"
+    assert natural_record["tens_values"] == [4, 5]
+    assert natural_record["units"] == 9
+    assert natural_record["roll"] == 49
+    assert natural_record["unmodified_roll"] == 49
+    assert natural_record["bonus_die_only_success"] is False
+    assert natural_record["excluded_outcome"] is None
+    assert coc_toolbox.coc_development.skill_tick_eligible(
+        "Spot Hidden", natural_record
+    ) is True
 
 
 # --------------------------------------------------------------------------- #

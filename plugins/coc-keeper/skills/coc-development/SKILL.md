@@ -21,9 +21,13 @@ available to replay a structured pending settlement.
 ## Workflow
 
 1. Confirm the ending receipt, investigator identity, and the development
-   status returned by `state.end_session`. The ending receipt freezes its exact
-   `investigator_ids`; a retry never retargets an ending from changed party
-   state or incompatible arguments.
+   status returned by `state.end_session`. Before settlement, the ending owns a
+   versioned capsule under `save/development-settlements/endings/<ending-id>/`.
+   It freezes a stable ending/event identity, exact `investigator_ids`
+   (including an explicit empty list), scenario/conclusion and combat evidence,
+   source digests, claimed skill-check inputs, and deterministic RNG identity.
+   A retry never retargets or rescans an ending from changed party, scene,
+   chapter, combat, or scenario state.
 2. When that status is `PASS`, use its settlement receipt. When it is
    `PENDING`, retry `state.end_session` or call `development.settle` with the
    same decision/ending identity. The operation must synchronously consume all
@@ -42,12 +46,22 @@ available to replay a structured pending settlement.
 Treat permanent character changes and campaign investigator state as critical
 writes: complete them before reporting success. Settlement is planned in an
 isolated mirror, then a durable journal records exact pre/post images and owned
-append suffixes before canonical mutation. Every later canonical toolbox or
+append suffixes before canonical mutation. Shared reusable investigator files
+are serialized in the fixed lock order campaign -> investigator. After planning,
+an all-target compare-and-swap proves every file image and log prefix still
+matches its preimage before the first canonical write. Symlinks, non-regular
+targets, malformed images, or any divergence produce a zero-mutation typed
+conflict. Every later canonical toolbox or
 runtime operation performs recovery under the campaign lock before its own
 read/write. Recovery rolls back only proven transaction-owned images; foreign
 divergence returns typed `RECOVERY_CONFLICT` / `PENDING` evidence with exact
 paths and is never overwritten or truncated. A conflict-free retry reuses the
 original dice.
+
+The authoritative commit receipt and recovery journal are keyed by
+`(ending_id, investigator_id)`. A top-level per-investigator settlement file is
+only a post-commit latest mirror; it is never used to recover or identify an
+older pending ending.
 
 SAN snapshots are canonical per investigator under
 `save/sanity-state/<investigator-id>.json`. `save/sanity.json` remains only as

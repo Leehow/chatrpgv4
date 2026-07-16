@@ -327,6 +327,41 @@ def test_treatment_updates_identity_snapshot_without_claiming_party_legacy(
     assert legacy_path.read_bytes() == legacy_before
 
 
+def test_partial_treatment_updates_canonical_san_and_preserves_indefinite(
+    campaign_with_inv,
+):
+    campaign = campaign_with_inv
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({
+        "current_san": 40,
+        "max_san": 60,
+        "indefinite_insane": True,
+        "psychoanalysis_skill": 100,
+    })
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    sanity = coc_sanity.SanitySession(
+        "inv1", san_max=60, int_value=50, rng=random.Random(101),
+        campaign_dir=campaign,
+    )
+    sanity.san_current = 40
+    sanity.indefinite_insane = True
+    sanity.save(campaign)
+
+    outcome = coc_time._handler_apply_treatment(campaign, "inv1", {})
+    reloaded = coc_sanity.SanitySession.load(
+        campaign, "inv1", rng=random.Random(102)
+    )
+    inv_after = json.loads(inv_path.read_text(encoding="utf-8"))
+
+    assert outcome["fully_restored"] is False
+    assert outcome["san_after"] > 40
+    assert reloaded.san_current == outcome["san_after"]
+    assert inv_after["current_san"] == outcome["san_after"]
+    assert reloaded.indefinite_insane is True
+    assert inv_after["indefinite_insane"] is True
+
+
 def test_handler_dispatch_failure_does_not_block_time(campaign_with_inv, monkeypatch):
     """A handler that raises must not block time advance; the error is recorded."""
     campaign = campaign_with_inv

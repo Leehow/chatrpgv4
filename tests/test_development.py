@@ -96,7 +96,7 @@ def test_record_tick_rejects_bonus_die_only_success(tmp_path):
     result = _success_result(
         bonus=1,
         penalty=0,
-        tens_values=[8, 1],  # without bonus (max tens) would fail; with min tens succeeds
+        tens_values=[8, 1],  # physical base tens fails; appended bonus tens succeeds
         units=2,
         roll=12,
         target=45,
@@ -104,6 +104,65 @@ def test_record_tick_rejects_bonus_die_only_success(tmp_path):
     )
     assert coc_development.record_skill_tick(camp, inv_id, "Spot Hidden", result) is None
     assert _read_ticks(camp, inv_id) == []
+
+
+def test_bonus_die_tick_uses_physical_base_die_in_both_orders(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    # Original 66 fails and appended bonus 06 succeeds: no development tick.
+    excluded = _success_result(
+        bonus=1,
+        penalty=0,
+        tens_values=[6, 0],
+        units=6,
+        roll=6,
+        target=50,
+    )
+    assert coc_development.record_skill_tick(
+        camp, inv_id, "Spot Hidden", excluded
+    ) is None
+
+    # Original 49 succeeds and appended bonus 59 is irrelevant: the natural
+    # success remains eligible even though the extra tens die is larger.
+    eligible = _success_result(
+        bonus=1,
+        penalty=0,
+        tens_values=[4, 5],
+        units=9,
+        roll=49,
+        target=50,
+    )
+    tick = coc_development.record_skill_tick(
+        camp, inv_id, "Spot Hidden", eligible
+    )
+    assert tick is not None
+    assert [row["skill"] for row in _read_ticks(camp, inv_id)] == ["Spot Hidden"]
+
+
+def test_ending_capsule_rejects_symlinked_parent_escape(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    ending_id = "ending-symlink-escape"
+    capsule = coc_development.build_ending_settlement_capsule(
+        camp,
+        {
+            "event_type": "session_ending",
+            "ending_id": ending_id,
+            "scene_id": "finale",
+            "kind": "cliffhanger",
+            "decision_id": "capsule-symlink-escape",
+            "investigator_ids": [inv_id],
+            "ts": "2026-07-16T00:00:00Z",
+        },
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    endings = camp / "save" / "development-settlements" / "endings"
+    endings.mkdir(parents=True)
+    (endings / ending_id).symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="target is unsafe"):
+        coc_development.persist_ending_settlement_capsule(camp, capsule)
+
+    assert not (outside / "capsule.json").exists()
 
 
 def test_record_tick_rejects_opposed_loser(tmp_path):

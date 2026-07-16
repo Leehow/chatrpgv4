@@ -878,9 +878,86 @@ def _log_image(path: Path) -> dict[str, Any]:
     }
 
 
+def _target_kind_is_safe(coc_root: Path, path: Path) -> bool:
+    """Reject links/non-regular targets and parent escapes before capture."""
+    try:
+        relative = path.relative_to(coc_root)
+        path.resolve(strict=False).relative_to(coc_root.resolve())
+    except (OSError, ValueError):
+        return False
+    current = coc_root
+    for part in relative.parts[:-1]:
+        current = current / part
+        if current.is_symlink() or (current.exists() and not current.is_dir()):
+            return False
+    return not path.is_symlink() and (not path.exists() or path.is_file())
+
+
+def _valid_file_image(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {"exists", "text", "sha256"}:
+        return False
+    exists = value.get("exists")
+    if not isinstance(exists, bool):
+        return False
+    if not exists:
+        return value.get("text") is None and value.get("sha256") is None
+    text = value.get("text")
+    digest = value.get("sha256")
+    return bool(
+        isinstance(text, str)
+        and isinstance(digest, str)
+        and digest == _sha256_bytes(text.encode("utf-8"))
+    )
+
+
+def _valid_log_image(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "exists", "size", "prefix_sha256"
+    }:
+        return False
+    exists = value.get("exists")
+    size = value.get("size")
+    digest = value.get("prefix_sha256")
+    return bool(
+        isinstance(exists, bool)
+        and not isinstance(size, bool)
+        and isinstance(size, int)
+        and size >= 0
+        and isinstance(digest, str)
+        and re.fullmatch(r"[0-9a-f]{64}", digest)
+        and (exists or size == 0)
+    )
+
+
+def _valid_log_postimage(value: Any) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "suffix", "suffix_sha256"
+    }:
+        return False
+    suffix = value.get("suffix")
+    digest = value.get("suffix_sha256")
+    return bool(
+        isinstance(suffix, str)
+        and isinstance(digest, str)
+        and digest == _sha256_bytes(suffix.encode("utf-8"))
+    )
+
+
 def _development_transaction_id(ending_id: str, investigator_id: str) -> str:
     material = f"{ending_id}\0{investigator_id}".encode("utf-8")
     return "development-txn-" + hashlib.sha256(material).hexdigest()[:24]
+
+
+def _development_investigator_lock_path(
+    campaign_dir: Path, investigator_id: str
+) -> Path:
+    return (
+        Path(campaign_dir).parents[1]
+        / "locks"
+        / "investigators"
+        / investigator_id
+        / ".investigator.lock"
+    )
 
 
 def _write_development_journal(path: Path, journal: dict[str, Any]) -> None:
@@ -907,14 +984,37 @@ def _capture_development_inflight(
     files, logs = _development_transaction_paths(
         campaign_dir, investigator_id, settlement_path, ending
     )
-    file_preimages = {name: _file_image(path) for name, path in files.items()}
-    log_preimages = {name: _log_image(path) for name, path in logs.items()}
+    transaction_id = _development_transaction_id(ending_id, investigator_id)
+    coc_root = campaign_dir.parents[1]
+    unsafe = [
+        _journal_display_path(campaign_dir, path)
+        for path in [*files.values(), *logs.values()]
+        if not _target_kind_is_safe(coc_root, path)
+    ]
+    if unsafe:
+        raise DevelopmentRecoveryConflict(transaction_id, sorted(set(unsafe)))
+    try:
+        file_preimages = {name: _file_image(path) for name, path in files.items()}
+        log_preimages = {name: _log_image(path) for name, path in logs.items()}
+    except (OSError, UnicodeError) as exc:
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, inflight_path)],
+        ) from exc
+    if not all(_valid_file_image(image) for image in file_preimages.values()):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, inflight_path)],
+        )
+    if not all(_valid_log_image(image) for image in log_preimages.values()):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, inflight_path)],
+        )
     journal = {
         "schema_version": 2,
         "status": "planning",
-        "transaction_id": _development_transaction_id(
-            ending_id, investigator_id
-        ),
+        "transaction_id": transaction_id,
         "ending_id": ending_id,
         "investigator_id": investigator_id,
         "conclusion_reward_id": ending.get("conclusion_reward_id"),
@@ -1017,6 +1117,8 @@ def _recover_development_inflight(
         or set(file_preimages) != set(files)
         or not isinstance(log_preimages, dict)
         or set(log_preimages) != set(logs)
+        or not all(_valid_file_image(image) for image in file_preimages.values())
+        or not all(_valid_log_image(image) for image in log_preimages.values())
     ):
         raise DevelopmentRecoveryConflict(
             transaction_id,
@@ -1030,6 +1132,10 @@ def _recover_development_inflight(
         or set(file_postimages) != set(files)
         or not isinstance(log_postimages, dict)
         or set(log_postimages) != set(logs)
+        or not all(_valid_file_image(image) for image in file_postimages.values())
+        or not all(
+            _valid_log_postimage(image) for image in log_postimages.values()
+        )
     ):
         raise DevelopmentRecoveryConflict(
             transaction_id,
@@ -1038,9 +1144,10 @@ def _recover_development_inflight(
 
     conflicts: list[str] = []
     current_files: dict[str, dict[str, Any]] = {}
+    coc_root = campaign_dir.parents[1]
     for name, path in files.items():
         preimage = file_preimages[name]
-        if path.exists() and not path.is_file():
+        if not _target_kind_is_safe(coc_root, path):
             conflicts.append(_journal_display_path(campaign_dir, path))
             continue
         try:
@@ -1065,8 +1172,8 @@ def _recover_development_inflight(
             continue
         size = preimage.get("size")
         pre_exists = preimage.get("exists")
-        current_exists = path.is_file()
-        if path.exists() and not current_exists:
+        current_exists = path.is_file() and not path.is_symlink()
+        if not _target_kind_is_safe(coc_root, path):
             conflicts.append(_journal_display_path(campaign_dir, path))
             continue
         try:
@@ -1197,7 +1304,7 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
     if not root.is_dir():
         return []
     recovered: list[dict[str, Any]] = []
-    for inflight_path in sorted(root.glob("*.inflight.json")):
+    for inflight_path in sorted(root.rglob("*.inflight.json")):
         try:
             journal = _read_object(inflight_path)
         except (OSError, RuntimeOperationError, UnicodeError):
@@ -1211,14 +1318,18 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
                 str(journal.get("transaction_id") or "unknown-development-txn"),
                 [_journal_display_path(campaign_dir, inflight_path)],
             )
-        settlement_path = root / f"{investigator_id}.json"
-        recovered.append(_recover_development_inflight(
-            campaign_dir=campaign_dir,
-            investigator_id=investigator_id,
-            settlement_path=settlement_path,
-            inflight_path=inflight_path,
-            journal=journal,
-        ))
+        settlement_path = inflight_path.with_name(f"{investigator_id}.json")
+        with coc_fileio.advisory_file_lock(
+            _development_investigator_lock_path(campaign_dir, investigator_id),
+            wait_seconds=5.0,
+        ):
+            recovered.append(_recover_development_inflight(
+                campaign_dir=campaign_dir,
+                investigator_id=investigator_id,
+                settlement_path=settlement_path,
+                inflight_path=inflight_path,
+                journal=journal,
+            ))
     return recovered
 
 
@@ -1273,18 +1384,21 @@ def _plan_development_postimages(
                 ) from exc
             _copy_transaction_input(source, sandbox_coc_root / relative)
 
-        sandbox_settlement = (
-            sandbox_campaign
-            / "save"
-            / "development-settlements"
-            / f"{investigator_id}.json"
-        )
+        try:
+            settlement_relative = settlement_path.relative_to(campaign_dir)
+        except ValueError as exc:
+            raise RuntimeOperationError(
+                "development settlement path escaped its campaign"
+            ) from exc
+        sandbox_settlement = sandbox_campaign / settlement_relative
         before_tree = _tree_file_hashes(sandbox_coc_root)
         receipt = _development_operation_body(
             campaign_dir=sandbox_campaign,
             investigator_id=investigator_id,
             payload=payload,
             rng=rng,
+            ending=ending,
+            settlement_path=sandbox_settlement,
         )
         sandbox_files, sandbox_logs = _development_transaction_paths(
             sandbox_campaign,
@@ -1320,10 +1434,87 @@ def _plan_development_postimages(
                 raise RuntimeOperationError(
                     f"development planning rewrote append-only log {name}"
                 )
+            suffix = after[len(before):].decode("utf-8")
             log_postimages[name] = {
-                "suffix": after[len(before):].decode("utf-8")
+                "suffix": suffix,
+                "suffix_sha256": _sha256_bytes(suffix.encode("utf-8")),
             }
         return receipt, file_postimages, log_postimages
+
+
+def _assert_development_preapply_cas(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    settlement_path: Path,
+    ending: dict[str, Any],
+    journal: dict[str, Any],
+) -> None:
+    """Validate every target against its captured preimage before any apply."""
+    files, logs = _development_transaction_paths(
+        campaign_dir, investigator_id, settlement_path, ending
+    )
+    transaction_id = str(journal.get("transaction_id") or "unknown-development-txn")
+    file_preimages = journal.get("file_preimages")
+    log_preimages = journal.get("log_preimages")
+    file_postimages = journal.get("file_postimages")
+    log_postimages = journal.get("log_postimages")
+    conflicts: list[str] = []
+    coc_root = campaign_dir.parents[1]
+    if (
+        not isinstance(file_preimages, dict)
+        or set(file_preimages) != set(files)
+        or not isinstance(log_preimages, dict)
+        or set(log_preimages) != set(logs)
+        or not isinstance(file_postimages, dict)
+        or set(file_postimages) != set(files)
+        or not all(
+            _valid_file_image(image) for image in file_postimages.values()
+        )
+        or not isinstance(log_postimages, dict)
+        or set(log_postimages) != set(logs)
+        or not all(
+            _valid_log_postimage(image) for image in log_postimages.values()
+        )
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id,
+            [_journal_display_path(campaign_dir, settlement_path)],
+        )
+    for name, path in files.items():
+        expected = file_preimages[name]
+        if (
+            not _target_kind_is_safe(coc_root, path)
+            or not _valid_file_image(expected)
+        ):
+            conflicts.append(_journal_display_path(campaign_dir, path))
+            continue
+        try:
+            current = _file_image(path)
+        except (OSError, UnicodeError):
+            conflicts.append(_journal_display_path(campaign_dir, path))
+            continue
+        if current != expected:
+            conflicts.append(_journal_display_path(campaign_dir, path))
+    for name, path in logs.items():
+        expected = log_preimages[name]
+        if (
+            not _target_kind_is_safe(coc_root, path)
+            or not _valid_log_image(expected)
+        ):
+            conflicts.append(_journal_display_path(campaign_dir, path))
+            continue
+        try:
+            current = _log_image(path)
+        except OSError:
+            conflicts.append(_journal_display_path(campaign_dir, path))
+            continue
+        if current != expected:
+            conflicts.append(_journal_display_path(campaign_dir, path))
+    if conflicts:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, sorted(set(conflicts))
+        )
 
 
 def _apply_development_postimages(
@@ -1401,25 +1592,29 @@ def _development_operation_body(
     investigator_id: str,
     payload: dict[str, Any],
     rng: random.Random,
+    ending: dict[str, Any],
+    settlement_path: Path,
 ) -> dict[str, Any]:
     if payload:
         raise RuntimeOperationError("development.settle payload must be empty")
-    ending = coc_development.structured_ending_evidence(campaign_dir)
-    if ending is None:
-        raise RuntimeOperationError(
-            "development.settle requires a persisted state.end_session receipt"
-        )
-    settlement_path = (
-        campaign_dir / "save" / "development-settlements" / f"{investigator_id}.json"
-    )
     if settlement_path.is_file():
         settled = _read_object(settlement_path)
         if settled.get("ending_id") == ending["ending_id"]:
             receipt = settled.get("receipt")
             if isinstance(receipt, dict):
                 return receipt
+    inputs = ending.get("development_inputs")
+    development_input = (
+        inputs.get(investigator_id) if isinstance(inputs, dict) else None
+    )
     result = coc_development.run_development_phase(
-        campaign_dir, investigator_id, rng=rng
+        campaign_dir,
+        investigator_id,
+        rng=rng,
+        ending_evidence=ending,
+        development_input=(
+            development_input if isinstance(development_input, dict) else None
+        ),
     )
     operation_id = _development_operation_id(
         str(ending["ending_id"]), investigator_id, rng
@@ -1646,7 +1841,10 @@ def _development_operation_body(
         "result": result,
         "state_refs": [
             f"save/investigator-state/{investigator_id}.json",
-            f"save/development-settlements/{investigator_id}.json",
+            (
+                "save/development-settlements/endings/"
+                f"{ending['ending_id']}/{investigator_id}.json"
+            ),
             f"../../investigators/{investigator_id}/character.json",
             "logs/events.jsonl",
             "logs/rolls.jsonl",
@@ -1680,12 +1878,45 @@ def _development_operation_body(
     return receipt
 
 
-def _development_operation(
+def _write_latest_settlement_mirror(
+    campaign_dir: Path,
+    investigator_id: str,
+    ending_id: str,
+    receipt: dict[str, Any],
+) -> None:
+    """Derive the legacy latest mirror only after the per-ending commit."""
+    path = (
+        campaign_dir
+        / "save"
+        / "development-settlements"
+        / f"{investigator_id}.json"
+    )
+    coc_fileio.write_json_atomic(
+        path,
+        {
+            "schema_version": 1,
+            "ending_id": ending_id,
+            "investigator_id": investigator_id,
+            "settled_at": _now(),
+            "receipt": receipt,
+            "derived_from": (
+                f"save/development-settlements/endings/{ending_id}/"
+                f"{investigator_id}.json"
+            ),
+        },
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+
+
+def _development_operation_locked(
     *,
     campaign_dir: Path,
     investigator_id: str,
     payload: dict[str, Any],
     rng: random.Random,
+    ending_id: str | None = None,
 ) -> dict[str, Any]:
     """Run one crash-recoverable development transaction.
 
@@ -1698,7 +1929,9 @@ def _development_operation(
     """
     if payload:
         raise RuntimeOperationError("development.settle payload must be empty")
-    ending = coc_development.structured_ending_evidence(campaign_dir)
+    ending = coc_development.structured_ending_evidence(
+        campaign_dir, ending_id=ending_id
+    )
     if ending is None:
         raise RuntimeOperationError(
             "development.settle requires a persisted state.end_session receipt"
@@ -1706,11 +1939,22 @@ def _development_operation(
     frozen_ids = ending.get("investigator_ids")
     if isinstance(frozen_ids, list) and investigator_id not in frozen_ids:
         raise DevelopmentTargetConflict(investigator_id, frozen_ids)
-    ending_id = str(ending["ending_id"])
-    settlement_path = (
-        campaign_dir / "save" / "development-settlements" / f"{investigator_id}.json"
+    exact_ending_id = str(ending["ending_id"])
+    settlement_path = coc_development.ending_settlement_path(
+        campaign_dir, exact_ending_id, investigator_id
     )
     inflight_path = settlement_path.with_name(f"{investigator_id}.inflight.json")
+    coc_root = campaign_dir.parents[1]
+    unsafe_paths = [
+        _journal_display_path(campaign_dir, path)
+        for path in (settlement_path, inflight_path)
+        if not _target_kind_is_safe(coc_root, path)
+    ]
+    if unsafe_paths:
+        raise DevelopmentRecoveryConflict(
+            _development_transaction_id(exact_ending_id, investigator_id),
+            sorted(set(unsafe_paths)),
+        )
 
     journal: dict[str, Any] | None = None
     if inflight_path.is_file():
@@ -1725,7 +1969,7 @@ def _development_operation(
             )
             journal = _read_object(inflight_path) if inflight_path.is_file() else None
         if journal is not None and journal.get("status") == "recovered":
-            if journal.get("ending_id") == ending_id:
+            if journal.get("ending_id") == exact_ending_id:
                 try:
                     rng.setstate(_random_state_from_json(journal.get("rng_state")))
                 except (TypeError, ValueError) as exc:
@@ -1733,18 +1977,23 @@ def _development_operation(
                         "development settlement journal RNG state is invalid"
                     ) from exc
             else:
-                inflight_path.unlink(missing_ok=True)
-                journal = None
+                raise DevelopmentRecoveryConflict(
+                    str(journal.get("transaction_id") or "unknown-development-txn"),
+                    [_journal_display_path(campaign_dir, inflight_path)],
+                )
 
-    receipt = _settled_receipt_for_ending(settlement_path, ending_id)
+    receipt = _settled_receipt_for_ending(settlement_path, exact_ending_id)
     if receipt is not None:
         inflight_path.unlink(missing_ok=True)
+        _write_latest_settlement_mirror(
+            campaign_dir, investigator_id, exact_ending_id, receipt
+        )
         return receipt
 
     journal = _capture_development_inflight(
         campaign_dir=campaign_dir,
         investigator_id=investigator_id,
-        ending_id=ending_id,
+        ending_id=exact_ending_id,
         settlement_path=settlement_path,
         inflight_path=inflight_path,
         ending=ending,
@@ -1765,12 +2014,29 @@ def _development_operation(
         journal["log_postimages"] = log_postimages
         journal["planned_at"] = _now()
         _write_development_journal(inflight_path, journal)
+        # Apply only the exact durable journal image that restart recovery
+        # would observe; this catches torn/corrupted per-image data before any
+        # canonical target changes.
+        journal = _read_object(inflight_path)
+        _assert_development_preapply_cas(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            settlement_path=settlement_path,
+            ending=ending,
+            journal=journal,
+        )
         _apply_development_postimages(
             campaign_dir=campaign_dir,
             investigator_id=investigator_id,
             settlement_path=settlement_path,
             ending=ending,
             journal=journal,
+        )
+        # The exact per-ending receipt above is the commit marker.  This
+        # compatibility projection is intentionally derived afterwards and is
+        # never consulted by recovery as a source of truth.
+        _write_latest_settlement_mirror(
+            campaign_dir, investigator_id, exact_ending_id, receipt
         )
     except Exception:
         if inflight_path.is_file():
@@ -1788,24 +2054,48 @@ def _development_operation(
     return receipt
 
 
+def _development_operation(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    payload: dict[str, Any],
+    rng: random.Random,
+    ending_id: str | None = None,
+) -> dict[str, Any]:
+    """Serialize shared investigator files after the caller's campaign lock."""
+    with coc_fileio.advisory_file_lock(
+        _development_investigator_lock_path(campaign_dir, investigator_id),
+        wait_seconds=5.0,
+    ):
+        return _development_operation_locked(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            payload=payload,
+            rng=rng,
+            ending_id=ending_id,
+        )
+
+
 def settle_development(
     campaign_dir: Path | str,
     investigator_id: str,
     *,
     rng: random.Random | None = None,
+    ending_id: str | None = None,
 ) -> dict[str, Any]:
-    """Shared non-locking settlement entry for an already locked host/tool.
+    """Shared settlement entry for an already campaign-locked host/tool.
 
     Top-level hosts should continue to use :func:`execute_operation`, which
     acquires the campaign lock.  The canonical toolbox already owns that lock,
-    so its post-ending finalizer calls this narrow entry instead of nesting a
-    second lock.
+    so its post-ending finalizer calls this narrow entry; this helper then
+    acquires only the shared investigator lock in the fixed second position.
     """
     return _development_operation(
         campaign_dir=Path(campaign_dir),
         investigator_id=_id(investigator_id, "investigator_id"),
         payload={},
         rng=rng or random.Random(),
+        ending_id=ending_id,
     )
 
 
