@@ -1273,6 +1273,210 @@ def test_roll_receipt_replays_implicit_investigator_after_party_changes(campaign
     assert replay["data"] == first["data"]
 
 
+def test_blank_investigator_canonicalizes_to_sole_party_member(campaign_ws):
+    args = {
+        "investigator": "",
+        "skill": "Spot Hidden",
+        "decision_id": "blank-investigator-canonical",
+        "seed": 13,
+    }
+    settled = _run(campaign_ws, "rules.roll", args)
+
+    assert settled["ok"] is True
+    receipt = json.loads((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    ).read_text(encoding="utf-8"))["receipts"]["rules.roll"][
+        args["decision_id"]
+    ]
+    assert receipt["operation"]["investigator"] is None
+    assert receipt["resolution"]["investigator_id"] == campaign_ws["investigator_id"]
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected_label"),
+    [
+        ({"skill": " Spot Hidden "}, "Spot Hidden"),
+        ({"characteristic": " dex "}, "DEX"),
+    ],
+)
+def test_padded_explicit_target_selector_is_canonical_before_roll(
+    campaign_ws, selector, expected_label
+):
+    args = {
+        **selector,
+        "target": 50,
+        "decision_id": f"padded-explicit-{expected_label}",
+        "seed": 17,
+    }
+    settled = _run(campaign_ws, "rules.roll", args)
+
+    assert settled["ok"] is True
+    assert settled["data"]["skill"] == expected_label
+    receipt = json.loads((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    ).read_text(encoding="utf-8"))["receipts"]["rules.roll"][
+        args["decision_id"]
+    ]
+    operation_field = "skill" if "skill" in selector else "characteristic"
+    assert receipt["operation"][operation_field] == expected_label
+    assert receipt["resolution"]["resolved_label"] == expected_label
+
+
+@pytest.mark.parametrize(
+    ("first_selector", "retry_selector", "decision_id"),
+    [
+        ({"skill": "spot hidden"}, {"skill": "Spot Hidden"}, "case-skill-retry"),
+        ({"characteristic": "dex"}, {"characteristic": "DEX"}, "case-char-retry"),
+    ],
+)
+def test_case_only_selector_retry_reuses_one_receipt_and_roll(
+    campaign_ws, first_selector, retry_selector, decision_id
+):
+    first = _run(
+        campaign_ws,
+        "rules.roll",
+        {**first_selector, "decision_id": decision_id, "seed": 3},
+    )
+    replay = _run(
+        campaign_ws,
+        "rules.roll",
+        {**retry_selector, "decision_id": decision_id, "seed": 999},
+    )
+
+    assert first["ok"] is True
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+    document = json.loads((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    ).read_text(encoding="utf-8"))
+    assert list(document["receipts"]["rules.roll"]) == [decision_id]
+    rows = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert [row["roll_id"] for row in rows] == [first["data"]["roll_id"]]
+
+
+def test_intermediate_schema4_skill_case_migrates_before_exact_retry(campaign_ws):
+    decision_id = "intermediate-schema4-selector-case"
+    args = {
+        "skill": "Spot Hidden",
+        "decision_id": decision_id,
+        "seed": 5,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"]["rules.roll"][decision_id]
+    receipt["operation"]["skill"] = "spot hidden"
+    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
+        "rules.roll", receipt["operation"]
+    )
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+
+    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+    migrated = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert migrated["receipts"]["rules.roll"][decision_id]["operation"][
+        "skill"
+    ] == "Spot Hidden"
+    rows = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert len(rows) == 1
+
+
+def test_intermediate_schema4_contradiction_fails_before_migration_mutation(
+    campaign_ws,
+):
+    decision_id = "intermediate-schema4-contradiction"
+    assert _run(
+        campaign_ws,
+        "rules.roll",
+        {"skill": "Spot Hidden", "decision_id": decision_id, "seed": 5},
+    )["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"]["rules.roll"][decision_id]
+    receipt["operation"]["skill"] = "Stealth"
+    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
+        "rules.roll", receipt["operation"]
+    )
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    before = tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    )
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "ambiguous selector", "decision_id": "after-selector-ambiguity"},
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    ) == before
+
+
+@pytest.mark.parametrize(
+    "invalid_args",
+    [
+        {"skill": "Not A Structured Skill"},
+        {"skill": "Spot Hidden", "difficulty": "impossible"},
+    ],
+)
+def test_invalid_percentile_invocation_fails_before_mechanical_roll(
+    campaign_ws, monkeypatch, invalid_args
+):
+    def reject_mechanical_roll(*_args, **_kwargs):
+        raise AssertionError("invalid invocation reached mechanical roll")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_roll, "percentile_check", reject_mechanical_roll
+    )
+    result = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            **invalid_args,
+            "decision_id": f"invalid-before-roll-{len(invalid_args)}",
+            "seed": 9,
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] in {"invalid_param", "unknown_skill"}
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    ) == []
+
+
 def test_roll_receipt_replays_after_luck_target_changes(campaign_ws):
     args = {
         "investigator": campaign_ws["investigator_id"],

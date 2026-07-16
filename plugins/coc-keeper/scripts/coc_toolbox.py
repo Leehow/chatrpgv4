@@ -1108,58 +1108,6 @@ def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _percentile_invocation_semantics(
-    args: dict[str, Any],
-    *,
-    pushed: bool,
-) -> dict[str, Any]:
-    """Return only immutable caller intent, never mutable sheet/state values."""
-    operation = {
-        "investigator": (
-            str(args["investigator"])
-            if args.get("investigator") is not None
-            else None
-        ),
-        "skill": (
-            str(args["skill"]).strip()
-            if args.get("skill") is not None
-            else None
-        ),
-        "characteristic": (
-            str(args["characteristic"]).strip().upper()
-            if args.get("characteristic") is not None
-            else None
-        ),
-        "explicit_target": (
-            int(args["target"]) if args.get("target") is not None else None
-        ),
-        "difficulty": str(args.get("difficulty") or "regular"),
-        "bonus": int(args.get("bonus") or 0),
-        "penalty": int(args.get("penalty") or 0),
-        "reason": str(args["reason"]) if args.get("reason") is not None else None,
-        "fumble_consequence": (
-            str(args["fumble_consequence"])
-            if args.get("fumble_consequence") is not None
-            else None
-        ),
-        "pushed": bool(pushed),
-        "method_changed": (
-            str(args["method_changed"])
-            if pushed and args.get("method_changed") is not None
-            else None
-        ),
-        "failure_consequence": (
-            str(args["failure_consequence"])
-            if pushed and args.get("failure_consequence") is not None
-            else None
-        ),
-    }
-    # ``seed`` is intentionally absent: it is a tests-only RNG transport knob,
-    # not an in-fiction operation. Every player/keeper-facing parameter above
-    # remains fingerprinted and conflicts on decision-id reuse.
-    return operation
-
-
 def _roll_receipt_path(ctx: Ctx) -> Path:
     return ctx.campaign_dir / "save" / "roll-operation-receipts.json"
 
@@ -1205,7 +1153,7 @@ def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
         raise ToolError(
             "state_corrupt", "save/roll-operation-receipts.json is invalid"
         )
-    return document
+    return _migrate_intermediate_percentile_operations(ctx, document)
 
 
 def _save_roll_receipt_document(ctx: Ctx, document: dict[str, Any]) -> None:
@@ -1919,6 +1867,88 @@ def _migrate_roll_receipt_document_v2(
     return migrated
 
 
+def _migrate_intermediate_percentile_operations(
+    ctx: Ctx, document: dict[str, Any]
+) -> dict[str, Any]:
+    """Canonicalize the case-only selector defect emitted by schema-4 rev6/7."""
+    candidates: dict[tuple[str, str], str] = {}
+    receipts = document.get("receipts") or {}
+    for tool_name in ("rules.roll", "rules.push"):
+        by_tool = receipts.get(tool_name) or {}
+        if not isinstance(by_tool, dict):
+            continue
+        for decision_id, receipt in by_tool.items():
+            if not isinstance(receipt, dict):
+                continue
+            operation = receipt.get("operation")
+            resolution = receipt.get("resolution")
+            if not isinstance(operation, dict) or not isinstance(resolution, dict):
+                continue
+            skill = operation.get("skill")
+            label = resolution.get("resolved_label")
+            investigator_id = resolution.get("investigator_id")
+            if (
+                not isinstance(skill, str)
+                or not skill
+                or not isinstance(label, str)
+                or not label
+                or not isinstance(investigator_id, str)
+                or not investigator_id
+            ):
+                continue
+            canonical = skill
+            if skill != label and skill.casefold() == label.casefold():
+                canonical = label
+            elif (
+                operation.get("explicit_target") is not None
+                and resolution.get("target_source") == "explicit"
+            ):
+                try:
+                    canonical = _canonical_skill_selector(
+                        ctx, investigator_id, skill
+                    )
+                except ToolError as exc:
+                    if exc.code != "unknown_investigator":
+                        raise
+                    # An exact retry remains provable from the frozen hint even
+                    # when the external character projection was later removed.
+                    canonical = skill
+            if canonical == skill:
+                continue
+            if canonical.casefold() != skill.casefold():
+                raise ToolError(
+                    "state_corrupt",
+                    "schema-4 selector migration for "
+                    f"{tool_name} decision_id '{decision_id}' is ambiguous",
+                )
+            candidates[(tool_name, str(decision_id))] = canonical
+    if not candidates:
+        return document
+
+    proposed = deepcopy(document)
+    try:
+        with coc_async_recorder.recorder_lock(ctx.campaign_dir):
+            raw = _roll_log_bytes(ctx)
+            # Prove the entire original collection before trusting any
+            # candidate, then prove the complete rewritten collection before
+            # publishing one atomic document replacement.
+            _preflight_roll_document(document, raw)
+            for (tool_name, decision_id), canonical in candidates.items():
+                receipt = proposed["receipts"][tool_name][decision_id]
+                receipt["operation"]["skill"] = canonical
+                receipt["fingerprint"] = _operation_fingerprint(
+                    tool_name, receipt["operation"]
+                )
+                receipt[_SOURCE_RECEIPT_INTEGRITY_KEY] = (
+                    _source_receipt_integrity(receipt)
+                )
+            _preflight_roll_document(proposed, raw)
+            _save_roll_receipt_document(ctx, proposed)
+    except coc_async_recorder.RecorderLockError as exc:
+        raise ToolError("campaign_busy", str(exc)) from exc
+    return proposed
+
+
 def _roll_log_bytes(ctx: Ctx) -> bytes:
     path = ctx.campaign_dir / "logs" / "rolls.jsonl"
     if not path.is_file():
@@ -2315,8 +2345,10 @@ def _existing_roll_receipt(
     tool_name: str,
     decision_id: str,
     operation: dict[str, Any],
+    document: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    document = _load_roll_receipt_document(ctx)
+    if document is None:
+        document = _load_roll_receipt_document(ctx)
     receipt = _roll_receipt(document, tool_name, decision_id)
     if receipt is not None:
         _validate_roll_receipt(
@@ -4078,22 +4110,65 @@ def _affordance_by_id(scene: dict[str, Any] | None, affordance_id: str) -> dict[
 _CHARACTERISTIC_NAMES = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"}
 
 
+def _canonical_skill_selector(
+    ctx: Ctx, investigator_id: str, skill: str
+) -> str:
+    """Resolve a skill's structured, case-insensitive semantic identity."""
+    stripped = str(skill).strip()
+    if not stripped:
+        return ""
+    sheet = ctx.sheet(investigator_id)
+    skills = sheet.get("skills") or {}
+    if not isinstance(skills, dict):
+        raise ToolError("state_corrupt", "investigator skill map is invalid")
+    folded = stripped.casefold()
+    matches = [
+        str(key)
+        for key in skills
+        if isinstance(key, str) and key.casefold() == folded
+    ]
+    if len(matches) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"investigator skill map has ambiguous selector '{stripped}'",
+        )
+    if matches:
+        return matches[0]
+    cname = stripped.upper()
+    if cname in _CHARACTERISTIC_NAMES:
+        return cname
+    base = _canonical_skill_base(stripped)
+    if base is not None:
+        return str(base[0])
+    return stripped
+
+
 def _resolve_target_value(
     ctx: Ctx,
     investigator_id: str,
     args: dict[str, Any],
 ) -> tuple[int, str, str]:
     """Resolve the percentile target from explicit value, skill, or characteristic."""
+    skill = (
+        _canonical_skill_selector(ctx, investigator_id, str(args["skill"]))
+        if args.get("skill") is not None and str(args["skill"]).strip()
+        else None
+    )
+    characteristic = (
+        str(args["characteristic"]).strip().upper()
+        if args.get("characteristic") is not None
+        and str(args["characteristic"]).strip()
+        else None
+    )
     if args.get("target") is not None:
         return (
             int(args["target"]),
-            str(args.get("skill") or args.get("characteristic") or "explicit target"),
+            str(skill or characteristic or "explicit target"),
             "explicit",
         )
     sheet = ctx.sheet(investigator_id)
-    characteristic = args.get("characteristic")
     if characteristic:
-        cname = str(characteristic).upper()
+        cname = characteristic
         if cname == "SAN":
             return int(ctx.inv_state(investigator_id).get("current_san", 0)), "SAN", "state"
         if cname == "LUCK":
@@ -4102,16 +4177,11 @@ def _resolve_target_value(
         if value is None:
             raise ToolError("unknown_characteristic", f"{cname} not on sheet")
         return int(value), cname, "sheet"
-    skill = args.get("skill")
     if not skill:
         raise ToolError("missing_param", "provide skill, characteristic, or target")
     skills = sheet.get("skills") or {}
     if skill in skills:
         return int(skills[skill]), str(skill), "sheet"
-    lowered = {str(k).lower(): (k, v) for k, v in skills.items()}
-    hit = lowered.get(str(skill).lower())
-    if hit is not None:
-        return int(hit[1]), str(hit[0]), "sheet"
     cname = str(skill).upper()
     if cname in _CHARACTERISTIC_NAMES:
         value = (sheet.get("characteristics") or {}).get(cname)
@@ -4122,6 +4192,128 @@ def _resolve_target_value(
         canonical, value = base
         return value, canonical, "rulebook_base"
     raise ToolError("unknown_skill", f"skill not on sheet: {skill}")
+
+
+def _compile_percentile_invocation(
+    ctx: Ctx,
+    args: dict[str, Any],
+    *,
+    pushed: bool,
+    receipt_hint: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Compile caller intent and resolution from one canonical selector model."""
+    raw_investigator = args.get("investigator")
+    investigator = (
+        str(raw_investigator).strip()
+        if raw_investigator is not None and str(raw_investigator).strip()
+        else None
+    )
+    hinted_operation = (
+        receipt_hint.get("operation")
+        if isinstance(receipt_hint, dict)
+        and isinstance(receipt_hint.get("operation"), dict)
+        else {}
+    )
+    hinted_resolution = (
+        receipt_hint.get("resolution")
+        if isinstance(receipt_hint, dict)
+        and isinstance(receipt_hint.get("resolution"), dict)
+        else {}
+    )
+    if (
+        investigator is None
+        and hinted_operation.get("investigator") is None
+        and isinstance(hinted_resolution.get("investigator_id"), str)
+        and hinted_resolution.get("investigator_id")
+    ):
+        investigator_id = str(hinted_resolution["investigator_id"])
+    else:
+        investigator_id = _resolve_investigator(
+            ctx, {"investigator": investigator}
+        )
+    raw_skill = args.get("skill")
+    skill = None
+    if raw_skill is not None and str(raw_skill).strip():
+        stripped_skill = str(raw_skill).strip()
+        hinted_skill = hinted_operation.get("skill")
+        if (
+            isinstance(hinted_skill, str)
+            and hinted_skill
+            and hinted_skill.casefold() == stripped_skill.casefold()
+        ):
+            skill = hinted_skill
+        else:
+            skill = _canonical_skill_selector(
+                ctx, investigator_id, stripped_skill
+            )
+    raw_characteristic = args.get("characteristic")
+    characteristic = (
+        str(raw_characteristic).strip().upper()
+        if raw_characteristic is not None and str(raw_characteristic).strip()
+        else None
+    )
+    explicit_target = (
+        int(args["target"]) if args.get("target") is not None else None
+    )
+    difficulty = str(args.get("difficulty") or "regular")
+    bonus = int(args.get("bonus") or 0)
+    penalty = int(args.get("penalty") or 0)
+    if difficulty not in {"regular", "hard", "extreme"}:
+        raise ToolError("invalid_param", f"unsupported difficulty: {difficulty}")
+    if bonus < 0 or penalty < 0:
+        raise ToolError("invalid_param", "bonus and penalty must be nonnegative")
+    operation = {
+        "investigator": investigator,
+        "skill": skill,
+        "characteristic": characteristic,
+        "explicit_target": explicit_target,
+        "difficulty": difficulty,
+        "bonus": bonus,
+        "penalty": penalty,
+        "reason": (
+            str(args["reason"]) if args.get("reason") is not None else None
+        ),
+        "fumble_consequence": (
+            str(args["fumble_consequence"])
+            if args.get("fumble_consequence") is not None
+            else None
+        ),
+        "pushed": bool(pushed),
+        "method_changed": (
+            str(args["method_changed"])
+            if pushed and args.get("method_changed") is not None
+            else None
+        ),
+        "failure_consequence": (
+            str(args["failure_consequence"])
+            if pushed and args.get("failure_consequence") is not None
+            else None
+        ),
+    }
+    if (
+        receipt_hint is not None
+        and receipt_hint.get("fingerprint")
+        == _operation_fingerprint(str(receipt_hint.get("tool") or ""), operation)
+        and set(hinted_resolution) == set(_PERCENTILE_RESOLUTION_FIELDS)
+    ):
+        return operation, deepcopy(hinted_resolution)
+    normalized = {
+        "investigator": investigator,
+        "skill": skill,
+        "characteristic": characteristic,
+        "target": explicit_target,
+    }
+    target, label, target_source = _resolve_target_value(
+        ctx, investigator_id, normalized
+    )
+    resolution = {
+        "investigator_id": investigator_id,
+        "resolved_label": label,
+        "resolved_target": target,
+        "target_source": target_source,
+    }
+    # ``seed`` is intentionally absent: it is a tests-only RNG transport knob.
+    return operation, resolution
 
 
 def _mark_improvement_tick(
@@ -4183,25 +4375,30 @@ def _roll_common(
     tool_name: str,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     decision_id = str(args["decision_id"])
-    operation = _percentile_invocation_semantics(args, pushed=pushed)
+    document = _load_roll_receipt_document(ctx)
+    receipt_hint = _roll_receipt(document, tool_name, decision_id)
+    if receipt_hint is not None:
+        _validate_roll_receipt(
+            receipt_hint,
+            tool_name=tool_name,
+            decision_id=decision_id,
+        )
+    operation, resolution = _compile_percentile_invocation(
+        ctx, args, pushed=pushed, receipt_hint=receipt_hint
+    )
     document, receipt = _existing_roll_receipt(
         ctx,
         tool_name=tool_name,
         decision_id=decision_id,
         operation=operation,
+        document=document,
     )
     if receipt is not None:
         return _replay_roll_receipt(ctx, document, receipt)
-    investigator_id = _resolve_investigator(ctx, args)
-    target, label, target_source = _resolve_target_value(
-        ctx, investigator_id, args
-    )
-    resolution = {
-        "investigator_id": investigator_id,
-        "resolved_label": label,
-        "resolved_target": target,
-        "target_source": target_source,
-    }
+    investigator_id = str(resolution["investigator_id"])
+    target = int(resolution["resolved_target"])
+    label = str(resolution["resolved_label"])
+    target_source = str(resolution["target_source"])
     difficulty = str(operation["difficulty"])
     bonus = int(operation["bonus"])
     penalty = int(operation["penalty"])
