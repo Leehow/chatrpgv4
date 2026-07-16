@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -23,6 +25,10 @@ def _load(name: str, path: Path):
 checkpoint = _load(
     "coc_playtest_checkpoint_runtime_test",
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_checkpoint.py",
+)
+toolbox = _load(
+    "coc_toolbox_checkpoint_runtime_test",
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py",
 )
 
 
@@ -454,3 +460,119 @@ def test_public_sdk_checkpoint_restores_state_and_seeded_continuation(
     campaign_a = restored_a / ".coc" / "campaigns" / "live"
     campaign_b = restored_b / ".coc" / "campaigns" / "live"
     assert campaign_a.stat().st_ino != campaign_b.stat().st_ino
+
+
+@pytest.mark.parametrize("crash_stage", ["after_receipt", "after_row_before_ledger"])
+def test_checkpoint_restores_incomplete_roll_receipt_exactly_once(
+    tmp_path: Path, monkeypatch, crash_stage: str
+):
+    workspace = tmp_path / f"source-{crash_stage}"
+    campaign = _build_generation(workspace)
+    session_id = f"roll-{crash_stage.replace('_', '-')}"
+    sessions = {
+        "schema_version": 1,
+        "sessions": [
+            {
+                "session_id": session_id,
+                "campaign_id": "live",
+                "investigator_id": "inv1",
+                "character_relpath": ".coc/investigators/inv1/character.json",
+                "resolved_config": {
+                    "schema_version": 2,
+                    "planner": {"kind": "deterministic"},
+                    "rules": {"kind": "deterministic"},
+                    "narrator": {"kind": "template"},
+                    "player": {"kind": "human"},
+                },
+                "brain_at_create": "debug",
+            }
+        ],
+        "closed_session_ids": [],
+    }
+    sessions_path = workspace / ".coc" / "runtime" / "sessions.json"
+    sessions_path.parent.mkdir(parents=True, exist_ok=True)
+    sessions_path.write_bytes(checkpoint._canonical_json(sessions) + b"\n")
+    decision_id = f"checkpoint-roll-{crash_stage}"
+    args = {
+        "investigator": "inv1",
+        "skill": "Spot Hidden",
+        "target": 99,
+        "reason": "checkpoint interruption proof",
+        "decision_id": decision_id,
+        "seed": 7,
+    }
+    real_ensure = toolbox._ensure_roll_receipt_row
+    real_ledger = toolbox.Ctx.ledger_record
+
+    def crash_after_receipt(ctx, receipt):
+        if receipt.get("decision_id") == decision_id:
+            raise RuntimeError("checkpoint crash after receipt")
+        return real_ensure(ctx, receipt)
+
+    def crash_before_ledger(self, current_id, tool_name, data, **kwargs):
+        if current_id == decision_id and tool_name == "rules.roll":
+            raise RuntimeError("checkpoint crash before ledger")
+        return real_ledger(self, current_id, tool_name, data, **kwargs)
+
+    with monkeypatch.context() as crash:
+        if crash_stage == "after_receipt":
+            crash.setattr(toolbox, "_ensure_roll_receipt_row", crash_after_receipt)
+        else:
+            crash.setattr(toolbox.Ctx, "ledger_record", crash_before_ledger)
+        with pytest.raises(RuntimeError, match="checkpoint crash"):
+            toolbox.run_tool("rules.roll", workspace, "live", args)
+
+    receipt_path = campaign / "save" / "roll-operation-receipts.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))["receipts"][
+        "rules.roll"
+    ][decision_id]
+    frozen_data = copy.deepcopy(receipt["data"])
+    store = checkpoint.CheckpointStore(
+        tmp_path / f"run-{crash_stage}", workspace, "live", "inv1"
+    )
+    checkpoint_dir = store.write_checkpoint(session_id, 0, crash_stage)
+    restored = tmp_path / f"restored-{crash_stage}"
+    _prepare_local_provisioning(restored)
+    store.restore_checkpoint(checkpoint_dir, restored)
+
+    replay = toolbox.run_tool(
+        "rules.roll", restored, "live", {**args, "seed": 999}
+    )
+
+    assert replay["ok"] is True
+    assert replay["data"] == frozen_data
+    restored_campaign = restored / ".coc" / "campaigns" / "live"
+    rows = [
+        json.loads(line)
+        for line in (restored_campaign / "logs" / "rolls.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert [row for row in rows if row.get("roll_id") == receipt["roll_id"]] == [
+        receipt["roll_record"]
+    ]
+    state = json.loads(
+        (restored_campaign / "save" / "investigator-state" / "inv1.json")
+        .read_text(encoding="utf-8")
+    )
+    matching_events = [
+        event
+        for event in state.get("skill_check_events", [])
+        if event.get("source_event_id") == f"rules.roll:{decision_id}"
+    ]
+    assert len(matching_events) == 1
+    development_rows = [
+        json.loads(line)
+        for line in (
+            restored / ".coc" / "investigators" / "inv1" / "development.jsonl"
+        )
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    assert len([
+        row
+        for row in development_rows
+        if row.get("source_event_id") == f"rules.roll:{decision_id}"
+    ]) == 1

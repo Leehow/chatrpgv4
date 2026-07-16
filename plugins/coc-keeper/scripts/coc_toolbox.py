@@ -32,6 +32,7 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
+import os
 import random
 import re
 import sys
@@ -1062,8 +1063,69 @@ _ROLL_RECEIPT_FIELDS = frozenset({
     "data",
     "warnings",
     "hints",
+    "log_prefix_size",
+    "log_prefix_sha256",
     _SOURCE_RECEIPT_INTEGRITY_KEY,
 })
+
+
+def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
+    """Bind player/keeper meaning while treating the test RNG seed as transport."""
+    expression = str(args["expression"]).strip().upper()
+    if coc_roll.ROLL_PATTERN.fullmatch(expression) is None:
+        raise ValueError(f"unsupported dice expression: {args['expression']}")
+    return {
+        "expression": expression,
+        "reason": str(args["reason"]) if args.get("reason") is not None else None,
+    }
+
+
+def _percentile_semantic_operation(
+    ctx: Ctx,
+    args: dict[str, Any],
+    *,
+    pushed: bool,
+) -> tuple[dict[str, Any], str, int, str, str]:
+    investigator_id = _resolve_investigator(ctx, args)
+    target, label, target_source = _resolve_target_value(
+        ctx, investigator_id, args
+    )
+    operation = {
+        "investigator_id": investigator_id,
+        "skill": label if args.get("skill") is not None else None,
+        "characteristic": (
+            str(args["characteristic"]).upper()
+            if args.get("characteristic") is not None
+            else None
+        ),
+        "resolved_label": label,
+        "target": target,
+        "target_source": target_source,
+        "difficulty": str(args.get("difficulty") or "regular"),
+        "bonus": int(args.get("bonus") or 0),
+        "penalty": int(args.get("penalty") or 0),
+        "reason": str(args["reason"]) if args.get("reason") is not None else None,
+        "fumble_consequence": (
+            str(args["fumble_consequence"])
+            if args.get("fumble_consequence") is not None
+            else None
+        ),
+        "pushed": bool(pushed),
+        "method_changed": (
+            str(args["method_changed"])
+            if pushed and args.get("method_changed") is not None
+            else None
+        ),
+        "failure_consequence": (
+            str(args["failure_consequence"])
+            if pushed and args.get("failure_consequence") is not None
+            else None
+        ),
+    }
+    # ``seed`` is intentionally absent: it is a tests-only RNG transport knob,
+    # not an in-fiction operation. Every player/keeper-facing parameter above
+    # remains fingerprinted and conflicts on decision-id reuse.
+    return operation, investigator_id, target, label, target_source
 
 
 def _roll_receipt_path(ctx: Ctx) -> Path:
@@ -1153,13 +1215,16 @@ def _new_roll_receipt(
         "data": deepcopy(data),
         "warnings": list(warnings),
         "hints": list(hints),
+        "log_prefix_size": 0,
+        "log_prefix_sha256": f"sha256:{hashlib.sha256(b'').hexdigest()}",
     }
     receipt[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(receipt)
     return receipt
 
 
 def _validate_roll_receipt(
-    receipt: dict[str, Any], *, tool_name: str, decision_id: str
+    receipt: dict[str, Any], *, tool_name: str, decision_id: str,
+    current_operation: dict[str, Any] | None = None,
 ) -> None:
     operation = receipt.get("operation")
     record = receipt.get("roll_record")
@@ -1180,6 +1245,12 @@ def _validate_roll_receipt(
         or not isinstance(payload, dict)
         or not isinstance(receipt.get("warnings"), list)
         or not isinstance(receipt.get("hints"), list)
+        or isinstance(receipt.get("log_prefix_size"), bool)
+        or not isinstance(receipt.get("log_prefix_size"), int)
+        or receipt.get("log_prefix_size") < 0
+        or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(receipt.get("log_prefix_sha256") or "")
+        )
         or not roll_id
         or str(record.get("roll_id") or "") != roll_id
         or str(payload.get("roll_id") or "") != roll_id
@@ -1194,34 +1265,205 @@ def _validate_roll_receipt(
             "state_corrupt",
             f"roll source receipt for {tool_name} decision_id '{decision_id}' is invalid",
         )
+    if (
+        current_operation is not None
+        and receipt.get("fingerprint")
+        != _operation_fingerprint(tool_name, current_operation)
+    ):
+        raise ToolError(
+            "idempotency_conflict",
+            f"decision_id '{decision_id}' was already applied to a different {tool_name} semantic operation",
+        )
 
 
-def _strict_roll_rows(ctx: Ctx) -> list[dict[str, Any]]:
+def _roll_log_bytes(ctx: Ctx) -> bytes:
     path = ctx.campaign_dir / "logs" / "rolls.jsonl"
     if not path.is_file():
-        return []
+        return b""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError) as exc:
+        return path.read_bytes()
+    except OSError as exc:
         raise ToolError("state_corrupt", "logs/rolls.jsonl is unreadable") from exc
-    rows: list[dict[str, Any]] = []
-    for line_number, line in enumerate(lines, start=1):
-        if not line.strip():
+
+
+def _roll_record_frame(record: dict[str, Any]) -> bytes:
+    return json.dumps(record).encode("utf-8")
+
+
+def _parse_complete_roll_frames(
+    raw: bytes,
+) -> tuple[bytes, bytes, dict[str, dict[str, Any]]]:
+    """Parse framed rows once and return the first unproven suffix as tail.
+
+    A process can die after writing a full JSON object but before its newline,
+    and another low-level writer may then append a complete frame.  In that
+    case the malformed physical line ends in a newline, so merely inspecting
+    the final byte would misclassify it as durable corruption.  Returning the
+    first malformed suffix lets a committed receipt prove the exact insertion
+    boundary; callers still fail closed when no unique receipt does so.
+    """
+    index: dict[str, dict[str, Any]] = {}
+    complete_size = 0
+    line_number = 0
+    for framed in raw.splitlines(keepends=True):
+        line_number += 1
+        if not framed.endswith(b"\n"):
+            return raw[:complete_size], raw[complete_size:], index
+        encoded = framed[:-1]
+        if not encoded.strip():
+            complete_size += len(framed)
             continue
         try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ToolError(
-                "state_corrupt",
-                f"logs/rolls.jsonl has malformed JSON at line {line_number}",
-            ) from exc
+            row = json.loads(encoded.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return raw[:complete_size], raw[complete_size:], index
         if not isinstance(row, dict):
             raise ToolError(
                 "state_corrupt",
                 f"logs/rolls.jsonl line {line_number} is not an object",
             )
-        rows.append(row)
-    return rows
+        roll_id = str(row.get("roll_id") or "")
+        if roll_id:
+            if roll_id in index:
+                raise ToolError(
+                    "state_corrupt", f"duplicate roll_id '{roll_id}' in rolls.jsonl"
+                )
+            index[roll_id] = row
+        complete_size += len(framed)
+    return raw, b"", index
+
+
+def _receipt_prefix_is_valid(raw: bytes, receipt: dict[str, Any]) -> bool:
+    size = int(receipt["log_prefix_size"])
+    if size > len(raw):
+        return False
+    digest = f"sha256:{hashlib.sha256(raw[:size]).hexdigest()}"
+    return digest == receipt["log_prefix_sha256"]
+
+
+def _append_roll_frame_locked(path: Path, frame: bytes) -> None:
+    """Append one newline frame with recoverable partial-write semantics."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        pending = memoryview(frame + b"\n")
+        while pending:
+            written = os.write(descriptor, pending)
+            if written <= 0:
+                raise OSError("roll frame append made no progress")
+            pending = pending[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _repair_receipt_owned_tail_locked(
+    ctx: Ctx,
+    raw: bytes,
+    complete: bytes,
+    tail: bytes,
+    receipts: list[dict[str, Any]],
+) -> tuple[bytes, dict[str, dict[str, Any]]]:
+    """Repair only a unique final frame proven by a committed prefix receipt."""
+    candidates: list[tuple[dict[str, Any], bytes]] = []
+    for receipt in receipts:
+        if (
+            int(receipt["log_prefix_size"]) != len(complete)
+            or not _receipt_prefix_is_valid(raw, receipt)
+        ):
+            continue
+        expected = _roll_record_frame(receipt["roll_record"])
+        if expected.startswith(tail):
+            repaired = complete + expected + b"\n"
+            candidates.append((receipt, repaired))
+        elif tail.startswith(expected):
+            # A later low-level append may have followed a complete frame whose
+            # newline was lost. The exact expected length provides the only
+            # safe insertion boundary; the remainder must itself be framed.
+            repaired = complete + expected + b"\n" + tail[len(expected):]
+            candidates.append((receipt, repaired))
+    if len(candidates) != 1:
+        raise ToolError(
+            "state_corrupt",
+            "logs/rolls.jsonl has an ambiguous or non-receipt-owned final tail",
+        )
+    _receipt, repaired = candidates[0]
+    repaired_complete, repaired_tail, index = _parse_complete_roll_frames(repaired)
+    if repaired_tail or repaired_complete != repaired:
+        raise ToolError(
+            "state_corrupt",
+            "logs/rolls.jsonl final tail cannot be repaired without guessing",
+        )
+    coc_fileio.write_text_atomic(
+        ctx.campaign_dir / "logs" / "rolls.jsonl",
+        repaired.decode("utf-8"),
+    )
+    return repaired, index
+
+
+def _materialize_roll_receipts_locked(
+    ctx: Ctx, receipts: list[dict[str, Any]]
+) -> None:
+    raw = _roll_log_bytes(ctx)
+    complete, tail, index = _parse_complete_roll_frames(raw)
+    if tail:
+        raw, index = _repair_receipt_owned_tail_locked(
+            ctx, raw, complete, tail, receipts
+        )
+    path = ctx.campaign_dir / "logs" / "rolls.jsonl"
+    for receipt in receipts:
+        if not _receipt_prefix_is_valid(raw, receipt):
+            raise ToolError(
+                "state_corrupt",
+                f"roll source prefix for roll_id '{receipt['roll_id']}' changed",
+            )
+        roll_id = str(receipt["roll_id"])
+        expected = receipt["roll_record"]
+        prior = index.get(roll_id)
+        if prior is not None:
+            if prior != expected:
+                raise ToolError(
+                    "state_corrupt",
+                    f"roll_id '{roll_id}' conflicts with its source receipt",
+                )
+            continue
+        frame = _roll_record_frame(expected)
+        _append_roll_frame_locked(path, frame)
+        raw += frame + b"\n"
+        index[roll_id] = expected
+
+
+def _freeze_roll_receipt_source(
+    ctx: Ctx,
+    document: dict[str, Any],
+    receipt: dict[str, Any],
+) -> None:
+    """Atomically publish the intent while its clean log prefix is frozen."""
+    try:
+        with coc_async_recorder.recorder_lock(ctx.campaign_dir):
+            raw = _roll_log_bytes(ctx)
+            _complete, tail, _index = _parse_complete_roll_frames(raw)
+            if tail:
+                raise ToolError(
+                    "state_corrupt",
+                    "cannot start a new roll while rolls.jsonl has an unterminated tail",
+                )
+            receipt["log_prefix_size"] = len(raw)
+            receipt["log_prefix_sha256"] = (
+                f"sha256:{hashlib.sha256(raw).hexdigest()}"
+            )
+            receipt[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(
+                receipt
+            )
+            _validate_roll_receipt(
+                receipt,
+                tool_name=str(receipt["tool"]),
+                decision_id=str(receipt["decision_id"]),
+            )
+            _put_roll_receipt(document, receipt)
+            _save_roll_receipt_document(ctx, document)
+    except coc_async_recorder.RecorderLockError as exc:
+        raise ToolError("campaign_busy", str(exc)) from exc
 
 
 def _ensure_roll_receipt_row(ctx: Ctx, receipt: dict[str, Any]) -> bool:
@@ -1231,25 +1473,11 @@ def _ensure_roll_receipt_row(ctx: Ctx, receipt: dict[str, Any]) -> bool:
         tool_name=str(receipt.get("tool") or ""),
         decision_id=str(receipt.get("decision_id") or ""),
     )
-    roll_id = str(receipt["roll_id"])
-    expected = receipt["roll_record"]
     try:
         with coc_async_recorder.recorder_lock(ctx.campaign_dir):
-            matches = [
-                row for row in _strict_roll_rows(ctx)
-                if str(row.get("roll_id") or "") == roll_id
-            ]
-            if matches:
-                if len(matches) != 1 or matches[0] != expected:
-                    raise ToolError(
-                        "state_corrupt",
-                        f"roll_id '{roll_id}' is duplicated or conflicts with its source receipt",
-                    )
-                return False
-            coc_state.append_jsonl(
-                ctx.campaign_dir / "logs" / "rolls.jsonl", deepcopy(expected)
-            )
-            return True
+            before = _roll_log_bytes(ctx)
+            _materialize_roll_receipts_locked(ctx, [receipt])
+            return _roll_log_bytes(ctx) != before
     except coc_async_recorder.RecorderLockError as exc:
         raise ToolError("campaign_busy", str(exc)) from exc
 
@@ -1311,56 +1539,6 @@ def _replay_roll_receipt(
     )
 
 
-def _migrate_legacy_roll_ledger(
-    ctx: Ctx,
-    document: dict[str, Any],
-    *,
-    tool_name: str,
-    decision_id: str,
-    operation: dict[str, Any],
-    ledger_entry: dict[str, Any],
-) -> dict[str, Any]:
-    if _ledger_requires_source_receipt(ledger_entry):
-        raise ToolError(
-            "state_corrupt",
-            f"receipt-era ledger entry for {tool_name} decision_id '{decision_id}' has no canonical roll source receipt",
-        )
-    data = ledger_entry.get("data")
-    roll_id = str((data or {}).get("roll_id") or "") if isinstance(data, dict) else ""
-    if not roll_id:
-        raise ToolError(
-            "legacy_recovery_unverifiable",
-            f"legacy ledger entry for {tool_name} decision_id '{decision_id}' has no canonical roll_id; no roll was guessed or replayed",
-        )
-    matches = [
-        row for row in _strict_roll_rows(ctx)
-        if str(row.get("roll_id") or "") == roll_id
-    ]
-    if (
-        len(matches) != 1
-        or not isinstance(data, dict)
-        or not isinstance(matches[0].get("payload"), dict)
-        or str(matches[0]["payload"].get("roll_id") or "") != roll_id
-        or any(matches[0].get(key) != value for key, value in data.items())
-    ):
-        raise ToolError(
-            "state_corrupt",
-            f"legacy roll receipt for {tool_name} decision_id '{decision_id}' cannot be proven from its canonical roll_id",
-        )
-    receipt = _new_roll_receipt(
-        tool_name=tool_name,
-        decision_id=decision_id,
-        operation=operation,
-        roll_record=matches[0],
-        data=data,
-        warnings=[],
-        hints=[],
-    )
-    _put_roll_receipt(document, receipt)
-    _save_roll_receipt_document(ctx, document)
-    return receipt
-
-
 def _existing_roll_receipt(
     ctx: Ctx,
     *,
@@ -1372,20 +1550,24 @@ def _existing_roll_receipt(
     receipt = _roll_receipt(document, tool_name, decision_id)
     if receipt is not None:
         _validate_roll_receipt(
-            receipt, tool_name=tool_name, decision_id=decision_id
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            current_operation=operation,
         )
         return document, receipt
     prior = ctx.ledger_lookup(tool_name, decision_id)
     if prior is not None:
-        receipt = _migrate_legacy_roll_ledger(
-            ctx,
-            document,
-            tool_name=tool_name,
-            decision_id=decision_id,
-            operation=operation,
-            ledger_entry=prior,
+        if _ledger_requires_source_receipt(prior):
+            raise ToolError(
+                "state_corrupt",
+                f"receipt-era ledger entry for {tool_name} decision_id '{decision_id}' has no canonical roll source receipt",
+            )
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"legacy ledger entry for {tool_name} decision_id '{decision_id}' has no independently proven semantic operation; no receipt was manufactured",
         )
-    return document, receipt
+    return document, None
 
 
 def _commit_new_roll_receipt(
@@ -1394,13 +1576,7 @@ def _commit_new_roll_receipt(
     receipt: dict[str, Any],
 ) -> None:
     """Durably freeze source, then materialize row/effects, then ledger."""
-    _validate_roll_receipt(
-        receipt,
-        tool_name=str(receipt["tool"]),
-        decision_id=str(receipt["decision_id"]),
-    )
-    _put_roll_receipt(document, receipt)
-    _save_roll_receipt_document(ctx, document)
+    _freeze_roll_receipt_source(ctx, document, receipt)
     _ensure_roll_receipt_row(ctx, receipt)
     _apply_roll_receipt_side_effects(ctx, receipt)
     _repair_roll_receipt_ledger(ctx, receipt)
@@ -1409,6 +1585,7 @@ def _commit_new_roll_receipt(
 def _reconcile_all_roll_source_receipts(ctx: Ctx) -> None:
     document = _load_roll_receipt_document(ctx)
     receipts = document.get("receipts") or {}
+    ordered: list[dict[str, Any]] = []
     for tool_name in sorted(receipts):
         by_tool = receipts[tool_name]
         if tool_name not in _ROLL_RECEIPT_TOOLS or not isinstance(by_tool, dict):
@@ -1420,9 +1597,17 @@ def _reconcile_all_roll_source_receipts(ctx: Ctx) -> None:
             _validate_roll_receipt(
                 receipt, tool_name=tool_name, decision_id=decision_id
             )
-            _ensure_roll_receipt_row(ctx, receipt)
-            _apply_roll_receipt_side_effects(ctx, receipt)
-            _repair_roll_receipt_ledger(ctx, receipt)
+            ordered.append(receipt)
+    if ordered:
+        try:
+            with coc_async_recorder.recorder_lock(ctx.campaign_dir):
+                _materialize_roll_receipts_locked(ctx, ordered)
+        except coc_async_recorder.RecorderLockError as exc:
+            raise ToolError("campaign_busy", str(exc)) from exc
+    # Receipts are the durable replay source. The bounded ledger is repaired
+    # only for a requested decision, never globally for all historical rolls.
+    for receipt in ordered:
+        _apply_roll_receipt_side_effects(ctx, receipt)
 
 
 def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
@@ -3205,7 +3390,13 @@ def _roll_common(
     tool_name: str,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     decision_id = str(args["decision_id"])
-    operation = deepcopy(args)
+    (
+        operation,
+        investigator_id,
+        target,
+        label,
+        target_source,
+    ) = _percentile_semantic_operation(ctx, args, pushed=pushed)
     document, receipt = _existing_roll_receipt(
         ctx,
         tool_name=tool_name,
@@ -3214,11 +3405,9 @@ def _roll_common(
     )
     if receipt is not None:
         return _replay_roll_receipt(ctx, receipt)
-    investigator_id = _resolve_investigator(ctx, args)
-    target, label, target_source = _resolve_target_value(ctx, investigator_id, args)
-    difficulty = str(args.get("difficulty") or "regular")
-    bonus = int(args.get("bonus") or 0)
-    penalty = int(args.get("penalty") or 0)
+    difficulty = str(operation["difficulty"])
+    bonus = int(operation["bonus"])
+    penalty = int(operation["penalty"])
     result = coc_roll.percentile_check(target, difficulty, bonus, penalty, rng=_rng(args))
     result["investigator_id"] = investigator_id
     result["skill"] = label
@@ -3360,7 +3549,7 @@ def _tool_rules_push(ctx: Ctx, args: dict[str, Any]):
 def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
     tool_name = "rules.roll_dice"
     decision_id = str(args["decision_id"])
-    operation = deepcopy(args)
+    operation = _roll_dice_semantic_operation(args)
     document, receipt = _existing_roll_receipt(
         ctx,
         tool_name=tool_name,
