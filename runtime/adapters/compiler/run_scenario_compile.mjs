@@ -3,6 +3,7 @@
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseSingleJsonObject } from "./single_json_object.mjs";
 import {
   AuthStorage,
   createAgentSession,
@@ -124,7 +125,7 @@ async function run(request) {
     }),
     async execute(_id, params) {
       try {
-        const parsed = JSON.parse(params.scenario_bundle_json);
+        const parsed = parseSingleJsonObject(params.scenario_bundle_json);
         holder.result = validateBundle(parsed, request.required_files);
       } catch (error) {
         holder.error = error && error.message ? error.message : String(error);
