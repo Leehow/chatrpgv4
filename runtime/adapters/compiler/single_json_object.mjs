@@ -41,18 +41,18 @@ export function parseSingleJsonObject(input) {
     return parseFencedObject(source, genericJsonFences[0]);
   }
 
-  const objects = findObjectCandidates(source);
-  if (objects.length !== 1) {
+  const containers = findContainerCandidates(source);
+  if (containers.length !== 1) {
     throw new Error(
-      objects.length === 0
+      containers.length === 0
         ? "JSON response does not contain one complete object"
-        : "JSON response contains multiple JSON objects",
+        : "JSON response contains multiple JSON containers",
     );
   }
-  const [candidate] = objects;
+  const [candidate] = containers;
   assertNoStandaloneJsonDocument(source.slice(0, candidate.start));
   assertNoStandaloneJsonDocument(source.slice(candidate.end));
-  return candidate.value;
+  return requireObject(candidate.value);
 }
 
 function parseFencedObject(source, fence) {
@@ -77,7 +77,7 @@ function requireObject(value) {
 function assertNoStandaloneJsonDocument(wrapper) {
   const whole = wrapper.trim();
   if (!whole) return;
-  if (findObjectCandidates(whole).length) {
+  if (findContainerCandidates(whole).length) {
     throw new Error("JSON response contains a standalone JSON value outside its object");
   }
   const segments = [whole, ...whole.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)];
@@ -97,14 +97,25 @@ function assertNoStandaloneJsonDocument(wrapper) {
 
 function looksLikeMalformedStandaloneJson(segment) {
   if (isMarkdownLinkAt(segment, 0)) return false;
-  if (segment.startsWith('"')) return true;
+  if (segment.startsWith('"')) return isStandaloneStringShaped(segment);
   if (segment.startsWith("{")) return looksLikeJsonContainer(segment, 0);
   if (segment.startsWith("[")) return looksLikeJsonContainer(segment, 0);
-  return /^[+-]?(?:0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?)$/.test(segment);
+  return /^(?:[+-]?(?:NaN|Infinity)|[+-]?(?:0[xX][0-9a-fA-F]*|0[oO][0-9]*|0[bB][0-9]*|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?))$/.test(segment);
 }
 
-function findObjectCandidates(source) {
-  const objects = [];
+function isStandaloneStringShaped(segment) {
+  let escaped = false;
+  for (let index = 1; index < segment.length; index += 1) {
+    const char = segment[index];
+    if (escaped) escaped = false;
+    else if (char === "\\") escaped = true;
+    else if (char === '"') return !segment.slice(index + 1).trim();
+  }
+  return true;
+}
+
+function findContainerCandidates(source) {
+  const containers = [];
   let index = 0;
   while (index < source.length) {
     if (source[index] === "[" && isMarkdownLinkAt(source, index)) {
@@ -117,14 +128,10 @@ function findObjectCandidates(source) {
     }
     const container = scanContainer(source, index);
     if (container.kind === "invalid_json") throw new Error(container.error);
-    if (container.kind === "valid" && isObject(container.value)) objects.push(container);
+    if (container.kind === "valid") containers.push(container);
     index = container.end;
   }
-  return objects;
-}
-
-function isObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return containers;
 }
 
 function scanContainer(source, start) {
