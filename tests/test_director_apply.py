@@ -786,6 +786,7 @@ def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     assert {row["event_type"] for row in produced} == {
         "npc_engagement", "npc_agency",
     }
+    assert all(row["schema_version"] == 2 for row in produced)
     assert all(
         row["identity_contract"]["schema_version"] == 1 for row in produced
     )

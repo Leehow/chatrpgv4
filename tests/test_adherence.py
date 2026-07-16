@@ -114,6 +114,14 @@ def test_generate_adherence_checklist_from_haunting():
 
 def test_evaluate_adherence_against_synthetic_play_record():
     checklist = coc_adherence.generate_adherence_checklist(HAUNTING)
+    npc_evidence = {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "PASS",
+        "authored_attested_npc_ids": ["npc-steven-knott"],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": [],
+    }
     # Partial play: some basement-burial clues, no terminal, clocks ok, one optional NPC.
     play = {
         "discovered_clue_ids": [
@@ -132,12 +140,17 @@ def test_evaluate_adherence_against_synthetic_play_record():
         },
         "bonus_rolls_engaged": [],
         "engaged_npc_ids": ["npc-steven-knott"],
+        "npc_engagement_evidence": npc_evidence,
         "npc_engagement_coverage_contract": {
-            "schema_version": 2,
+            "schema_version": 3,
             "semantics": "authored_identity_attestation",
             "producer": "coc_live_match",
             "projection_schema_version": 1,
             "legacy_raw_ids_included": False,
+            "legacy_status": "PASS",
+            "evidence_digest": coc_npc_identity.engagement_evidence_digest(
+                npc_evidence
+            ),
         },
     }
     result = coc_adherence.evaluate_adherence(checklist, play)
@@ -368,6 +381,41 @@ def test_schema_less_or_internally_inconsistent_identity_claims_never_attest():
     }
 
 
+def test_identity_attestation_binds_event_scene_with_v1_missing_scene_compatibility():
+    valid = _attested_npc_event("npc-dooley")
+    contract = coc_npc_identity.identity_contract(
+        {
+            "npc_id": "npc-dooley",
+            "name": "Dooley",
+            "schedule": [{"scene_ids": ["neighborhood-gossip"]}],
+            "source_refs": [],
+        },
+        "neighborhood-gossip",
+    )
+    binding = coc_npc_identity.identity_binding(
+        contract, structured_producer="director_apply.npc_move"
+    )
+    wrong_scene = {
+        "schema_version": 2,
+        "event_type": "npc_engagement",
+        "scene_id": "corbitt-house",
+        "npc_id": "npc-dooley",
+        "identity_contract": contract,
+        "identity_binding": binding,
+    }
+    schema_v2_missing_scene = {
+        **wrong_scene,
+    }
+    schema_v2_missing_scene.pop("scene_id")
+
+    evidence = coc_adherence.project_npc_engagement_evidence(
+        [wrong_scene, schema_v2_missing_scene, valid]
+    )
+
+    assert evidence["authored_attested_npc_ids"] == ["npc-dooley"]
+    assert evidence["unverified_npc_ids"] == ["npc-dooley"]
+
+
 def test_supported_payload_envelope_identity_contract_is_consumed():
     event = _attested_npc_event(
         "npc-envelope-guide", event_type="npc_agency"
@@ -483,3 +531,69 @@ def test_unsupported_projection_contract_cannot_promote_raw_attested_ids():
         "legacy_unverifiable_npc_ids": [],
         "unverified_npc_ids": ["npc-dooley"],
     }
+
+
+def test_self_declared_supported_projection_without_bound_evidence_cannot_promote_ids():
+    checklist = [{
+        "statement_id": "npc:npc-forged",
+        "kind": "optional",
+        "criterion": {"npc_id": "npc-forged"},
+        "description": "Do not promote an unbound raw ID",
+    }]
+    result = coc_adherence.evaluate_adherence(
+        checklist,
+        {
+            "engaged_npc_ids": ["npc-forged"],
+            "npc_engagement_coverage_contract": {
+                "schema_version": 3,
+                "semantics": "authored_identity_attestation",
+                "producer": "coc_live_match",
+                "projection_schema_version": 1,
+                "legacy_raw_ids_included": False,
+                "legacy_status": "PASS",
+                "evidence_digest": "sha256:" + "0" * 64,
+            },
+        },
+    )
+    assert result["statements"][0]["satisfied"] is False
+    assert result["npc_engagement_evidence"]["authored_attested_npc_ids"] == []
+    assert result["npc_engagement_evidence"]["unverified_npc_ids"] == [
+        "npc-forged"
+    ]
+
+
+def test_projection_requires_exact_raw_id_equality_with_digest_bound_evidence():
+    evidence = {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "PASS",
+        "authored_attested_npc_ids": ["npc-real"],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": [],
+    }
+    play = {
+        "engaged_npc_ids": ["npc-forged"],
+        "npc_engagement_evidence": evidence,
+        "npc_engagement_coverage_contract": {
+            "schema_version": 3,
+            "semantics": "authored_identity_attestation",
+            "producer": "coc_live_match",
+            "projection_schema_version": 1,
+            "legacy_raw_ids_included": False,
+            "legacy_status": "PASS",
+            "evidence_digest": coc_npc_identity.engagement_evidence_digest(evidence),
+        },
+    }
+    result = coc_adherence.evaluate_adherence(
+        [{
+            "statement_id": "npc:npc-real",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-real"},
+            "description": "Bound evidence only",
+        }],
+        play,
+    )
+    assert result["statements"][0]["satisfied"] is False
+    assert result["npc_engagement_evidence"]["unverified_npc_ids"] == [
+        "npc-forged", "npc-real"
+    ]

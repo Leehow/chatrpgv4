@@ -199,6 +199,10 @@ def validate_authored_attestation(
     npc_id: str,
     contract: dict[str, Any] | None,
     binding: dict[str, Any] | None,
+    *,
+    event_scene_id: str | None = None,
+    event_scene_present: bool = False,
+    event_schema_version: int | None = None,
 ) -> bool:
     """Validate one supported producer contract without reading prose meaning."""
     if not isinstance(contract, dict) or not isinstance(binding, dict):
@@ -249,6 +253,14 @@ def validate_authored_attestation(
         )
     if location.get("active_scene_matches_schedule") is not expected_schedule_match:
         return False
+    contract_scene = location.get("active_scene_id")
+    if event_scene_present:
+        if str(event_scene_id or "") != str(contract_scene or ""):
+            return False
+    elif isinstance(event_schema_version, int) and event_schema_version >= 2:
+        # Schema-v2 producers promise an event-scene binding.  Schema-v1 and
+        # unversioned rows may omit it only as an explicit compatibility path.
+        return False
 
     return bool(
         binding.get("status") == "authored_bound"
@@ -259,3 +271,15 @@ def validate_authored_attestation(
         and binding.get("attestation_source") in SUPPORTED_ATTESTATION_SOURCES
         and binding.get("reasons") == []
     )
+
+
+def engagement_evidence_digest(evidence: dict[str, Any]) -> str:
+    """Digest the narrow public identity-evidence object for producer binding."""
+    encoded = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"

@@ -298,12 +298,24 @@ def _engagement_coverage_eligible(event: dict[str, Any]) -> bool:
     npc_id = _text(coc_event_contract.value(event, "npc_id"))
     contract = coc_event_contract.value(event, "identity_contract")
     binding = coc_event_contract.value(event, "identity_binding")
+    body = coc_event_contract.payload(event)
+    scene_present = "scene_id" in event or "scene_id" in body
+    event_scene = coc_event_contract.value(event, "scene_id")
+    raw_schema = coc_event_contract.value(event, "schema_version")
+    event_schema = (
+        raw_schema
+        if isinstance(raw_schema, int) and not isinstance(raw_schema, bool)
+        else None
+    )
     return bool(
         npc_id
         and coc_npc_identity.validate_authored_attestation(
             npc_id,
             contract if isinstance(contract, dict) else None,
             binding if isinstance(binding, dict) else None,
+            event_scene_id=str(event_scene) if event_scene is not None else None,
+            event_scene_present=scene_present,
+            event_schema_version=event_schema,
         )
     )
 
@@ -429,6 +441,39 @@ def _harvest_bonus_rolls_engaged(raw: dict[str, Any], final_state: dict[str, Any
     return found
 
 
+def _supported_npc_projection(evidence: Any) -> bool:
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "schema_version",
+        "semantics",
+        "status",
+        "authored_attested_npc_ids",
+        "legacy_unverifiable_npc_ids",
+        "unverified_npc_ids",
+    }:
+        return False
+    if (
+        evidence.get("schema_version") != 1
+        or evidence.get("semantics") != "authored_identity_attestation"
+    ):
+        return False
+    for key in (
+        "authored_attested_npc_ids",
+        "legacy_unverifiable_npc_ids",
+        "unverified_npc_ids",
+    ):
+        values = evidence.get(key)
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) or not value for value in values
+        ) or values != sorted(set(values)):
+            return False
+    expected_status = (
+        "NON_COMPARABLE"
+        if evidence["legacy_unverifiable_npc_ids"]
+        else "PASS"
+    )
+    return evidence.get("status") == expected_status
+
+
 def _harvest_npc_engagement_evidence(
     raw: dict[str, Any], final_state: dict[str, Any]
 ) -> dict[str, Any]:
@@ -457,13 +502,31 @@ def _harvest_npc_engagement_evidence(
     contract = raw.get("npc_engagement_coverage_contract")
     if not isinstance(contract, dict):
         contract = final_state.get("npc_engagement_coverage_contract")
+    prior_projection = raw.get("npc_engagement_evidence")
+    if not isinstance(prior_projection, dict):
+        candidate_projection = final_state.get("npc_engagement_evidence")
+        prior_projection = (
+            candidate_projection if isinstance(candidate_projection, dict) else None
+        )
+    claimed_attested = _as_str_set(
+        (prior_projection or {}).get("authored_attested_npc_ids")
+    )
+    evidence_digest = (
+        coc_npc_identity.engagement_evidence_digest(prior_projection)
+        if isinstance(prior_projection, dict)
+        else None
+    )
     supported_projection_contract = bool(
         isinstance(contract, dict)
-        and contract.get("schema_version") == 2
+        and contract.get("schema_version") == 3
         and contract.get("semantics") == "authored_identity_attestation"
         and contract.get("producer") == "coc_live_match"
         and contract.get("projection_schema_version") == 1
         and contract.get("legacy_raw_ids_included") is False
+        and _supported_npc_projection(prior_projection)
+        and contract.get("evidence_digest") == evidence_digest
+        and contract.get("legacy_status") == prior_projection.get("status")
+        and explicit_ids == claimed_attested
     )
     if supported_projection_contract:
         attested.update(explicit_ids)
@@ -472,16 +535,12 @@ def _harvest_npc_engagement_evidence(
     else:
         legacy.update(explicit_ids)
 
-    prior_projection = raw.get("npc_engagement_evidence")
     if isinstance(prior_projection, dict):
         projection_supported = bool(
             prior_projection.get("schema_version") == 1
             and prior_projection.get("semantics")
             == "authored_identity_attestation"
             and supported_projection_contract
-        )
-        claimed_attested = _as_str_set(
-            prior_projection.get("authored_attested_npc_ids")
         )
         if projection_supported:
             attested.update(claimed_attested)

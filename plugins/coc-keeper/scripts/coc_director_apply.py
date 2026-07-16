@@ -50,6 +50,7 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_flag_state = _load_sibling("coc_flag_state_director", "coc_flag_state.py")
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_development = _load_sibling("coc_development", "coc_development.py")
@@ -259,6 +260,7 @@ def _commit_plan_flags(
     ts: str,
     events: list[dict[str, Any]],
     logs: Path,
+    reason: str = "plan.flags_set",
 ) -> list[str]:
     """Persist ``plan.flags_set`` into save/flags.json and emit flag_set events.
 
@@ -283,21 +285,43 @@ def _commit_plan_flags(
     })
     if not isinstance(flags_doc.get("flags"), dict):
         flags_doc["flags"] = {}
+    event_rows = []
+    events_path = logs / "events.jsonl"
+    if events_path.is_file():
+        try:
+            event_rows = [
+                row
+                for line in events_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+                for row in [json.loads(line)]
+                if isinstance(row, dict)
+            ]
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            event_rows = []
     committed: list[str] = []
     for flag_id in flag_ids:
         if flags_doc["flags"].get(flag_id):
             continue
-        flags_doc["flags"][flag_id] = True
+        source_sequence = coc_flag_state.next_source_sequence(flags_doc, event_rows)
+        try:
+            ev, _provenance, _head = coc_flag_state.commit_flag_mutation(
+                flags_doc,
+                flag_id=flag_id,
+                value=True,
+                decision_id=decision_id,
+                producer="coc_director_apply",
+                changed_at=ts,
+                reason=reason,
+                source_ref=f"save/flags.json#flag_provenance/{flag_id}",
+                source_sequence=source_sequence,
+                investigator_id=investigator_id,
+            )
+        except ValueError as exc:
+            raise ValueError(f"cannot persist structured flag mutation: {exc}") from exc
         committed.append(flag_id)
-        ev = {
-            "event_type": "flag_set",
-            "decision_id": decision_id,
-            "flag_id": flag_id,
-            "investigator_id": investigator_id,
-            "ts": ts,
-        }
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
+        event_rows.append(ev)
     if committed:
         _write_json(flags_path, flags_doc)
     return committed
@@ -604,6 +628,7 @@ def _apply_scene_on_enter(
             ts=ts,
             events=events,
             logs=logs,
+            reason="scene.on_enter.sets_flags",
         )
 
     for tick_index, tick_spec in enumerate(clock_ticks):
@@ -755,7 +780,7 @@ def _apply_npc_state_and_agency(
             # Append-only engagement record so adherence / audits can see that
             # this NPC actually moved this turn (agency_moves may be empty).
             engagement = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "event_type": "npc_engagement",
                 "decision_id": plan.get("decision_id"),
                 "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
@@ -774,7 +799,7 @@ def _apply_npc_state_and_agency(
             if not isinstance(agency_move, dict):
                 continue
             record = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "event_type": "npc_agency",
                 "decision_id": plan.get("decision_id"),
                 "turn_number": (plan.get("turn_input") or {}).get("turn_number"),

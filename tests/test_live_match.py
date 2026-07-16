@@ -457,12 +457,15 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     session = result["result"]
     assert session["engaged_npc_ids"] == ["npc-guide"]
     assert session["npc_engagement_coverage_contract"] == {
-        "schema_version": 2,
+        "schema_version": 3,
         "semantics": "authored_identity_attestation",
         "producer": "coc_live_match",
         "projection_schema_version": 1,
         "legacy_raw_ids_included": False,
         "legacy_status": "NON_COMPARABLE",
+        "evidence_digest": npc_identity.engagement_evidence_digest(
+            session["npc_engagement_evidence"]
+        ),
     }
     assert session["npc_engagement_evidence"] == {
         "schema_version": 1,

@@ -1538,12 +1538,15 @@ def _run_live_match_impl(
         )
         session_result["npc_engagement_evidence"] = npc_evidence
         session_result["npc_engagement_coverage_contract"] = {
-            "schema_version": 2,
+            "schema_version": 3,
             "semantics": "authored_identity_attestation",
             "producer": "coc_live_match",
             "projection_schema_version": 1,
             "legacy_raw_ids_included": False,
             "legacy_status": npc_evidence["status"],
+            "evidence_digest": coc_adherence.coc_npc_identity.engagement_evidence_digest(
+                npc_evidence
+            ),
         }
     threat_state = _read_json(camp / "save" / "threat-state.json", {})
     if isinstance(threat_state, dict) and isinstance(threat_state.get("clocks"), dict):
