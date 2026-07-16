@@ -1548,12 +1548,14 @@ def test_default_run_writes_stay_anchored_during_concurrent_chdir(
         os.close(original_cwd_fd)
 
     run_dir = Path(result["run_dir"])
-    assert (run_dir / "run-commit.json").is_file()
+    assert (run_dir / "run-identity.json").is_file()
     assert Path(result["battle_report_path"]).is_file()
     assert list(outside.iterdir()) == []
 
 
-def test_default_run_commit_rejects_final_name_replacement(tmp_path, monkeypatch):
+def test_default_run_no_replace_collision_preserves_existing_run(
+    tmp_path, monkeypatch,
+):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     handle = match.coc_run_identity.allocate_default_run_dir(
@@ -1563,22 +1565,120 @@ def test_default_run_commit_rejects_final_name_replacement(tmp_path, monkeypatch
     assert isinstance(handle, match.coc_run_identity.AnchoredRunDirectory)
     anchored = handle.activate()
     (anchored / "proof.txt").write_text("trusted generation\n", encoding="utf-8")
-    displaced = handle.final_path.with_name(handle.final_path.name + "-displaced")
-    original_check = handle._final_entry_matches
+    existing = handle.final_path.with_name("important-existing-run")
+    (existing / "nested").mkdir(parents=True)
+    important = b"important bytes must survive exactly\n"
+    (existing / "nested" / "important.txt").write_bytes(important)
+    real_publish = match.coc_run_identity._rename_noreplace_at
 
-    def replace_before_check(final_fd):
-        handle.final_path.rename(displaced)
-        handle.final_path.mkdir()
-        (handle.final_path / "attacker.txt").write_text("attacker\n", encoding="utf-8")
-        return original_check(final_fd)
+    def collide_before_publish(*args):
+        existing.rename(handle.final_path)
+        return real_publish(*args)
 
-    monkeypatch.setattr(handle, "_final_entry_matches", replace_before_check)
+    monkeypatch.setattr(
+        match.coc_run_identity, "_rename_noreplace_at", collide_before_publish
+    )
     try:
-        with pytest.raises(match.RunIdentityError, match="replaced"):
+        with pytest.raises(match.RunIdentityError, match="already exists"):
             handle.commit()
         assert handle._committed is False
+        assert (handle.final_path / "nested" / "important.txt").read_bytes() == important
+        assert not list(
+            handle.final_path.parent.glob(".coc-run-generation-*")
+        )
+    finally:
+        handle.close()
+
+
+def test_default_run_partial_copy_is_never_visible_at_final_name(
+    tmp_path, monkeypatch,
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    handle = match.coc_run_identity.allocate_default_run_dir(
+        workspace / ".coc" / "playtests",
+        trusted_root=workspace,
+    )
+    anchored = handle.activate()
+    (anchored / "run-identity.json").write_text(
+        '{"schema_version":2,"run_id":"partial"}\n', encoding="utf-8"
+    )
+
+    def partial_copy_then_crash(source_fd, destination_fd):
+        source = os.open(
+            "run-identity.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=source_fd
+        )
+        destination = os.open(
+            "run-identity.json",
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=destination_fd,
+        )
+        try:
+            os.write(destination, os.read(source, 4096))
+            os.fsync(destination)
+        finally:
+            os.close(source)
+            os.close(destination)
         assert not handle.final_path.exists()
-        assert not displaced.exists()
+        assert match.coc_run_identity.read_artifact_run_identity(handle.final_path) is None
+        raise RuntimeError("simulated process-death seam")
+
+    monkeypatch.setattr(
+        match.coc_run_identity, "_copy_tree_fd", partial_copy_then_crash
+    )
+    try:
+        with pytest.raises(RuntimeError, match="process-death"):
+            handle.commit()
+        assert not handle.final_path.exists()
+        assert not list(
+            handle.final_path.parent.glob(".coc-run-generation-*")
+        )
+    finally:
+        handle.close()
+
+
+def test_default_run_finalize_failure_precedes_atomic_visibility(
+    tmp_path, monkeypatch,
+):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    handle = match.coc_run_identity.allocate_default_run_dir(
+        workspace / ".coc" / "playtests",
+        trusted_root=workspace,
+    )
+    anchored = handle.activate()
+    (anchored / "proof.txt").write_text("complete private copy\n", encoding="utf-8")
+
+    def fail_before_publish(source_parent_fd, source_name, *unused):
+        assert not handle.final_path.exists()
+        private_fd = os.open(
+            source_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=source_parent_fd,
+        )
+        try:
+            proof_fd = os.open(
+                "proof.txt", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=private_fd
+            )
+            try:
+                assert os.read(proof_fd, 4096) == b"complete private copy\n"
+            finally:
+                os.close(proof_fd)
+        finally:
+            os.close(private_fd)
+        raise RuntimeError("simulated pre-publication crash seam")
+
+    monkeypatch.setattr(
+        match.coc_run_identity, "_rename_noreplace_at", fail_before_publish
+    )
+    try:
+        with pytest.raises(RuntimeError, match="pre-publication"):
+            handle.commit()
+        assert not handle.final_path.exists()
+        assert not list(
+            handle.final_path.parent.glob(".coc-run-generation-*")
+        )
     finally:
         handle.close()
 

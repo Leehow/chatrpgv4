@@ -7,13 +7,16 @@ that same artifact is reopened.
 """
 from __future__ import annotations
 
+import ctypes
+import errno
+import fnmatch
 import hashlib
 import json
 import os
 import stat
+import sys
 import time
 import uuid
-import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -373,89 +376,45 @@ class AnchoredRunDirectory:
         if self._committed:
             return self.final_path
         self.assert_parent_binding()
-        final_fd: int | None = None
+        generation_fd: int | None = None
+        generation_name = (
+            f".coc-run-generation-{self.final_path.name}-{uuid.uuid4().hex}"
+        )
         try:
-            os.mkdir(self.final_path.name, mode=0o700, dir_fd=self.parent_fd)
-            final_fd = os.open(
-                self.final_path.name,
+            os.mkdir(generation_name, mode=0o700, dir_fd=self.parent_fd)
+            generation_fd = os.open(
+                generation_name,
                 os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                 dir_fd=self.parent_fd,
             )
         except FileExistsError as exc:
-            raise RunIdentityError("allocated playtest destination already exists") from exc
+            raise RunIdentityError("private playtest generation already exists") from exc
         try:
-            _copy_tree_fd(self.staging_fd, final_fd)
-            digest = _tree_digest_fd(final_fd)
-            _write_json_at(
-                final_fd,
-                "run-commit.json",
-                {
-                    "schema_version": 1,
-                    "tree_sha256": digest,
-                },
+            _copy_tree_fd(self.staging_fd, generation_fd)
+            os.fsync(generation_fd)
+            _rename_noreplace_at(
+                self.parent_fd,
+                generation_name,
+                self.parent_fd,
+                self.final_path.name,
             )
-            os.fsync(final_fd)
-            if not self._final_entry_matches(final_fd):
-                self._remove_wrong_final(final_fd)
-                raise RunIdentityError("published playtest directory was replaced")
+            # Atomic no-replace rename is the commit authority. From this
+            # instruction onward, a complete generation has been published;
+            # cleanup must never remove the final entry by name.
+            self._committed = True
             os.fsync(self.parent_fd)
             source_name = self._current_source_name()
             _remove_tree_at(self.source_parent_fd, source_name)
             self._remove_replacement_source_name()
-            self._committed = True
             self.assert_parent_binding()
             return self.final_path
-        except Exception:
-            if not self._committed:
-                self._remove_wrong_final(final_fd)
-            raise
+        except FileExistsError as exc:
+            raise RunIdentityError("allocated playtest destination already exists") from exc
         finally:
-            if final_fd is not None:
-                os.close(final_fd)
-
-    def _final_entry_matches(self, final_fd: int) -> bool:
-        try:
-            named = os.stat(
-                self.final_path.name,
-                dir_fd=self.parent_fd,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            return False
-        opened = os.fstat(final_fd)
-        return stat.S_ISDIR(named.st_mode) and (
-            named.st_dev,
-            named.st_ino,
-        ) == (opened.st_dev, opened.st_ino)
-
-    def _remove_wrong_final(self, final_fd: int | None) -> None:
-        try:
-            info = os.stat(
-                self.final_path.name,
-                dir_fd=self.parent_fd,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            info = None
-        if info is not None:
-            if stat.S_ISDIR(info.st_mode):
-                _remove_tree_at(self.parent_fd, self.final_path.name)
-            else:
-                os.unlink(self.final_path.name, dir_fd=self.parent_fd)
-        if final_fd is None:
-            return
-        expected = os.fstat(final_fd)
-        for name in os.listdir(self.parent_fd):
-            try:
-                current = os.stat(name, dir_fd=self.parent_fd, follow_symlinks=False)
-            except FileNotFoundError:
-                continue
-            if stat.S_ISDIR(current.st_mode) and (
-                current.st_dev,
-                current.st_ino,
-            ) == (expected.st_dev, expected.st_ino):
-                _remove_tree_at(self.parent_fd, name)
-                break
+            if generation_fd is not None:
+                if not self._committed:
+                    _remove_owned_generation(self.parent_fd, generation_fd)
+                os.close(generation_fd)
 
     def close(self) -> None:
         if self._closed:
@@ -489,6 +448,121 @@ def _remove_tree_at(parent_fd: int, name: str) -> None:
     finally:
         os.close(directory_fd)
     os.rmdir(name, dir_fd=parent_fd)
+
+
+def _remove_tree_contents_fd(directory_fd: int) -> None:
+    """Remove only entries reached through an already-owned directory fd."""
+    for name in os.listdir(directory_fd):
+        info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        if stat.S_ISDIR(info.st_mode):
+            child_fd = os.open(
+                name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=directory_fd,
+            )
+            try:
+                _remove_tree_contents_fd(child_fd)
+                current = os.stat(
+                    name, dir_fd=directory_fd, follow_symlinks=False
+                )
+                opened = os.fstat(child_fd)
+                if (current.st_dev, current.st_ino) == (
+                    opened.st_dev,
+                    opened.st_ino,
+                ):
+                    os.rmdir(name, dir_fd=directory_fd)
+            finally:
+                os.close(child_fd)
+        else:
+            os.unlink(name, dir_fd=directory_fd)
+
+
+def _remove_owned_generation(parent_fd: int, generation_fd: int) -> None:
+    """Clean only the private generation whose inode this handle owns."""
+    expected = os.fstat(generation_fd)
+    _remove_tree_contents_fd(generation_fd)
+    for name in os.listdir(parent_fd):
+        try:
+            current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(current.st_mode) or (
+            current.st_dev,
+            current.st_ino,
+        ) != (expected.st_dev, expected.st_ino):
+            continue
+        # Reopen and recheck immediately before unlinking the empty owned dir.
+        opened_fd = os.open(
+            name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            dir_fd=parent_fd,
+        )
+        try:
+            opened = os.fstat(opened_fd)
+            named = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+            if (opened.st_dev, opened.st_ino) == (
+                expected.st_dev,
+                expected.st_ino,
+            ) and (named.st_dev, named.st_ino) == (
+                expected.st_dev,
+                expected.st_ino,
+            ):
+                os.rmdir(name, dir_fd=parent_fd)
+        finally:
+            os.close(opened_fd)
+        return
+
+
+def _rename_noreplace_at(
+    source_parent_fd: int,
+    source_name: str,
+    destination_parent_fd: int,
+    destination_name: str,
+) -> None:
+    """Atomically publish a directory without replacing an existing entry."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin" and hasattr(libc, "renameatx_np"):
+        rename = libc.renameatx_np
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(
+            source_parent_fd,
+            os.fsencode(source_name),
+            destination_parent_fd,
+            os.fsencode(destination_name),
+            0x00000004,  # RENAME_EXCL
+        )
+    elif hasattr(libc, "renameat2"):
+        rename = libc.renameat2
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(
+            source_parent_fd,
+            os.fsencode(source_name),
+            destination_parent_fd,
+            os.fsencode(destination_name),
+            0x00000001,  # RENAME_NOREPLACE
+        )
+    else:
+        raise RunIdentityError("runtime lacks atomic no-replace publication")
+    if result == 0:
+        return
+    error = ctypes.get_errno()
+    if error in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise FileExistsError(error, os.strerror(error), destination_name)
+    raise OSError(error, os.strerror(error), destination_name)
 
 
 def _copy_tree_fd(source_fd: int, destination_fd: int) -> None:
@@ -536,65 +610,6 @@ def _copy_tree_fd(source_fd: int, destination_fd: int) -> None:
                 os.close(destination_file)
         else:
             raise RunIdentityError("playtest generation contains an unsafe entry")
-
-
-def _tree_digest_fd(root_fd: int) -> str:
-    digest = hashlib.sha256()
-
-    def visit(directory_fd: int, prefix: str) -> None:
-        for name in sorted(os.listdir(directory_fd)):
-            if not prefix and name == "run-commit.json":
-                continue
-            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-            relative = f"{prefix}{name}"
-            if stat.S_ISDIR(info.st_mode):
-                digest.update(f"D\0{relative}\0".encode())
-                child = os.open(
-                    name,
-                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                    dir_fd=directory_fd,
-                )
-                try:
-                    visit(child, relative + "/")
-                finally:
-                    os.close(child)
-            elif stat.S_ISREG(info.st_mode):
-                digest.update(f"F\0{relative}\0{info.st_size}\0".encode())
-                descriptor = os.open(
-                    name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd
-                )
-                try:
-                    while True:
-                        chunk = os.read(descriptor, 1024 * 1024)
-                        if not chunk:
-                            break
-                        digest.update(chunk)
-                finally:
-                    os.close(descriptor)
-            else:
-                raise RunIdentityError("playtest tree contains an unsafe entry")
-
-    visit(root_fd, "")
-    return digest.hexdigest()
-
-
-def _write_json_at(directory_fd: int, name: str, payload: Any) -> None:
-    temporary = f".{name}.{uuid.uuid4().hex}.tmp"
-    descriptor = os.open(
-        temporary,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-        0o600,
-        dir_fd=directory_fd,
-    )
-    try:
-        encoded = (json.dumps(payload, sort_keys=True) + "\n").encode()
-        view = memoryview(encoded)
-        while view:
-            view = view[os.write(descriptor, view):]
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    os.replace(temporary, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
 
 
 def normalize_run_id(value: Any) -> str:
