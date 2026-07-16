@@ -394,6 +394,10 @@ def test_rules_roll_dice_same_seed_is_deterministic(campaign_ws):
     assert all(isinstance(v, int) for v in data["rolls"])
     assert isinstance(data["total"], int)
     assert data["total"] == sum(data["rolls"]) + 1
+    records = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    matching = [row for row in records if row["roll_id"] == data["roll_id"]]
+    assert len(matching) == 1
+    assert matching[0]["payload"]["roll_id"] == data["roll_id"]
 
 
 def test_rules_roll_skill_check_returns_success_level_fields(campaign_ws):
@@ -458,6 +462,8 @@ def test_rules_roll_logs_canonical_traceable_numeric_payload(campaign_ws):
     assert len(records) == before + 1
     row = records[-1]
     assert row["roll_id"].startswith("toolbox-")
+    assert envelope["data"]["roll_id"] == row["roll_id"]
+    assert repeated["data"]["roll_id"] == row["roll_id"]
     assert row["visibility"] == "public"
     assert row["source"] == "keeper_toolbox"
     assert row["source_ref"] == f"logs/rolls.jsonl#{row['roll_id']}"
@@ -500,14 +506,24 @@ def test_rules_roll_uses_rulebook_base_for_known_unlisted_skill(campaign_ws):
 
 
 def test_rules_roll_dice_logs_non_percentile_faces_and_total(campaign_ws):
+    args = {"expression": "2D6+1", "seed": 9, "decision_id": "dice-log-1"}
     envelope = _run(
         campaign_ws,
         "rules.roll_dice",
-        {"expression": "2D6+1", "seed": 9, "decision_id": "dice-log-1"},
+        args,
     )
     assert envelope["ok"] is True
-    row = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")[-1]
+    repeated = _run(campaign_ws, "rules.roll_dice", args)
+    assert repeated["ok"] is True
+    assert repeated["data"] == envelope["data"]
+    assert any("duplicate decision_id" in warning for warning in repeated["warnings"])
+    records = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    row = records[-1]
     payload = row["payload"]
+    assert len([record for record in records if record["roll_id"] == row["roll_id"]]) == 1
+    assert envelope["data"]["roll_id"] == row["roll_id"]
+    assert repeated["data"]["roll_id"] == row["roll_id"]
+    assert payload["roll_id"] == row["roll_id"]
     assert payload["die_expression"] == "2D6+1"
     assert payload["individual_faces"] == envelope["data"]["rolls"]
     assert payload["final_total"] == envelope["data"]["total"]

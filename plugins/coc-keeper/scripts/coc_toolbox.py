@@ -2891,6 +2891,11 @@ def _roll_common(
         "payload": dict(result),
         **result,
     })
+    # Return the canonical identity assigned by ``log_roll`` instead of
+    # forcing callers to recover it from rolls.jsonl.  Persist that same
+    # enriched result in the idempotency ledger so retries replay the receipt
+    # without rolling again or allocating a second id.
+    result["roll_id"] = roll_record["roll_id"]
     ctx.ledger_record(args.get("decision_id"), tool_name, result)
     return result, warnings, hints
 
@@ -2988,6 +2993,7 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
         "payload": payload,
         **result,
     })
+    result["roll_id"] = roll_record["roll_id"]
     ctx.ledger_record(args.get("decision_id"), "rules.roll_dice", result)
     return result, [], []
 
