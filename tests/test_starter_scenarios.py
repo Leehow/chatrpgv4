@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -490,6 +491,218 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     assert coc_starter.player_safe_opening(campaign_dir) == (
         "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
     )
+
+
+def test_quick_start_serializes_existing_role_validation_with_publication(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / ".coc"
+    first = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="quick-start-existing-source",
+    )
+    investigator_id = first["investigator_id"]
+    character_path = Path(first["character_path"])
+    accepted_snapshot = json.loads(character_path.read_text(encoding="utf-8"))
+    developed_snapshot = json.loads(json.dumps(accepted_snapshot))
+    developed_snapshot["name"] = "Developed after quick-start publication"
+    marker_path = (
+        root
+        / "investigators"
+        / investigator_id
+        / "development-active-transaction.json"
+    )
+    ending_id = "quick-start-interleaving-ending"
+    transaction_id = (
+        coc_starter.coc_investigator_guard._expected_transaction_id(
+            ending_id, investigator_id
+        )
+    )
+    target_campaign_id = "quick-start-stable-boundary"
+    target_campaign = root / "campaigns" / target_campaign_id
+    contender_started = threading.Event()
+    contender_finished = threading.Event()
+    contender_errors: list[BaseException] = []
+
+    def development_contender():
+        contender_started.set()
+        try:
+            with coc_starter.coc_investigator_guard.guard_reusable_investigators(
+                root, [investigator_id], wait_seconds=2.0
+            ):
+                coc_starter.coc_fileio.write_json_atomic(
+                    marker_path,
+                    {
+                        "schema_version": 2,
+                        "status": "active",
+                        "transaction_id": transaction_id,
+                        "investigator_id": investigator_id,
+                        "campaign_id": "foreign-development-campaign",
+                        "ending_id": ending_id,
+                        "inflight_ref": (
+                            ".coc/campaigns/foreign-development-campaign/save/"
+                            "development-settlements/endings/"
+                            f"{ending_id}/{investigator_id}.inflight.json"
+                        ),
+                        "created_at": "2026-07-16T00:00:00Z",
+                        "phase": "creating",
+                        "journal_sha256": None,
+                        "next_journal_sha256": None,
+                        "transition_at": None,
+                    },
+                    trailing_newline=True,
+                )
+                coc_starter.coc_fileio.write_json_atomic(
+                    character_path,
+                    developed_snapshot,
+                    trailing_newline=True,
+                )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            contender_errors.append(exc)
+        finally:
+            contender_finished.set()
+
+    real_create_campaign = coc_starter.coc_state.create_campaign
+    contender: threading.Thread | None = None
+
+    def create_campaign_with_interleaving(*args, **kwargs):
+        nonlocal contender
+        contender = threading.Thread(target=development_contender)
+        contender.start()
+        assert contender_started.wait(1.0)
+        # If quick-start still owns the investigator guard, the development
+        # contender cannot cross this publication callback yet.
+        contender_finished.wait(0.1)
+        return real_create_campaign(*args, **kwargs)
+
+    monkeypatch.setattr(
+        coc_starter.coc_state, "create_campaign", create_campaign_with_interleaving
+    )
+    failure: BaseException | None = None
+    started = None
+    try:
+        started = coc_starter.quick_start(
+            root,
+            "the-haunting",
+            "thomas-hayes",
+            campaign_id=target_campaign_id,
+        )
+    except BaseException as exc:  # expected only from the broken boundary
+        failure = exc
+    assert contender is not None
+    contender.join(timeout=3.0)
+    assert not contender.is_alive()
+    assert contender_errors == []
+
+    if failure is not None:
+        assert not (target_campaign / "campaign.json").exists()
+        raise failure
+    assert started is not None
+    assert json.loads(
+        (
+            target_campaign
+            / "investigators"
+            / investigator_id
+            / "character.json"
+        ).read_text(encoding="utf-8")
+    ) == accepted_snapshot
+    state = json.loads(
+        (
+            target_campaign
+            / "save"
+            / "investigator-state"
+            / f"{investigator_id}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert state["investigator_id"] == investigator_id
+    assert json.loads((target_campaign / "party.json").read_text(encoding="utf-8"))[
+        "investigator_ids"
+    ] == [investigator_id]
+
+
+def test_quick_start_never_overwrites_developed_role_or_publishes_on_marker(
+    tmp_path,
+):
+    root = tmp_path / ".coc"
+    first = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="quick-start-conflict-source",
+    )
+    investigator_id = first["investigator_id"]
+    character_path = Path(first["character_path"])
+    accepted_bytes = character_path.read_bytes()
+    developed = json.loads(accepted_bytes)
+    developed["name"] = "A developed reusable investigator"
+    coc_starter.coc_fileio.write_json_atomic(
+        character_path, developed, trailing_newline=True
+    )
+    developed_bytes = character_path.read_bytes()
+    mismatch_campaign = root / "campaigns" / "quick-start-content-conflict"
+
+    with pytest.raises(FileExistsError, match="will not replace"):
+        coc_starter.quick_start(
+            root,
+            "the-haunting",
+            "thomas-hayes",
+            campaign_id=mismatch_campaign.name,
+        )
+
+    assert character_path.read_bytes() == developed_bytes
+    assert not (mismatch_campaign / "campaign.json").exists()
+
+    character_path.write_bytes(accepted_bytes)
+    ending_id = "quick-start-active-marker"
+    marker_path = (
+        root
+        / "investigators"
+        / investigator_id
+        / "development-active-transaction.json"
+    )
+    coc_starter.coc_fileio.write_json_atomic(
+        marker_path,
+        {
+            "schema_version": 2,
+            "status": "active",
+            "transaction_id": (
+                coc_starter.coc_investigator_guard._expected_transaction_id(
+                    ending_id, investigator_id
+                )
+            ),
+            "investigator_id": investigator_id,
+            "campaign_id": "foreign-development-campaign",
+            "ending_id": ending_id,
+            "inflight_ref": (
+                ".coc/campaigns/foreign-development-campaign/save/"
+                "development-settlements/endings/"
+                f"{ending_id}/{investigator_id}.inflight.json"
+            ),
+            "created_at": "2026-07-16T00:00:00Z",
+            "phase": "creating",
+            "journal_sha256": None,
+            "next_journal_sha256": None,
+            "transition_at": None,
+        },
+        trailing_newline=True,
+    )
+    marker_campaign = root / "campaigns" / "quick-start-marker-conflict"
+
+    with pytest.raises(
+        coc_starter.coc_investigator_guard.ReusableInvestigatorRecoveryConflict
+    ) as exc_info:
+        coc_starter.quick_start(
+            root,
+            "the-haunting",
+            "thomas-hayes",
+            campaign_id=marker_campaign.name,
+        )
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert character_path.read_bytes() == accepted_bytes
+    assert not (marker_campaign / "campaign.json").exists()
 
 
 def test_ensure_pregen_backstory_provenance_stamps_known_legacy_sheet():

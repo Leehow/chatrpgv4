@@ -3332,6 +3332,119 @@ def test_combat_tool_persists_reloadable_session_and_public_rolls(campaign_ws):
     assert any(row["roll_id"] not in prior_roll_ids for row in all_rolls)
 
 
+def test_combat_resolve_uses_one_guarded_character_snapshot_for_all_consumers(
+    campaign_ws, monkeypatch
+):
+    investigator_id = campaign_ws["investigator_id"]
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-snapshot-combat"},
+    )
+    assert moved["ok"] is True
+
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / investigator_id
+        / "character.json"
+    )
+    version_one = json.loads(character_path.read_text(encoding="utf-8"))
+    version_one["snapshot_version"] = "v1"
+    version_one["characteristics"]["DEX"] = 88
+    version_one["skills"]["Fighting (Brawl)"] = 99
+    _write_json(character_path, version_one)
+    version_two = json.loads(json.dumps(version_one))
+    version_two["snapshot_version"] = "v2"
+    version_two["characteristics"]["DEX"] = 22
+    version_two["skills"]["Fighting (Brawl)"] = 1
+
+    real_sheet = coc_toolbox.Ctx.sheet
+    sheet_reads: list[str] = []
+
+    def swap_after_first_guarded_read(self, requested_id):
+        sheet = real_sheet(self, requested_id)
+        sheet_reads.append(str(sheet.get("snapshot_version")))
+        if len(sheet_reads) == 1:
+            _write_json(character_path, version_two)
+        return sheet
+
+    monkeypatch.setattr(coc_toolbox.Ctx, "sheet", swap_after_first_guarded_read)
+    captured: dict[str, object] = {}
+
+    real_profile = coc_toolbox._investigator_combat_profile
+
+    def capture_profile(ctx, requested_id, *args, **kwargs):
+        captured["profile_snapshot"] = kwargs.get("character_snapshot")
+        if captured["profile_snapshot"] is None and args:
+            captured["profile_snapshot"] = args[0]
+        return real_profile(ctx, requested_id, *args, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox, "_investigator_combat_profile", capture_profile
+    )
+    real_route = (
+        coc_toolbox.coc_narrative_enrichment.build_route_operation_requests
+    )
+
+    def capture_route(payload):
+        captured["profile"] = payload["investigator_combat_profile"]
+        captured["route_character"] = payload["character"]
+        return real_route(payload)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_narrative_enrichment,
+        "build_route_operation_requests",
+        capture_route,
+    )
+    real_execute = coc_toolbox.coc_subsystem_executor.execute_commands
+
+    def capture_execute(*args, **kwargs):
+        captured["executor_snapshot"] = kwargs.get("character_snapshot")
+        return real_execute(*args, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_subsystem_executor, "execute_commands", capture_execute
+    )
+    real_ticks = coc_toolbox._record_combat_improvement_ticks
+
+    def capture_ticks(ctx, **kwargs):
+        captured["tick_snapshot"] = kwargs.get("character_snapshot")
+        return real_ticks(ctx, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox, "_record_combat_improvement_ticks", capture_ticks
+    )
+
+    resolved = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "conventional-assault",
+            "investigator": investigator_id,
+            "weapon_id": "unarmed",
+            "decision_id": "combat-one-character-snapshot",
+            "seed": 7,
+        },
+    )
+
+    assert resolved["ok"] is True, resolved
+    assert sheet_reads == ["v1"]
+    snapshot = captured["route_character"]
+    assert captured["profile_snapshot"] is snapshot
+    assert captured["executor_snapshot"] is snapshot
+    assert captured["tick_snapshot"] is snapshot
+    assert snapshot["snapshot_version"] == "v1"
+    assert captured["profile"]["dex"] == 88
+    assert captured["profile"]["combat_skill"] == 99
+    assert resolved["data"]["improvement_ticks_recorded"] == [
+        "Fighting (Brawl)"
+    ]
+    assert json.loads(character_path.read_text(encoding="utf-8"))[
+        "snapshot_version"
+    ] == "v2"
+
+
 def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
     moved = _run(
         campaign_ws,

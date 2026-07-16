@@ -39,6 +39,9 @@ SCHEMA_VERSION = 2
 GENESIS_SHA256 = "0" * 64
 MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,255}\Z")
 RUNTIME_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+INVESTIGATOR_IDENTIFIER = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z"
+)
 ACTION_ROW_KEYS = {
     "turn_number",
     "previous_sha256",
@@ -56,6 +59,7 @@ INVESTIGATOR_FILES = (
     "character.json",
     "history.jsonl",
     "development.jsonl",
+    "development-claims.json",
     "inventory-history.jsonl",
 )
 SESSION_SNAPSHOT_KEYS = {
@@ -1416,10 +1420,19 @@ class CheckpointStore:
 
     def _workspace_files(self) -> Iterable[Path]:
         campaign = self.workspace / ".coc" / "campaigns" / self.campaign_id
+        party_payload: dict[str, Any] | None = None
         for leaf in ("campaign.json", "party.json"):
             path = campaign / leaf
             self._reject_symlink_components(path)
             if path.is_file():
+                if leaf == "party.json":
+                    try:
+                        loaded = json.loads(path.read_text(encoding="utf-8"))
+                    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                        raise ValueError("party state is unreadable") from exc
+                    if not isinstance(loaded, dict):
+                        raise ValueError("party state must be an object")
+                    party_payload = loaded
                 yield path
         for name in (*CAMPAIGN_MUTABLE_TREES, *CAMPAIGN_IMMUTABLE_TREES):
             directory = campaign / name
@@ -1430,19 +1443,26 @@ class CheckpointStore:
                     if path.is_file():
                         yield path
 
-        investigator = self.workspace / ".coc" / "investigators" / self.investigator_id
-        for name in INVESTIGATOR_FILES:
-            path = investigator / name
-            self._reject_symlink_components(path)
-            if path.is_file():
-                yield path
+        for investigator_id in self._validated_party_investigator_ids(
+            party_payload
+        ):
+            investigator = (
+                self.workspace / ".coc" / "investigators" / investigator_id
+            )
+            for name in INVESTIGATOR_FILES:
+                path = investigator / name
+                self._reject_symlink_components(path)
+                if path.is_file():
+                    yield path
 
         sessions = self.workspace / ".coc" / "runtime" / "sessions.json"
         self._reject_symlink_components(sessions)
         if sessions.is_file():
             yield sessions
 
-    def _workspace_relative_files(self, workspace_fd: int) -> list[Path]:
+    def _workspace_relative_files(
+        self, workspace_fd: int, investigator_ids: list[str]
+    ) -> list[Path]:
         campaign = Path(".coc") / "campaigns" / self.campaign_id
         files: list[Path] = []
         campaign_state = campaign / "campaign.json"
@@ -1458,11 +1478,14 @@ class CheckpointStore:
             )
             files.extend(tree_files)
 
-        investigator = Path(".coc") / "investigators" / self.investigator_id
-        for name in INVESTIGATOR_FILES:
-            candidate = investigator / name
-            if _regular_file_exists_at(workspace_fd, candidate):
-                files.append(candidate)
+        for investigator_id in investigator_ids:
+            investigator = (
+                Path(".coc") / "investigators" / investigator_id
+            )
+            for name in INVESTIGATOR_FILES:
+                candidate = investigator / name
+                if _regular_file_exists_at(workspace_fd, candidate):
+                    files.append(candidate)
 
         sessions = Path(".coc") / "runtime" / "sessions.json"
         if not _regular_file_exists_at(workspace_fd, sessions):
@@ -1481,8 +1504,55 @@ class CheckpointStore:
     def _campaign_relative(self) -> Path:
         return Path(".coc") / "campaigns" / self.campaign_id
 
-    def _investigator_relative(self) -> Path:
-        return Path(".coc") / "investigators" / self.investigator_id
+    def _investigator_relative(self, investigator_id: str | None = None) -> Path:
+        return (
+            Path(".coc")
+            / "investigators"
+            / (investigator_id or self.investigator_id)
+        )
+
+    def _validated_party_investigator_ids(
+        self, party: dict[str, Any] | None
+    ) -> list[str]:
+        """Return one canonical party membership set including the run actor."""
+        if party is None:
+            return [self.investigator_id]
+        membership = party.get("investigator_ids")
+        active = party.get("active_investigator_ids")
+        if (
+            not isinstance(membership, list)
+            or not all(
+                isinstance(value, str)
+                and INVESTIGATOR_IDENTIFIER.fullmatch(value) is not None
+                for value in membership
+            )
+        ):
+            raise ValueError("party investigator membership is invalid")
+        investigator_ids = sorted(set(membership))
+        if self.investigator_id not in investigator_ids:
+            raise ValueError("party does not contain the selected investigator")
+        if active is not None:
+            if (
+                not isinstance(active, list)
+                or not all(
+                    isinstance(value, str)
+                    and INVESTIGATOR_IDENTIFIER.fullmatch(value) is not None
+                    and value in investigator_ids
+                    for value in active
+                )
+                or self.investigator_id not in active
+            ):
+                raise ValueError("party active membership is invalid")
+        if party.get("campaign_id") not in {None, self.campaign_id}:
+            raise ValueError("party campaign identity mismatch")
+        return investigator_ids
+
+    def _party_investigator_ids_at(self, root_fd: int) -> list[str]:
+        party_path = self._campaign_relative() / "party.json"
+        if not _regular_file_exists_at(root_fd, party_path):
+            return [self.investigator_id]
+        party = self._json_object_at(root_fd, party_path, "party state")
+        return self._validated_party_investigator_ids(party)
 
     def _tree_metadata(
         self,
@@ -1507,7 +1577,9 @@ class CheckpointStore:
             }
         return metadata
 
-    def _validate_workspace_identities(self, workspace_fd: int) -> None:
+    def _validate_workspace_identities(
+        self, workspace_fd: int, investigator_ids: list[str]
+    ) -> None:
         campaign = self._campaign_relative()
         campaign_state = self._json_object_at(
             workspace_fd, campaign / "campaign.json", "campaign state"
@@ -1515,54 +1587,55 @@ class CheckpointStore:
         if campaign_state.get("campaign_id") != self.campaign_id:
             raise ValueError("campaign identity mismatch")
 
-        investigator_root = self._investigator_relative()
-        character = self._json_object_at(
-            workspace_fd,
-            investigator_root / "character.json",
-            "selected investigator character",
-        )
-        creation_path = investigator_root / "creation.json"
-        creation = (
-            self._json_object_at(
-                workspace_fd, creation_path, "selected investigator creation"
-            )
-            if _regular_file_exists_at(workspace_fd, creation_path)
-            else None
-        )
-        _validate_investigator_documents(character, creation, self.investigator_id)
-
         party_path = campaign / "party.json"
         if _regular_file_exists_at(workspace_fd, party_path):
             party = self._json_object_at(workspace_fd, party_path, "party state")
-            membership = party.get("investigator_ids")
-            active = party.get("active_investigator_ids")
-            if (
-                not isinstance(membership, list)
-                or self.investigator_id not in membership
-                or (
-                    active is not None
-                    and (
-                        not isinstance(active, list)
-                        or self.investigator_id not in active
-                    )
-                )
-            ):
-                raise ValueError("party does not contain the selected investigator")
-            if party.get("campaign_id") not in {None, self.campaign_id}:
-                raise ValueError("party campaign identity mismatch")
+            if self._validated_party_investigator_ids(party) != investigator_ids:
+                raise ValueError("party membership changed inside checkpoint boundary")
 
-        investigator_state_path = (
-            campaign / "save" / "investigator-state" / f"{self.investigator_id}.json"
-        )
-        if _regular_file_exists_at(workspace_fd, investigator_state_path):
-            state = self._json_object_at(
-                workspace_fd, investigator_state_path, "investigator save state"
+        for investigator_id in investigator_ids:
+            investigator_root = self._investigator_relative(investigator_id)
+            character_path = investigator_root / "character.json"
+            if not _regular_file_exists_at(workspace_fd, character_path):
+                raise ValueError(
+                    f"party investigator character is missing: {investigator_id}"
+                )
+            character = self._json_object_at(
+                workspace_fd,
+                character_path,
+                f"party investigator character {investigator_id}",
             )
-            if (
-                state.get("campaign_id") != self.campaign_id
-                or state.get("investigator_id") != self.investigator_id
-            ):
-                raise ValueError("investigator save identity mismatch")
+            creation_path = investigator_root / "creation.json"
+            creation = (
+                self._json_object_at(
+                    workspace_fd,
+                    creation_path,
+                    f"party investigator creation {investigator_id}",
+                )
+                if _regular_file_exists_at(workspace_fd, creation_path)
+                else None
+            )
+            _validate_investigator_documents(
+                character, creation, investigator_id
+            )
+
+            investigator_state_path = (
+                campaign
+                / "save"
+                / "investigator-state"
+                / f"{investigator_id}.json"
+            )
+            if _regular_file_exists_at(workspace_fd, investigator_state_path):
+                state = self._json_object_at(
+                    workspace_fd,
+                    investigator_state_path,
+                    f"investigator save state {investigator_id}",
+                )
+                if (
+                    state.get("campaign_id") != self.campaign_id
+                    or state.get("investigator_id") != investigator_id
+                ):
+                    raise ValueError("investigator save identity mismatch")
 
         world_path = campaign / "save" / "world-state.json"
         module_path = campaign / "scenario" / "module-meta.json"
@@ -1673,13 +1746,16 @@ class CheckpointStore:
         checkpoint_fd: int,
         state_files: list[dict[str, Any]],
         session_id: str,
+        investigator_ids: list[str],
     ) -> None:
         entry_fds: dict[str, int] = {}
         try:
             for entry in state_files:
                 descriptor = _open_regular_at(checkpoint_fd, entry["path"])
                 entry_fds[entry["workspace_path"]] = descriptor
-            self._validate_snapshot_identities(entry_fds)
+            self._validate_snapshot_identities(
+                entry_fds, expected_investigator_ids=investigator_ids
+            )
             session_fd = entry_fds.get(".coc/runtime/sessions.json")
             if session_fd is None:
                 raise ValueError("snapshotted session state is missing")
@@ -1740,13 +1816,15 @@ class CheckpointStore:
         immutable_trees: dict[str, dict[str, Any]] = {}
         managed_file_presence: dict[str, bool] = {}
         session_snapshot_sha256 = ""
+        party_investigator_ids: list[str] = [self.investigator_id]
         try:
             lock_candidate = _campaign_lock_at(workspace_fd, self._campaign_relative())
             lock_candidate.__enter__()
             campaign_lock = lock_candidate
+            party_investigator_ids = self._party_investigator_ids_at(workspace_fd)
             guard_candidate = (
                 coc_investigator_guard.guard_reusable_investigators(
-                    self.workspace / ".coc", [self.investigator_id]
+                    self.workspace / ".coc", party_investigator_ids
                 )
             )
             guard_candidate.__enter__()
@@ -1779,11 +1857,22 @@ class CheckpointStore:
                     model_identity,
                 )
 
-            self._validate_workspace_identities(workspace_fd)
-            workspace_files = self._workspace_relative_files(workspace_fd)
-            character_relative = self._investigator_relative() / "character.json"
-            if character_relative not in workspace_files:
-                raise ValueError("selected investigator character.json is required")
+            self._validate_workspace_identities(
+                workspace_fd, party_investigator_ids
+            )
+            workspace_files = self._workspace_relative_files(
+                workspace_fd, party_investigator_ids
+            )
+            for investigator_id in party_investigator_ids:
+                character_relative = (
+                    self._investigator_relative(investigator_id)
+                    / "character.json"
+                )
+                if character_relative not in workspace_files:
+                    raise ValueError(
+                        "party investigator character.json is required: "
+                        f"{investigator_id}"
+                    )
             session_payload, _session_record = self._session_snapshot_bytes(
                 workspace_fd, session_id
             )
@@ -1798,7 +1887,11 @@ class CheckpointStore:
             )
             optional_paths = [
                 self._campaign_relative() / "party.json",
-                *(self._investigator_relative() / name for name in INVESTIGATOR_FILES),
+                *(
+                    self._investigator_relative(investigator_id) / name
+                    for investigator_id in party_investigator_ids
+                    for name in INVESTIGATOR_FILES
+                ),
                 Path(".coc") / "runtime" / "sessions.json",
                 Path(".coc") / "playtest-runs" / self.campaign_id / "actions.jsonl",
             ]
@@ -1953,7 +2046,12 @@ class CheckpointStore:
             # Bind structured identities to the exact bytes inside the
             # unpublished checkpoint, not merely to earlier live-workspace
             # reads that could have changed before their snapshot FD opened.
-            self._validate_snapshotted_state_at(temporary_fd, state_files, session_id)
+            self._validate_snapshotted_state_at(
+                temporary_fd,
+                state_files,
+                session_id,
+                party_investigator_ids,
+            )
             if self._turn_number > 0:
                 self._validate_runtime_evidence_at(
                     temporary_fd,
@@ -1969,6 +2067,7 @@ class CheckpointStore:
             manifest = {
                 "schema_version": SCHEMA_VERSION,
                 "run_id": self.campaign_id,
+                "party_investigator_ids": party_investigator_ids,
                 "turn_number": turn_number,
                 "reason": reason,
                 "session_id": session_id,
@@ -2066,6 +2165,7 @@ class CheckpointStore:
         target_lock = None
         target_mutated = False
         entries: list[tuple[dict[str, Any], int]] = []
+        restore_investigator_ids: list[str] = [self.investigator_id]
         try:
             checkpoint_fd = _open_directory_at(
                 run_fd, Path("checkpoints") / checkpoint_relative
@@ -2090,7 +2190,9 @@ class CheckpointStore:
             source_lock_candidate.__enter__()
             source_lock = source_lock_candidate
             self._validate_manifest_identity(manifest, checkpoint_path)
-            entries = self._validate_state_files(manifest, checkpoint_fd)
+            entries, restore_investigator_ids = self._validate_state_files(
+                manifest, checkpoint_fd
+            )
 
             target_path = Path(target).absolute()
             target_fd = _open_directory_path(target_path, "target")
@@ -2137,11 +2239,15 @@ class CheckpointStore:
                 target_lock.__exit__(None, None, None)
                 target_lock = None
             if target_mutated and target_fd >= 0:
-                for relative in (
+                cleanup_paths = [
                     self._campaign_relative(),
-                    self._investigator_relative(),
+                    *(
+                        self._investigator_relative(investigator_id)
+                        for investigator_id in restore_investigator_ids
+                    ),
                     Path(".coc") / "playtest-runs" / self.campaign_id,
-                ):
+                ]
+                for relative in cleanup_paths:
                     try:
                         _remove_relative_tree_at(target_fd, relative)
                     except (OSError, ValueError):
@@ -2293,10 +2399,37 @@ class CheckpointStore:
                     "checkpoint Git HEAD mismatch requires an exact invalidated segment"
                 )
 
-    def _restore_destination_is_allowlisted(self, relative: Path) -> bool:
+    def _manifest_party_investigator_ids(
+        self, manifest: dict[str, Any]
+    ) -> list[str]:
+        raw = manifest.get("party_investigator_ids")
+        # Checkpoints written before party-wide snapshots supported exactly the
+        # selected investigator.  Preserve that single-actor restore contract.
+        if raw is None:
+            return [self.investigator_id]
+        if (
+            not isinstance(raw, list)
+            or not raw
+            or not all(
+                isinstance(value, str)
+                and INVESTIGATOR_IDENTIFIER.fullmatch(value) is not None
+                for value in raw
+            )
+            or raw != sorted(set(raw))
+            or self.investigator_id not in raw
+        ):
+            raise ValueError("invalid checkpoint party investigator manifest")
+        return list(raw)
+
+    def _restore_destination_is_allowlisted(
+        self, relative: Path, investigator_ids: list[str]
+    ) -> bool:
         parts = relative.parts
         campaign_prefix = (".coc", "campaigns", self.campaign_id)
-        investigator_prefix = (".coc", "investigators", self.investigator_id)
+        investigator_prefixes = {
+            (".coc", "investigators", investigator_id)
+            for investigator_id in investigator_ids
+        }
         journal = (
             ".coc",
             "playtest-runs",
@@ -2317,7 +2450,7 @@ class CheckpointStore:
             )
             or (
                 len(parts) == 4
-                and parts[:3] == investigator_prefix
+                and parts[:3] in investigator_prefixes
                 and parts[3] in INVESTIGATOR_FILES
             )
         ) or parts in {
@@ -2327,10 +2460,11 @@ class CheckpointStore:
 
     def _validate_state_files(
         self, manifest: dict[str, Any], checkpoint_fd: int
-    ) -> list[tuple[dict[str, Any], int]]:
+    ) -> tuple[list[tuple[dict[str, Any], int]], list[str]]:
         raw_entries = manifest.get("state_files")
         if not isinstance(raw_entries, list) or not raw_entries:
             raise ValueError("invalid checkpoint state files")
+        investigator_ids = self._manifest_party_investigator_ids(manifest)
         entries: list[tuple[dict[str, Any], int]] = []
         seen_workspace_paths: set[str] = set()
         source_from_entries: dict[str, str] = {}
@@ -2356,7 +2490,9 @@ class CheckpointStore:
                 workspace_relative = self._safe_relative(
                     raw["workspace_path"], "workspace path"
                 )
-                if not self._restore_destination_is_allowlisted(workspace_relative):
+                if not self._restore_destination_is_allowlisted(
+                    workspace_relative, investigator_ids
+                ):
                     raise ValueError(
                         f"checkpoint restore destination is outside allowlist: {workspace_relative}"
                     )
@@ -2478,7 +2614,10 @@ class CheckpointStore:
             expected_presence_paths = {
                 (self._campaign_relative() / "party.json").as_posix(),
                 *(
-                    (self._investigator_relative() / name).as_posix()
+                    (
+                        self._investigator_relative(investigator_id) / name
+                    ).as_posix()
+                    for investigator_id in investigator_ids
                     for name in INVESTIGATOR_FILES
                 ),
                 ".coc/runtime/sessions.json",
@@ -2507,7 +2646,9 @@ class CheckpointStore:
             if _read_fd_bytes(session_fd) != sanitized:
                 raise ValueError("checkpoint session snapshot is not canonical")
 
-            self._validate_snapshot_identities(entry_fds)
+            self._validate_snapshot_identities(
+                entry_fds, expected_investigator_ids=investigator_ids
+            )
             manifest_turn = manifest["turn_number"]
             manifest_chain = manifest.get("action_chain_sha256")
             manifest_model_identity = _validated_model_identity(
@@ -2556,7 +2697,7 @@ class CheckpointStore:
                         terminal_provenance.get("model_identity")
                     ),
                 )
-            return entries
+            return entries, investigator_ids
         except Exception:
             for _entry, source_fd in entries:
                 os.close(source_fd)
@@ -2597,7 +2738,12 @@ class CheckpointStore:
             }
         return validated
 
-    def _validate_snapshot_identities(self, entry_fds: dict[str, int]) -> None:
+    def _validate_snapshot_identities(
+        self,
+        entry_fds: dict[str, int],
+        *,
+        expected_investigator_ids: list[str] | None = None,
+    ) -> None:
         def optional_json(path: Path, field: str) -> dict[str, Any] | None:
             descriptor = entry_fds.get(path.as_posix())
             return None if descriptor is None else _read_json_fd(descriptor, field)
@@ -2610,43 +2756,46 @@ class CheckpointStore:
         ):
             raise ValueError("checkpoint campaign identity mismatch")
         party = optional_json(campaign / "party.json", "party state")
-        if party is not None:
-            members = party.get("investigator_ids")
-            active = party.get("active_investigator_ids")
-            if (
-                not isinstance(members, list)
-                or self.investigator_id not in members
-                or (
-                    active is not None
-                    and (
-                        not isinstance(active, list)
-                        or self.investigator_id not in active
-                    )
-                )
-                or party.get("campaign_id") not in {None, self.campaign_id}
-            ):
-                raise ValueError("checkpoint party identity mismatch")
-        investigator_root = self._investigator_relative()
-        character = optional_json(
-            investigator_root / "character.json",
-            "selected investigator character",
-        )
-        if character is None:
-            raise ValueError("checkpoint selected investigator character is missing")
-        creation = optional_json(
-            investigator_root / "creation.json",
-            "selected investigator creation",
-        )
-        _validate_investigator_documents(character, creation, self.investigator_id)
-        investigator = optional_json(
-            campaign / "save" / "investigator-state" / f"{self.investigator_id}.json",
-            "investigator save state",
-        )
-        if investigator is not None and (
-            investigator.get("campaign_id") != self.campaign_id
-            or investigator.get("investigator_id") != self.investigator_id
+        try:
+            investigator_ids = self._validated_party_investigator_ids(party)
+        except ValueError as exc:
+            raise ValueError("checkpoint party identity mismatch") from exc
+        if (
+            expected_investigator_ids is not None
+            and investigator_ids != expected_investigator_ids
         ):
-            raise ValueError("checkpoint investigator identity mismatch")
+            raise ValueError("checkpoint party membership mismatch")
+
+        for investigator_id in investigator_ids:
+            investigator_root = self._investigator_relative(investigator_id)
+            character = optional_json(
+                investigator_root / "character.json",
+                f"party investigator character {investigator_id}",
+            )
+            if character is None:
+                raise ValueError(
+                    "checkpoint party investigator character is missing: "
+                    f"{investigator_id}"
+                )
+            creation = optional_json(
+                investigator_root / "creation.json",
+                f"party investigator creation {investigator_id}",
+            )
+            _validate_investigator_documents(
+                character, creation, investigator_id
+            )
+            investigator = optional_json(
+                campaign
+                / "save"
+                / "investigator-state"
+                / f"{investigator_id}.json",
+                f"investigator save state {investigator_id}",
+            )
+            if investigator is not None and (
+                investigator.get("campaign_id") != self.campaign_id
+                or investigator.get("investigator_id") != investigator_id
+            ):
+                raise ValueError("checkpoint investigator identity mismatch")
         world = optional_json(campaign / "save" / "world-state.json", "world state")
         module = optional_json(
             campaign / "scenario" / "module-meta.json", "module metadata"

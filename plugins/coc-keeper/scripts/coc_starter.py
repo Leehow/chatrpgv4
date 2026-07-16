@@ -533,78 +533,105 @@ def quick_start(
     camp_title = title or str(meta.get("title") or scenario_id)
 
     coc_root = _coc_root(root)
-    # Reject an active settlement before campaign creation so a conflict is
-    # byte-for-byte zero game-state writes.  A byte-equivalent shipped pregen
-    # may be reused across campaigns; quick-start never silently replaces a
-    # developed reusable investigator.
-    reuse_existing = False
-    with coc_investigator_guard.guard_reusable_investigators(
-        coc_root, [investigator_id]
-    ):
-        existing_path = (
-            coc_root / "investigators" / investigator_id / "character.json"
-        )
-        if existing_path.is_file():
-            existing = json.loads(existing_path.read_text(encoding="utf-8"))
-            if existing != sheet:
-                raise FileExistsError(
-                    "quick-start will not replace an existing reusable "
-                    f"investigator: {investigator_id}"
-                )
-            reuse_existing = True
     coc_state.ensure_workspace(coc_root)
-    campaign_path = coc_root / "campaigns" / camp_id / "campaign.json"
-    if campaign_path.exists():
-        raise FileExistsError(
-            f"campaign {camp_id} already exists; pass a fresh campaign_id or remove it first"
-        )
-
-    coc_state.create_campaign(
-        coc_root,
-        camp_id,
-        camp_title,
-        era=era,
-        start_clock=meta.get("start_clock") if isinstance(meta.get("start_clock"), dict) else None,
-    )
-    install_starter(coc_root, camp_id, scenario_id)
-
-    # Workspace reusable investigator (what coc_live_match / run_live_turn expect).
-    if not reuse_existing:
-        coc_state.create_investigator(coc_root, investigator_id, sheet)
-    character_path = coc_root / "investigators" / investigator_id / "character.json"
-
     campaign_dir = coc_root / "campaigns" / camp_id
-    # Campaign-local copy for sandbox / report tooling that looks under the campaign.
-    camp_inv_dir = campaign_dir / "investigators" / investigator_id
-    camp_inv_dir.mkdir(parents=True, exist_ok=True)
-    coc_fileio.write_json_atomic(
-        camp_inv_dir / "character.json",
-        sheet,
-        indent=2,
-        ensure_ascii=False,
-        trailing_newline=True,
-    )
+    campaign_path = campaign_dir / "campaign.json"
 
-    _seed_investigator_state(campaign_dir, camp_id, investigator_id, sheet)
-    coc_state.link_party(coc_root, camp_id, [investigator_id])
+    # Campaign publication and reusable-investigator acceptance are one stable
+    # boundary with the sole global lock order: campaign, then investigator.
+    # Every seed/link/copy is derived from the exact object accepted under the
+    # investigator guard, and no helper below re-enters that lock.
+    with coc_fileio.campaign_lock(campaign_dir, wait_seconds=5.0):
+        if campaign_path.exists():
+            raise FileExistsError(
+                f"campaign {camp_id} already exists; pass a fresh campaign_id or remove it first"
+            )
+        with coc_investigator_guard.guard_reusable_investigators(
+            coc_root, [investigator_id]
+        ):
+            existing_path = (
+                coc_root / "investigators" / investigator_id / "character.json"
+            )
+            reuse_existing = existing_path.is_file()
+            accepted_snapshot = sheet
+            if reuse_existing:
+                existing = json.loads(existing_path.read_text(encoding="utf-8"))
+                if existing != sheet:
+                    raise FileExistsError(
+                        "quick-start will not replace an existing reusable "
+                        f"investigator: {investigator_id}"
+                    )
+                accepted_snapshot = existing
 
-    campaign = json.loads((campaign_dir / "campaign.json").read_text(encoding="utf-8"))
-    campaign["status"] = "active"
-    campaign["active_subsystem"] = "play"
-    campaign["character_creation"] = {
-        **(campaign.get("character_creation") if isinstance(campaign.get("character_creation"), dict) else {}),
-        "active_investigator_id": investigator_id,
-        "pregen_id": pregen_id,
-        "quick_start": True,
-    }
-    campaign["updated_at"] = _now_iso()
-    coc_fileio.write_json_atomic(
-        campaign_dir / "campaign.json",
-        campaign,
-        indent=2,
-        ensure_ascii=False,
-        trailing_newline=True,
-    )
+            coc_state.create_campaign(
+                coc_root,
+                camp_id,
+                camp_title,
+                era=era,
+                start_clock=(
+                    meta.get("start_clock")
+                    if isinstance(meta.get("start_clock"), dict)
+                    else None
+                ),
+            )
+            install_starter(coc_root, camp_id, scenario_id)
+
+            # The caller already owns the reusable-investigator guard.
+            if not reuse_existing:
+                coc_state._create_investigator_unlocked(
+                    coc_root, investigator_id, accepted_snapshot
+                )
+            character_path = (
+                coc_root / "investigators" / investigator_id / "character.json"
+            )
+
+            # Campaign-local copy for sandbox/report tooling.
+            camp_inv_dir = campaign_dir / "investigators" / investigator_id
+            camp_inv_dir.mkdir(parents=True, exist_ok=True)
+            coc_fileio.write_json_atomic(
+                camp_inv_dir / "character.json",
+                accepted_snapshot,
+                indent=2,
+                ensure_ascii=False,
+                trailing_newline=True,
+            )
+
+            _seed_investigator_state(
+                campaign_dir,
+                camp_id,
+                investigator_id,
+                accepted_snapshot,
+            )
+            coc_state._link_party_unlocked(
+                coc_root,
+                camp_id,
+                [investigator_id],
+                sheets={investigator_id: accepted_snapshot},
+            )
+
+            campaign = json.loads(
+                (campaign_dir / "campaign.json").read_text(encoding="utf-8")
+            )
+            campaign["status"] = "active"
+            campaign["active_subsystem"] = "play"
+            campaign["character_creation"] = {
+                **(
+                    campaign.get("character_creation")
+                    if isinstance(campaign.get("character_creation"), dict)
+                    else {}
+                ),
+                "active_investigator_id": investigator_id,
+                "pregen_id": pregen_id,
+                "quick_start": True,
+            }
+            campaign["updated_at"] = _now_iso()
+            coc_fileio.write_json_atomic(
+                campaign_dir / "campaign.json",
+                campaign,
+                indent=2,
+                ensure_ascii=False,
+                trailing_newline=True,
+            )
 
     return {
         "campaign_id": camp_id,

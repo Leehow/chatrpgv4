@@ -142,6 +142,13 @@ def _seed_workspace(
         "character.json": {"schema_version": 1, "id": investigator_id, "hp": 10},
         "history.jsonl": {"kind": "created"},
         "development.jsonl": {"kind": "development"},
+        "development-claims.json": {
+            "schema_version": 2,
+            "investigator_id": investigator_id,
+            "claims": {},
+            "events": {},
+            "capsule_archive_hydrated": False,
+        },
         "inventory-history.jsonl": {"kind": "inventory"},
     }
     for name, value in investigator_files.items():
@@ -424,6 +431,151 @@ def test_checkpoint_rejects_active_reusable_transaction_before_snapshot_writes(
     assert exc_info.value.code == "RECOVERY_CONFLICT"
     assert marker.read_bytes() == marker_before
     assert not (run_dir / "checkpoints").exists()
+
+
+def _add_checkpoint_party_member(workspace: Path, investigator_id: str) -> None:
+    investigator_dir = workspace / ".coc" / "investigators" / investigator_id
+    documents = {
+        "creation.json": {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+        },
+        "character.json": {
+            "schema_version": 1,
+            "id": investigator_id,
+            "hp": 11,
+        },
+        "history.jsonl": {"kind": "created"},
+        "development.jsonl": {"kind": "development"},
+        "development-claims.json": {
+            "schema_version": 2,
+            "investigator_id": investigator_id,
+            "claims": {},
+            "events": {},
+            "capsule_archive_hydrated": False,
+        },
+        "inventory-history.jsonl": {"kind": "inventory"},
+    }
+    for name, value in documents.items():
+        path = investigator_dir / name
+        if name.endswith(".jsonl"):
+            _write_jsonl(path, [value])
+        else:
+            _write_json(path, value)
+
+
+def test_checkpoint_rejects_active_transaction_on_second_party_member(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    _add_checkpoint_party_member(workspace, "inv-b")
+    _write_json(
+        paths["party"],
+        {
+            "campaign_id": "masks-run-a",
+            "investigator_ids": ["inv-b", "inv-a", "inv-b"],
+            "active_investigator_ids": ["inv-b", "inv-a"],
+        },
+    )
+    ending_id = "ending-second-member-guard"
+    marker = (
+        workspace
+        / ".coc"
+        / "investigators"
+        / "inv-b"
+        / "development-active-transaction.json"
+    )
+    _write_json(
+        marker,
+        {
+            "schema_version": 2,
+            "status": "active",
+            "transaction_id": (
+                checkpoint.coc_investigator_guard._expected_transaction_id(
+                    ending_id, "inv-b"
+                )
+            ),
+            "investigator_id": "inv-b",
+            "campaign_id": "foreign-campaign",
+            "ending_id": ending_id,
+            "inflight_ref": (
+                ".coc/campaigns/foreign-campaign/save/development-settlements/"
+                f"endings/{ending_id}/inv-b.inflight.json"
+            ),
+            "created_at": "2026-07-16T00:00:00Z",
+            "phase": "creating",
+            "journal_sha256": None,
+            "next_journal_sha256": None,
+            "transition_at": None,
+        },
+    )
+    run_dir = tmp_path / "run"
+    store = checkpoint.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+
+    with pytest.raises(
+        checkpoint.coc_investigator_guard.ReusableInvestigatorRecoveryConflict
+    ) as exc_info:
+        store.write_checkpoint("sess_123", 0, "initial_state")
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert exc_info.value.investigator_id == "inv-b"
+    assert not (run_dir / "checkpoints").exists()
+
+
+def test_checkpoint_snapshots_and_restores_every_unique_party_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    _add_checkpoint_party_member(workspace, "inv-b")
+    _write_json(
+        paths["party"],
+        {
+            "campaign_id": "masks-run-a",
+            "investigator_ids": ["inv-b", "inv-a", "inv-b"],
+            "active_investigator_ids": ["inv-b", "inv-a"],
+        },
+    )
+    guarded_ids: list[list[str]] = []
+    real_guard = checkpoint.coc_investigator_guard.guard_reusable_investigators
+
+    def capture_guard(coc_root, investigator_ids, **kwargs):
+        guarded_ids.append(list(investigator_ids))
+        return real_guard(coc_root, investigator_ids, **kwargs)
+
+    monkeypatch.setattr(
+        checkpoint.coc_investigator_guard,
+        "guard_reusable_investigators",
+        capture_guard,
+    )
+    store = checkpoint.CheckpointStore(
+        tmp_path / "run", workspace, "masks-run-a", "inv-a"
+    )
+
+    checkpoint_dir = store.write_checkpoint("sess_123", 0, "initial_state")
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    workspace_paths = {entry["workspace_path"] for entry in manifest["state_files"]}
+    assert guarded_ids[0] == ["inv-a", "inv-b"]
+    for investigator_id in ("inv-a", "inv-b"):
+        for name in checkpoint.INVESTIGATOR_FILES:
+            assert f".coc/investigators/{investigator_id}/{name}" in workspace_paths
+
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+    store.restore_checkpoint(checkpoint_dir, target)
+    for investigator_id in ("inv-a", "inv-b"):
+        assert (
+            target
+            / ".coc"
+            / "investigators"
+            / investigator_id
+            / "character.json"
+        ).is_file()
 
 
 def test_checkpoint_uses_only_the_canonical_public_runtime_allowlist(tmp_path: Path):

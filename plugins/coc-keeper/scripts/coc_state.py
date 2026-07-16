@@ -1033,8 +1033,42 @@ def seed_investigator_state_if_missing(
     return inv_path
 
 
-def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Path:
+def _link_party_unlocked(
+    root: Path,
+    campaign_id: str,
+    investigator_ids: list[str],
+    *,
+    sheets: dict[str, dict[str, Any]],
+) -> Path:
+    """Publish a party from caller-owned guarded character snapshots."""
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    for investigator_id in investigator_ids:
+        sheet = sheets.get(investigator_id)
+        if not isinstance(sheet, dict):
+            raise ValueError(
+                f"guarded character snapshot is missing: {investigator_id}"
+            )
+        seed_investigator_state_if_missing(
+            root,
+            campaign_id,
+            investigator_id,
+            sheet=sheet,
+        )
+    party_path = campaign_dir / "party.json"
+    write_json_atomic(
+        party_path,
+        {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "investigator_ids": investigator_ids,
+            "active_investigator_ids": investigator_ids,
+        },
+    )
+    _upsert_campaign_index(root, campaign_id)
+    return party_path
+
+
+def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Path:
     with coc_investigator_guard.guard_reusable_investigators(
         coc_root(root), investigator_ids
     ):
@@ -1053,25 +1087,12 @@ def link_party(root: Path, campaign_id: str, investigator_ids: list[str]) -> Pat
                     f"character sheet must be an object: {character_path}"
                 )
             sheets[investigator_id] = loaded
-        for investigator_id in investigator_ids:
-            seed_investigator_state_if_missing(
-                root,
-                campaign_id,
-                investigator_id,
-                sheet=sheets[investigator_id],
-            )
-        party_path = campaign_dir / "party.json"
-        write_json_atomic(
-            party_path,
-            {
-                "schema_version": 1,
-                "campaign_id": campaign_id,
-                "investigator_ids": investigator_ids,
-                "active_investigator_ids": investigator_ids,
-            },
+        return _link_party_unlocked(
+            root,
+            campaign_id,
+            investigator_ids,
+            sheets=sheets,
         )
-        _upsert_campaign_index(root, campaign_id)
-    return party_path
 
 
 def append_jsonl(path: Path, event: dict[str, Any]) -> None:

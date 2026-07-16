@@ -264,11 +264,23 @@ class Ctx:
     def inv_state_path(self, investigator_id: str) -> Path:
         return self.campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
 
-    def inv_state(self, investigator_id: str) -> dict[str, Any]:
+    def inv_state(
+        self,
+        investigator_id: str,
+        *,
+        character_snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         path = self.inv_state_path(investigator_id)
         if not path.is_file():
             coc_state.seed_investigator_state_if_missing(
-                self.root, self.campaign_id, investigator_id, sheet=self.sheet(investigator_id)
+                self.root,
+                self.campaign_id,
+                investigator_id,
+                sheet=(
+                    character_snapshot
+                    if character_snapshot is not None
+                    else self.sheet(investigator_id)
+                ),
             )
         return json.loads(path.read_text(encoding="utf-8"))
 
@@ -999,11 +1011,16 @@ def _active_time_markers(ctx: Ctx) -> list[dict[str, Any]]:
 
 
 def _investigator_combat_profile(
-    ctx: Ctx, investigator_id: str,
+    ctx: Ctx,
+    investigator_id: str,
+    *,
+    character_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
     """Project canonical structured combat inputs without reading prose."""
-    sheet = ctx.sheet(investigator_id)
-    state = ctx.inv_state(investigator_id)
+    sheet = character_snapshot
+    state = ctx.inv_state(
+        investigator_id, character_snapshot=character_snapshot
+    )
     characteristics = sheet.get("characteristics") or {}
     skills = sheet.get("skills") or {}
     derived = sheet.get("derived") or {}
@@ -1117,6 +1134,7 @@ def _mark_improvement_tick(
     *,
     source_event_id: str,
     source_kind: str,
+    character_snapshot: dict[str, Any] | None = None,
 ) -> bool:
     tick = coc_development.record_skill_tick(
         ctx.campaign_dir,
@@ -1130,7 +1148,9 @@ def _mark_improvement_tick(
         return False
     if tick.get("development_event_status") == "already_claimed":
         return False
-    state = ctx.inv_state(investigator_id)
+    state = ctx.inv_state(
+        investigator_id, character_snapshot=character_snapshot
+    )
     events = state.get("skill_check_events")
     if not isinstance(events, list):
         events = []
@@ -1705,6 +1725,7 @@ def _execute_subsystem_requests(
     requests: list[dict[str, Any]],
     seed: Any = None,
     tool_name: str = "combat.resolve",
+    character_snapshot: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     commands = coc_subsystem_executor.commands_from_rules_requests({
         "decision_id": decision_id,
@@ -1725,6 +1746,7 @@ def _execute_subsystem_requests(
             investigator_id,
             commands,
             rng=random.Random(seed) if seed is not None else random.Random(),
+            character_snapshot=character_snapshot,
         )
     except coc_subsystem_executor.SubsystemExecutorError as exc:
         if exc.code == "RECOVERY_CONFLICT":
@@ -1774,6 +1796,7 @@ def _record_combat_improvement_ticks(
     *,
     investigator_id: str,
     events: list[dict[str, Any]],
+    character_snapshot: dict[str, Any] | None = None,
 ) -> list[str]:
     """Project qualifying investigator combat rolls into toolbox tick state.
 
@@ -1783,7 +1806,12 @@ def _record_combat_improvement_ticks(
     NPC, characteristic, damage, opposed-loser, and Luck-bought rolls therefore
     cannot enter the development stream.
     """
-    sheet_skills = ctx.sheet(investigator_id).get("skills") or {}
+    snapshot = (
+        character_snapshot
+        if character_snapshot is not None
+        else ctx.sheet(investigator_id)
+    )
+    sheet_skills = snapshot.get("skills") or {}
     if not isinstance(sheet_skills, dict):
         return []
     canonical_skills = {
@@ -1847,6 +1875,7 @@ def _record_combat_improvement_ticks(
             roll,
             source_event_id=source_event_id,
             source_kind="combat.resolve",
+            character_snapshot=snapshot,
         ):
             if skill not in recorded:
                 recorded.append(skill)
@@ -2239,6 +2268,11 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         ], []
 
     investigator_id = _resolve_investigator(ctx, args)
+    # Bind every character-derived consumer in this command to the same
+    # marker-aware, detached file image.  A development settlement may commit
+    # after this read, but it cannot make one combat command mix two accepted
+    # investigator versions.
+    character_snapshot = ctx.sheet(investigator_id)
     world = ctx.world()
     scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id"))
     affordance_id = str(args["affordance_id"])
@@ -2305,9 +2339,11 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             "combat_state": combat,
             "world_state": world,
             "investigator_combat_profile": _investigator_combat_profile(
-                ctx, investigator_id
+                ctx,
+                investigator_id,
+                character_snapshot=character_snapshot,
             ),
-            "character": ctx.sheet(investigator_id),
+            "character": character_snapshot,
             "player_intent_rich": rich,
             "turn_number": int(ctx.pacing().get("turn_number") or 0),
         })
@@ -2340,11 +2376,13 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         decision_id=decision_id,
         requests=requests,
         seed=args.get("seed"),
+        character_snapshot=character_snapshot,
     )
     improvement_ticks = _record_combat_improvement_ticks(
         ctx,
         investigator_id=investigator_id,
         events=events,
+        character_snapshot=character_snapshot,
     )
     current = _combat_state(ctx)
     data = {
