@@ -1368,12 +1368,39 @@ def _director_npc_operation_set_candidate(
     decision_sets = document.get("decision_sets")
     if not isinstance(decision_sets, dict):
         raise ValueError("canonical NPC operation-set receipt map is invalid")
-    prior = decision_sets.get(candidate["receipt_id"])
-    if prior is not None:
-        # ``put`` owns both full integrity validation and the typed payload
-        # conflict.  No new state is written on this comparison path.
-        coc_npc_event_chain.put_decision_set_receipt(document, candidate)
-        return document, deepcopy(prior), True
+    matching = [
+        (receipt_id, receipt)
+        for receipt_id, receipt in decision_sets.items()
+        if isinstance(receipt, dict)
+        and receipt.get("producer") == candidate.get("producer")
+        and receipt.get("campaign_id") == candidate.get("campaign_id")
+        and receipt.get("decision_id") == candidate.get("decision_id")
+    ]
+    if len(matching) > 1:
+        raise coc_npc_event_chain.NpcOperationSetConflict(
+            f"decision_id '{decision_id}' has multiple historical NPC operation-set receipts"
+        )
+    if matching:
+        prior_id, prior = matching[0]
+        # Normalize one uniquely attributable legacy run-scoped receipt only
+        # after its immutable run and ordered payload exactly match the current
+        # campaign-global candidate.  Cross-run reuse fails before migration.
+        normalized = coc_npc_event_chain.new_decision_set_receipt(
+            producer=str(prior["producer"]),
+            campaign_id=str(prior["campaign_id"]),
+            run_id=str(prior["run_id"]),
+            decision_id=str(prior["decision_id"]),
+            operations=deepcopy(prior["operations"]),
+        )
+        if normalized != candidate:
+            raise coc_npc_event_chain.NpcOperationSetConflict(
+                f"decision_id '{decision_id}' was already applied to a different run or ordered NPC operation set"
+            )
+        if prior != normalized or prior_id != normalized["receipt_id"]:
+            del decision_sets[prior_id]
+            coc_npc_event_chain.put_decision_set_receipt(document, normalized)
+            _save_npc_receipt_document(campaign_dir, document)
+        return document, deepcopy(normalized), True
     return document, candidate, False
 
 
@@ -1409,69 +1436,18 @@ def _recover_completed_legacy_director_npc_operation_set(
     document: dict[str, Any],
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
-    """Validate and migrate one already-applied pre-operation-set decision.
+    """Reject pre-operation-set applied history without a cardinality witness.
 
-    A completed applied-ledger row proves that every source-first NPC event
-    receipt from the original decision should already be durable.  We migrate
-    only when those receipts form one contiguous, fully reconstructable ordered
-    set.  Missing/ambiguous history cannot distinguish an identical retry from
-    reuse of the same idempotency key, so both cases fail closed.
+    Legacy event receipts have no independent terminal operation count.  Even
+    a contiguous sequence beginning at zero may be only a surviving prefix,
+    so no retry can be proven identical and no migration is safe.
     """
+    _ = campaign_dir, document
     decision_id = str(candidate["decision_id"])
-    legacy_rows = [
-        deepcopy(receipt)
-        for receipt in (document.get("receipts") or {}).values()
-        if isinstance(receipt, dict)
-        and receipt.get("producer") == candidate.get("producer")
-        and receipt.get("campaign_id") == candidate.get("campaign_id")
-        and receipt.get("run_id") == candidate.get("run_id")
-        and receipt.get("decision_id") == decision_id
-    ]
-    legacy_rows.sort(key=lambda row: int(row.get("ordinal", -1)))
-    reconstructable = bool(legacy_rows) and [
-        row.get("ordinal") for row in legacy_rows
-    ] == list(range(len(legacy_rows)))
-    reconstructed: list[dict[str, Any]] = []
-    if reconstructable:
-        for ordinal, receipt in enumerate(legacy_rows):
-            operation = receipt.get("operation")
-            if (
-                not coc_npc_event_chain.valid_receipt(receipt)
-                or not isinstance(operation, dict)
-                or set(operation) != {"event_type", "ordinal", "payload"}
-                or operation.get("event_type") != receipt.get("event_type")
-                or operation.get("ordinal") != ordinal
-                or not isinstance(operation.get("payload"), dict)
-            ):
-                reconstructable = False
-                break
-            reconstructed.append({
-                "event_type": str(receipt["event_type"]),
-                "ordinal": ordinal,
-                "scene_id": str(receipt["scene_id"]),
-                "npc_id": str(receipt["npc_id"]),
-                "payload": deepcopy(operation["payload"]),
-            })
-    if not reconstructable:
-        raise coc_npc_event_chain.NpcOperationSetConflict(
-            f"decision_id '{decision_id}' has no unambiguous complete legacy NPC operation-set evidence",
-            code="legacy_recovery_unverifiable",
-        )
-
-    recovered = coc_npc_event_chain.new_decision_set_receipt(
-        producer=str(candidate["producer"]),
-        campaign_id=str(candidate["campaign_id"]),
-        run_id=str(candidate["run_id"]),
-        decision_id=decision_id,
-        operations=reconstructed,
+    raise coc_npc_event_chain.NpcOperationSetConflict(
+        f"decision_id '{decision_id}' has no independently complete legacy NPC operation-set evidence",
+        code="legacy_recovery_unverifiable",
     )
-    if recovered != candidate:
-        raise coc_npc_event_chain.NpcOperationSetConflict(
-            f"decision_id '{decision_id}' was already applied to a different ordered NPC operation set"
-        )
-    coc_npc_event_chain.put_decision_set_receipt(document, recovered)
-    _save_npc_receipt_document(campaign_dir, document)
-    return deepcopy(recovered)
 
 
 def _apply_npc_state_and_agency(

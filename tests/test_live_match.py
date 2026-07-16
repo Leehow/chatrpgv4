@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import json
 import stat
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -374,7 +375,25 @@ def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
         "我追查木屑。",
         "我检查相邻窗框。",
     ]
-    assert [call["run_id"] for call in keeper_calls] == ["run", "run", "run"]
+    run_id = result["metadata"]["run_id"]
+    assert run_id.startswith("coc-run-v1:")
+    assert [call["run_id"] for call in keeper_calls] == [run_id] * 3
+    identity = json.loads(
+        (Path(result["run_dir"]) / "run-identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert identity == {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "run_id": run_id,
+    }
+    assert result["result"]["run_id"] == run_id
+    assert result["result"]["cumulative_run_ids"] == [run_id]
+    assert (
+        result["result"]["npc_event_chain_binding"]["artifact_run_id"]
+        == run_id
+    )
     partial = _read_jsonl(Path(result["run_dir"]) / "partial-transcript.jsonl")
     assert len(partial) == 3
     assert all(row["grounding_receipt"] == {
@@ -730,7 +749,14 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
         resume_run_dir=first["run_dir"],
     )
 
-    assert second["metadata"]["continuation_of"] == "first-run"
+    first_run_id = first["metadata"]["run_id"]
+    second_run_id = second["metadata"]["run_id"]
+    assert first_run_id != second_run_id
+    assert second["metadata"]["cumulative_run_ids"] == [
+        first_run_id,
+        second_run_id,
+    ]
+    assert second["metadata"]["continuation_of"] == first_run_id
     assert second["metadata"]["transcript_scope"] == "campaign_cumulative"
     assert second["player_requests"][0]["transcript_tail"][-2:] == [
         {"role": "player", "text": "我检查门锁。"},
@@ -752,6 +778,154 @@ def test_resume_run_builds_cumulative_transcript_and_invocation_chain(
         (Path(second["run_dir"]) / "driver-result.json").read_text(encoding="utf-8")
     )
     assert len(driver["turns"]) == 2
+
+
+def test_distinct_same_basename_artifacts_get_distinct_run_ids_with_resume(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_player = tmp_path / "same-name-first-player"
+    second_player = tmp_path / "same-name-second-player"
+    _write_scripted_player_runner(first_player, ["我检查门锁。"])
+    _write_scripted_player_runner(second_player, ["我继续检查门轴。"])
+
+    _install_keeper(monkeypatch, texts=["锁眼里有新鲜木屑。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=first_player,
+        max_turns=1,
+        run_dir=tmp_path / "parent-a" / "same-run",
+    )
+    second_calls = _install_keeper(monkeypatch, texts=["门轴刚上过油。"])
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=second_player,
+        max_turns=1,
+        run_dir=tmp_path / "parent-b" / "same-run",
+        resume_run_dir=first["run_dir"],
+    )
+
+    first_run_id = first["metadata"]["run_id"]
+    second_run_id = second["metadata"]["run_id"]
+    assert first_run_id != second_run_id
+    assert second["metadata"]["cumulative_run_ids"] == [
+        first_run_id,
+        second_run_id,
+    ]
+    assert [row["run_id"] for row in second_calls] == [second_run_id]
+
+
+def test_distinct_same_basename_nonresume_artifacts_do_not_alias_run_id(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "same-basename-nonresume-player"
+    _write_scripted_player_runner(player, ["我检查门锁。", "我检查门轴。"])
+    _install_keeper(monkeypatch)
+
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "left" / "same-run",
+    )
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "right" / "same-run",
+    )
+
+    assert first["metadata"]["run_id"] != second["metadata"]["run_id"]
+
+
+def test_artifact_run_identity_reentry_reuses_atomic_persisted_id(tmp_path):
+    run_dir = tmp_path / "artifact"
+    run_dir.mkdir()
+
+    first = match._ensure_artifact_run_identity(run_dir, "campaign-a")
+    second = match._ensure_artifact_run_identity(run_dir, "campaign-a")
+
+    assert first == second
+    assert first.startswith("coc-run-v1:")
+
+
+def test_concurrent_artifact_identity_reentry_converges_on_one_id(tmp_path):
+    run_dir = tmp_path / "concurrent-artifact"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        run_ids = list(pool.map(
+            lambda _index: match._ensure_artifact_run_identity(
+                run_dir, "campaign-a"
+            ),
+            range(16),
+        ))
+
+    assert len(set(run_ids)) == 1
+    persisted = json.loads((run_dir / "run-identity.json").read_text())
+    assert persisted["run_id"] == run_ids[0]
+
+
+def test_resume_rejects_current_identity_already_in_prior_chain_before_keeper(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "identity-collision-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "prior" / "run",
+    )
+    current = tmp_path / "current" / "run"
+    current.mkdir(parents=True)
+    (current / "run-identity.json").write_bytes(
+        (Path(first["run_dir"]) / "run-identity.json").read_bytes()
+    )
+    calls = _install_keeper(monkeypatch)
+
+    with pytest.raises(match.RunIdentityError) as exc_info:
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=player,
+            max_turns=1,
+            run_dir=current,
+            resume_run_dir=first["run_dir"],
+        )
+
+    assert exc_info.value.code == "run_identity_conflict"
+    assert calls == []
+
+
+def test_default_run_directory_allocation_survives_concurrent_name_collision(
+    tmp_path,
+):
+    parent = tmp_path / "playtests"
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        paths = list(pool.map(
+            lambda _index: match._allocate_default_run_dir(
+                parent, stamp="20260716T120000Z"
+            ),
+            range(16),
+        ))
+
+    assert len({path.resolve() for path in paths}) == 16
+    assert all(path.is_dir() for path in paths)
 
 
 def test_resume_helpers_ignore_system_rows_and_renumber_append():

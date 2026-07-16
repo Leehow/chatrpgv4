@@ -23,13 +23,14 @@ from typing import Any
 RECEIPT_DOCUMENT_SCHEMA_VERSION = 2
 LEGACY_RECEIPT_DOCUMENT_SCHEMA_VERSION = 1
 RECEIPT_SCHEMA_VERSION = 1
-DECISION_SET_RECEIPT_SCHEMA_VERSION = 1
+LEGACY_DECISION_SET_RECEIPT_SCHEMA_VERSION = 1
+DECISION_SET_RECEIPT_SCHEMA_VERSION = 2
 RECEIPT_FILENAME = "npc-engagement-receipts.json"
 EVENT_TYPES = frozenset({"npc_engagement", "npc_agency"})
 
 
 class NpcOperationSetConflict(ValueError):
-    """One run/decision attempted a different immutable NPC operation set."""
+    """One campaign decision attempted a different immutable NPC operation set."""
 
     code = "idempotency_conflict"
 
@@ -138,10 +139,29 @@ def decision_set_receipt_id(
     *,
     producer: str,
     campaign_id: str,
+    decision_id: str,
+) -> str:
+    """Campaign-global key aligned with the campaign apply ledger."""
+    encoded = json.dumps(
+        [
+            "npc-operation-set-v2",
+            str(producer),
+            str(campaign_id),
+            str(decision_id),
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"npc-operation-set-v2:{hashlib.sha256(encoded).hexdigest()[:40]}"
+
+
+def legacy_decision_set_receipt_id(
+    *,
+    producer: str,
+    campaign_id: str,
     run_id: str,
     decision_id: str,
 ) -> str:
-    """Stable source key intentionally independent of NPC/event payload."""
     encoded = json.dumps(
         [
             "npc-operation-set-v1",
@@ -169,7 +189,6 @@ def new_decision_set_receipt(
         "receipt_id": decision_set_receipt_id(
             producer=producer,
             campaign_id=campaign_id,
-            run_id=run_id,
             decision_id=decision_id,
         ),
         "producer": str(producer),
@@ -196,17 +215,29 @@ def valid_decision_set_receipt(receipt: Any) -> bool:
         "integrity_digest",
     }:
         return False
-    if receipt.get("schema_version") != DECISION_SET_RECEIPT_SCHEMA_VERSION:
+    schema_version = receipt.get("schema_version")
+    if schema_version not in {
+        LEGACY_DECISION_SET_RECEIPT_SCHEMA_VERSION,
+        DECISION_SET_RECEIPT_SCHEMA_VERSION,
+    }:
         return False
     for key in ("receipt_id", "producer", "campaign_id", "run_id", "decision_id"):
         value = receipt.get(key)
         if not isinstance(value, str) or not value or value != value.strip():
             return False
-    expected_id = decision_set_receipt_id(
-        producer=receipt["producer"],
-        campaign_id=receipt["campaign_id"],
-        run_id=receipt["run_id"],
-        decision_id=receipt["decision_id"],
+    expected_id = (
+        legacy_decision_set_receipt_id(
+            producer=receipt["producer"],
+            campaign_id=receipt["campaign_id"],
+            run_id=receipt["run_id"],
+            decision_id=receipt["decision_id"],
+        )
+        if schema_version == LEGACY_DECISION_SET_RECEIPT_SCHEMA_VERSION
+        else decision_set_receipt_id(
+            producer=receipt["producer"],
+            campaign_id=receipt["campaign_id"],
+            decision_id=receipt["decision_id"],
+        )
     )
     operations = receipt.get("operations")
     if receipt.get("receipt_id") != expected_id or not isinstance(operations, list):

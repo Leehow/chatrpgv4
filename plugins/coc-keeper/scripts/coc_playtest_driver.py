@@ -36,6 +36,7 @@ def _load_sibling(name: str, filename: str):
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 playtest_report = _load_sibling("coc_playtest_report", "coc_playtest_report.py")
+coc_run_identity = _load_sibling("coc_run_identity", "coc_run_identity.py")
 subsystem_executor = _load_sibling(
     "coc_subsystem_executor_driver",
     "coc_subsystem_executor.py",
@@ -839,10 +840,72 @@ def write_playtest_artifacts(
     report contract.
     """
     metadata = dict(metadata or {})
+    result = dict(result)
     run_dir.mkdir(parents=True, exist_ok=True)
     source_campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
     campaign_id = str(metadata.get("campaign_id") or source_campaign.get("campaign_id") or campaign_dir.name)
-    metadata.setdefault("run_id", run_dir.name)
+    result_campaign_id = result.get("campaign_id")
+    if result_campaign_id is not None and result_campaign_id != campaign_id:
+        raise coc_run_identity.RunIdentityError(
+            "driver result and artifact metadata disagree on campaign_id"
+        )
+    result_run_id = result.get("run_id")
+    metadata_run_id = metadata.get("run_id")
+    if (
+        result_run_id is not None
+        and metadata_run_id is not None
+        and result_run_id != metadata_run_id
+    ):
+        raise coc_run_identity.RunIdentityError(
+            "driver result and artifact metadata disagree on run_id"
+        )
+    requested_run_id = result_run_id or metadata_run_id
+    artifact_run_id = coc_run_identity.ensure_artifact_run_identity(
+        run_dir,
+        campaign_id,
+        requested_run_id=(
+            coc_run_identity.normalize_run_id(requested_run_id)
+            if requested_run_id is not None
+            else None
+        ),
+    )
+    metadata["run_id"] = artifact_run_id
+    result_cumulative = result.get("cumulative_run_ids")
+    metadata_cumulative = metadata.get("cumulative_run_ids")
+    if (
+        result_cumulative is not None
+        and metadata_cumulative is not None
+        and result_cumulative != metadata_cumulative
+    ):
+        raise coc_run_identity.RunIdentityError(
+            "driver result and artifact metadata disagree on cumulative_run_ids"
+        )
+    cumulative = (
+        metadata_cumulative
+        if metadata_cumulative is not None
+        else result_cumulative
+        if result_cumulative is not None
+        else [artifact_run_id]
+    )
+    if (
+        not isinstance(cumulative, list)
+        or not cumulative
+        or any(
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+            for value in cumulative
+        )
+        or len(set(cumulative)) != len(cumulative)
+        or cumulative[-1] != artifact_run_id
+    ):
+        raise coc_run_identity.RunIdentityError(
+            "artifact cumulative_run_ids has an invalid run chain"
+        )
+    metadata["cumulative_run_ids"] = list(cumulative)
+    result["campaign_id"] = campaign_id
+    result["run_id"] = artifact_run_id
+    result["cumulative_run_ids"] = list(cumulative)
     metadata.setdefault("campaign_id", campaign_id)
     metadata.setdefault("campaign_title", source_campaign.get("title", campaign_id))
     metadata.setdefault("scenario", source_campaign.get("title", campaign_id))
@@ -943,6 +1006,7 @@ def run_full_session(
     player_choices: list[dict[str, Any]],
     max_turns: int = 20,
     rng_seed: int = 42,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a multi-turn session by wrapping ``run_live_turn`` once per choice.
 
@@ -953,10 +1017,22 @@ def run_full_session(
     stay here. Pipeline stages live exclusively in ``run_live_turn``.
     """
     live_runner = _live_turn_runner()
+    session_run_id = (
+        coc_run_identity.normalize_run_id(run_id)
+        if run_id is not None
+        else coc_run_identity.mint_run_id()
+    )
     rng = random.Random(rng_seed)
     turns: list[dict[str, Any]] = []
     tension_curve: list[Any] = []
     scene_path: list[str] = []
+
+    campaign_meta = apply_mod._read_json(campaign_dir / "campaign.json", {})
+    campaign_id = str(
+        campaign_meta.get("campaign_id")
+        if isinstance(campaign_meta, dict) and campaign_meta.get("campaign_id")
+        else campaign_dir.name
+    )
 
     story = apply_mod._read_json(campaign_dir / "scenario" / "story-graph.json", {"scenes": []})
     clue_graph = apply_mod._read_json(campaign_dir / "scenario" / "clue-graph.json", {"conclusions": []})
@@ -975,6 +1051,7 @@ def run_full_session(
             character_path,
             investigator_id,
             player_text,
+            run_id=session_run_id,
             intent_class=str(intent_class) if intent_class else None,
             player_intent_rich=player_intent_rich,
             pending_choice_response=(
@@ -1035,6 +1112,9 @@ def run_full_session(
     discovered_final = world_final.get("discovered_clue_ids", [])
     ending_evidence = coc_scene_graph.terminal_evidence(story, world_final, turns)
     return {
+        "campaign_id": campaign_id,
+        "run_id": session_run_id,
+        "cumulative_run_ids": [session_run_id],
         "turns": turns,
         "subsystem_results": [
             subsystem_result
