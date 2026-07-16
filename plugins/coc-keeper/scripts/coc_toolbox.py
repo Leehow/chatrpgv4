@@ -986,7 +986,7 @@ def _reconcile_all_npc_source_receipts(ctx: Ctx) -> dict[str, Any]:
 
 _SOURCE_RECEIPTS_KEY = "operation_receipts"
 _SOURCE_RECEIPT_SCHEMA_VERSION = 3
-_SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS = frozenset({2, 3, 4})
+_SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS = frozenset({2, 3})
 _SOURCE_RECEIPT_INTEGRITY_KEY = "integrity_digest"
 _SOURCE_RECEIPT_FIELDS_V2 = frozenset({
     "schema_version",
@@ -1052,7 +1052,17 @@ def _source_receipt_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
 
 _ROLL_RECEIPT_TOOLS = frozenset({"rules.roll", "rules.push", "rules.roll_dice"})
 _ROLL_RECEIPT_SCHEMA_VERSION = 4
-_ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION = 2
+_ROLL_RECEIPT_LEGACY_SCHEMA_VERSION = 3
+_ROLL_RECEIPT_MANIFEST_SCHEMA_VERSIONS = frozenset({3, 4})
+_ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION = 3
+_ROLL_RECEIPT_DOCUMENT_FIELDS = frozenset({
+    "schema_version", "receipts", "legacy_receipts", "pending_side_effects"
+})
+_ROLL_RECEIPT_LEGACY_FIELDS = frozenset({
+    "schema_version", "tool", "decision_id", "fingerprint", "operation",
+    "roll_id", "roll_record", "data", "warnings", "hints",
+    "log_prefix_size", "log_prefix_sha256", _SOURCE_RECEIPT_INTEGRITY_KEY,
+})
 _ROLL_RECEIPT_FIELDS = frozenset({
     "schema_version",
     "tool",
@@ -1068,6 +1078,17 @@ _ROLL_RECEIPT_FIELDS = frozenset({
     "log_prefix_size",
     "log_prefix_sha256",
     _SOURCE_RECEIPT_INTEGRITY_KEY,
+})
+_PERCENTILE_INVOCATION_FIELDS = frozenset({
+    "investigator", "skill", "characteristic", "explicit_target",
+    "difficulty", "bonus", "penalty", "reason", "fumble_consequence",
+    "pushed", "method_changed", "failure_consequence",
+})
+_PERCENTILE_RESOLUTION_FIELDS = frozenset({
+    "investigator_id", "resolved_label", "resolved_target", "target_source"
+})
+_DICE_RESOLUTION_FIELDS = frozenset({
+    "expression", "count", "sides", "modifier"
 })
 
 
@@ -1144,6 +1165,7 @@ def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
         return {
             "schema_version": _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
             "receipts": {},
+            "legacy_receipts": {},
             "pending_side_effects": {},
         }
     try:
@@ -1153,13 +1175,26 @@ def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
             "state_corrupt", "save/roll-operation-receipts.json is unreadable"
         ) from exc
     if (
+        isinstance(document, dict)
+        and set(document) == {"schema_version", "receipts"}
+        and document.get("schema_version") == 1
+        and isinstance(document.get("receipts"), dict)
+    ):
+        return _migrate_roll_receipt_document_v1(ctx, document)
+    if (
+        isinstance(document, dict)
+        and set(document) == {"schema_version", "receipts", "pending_side_effects"}
+        and document.get("schema_version") == 2
+        and isinstance(document.get("receipts"), dict)
+        and isinstance(document.get("pending_side_effects"), dict)
+    ):
+        return _migrate_roll_receipt_document_v2(ctx, document)
+    if (
         not isinstance(document, dict)
-        or set(document) != {
-            "schema_version", "receipts", "pending_side_effects"
-        }
-        or document.get("schema_version")
-        != _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
+        or set(document) != set(_ROLL_RECEIPT_DOCUMENT_FIELDS)
+        or document.get("schema_version") != _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
         or not isinstance(document.get("receipts"), dict)
+        or not isinstance(document.get("legacy_receipts"), dict)
         or not isinstance(document.get("pending_side_effects"), dict)
     ):
         raise ToolError(
@@ -1190,6 +1225,27 @@ def _roll_receipt(
         return None
     if not isinstance(receipt, dict):
         raise ToolError("state_corrupt", "canonical roll receipt is not an object")
+    return receipt
+
+
+def _legacy_roll_receipt(
+    document: dict[str, Any], tool_name: str, decision_id: str
+) -> dict[str, Any] | None:
+    receipts = document.get("legacy_receipts")
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "legacy roll receipt map is invalid")
+    by_tool = receipts.get(str(tool_name))
+    if by_tool is None:
+        return None
+    if not isinstance(by_tool, dict):
+        raise ToolError(
+            "state_corrupt", f"legacy roll receipts for {tool_name} are invalid"
+        )
+    receipt = by_tool.get(str(decision_id))
+    if receipt is None:
+        return None
+    if not isinstance(receipt, dict):
+        raise ToolError("state_corrupt", "legacy roll receipt is not an object")
     return receipt
 
 
@@ -1268,6 +1324,92 @@ def _new_roll_receipt(
     return receipt
 
 
+def _is_exact_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
+    tool_name = str(receipt["tool"])
+    operation = receipt["operation"]
+    resolution = receipt["resolution"]
+    data = receipt["data"]
+    record = receipt["roll_record"]
+    payload = record["payload"]
+    invalid = False
+    if tool_name == "rules.roll_dice":
+        invalid = bool(
+            set(operation) != {"expression", "reason"}
+            or set(resolution) != set(_DICE_RESOLUTION_FIELDS)
+            or not isinstance(resolution.get("expression"), str)
+            or not _is_exact_int(resolution.get("count"))
+            or not _is_exact_int(resolution.get("sides"))
+            or not _is_exact_int(resolution.get("modifier"))
+            or int(resolution.get("count") or 0) <= 0
+            or int(resolution.get("sides") or 0) <= 0
+            or any(
+                resolution.get(key) != data.get(key)
+                for key in _DICE_RESOLUTION_FIELDS
+            )
+            or any(
+                resolution.get(key) != record.get(key)
+                for key in _DICE_RESOLUTION_FIELDS
+            )
+            or any(
+                resolution.get(key) != payload.get(key)
+                for key in _DICE_RESOLUTION_FIELDS
+            )
+            or resolution.get("expression") != operation.get("expression")
+        )
+    else:
+        selector_skill = operation.get("skill")
+        selector_characteristic = operation.get("characteristic")
+        explicit_target = operation.get("explicit_target")
+        investigator = operation.get("investigator")
+        label = resolution.get("resolved_label")
+        target_source = resolution.get("target_source")
+        invalid = bool(
+            set(operation) != set(_PERCENTILE_INVOCATION_FIELDS)
+            or set(resolution) != set(_PERCENTILE_RESOLUTION_FIELDS)
+            or not isinstance(resolution.get("investigator_id"), str)
+            or not resolution.get("investigator_id")
+            or not isinstance(label, str)
+            or not label
+            or not _is_exact_int(resolution.get("resolved_target"))
+            or target_source not in {"explicit", "state", "sheet", "rulebook_base"}
+            or resolution.get("investigator_id") != data.get("investigator_id")
+            or resolution.get("investigator_id") != record.get("actor")
+            or resolution.get("investigator_id") != payload.get("investigator_id")
+            or label != data.get("skill")
+            or label != record.get("skill")
+            or label != payload.get("skill")
+            or resolution.get("resolved_target") != data.get("target")
+            or resolution.get("resolved_target") != record.get("target")
+            or resolution.get("resolved_target") != payload.get("target")
+            or target_source != data.get("target_source")
+            or target_source != record.get("target_source")
+            or target_source != payload.get("target_source")
+            or (investigator is not None and investigator != resolution.get("investigator_id"))
+            or (explicit_target is not None and explicit_target != resolution.get("resolved_target"))
+            or (explicit_target is not None and target_source != "explicit")
+            or (explicit_target is None and target_source == "explicit")
+            or (
+                selector_skill is not None
+                and str(selector_skill).casefold() != str(label).casefold()
+            )
+            or (
+                selector_characteristic is not None
+                and str(selector_characteristic).casefold() != str(label).casefold()
+            )
+            or bool(operation.get("pushed")) != (tool_name == "rules.push")
+            or data.get("pushed") != bool(operation.get("pushed"))
+        )
+    if invalid:
+        raise ToolError(
+            "state_corrupt",
+            f"roll source receipt for {tool_name} decision_id '{receipt['decision_id']}' has contradictory resolution evidence",
+        )
+
+
 def _validate_roll_receipt(
     receipt: dict[str, Any], *, tool_name: str, decision_id: str,
     current_operation: dict[str, Any] | None = None,
@@ -1313,6 +1455,7 @@ def _validate_roll_receipt(
             "state_corrupt",
             f"roll source receipt for {tool_name} decision_id '{decision_id}' is invalid",
         )
+    _validate_roll_resolution_consistency(receipt)
     if (
         current_operation is not None
         and receipt.get("fingerprint")
@@ -1322,6 +1465,174 @@ def _validate_roll_receipt(
             "idempotency_conflict",
             f"decision_id '{decision_id}' was already applied to a different {tool_name} semantic operation",
         )
+
+
+def _validate_legacy_roll_receipt_v3(
+    receipt: dict[str, Any], *, tool_name: str, decision_id: str
+) -> None:
+    operation = receipt.get("operation")
+    record = receipt.get("roll_record")
+    data = receipt.get("data")
+    payload = record.get("payload") if isinstance(record, dict) else None
+    roll_id = str(receipt.get("roll_id") or "")
+    if (
+        set(receipt) != set(_ROLL_RECEIPT_LEGACY_FIELDS)
+        or receipt.get("schema_version") != _ROLL_RECEIPT_LEGACY_SCHEMA_VERSION
+        or str(receipt.get("tool")) != str(tool_name)
+        or str(receipt.get("decision_id")) != str(decision_id)
+        or tool_name not in _ROLL_RECEIPT_TOOLS
+        or not isinstance(operation, dict)
+        or receipt.get("fingerprint") != _operation_fingerprint(tool_name, operation)
+        or not isinstance(record, dict)
+        or not isinstance(data, dict)
+        or not isinstance(payload, dict)
+        or not isinstance(receipt.get("warnings"), list)
+        or not isinstance(receipt.get("hints"), list)
+        or isinstance(receipt.get("log_prefix_size"), bool)
+        or not isinstance(receipt.get("log_prefix_size"), int)
+        or receipt.get("log_prefix_size") < 0
+        or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", str(receipt.get("log_prefix_sha256") or "")
+        )
+        or not roll_id
+        or str(record.get("roll_id") or "") != roll_id
+        or str(payload.get("roll_id") or "") != roll_id
+        or str(data.get("roll_id") or "") != roll_id
+        or record.get("visibility") != "public"
+        or record.get("event_type") != "roll"
+        or any(record.get(key) != value for key, value in data.items())
+        or receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY)
+        != _source_receipt_integrity(receipt)
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"legacy roll source receipt for {tool_name} decision_id '{decision_id}' is invalid",
+        )
+
+
+def _migrated_legacy_dice_receipt(
+    receipt: dict[str, Any]
+) -> dict[str, Any] | None:
+    operation = receipt["operation"]
+    data = receipt["data"]
+    if (
+        set(operation) != {"expression", "reason"}
+        or not isinstance(operation.get("expression"), str)
+        or any(key not in data for key in _DICE_RESOLUTION_FIELDS)
+        or operation.get("expression") != data.get("expression")
+    ):
+        return None
+    resolution = {key: deepcopy(data[key]) for key in _DICE_RESOLUTION_FIELDS}
+    migrated = deepcopy(receipt)
+    migrated["schema_version"] = _ROLL_RECEIPT_SCHEMA_VERSION
+    migrated["resolution"] = resolution
+    migrated[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(migrated)
+    try:
+        _validate_roll_receipt(
+            migrated,
+            tool_name="rules.roll_dice",
+            decision_id=str(migrated["decision_id"]),
+        )
+    except ToolError:
+        return None
+    return migrated
+
+
+def _put_legacy_roll_receipt(
+    document: dict[str, Any], receipt: dict[str, Any]
+) -> None:
+    receipts = document.get("legacy_receipts")
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "legacy roll receipt map is invalid")
+    by_tool = receipts.setdefault(str(receipt["tool"]), {})
+    if not isinstance(by_tool, dict):
+        raise ToolError("state_corrupt", "legacy roll receipt tool map is invalid")
+    by_tool[str(receipt["decision_id"])] = deepcopy(receipt)
+
+
+def _migrate_roll_receipt_document_v1(
+    ctx: Ctx, legacy_document: dict[str, Any]
+) -> dict[str, Any]:
+    """Atomically classify real rev3 receipts without inventing invocation truth."""
+    migrated = {
+        "schema_version": _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
+        "receipts": {},
+        "legacy_receipts": {},
+        "pending_side_effects": {},
+    }
+    source_receipts = legacy_document.get("receipts") or {}
+    validated: list[dict[str, Any]] = []
+    for tool_name in sorted(source_receipts):
+        by_tool = source_receipts[tool_name]
+        if tool_name not in _ROLL_RECEIPT_TOOLS or not isinstance(by_tool, dict):
+            raise ToolError("state_corrupt", "legacy roll receipt map is invalid")
+        for decision_id in sorted(by_tool):
+            receipt = by_tool[decision_id]
+            if not isinstance(receipt, dict):
+                raise ToolError("state_corrupt", "legacy roll receipt is invalid")
+            _validate_legacy_roll_receipt_v3(
+                receipt, tool_name=tool_name, decision_id=decision_id
+            )
+            validated.append(receipt)
+            converted = (
+                _migrated_legacy_dice_receipt(receipt)
+                if tool_name == "rules.roll_dice"
+                else None
+            )
+            if converted is not None:
+                _put_roll_receipt(migrated, converted)
+            else:
+                _put_legacy_roll_receipt(migrated, receipt)
+                _queue_roll_side_effect(migrated, receipt)
+    raw = _roll_log_bytes(ctx)
+    _verify_roll_receipt_prefixes(raw, validated)
+    _complete, _tail, row_index = _parse_complete_roll_frames(raw)
+    for receipt in validated:
+        prior = row_index.get(str(receipt["roll_id"]))
+        if prior is not None and prior != receipt["roll_record"]:
+            raise ToolError(
+                "state_corrupt",
+                f"legacy roll_id '{receipt['roll_id']}' conflicts with its source receipt",
+            )
+    _save_roll_receipt_document(ctx, migrated)
+    return migrated
+
+
+def _migrate_roll_receipt_document_v2(
+    ctx: Ctx, prior_document: dict[str, Any]
+) -> dict[str, Any]:
+    """Add the legacy archive field to a real rev4 document atomically."""
+    migrated = {
+        "schema_version": _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
+        "receipts": deepcopy(prior_document["receipts"]),
+        "legacy_receipts": {},
+        "pending_side_effects": deepcopy(prior_document["pending_side_effects"]),
+    }
+    validated: list[dict[str, Any]] = []
+    for tool_name in sorted(migrated["receipts"]):
+        by_tool = migrated["receipts"][tool_name]
+        if tool_name not in _ROLL_RECEIPT_TOOLS or not isinstance(by_tool, dict):
+            raise ToolError("state_corrupt", "rev4 roll receipt map is invalid")
+        for decision_id in sorted(by_tool):
+            receipt = by_tool[decision_id]
+            if not isinstance(receipt, dict):
+                raise ToolError("state_corrupt", "rev4 roll receipt is invalid")
+            _validate_roll_receipt(
+                receipt, tool_name=tool_name, decision_id=decision_id
+            )
+            validated.append(receipt)
+    raw = _roll_log_bytes(ctx)
+    _verify_roll_receipt_prefixes(raw, validated)
+    _complete, _tail, row_index = _parse_complete_roll_frames(raw)
+    for receipt in validated:
+        prior = row_index.get(str(receipt["roll_id"]))
+        if prior is not None and prior != receipt["roll_record"]:
+            raise ToolError(
+                "state_corrupt",
+                f"rev4 roll_id '{receipt['roll_id']}' conflicts with its source receipt",
+            )
+    _save_roll_receipt_document(ctx, migrated)
+    return migrated
 
 
 def _roll_log_bytes(ctx: Ctx) -> bytes:
@@ -1644,6 +1955,15 @@ def _existing_roll_receipt(
             current_operation=operation,
         )
         return document, receipt
+    legacy_receipt = _legacy_roll_receipt(document, tool_name, decision_id)
+    if legacy_receipt is not None:
+        _validate_legacy_roll_receipt_v3(
+            legacy_receipt, tool_name=tool_name, decision_id=decision_id
+        )
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"legacy {tool_name} decision_id '{decision_id}' has frozen result evidence but no independently reconstructable invocation semantics",
+        )
     prior = ctx.ledger_lookup(tool_name, decision_id)
     if prior is not None:
         if _ledger_requires_source_receipt(prior):
@@ -1684,6 +2004,20 @@ def _reconcile_all_roll_source_receipts(ctx: Ctx) -> None:
             if not isinstance(receipt, dict):
                 raise ToolError("state_corrupt", "canonical roll receipt is invalid")
             _validate_roll_receipt(
+                receipt, tool_name=tool_name, decision_id=decision_id
+            )
+            ordered.append(receipt)
+            by_effect_key[_roll_side_effect_key(receipt)] = receipt
+    legacy_receipts = document.get("legacy_receipts") or {}
+    for tool_name in sorted(legacy_receipts):
+        by_tool = legacy_receipts[tool_name]
+        if tool_name not in _ROLL_RECEIPT_TOOLS or not isinstance(by_tool, dict):
+            raise ToolError("state_corrupt", "legacy roll receipt map is invalid")
+        for decision_id in sorted(by_tool):
+            receipt = by_tool[decision_id]
+            if not isinstance(receipt, dict):
+                raise ToolError("state_corrupt", "legacy roll receipt is invalid")
+            _validate_legacy_roll_receipt_v3(
                 receipt, tool_name=tool_name, decision_id=decision_id
             )
             ordered.append(receipt)
@@ -1739,11 +2073,16 @@ def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
         return False
     manifest = entry.get("source_receipt_manifest")
     digest = str((manifest or {}).get("integrity_digest") or "") if isinstance(manifest, dict) else ""
+    supported_receipt_versions = (
+        _ROLL_RECEIPT_MANIFEST_SCHEMA_VERSIONS
+        if str(entry.get("tool")) in _ROLL_RECEIPT_TOOLS
+        else _SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS
+    )
     if (
         not isinstance(manifest, dict)
         or manifest.get("schema_version") != 1
         or manifest.get("receipt_schema_version")
-        not in _SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS
+        not in supported_receipt_versions
         or str(manifest.get("tool")) != str(entry.get("tool"))
         or str(manifest.get("decision_id")) != str(entry.get("decision_id"))
         or not digest.startswith("sha256:")

@@ -8,6 +8,7 @@ import random
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -165,6 +166,54 @@ def _read_jsonl(path: Path) -> list[dict]:
         if line:
             out.append(json.loads(line))
     return out
+
+
+def _as_real_rev3_roll_receipt(receipt: dict) -> dict:
+    legacy = deepcopy(receipt)
+    operation = legacy["operation"]
+    resolution = legacy.pop("resolution")
+    if legacy["tool"] != "rules.roll_dice":
+        operation = {
+            "investigator_id": resolution["investigator_id"],
+            "skill": (
+                resolution["resolved_label"]
+                if operation.get("skill") is not None
+                else None
+            ),
+            "characteristic": operation.get("characteristic"),
+            "resolved_label": resolution["resolved_label"],
+            "target": resolution["resolved_target"],
+            "target_source": resolution["target_source"],
+            "difficulty": operation["difficulty"],
+            "bonus": operation["bonus"],
+            "penalty": operation["penalty"],
+            "reason": operation["reason"],
+            "fumble_consequence": operation["fumble_consequence"],
+            "pushed": operation["pushed"],
+            "method_changed": operation["method_changed"],
+            "failure_consequence": operation["failure_consequence"],
+        }
+    legacy["schema_version"] = coc_toolbox._ROLL_RECEIPT_LEGACY_SCHEMA_VERSION
+    legacy["operation"] = operation
+    legacy["fingerprint"] = coc_toolbox._operation_fingerprint(
+        legacy["tool"], operation
+    )
+    legacy[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(legacy)
+    )
+    return legacy
+
+
+def _downgrade_roll_document_to_real_rev3(path: Path) -> dict:
+    current = json.loads(path.read_text(encoding="utf-8"))
+    legacy = {"schema_version": 1, "receipts": {}}
+    for tool_name, by_tool in current["receipts"].items():
+        legacy["receipts"][tool_name] = {
+            decision_id: _as_real_rev3_roll_receipt(receipt)
+            for decision_id, receipt in by_tool.items()
+        }
+    _write_json(path, legacy)
+    return legacy
 
 
 def _run_concurrent_cli(
@@ -733,6 +782,229 @@ def test_roll_ledger_with_id_but_no_operation_proof_fails_closed(
     ]) == 1
 
 
+def test_real_rev3_document_migrates_without_bricking_unrelated_tools(
+    campaign_ws,
+):
+    dice_args = {
+        "expression": "1D8+2",
+        "reason": "rev3 migration dice",
+        "decision_id": "rev3-dice-replay",
+        "seed": 31,
+    }
+    roll_args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Spot Hidden",
+        "target": 99,
+        "reason": "rev3 percentile audit",
+        "decision_id": "rev3-percentile-unverifiable",
+        "seed": 1,
+    }
+    dice = _run(campaign_ws, "rules.roll_dice", dice_args)
+    percentile = _run(campaign_ws, "rules.roll", roll_args)
+    assert dice["ok"] is True and percentile["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    _downgrade_roll_document_to_real_rev3(receipt_path)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before_rolls = rolls_path.read_bytes()
+
+    unrelated = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "rev3 migration continues", "decision_id": "after-rev3-doc"},
+    )
+
+    assert unrelated["ok"] is True
+    migrated = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == (
+        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
+    )
+    assert migrated["pending_side_effects"] == {}
+    assert migrated["receipts"]["rules.roll_dice"][
+        dice_args["decision_id"]
+    ]["schema_version"] == coc_toolbox._ROLL_RECEIPT_SCHEMA_VERSION
+    assert migrated["legacy_receipts"]["rules.roll"][
+        roll_args["decision_id"]
+    ]["schema_version"] == coc_toolbox._ROLL_RECEIPT_LEGACY_SCHEMA_VERSION
+    assert rolls_path.read_bytes() == before_rolls
+
+    dice_replay = _run(
+        campaign_ws, "rules.roll_dice", {**dice_args, "seed": 999}
+    )
+    assert dice_replay["ok"] is True
+    assert dice_replay["data"] == dice["data"]
+    percentile_replay = _run(
+        campaign_ws, "rules.roll", {**roll_args, "seed": 999}
+    )
+    assert percentile_replay["ok"] is False
+    assert percentile_replay["error"]["code"] == "legacy_recovery_unverifiable"
+    assert _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "still usable", "decision_id": "after-legacy-replay"},
+    )["ok"] is True
+
+
+def test_rev3_document_migration_is_idempotent_after_post_commit_interruption(
+    campaign_ws, monkeypatch
+):
+    args = {
+        "expression": "2D6+1",
+        "decision_id": "rev3-interrupted-migration",
+        "seed": 17,
+    }
+    settled = _run(campaign_ws, "rules.roll_dice", args)
+    assert settled["ok"] is True
+    legacy_roll_decision = "rev3-interrupted-percentile"
+    assert _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Spot Hidden",
+            "target": 99,
+            "decision_id": legacy_roll_decision,
+            "seed": 1,
+        },
+    )["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    _downgrade_roll_document_to_real_rev3(receipt_path)
+    real_save = coc_toolbox._save_roll_receipt_document
+    crashed = False
+
+    def save_then_interrupt(ctx, document):
+        nonlocal crashed
+        real_save(ctx, document)
+        if not crashed:
+            crashed = True
+            raise RuntimeError("synthetic migration interruption")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(
+            coc_toolbox, "_save_roll_receipt_document", save_then_interrupt
+        )
+        with pytest.raises(RuntimeError, match="migration interruption"):
+            _run(
+                campaign_ws,
+                "state.journal",
+                {"summary": "interrupt migration", "decision_id": "migration-cut"},
+            )
+
+    after_interruption = receipt_path.read_bytes()
+    assert json.loads(after_interruption)["schema_version"] == (
+        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
+    )
+    recovered = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "interrupt migration", "decision_id": "migration-cut"},
+    )
+    assert recovered["ok"] is True
+    recovered_document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert recovered_document["pending_side_effects"] == {}
+    assert receipt_path.read_bytes() != after_interruption
+    replay = _run(campaign_ws, "rules.roll_dice", {**args, "seed": 999})
+    assert replay["ok"] is True
+    assert replay["data"] == settled["data"]
+    assert len([
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+        )
+        if row.get("roll_id") == settled["data"]["roll_id"]
+    ]) == 1
+    state = json.loads((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    ).read_text(encoding="utf-8"))
+    assert len([
+        event
+        for event in state.get("skill_check_events", [])
+        if event.get("source_event_id") == f"rules.roll:{legacy_roll_decision}"
+    ]) == 1
+
+
+def test_real_rev4_document_migrates_to_legacy_archive_shape(campaign_ws):
+    args = {
+        "expression": "1D10",
+        "decision_id": "rev4-document-migration",
+        "seed": 13,
+    }
+    settled = _run(campaign_ws, "rules.roll_dice", args)
+    assert settled["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    document["schema_version"] = 2
+    document.pop("legacy_receipts")
+    _write_json(receipt_path, document)
+
+    unrelated = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "rev4 migration continues", "decision_id": "after-rev4-doc"},
+    )
+
+    assert unrelated["ok"] is True
+    migrated = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == (
+        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
+    )
+    assert migrated["legacy_receipts"] == {}
+    replay = _run(campaign_ws, "rules.roll_dice", {**args, "seed": 999})
+    assert replay["ok"] is True
+    assert replay["data"] == settled["data"]
+
+
+def test_rev3_document_precommit_interruption_preserves_original_bytes(
+    campaign_ws, monkeypatch
+):
+    args = {
+        "expression": "1D4",
+        "decision_id": "rev3-precommit-interruption",
+        "seed": 5,
+    }
+    assert _run(campaign_ws, "rules.roll_dice", args)["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    _downgrade_roll_document_to_real_rev3(receipt_path)
+    legacy_bytes = receipt_path.read_bytes()
+
+    def interrupt_before_save(*_args, **_kwargs):
+        raise RuntimeError("synthetic precommit interruption")
+
+    with monkeypatch.context() as interruption:
+        interruption.setattr(
+            coc_toolbox,
+            "_save_roll_receipt_document",
+            interrupt_before_save,
+        )
+        with pytest.raises(RuntimeError, match="precommit interruption"):
+            _run(
+                campaign_ws,
+                "state.journal",
+                {"summary": "before publish", "decision_id": "precommit-cut"},
+            )
+
+    assert receipt_path.read_bytes() == legacy_bytes
+    recovered = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "before publish", "decision_id": "precommit-cut"},
+    )
+    assert recovered["ok"] is True
+    assert json.loads(receipt_path.read_text(encoding="utf-8"))["schema_version"] == (
+        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
+    )
+
+
 @pytest.mark.parametrize(
     ("tool_name", "base", "changed"),
     [
@@ -1089,6 +1361,77 @@ def test_roll_receipt_prefix_tamper_fails_closed_without_log_mutation(campaign_w
     assert rolls_path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "args", "resolution_field", "tampered_value"),
+    [
+        (
+            "rules.roll_dice",
+            {"expression": "1D6", "decision_id": "dice-resolution-tamper"},
+            "sides",
+            999,
+        ),
+        (
+            "rules.roll",
+            {
+                "skill": "Library Use",
+                "decision_id": "percentile-resolution-tamper",
+            },
+            "resolved_target",
+            999,
+        ),
+        (
+            "rules.roll_dice",
+            {"expression": "1D6", "decision_id": "dice-resolution-extra-field"},
+            "unexpected",
+            1,
+        ),
+        (
+            "rules.roll",
+            {
+                "skill": "Library Use",
+                "decision_id": "percentile-resolution-wrong-type",
+            },
+            "target_source",
+            7,
+        ),
+    ],
+)
+def test_coordinated_resolution_tamper_is_rejected_without_evidence_mutation(
+    campaign_ws, tool_name, args, resolution_field, tampered_value
+):
+    if tool_name == "rules.roll":
+        args = {**args, "investigator": campaign_ws["investigator_id"]}
+    settled = _run(campaign_ws, tool_name, {**args, "seed": 7})
+    assert settled["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"][tool_name][args["decision_id"]]
+    receipt["resolution"][resolution_field] = tampered_value
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+    receipt_bytes = receipt_path.read_bytes()
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    roll_bytes = rolls_path.read_bytes()
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "resolution contradiction must fail",
+            "decision_id": f"after-{args['decision_id']}",
+        },
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert receipt_path.read_bytes() == receipt_bytes
+    assert rolls_path.read_bytes() == roll_bytes
+
+
 def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     campaign_ws, monkeypatch
 ):
@@ -1096,6 +1439,7 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     document = {
         "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "receipts": {},
+        "legacy_receipts": {},
         "pending_side_effects": {},
     }
     raw = b""
@@ -1186,6 +1530,7 @@ def test_settled_skill_receipts_do_not_replay_development_side_effects(
     document = {
         "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "receipts": {},
+        "legacy_receipts": {},
         "pending_side_effects": {},
     }
     raw = b""
