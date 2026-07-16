@@ -986,7 +986,7 @@ def _reconcile_all_npc_source_receipts(ctx: Ctx) -> dict[str, Any]:
 
 _SOURCE_RECEIPTS_KEY = "operation_receipts"
 _SOURCE_RECEIPT_SCHEMA_VERSION = 3
-_SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS = frozenset({2, 3})
+_SOURCE_RECEIPT_SUPPORTED_SCHEMA_VERSIONS = frozenset({2, 3, 4})
 _SOURCE_RECEIPT_INTEGRITY_KEY = "integrity_digest"
 _SOURCE_RECEIPT_FIELDS_V2 = frozenset({
     "schema_version",
@@ -1051,13 +1051,15 @@ def _source_receipt_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 _ROLL_RECEIPT_TOOLS = frozenset({"rules.roll", "rules.push", "rules.roll_dice"})
-_ROLL_RECEIPT_SCHEMA_VERSION = 3
+_ROLL_RECEIPT_SCHEMA_VERSION = 4
+_ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION = 2
 _ROLL_RECEIPT_FIELDS = frozenset({
     "schema_version",
     "tool",
     "decision_id",
     "fingerprint",
     "operation",
+    "resolution",
     "roll_id",
     "roll_record",
     "data",
@@ -1080,27 +1082,31 @@ def _roll_dice_semantic_operation(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _percentile_semantic_operation(
-    ctx: Ctx,
+def _percentile_invocation_semantics(
     args: dict[str, Any],
     *,
     pushed: bool,
-) -> tuple[dict[str, Any], str, int, str, str]:
-    investigator_id = _resolve_investigator(ctx, args)
-    target, label, target_source = _resolve_target_value(
-        ctx, investigator_id, args
-    )
+) -> dict[str, Any]:
+    """Return only immutable caller intent, never mutable sheet/state values."""
     operation = {
-        "investigator_id": investigator_id,
-        "skill": label if args.get("skill") is not None else None,
+        "investigator": (
+            str(args["investigator"])
+            if args.get("investigator") is not None
+            else None
+        ),
+        "skill": (
+            str(args["skill"]).strip()
+            if args.get("skill") is not None
+            else None
+        ),
         "characteristic": (
-            str(args["characteristic"]).upper()
+            str(args["characteristic"]).strip().upper()
             if args.get("characteristic") is not None
             else None
         ),
-        "resolved_label": label,
-        "target": target,
-        "target_source": target_source,
+        "explicit_target": (
+            int(args["target"]) if args.get("target") is not None else None
+        ),
         "difficulty": str(args.get("difficulty") or "regular"),
         "bonus": int(args.get("bonus") or 0),
         "penalty": int(args.get("penalty") or 0),
@@ -1125,7 +1131,7 @@ def _percentile_semantic_operation(
     # ``seed`` is intentionally absent: it is a tests-only RNG transport knob,
     # not an in-fiction operation. Every player/keeper-facing parameter above
     # remains fingerprinted and conflicts on decision-id reuse.
-    return operation, investigator_id, target, label, target_source
+    return operation
 
 
 def _roll_receipt_path(ctx: Ctx) -> Path:
@@ -1135,7 +1141,11 @@ def _roll_receipt_path(ctx: Ctx) -> Path:
 def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
     path = _roll_receipt_path(ctx)
     if not path.is_file():
-        return {"schema_version": 1, "receipts": {}}
+        return {
+            "schema_version": _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
+            "receipts": {},
+            "pending_side_effects": {},
+        }
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -1144,9 +1154,13 @@ def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
         ) from exc
     if (
         not isinstance(document, dict)
-        or set(document) != {"schema_version", "receipts"}
-        or document.get("schema_version") != 1
+        or set(document) != {
+            "schema_version", "receipts", "pending_side_effects"
+        }
+        or document.get("schema_version")
+        != _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
         or not isinstance(document.get("receipts"), dict)
+        or not isinstance(document.get("pending_side_effects"), dict)
     ):
         raise ToolError(
             "state_corrupt", "save/roll-operation-receipts.json is invalid"
@@ -1194,11 +1208,42 @@ def _put_roll_receipt(
     by_tool[str(receipt["decision_id"])] = deepcopy(receipt)
 
 
+def _roll_side_effect_key(receipt: dict[str, Any]) -> str:
+    return f"{receipt['tool']}\u0000{receipt['decision_id']}"
+
+
+def _roll_receipt_needs_side_effect(receipt: dict[str, Any]) -> bool:
+    if receipt.get("tool") != "rules.roll":
+        return False
+    data = receipt.get("data") or {}
+    operation = receipt.get("operation") or {}
+    skill = str(data.get("skill") or "")
+    return bool(
+        data.get("outcome") in {"regular", "hard", "extreme", "critical"}
+        and operation.get("skill") not in (None, "")
+        and skill
+        and skill not in _CHARACTERISTIC_NAMES
+        and skill not in {"SAN", "LUCK"}
+    )
+
+
+def _queue_roll_side_effect(
+    document: dict[str, Any], receipt: dict[str, Any]
+) -> None:
+    if not _roll_receipt_needs_side_effect(receipt):
+        return
+    pending = document.get("pending_side_effects")
+    if not isinstance(pending, dict):
+        raise ToolError("state_corrupt", "canonical roll pending index is invalid")
+    pending[_roll_side_effect_key(receipt)] = str(receipt["roll_id"])
+
+
 def _new_roll_receipt(
     *,
     tool_name: str,
     decision_id: str,
     operation: dict[str, Any],
+    resolution: dict[str, Any],
     roll_record: dict[str, Any],
     data: dict[str, Any],
     warnings: list[str],
@@ -1210,6 +1255,7 @@ def _new_roll_receipt(
         "decision_id": str(decision_id),
         "fingerprint": _operation_fingerprint(tool_name, operation),
         "operation": deepcopy(operation),
+        "resolution": deepcopy(resolution),
         "roll_id": str(roll_record.get("roll_id") or ""),
         "roll_record": deepcopy(roll_record),
         "data": deepcopy(data),
@@ -1227,6 +1273,7 @@ def _validate_roll_receipt(
     current_operation: dict[str, Any] | None = None,
 ) -> None:
     operation = receipt.get("operation")
+    resolution = receipt.get("resolution")
     record = receipt.get("roll_record")
     data = receipt.get("data")
     roll_id = str(receipt.get("roll_id") or "")
@@ -1238,6 +1285,7 @@ def _validate_roll_receipt(
         or str(receipt.get("decision_id")) != str(decision_id)
         or tool_name not in _ROLL_RECEIPT_TOOLS
         or not isinstance(operation, dict)
+        or not isinstance(resolution, dict)
         or receipt.get("fingerprint")
         != _operation_fingerprint(tool_name, operation)
         or not isinstance(record, dict)
@@ -1333,12 +1381,42 @@ def _parse_complete_roll_frames(
     return raw, b"", index
 
 
-def _receipt_prefix_is_valid(raw: bytes, receipt: dict[str, Any]) -> bool:
-    size = int(receipt["log_prefix_size"])
-    if size > len(raw):
-        return False
-    digest = f"sha256:{hashlib.sha256(raw[:size]).hexdigest()}"
-    return digest == receipt["log_prefix_sha256"]
+def _roll_prefix_hash_update(digest: Any, chunk: memoryview) -> None:
+    """One instrumentation seam for bounded cumulative-prefix verification."""
+    digest.update(chunk)
+
+
+def _verify_roll_receipt_prefixes(
+    raw: bytes, receipts: list[dict[str, Any]]
+) -> None:
+    """Verify every historical prefix with one monotonic hash pass."""
+    ordered = sorted(
+        receipts,
+        key=lambda receipt: (
+            int(receipt["log_prefix_size"]),
+            str(receipt["tool"]),
+            str(receipt["decision_id"]),
+        ),
+    )
+    digest = hashlib.sha256()
+    offset = 0
+    view = memoryview(raw)
+    for receipt in ordered:
+        size = int(receipt["log_prefix_size"])
+        if size < offset or size > len(raw):
+            raise ToolError(
+                "state_corrupt",
+                f"roll source prefix for roll_id '{receipt['roll_id']}' is out of range",
+            )
+        if size > offset:
+            _roll_prefix_hash_update(digest, view[offset:size])
+            offset = size
+        actual = f"sha256:{digest.hexdigest()}"
+        if actual != receipt["log_prefix_sha256"]:
+            raise ToolError(
+                "state_corrupt",
+                f"roll source prefix for roll_id '{receipt['roll_id']}' changed",
+            )
 
 
 def _append_roll_frame_locked(path: Path, frame: bytes) -> None:
@@ -1367,10 +1445,7 @@ def _repair_receipt_owned_tail_locked(
     """Repair only a unique final frame proven by a committed prefix receipt."""
     candidates: list[tuple[dict[str, Any], bytes]] = []
     for receipt in receipts:
-        if (
-            int(receipt["log_prefix_size"]) != len(complete)
-            or not _receipt_prefix_is_valid(raw, receipt)
-        ):
+        if int(receipt["log_prefix_size"]) != len(complete):
             continue
         expected = _roll_record_frame(receipt["roll_record"])
         if expected.startswith(tail):
@@ -1405,6 +1480,7 @@ def _materialize_roll_receipts_locked(
     ctx: Ctx, receipts: list[dict[str, Any]]
 ) -> None:
     raw = _roll_log_bytes(ctx)
+    _verify_roll_receipt_prefixes(raw, receipts)
     complete, tail, index = _parse_complete_roll_frames(raw)
     if tail:
         raw, index = _repair_receipt_owned_tail_locked(
@@ -1412,11 +1488,6 @@ def _materialize_roll_receipts_locked(
         )
     path = ctx.campaign_dir / "logs" / "rolls.jsonl"
     for receipt in receipts:
-        if not _receipt_prefix_is_valid(raw, receipt):
-            raise ToolError(
-                "state_corrupt",
-                f"roll source prefix for roll_id '{receipt['roll_id']}' changed",
-            )
         roll_id = str(receipt["roll_id"])
         expected = receipt["roll_record"]
         prior = index.get(roll_id)
@@ -1461,6 +1532,7 @@ def _freeze_roll_receipt_source(
                 decision_id=str(receipt["decision_id"]),
             )
             _put_roll_receipt(document, receipt)
+            _queue_roll_side_effect(document, receipt)
             _save_roll_receipt_document(ctx, document)
     except coc_async_recorder.RecorderLockError as exc:
         raise ToolError("campaign_busy", str(exc)) from exc
@@ -1482,27 +1554,43 @@ def _ensure_roll_receipt_row(ctx: Ctx, receipt: dict[str, Any]) -> bool:
         raise ToolError("campaign_busy", str(exc)) from exc
 
 
-def _apply_roll_receipt_side_effects(ctx: Ctx, receipt: dict[str, Any]) -> None:
+def _apply_roll_receipt_side_effects(ctx: Ctx, receipt: dict[str, Any]) -> bool:
     """Repair deterministic non-log effects frozen by a percentile receipt."""
-    if receipt.get("tool") != "rules.roll":
-        return
+    if not _roll_receipt_needs_side_effect(receipt):
+        return False
     data = receipt.get("data") or {}
     skill = str(data.get("skill") or "")
-    if (
-        data.get("outcome") in {"regular", "hard", "extreme", "critical"}
-        and (receipt.get("operation") or {}).get("skill") not in (None, "")
-        and skill
-        and skill not in _CHARACTERISTIC_NAMES
-        and skill not in {"SAN", "LUCK"}
-    ):
-        _mark_improvement_tick(
-            ctx,
-            str(data.get("investigator_id") or ""),
-            skill,
-            data,
-            source_event_id=f"rules.roll:{receipt['decision_id']}",
-            source_kind="rules.roll",
+    return _mark_improvement_tick(
+        ctx,
+        str(data.get("investigator_id") or ""),
+        skill,
+        data,
+        source_event_id=f"rules.roll:{receipt['decision_id']}",
+        source_kind="rules.roll",
+    )
+
+
+def _settle_pending_roll_side_effect(
+    ctx: Ctx,
+    document: dict[str, Any],
+    receipt: dict[str, Any],
+) -> bool:
+    pending = document.get("pending_side_effects")
+    if not isinstance(pending, dict):
+        raise ToolError("state_corrupt", "canonical roll pending index is invalid")
+    key = _roll_side_effect_key(receipt)
+    frozen_roll_id = pending.get(key)
+    if frozen_roll_id is None:
+        return False
+    if str(frozen_roll_id) != str(receipt["roll_id"]):
+        raise ToolError(
+            "state_corrupt",
+            f"pending roll side effect for decision_id '{receipt['decision_id']}' is invalid",
         )
+    _apply_roll_receipt_side_effects(ctx, receipt)
+    del pending[key]
+    _save_roll_receipt_document(ctx, document)
+    return True
 
 
 def _repair_roll_receipt_ledger(ctx: Ctx, receipt: dict[str, Any]) -> None:
@@ -1523,10 +1611,10 @@ def _repair_roll_receipt_ledger(ctx: Ctx, receipt: dict[str, Any]) -> None:
 
 
 def _replay_roll_receipt(
-    ctx: Ctx, receipt: dict[str, Any]
+    ctx: Ctx, document: dict[str, Any], receipt: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     _ensure_roll_receipt_row(ctx, receipt)
-    _apply_roll_receipt_side_effects(ctx, receipt)
+    _settle_pending_roll_side_effect(ctx, document, receipt)
     _repair_roll_receipt_ledger(ctx, receipt)
     warnings = list(receipt.get("warnings") or [])
     warnings.append(
@@ -1578,7 +1666,7 @@ def _commit_new_roll_receipt(
     """Durably freeze source, then materialize row/effects, then ledger."""
     _freeze_roll_receipt_source(ctx, document, receipt)
     _ensure_roll_receipt_row(ctx, receipt)
-    _apply_roll_receipt_side_effects(ctx, receipt)
+    _settle_pending_roll_side_effect(ctx, document, receipt)
     _repair_roll_receipt_ledger(ctx, receipt)
 
 
@@ -1586,6 +1674,7 @@ def _reconcile_all_roll_source_receipts(ctx: Ctx) -> None:
     document = _load_roll_receipt_document(ctx)
     receipts = document.get("receipts") or {}
     ordered: list[dict[str, Any]] = []
+    by_effect_key: dict[str, dict[str, Any]] = {}
     for tool_name in sorted(receipts):
         by_tool = receipts[tool_name]
         if tool_name not in _ROLL_RECEIPT_TOOLS or not isinstance(by_tool, dict):
@@ -1598,16 +1687,35 @@ def _reconcile_all_roll_source_receipts(ctx: Ctx) -> None:
                 receipt, tool_name=tool_name, decision_id=decision_id
             )
             ordered.append(receipt)
+            by_effect_key[_roll_side_effect_key(receipt)] = receipt
     if ordered:
         try:
             with coc_async_recorder.recorder_lock(ctx.campaign_dir):
                 _materialize_roll_receipts_locked(ctx, ordered)
         except coc_async_recorder.RecorderLockError as exc:
             raise ToolError("campaign_busy", str(exc)) from exc
-    # Receipts are the durable replay source. The bounded ledger is repaired
-    # only for a requested decision, never globally for all historical rolls.
-    for receipt in ordered:
+    # Receipts are the durable replay source. Ledger repair stays requested-ID
+    # only, and development repair touches only the explicit pending index.
+    pending = document.get("pending_side_effects")
+    if not isinstance(pending, dict):
+        raise ToolError("state_corrupt", "canonical roll pending index is invalid")
+    pending_changed = False
+    for key in sorted(list(pending)):
+        receipt = by_effect_key.get(key)
+        if receipt is None or not _roll_receipt_needs_side_effect(receipt):
+            raise ToolError(
+                "state_corrupt", "canonical roll pending index has no valid receipt"
+            )
+        if str(pending[key]) != str(receipt["roll_id"]):
+            raise ToolError(
+                "state_corrupt",
+                f"pending roll side effect for decision_id '{receipt['decision_id']}' is invalid",
+            )
         _apply_roll_receipt_side_effects(ctx, receipt)
+        del pending[key]
+        pending_changed = True
+    if pending_changed:
+        _save_roll_receipt_document(ctx, document)
 
 
 def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
@@ -3390,13 +3498,7 @@ def _roll_common(
     tool_name: str,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
     decision_id = str(args["decision_id"])
-    (
-        operation,
-        investigator_id,
-        target,
-        label,
-        target_source,
-    ) = _percentile_semantic_operation(ctx, args, pushed=pushed)
+    operation = _percentile_invocation_semantics(args, pushed=pushed)
     document, receipt = _existing_roll_receipt(
         ctx,
         tool_name=tool_name,
@@ -3404,7 +3506,17 @@ def _roll_common(
         operation=operation,
     )
     if receipt is not None:
-        return _replay_roll_receipt(ctx, receipt)
+        return _replay_roll_receipt(ctx, document, receipt)
+    investigator_id = _resolve_investigator(ctx, args)
+    target, label, target_source = _resolve_target_value(
+        ctx, investigator_id, args
+    )
+    resolution = {
+        "investigator_id": investigator_id,
+        "resolved_label": label,
+        "resolved_target": target,
+        "target_source": target_source,
+    }
     difficulty = str(operation["difficulty"])
     bonus = int(operation["bonus"])
     penalty = int(operation["penalty"])
@@ -3467,6 +3579,7 @@ def _roll_common(
         tool_name=tool_name,
         decision_id=decision_id,
         operation=operation,
+        resolution=resolution,
         roll_record=roll_record,
         data=result,
         warnings=warnings,
@@ -3557,7 +3670,7 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
         operation=operation,
     )
     if receipt is not None:
-        return _replay_roll_receipt(ctx, receipt)
+        return _replay_roll_receipt(ctx, document, receipt)
     result = coc_roll.roll_expression(str(args["expression"]), rng=_rng(args))
     if args.get("reason"):
         result["reason"] = str(args["reason"])
@@ -3582,6 +3695,12 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
         tool_name=tool_name,
         decision_id=decision_id,
         operation=operation,
+        resolution={
+            "expression": result["expression"],
+            "count": result["count"],
+            "sides": result["sides"],
+            "modifier": result["modifier"],
+        },
         roll_record=roll_record,
         data=result,
         warnings=[],

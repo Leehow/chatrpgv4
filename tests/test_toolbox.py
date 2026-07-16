@@ -572,7 +572,6 @@ def test_roll_source_receipt_recovers_every_crash_window_exactly_once(
     if tool_name == "rules.roll_dice":
         args.pop("investigator")
     real_ensure = coc_toolbox._ensure_roll_receipt_row
-    real_side_effects = coc_toolbox._apply_roll_receipt_side_effects
     real_ledger_record = coc_toolbox.Ctx.ledger_record
 
     def is_target(receipt):
@@ -587,9 +586,10 @@ def test_roll_source_receipt_recovers_every_crash_window_exactly_once(
         return real_ensure(ctx, receipt)
 
     def crash_after_materialization(ctx, receipt):
-        real_side_effects(ctx, receipt)
+        materialized = real_ensure(ctx, receipt)
         if is_target(receipt):
             raise RuntimeError("synthetic crash after roll materialization")
+        return materialized
 
     def crash_before_ledger(
         self, current_decision_id, current_tool_name, data, **kwargs
@@ -608,7 +608,7 @@ def test_roll_source_receipt_recovers_every_crash_window_exactly_once(
         elif crash_stage == "after_materialization":
             crash.setattr(
                 coc_toolbox,
-                "_apply_roll_receipt_side_effects",
+                "_ensure_roll_receipt_row",
                 crash_after_materialization,
             )
         else:
@@ -830,6 +830,144 @@ def test_roll_receipt_binds_resolved_investigator(campaign_ws):
     assert conflict["error"]["code"] == "idempotency_conflict"
 
 
+def test_roll_receipt_replays_implicit_investigator_after_party_changes(campaign_ws):
+    args = {
+        "skill": "Library Use",
+        "decision_id": "implicit-investigator-party-drift",
+        "seed": 11,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+    _add_eleanor_to_party(campaign_ws)
+
+    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+
+
+def test_roll_receipt_replays_after_luck_target_changes(campaign_ws):
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "characteristic": "LUCK",
+        "reason": "luck before spend",
+        "decision_id": "mutable-luck-target-roll",
+        "seed": 7,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+    receipt = json.loads((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    ).read_text(encoding="utf-8"))["receipts"]["rules.roll"][
+        args["decision_id"]
+    ]
+    assert receipt["operation"]["explicit_target"] is None
+    assert "resolved_target" not in receipt["operation"]
+    assert receipt["resolution"]["resolved_target"] == first["data"]["target"]
+    spent = _run(
+        campaign_ws,
+        "rules.luck_spend",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "points": 1,
+            "roll": 51,
+            "target": 50,
+            "outcome": "failure",
+            "roll_kind": "skill",
+            "decision_id": "mutable-luck-spend",
+        },
+    )
+    assert spent["ok"] is True
+
+    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+
+
+def test_roll_receipt_replays_after_san_target_changes(campaign_ws):
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "characteristic": "SAN",
+        "reason": "san before loss",
+        "decision_id": "mutable-san-target-roll",
+        "seed": 7,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+    changed = _run(
+        campaign_ws,
+        "rules.sanity_check",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "source": "mutable target regression",
+            "loss_success": "1",
+            "loss_failure": "1",
+            "decision_id": "mutable-san-loss",
+            "seed": 19,
+        },
+    )
+    assert changed["ok"] is True
+    assert changed["data"]["san_loss"] == 1
+
+    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+
+
+def test_roll_receipt_replays_after_development_skill_value_changes(campaign_ws):
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "reason": "skill before development",
+        "decision_id": "mutable-skill-target-roll",
+        "seed": 7,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character["skills"]["Library Use"] += 7
+    _write_json(character_path, character)
+
+    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+
+
+def test_roll_receipt_replays_after_character_file_is_removed(campaign_ws):
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "reason": "character deletion retry",
+        "decision_id": "deleted-character-roll-replay",
+        "seed": 7,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    character_path.unlink()
+
+    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+
+    assert replay["ok"] is True
+    assert replay["data"] == first["data"]
+
+
 @pytest.mark.parametrize(
     ("write_mode", "recovers"),
     [
@@ -919,11 +1057,47 @@ os._exit(91)
         assert rows[-1] == later_row
 
 
+def test_roll_receipt_prefix_tamper_fails_closed_without_log_mutation(campaign_ws):
+    decision_id = "tampered-roll-prefix"
+    settled = _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {"expression": "1D6", "decision_id": decision_id, "seed": 7},
+    )
+    assert settled["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    document = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = document["receipts"]["rules.roll_dice"][decision_id]
+    receipt["log_prefix_sha256"] = f"sha256:{'0' * 64}"
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    _write_json(receipt_path, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before = rolls_path.read_bytes()
+
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "must not pass tamper", "decision_id": "after-roll-tamper"},
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert rolls_path.read_bytes() == before
+
+
 def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     campaign_ws, monkeypatch
 ):
     ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
-    document = {"schema_version": 1, "receipts": {}}
+    document = {
+        "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
+        "receipts": {},
+        "pending_side_effects": {},
+    }
     raw = b""
     for ordinal in range(301):
         decision_id = f"bulk-roll-{ordinal:03d}"
@@ -944,6 +1118,12 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
             operation=coc_toolbox._roll_dice_semantic_operation(
                 {"expression": "1D6", "reason": f"bulk-{ordinal:03d}"}
             ),
+            resolution={
+                "expression": "1D6",
+                "count": 1,
+                "sides": 6,
+                "modifier": 0,
+            },
             roll_record=record,
             data=data,
             warnings=[],
@@ -955,13 +1135,16 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
             coc_toolbox._source_receipt_integrity(receipt)
         )
         coc_toolbox._put_roll_receipt(document, receipt)
+        coc_toolbox._queue_roll_side_effect(document, receipt)
         raw += coc_toolbox._roll_record_frame(record) + b"\n"
 
     coc_toolbox._save_roll_receipt_document(ctx, document)
     rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
     rolls_path.write_bytes(raw)
     reads = 0
+    prefix_bytes = 0
     real_read = coc_toolbox._roll_log_bytes
+    real_prefix_update = coc_toolbox._roll_prefix_hash_update
 
     def count_read(current_ctx):
         nonlocal reads
@@ -971,17 +1154,157 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     def reject_ledger_write(*_args, **_kwargs):
         raise AssertionError("global receipt preflight must not rewrite the ledger")
 
+    def count_prefix_bytes(digest, chunk):
+        nonlocal prefix_bytes
+        prefix_bytes += len(chunk)
+        return real_prefix_update(digest, chunk)
+
     monkeypatch.setattr(coc_toolbox, "_roll_log_bytes", count_read)
+    monkeypatch.setattr(
+        coc_toolbox, "_roll_prefix_hash_update", count_prefix_bytes
+    )
     monkeypatch.setattr(coc_toolbox.Ctx, "ledger_record", reject_ledger_write)
     coc_toolbox._reconcile_all_roll_source_receipts(ctx)
+    first_prefix_bytes = prefix_bytes
     coc_toolbox._reconcile_all_roll_source_receipts(ctx)
 
     assert reads == 2
+    assert first_prefix_bytes <= len(raw)
+    assert prefix_bytes - first_prefix_bytes <= len(raw)
     assert rolls_path.read_bytes() == raw
     ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
     if ledger_path.is_file():
         entries = json.loads(ledger_path.read_text(encoding="utf-8"))["entries"]
         assert len(entries) <= 300
+
+
+@pytest.mark.parametrize("receipt_count", [40, 120])
+def test_settled_skill_receipts_do_not_replay_development_side_effects(
+    campaign_ws, monkeypatch, receipt_count
+):
+    ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    document = {
+        "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
+        "receipts": {},
+        "pending_side_effects": {},
+    }
+    raw = b""
+    for ordinal in range(receipt_count):
+        decision_id = f"settled-skill-{receipt_count}-{ordinal:03d}"
+        data = {
+            "roll": 1,
+            "target": 60,
+            "effective_target": 60,
+            "difficulty": "regular",
+            "outcome": "critical",
+            "investigator_id": campaign_ws["investigator_id"],
+            "skill": "Spot Hidden",
+            "target_source": "sheet",
+            "pushed": False,
+        }
+        record = ctx.prepare_roll({
+            "event_type": "roll",
+            "kind": "skill_check",
+            "actor": campaign_ws["investigator_id"],
+            "visibility": "public",
+            "payload": dict(data),
+            "ts": f"settled-{ordinal:03d}",
+            **data,
+        })
+        data["roll_id"] = record["roll_id"]
+        receipt = coc_toolbox._new_roll_receipt(
+            tool_name="rules.roll",
+            decision_id=decision_id,
+            operation={
+                "investigator": campaign_ws["investigator_id"],
+                "skill": "Spot Hidden",
+                "characteristic": None,
+                "explicit_target": None,
+                "difficulty": "regular",
+                "bonus": 0,
+                "penalty": 0,
+                "reason": None,
+                "fumble_consequence": None,
+                "pushed": False,
+                "method_changed": None,
+                "failure_consequence": None,
+            },
+            resolution={
+                "investigator_id": campaign_ws["investigator_id"],
+                "resolved_label": "Spot Hidden",
+                "resolved_target": 60,
+                "target_source": "sheet",
+            },
+            roll_record=record,
+            data=data,
+            warnings=[],
+            hints=[],
+        )
+        receipt["log_prefix_size"] = len(raw)
+        receipt["log_prefix_sha256"] = f"sha256:{hashlib.sha256(raw).hexdigest()}"
+        receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+            coc_toolbox._source_receipt_integrity(receipt)
+        )
+        coc_toolbox._put_roll_receipt(document, receipt)
+        coc_toolbox._queue_roll_side_effect(document, receipt)
+        raw += coc_toolbox._roll_record_frame(record) + b"\n"
+
+    coc_toolbox._save_roll_receipt_document(ctx, document)
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rolls_path.write_bytes(raw)
+    side_effect_calls = 0
+    document_writes = 0
+    real_save = coc_toolbox._save_roll_receipt_document
+
+    def count_side_effect(*_args, **_kwargs):
+        nonlocal side_effect_calls
+        side_effect_calls += 1
+        return True
+
+    def count_save(*args, **kwargs):
+        nonlocal document_writes
+        document_writes += 1
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox, "_apply_roll_receipt_side_effects", count_side_effect
+    )
+    monkeypatch.setattr(coc_toolbox, "_save_roll_receipt_document", count_save)
+    coc_toolbox._reconcile_all_roll_source_receipts(ctx)
+    assert side_effect_calls == receipt_count
+    assert document_writes == 1
+    document_bytes = coc_toolbox._roll_receipt_path(ctx).read_bytes()
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    development_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "development.jsonl"
+    )
+    state_bytes = state_path.read_bytes()
+    development_bytes = development_path.read_bytes()
+
+    side_effect_calls = 0
+    document_writes = 0
+
+    def reject_side_effect(*_args, **_kwargs):
+        raise AssertionError("settled receipt must not re-enter development repair")
+
+    monkeypatch.setattr(
+        coc_toolbox, "_apply_roll_receipt_side_effects", reject_side_effect
+    )
+    coc_toolbox._reconcile_all_roll_source_receipts(ctx)
+
+    assert side_effect_calls == 0
+    assert document_writes == 0
+    assert coc_toolbox._roll_receipt_path(ctx).read_bytes() == document_bytes
+    assert state_path.read_bytes() == state_bytes
+    assert development_path.read_bytes() == development_bytes
 
 
 def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws):
