@@ -17,7 +17,7 @@ export function parseSingleJsonObject(input, diagnostics = null) {
     if (!(error instanceof SyntaxError)) throw error;
   }
 
-  const fences = findMarkdownFences(source);
+  const fences = findMarkdownFences(source, diagnostics);
   const explicitJsonFences = fences.filter((fence) => fence.info === "json");
   if (explicitJsonFences.length > 1) {
     throw new Error("JSON response contains multiple JSON fences");
@@ -210,16 +210,17 @@ function buildMarkdownLinkEnds(source, diagnostics) {
 function buildBalancedDelimiterEnds(source, opener, closer, diagnostics) {
   const ends = new Map();
   const stack = [];
-  let escaped = false;
+  let backslashRun = 0;
   for (let index = 0; index < source.length; index += 1) {
     countStep(diagnostics);
     const char = source[index];
-    if (stack.length && escaped) {
-      escaped = false;
+    if (char === "\\") {
+      backslashRun += 1;
       continue;
     }
-    if (stack.length && char === "\\") {
-      escaped = true;
+    const escaped = backslashRun % 2 === 1;
+    backslashRun = 0;
+    if (escaped) {
       continue;
     }
     if (char === opener) {
@@ -252,33 +253,58 @@ function countStep(diagnostics) {
   if (diagnostics && typeof diagnostics === "object") diagnostics.scan_steps += 1;
 }
 
-function findMarkdownFences(source) {
+function countSteps(diagnostics, count) {
+  if (diagnostics && typeof diagnostics === "object") diagnostics.scan_steps += count;
+}
+
+function findMarkdownFences(source, diagnostics) {
   const lines = [];
   const linePattern = /.*(?:\r?\n|$)/g;
   for (const match of source.matchAll(linePattern)) {
     if (!match[0]) continue;
-    lines.push({ text: match[0], start: match.index, end: match.index + match[0].length });
+    countSteps(diagnostics, match[0].length);
+    const opening = match[0].match(/^[ \t]*(`{3,}|~{3,})[ \t]*([^\r\n]*?)[ \t]*(?:\r?\n)?$/);
+    lines.push({
+      text: match[0],
+      start: match.index,
+      end: match.index + match[0].length,
+      opening: opening ? {
+        marker: opening[1][0],
+        length: opening[1].length,
+        info: opening[2].trim().toLowerCase(),
+      } : null,
+    });
   }
+
+  const nextClosing = new Array(lines.length).fill(-1);
+  const nextByMinimum = { "`": [], "~": [] };
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    countStep(diagnostics);
+    const opening = lines[index].opening;
+    if (!opening) continue;
+    nextClosing[index] = nextByMinimum[opening.marker][opening.length] ?? -1;
+    if (!opening.info) {
+      for (let minimum = 3; minimum <= opening.length; minimum += 1) {
+        countStep(diagnostics);
+        nextByMinimum[opening.marker][minimum] = index;
+      }
+    }
+  }
+
   const fences = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const opening = lines[index].text.match(/^[ \t]*(`{3,}|~{3,})[ \t]*([^\r\n]*?)[ \t]*(?:\r?\n)?$/);
+    countStep(diagnostics);
+    const opening = lines[index].opening;
     if (!opening) continue;
-    const marker = opening[1][0];
-    const minimumLength = opening[1].length;
-    const info = opening[2].trim().toLowerCase();
-    let closingIndex = index + 1;
-    for (; closingIndex < lines.length; closingIndex += 1) {
-      const closing = lines[closingIndex].text.match(/^[ \t]*(`{3,}|~{3,})[ \t]*(?:\r?\n)?$/);
-      if (closing && closing[1][0] === marker && closing[1].length >= minimumLength) break;
-    }
-    if (closingIndex >= lines.length) {
-      if (info === "json") throw new Error("JSON response contains an unclosed JSON fence");
+    const closingIndex = nextClosing[index];
+    if (closingIndex < 0) {
+      if (opening.info === "json") throw new Error("JSON response contains an unclosed JSON fence");
       continue;
     }
     fences.push({
       start: lines[index].start,
       end: lines[closingIndex].end,
-      info,
+      info: opening.info,
       content: source.slice(lines[index].end, lines[closingIndex].start),
     });
     index = closingIndex;

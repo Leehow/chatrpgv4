@@ -67,6 +67,8 @@ FENCE = f"```json\n{OBJECT}\n```"
         f"[doc](https://example.test/\\)/[1]) {OBJECT}",
         f"{OBJECT} [doc](https://example.test/(part)/[1])",
         f"[doc](https://example.test/\\)/[1])\r\n{FENCE}",
+        f'\\\\[draft {{"inside":2}}](target) {OBJECT}',
+        f'{OBJECT} \\\\[draft [1,2]](target)',
         f"See [bundle](https://example.test) and [seven total]. Result: {OBJECT}. Thanks :) ]",
         f"Notes {{draft}} [seven total]. Result: {OBJECT}.",
         f"The malformed token 0xG was discussed. {OBJECT}",
@@ -91,6 +93,17 @@ def test_rejects_bare_second_json_scalar_on_either_side(scalar, position):
     completed = _parse(invalid)
     assert completed.returncode == 1
     assert "standalone JSON value" in json.loads(completed.stdout)["error"]
+
+
+@pytest.mark.parametrize("slashes", ["\\", "\\\\\\"])
+@pytest.mark.parametrize("descendant", ['{"hidden":2}', "[1,2]"])
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_escaped_pseudo_link_cannot_hide_json_container(slashes, descendant, position):
+    pseudo_link = f"{slashes}[draft {descendant}](target)"
+    invalid = f"{pseudo_link} {OBJECT}" if position == "before" else f"{OBJECT} {pseudo_link}"
+    completed = _parse(invalid)
+    assert completed.returncode == 1
+    assert "multiple JSON containers" in json.loads(completed.stdout)["error"]
 
 
 @pytest.mark.parametrize(
@@ -159,7 +172,7 @@ def test_wrapper_delimiter_and_markdown_scans_are_linear_and_non_recursive():
     program = """
 import { performance } from 'node:perf_hooks';
 const { parseSingleJsonObject } = await import(process.argv[1]);
-const targets = [16_000, 32_000, 64_000, 128_000, 256_000];
+const targets = [16_000, 32_000, 64_000, 128_000, 256_000, 512_000];
 const shapes = {
   curly: (depth) => '{draft '.repeat(depth) + 'x' + '}'.repeat(depth),
   square: (depth) => '[draft '.repeat(depth) + 'x' + ']'.repeat(depth),
@@ -193,9 +206,61 @@ process.stdout.write(JSON.stringify(rows));
     )
     assert completed.returncode == 0, completed.stderr
     rows = json.loads(completed.stdout)
-    assert len(rows) == 25
+    assert len(rows) == 30
     assert all(0 <= row["bytes"] - row["target"] < 40 for row in rows)
     assert all(row["steps"] <= row["bytes"] * 12 + 200 for row in rows)
+    for shape in {row["shape"] for row in rows}:
+        shape_rows = [row for row in rows if row["shape"] == shape]
+        for previous, current in zip(shape_rows, shape_rows[1:]):
+            byte_ratio = current["bytes"] / previous["bytes"]
+            assert current["steps"] / previous["steps"] <= byte_ratio * 1.08
+        assert shape_rows[-1]["ms"] < 2000
+
+
+def test_markdown_fence_scan_is_linear_across_markers_and_closure_states():
+    program = """
+import { performance } from 'node:perf_hooks';
+const { parseSingleJsonObject } = await import(process.argv[1]);
+const targets = [16_000, 32_000, 64_000, 128_000, 256_000, 512_000];
+const shapes = {
+  unclosed_generic: { build: (n) => '```text\\nbody\\n'.repeat(n), suffix: ' {"a":1}' },
+  closed_backtick: { build: (n) => '```text\\nbody\\n```\\n'.repeat(n), suffix: ' {"a":1}' },
+  closed_tilde: { build: (n) => '~~~text\\nbody\\n~~~\\n'.repeat(n), suffix: ' {"a":1}' },
+  mixed_markers: { build: (n) => '```text\\nbody\\n~~~note\\nbody\\n'.repeat(n), suffix: ' {"a":1}' },
+  explicit_backtick: { build: (n) => 'wrapper prose\\n'.repeat(n),
+    suffix: '```json\\n{"a":1}\\n```' },
+  explicit_tilde: { build: (n) => 'wrapper prose\\n'.repeat(n),
+    suffix: '~~~json\\n{"a":1}\\n~~~' },
+};
+const rows = [];
+for (const [shape, spec] of Object.entries(shapes)) {
+  for (const target of targets) {
+    let low = 0;
+    let high = target;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (spec.build(middle).length + spec.suffix.length < target) low = middle;
+      else high = middle;
+    }
+    const input = spec.build(high) + spec.suffix;
+    const diagnostics = {};
+    const started = performance.now();
+    parseSingleJsonObject(input, diagnostics);
+    rows.push({ shape, target, bytes: input.length, steps: diagnostics.scan_steps,
+      ms: performance.now() - started });
+  }
+}
+process.stdout.write(JSON.stringify(rows));
+"""
+    completed = subprocess.run(
+        ["node", "--input-type=module", "--eval", program, PARSER.as_uri()],
+        capture_output=True, text=True, check=False, cwd=ROOT, timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    rows = json.loads(completed.stdout)
+    assert len(rows) == 36
+    assert all(0 <= row["bytes"] - row["target"] < 50 for row in rows)
+    assert all(row["steps"] <= row["bytes"] * 15 + 300 for row in rows)
     for shape in {row["shape"] for row in rows}:
         shape_rows = [row for row in rows if row["shape"] == shape]
         for previous, current in zip(shape_rows, shape_rows[1:]):
