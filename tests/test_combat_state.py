@@ -61,6 +61,38 @@ def test_combat_session_begin_round_records_initiative_by_dex():
     assert order[1]["actor_id"] == "ghoul"
 
 
+def test_combat_bonus_metadata_materializes_00_before_candidate_selection(
+    monkeypatch,
+):
+    session = _make_session()
+
+    def percentile_check(*_args, **_kwargs):
+        return {
+            "target": 50,
+            "effective_target": 50,
+            "roll": 40,
+            "outcome": "regular",
+            "difficulty": "regular",
+            "bonus": 1,
+            "penalty": 0,
+            "tens_values": [0, 4],
+            "units": 0,
+        }
+
+    monkeypatch.setattr(
+        coc_combat.coc_roll, "percentile_check", percentile_check
+    )
+    outcome, record = session._percentile(
+        "hero", "Spot Hidden", 50, "inspect", bonus=1
+    )
+
+    assert outcome == "regular"
+    assert record["roll"] == 40
+    assert record["unmodified_roll"] == 100
+    assert record["bonus_die_only_success"] is True
+    assert record["excluded_outcome"] == "bonus_die_only_success"
+
+
 def test_combat_session_attack_with_fight_back_pairs_opposed_roll():
     s = _make_session(rng_seed=1)
     s.begin_round()

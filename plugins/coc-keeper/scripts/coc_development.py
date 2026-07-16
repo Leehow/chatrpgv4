@@ -78,6 +78,78 @@ def _development_claims_path(campaign_dir: Path, investigator_id: str) -> Path:
     return _investigator_dir(campaign_dir, investigator_id) / "development-claims.json"
 
 
+def development_active_transaction_path(
+    campaign_dir: Path, investigator_id: str
+) -> Path:
+    return (
+        _investigator_dir(campaign_dir, investigator_id)
+        / "development-active-transaction.json"
+    )
+
+
+class DevelopmentTransactionConflict(ValueError):
+    """An incomplete transaction owns reusable-investigator state."""
+
+    code = "RECOVERY_CONFLICT"
+
+    def __init__(
+        self, transaction_id: str, investigator_id: str, campaign_id: str
+    ) -> None:
+        self.transaction_id = transaction_id
+        self.investigator_id = investigator_id
+        self.campaign_id = campaign_id
+        super().__init__(
+            "RECOVERY_CONFLICT "
+            f"{transaction_id}: investigator {investigator_id!r} has an active "
+            f"development transaction owned by campaign {campaign_id!r}"
+        )
+
+
+def active_development_transaction(
+    campaign_dir: Path, investigator_id: str
+) -> dict[str, Any] | None:
+    """Read the reusable investigator's transaction marker without mutating it."""
+    path = development_active_transaction_path(campaign_dir, investigator_id)
+    if path.is_symlink():
+        raise ValueError("development active transaction marker is unsafe")
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("development active transaction marker is unreadable") from exc
+    required = {
+        "schema_version", "status", "transaction_id", "investigator_id",
+        "campaign_id", "ending_id", "inflight_ref", "created_at",
+    }
+    expected_transaction_id = None
+    if isinstance(value, dict):
+        ending_id = value.get("ending_id")
+        if isinstance(ending_id, str):
+            expected_transaction_id = "development-txn-" + hashlib.sha256(
+                f"{ending_id}\0{investigator_id}".encode("utf-8")
+            ).hexdigest()[:24]
+    if (
+        not isinstance(value, dict)
+        or set(value) != required
+        or value.get("schema_version") != 1
+        or value.get("status") != "active"
+        or value.get("investigator_id") != investigator_id
+        or value.get("transaction_id") != expected_transaction_id
+        or not all(
+            isinstance(value.get(key), str) and value.get(key)
+            for key in (
+                "transaction_id", "campaign_id", "ending_id",
+                "inflight_ref", "created_at",
+            )
+        )
+        or _SAFE_ID.fullmatch(str(value.get("campaign_id"))) is None
+        or _SAFE_ID.fullmatch(str(value.get("ending_id"))) is None
+    ):
+        raise ValueError("development active transaction marker is invalid")
+    return value
+
+
 def _investigator_lock_path(campaign_dir: Path, investigator_id: str) -> Path:
     return (
         _investigators_root(campaign_dir).parent
@@ -231,9 +303,12 @@ def _tick_event_token(
     source_kind: str,
     source_event_id: str,
 ) -> str:
+    # ``session_id`` is provenance, not immutable source identity.  A
+    # canonical producer can be replayed after later endings once a bounded
+    # host ledger rotates; including the then-current logical session would
+    # turn that replay into a second earned check.
     identity = {
         "campaign_id": _campaign_id(campaign_dir),
-        "session_id": session_id,
         "investigator_id": investigator_id,
         "source_kind": source_kind,
         "source_event_id": source_event_id,
@@ -311,7 +386,18 @@ def record_skill_tick(
         _investigator_lock_path(campaign_dir, investigator_id),
         wait_seconds=5.0,
     ):
+        active_transaction = active_development_transaction(
+            campaign_dir, investigator_id
+        )
+        if active_transaction is not None:
+            raise DevelopmentTransactionConflict(
+                str(active_transaction.get("transaction_id") or "unknown-development-txn"),
+                investigator_id,
+                str(active_transaction.get("campaign_id") or "unknown-campaign"),
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
+        existing_tick: dict[str, Any] | None = None
+        existing_source_tick: dict[str, Any] | None = None
         if path.is_file():
             for raw in path.read_text(encoding="utf-8").splitlines():
                 try:
@@ -321,7 +407,53 @@ def record_skill_tick(
                 if isinstance(existing, dict) and existing.get("event_token") == token:
                     if existing.get("skill") != skill:
                         raise ValueError("development event token has conflicting skill")
-                    return existing
+                    existing_tick = existing
+                    break
+                if isinstance(existing, dict):
+                    try:
+                        if _development_event_identity(existing) == (
+                            _development_event_identity(tick)
+                        ):
+                            existing_source_tick = existing
+                    except (KeyError, TypeError, ValueError):
+                        pass
+
+        ledger = _load_development_claims(campaign_dir, investigator_id)
+        _hydrate_development_event_archive(
+            campaign_dir, investigator_id, ledger
+        )
+        archive = ledger["events"]
+        archived = archive.get(token)
+        identity = _development_event_identity(tick)
+        if archived is not None:
+            if _development_event_identity(archived) != identity:
+                raise ValueError(
+                    "development event token has conflicting durable identity"
+                )
+            if existing_tick is not None:
+                return existing_tick
+            # Claims survive active-queue consumption.  Return archived
+            # evidence but mark it so callers do not recreate compatibility
+            # projections for an already-consumed event.
+            if token in ledger["claims"]:
+                replay = dict(archived)
+                replay["development_event_status"] = "already_claimed"
+                return replay
+            # Archive-before-append is deliberate.  If a process exited in
+            # that tiny window, append the missing active row below.
+        else:
+            archive[token] = _development_event_archive_record(tick)
+            ledger_path = _development_claims_path(campaign_dir, investigator_id)
+            ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            coc_fileio.write_json_atomic(
+                ledger_path, ledger, indent=2, ensure_ascii=False
+            )
+            if existing_tick is not None:
+                return existing_tick
+            if existing_source_tick is not None:
+                return existing_source_tick
+        if existing_source_tick is not None:
+            return existing_source_tick
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(tick, ensure_ascii=False) + "\n")
     return tick
@@ -916,10 +1048,32 @@ def _valid_plan_against_baseline(
         "expression"
     ) != str(rule.get("sanity_reward", {}).get("reward", "2D6")):
         return False
-    return plan.get("awfulness_decay") == {
+    if plan.get("awfulness_decay") != {
         key: max(0, int(value) - 1)
         for key, value in baseline["sanity"]["awfulness_caps"].items()
-    }
+    }:
+        return False
+    if plan.get("schema_version") == 2:
+        current = int(baseline["sanity"]["current"])
+        maximum = int(baseline["sanity"]["max"])
+        development_total = (
+            int(development_reward["total"])
+            if isinstance(development_reward, dict) else 0
+        )
+        development_delta = min(development_total, maximum - current)
+        current += development_delta
+        scenario_reward = plan.get("scenario_san_reward")
+        scenario_total = (
+            int(scenario_reward["total"])
+            if isinstance(scenario_reward, dict) else 0
+        )
+        scenario_delta = min(scenario_total, maximum - current)
+        if (
+            plan.get("development_san_planned_delta") != development_delta
+            or plan.get("scenario_san_planned_delta") != scenario_delta
+        ):
+            return False
+    return True
 
 
 def _valid_development_input_v2(value: Any) -> bool:
@@ -1008,12 +1162,24 @@ def _valid_development_input_v2(value: Any) -> bool:
             for key, item in baseline["sanity"]["awfulness_caps"].items()
         )
         or not isinstance(plan, dict)
-        or set(plan) != {
-            "schema_version", "improvement_checks", "luck_recovery",
-            "awfulness_decay", "development_san_reward",
-            "scenario_san_reward", "plan_sha256",
-        }
-        or plan.get("schema_version") != 1
+        or plan.get("schema_version") not in {1, 2}
+        or (
+            plan.get("schema_version") == 1
+            and set(plan) != {
+                "schema_version", "improvement_checks", "luck_recovery",
+                "awfulness_decay", "development_san_reward",
+                "scenario_san_reward", "plan_sha256",
+            }
+        )
+        or (
+            plan.get("schema_version") == 2
+            and set(plan) != {
+                "schema_version", "improvement_checks", "luck_recovery",
+                "awfulness_decay", "development_san_reward",
+                "scenario_san_reward", "development_san_planned_delta",
+                "scenario_san_planned_delta", "plan_sha256",
+            }
+        )
         or not isinstance(plan.get("improvement_checks"), list)
         or [row.get("skill") for row in plan["improvement_checks"]] != skills
         or not all(
@@ -1041,6 +1207,18 @@ def _valid_development_input_v2(value: Any) -> bool:
         or (
             plan.get("scenario_san_reward") is not None
             and not _valid_frozen_roll(plan.get("scenario_san_reward"))
+        )
+        or (
+            plan.get("schema_version") == 2
+            and any(
+                isinstance(plan.get(key), bool)
+                or not isinstance(plan.get(key), int)
+                or plan[key] < 0
+                for key in (
+                    "development_san_planned_delta",
+                    "scenario_san_planned_delta",
+                )
+            )
         )
         or plan.get("plan_sha256") != _canonical_sha256({
             key: item for key, item in plan.items() if key != "plan_sha256"
@@ -1269,6 +1447,60 @@ def _capsule_tick_event(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _development_event_identity(row: dict[str, Any]) -> dict[str, str]:
+    """Return the immutable producer identity; session/time/roll are evidence."""
+    return {
+        "investigator_id": str(row["investigator_id"]),
+        "campaign_id": str(row["campaign_id"]),
+        "source_kind": str(row["source_kind"]),
+        "source_event_id": str(row["source_event_id"]),
+        "skill": str(row["skill"]),
+    }
+
+
+def _development_event_archive_record(
+    row: dict[str, Any], *, investigator_id: str | None = None
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "event_token": str(row["event_token"]),
+        "investigator_id": str(
+            row.get("investigator_id") or investigator_id or ""
+        ),
+        "campaign_id": str(row["campaign_id"]),
+        "session_id": str(row["session_id"]),
+        "source_kind": str(row["source_kind"]),
+        "source_event_id": str(row["source_event_id"]),
+        "skill": str(row["skill"]),
+        "ts": str(row.get("ts") or ""),
+        "roll": row.get("roll"),
+    }
+
+
+def _valid_development_event_archive_record(
+    token: str, value: Any, investigator_id: str
+) -> bool:
+    required = {
+        "schema_version", "event_token", "investigator_id", "campaign_id",
+        "session_id", "source_kind", "source_event_id", "skill", "ts", "roll",
+    }
+    return bool(
+        isinstance(value, dict)
+        and set(value) == required
+        and value.get("schema_version") == 1
+        and value.get("event_token") == token
+        and value.get("investigator_id") == investigator_id
+        and all(
+            isinstance(value.get(key), str) and value.get(key)
+            for key in (
+                "campaign_id", "session_id", "source_kind",
+                "source_event_id", "skill",
+            )
+        )
+        and isinstance(value.get("ts"), str)
+    )
+
+
 def _migrate_reusable_tick_events(
     campaign_dir: Path, investigator_id: str
 ) -> list[dict[str, str]]:
@@ -1458,15 +1690,23 @@ def _load_development_claims(
 ) -> dict[str, Any]:
     path = _development_claims_path(campaign_dir, investigator_id)
     if not path.is_file():
-        return {"schema_version": 1, "investigator_id": investigator_id, "claims": {}}
+        return {
+            "schema_version": 2,
+            "investigator_id": investigator_id,
+            "claims": {},
+            "events": {},
+            "capsule_archive_hydrated": False,
+        }
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError("development claim ledger is unreadable") from exc
     claims = value.get("claims") if isinstance(value, dict) else None
+    events = value.get("events") if isinstance(value, dict) else None
+    schema_version = value.get("schema_version") if isinstance(value, dict) else None
     if (
         not isinstance(value, dict)
-        or value.get("schema_version") != 1
+        or schema_version not in {1, 2}
         or value.get("investigator_id") != investigator_id
         or not isinstance(claims, dict)
         or not all(
@@ -1485,7 +1725,137 @@ def _load_development_claims(
         )
     ):
         raise ValueError("development claim ledger identity is invalid")
+    if schema_version == 1:
+        if set(value) != {"schema_version", "investigator_id", "claims"}:
+            raise ValueError("development claim ledger identity is invalid")
+        return {
+            "schema_version": 2,
+            "investigator_id": investigator_id,
+            "claims": claims,
+            "events": {},
+            "capsule_archive_hydrated": False,
+        }
+    if (
+        set(value) != {
+            "schema_version", "investigator_id", "claims", "events",
+            "capsule_archive_hydrated",
+        }
+        or not isinstance(value.get("capsule_archive_hydrated"), bool)
+        or not isinstance(events, dict)
+        or not all(
+            isinstance(token, str)
+            and token
+            and _valid_development_event_archive_record(
+                token, event, investigator_id
+            )
+            for token, event in events.items()
+        )
+    ):
+        raise ValueError("development event archive identity is invalid")
     return value
+
+
+def _hydrate_development_event_archive(
+    campaign_dir: Path,
+    investigator_id: str,
+    ledger: dict[str, Any],
+) -> bool:
+    """Adopt durable pre-v4 capsule identities into the reusable archive."""
+    if ledger.get("capsule_archive_hydrated") is True:
+        return False
+    changed = False
+    campaigns_root = Path(campaign_dir).parent
+    if not campaigns_root.is_dir():
+        return False
+    for capsule_path in sorted(
+        campaigns_root.glob(
+            "*/save/development-settlements/endings/*/capsule.json"
+        )
+    ):
+        try:
+            capsule = json.loads(capsule_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not _valid_ending_capsule(capsule):
+            continue
+        development_input = (
+            capsule.get("development_inputs") or {}
+        ).get(investigator_id)
+        if (
+            not isinstance(development_input, dict)
+            or development_input.get("schema_version") != 2
+        ):
+            continue
+        owner = development_input.get("claim_owner")
+        if not isinstance(owner, dict):
+            continue
+        old_tokens = development_input.get("input_tokens") or []
+        for index, event in enumerate(development_input.get("check_events") or []):
+            if not isinstance(event, dict):
+                continue
+            stable_identity = {
+                "campaign_id": str(event.get("campaign_id") or ""),
+                "investigator_id": investigator_id,
+                "source_kind": str(event.get("source_kind") or ""),
+                "source_event_id": str(event.get("source_event_id") or ""),
+            }
+            if not all(stable_identity.values()):
+                continue
+            stable_token = "development-check-" + _canonical_sha256(
+                stable_identity
+            )
+            archive_record = _development_event_archive_record(
+                {
+                    **event,
+                    "event_token": stable_token,
+                    "investigator_id": investigator_id,
+                    "ts": "",
+                    "roll": None,
+                }
+            )
+            prior_event = ledger["events"].get(stable_token)
+            if prior_event is None:
+                ledger["events"][stable_token] = archive_record
+                changed = True
+            elif _development_event_identity(
+                prior_event
+            ) != _development_event_identity(archive_record):
+                raise ValueError(
+                    "development event archive has conflicting capsule identity"
+                )
+            old_token = old_tokens[index] if index < len(old_tokens) else None
+            prior_claim = (
+                ledger["claims"].get(old_token)
+                if isinstance(old_token, str) else None
+            )
+            claim = (
+                dict(prior_claim)
+                if isinstance(prior_claim, dict)
+                else {
+                    "campaign_id": str(owner.get("campaign_id") or ""),
+                    "ending_id": str(owner.get("ending_id") or ""),
+                    "investigator_id": investigator_id,
+                    "claimed_at": str(capsule.get("captured_at") or ""),
+                }
+            )
+            existing_claim = ledger["claims"].get(stable_token)
+            if existing_claim is None:
+                ledger["claims"][stable_token] = claim
+                changed = True
+            elif any(
+                existing_claim.get(key) != claim.get(key)
+                for key in ("campaign_id", "ending_id", "investigator_id")
+            ):
+                raise ValueError(
+                    "development event archive has conflicting capsule owner"
+                )
+    ledger["capsule_archive_hydrated"] = True
+    changed = True
+    if changed:
+        path = _development_claims_path(campaign_dir, investigator_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        coc_fileio.write_json_atomic(path, ledger, indent=2, ensure_ascii=False)
+    return changed
 
 
 def _claim_development_events(
@@ -1497,24 +1867,72 @@ def _claim_development_events(
     events = _migrate_reusable_tick_events(campaign_dir, investigator_id)
     events = _migrate_campaign_skill_names(campaign_dir, investigator_id, events)
     ledger = _load_development_claims(campaign_dir, investigator_id)
+    _hydrate_development_event_archive(campaign_dir, investigator_id, ledger)
     owner = {
         "campaign_id": _campaign_id(campaign_dir),
         "ending_id": ending_id,
         "investigator_id": investigator_id,
     }
     claims = ledger["claims"]
+    archive = ledger["events"]
     owned: list[dict[str, str]] = []
-    changed = False
+    changed = ledger.get("schema_version") != 2
     for event in events:
         token = event["event_token"]
-        prior = claims.get(token)
-        if prior is None:
-            claims[token] = {**owner, "claimed_at": time.strftime(
-                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-            )}
+        archived = archive.get(token)
+        archive_record = _development_event_archive_record(
+            event, investigator_id=investigator_id
+        )
+        if archived is None:
+            archive[token] = archive_record
             changed = True
-            owned.append(event)
-        elif all(prior.get(key) == value for key, value in owner.items()):
+        elif _development_event_identity(archived) != _development_event_identity(
+            archive_record
+        ):
+            raise ValueError(
+                "development event token has conflicting durable identity"
+            )
+        stable_token = "development-check-" + _canonical_sha256({
+            "campaign_id": event["campaign_id"],
+            "investigator_id": investigator_id,
+            "source_kind": event["source_kind"],
+            "source_event_id": event["source_event_id"],
+        })
+        claim_tokens = [token]
+        if stable_token != token:
+            stable_archive = _development_event_archive_record(
+                {**event, "event_token": stable_token},
+                investigator_id=investigator_id,
+            )
+            prior_stable = archive.get(stable_token)
+            if prior_stable is None:
+                archive[stable_token] = stable_archive
+                changed = True
+            elif _development_event_identity(
+                prior_stable
+            ) != _development_event_identity(stable_archive):
+                raise ValueError(
+                    "development event stable alias has conflicting identity"
+                )
+            claim_tokens.append(stable_token)
+        priors = [claims.get(item) for item in claim_tokens]
+        foreign_owner = any(
+            prior is not None
+            and not all(prior.get(key) == value for key, value in owner.items())
+            for prior in priors
+        )
+        if foreign_owner:
+            continue
+        claimed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for claim_token, prior in zip(claim_tokens, priors):
+            if prior is None:
+                claims[claim_token] = {**owner, "claimed_at": claimed_at}
+                changed = True
+        if all(
+            claims[item].get(key) == value
+            for item in claim_tokens
+            for key, value in owner.items()
+        ):
             owned.append(event)
     if changed:
         path = _development_claims_path(campaign_dir, investigator_id)
@@ -1621,8 +2039,19 @@ def _deterministic_development_plan(
         coc_roll.roll_expression(scenario_reward_expr, rng)
         if isinstance(scenario_reward_expr, str) and scenario_reward_expr else None
     )
+    planned_san = int(sanity["current"])
+    san_max = int(sanity["max"])
+    development_san_planned_delta = min(
+        int(development_reward["total"]) if development_reward else 0,
+        san_max - planned_san,
+    )
+    planned_san += development_san_planned_delta
+    scenario_san_planned_delta = min(
+        int(scenario_reward["total"]) if scenario_reward else 0,
+        san_max - planned_san,
+    )
     plan = {
-        "schema_version": 1,
+        "schema_version": 2,
         "improvement_checks": checks,
         "luck_recovery": luck_recovery,
         "awfulness_decay": {
@@ -1631,6 +2060,8 @@ def _deterministic_development_plan(
         },
         "development_san_reward": development_reward,
         "scenario_san_reward": scenario_reward,
+        "development_san_planned_delta": development_san_planned_delta,
+        "scenario_san_planned_delta": scenario_san_planned_delta,
     }
     plan["plan_sha256"] = _canonical_sha256(plan)
     return plan
@@ -1644,6 +2075,15 @@ def _development_input_snapshot(
     seed_material: str,
     scenario_reward_expr: str | None,
 ) -> dict[str, Any]:
+    active_transaction = active_development_transaction(
+        campaign_dir, investigator_id
+    )
+    if active_transaction is not None:
+        raise DevelopmentTransactionConflict(
+            str(active_transaction.get("transaction_id") or "unknown-development-txn"),
+            investigator_id,
+            str(active_transaction.get("campaign_id") or "unknown-campaign"),
+        )
     owned_events, owner = _claim_development_events(
         campaign_dir, investigator_id, ending_id=ending_id
     )
@@ -1910,6 +2350,7 @@ def _apply_frozen_awfulness_decay(
     campaign_dir: Path,
     investigator_id: str,
     baseline_caps: dict[str, int],
+    planned_caps: dict[str, int],
 ) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
     if not baseline_caps or not coc_sanity.sanity_snapshot_exists(
         campaign_dir, investigator_id
@@ -1919,11 +2360,12 @@ def _apply_frozen_awfulness_decay(
     merged: dict[str, dict[str, int]] = {}
     for creature in baseline_caps:
         before = int(sess.awfulness_caps.get(creature, baseline_caps[creature]))
-        after = max(0, before - 1)
+        planned_delta = int(planned_caps[creature]) - int(baseline_caps[creature])
+        after = max(0, before + planned_delta)
         sess.awfulness_caps[creature] = after
         merged[creature] = {
             "current_before_apply": before,
-            "planned_delta": -1,
+            "planned_delta": planned_delta,
             "applied_delta": after - before,
             "value_after": after,
         }
@@ -2037,6 +2479,7 @@ def run_development_phase(
             campaign_dir,
             investigator_id,
             baseline["sanity"]["awfulness_caps"],
+            plan["awfulness_decay"],
         )
         _consume_development_inputs(campaign_dir, investigator_id, development_input)
         ending = ending_evidence or structured_ending_evidence(campaign_dir)
@@ -2051,11 +2494,40 @@ def run_development_phase(
                 if isinstance(development_reward, dict) else None
             ),
             "san_reward_roll": development_reward,
+            "san_reward_planned_delta": (
+                int(plan["development_san_planned_delta"])
+                if plan.get("schema_version") == 2
+                else min(
+                    int(development_reward["total"])
+                    if isinstance(development_reward, dict) else 0,
+                    int(baseline["sanity"]["max"])
+                    - int(baseline["sanity"]["current"]),
+                )
+            ),
             "ending_evidence": ending,
             "scenario_san_reward_expr": (
                 ending.get("scenario_san_reward_expr") if ending else None
             ),
             "scenario_san_reward_roll": scenario_reward,
+            "scenario_san_reward_planned_delta": (
+                int(plan["scenario_san_planned_delta"])
+                if plan.get("schema_version") == 2
+                else min(
+                    int(scenario_reward["total"])
+                    if isinstance(scenario_reward, dict) else 0,
+                    max(
+                        0,
+                        int(baseline["sanity"]["max"])
+                        - int(baseline["sanity"]["current"])
+                        - min(
+                            int(development_reward["total"])
+                            if isinstance(development_reward, dict) else 0,
+                            int(baseline["sanity"]["max"])
+                            - int(baseline["sanity"]["current"]),
+                        ),
+                    ),
+                )
+            ),
             "luck_recovery": luck_recovery,
             "awfulness_decay": awfulness_decay,
             "awfulness_merge": awfulness_merge,

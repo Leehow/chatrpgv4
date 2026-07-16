@@ -1206,6 +1206,62 @@ def test_state_end_session_idempotent_on_decision_id(campaign_ws):
     assert len(endings) == 1
 
 
+def test_evicted_roll_replay_does_not_reearn_consumed_development_check(
+    campaign_ws,
+):
+    investigator_id = campaign_ws["investigator_id"]
+    roll_args = {
+        "investigator": investigator_id,
+        "skill": "Spot Hidden",
+        "target": 99,
+        "seed": 1,
+        "decision_id": "old-roll-after-ledger-eviction",
+    }
+    first = _run(campaign_ws, "rules.roll", roll_args)
+    assert first["ok"] is True
+    ended = _run(campaign_ws, "state.end_session", {
+        "kind": "cliffhanger",
+        "summary": "consume the old roll's development event",
+        "decision_id": "consume-old-roll-ending",
+    })
+    assert ended["data"]["development"]["status"] == "PASS"
+    assert ended["data"]["development"]["settlements"][0]["receipt"][
+        "result"
+    ]["skills_checked"] == ["Spot Hidden"]
+
+    for index in range(coc_toolbox._LEDGER_MAX_ENTRIES + 1):
+        journaled = _run(campaign_ws, "state.journal", {
+            "summary": f"rotate bounded ledger entry {index}",
+            "decision_id": f"ledger-rotation-{index}",
+        })
+        assert journaled["ok"] is True
+
+    replay = _run(campaign_ws, "rules.roll", roll_args)
+    assert replay["ok"] is True
+    assert not any(
+        "duplicate decision_id" in warning
+        for warning in replay.get("warnings") or []
+    )
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["skill_checks_earned"] == []
+    assert state["skill_check_events"] == []
+    assert (campaign_ws["coc_root"] / "investigators" / investigator_id
+            / "development.jsonl").read_text(encoding="utf-8") == ""
+
+    second_ending = _run(campaign_ws, "state.end_session", {
+        "kind": "cliffhanger",
+        "summary": "replayed source has no second development event",
+        "decision_id": "after-old-roll-replay-ending",
+    })
+    assert second_ending["data"]["development"]["settlements"][0][
+        "receipt"
+    ]["result"]["skills_checked"] == []
+
+
 def test_state_end_session_process_retry_reuses_persisted_ending(
     campaign_ws, monkeypatch
 ):
@@ -1469,6 +1525,23 @@ def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
         / f"{investigator_id}.json"
     ).read_text(encoding="utf-8"))
     assert latest["ending_id"] == second_ending_id
+    # Exercise the actual rev2 projection shape (derived source, no order).
+    latest.pop("ending_order")
+    latest_path = (
+        campaign_ws["campaign_dir"] / "save" / "development-settlements"
+        / f"{investigator_id}.json"
+    )
+    _write_json(latest_path, latest)
+    warning = coc_toolbox.coc_runtime_ops._write_latest_settlement_mirror(
+        campaign_ws["campaign_dir"],
+        investigator_id,
+        first_capsule,
+        recovered["data"]["development"]["settlements"][0]["receipt"],
+    )
+    assert warning is None
+    assert json.loads(latest_path.read_text(encoding="utf-8"))[
+        "ending_id"
+    ] == second_ending_id
 
 
 def test_pending_ending_and_new_same_skill_success_keep_distinct_event_claims(

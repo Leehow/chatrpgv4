@@ -983,6 +983,69 @@ def test_two_campaigns_shared_investigator_serialize_without_deadlock(tmp_path):
     json.loads(character.read_text(encoding="utf-8"))
 
 
+def test_foreign_campaign_marker_is_zero_write_and_only_origin_recovers(tmp_path):
+    character, campaign_a, _operation = _prepare_development_cliffhanger(tmp_path)
+    state.create_campaign(tmp_path, "camp2", "Foreign Campaign")
+    state.link_party(tmp_path, "camp2", ["inv"])
+    campaign_b = tmp_path / ".coc" / "campaigns" / "camp2"
+    ending = ops.coc_development.structured_ending_evidence(campaign_a)
+    assert ending is not None
+    ending_id, settlement, inflight = _exact_development_paths(campaign_a)
+    rng = random.Random(5)
+    journal = ops._capture_development_inflight(
+        campaign_dir=campaign_a,
+        investigator_id="inv",
+        ending_id=ending_id,
+        settlement_path=settlement,
+        inflight_path=inflight,
+        ending=ending,
+        rng=rng,
+    )
+    _receipt, file_postimages, log_postimages = ops._plan_development_postimages(
+        campaign_dir=campaign_a,
+        investigator_id="inv",
+        payload={},
+        rng=rng,
+        settlement_path=settlement,
+        ending=ending,
+    )
+    journal.update({
+        "status": "prepared",
+        "file_postimages": file_postimages,
+        "log_postimages": log_postimages,
+    })
+    ops._write_development_journal(inflight, journal)
+    character_preimage = journal["file_preimages"]["character"]
+    ops.coc_fileio.write_text_atomic(
+        character, str(file_postimages["character"]["text"])
+    )
+    marker = ops._development_active_marker_path(campaign_a, "inv")
+    tracked = [character, inflight, marker]
+    before_foreign = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as guarded_read:
+        ops.read_development_guarded_character(campaign_b, "inv", character)
+    assert guarded_read.value.transaction_id == journal["transaction_id"]
+    assert {path: path.read_bytes() for path in tracked} == before_foreign
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as exc_info:
+        with ops.coc_fileio.campaign_lock(campaign_b):
+            ops.recover_development_transactions(campaign_b)
+
+    assert exc_info.value.transaction_id == journal["transaction_id"]
+    assert {path: path.read_bytes() for path in tracked} == before_foreign
+    assert not settlement.exists()
+
+    with ops.coc_fileio.campaign_lock(campaign_a):
+        recovered = ops.recover_development_transactions(campaign_a)
+
+    assert recovered[0]["status"] == "ROLLED_BACK"
+    assert ops._file_image(character) == character_preimage
+    assert inflight.is_file()
+    assert json.loads(inflight.read_text(encoding="utf-8"))["status"] == "recovered"
+    assert not marker.exists()
+
+
 @pytest.mark.parametrize(
     "crash_site",
     ["scenario_public_roll", "scenario_reward_event", "settlement_receipt"],
@@ -1474,6 +1537,78 @@ def test_development_reward_uses_existing_sanity_snapshot_and_respects_cap(tmp_p
     assert reward["san_gained"] == 1
     assert reward["san_after"] == reward["san_max"] == 56
     assert json.loads(inv_path.read_text(encoding="utf-8"))["current_san"] == 56
+
+
+def test_frozen_capped_san_reward_cannot_turn_into_later_healing(tmp_path):
+    character = _workspace(tmp_path)
+    campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    sanity = ops.coc_sanity.SanitySession(
+        "inv", san_max=99, int_value=70, rng=random.Random(1),
+        campaign_dir=campaign,
+    )
+    sanity.san_current = 99
+    sanity.day_start_san = 99
+    sanity.save(campaign, strict_mirror=True)
+    baseline = {
+        "skills": {},
+        "luck": 50,
+        "sanity": {
+            "source": "canonical",
+            "current": 99,
+            "max": 99,
+            "awfulness_caps": {},
+        },
+    }
+    plan = ops.coc_development._deterministic_development_plan(
+        skills={},
+        luck=50,
+        sanity=baseline["sanity"],
+        seed_material="frozen-zero-san",
+        scenario_reward_expr="1D6",
+    )
+    assert plan["scenario_san_reward"]["total"] > 0
+    assert plan["scenario_san_planned_delta"] == 0
+    development_input = {
+        "schema_version": 2,
+        "skills_checked": [],
+        "input_tokens": [],
+        "mechanical_baseline": baseline,
+        "deterministic_plan": plan,
+    }
+    ending = {
+        "ending_id": "ending-frozen-zero-san",
+        "investigator_ids": ["inv"],
+        "development_inputs": {"inv": development_input},
+        "scenario_san_reward_expr": "1D6",
+        "scenario_san_reward_rule_ref": "test.reward",
+        "scenario_id": "test-scenario",
+        "conclusion_id": "test-conclusion",
+        "conclusion_reward_id": "test-conclusion-reward",
+        "conclusion_evidence": {"kind": "structured-test"},
+    }
+    # A legitimate later loss occurs before the delayed ending retry.
+    sanity = ops.coc_sanity.SanitySession.load(campaign, "inv")
+    sanity.san_current = 90
+    sanity.save(campaign, strict_mirror=True)
+    settlement = ops.coc_development.ending_settlement_path(
+        campaign, ending["ending_id"], "inv"
+    )
+
+    receipt = ops._development_operation_body(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        payload={},
+        rng=random.Random(9),
+        ending=ending,
+        settlement_path=settlement,
+    )
+
+    reward = receipt["result"]["scenario_san_reward"]
+    assert reward["planned_san_delta"] == 0
+    assert reward["san_before"] == reward["san_after"] == 90
+    assert reward["san_gained"] == 0
+    assert ops.coc_sanity.SanitySession.load(campaign, "inv").san_current == 90
+    assert Path(character).is_file()
 
 
 def test_setup_gateway_quick_start_has_direct_and_pi_sdk_parity(tmp_path):

@@ -2759,6 +2759,8 @@ def _record_development_ticks(
         )
         if tick is None:
             continue
+        if tick.get("development_event_status") == "already_claimed":
+            continue
         # Mirror playtest roll payload: skill_check_earned boolean + skill/roll.
         result["skill_check_earned"] = True
         events.append({

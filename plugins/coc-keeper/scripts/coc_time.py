@@ -453,11 +453,10 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
     coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
     inv = _read_inv_state(campaign_dir, investigator_id)
     canonical_sanity = None
-    canonical_path = coc_sanity.sanity_snapshot_path(campaign_dir, investigator_id)
-    if canonical_path.is_file():
-        # The identity-safe SanitySession is authoritative after migration.
-        # Read it before constructing the psychotherapy input so an old
-        # compatibility mirror cannot overwrite newer canonical SAN.
+    if coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
+        # Both the identity-safe snapshot and an identity-matching legacy-only
+        # snapshot are authoritative.  ``load`` performs the latter's safe
+        # migration before compatibility investigator-state can overwrite it.
         canonical_sanity = coc_sanity.SanitySession.load(
             campaign_dir, investigator_id
         )

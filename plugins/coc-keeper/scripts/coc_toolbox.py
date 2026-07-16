@@ -254,7 +254,9 @@ class Ctx:
         path = self.coc_root / "investigators" / investigator_id / "character.json"
         if not path.is_file():
             raise ToolError("unknown_investigator", f"no character sheet for {investigator_id}")
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = coc_runtime_ops.read_development_guarded_character(
+            self.campaign_dir, investigator_id, path
+        )
         if not isinstance(data, dict):
             raise ToolError("bad_character_sheet", f"character sheet must be an object: {path}")
         return data
@@ -462,6 +464,17 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 "ok": False,
                 "tool": name,
                 "error": {"code": exc.code, "message": exc.message},
+            }
+        except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
+            envelope = {
+                "ok": False,
+                "tool": name,
+                "error": {"code": "recovery_conflict", "message": str(exc)},
+                "recovery": {
+                    "status": "RECOVERY_CONFLICT",
+                    "transaction_id": exc.transaction_id,
+                    "conflicting_paths": exc.conflicting_paths,
+                },
             }
         except (ValueError, FileNotFoundError) as exc:
             envelope = {
@@ -1112,6 +1125,8 @@ def _mark_improvement_tick(
         source_kind=source_kind,
     )
     if tick is None:
+        return False
+    if tick.get("development_event_status") == "already_claimed":
         return False
     state = ctx.inv_state(investigator_id)
     events = state.get("skill_check_events")

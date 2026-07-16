@@ -824,13 +824,11 @@ class CombatSession:
             and units is not None
         ):
             units_i = int(units)
-            selected = min(tens_values) * 10 + units_i
-            # coc_roll records the physical/base tens die first and appends
-            # bonus/penalty dice afterwards.  The largest tens die is not the
-            # base die (and can be either the original or the extra die).
+            # Canonical roll selection materializes ``00`` as 100 *before*
+            # choosing a bonus/penalty candidate.  Reuse its selected result;
+            # raw-tens ordering would incorrectly choose 00 over 40.
+            selected = int(res["roll"])
             unmodified = tens_values[0] * 10 + units_i
-            if selected == 0:
-                selected = 100
             if unmodified == 0:
                 unmodified = 100
             bonus_die_only_success = (

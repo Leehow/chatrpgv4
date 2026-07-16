@@ -243,6 +243,64 @@ def test_same_skill_successes_receive_distinct_stable_event_tokens(tmp_path):
     ]
 
 
+def test_consumed_event_replay_keeps_source_token_across_later_session(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    first = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        "Spot Hidden",
+        _success_result(),
+        source_event_id="rules.roll:durable-replay",
+        source_kind="rules.roll",
+        session_id="case:session:1",
+    )
+    assert first is not None
+    capsule = coc_development.build_ending_settlement_capsule(
+        camp,
+        {
+            "event_type": "session_ending",
+            "ending_id": "ending-durable-replay",
+            "scene_id": "finale",
+            "kind": "cliffhanger",
+            "decision_id": "ending-durable-replay",
+            "investigator_ids": [inv_id],
+            "ts": "2026-07-16T00:00:00Z",
+        },
+    )
+    development_input = capsule["development_inputs"][inv_id]
+    coc_development.run_development_phase(
+        camp,
+        inv_id,
+        ending_evidence=capsule,
+        development_input=development_input,
+    )
+    assert _read_ticks(camp, inv_id) == []
+
+    replay = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        "Spot Hidden",
+        _success_result(),
+        source_event_id="rules.roll:durable-replay",
+        source_kind="rules.roll",
+        session_id="case:session:99",
+    )
+
+    assert replay is not None
+    assert replay["event_token"] == first["event_token"]
+    assert replay["session_id"] == "case:session:1"
+    assert replay["development_event_status"] == "already_claimed"
+    assert _read_ticks(camp, inv_id) == []
+    ledger = json.loads((
+        camp.parents[1] / "investigators" / inv_id
+        / "development-claims.json"
+    ).read_text(encoding="utf-8"))
+    assert ledger["schema_version"] == 2
+    assert ledger["events"][first["event_token"]]["source_event_id"] == (
+        "rules.roll:durable-replay"
+    )
+
+
 def test_capsule_rejects_conflicting_identity_for_existing_event_token(tmp_path):
     camp, inv_id = _campaign_with_investigator(tmp_path)
     tick = coc_development.record_skill_tick(
@@ -280,9 +338,11 @@ def test_capsule_rejects_conflicting_identity_for_existing_event_token(tmp_path)
                 "ts": "2026-07-16T00:00:00Z",
             },
         )
-    assert not (
+    archive = json.loads((
         camp.parents[1] / "investigators" / inv_id / "development-claims.json"
-    ).exists()
+    ).read_text(encoding="utf-8"))
+    assert archive["claims"] == {}
+    assert list(archive["events"]) == [tick["event_token"]]
 
 
 def test_two_campaign_capsules_can_claim_one_reusable_event_only_once(tmp_path):
@@ -487,6 +547,60 @@ def test_development_phase_awfulness_caps_decay(tmp_path):
     assert out["awfulness_decay"] == {"ghoul": 2, "byakhee": 0, "deep_one": 0}
     loaded = coc_sanity.SanitySession.load(camp, inv_id, int_value=70)
     assert loaded.awfulness_caps == {"ghoul": 2, "byakhee": 0, "deep_one": 0}
+
+
+def test_frozen_floor_zero_awfulness_decay_does_not_affect_later_cap(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    sess = coc_sanity.SanitySession(
+        inv_id, san_max=99, int_value=60, rng=random.Random(41),
+        campaign_dir=camp,
+    )
+    sess.san_current = 60
+    sess.awfulness_caps = {"ghoul": 0}
+    sess.save(camp)
+    baseline = {
+        "skills": {},
+        "luck": 40,
+        "sanity": {
+            "source": "canonical",
+            "current": 60,
+            "max": 99,
+            "awfulness_caps": {"ghoul": 0},
+        },
+    }
+    plan = coc_development._deterministic_development_plan(
+        skills={},
+        luck=40,
+        sanity=baseline["sanity"],
+        seed_material="awfulness-floor-zero",
+        scenario_reward_expr=None,
+    )
+    assert plan["awfulness_decay"] == {"ghoul": 0}
+    sess = coc_sanity.SanitySession.load(camp, inv_id)
+    sess.awfulness_caps["ghoul"] = 10
+    sess.save(camp)
+
+    result = coc_development.run_development_phase(
+        camp,
+        inv_id,
+        ending_evidence={"ending_id": "ending-awfulness-floor"},
+        development_input={
+            "schema_version": 2,
+            "skills_checked": [],
+            "input_tokens": [],
+            "mechanical_baseline": baseline,
+            "deterministic_plan": plan,
+        },
+    )
+
+    assert result["awfulness_decay"]["ghoul"] == 10
+    assert result["awfulness_merge"]["ghoul"] == {
+        "current_before_apply": 10,
+        "planned_delta": 0,
+        "applied_delta": 0,
+        "value_after": 10,
+    }
+    assert coc_sanity.SanitySession.load(camp, inv_id).awfulness_caps["ghoul"] == 10
 
 
 def test_development_phase_clears_ticks(tmp_path):

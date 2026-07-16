@@ -212,7 +212,10 @@ def _magic_state(
     investigator_id: str,
     character_path: Path,
 ) -> tuple[Path, dict[str, Any]]:
-    character = _read_object(character_path)
+    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    character = read_development_guarded_character(
+        campaign_dir, investigator_id, character_path
+    )
     path = coc_state.seed_investigator_state_if_missing(
         workspace, campaign_id, investigator_id, sheet=character
     )
@@ -335,7 +338,10 @@ def _investigator_state(
     investigator_id: str,
     character_path: Path,
 ) -> tuple[Path, dict[str, Any], dict[str, Any]]:
-    character = _read_object(character_path)
+    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    character = read_development_guarded_character(
+        campaign_dir, investigator_id, character_path
+    )
     state_path = coc_state.seed_investigator_state_if_missing(
         workspace, campaign_id, investigator_id, sheet=character
     )
@@ -476,7 +482,9 @@ def _sanity_session_for_reward(
     character_path = (
         campaign_dir.parents[1] / "investigators" / investigator_id / "character.json"
     )
-    character = _read_object(character_path)
+    character = read_development_guarded_character(
+        campaign_dir, investigator_id, character_path
+    )
     characteristics = (
         character.get("characteristics")
         if isinstance(character.get("characteristics"), dict) else {}
@@ -604,18 +612,40 @@ def _tome_operation(
     mythos_result: dict[str, Any] | None = None
     cm_gain = result.get("cm_gain")
     if isinstance(cm_gain, int) and not isinstance(cm_gain, bool) and cm_gain > 0:
-        mythos_result = coc_mythos.gain_mythos_persisted(
-            campaign_dir, investigator_id, amount=cm_gain
-        )
-        character_skills = character.get("skills")
-        if not isinstance(character_skills, dict):
-            character_skills = {}
-            character["skills"] = character_skills
-        character_skills["Cthulhu Mythos"] = int(mythos_result["cm_after"])
-        coc_fileio.write_json_atomic(
-            character_path, character, indent=2, ensure_ascii=False,
-            trailing_newline=True,
-        )
+        with coc_fileio.advisory_file_lock(
+            _development_investigator_lock_path(campaign_dir, investigator_id),
+            wait_seconds=5.0,
+        ):
+            marker_path = _development_active_marker_path(
+                campaign_dir, investigator_id
+            )
+            try:
+                marker = coc_development.active_development_transaction(
+                    campaign_dir, investigator_id
+                )
+            except ValueError as exc:
+                raise DevelopmentRecoveryConflict(
+                    "development-writer",
+                    [_journal_display_path(campaign_dir, marker_path)],
+                ) from exc
+            if marker is not None:
+                raise DevelopmentRecoveryConflict(
+                    str(marker["transaction_id"]),
+                    [_journal_display_path(campaign_dir, marker_path)],
+                )
+            mythos_result = coc_mythos.gain_mythos_persisted(
+                campaign_dir, investigator_id, amount=cm_gain
+            )
+            character = _read_object(character_path)
+            character_skills = character.get("skills")
+            if not isinstance(character_skills, dict):
+                character_skills = {}
+                character["skills"] = character_skills
+            character_skills["Cthulhu Mythos"] = int(mythos_result["cm_after"])
+            coc_fileio.write_json_atomic(
+                character_path, character, indent=2, ensure_ascii=False,
+                trailing_newline=True,
+            )
         # Refresh the already-persisted sanity maximum after the Mythos gain.
         if sanity_result is not None:
             sanity = coc_sanity.SanitySession.load(
@@ -961,6 +991,95 @@ def _development_investigator_lock_path(
     )
 
 
+def _development_active_marker_path(
+    campaign_dir: Path, investigator_id: str
+) -> Path:
+    return coc_development.development_active_transaction_path(
+        campaign_dir, investigator_id
+    )
+
+
+def _claim_development_active_marker(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    ending_id: str,
+    inflight_path: Path,
+) -> dict[str, Any]:
+    transaction_id = _development_transaction_id(ending_id, investigator_id)
+    marker_path = _development_active_marker_path(campaign_dir, investigator_id)
+    if not _target_kind_is_safe(campaign_dir.parents[1], marker_path):
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    expected = {
+        "schema_version": 1,
+        "status": "active",
+        "transaction_id": transaction_id,
+        "investigator_id": investigator_id,
+        "campaign_id": _id(campaign_dir.name, "campaign_id"),
+        "ending_id": ending_id,
+        "inflight_ref": _journal_display_path(campaign_dir, inflight_path),
+    }
+    try:
+        current = coc_development.active_development_transaction(
+            campaign_dir, investigator_id
+        )
+    except ValueError as exc:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        ) from exc
+    if current is not None:
+        if all(current.get(key) == value for key, value in expected.items()):
+            return current
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    marker = {**expected, "created_at": _now()}
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        marker_path,
+        marker,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return marker
+
+
+def _release_development_active_marker(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    transaction_id: str,
+    missing_ok: bool = True,
+) -> None:
+    marker_path = _development_active_marker_path(campaign_dir, investigator_id)
+    try:
+        marker = coc_development.active_development_transaction(
+            campaign_dir, investigator_id
+        )
+    except ValueError as exc:
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        ) from exc
+    if marker is None:
+        if missing_ok:
+            return
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    if (
+        marker.get("transaction_id") != transaction_id
+        or marker.get("campaign_id") != campaign_dir.name
+        or marker.get("investigator_id") != investigator_id
+    ):
+        raise DevelopmentRecoveryConflict(
+            transaction_id, [_journal_display_path(campaign_dir, marker_path)]
+        )
+    marker_path.unlink()
+
+
 def _write_development_journal(path: Path, journal: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     coc_fileio.write_json_atomic(
@@ -1012,6 +1131,12 @@ def _capture_development_inflight(
             transaction_id,
             [_journal_display_path(campaign_dir, inflight_path)],
         )
+    _claim_development_active_marker(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        ending_id=ending_id,
+        inflight_path=inflight_path,
+    )
     journal = {
         "schema_version": 2,
         "status": "planning",
@@ -1055,6 +1180,36 @@ class DevelopmentRecoveryConflict(RuntimeOperationError):
         super().__init__(
             f"RECOVERY_CONFLICT {transaction_id}: foreign divergence at {joined}"
         )
+
+
+def read_development_guarded_character(
+    campaign_dir: Path,
+    investigator_id: str,
+    character_path: Path,
+) -> dict[str, Any]:
+    """Read shared character state while excluding incomplete settlements."""
+    with coc_fileio.advisory_file_lock(
+        _development_investigator_lock_path(campaign_dir, investigator_id),
+        wait_seconds=5.0,
+    ):
+        marker_path = _development_active_marker_path(
+            campaign_dir, investigator_id
+        )
+        try:
+            marker = coc_development.active_development_transaction(
+                campaign_dir, investigator_id
+            )
+        except ValueError as exc:
+            raise DevelopmentRecoveryConflict(
+                "development-reader",
+                [_journal_display_path(campaign_dir, marker_path)],
+            ) from exc
+        if marker is not None:
+            raise DevelopmentRecoveryConflict(
+                str(marker["transaction_id"]),
+                [_journal_display_path(campaign_dir, marker_path)],
+            )
+        return _read_object(character_path)
 
 
 class DevelopmentTargetConflict(RuntimeOperationError):
@@ -1101,6 +1256,12 @@ def _recover_development_inflight(
             raise DevelopmentRecoveryConflict(
                 transaction_id,
                 [_journal_display_path(campaign_dir, inflight_path)],
+            )
+        if not dry_run:
+            _release_development_active_marker(
+                campaign_dir=campaign_dir,
+                investigator_id=investigator_id,
+                transaction_id=transaction_id,
             )
         return {
             "transaction_id": transaction_id,
@@ -1273,6 +1434,11 @@ def _recover_development_inflight(
                     transaction_id, sorted(set(incomplete))
                 )
             if not dry_run:
+                _release_development_active_marker(
+                    campaign_dir=campaign_dir,
+                    investigator_id=investigator_id,
+                    transaction_id=transaction_id,
+                )
                 inflight_path.unlink(missing_ok=True)
             return {
                 "transaction_id": transaction_id,
@@ -1317,6 +1483,11 @@ def _recover_development_inflight(
         "recovered_at": _now(),
     }
     _write_development_journal(inflight_path, recovered)
+    _release_development_active_marker(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        transaction_id=transaction_id,
+    )
     return {
         "transaction_id": transaction_id,
         "status": "ROLLED_BACK",
@@ -1418,6 +1589,27 @@ def _validate_development_journal_structure(
     return investigator_id, ending_id, settlement_path
 
 
+def _campaign_reusable_investigator_ids(campaign_dir: Path) -> set[str]:
+    """Return safe reusable actors this campaign may read through canonical APIs."""
+    values: set[str] = set()
+    party_path = campaign_dir / "party.json"
+    if party_path.is_file() and not party_path.is_symlink():
+        try:
+            party = _read_object(party_path)
+        except RuntimeOperationError:
+            party = {}
+        for item in party.get("investigator_ids") or []:
+            if isinstance(item, str) and _SAFE_ID.fullmatch(item):
+                values.add(item)
+    state_root = campaign_dir / "save" / "investigator-state"
+    if state_root.is_dir() and not state_root.is_symlink():
+        for path in state_root.glob("*.json"):
+            candidate = path.stem
+            if not path.is_symlink() and _SAFE_ID.fullmatch(candidate):
+                values.add(candidate)
+    return values
+
+
 def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str, Any]]:
     """Recover every incomplete settlement under the caller's campaign lock.
 
@@ -1426,11 +1618,7 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
     """
     campaign_dir = Path(campaign_dir)
     root = campaign_dir / "save" / "development-settlements"
-    if not root.is_dir():
-        return []
-    paths = sorted(root.rglob("*.inflight.json"))
-    if not paths:
-        return []
+    paths = sorted(root.rglob("*.inflight.json")) if root.is_dir() else []
     loaded: list[tuple[Path, dict[str, Any], str, str, Path]] = []
     conflicts: list[str] = []
     seen_transactions: dict[str, Path] = {}
@@ -1468,12 +1656,70 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
         )
 
     recovered: list[dict[str, Any]] = []
+    lock_ids = _campaign_reusable_investigator_ids(campaign_dir) | {
+        item[2] for item in loaded
+    }
+    if not lock_ids and not loaded:
+        return []
     with ExitStack() as locks:
-        for investigator_id in sorted({item[2] for item in loaded}):
+        # The caller already owns exactly this campaign lock.  Reusable locks
+        # are always acquired once, in sorted order, and no foreign campaign
+        # lock is ever acquired behind them.
+        for investigator_id in sorted(lock_ids):
             locks.enter_context(coc_fileio.advisory_file_lock(
                 _development_investigator_lock_path(campaign_dir, investigator_id),
                 wait_seconds=5.0,
             ))
+        loaded_by_inflight = {item[0]: item for item in loaded}
+        orphan_markers: list[tuple[str, str]] = []
+        marker_conflicts: list[str] = []
+        for investigator_id in sorted(lock_ids):
+            marker_path = _development_active_marker_path(
+                campaign_dir, investigator_id
+            )
+            try:
+                marker = coc_development.active_development_transaction(
+                    campaign_dir, investigator_id
+                )
+            except ValueError:
+                marker_conflicts.append(
+                    _journal_display_path(campaign_dir, marker_path)
+                )
+                continue
+            if marker is None:
+                continue
+            transaction_id = str(marker["transaction_id"])
+            if marker.get("campaign_id") != campaign_dir.name:
+                # Only the origin campaign may inspect/recover its journal.
+                # The foreign caller returns without touching canonical state.
+                raise DevelopmentRecoveryConflict(
+                    transaction_id,
+                    [_journal_display_path(campaign_dir, marker_path)],
+                )
+            ref = Path(str(marker.get("inflight_ref") or ""))
+            referenced = campaign_dir.parents[1] / ref
+            loaded_item = loaded_by_inflight.get(referenced)
+            if (
+                ref.is_absolute()
+                or ".." in ref.parts
+                or not _target_kind_is_safe(campaign_dir.parents[1], referenced)
+            ):
+                marker_conflicts.append(
+                    _journal_display_path(campaign_dir, marker_path)
+                )
+            elif loaded_item is None:
+                # Marker-first creation makes this the only safe orphan shape:
+                # the origin exited before its journal became durable.
+                orphan_markers.append((investigator_id, transaction_id))
+            elif str(loaded_item[1].get("transaction_id")) != transaction_id:
+                marker_conflicts.extend([
+                    _journal_display_path(campaign_dir, marker_path),
+                    _journal_display_path(campaign_dir, referenced),
+                ])
+        if marker_conflicts:
+            raise DevelopmentRecoveryConflict(
+                "development-recovery-set", sorted(set(marker_conflicts))
+            )
         # Validate the entire immutable journal set again while all shared
         # investigator locks are held. No canonical target has changed yet.
         for inflight_path, journal, investigator_id, _ending_id, settlement_path in loaded:
@@ -1530,6 +1776,15 @@ def recover_development_transactions(campaign_dir: Path | str) -> list[dict[str,
                 inflight_path=inflight_path,
                 journal=journal,
                 dry_run=True,
+            )
+        # No journal or marker in the locked set conflicts.  Origin-only orphan
+        # cleanup is now safe and cannot expose another campaign's partial state.
+        for investigator_id, transaction_id in orphan_markers:
+            _release_development_active_marker(
+                campaign_dir=campaign_dir,
+                investigator_id=investigator_id,
+                transaction_id=transaction_id,
+                missing_ok=False,
             )
         for inflight_path, journal, investigator_id, _ending_id, settlement_path in loaded:
             recovered.append(_recover_development_inflight(
@@ -1620,6 +1875,14 @@ def _plan_development_postimages(
             path.relative_to(sandbox_coc_root).as_posix()
             for path in [*sandbox_files.values(), *sandbox_logs.values()]
         }
+        # Guarded shared-character reads create only the persistent lock inode
+        # in the isolated planner.  It carries no game state and is not copied
+        # back as a transaction postimage.
+        allowed_changes.add(
+            _development_investigator_lock_path(
+                sandbox_campaign, investigator_id
+            ).relative_to(sandbox_coc_root).as_posix()
+        )
         unexpected_changes = sorted(
             relative
             for relative in set(before_tree) | set(after_tree)
@@ -1986,7 +2249,13 @@ def _development_operation_body(
             campaign_dir, investigator_id, rng=rng
         )
         san_before = int(sanity.san_current)
-        sanity.gain_san(int(rolled["total"]), source="development")
+        frozen_delta = result.get("san_reward_planned_delta")
+        planned_delta = (
+            int(frozen_delta)
+            if isinstance(frozen_delta, int) and not isinstance(frozen_delta, bool)
+            else int(rolled["total"])
+        )
+        sanity.gain_san(planned_delta, source="development")
         san_after = int(sanity.san_current)
         sanity.save(campaign_dir, strict_mirror=True)
         result["san_reward"] = {
@@ -1994,6 +2263,7 @@ def _development_operation_body(
             "planned_san_before": (
                 ((result.get("mechanical_baseline") or {}).get("sanity") or {}).get("current")
             ),
+            "planned_san_delta": planned_delta,
             "san_before": san_before,
             "san_gained": san_after - san_before,
             "san_after": san_after,
@@ -2014,6 +2284,7 @@ def _development_operation_body(
                 "reward_kind": "sanity",
                 "source": "development",
                 "san_before": san_before,
+                "planned_san_delta": planned_delta,
                 "san_delta": san_after - san_before,
                 "san_gained": san_after - san_before,
                 "san_after": san_after,
@@ -2077,7 +2348,14 @@ def _development_operation_body(
                 campaign_dir, investigator_id, rng=rng
             )
             san_before = int(sanity.san_current)
-            sanity.gain_san(int(rolled["total"]), source="scenario_conclusion")
+            frozen_delta = result.get("scenario_san_reward_planned_delta")
+            planned_delta = (
+                int(frozen_delta)
+                if isinstance(frozen_delta, int)
+                and not isinstance(frozen_delta, bool)
+                else int(rolled["total"])
+            )
+            sanity.gain_san(planned_delta, source="scenario_conclusion")
             san_after = int(sanity.san_current)
             sanity.save(campaign_dir, strict_mirror=True)
             reward_result = {
@@ -2085,6 +2363,7 @@ def _development_operation_body(
                 "planned_san_before": (
                     ((result.get("mechanical_baseline") or {}).get("sanity") or {}).get("current")
                 ),
+                "planned_san_delta": planned_delta,
                 "san_before": san_before,
                 "san_gained": san_after - san_before,
                 "san_after": san_after,
@@ -2110,6 +2389,7 @@ def _development_operation_body(
                     "conclusion_reward_id": ending.get("conclusion_reward_id"),
                     "rule_ref": ending.get("scenario_san_reward_rule_ref"),
                     "san_before": san_before,
+                    "planned_san_delta": planned_delta,
                     "san_delta": san_after - san_before,
                     "san_gained": san_after - san_before,
                     "san_after": san_after,
@@ -2228,6 +2508,47 @@ def _write_latest_settlement_mirror(
         if path.is_file() and not path.is_symlink():
             current = _read_object(path)
             current_order = current.get("ending_order")
+            if current_order is None and isinstance(current.get("derived_from"), str):
+                # Rev2 mirrors predate ``ending_order``.  Recover their
+                # chronology from the exact authoritative receipt and capsule;
+                # never overwrite an unresolvable derived projection merely
+                # because the new metadata field is absent.
+                prior_ending_id = current.get("ending_id")
+                derived = Path(str(current["derived_from"]))
+                prior_exact = campaign_dir / derived
+                if (
+                    not isinstance(prior_ending_id, str)
+                    or _SAFE_ID.fullmatch(prior_ending_id) is None
+                    or current.get("investigator_id") != investigator_id
+                    or derived.is_absolute()
+                    or ".." in derived.parts
+                    or prior_exact != coc_development.ending_settlement_path(
+                        campaign_dir, prior_ending_id, investigator_id
+                    )
+                    or not _target_kind_is_safe(campaign_dir.parents[1], prior_exact)
+                    or _settled_receipt_for_ending(
+                        prior_exact, prior_ending_id, investigator_id
+                    ) is None
+                ):
+                    return (
+                        "latest settlement compatibility mirror needs repair: "
+                        "rev2 derived source is not verifiable"
+                    )
+                prior_capsule = coc_development.load_ending_settlement_capsule(
+                    campaign_dir, prior_ending_id
+                )
+                if prior_capsule is None:
+                    return (
+                        "latest settlement compatibility mirror needs repair: "
+                        "rev2 ending capsule is unavailable"
+                    )
+                current_order = {
+                    "event_line_at_capture": int(
+                        prior_capsule.get("event_line_at_capture") or 0
+                    ),
+                    "captured_at": str(prior_capsule.get("captured_at") or ""),
+                    "ending_id": prior_ending_id,
+                }
             if isinstance(current_order, dict):
                 old_key = (
                     int(current_order.get("event_line_at_capture") or 0),
@@ -2354,6 +2675,13 @@ def _development_operation_locked(
         settlement_path=settlement_path,
     )
     if receipt is not None:
+        _release_development_active_marker(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            transaction_id=_development_transaction_id(
+                exact_ending_id, investigator_id
+            ),
+        )
         inflight_path.unlink(missing_ok=True)
         mirror_warning = _write_latest_settlement_mirror(
             campaign_dir, investigator_id, ending, receipt
@@ -2424,6 +2752,13 @@ def _development_operation_locked(
             )
             inflight_path.unlink(missing_ok=True)
         raise
+    _release_development_active_marker(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        transaction_id=_development_transaction_id(
+            exact_ending_id, investigator_id
+        ),
+    )
     inflight_path.unlink(missing_ok=True)
     return _receipt_with_projection_warning(receipt, mirror_warning)
 
