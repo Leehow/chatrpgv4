@@ -1,0 +1,29 @@
+{
+  "contract_version": 1,
+  "schema_version": 1,
+  "evaluator_id": "codex-epistemic-compiler-v1",
+  "provenance": {
+    "kind": "llm",
+    "reviewed_artifact": "epistemic-compile-request.json",
+    "ordered_keys": [
+      "kind",
+      "request_sha256",
+      "reviewed_artifact"
+    ]
+  },
+  "ordered_root_keys": [
+    "schema_version",
+    "evaluator_id",
+    "evaluation_provenance",
+    "epistemic_graph",
+    "reveal_contracts",
+    "compile_confidence",
+    "reasons"
+  ],
+  "document_keys": [
+    "epistemic_graph",
+    "reveal_contracts",
+    "compile_confidence",
+    "reasons"
+  ]
+}

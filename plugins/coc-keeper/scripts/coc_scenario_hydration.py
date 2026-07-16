@@ -17,6 +17,7 @@ import importlib.util
 import json
 import os
 import shutil
+import stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -550,7 +551,89 @@ def _compile_epistemic_sidecars(
         "request_sha256": coc_epistemic_compile.request_sha256(request),
         "model_identity": response.get("model_identity"),
         "usage": response.get("usage"),
+        "attempts": response.get("epistemic_attempts", 1),
+        "rejected_attempts": response.get("rejected_attempts") or [],
     }
+
+
+def _record_epistemic_rejections(
+    campaign_dir: Path,
+    base_request_sha256: str,
+    diagnostics: list[dict[str, Any]],
+) -> None:
+    """Persist safe adapter diagnostics outside the disposable compile stage."""
+    for fallback_attempt, diagnostic in enumerate(diagnostics, start=1):
+        if not isinstance(diagnostic, dict):
+            continue
+        attempt = diagnostic.get("attempt", fallback_attempt)
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+            attempt = fallback_attempt
+        epistemic_sha = diagnostic.get("epistemic_request_sha256")
+        if not isinstance(epistemic_sha, str) or len(epistemic_sha) != 64:
+            raise ScenarioHydrationError("epistemic rejection evidence has invalid request hash")
+        payload = {
+            **diagnostic,
+            "schema_version": 1,
+            "status": "REJECTED",
+            "phase": "epistemic_compile",
+            "base_request_sha256": base_request_sha256,
+            "attempt": attempt,
+        }
+        directory = campaign_dir / "logs" / "scenario-resolution"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / (
+            f"{base_request_sha256}.epistemic-{epistemic_sha}.rejected-{attempt}.json"
+        )
+        _write_epistemic_receipt_exclusive(path, payload)
+
+
+def _read_regular_json_nofollow(path: Path) -> dict[str, Any]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 8192:
+            raise ScenarioHydrationError("epistemic rejection evidence target is invalid")
+        raw = os.read(fd, 8193)
+    finally:
+        os.close(fd)
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ScenarioHydrationError("epistemic rejection evidence target is invalid") from exc
+    if not isinstance(value, dict):
+        raise ScenarioHydrationError("epistemic rejection evidence target is invalid")
+    return value
+
+
+def _write_epistemic_receipt_exclusive(path: Path, payload: dict[str, Any]) -> None:
+    """Atomically create or content-confirm one bounded immutable receipt."""
+    comparable = dict(payload)
+    stored = {**comparable, "recorded_at": _now()}
+    encoded = (
+        json.dumps(stored, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if len(encoded) > 8192:
+        raise ScenarioHydrationError("epistemic rejection evidence exceeds size limit")
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=".epistemic-rejected-", dir=path.parent, delete=False
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp_path, path, follow_symlinks=False)
+        except FileExistsError:
+            existing = _read_regular_json_nofollow(path)
+            existing.pop("recorded_at", None)
+            if existing != comparable:
+                raise ScenarioHydrationError("epistemic rejection evidence conflict")
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def _persist_source_bundle(
@@ -796,9 +879,21 @@ def ensure_scenario_ready(
                     runner_path=epistemic_runner_path,
                     timeout_s=compiler_timeout_s,
                 )
-            epistemic_receipt = _compile_epistemic_sidecars(
-                staging, compiler=invoke_epistemic
+            try:
+                epistemic_receipt = _compile_epistemic_sidecars(
+                    staging, compiler=invoke_epistemic
+                )
+            except epistemic_adapter.EpistemicCompileRejected as exc:
+                _record_epistemic_rejections(
+                    campaign, request_digest, exc.diagnostics
+                )
+                raise ScenarioHydrationError(str(exc)) from exc
+            _record_epistemic_rejections(
+                campaign,
+                request_digest,
+                epistemic_receipt.get("rejected_attempts") or [],
             )
+            epistemic_receipt.pop("rejected_attempts", None)
         backup_dir = scenario_dir / ".runtime-backups" / request_digest
         publish_files = [*REQUIRED_FILES]
         if epistemic_receipt.get("status") == "PASS":

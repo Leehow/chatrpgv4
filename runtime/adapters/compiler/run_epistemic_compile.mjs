@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /** Minimum-privilege semantic compiler for epistemic scenario sidecars. */
+import crypto from "node:crypto";
+import fs from "node:fs";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import {
   AuthStorage, createAgentSession, createExtensionRuntime, DefaultResourceLoader,
@@ -14,6 +16,14 @@ const require = createRequire(
   path.join(__dirname, "node_modules/@earendil-works/pi-coding-agent/package.json"),
 );
 const { Type } = require("typebox");
+const CONTRACT_PATH = path.resolve(
+  __dirname, "../../../plugins/coc-keeper/scripts/epistemic-contract.json",
+);
+export const EPISTEMIC_CONTRACT = Object.freeze(
+  JSON.parse(fs.readFileSync(CONTRACT_PATH, "utf8")),
+);
+export const RESULT_ROOT_KEYS = Object.freeze([...EPISTEMIC_CONTRACT.ordered_root_keys]);
+export const RESULT_DOCUMENT_KEYS = Object.freeze([...EPISTEMIC_CONTRACT.document_keys]);
 
 const SYSTEM_PROMPT =
   "You are the Keeper-only epistemic compiler for a Call of Cthulhu runtime. " +
@@ -21,7 +31,10 @@ const SYSTEM_PROMPT =
   "player-safe summaries, and source locators, never raw source text or Keeper agenda prose. " +
   "Infer belief questions and evidence relationships from the structured scenario as a whole. " +
   "Never classify by fixed keyword hits, invent module truth, or copy prose. " +
-  "Return the exact provenance-bound result through coc_submit_epistemic_result once.";
+  "Return the exact provenance-bound result through coc_submit_epistemic_result.";
+
+const MAX_DIAGNOSTIC_KEYS = 32;
+const MAX_KEY_BYTES = 128;
 
 function readStdinJson() {
   return new Promise((resolve, reject) => {
@@ -30,10 +43,136 @@ function readStdinJson() {
     process.stdin.on("data", (chunk) => chunks.push(chunk));
     process.stdin.on("end", () => {
       try { resolve(JSON.parse(chunks.join(""))); }
-      catch (error) { reject(new Error(`invalid stdin JSON: ${error.message}`)); }
+      catch { reject(new Error("invalid_stdin_json")); }
     });
     process.stdin.on("error", reject);
   });
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${stableJson(value[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function safeKeyNames(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.keys(value).slice(0, MAX_DIAGNOSTIC_KEYS).map((key) => {
+    const bytes = Buffer.from(key, "utf8");
+    return bytes.length <= MAX_KEY_BYTES
+      ? key
+      : bytes.subarray(0, MAX_KEY_BYTES).toString("utf8").replace(/\uFFFD$/u, "");
+  }).sort();
+}
+
+function unexpectedKeyEvidence(value, expected) {
+  const names = safeKeyNames(value).filter((key) => !expected.includes(key));
+  return {
+    unexpected_key_count: names.length,
+    unexpected_key_sha256: names.map((key) =>
+      crypto.createHash("sha256").update(Buffer.from(key, "utf8")).digest("hex"),
+    ),
+  };
+}
+
+function rejectedFingerprint(value) {
+  let encoded;
+  try { encoded = Buffer.from(stableJson(value), "utf8"); }
+  catch { encoded = Buffer.from("<unserializable>", "utf8"); }
+  return {
+    rejected_result_sha256: crypto.createHash("sha256").update(encoded).digest("hex"),
+    rejected_result_bytes: encoded.length,
+  };
+}
+
+function rejection(errorCode, result, requestSha, modelIdentity, extra = {}) {
+  return {
+    schema_version: 1,
+    phase: "epistemic_compile",
+    error_code: errorCode,
+    epistemic_request_sha256: requestSha,
+    expected_key_names: [...RESULT_ROOT_KEYS].sort(),
+    present_expected_key_names: safeKeyNames(result).filter((key) => RESULT_ROOT_KEYS.includes(key)),
+    missing_key_names: [],
+    ...unexpectedKeyEvidence(result, RESULT_ROOT_KEYS),
+    ...rejectedFingerprint(result),
+    model_identity: modelIdentity,
+    ...extra,
+  };
+}
+
+export function buildResultParameters(requestSha) {
+  const openDocument = Type.Object({}, { additionalProperties: true });
+  const provenance = Type.Object({
+    kind: Type.Literal(EPISTEMIC_CONTRACT.provenance.kind),
+    request_sha256: Type.Literal(requestSha),
+    reviewed_artifact: Type.Literal(EPISTEMIC_CONTRACT.provenance.reviewed_artifact),
+  }, { additionalProperties: false });
+  return Type.Object({
+    schema_version: Type.Literal(EPISTEMIC_CONTRACT.schema_version),
+    evaluator_id: Type.Literal(EPISTEMIC_CONTRACT.evaluator_id),
+    evaluation_provenance: provenance,
+    epistemic_graph: openDocument,
+    reveal_contracts: openDocument,
+    compile_confidence: openDocument,
+    reasons: openDocument,
+  }, { additionalProperties: false });
+}
+
+export function validateResult(result, requestSha, modelIdentity = null) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw rejection("compile_result_root_type_invalid", result, requestSha, modelIdentity);
+  }
+  const expected = [...RESULT_ROOT_KEYS].sort();
+  const actual = Object.keys(result).sort();
+  const missing = expected.filter((key) => !Object.hasOwn(result, key));
+  const unexpected = actual.filter((key) => !RESULT_ROOT_KEYS.includes(key));
+  if (missing.length || unexpected.length) {
+    throw rejection("compile_result_root_keys_mismatch", result, requestSha, modelIdentity, {
+      missing_key_names: missing,
+      ...unexpectedKeyEvidence(result, RESULT_ROOT_KEYS),
+    });
+  }
+  if (result.schema_version !== EPISTEMIC_CONTRACT.schema_version ||
+      result.evaluator_id !== EPISTEMIC_CONTRACT.evaluator_id) {
+    throw rejection("compile_result_identity_invalid", result, requestSha, modelIdentity);
+  }
+  const provenance = result.evaluation_provenance;
+  const expectedProvenance = [...EPISTEMIC_CONTRACT.provenance.ordered_keys].sort();
+  const actualProvenance = safeKeyNames(provenance);
+  const provenanceExact = provenance && typeof provenance === "object" && !Array.isArray(provenance) &&
+    JSON.stringify(Object.keys(provenance).sort()) === JSON.stringify(expectedProvenance);
+  if (!provenanceExact || provenance.kind !== EPISTEMIC_CONTRACT.provenance.kind ||
+      provenance.request_sha256 !== requestSha ||
+      provenance.reviewed_artifact !== EPISTEMIC_CONTRACT.provenance.reviewed_artifact) {
+    throw rejection("compile_result_provenance_invalid", result, requestSha, modelIdentity, {
+      provenance_expected_key_names: expectedProvenance,
+      provenance_present_expected_key_names: actualProvenance.filter(
+        (key) => expectedProvenance.includes(key),
+      ),
+      provenance_missing_key_names: expectedProvenance.filter(
+        (key) => !provenance || !Object.hasOwn(provenance, key),
+      ),
+      provenance_unexpected_key_count: actualProvenance.filter(
+        (key) => !expectedProvenance.includes(key),
+      ).length,
+      provenance_unexpected_key_sha256: actualProvenance.filter(
+        (key) => !expectedProvenance.includes(key),
+      ).map((key) => crypto.createHash("sha256").update(Buffer.from(key, "utf8")).digest("hex")),
+    });
+  }
+  for (const key of RESULT_DOCUMENT_KEYS) {
+    if (!result[key] || typeof result[key] !== "object" || Array.isArray(result[key])) {
+      throw rejection("compile_result_document_type_invalid", result, requestSha, modelIdentity, {
+        invalid_document_key: key,
+      });
+    }
+  }
+  return result;
 }
 
 function resolveModel(agentDir, provider, modelId) {
@@ -47,98 +186,132 @@ function resolveModel(agentDir, provider, modelId) {
     if (template) model = { ...template, id: modelId, name: modelId };
   }
   if (!model || !registry.hasConfiguredAuth(model)) {
-    throw new Error(`requested model unavailable: ${provider}/${modelId}`);
+    throw new Error("requested_model_unavailable");
   }
   return { model, registry };
 }
 
-function validateResult(result, requestSha) {
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    throw new Error("compile_result must be an object");
-  }
-  const expected = [
-    "schema_version", "evaluator_id", "evaluation_provenance",
-    "epistemic_graph", "reveal_contracts", "compile_confidence", "reasons",
-  ].sort();
-  if (JSON.stringify(Object.keys(result).sort()) !== JSON.stringify(expected)) {
-    throw new Error(`compile_result keys must exactly equal ${expected.join(", ")}`);
-  }
-  if (result.schema_version !== 1 || result.evaluator_id !== "codex-epistemic-compiler-v1") {
-    throw new Error("compile_result identity is invalid");
-  }
-  const provenance = result.evaluation_provenance;
-  if (!provenance || provenance.kind !== "llm" || provenance.request_sha256 !== requestSha ||
-      provenance.reviewed_artifact !== "epistemic-compile-request.json") {
-    throw new Error("compile_result provenance does not bind the request");
-  }
-  for (const key of ["epistemic_graph", "reveal_contracts", "compile_confidence", "reasons"]) {
-    if (!result[key] || typeof result[key] !== "object" || Array.isArray(result[key])) {
-      throw new Error(`${key} must be an object`);
-    }
-  }
-  return result;
-}
-
-async function run(envelope) {
-  if (!envelope || typeof envelope !== "object" || !envelope.compile_request ||
-      typeof envelope.request_sha256 !== "string") {
-    throw new Error("invalid epistemic compiler envelope");
-  }
-  const holder = { result: null, error: null };
-  const tool = defineTool({
+export function buildSubmissionTool(envelope, holder, modelIdentity) {
+  return defineTool({
     name: "coc_submit_epistemic_result",
     label: "Submit COC Epistemic Sidecars",
-    description: "Submit the exact provenance-bound epistemic compile result.",
+    description: "Submit the exact seven-key provenance-bound epistemic compile result.",
     promptGuidelines: ["Call exactly once.", "After the tool returns, stop."],
-    parameters: Type.Object({
-      compile_result_json: Type.String({ description: "Stringified compile result object." }),
-    }),
+    parameters: buildResultParameters(envelope.request_sha256),
+    prepareArguments(args) {
+      holder.submissions = (holder.submissions || 0) + 1;
+      if (holder.submissions > 1) {
+        holder.protocolViolation = true;
+        throw new Error("epistemic_submission_limit_exceeded");
+      }
+      // pi 0.79.9 applies Value.Convert before TypeBox validation. Reject raw
+      // values here so true can never be converted to numeric literal 1, and
+      // so pi never formats model-controlled arguments into an error message.
+      try {
+        validateResult(args, envelope.request_sha256, modelIdentity);
+      } catch {
+        throw new Error("epistemic_arguments_rejected");
+      }
+      return args;
+    },
     async execute(_id, params) {
       try {
-        holder.result = validateResult(JSON.parse(params.compile_result_json), envelope.request_sha256);
-      } catch (error) {
-        holder.error = error && error.message ? error.message : String(error);
+        holder.result = validateResult(params, envelope.request_sha256, modelIdentity);
+      } catch (diagnostic) {
+        holder.rejection = diagnostic && diagnostic.error_code
+          ? diagnostic
+          : rejection(
+            "compile_result_validation_failed", params, envelope.request_sha256, modelIdentity,
+          );
       }
       return {
-        content: [{ type: "text", text: JSON.stringify(holder.error ? { ok: false, error: holder.error } : { ok: true }) }],
-        details: holder.error ? { error: holder.error } : { ok: true },
+        content: [{ type: "text", text: JSON.stringify(
+          holder.rejection ? { ok: false, diagnostic: holder.rejection } : { ok: true },
+        ) }],
+        details: holder.rejection ? { diagnostic: holder.rejection } : { ok: true },
         terminate: true,
       };
     },
   });
-  const agentDir = getAgentDir();
-  const loader = new DefaultResourceLoader({
-    cwd: __dirname, agentDir, noExtensions: true, noSkills: true,
-    noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    systemPromptOverride: () => SYSTEM_PROMPT,
-    extensionsOverride: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
-  });
-  await loader.reload();
-  const provider = process.env.COC_COMPILER_MODEL_PROVIDER || "coding-relay";
-  const modelId = process.env.COC_COMPILER_MODEL_ID || "gpt-5.6";
-  const { model, registry } = resolveModel(agentDir, provider, modelId);
-  const created = await createAgentSession({
-    cwd: __dirname, agentDir, tools: ["coc_submit_epistemic_result"], customTools: [tool],
-    model, modelRegistry: registry, resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(__dirname),
-  });
+}
+
+export async function run(envelope, dependencies = {}) {
+  if (!envelope || typeof envelope !== "object" ||
+      typeof envelope.compile_request_json !== "string") {
+    throw new Error("invalid_epistemic_compiler_envelope");
+  }
+  let compileRequest;
+  try { compileRequest = JSON.parse(envelope.compile_request_json); }
+  catch { throw new Error("invalid_epistemic_compile_request_json"); }
+  if (!compileRequest || typeof compileRequest !== "object" || Array.isArray(compileRequest)) {
+    throw new Error("invalid_epistemic_compile_request");
+  }
+  const requestSha = crypto.createHash("sha256")
+    .update(Buffer.from(envelope.compile_request_json, "utf8")).digest("hex");
+  envelope = { ...envelope, compile_request: compileRequest, request_sha256: requestSha };
+  const provider = dependencies.provider || process.env.COC_COMPILER_MODEL_PROVIDER || "coding-relay";
+  const modelId = dependencies.modelId || process.env.COC_COMPILER_MODEL_ID || "gpt-5.6";
+  const agentDir = dependencies.agentDir || getAgentDir();
+  const resolved = dependencies.resolveModel
+    ? dependencies.resolveModel(agentDir, provider, modelId)
+    : resolveModel(agentDir, provider, modelId);
+  const { model, registry } = resolved;
+  const modelIdentity = { provider: model.provider, id: model.id };
+  const holder = { result: null, rejection: null, submissions: 0, protocolViolation: false };
+  const tool = buildSubmissionTool(envelope, holder, modelIdentity);
+  let created;
+  if (dependencies.sessionFactory) {
+    created = await dependencies.sessionFactory({ tool, model, registry });
+  } else {
+    const loader = new DefaultResourceLoader({
+      cwd: __dirname, agentDir, noExtensions: true, noSkills: true,
+      noPromptTemplates: true, noThemes: true, noContextFiles: true,
+      systemPromptOverride: () => SYSTEM_PROMPT,
+      extensionsOverride: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
+    });
+    await loader.reload();
+    created = await createAgentSession({
+      cwd: __dirname, agentDir, tools: ["coc_submit_epistemic_result"], customTools: [tool],
+      model, modelRegistry: registry, resourceLoader: loader,
+      sessionManager: SessionManager.inMemory(__dirname),
+    });
+  }
   const prompt = [
     "Compile the supplied structured scenario into epistemic sidecars.",
-    `Use this exact evaluation_provenance: ${JSON.stringify({ kind: "llm", request_sha256: envelope.request_sha256, reviewed_artifact: "epistemic-compile-request.json" })}`,
+    `The tool parameters are the result itself: exactly these seven root keys and no wrapper: ${RESULT_ROOT_KEYS.join(", ")}.`,
+    `Use this exact evaluation_provenance: ${JSON.stringify({ kind: EPISTEMIC_CONTRACT.provenance.kind, request_sha256: envelope.request_sha256, reviewed_artifact: EPISTEMIC_CONTRACT.provenance.reviewed_artifact })}`,
     "Critical questions and every reframe contract require a reasons entry. Confidence nodes must cover every critical question and reveal contract.",
+    envelope.correction_feedback
+      ? `Correct the prior rejected shape using only this safe diagnostic: ${JSON.stringify(envelope.correction_feedback)}`
+      : "This is the initial epistemic attempt.",
     JSON.stringify(envelope.compile_request, null, 2),
   ].join("\n\n");
   try { await created.session.prompt(prompt); }
   finally { created.session.dispose(); }
-  if (holder.error) throw new Error(holder.error);
-  if (!holder.result) throw new Error("model did not submit epistemic sidecars through the tool");
-  return { ok: true, compile_result: holder.result, model_identity: { provider: model.provider, id: model.id } };
+  if (holder.protocolViolation) {
+    throw rejection("compile_result_submission_limit_exceeded", null, requestSha, modelIdentity);
+  }
+  if (holder.rejection) throw holder.rejection;
+  if (!holder.result) {
+    throw rejection("compile_result_not_submitted", null, envelope.request_sha256, modelIdentity);
+  }
+  return { ok: true, compile_result: holder.result, model_identity: modelIdentity };
 }
 
-try {
-  process.stdout.write(`${JSON.stringify(await run(await readStdinJson()))}\n`);
-} catch (error) {
-  const message = error && error.message ? error.message : String(error);
-  process.stdout.write(`${JSON.stringify({ ok: false, error: message })}\n`);
-  process.exitCode = 1;
+export async function cliMain() {
+  try {
+    process.stdout.write(`${JSON.stringify(await run(await readStdinJson()))}\n`);
+  } catch (error) {
+    const diagnostic = error && error.error_code ? error : null;
+    process.stdout.write(`${JSON.stringify({
+      ok: false,
+      error_code: diagnostic?.error_code || "epistemic_runner_failed",
+      diagnostic,
+    })}\n`);
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  await cliMain();
 }

@@ -22,9 +22,13 @@ import coc_fileio
 import coc_pdf_source
 import coc_scenario_compile
 
-EVALUATOR_ID = "codex-epistemic-compiler-v1"
-REQUEST_FILENAME = "epistemic-compile-request.json"
+CONTRACT_PATH = SCRIPT_DIR / "epistemic-contract.json"
+CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+EVALUATOR_ID = str(CONTRACT["evaluator_id"])
+REQUEST_FILENAME = str(CONTRACT["provenance"]["reviewed_artifact"])
 RESULT_FILENAME = "epistemic-compile-result.json"
+RESULT_ROOT_KEYS = tuple(CONTRACT["ordered_root_keys"])
+RESULT_DOCUMENT_KEYS = tuple(CONTRACT["document_keys"])
 SIDECAR_FILES = (
     "epistemic-graph.json",
     "reveal-contracts.json",
@@ -292,14 +296,21 @@ def build_compile_request(
             ),
         },
         "expected_output": {
-            "evaluator_id": EVALUATOR_ID,
-            "required": [
-                "evaluation_provenance",
-                "epistemic_graph",
-                "reveal_contracts",
-                "compile_confidence",
-                "reasons",
-            ],
+            "ordered_root_keys": list(RESULT_ROOT_KEYS),
+            "required": list(RESULT_ROOT_KEYS),
+            "additional_properties": False,
+            "identity": {
+                "schema_version": CONTRACT["schema_version"],
+                "evaluator_id": EVALUATOR_ID,
+            },
+            "evaluation_provenance": {
+                "ordered_keys": list(CONTRACT["provenance"]["ordered_keys"]),
+                "additional_properties": False,
+                "kind": CONTRACT["provenance"]["kind"],
+                "request_sha256": "sha256 of this complete compile request",
+                "reviewed_artifact": REQUEST_FILENAME,
+            },
+            "object_fields": list(RESULT_DOCUMENT_KEYS),
         },
     }
 
@@ -325,15 +336,7 @@ def validate_compile_result(
     errors: list[str] = []
     if not isinstance(result, dict):
         return ["compile result must be an object"]
-    required_root = {
-        "schema_version",
-        "evaluator_id",
-        "evaluation_provenance",
-        "epistemic_graph",
-        "reveal_contracts",
-        "compile_confidence",
-        "reasons",
-    }
+    required_root = set(RESULT_ROOT_KEYS)
     missing = sorted(required_root - set(result))
     unexpected = sorted(set(result) - required_root)
     for key in missing:
@@ -344,7 +347,7 @@ def validate_compile_result(
     if (
         not isinstance(schema_version, int)
         or isinstance(schema_version, bool)
-        or schema_version != 1
+        or schema_version != CONTRACT["schema_version"]
     ):
         errors.append("schema_version must be the integer 1")
     if result.get("evaluator_id") != EVALUATOR_ID:
@@ -353,13 +356,27 @@ def validate_compile_result(
     if not isinstance(provenance, dict):
         errors.append("evaluation_provenance must be an object")
         provenance = {}
-    if provenance.get("kind") != "llm":
-        errors.append("evaluation_provenance.kind must be 'llm'")
+    if provenance.get("kind") != CONTRACT["provenance"]["kind"]:
+        errors.append(
+            "evaluation_provenance.kind must be "
+            + repr(CONTRACT["provenance"]["kind"])
+        )
     if provenance.get("request_sha256") != request_sha256(request):
         errors.append("evaluation_provenance.request_sha256 mismatch")
     if provenance.get("reviewed_artifact") != REQUEST_FILENAME:
         errors.append(f"evaluation_provenance.reviewed_artifact must be {REQUEST_FILENAME!r}")
-    for key in ("epistemic_graph", "reveal_contracts", "compile_confidence", "reasons"):
+    if isinstance(provenance, dict):
+        provenance_keys = set(CONTRACT["provenance"]["ordered_keys"])
+        missing_provenance = sorted(provenance_keys - set(provenance))
+        unexpected_provenance = sorted(set(provenance) - provenance_keys)
+        for key in missing_provenance:
+            errors.append(f"missing evaluation_provenance field: {key}")
+        if unexpected_provenance:
+            errors.append(
+                "unexpected evaluation_provenance fields: "
+                + ", ".join(unexpected_provenance)
+            )
+    for key in RESULT_DOCUMENT_KEYS:
         if not isinstance(result.get(key), dict):
             errors.append(f"{key} must be an object")
     reasons = result.get("reasons") if isinstance(result.get("reasons"), dict) else {}
