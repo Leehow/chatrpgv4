@@ -530,6 +530,210 @@ def test_rules_roll_dice_logs_non_percentile_faces_and_total(campaign_ws):
     assert payload["roll"] == envelope["data"]["total"]
 
 
+@pytest.mark.parametrize(
+    ("tool_name", "tool_args"),
+    [
+        (
+            "rules.roll",
+            {"skill": "Library Use", "reason": "crash receipt skill check"},
+        ),
+        (
+            "rules.roll_dice",
+            {"expression": "2D6+1", "reason": "crash receipt dice"},
+        ),
+        (
+            "rules.push",
+            {
+                "skill": "Library Use",
+                "method_changed": "cross-check the archive by docket number",
+                "failure_consequence": "the archive closes before copying finishes",
+            },
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "crash_stage", ["after_receipt", "after_materialization", "before_ledger"]
+)
+def test_roll_source_receipt_recovers_every_crash_window_exactly_once(
+    campaign_ws,
+    monkeypatch,
+    tool_name,
+    tool_args,
+    crash_stage,
+):
+    decision_id = f"roll-receipt-{tool_name.replace('.', '-')}-{crash_stage}"
+    args = {
+        **tool_args,
+        "investigator": campaign_ws["investigator_id"],
+        "decision_id": decision_id,
+        "seed": 17,
+    }
+    if tool_name == "rules.roll_dice":
+        args.pop("investigator")
+    real_ensure = coc_toolbox._ensure_roll_receipt_row
+    real_side_effects = coc_toolbox._apply_roll_receipt_side_effects
+    real_ledger_record = coc_toolbox.Ctx.ledger_record
+
+    def is_target(receipt):
+        return (
+            receipt.get("tool") == tool_name
+            and receipt.get("decision_id") == decision_id
+        )
+
+    def crash_after_receipt(ctx, receipt):
+        if is_target(receipt):
+            raise RuntimeError("synthetic crash after roll receipt")
+        return real_ensure(ctx, receipt)
+
+    def crash_after_materialization(ctx, receipt):
+        real_side_effects(ctx, receipt)
+        if is_target(receipt):
+            raise RuntimeError("synthetic crash after roll materialization")
+
+    def crash_before_ledger(
+        self, current_decision_id, current_tool_name, data, **kwargs
+    ):
+        if current_tool_name == tool_name and current_decision_id == decision_id:
+            raise RuntimeError("synthetic crash before roll ledger")
+        return real_ledger_record(
+            self, current_decision_id, current_tool_name, data, **kwargs
+        )
+
+    with monkeypatch.context() as crash:
+        if crash_stage == "after_receipt":
+            crash.setattr(
+                coc_toolbox, "_ensure_roll_receipt_row", crash_after_receipt
+            )
+        elif crash_stage == "after_materialization":
+            crash.setattr(
+                coc_toolbox,
+                "_apply_roll_receipt_side_effects",
+                crash_after_materialization,
+            )
+        else:
+            crash.setattr(coc_toolbox.Ctx, "ledger_record", crash_before_ledger)
+        with pytest.raises(RuntimeError, match="synthetic crash"):
+            _run(campaign_ws, tool_name, args)
+
+    receipt_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    )
+    receipt_doc = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = receipt_doc["receipts"][tool_name][decision_id]
+    frozen_data = receipt["data"]
+    frozen_id = frozen_data["roll_id"]
+    rows_after_crash = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+        )
+        if row.get("roll_id") == frozen_id
+    ]
+    assert len(rows_after_crash) == (0 if crash_stage == "after_receipt" else 1)
+
+    recovered = _run(campaign_ws, tool_name, {**args, "seed": 999})
+    assert recovered["ok"] is True
+    assert recovered["data"] == frozen_data
+    assert any("roll source receipt" in row for row in recovered["warnings"])
+    rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    matches = [row for row in rolls if row.get("roll_id") == frozen_id]
+    assert matches == [receipt["roll_record"]]
+    assert matches[0]["payload"]["roll_id"] == recovered["data"]["roll_id"]
+
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger_key = coc_toolbox.Ctx._ledger_key(tool_name, decision_id)
+    ledger_entry = ledger["entries"][ledger_key]
+    assert ledger_entry["data"] == frozen_data
+    assert ledger_entry["source_receipt_required"] is True
+    ledger_bytes = ledger_path.read_bytes()
+    assert _run(campaign_ws, tool_name, args)["data"] == frozen_data
+    assert ledger_path.read_bytes() == ledger_bytes
+    assert len([
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+        )
+        if row.get("roll_id") == frozen_id
+    ]) == 1
+
+
+def test_roll_legacy_ledger_without_roll_id_fails_closed_without_guessing(
+    campaign_ws,
+):
+    decision_id = "legacy-roll-without-canonical-id"
+    ctx = coc_toolbox.Ctx(
+        campaign_ws["workspace"], campaign_ws["campaign_id"]
+    )
+    ctx.ledger_record(
+        decision_id,
+        "rules.roll_dice",
+        {"expression": "1D6", "rolls": [4], "total": 4},
+    )
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before = rolls_path.read_bytes()
+
+    replay = _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {"expression": "1D6", "decision_id": decision_id, "seed": 99},
+    )
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "legacy_recovery_unverifiable"
+    assert rolls_path.read_bytes() == before
+    assert not (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    ).exists()
+
+
+def test_roll_ledger_with_canonical_id_migrates_only_from_exact_unique_row(
+    campaign_ws,
+):
+    args = {
+        "expression": "1D8+2",
+        "decision_id": "pre-source-receipt-with-roll-id",
+        "seed": 31,
+    }
+    settled = _run(campaign_ws, "rules.roll_dice", args)
+    assert settled["ok"] is True
+    receipt_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "roll-operation-receipts.json"
+    )
+    receipt_path.unlink()
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger_key = coc_toolbox.Ctx._ledger_key(
+        "rules.roll_dice", args["decision_id"]
+    )
+    entry = ledger["entries"][ledger_key]
+    entry["entry_schema_version"] = 2
+    entry.pop("source_receipt_required")
+    entry.pop("source_receipt_manifest")
+    _write_json(ledger_path, ledger)
+
+    migrated = _run(campaign_ws, "rules.roll_dice", {**args, "seed": 999})
+
+    assert migrated["ok"] is True
+    assert migrated["data"] == settled["data"]
+    receipt_doc = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt = receipt_doc["receipts"]["rules.roll_dice"][args["decision_id"]]
+    assert receipt["roll_id"] == settled["data"]["roll_id"]
+    assert len([
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+        )
+        if row.get("roll_id") == settled["data"]["roll_id"]
+    ]) == 1
+
+
 def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws):
     state_path = (
         campaign_ws["campaign_dir"]
@@ -2223,10 +2427,17 @@ def test_evicted_roll_replay_does_not_reearn_consumed_development_check(
 
     replay = _run(campaign_ws, "rules.roll", roll_args)
     assert replay["ok"] is True
-    assert not any(
+    assert replay["data"] == first["data"]
+    assert any(
         "duplicate decision_id" in warning
         for warning in replay.get("warnings") or []
     )
+    assert len([
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+        )
+        if row.get("roll_id") == first["data"]["roll_id"]
+    ]) == 1
     state_path = (
         campaign_ws["campaign_dir"] / "save" / "investigator-state"
         / f"{investigator_id}.json"
@@ -4260,23 +4471,32 @@ def test_sanity_fumble_records_the_structured_authored_loss_consequence(campaign
 
 
 def test_rules_push_records_announced_failure_consequence(campaign_ws):
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "method_changed": "cross-check the index against the court docket",
+        "failure_consequence": "the archive closes before the trail is copied",
+        "decision_id": "push-with-consequence",
+        "seed": 2,
+    }
     result = _run(
         campaign_ws,
         "rules.push",
-        {
-            "investigator": campaign_ws["investigator_id"],
-            "skill": "Library Use",
-            "method_changed": "cross-check the index against the court docket",
-            "failure_consequence": "the archive closes before the trail is copied",
-            "decision_id": "push-with-consequence",
-            "seed": 2,
-        },
+        args,
     )
     assert result["ok"] is True
     assert result["data"]["failure_consequence"]["summary"].startswith(
         "the archive closes"
     )
-    roll = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")[-1]
+    repeated = _run(campaign_ws, "rules.push", {**args, "seed": 999})
+    assert repeated["ok"] is True
+    assert repeated["data"] == result["data"]
+    assert any("duplicate decision_id" in row for row in repeated["warnings"])
+    rolls = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    matching = [row for row in rolls if row["roll_id"] == result["data"]["roll_id"]]
+    assert len(matching) == 1
+    roll = matching[0]
+    assert roll["payload"]["roll_id"] == result["data"]["roll_id"]
     assert roll["payload"]["announced_consequence"] == result["data"][
         "failure_consequence"
     ]

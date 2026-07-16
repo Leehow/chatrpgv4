@@ -267,8 +267,8 @@ class Ctx:
                 self._roll_ids.add(candidate)
                 return candidate
 
-    def log_roll(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Append one canonical roll while retaining legacy flat fields.
+    def prepare_roll(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Freeze one canonical roll row without materializing it yet.
 
         The nested payload is the evaluation/report contract.  Flat fields stay
         in place for older runtime consumers that predate that contract.
@@ -295,6 +295,11 @@ class Ctx:
                 key: value for key, value in canonical.items() if key not in metadata
             }
         canonical["payload"].setdefault("roll_id", roll_id)
+        return canonical
+
+    def log_roll(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Append one canonical roll while retaining legacy flat fields."""
+        canonical = self.prepare_roll(record)
         coc_state.append_jsonl(self.campaign_dir / "logs" / "rolls.jsonl", canonical)
         return canonical
 
@@ -1042,6 +1047,382 @@ def _source_receipt_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
         "decision_id": receipt.get("decision_id"),
         "integrity_digest": receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY),
     }
+
+
+_ROLL_RECEIPT_TOOLS = frozenset({"rules.roll", "rules.push", "rules.roll_dice"})
+_ROLL_RECEIPT_SCHEMA_VERSION = 3
+_ROLL_RECEIPT_FIELDS = frozenset({
+    "schema_version",
+    "tool",
+    "decision_id",
+    "fingerprint",
+    "operation",
+    "roll_id",
+    "roll_record",
+    "data",
+    "warnings",
+    "hints",
+    _SOURCE_RECEIPT_INTEGRITY_KEY,
+})
+
+
+def _roll_receipt_path(ctx: Ctx) -> Path:
+    return ctx.campaign_dir / "save" / "roll-operation-receipts.json"
+
+
+def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
+    path = _roll_receipt_path(ctx)
+    if not path.is_file():
+        return {"schema_version": 1, "receipts": {}}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ToolError(
+            "state_corrupt", "save/roll-operation-receipts.json is unreadable"
+        ) from exc
+    if (
+        not isinstance(document, dict)
+        or set(document) != {"schema_version", "receipts"}
+        or document.get("schema_version") != 1
+        or not isinstance(document.get("receipts"), dict)
+    ):
+        raise ToolError(
+            "state_corrupt", "save/roll-operation-receipts.json is invalid"
+        )
+    return document
+
+
+def _save_roll_receipt_document(ctx: Ctx, document: dict[str, Any]) -> None:
+    coc_state.write_json_atomic(_roll_receipt_path(ctx), document)
+
+
+def _roll_receipt(
+    document: dict[str, Any], tool_name: str, decision_id: str
+) -> dict[str, Any] | None:
+    receipts = document.get("receipts")
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical roll receipt map is invalid")
+    by_tool = receipts.get(str(tool_name))
+    if by_tool is None:
+        return None
+    if not isinstance(by_tool, dict):
+        raise ToolError(
+            "state_corrupt", f"canonical roll receipts for {tool_name} are invalid"
+        )
+    receipt = by_tool.get(str(decision_id))
+    if receipt is None:
+        return None
+    if not isinstance(receipt, dict):
+        raise ToolError("state_corrupt", "canonical roll receipt is not an object")
+    return receipt
+
+
+def _put_roll_receipt(
+    document: dict[str, Any], receipt: dict[str, Any]
+) -> None:
+    receipts = document.setdefault("receipts", {})
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical roll receipt map is invalid")
+    tool_name = str(receipt["tool"])
+    by_tool = receipts.setdefault(tool_name, {})
+    if not isinstance(by_tool, dict):
+        raise ToolError(
+            "state_corrupt", f"canonical roll receipts for {tool_name} are invalid"
+        )
+    by_tool[str(receipt["decision_id"])] = deepcopy(receipt)
+
+
+def _new_roll_receipt(
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+    roll_record: dict[str, Any],
+    data: dict[str, Any],
+    warnings: list[str],
+    hints: list[str],
+) -> dict[str, Any]:
+    receipt = {
+        "schema_version": _ROLL_RECEIPT_SCHEMA_VERSION,
+        "tool": str(tool_name),
+        "decision_id": str(decision_id),
+        "fingerprint": _operation_fingerprint(tool_name, operation),
+        "operation": deepcopy(operation),
+        "roll_id": str(roll_record.get("roll_id") or ""),
+        "roll_record": deepcopy(roll_record),
+        "data": deepcopy(data),
+        "warnings": list(warnings),
+        "hints": list(hints),
+    }
+    receipt[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(receipt)
+    return receipt
+
+
+def _validate_roll_receipt(
+    receipt: dict[str, Any], *, tool_name: str, decision_id: str
+) -> None:
+    operation = receipt.get("operation")
+    record = receipt.get("roll_record")
+    data = receipt.get("data")
+    roll_id = str(receipt.get("roll_id") or "")
+    payload = record.get("payload") if isinstance(record, dict) else None
+    if (
+        set(receipt) != set(_ROLL_RECEIPT_FIELDS)
+        or receipt.get("schema_version") != _ROLL_RECEIPT_SCHEMA_VERSION
+        or str(receipt.get("tool")) != str(tool_name)
+        or str(receipt.get("decision_id")) != str(decision_id)
+        or tool_name not in _ROLL_RECEIPT_TOOLS
+        or not isinstance(operation, dict)
+        or receipt.get("fingerprint")
+        != _operation_fingerprint(tool_name, operation)
+        or not isinstance(record, dict)
+        or not isinstance(data, dict)
+        or not isinstance(payload, dict)
+        or not isinstance(receipt.get("warnings"), list)
+        or not isinstance(receipt.get("hints"), list)
+        or not roll_id
+        or str(record.get("roll_id") or "") != roll_id
+        or str(payload.get("roll_id") or "") != roll_id
+        or str(data.get("roll_id") or "") != roll_id
+        or record.get("visibility") != "public"
+        or record.get("event_type") != "roll"
+        or any(record.get(key) != value for key, value in data.items())
+        or receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY)
+        != _source_receipt_integrity(receipt)
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"roll source receipt for {tool_name} decision_id '{decision_id}' is invalid",
+        )
+
+
+def _strict_roll_rows(ctx: Ctx) -> list[dict[str, Any]]:
+    path = ctx.campaign_dir / "logs" / "rolls.jsonl"
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ToolError("state_corrupt", "logs/rolls.jsonl is unreadable") from exc
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ToolError(
+                "state_corrupt",
+                f"logs/rolls.jsonl has malformed JSON at line {line_number}",
+            ) from exc
+        if not isinstance(row, dict):
+            raise ToolError(
+                "state_corrupt",
+                f"logs/rolls.jsonl line {line_number} is not an object",
+            )
+        rows.append(row)
+    return rows
+
+
+def _ensure_roll_receipt_row(ctx: Ctx, receipt: dict[str, Any]) -> bool:
+    """Materialize one frozen roll row exactly once under the recorder lock."""
+    _validate_roll_receipt(
+        receipt,
+        tool_name=str(receipt.get("tool") or ""),
+        decision_id=str(receipt.get("decision_id") or ""),
+    )
+    roll_id = str(receipt["roll_id"])
+    expected = receipt["roll_record"]
+    try:
+        with coc_async_recorder.recorder_lock(ctx.campaign_dir):
+            matches = [
+                row for row in _strict_roll_rows(ctx)
+                if str(row.get("roll_id") or "") == roll_id
+            ]
+            if matches:
+                if len(matches) != 1 or matches[0] != expected:
+                    raise ToolError(
+                        "state_corrupt",
+                        f"roll_id '{roll_id}' is duplicated or conflicts with its source receipt",
+                    )
+                return False
+            coc_state.append_jsonl(
+                ctx.campaign_dir / "logs" / "rolls.jsonl", deepcopy(expected)
+            )
+            return True
+    except coc_async_recorder.RecorderLockError as exc:
+        raise ToolError("campaign_busy", str(exc)) from exc
+
+
+def _apply_roll_receipt_side_effects(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    """Repair deterministic non-log effects frozen by a percentile receipt."""
+    if receipt.get("tool") != "rules.roll":
+        return
+    data = receipt.get("data") or {}
+    skill = str(data.get("skill") or "")
+    if (
+        data.get("outcome") in {"regular", "hard", "extreme", "critical"}
+        and (receipt.get("operation") or {}).get("skill") not in (None, "")
+        and skill
+        and skill not in _CHARACTERISTIC_NAMES
+        and skill not in {"SAN", "LUCK"}
+    ):
+        _mark_improvement_tick(
+            ctx,
+            str(data.get("investigator_id") or ""),
+            skill,
+            data,
+            source_event_id=f"rules.roll:{receipt['decision_id']}",
+            source_kind="rules.roll",
+        )
+
+
+def _repair_roll_receipt_ledger(ctx: Ctx, receipt: dict[str, Any]) -> None:
+    data = deepcopy(receipt["data"])
+    manifest = _source_receipt_manifest(receipt)
+    prior = ctx.ledger_lookup(str(receipt["tool"]), str(receipt["decision_id"]))
+    if (
+        prior is None
+        or prior.get("data") != data
+        or prior.get("source_receipt_manifest") != manifest
+    ):
+        ctx.ledger_record(
+            str(receipt["decision_id"]),
+            str(receipt["tool"]),
+            data,
+            source_receipt_manifest=manifest,
+        )
+
+
+def _replay_roll_receipt(
+    ctx: Ctx, receipt: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    _ensure_roll_receipt_row(ctx, receipt)
+    _apply_roll_receipt_side_effects(ctx, receipt)
+    _repair_roll_receipt_ledger(ctx, receipt)
+    warnings = list(receipt.get("warnings") or [])
+    warnings.append(
+        "duplicate decision_id: recovered the original roll source receipt"
+    )
+    return (
+        deepcopy(receipt["data"]),
+        warnings,
+        list(receipt.get("hints") or []),
+    )
+
+
+def _migrate_legacy_roll_ledger(
+    ctx: Ctx,
+    document: dict[str, Any],
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+    ledger_entry: dict[str, Any],
+) -> dict[str, Any]:
+    if _ledger_requires_source_receipt(ledger_entry):
+        raise ToolError(
+            "state_corrupt",
+            f"receipt-era ledger entry for {tool_name} decision_id '{decision_id}' has no canonical roll source receipt",
+        )
+    data = ledger_entry.get("data")
+    roll_id = str((data or {}).get("roll_id") or "") if isinstance(data, dict) else ""
+    if not roll_id:
+        raise ToolError(
+            "legacy_recovery_unverifiable",
+            f"legacy ledger entry for {tool_name} decision_id '{decision_id}' has no canonical roll_id; no roll was guessed or replayed",
+        )
+    matches = [
+        row for row in _strict_roll_rows(ctx)
+        if str(row.get("roll_id") or "") == roll_id
+    ]
+    if (
+        len(matches) != 1
+        or not isinstance(data, dict)
+        or not isinstance(matches[0].get("payload"), dict)
+        or str(matches[0]["payload"].get("roll_id") or "") != roll_id
+        or any(matches[0].get(key) != value for key, value in data.items())
+    ):
+        raise ToolError(
+            "state_corrupt",
+            f"legacy roll receipt for {tool_name} decision_id '{decision_id}' cannot be proven from its canonical roll_id",
+        )
+    receipt = _new_roll_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        roll_record=matches[0],
+        data=data,
+        warnings=[],
+        hints=[],
+    )
+    _put_roll_receipt(document, receipt)
+    _save_roll_receipt_document(ctx, document)
+    return receipt
+
+
+def _existing_roll_receipt(
+    ctx: Ctx,
+    *,
+    tool_name: str,
+    decision_id: str,
+    operation: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    document = _load_roll_receipt_document(ctx)
+    receipt = _roll_receipt(document, tool_name, decision_id)
+    if receipt is not None:
+        _validate_roll_receipt(
+            receipt, tool_name=tool_name, decision_id=decision_id
+        )
+        return document, receipt
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        receipt = _migrate_legacy_roll_ledger(
+            ctx,
+            document,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+            ledger_entry=prior,
+        )
+    return document, receipt
+
+
+def _commit_new_roll_receipt(
+    ctx: Ctx,
+    document: dict[str, Any],
+    receipt: dict[str, Any],
+) -> None:
+    """Durably freeze source, then materialize row/effects, then ledger."""
+    _validate_roll_receipt(
+        receipt,
+        tool_name=str(receipt["tool"]),
+        decision_id=str(receipt["decision_id"]),
+    )
+    _put_roll_receipt(document, receipt)
+    _save_roll_receipt_document(ctx, document)
+    _ensure_roll_receipt_row(ctx, receipt)
+    _apply_roll_receipt_side_effects(ctx, receipt)
+    _repair_roll_receipt_ledger(ctx, receipt)
+
+
+def _reconcile_all_roll_source_receipts(ctx: Ctx) -> None:
+    document = _load_roll_receipt_document(ctx)
+    receipts = document.get("receipts") or {}
+    for tool_name in sorted(receipts):
+        by_tool = receipts[tool_name]
+        if tool_name not in _ROLL_RECEIPT_TOOLS or not isinstance(by_tool, dict):
+            raise ToolError("state_corrupt", "canonical roll receipt map is invalid")
+        for decision_id in sorted(by_tool):
+            receipt = by_tool[decision_id]
+            if not isinstance(receipt, dict):
+                raise ToolError("state_corrupt", "canonical roll receipt is invalid")
+            _validate_roll_receipt(
+                receipt, tool_name=tool_name, decision_id=decision_id
+            )
+            _ensure_roll_receipt_row(ctx, receipt)
+            _apply_roll_receipt_side_effects(ctx, receipt)
+            _repair_roll_receipt_ledger(ctx, receipt)
 
 
 def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
@@ -2053,6 +2434,8 @@ def _reconcile_all_canonical_source_receipts(ctx: Ctx) -> None:
     repairs all receipt-owned event and ledger stages while the campaign lock
     is held.  This is transactional integrity, not a narration gate.
     """
+    _reconcile_all_roll_source_receipts(ctx)
+
     flags = ctx.flags()
     if (
         ((flags.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.set_flag") or {})
@@ -2821,9 +3204,16 @@ def _roll_common(
     pushed: bool,
     tool_name: str,
 ) -> tuple[dict[str, Any], list[str], list[str]]:
-    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    decision_id = str(args["decision_id"])
+    operation = deepcopy(args)
+    document, receipt = _existing_roll_receipt(
+        ctx,
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+    )
+    if receipt is not None:
+        return _replay_roll_receipt(ctx, receipt)
     investigator_id = _resolve_investigator(ctx, args)
     target, label, target_source = _resolve_target_value(ctx, investigator_id, args)
     difficulty = str(args.get("difficulty") or "regular")
@@ -2862,15 +3252,7 @@ def _roll_common(
         and label not in _CHARACTERISTIC_NAMES
         and label not in ("SAN", "LUCK")
     ):
-        if _mark_improvement_tick(
-            ctx,
-            investigator_id,
-            label,
-            result,
-            source_event_id=f"{tool_name}:{args['decision_id']}",
-            source_kind=tool_name,
-        ):
-            hints.append(f"success: improvement tick recorded for {label}")
+        hints.append(f"success: improvement tick recorded for {label}")
     if outcome == "critical":
         hints.append("critical success: consider an exceptional narrative payoff")
     if outcome == "fumble":
@@ -2883,7 +3265,7 @@ def _roll_common(
         hints.append(
             "pushed roll failed: a pushed failure carries a real consequence — narrate it and make it stick"
         )
-    roll_record = ctx.log_roll({
+    roll_record = ctx.prepare_roll({
         "event_type": "roll",
         "kind": "pushed_skill_check" if pushed else "skill_check",
         "actor": investigator_id,
@@ -2891,12 +3273,17 @@ def _roll_common(
         "payload": dict(result),
         **result,
     })
-    # Return the canonical identity assigned by ``log_roll`` instead of
-    # forcing callers to recover it from rolls.jsonl.  Persist that same
-    # enriched result in the idempotency ledger so retries replay the receipt
-    # without rolling again or allocating a second id.
     result["roll_id"] = roll_record["roll_id"]
-    ctx.ledger_record(args.get("decision_id"), tool_name, result)
+    receipt = _new_roll_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        roll_record=roll_record,
+        data=result,
+        warnings=warnings,
+        hints=hints,
+    )
+    _commit_new_roll_receipt(ctx, document, receipt)
     return result, warnings, hints
 
 
@@ -2971,9 +3358,17 @@ def _tool_rules_push(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
-    prior = ctx.ledger_lookup("rules.roll_dice", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    tool_name = "rules.roll_dice"
+    decision_id = str(args["decision_id"])
+    operation = deepcopy(args)
+    document, receipt = _existing_roll_receipt(
+        ctx,
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+    )
+    if receipt is not None:
+        return _replay_roll_receipt(ctx, receipt)
     result = coc_roll.roll_expression(str(args["expression"]), rng=_rng(args))
     if args.get("reason"):
         result["reason"] = str(args["reason"])
@@ -2984,7 +3379,7 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
         "final_total": result["total"],
         "roll": result["total"],
     }
-    roll_record = ctx.log_roll({
+    roll_record = ctx.prepare_roll({
         "event_type": "roll",
         "type": "random_table",
         "kind": "dice_expression",
@@ -2994,7 +3389,16 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
         **result,
     })
     result["roll_id"] = roll_record["roll_id"]
-    ctx.ledger_record(args.get("decision_id"), "rules.roll_dice", result)
+    receipt = _new_roll_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        roll_record=roll_record,
+        data=result,
+        warnings=[],
+        hints=[],
+    )
+    _commit_new_roll_receipt(ctx, document, receipt)
     return result, [], []
 
 
