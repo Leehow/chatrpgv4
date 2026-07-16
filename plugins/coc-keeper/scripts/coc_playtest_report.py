@@ -717,11 +717,11 @@ def _format_transcript_receipt(
     digest = hashlib.sha256(transcript_path.read_bytes()).hexdigest() if transcript_path.is_file() else "missing"
     if play_language == "zh-Hans":
         return [
-            "- 完整逐轮内容已在上方回放中呈现；本节只保留来源收据，避免重复整份对话。",
+            "- 完整的玩家可见逐轮内容已在上方回放中呈现；本节只保留来源收据，避免重复整份对话。",
             f"- 来源：transcript.jsonl；记录数：{len(transcript)}；角色计数：{role_blob}；SHA-256：`{digest}`",
         ]
     return [
-        "- The complete turn-by-turn rendering appears above; this section keeps only a source receipt to avoid duplicating the dialogue.",
+        "- The complete player-visible turn-by-turn rendering appears above; this section keeps only a source receipt to avoid duplicating the dialogue.",
         f"- Source: transcript.jsonl; records: {len(transcript)}; roles: {role_blob}; SHA-256: `{digest}`",
     ]
 

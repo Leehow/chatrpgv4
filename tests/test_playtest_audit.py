@@ -2773,6 +2773,57 @@ def test_non_percentile_report_comparison_rejects_elsewhere_only_formula():
     ) == ["missing dice-formula rendering for conclusion-reward"]
 
 
+def test_non_percentile_report_comparison_ignores_explicit_keeper_only_roll():
+    roll = {
+        "type": "reward",
+        "actor": "keeper_under_test",
+        "visibility": "keeper_only",
+        "payload": {
+            "roll_id": "secret-reward",
+            "skill": "SAN Reward",
+            "reward_kind": "sanity",
+            "die": "1D6",
+            "die_rolls": [6],
+            "roll": 6,
+            "outcome": "reward_applied",
+        },
+    }
+    report = "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- No rolls.\n"
+
+    assert coc_playtest_audit._non_percentile_roll_rendering_gaps(
+        report,
+        [roll],
+        [],
+        {"play_language": "en-US"},
+        {},
+    ) == []
+
+
+def test_non_percentile_report_comparison_ignores_inferred_keeper_only_roll():
+    roll = {
+        "type": "damage",
+        "actor": "keeper_under_test",
+        "payload": {
+            "roll_id": "secret-damage",
+            "skill": "Secret Damage",
+            "damage_kind": "occult",
+            "die": "1D4",
+            "die_rolls": [3],
+            "roll": 3,
+            "outcome": "damage_rolled",
+        },
+    }
+    report = "## Mechanical Log <!-- report-anchor: Mechanical Log -->\n- No rolls.\n"
+
+    assert coc_playtest_audit._non_percentile_roll_rendering_gaps(
+        report,
+        [roll],
+        [],
+        {"play_language": "en-US"},
+        {},
+    ) == []
+
+
 def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     transcript_path = run_dir / "transcript.jsonl"

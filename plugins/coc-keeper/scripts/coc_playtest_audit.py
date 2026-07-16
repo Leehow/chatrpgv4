@@ -13,6 +13,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from coc_language import default_localized_terms, language_profile as build_language_profile
+from coc_eval_contract import roll_visibility
 from coc_playtest_report import _format_roll_recap, _format_state_event
 from coc_rules import cash_and_assets, movement_rate
 
@@ -3100,6 +3101,8 @@ def _non_percentile_roll_rendering_gaps(
     gaps: list[str] = []
 
     for roll in rolls:
+        if roll_visibility(roll) not in {"public", "consequence_public"}:
+            continue
         payload = roll.get("payload")
         if not isinstance(payload, dict) or not payload.get("die"):
             continue

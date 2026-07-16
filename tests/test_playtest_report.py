@@ -165,8 +165,15 @@ def test_report_projects_only_structurally_public_rolls(tmp_path):
     })
     write_jsonl(run_dir / "transcript.jsonl", [
         {"turn": 1, "role": "system", "mode": "roll", "roll_count": 1, "text": "HIDDEN-ROLL-73"},
-        {"turn": 2, "role": "system", "mode": "roll", "roll_count": 1, "text": "PUBLIC-ROLL-42"},
+        {
+            "turn": 2,
+            "role": "system",
+            "mode": "roll",
+            "roll_count": 2,
+            "text": "MIXED-HIDDEN-88; PUBLIC-ROLL-42",
+        },
         {"turn": 3, "role": "system", "mode": "roll", "roll_count": 1, "text": "PUBLIC-DAMAGE-4"},
+        {"turn": 4, "role": "player_simulator", "mode": "play", "text": "NORMAL-PLAYER-ACTION"},
     ])
     write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
         {
@@ -174,6 +181,12 @@ def test_report_projects_only_structurally_public_rolls(tmp_path):
             "actor": "keeper_under_test",
             "visibility": "keeper_only",
             "payload": {"roll_id": "hidden-roll", "skill": "Listen", "target": 60, "roll": 73, "outcome": "failure"},
+        },
+        {
+            "type": "roll",
+            "actor": "keeper_under_test",
+            "visibility": "keeper_only",
+            "payload": {"roll_id": "mixed-hidden", "skill": "Occult", "target": 50, "roll": 88, "outcome": "failure"},
         },
         {
             "type": "roll",
@@ -202,6 +215,7 @@ def test_report_projects_only_structurally_public_rolls(tmp_path):
     write_jsonl(run_dir / "player-feedback.jsonl", [])
 
     report = coc_playtest_report.generate_battle_report(run_dir).read_text()
+    visible_report = visible_markdown_text(report)
     actual_play = visible_markdown_text(
         report.split("## Verification Replay", 1)[1].split("\n## ", 1)[0]
     )
@@ -213,13 +227,24 @@ def test_report_projects_only_structurally_public_rolls(tmp_path):
     visible_mechanical = visible_markdown_text(mechanical)
 
     assert "HIDDEN-ROLL-73" not in actual_play
+    assert "MIXED-HIDDEN-88" not in actual_play
+    assert "HIDDEN-ROLL-73" not in visible_report
+    assert "MIXED-HIDDEN-88" not in visible_report
+    assert "Occult: keeper_under_test rolled 88" not in actual_play
     assert "Listen: keeper_under_test rolled 73" not in visible_mechanical
+    assert "Occult: keeper_under_test rolled 88" not in visible_mechanical
     assert "2 rolls recorded" in overview
-    assert "3 rolls recorded" not in overview
+    assert "4 rolls recorded" not in overview
     assert actual_play.count("Library Use: investigator rolled 42 vs 60 -> regular_success") == 1
     assert actual_play.count("HP Damage: investigator rolled 1D4 = 4") == 1
+    assert "NORMAL-PLAYER-ACTION" in actual_play
     assert visible_mechanical.count("Library Use: investigator rolled 42 vs 60 -> regular_success") == 1
     assert visible_mechanical.count("HP Damage: investigator rolled 1D4 = 4") == 1
+    session_transcript = report.split("## Session Transcript", 1)[1].split("\n## ", 1)[0]
+    assert "The complete player-visible turn-by-turn rendering appears above" in session_transcript
+    assert "records: 4" in session_transcript
+    assert "HIDDEN-ROLL-73" not in session_transcript
+    assert "MIXED-HIDDEN-88" not in session_transcript
 
 
 def test_builtin_glossary_merges_with_run_overrides():

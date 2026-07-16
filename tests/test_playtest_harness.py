@@ -1810,7 +1810,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "regular_success" not in actual_play
     assert "Corbitt POW 34 vs 90" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
-    assert "完整逐轮内容已在上方回放中呈现" in session_transcript
+    assert "完整的玩家可见逐轮内容已在上方回放中呈现" in session_transcript
     assert "来源：transcript.jsonl；记录数：60" in session_transcript
     assert "SHA-256：`" in session_transcript
     assert "第 6 轮" not in session_transcript
@@ -2289,7 +2289,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "to 建立追逐" not in actual_play
     assert "after 被追者逃脱" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
-    assert "完整逐轮内容已在上方回放中呈现" in session_transcript
+    assert "完整的玩家可见逐轮内容已在上方回放中呈现" in session_transcript
     assert "来源：transcript.jsonl；记录数：28" in session_transcript
     assert "SHA-256：`" in session_transcript
     assert "第 4 轮" not in session_transcript
