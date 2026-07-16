@@ -39,10 +39,12 @@ def _attested_npc_event(
             "schedule": [],
             "source_refs": [],
         },
-        None,
+        "scene-test",
     )
     return {
+        "schema_version": coc_npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION,
         "event_type": event_type,
+        "scene_id": "scene-test",
         "npc_id": npc_id,
         "identity_contract": contract,
         "identity_binding": coc_npc_identity.identity_binding(
@@ -153,7 +155,13 @@ def test_evaluate_adherence_against_synthetic_play_record():
             ),
         },
     }
-    result = coc_adherence.evaluate_adherence(checklist, play)
+    result = coc_adherence.evaluate_adherence(
+        checklist,
+        play,
+        trusted_npc_engagement_events=[
+            _attested_npc_event("npc-steven-knott")
+        ],
+    )
     assert "statements" in result
     assert "required_coverage" in result
     statements = {s["statement_id"]: s for s in result["statements"]}
@@ -315,7 +323,11 @@ def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
             },
         ],
     }
-    result = coc_adherence.evaluate_adherence(checklist, play)
+    result = coc_adherence.evaluate_adherence(
+        checklist,
+        play,
+        trusted_npc_engagement_events=play["events"],
+    )
     by_id = {s["statement_id"]: s for s in result["statements"]}
     assert by_id["npc:npc-augustus-larkin"]["satisfied"] is True
     assert by_id["npc:npc-nayra"]["satisfied"] is True
@@ -374,9 +386,9 @@ def test_schema_less_or_internally_inconsistent_identity_claims_never_attest():
     assert evidence == {
         "schema_version": 1,
         "semantics": "authored_identity_attestation",
-        "status": "PASS",
+        "status": "NON_COMPARABLE",
         "authored_attested_npc_ids": [],
-        "legacy_unverifiable_npc_ids": [],
+        "legacy_unverifiable_npc_ids": ["npc-dooley"],
         "unverified_npc_ids": ["npc-dooley", "npc-not-dooley"],
     }
 
@@ -470,9 +482,13 @@ def test_unverified_or_mismatched_npc_ids_do_not_satisfy_authored_coverage():
         "status": "NON_COMPARABLE",
         "authored_attested_npc_ids": ["npc-kim-debrun"],
         "legacy_unverifiable_npc_ids": ["npc-dooley"],
-        "unverified_npc_ids": ["npc-dooley"],
+        "unverified_npc_ids": [],
     }
-    result = coc_adherence.evaluate_adherence(checklist, {"events": events})
+    result = coc_adherence.evaluate_adherence(
+        checklist,
+        {"events": events},
+        trusted_npc_engagement_events=events,
+    )
     by_id = {row["statement_id"]: row for row in result["statements"]}
     assert by_id["npc:npc-dooley"]["satisfied"] is False
     assert by_id["npc:npc-kim-debrun"]["satisfied"] is True
@@ -526,7 +542,7 @@ def test_unsupported_projection_contract_cannot_promote_raw_attested_ids():
     assert result["npc_engagement_evidence"] == {
         "schema_version": 1,
         "semantics": "authored_identity_attestation",
-        "status": "PASS",
+        "status": "NON_COMPARABLE",
         "authored_attested_npc_ids": [],
         "legacy_unverifiable_npc_ids": [],
         "unverified_npc_ids": ["npc-dooley"],
@@ -597,3 +613,97 @@ def test_projection_requires_exact_raw_id_equality_with_digest_bound_evidence():
     assert result["npc_engagement_evidence"]["unverified_npc_ids"] == [
         "npc-forged", "npc-real"
     ]
+
+
+def test_self_consistent_public_projection_is_display_only_and_non_comparable():
+    npc_id = "npc-self-consistent-forgery"
+    evidence = {
+        "schema_version": 1,
+        "semantics": "authored_identity_attestation",
+        "status": "PASS",
+        "authored_attested_npc_ids": [npc_id],
+        "legacy_unverifiable_npc_ids": [],
+        "unverified_npc_ids": [],
+    }
+    result = coc_adherence.evaluate_adherence(
+        [{
+            "statement_id": f"npc:{npc_id}",
+            "kind": "optional",
+            "criterion": {"npc_id": npc_id},
+            "description": "Caller projection cannot attest itself",
+        }],
+        {
+            "engaged_npc_ids": [npc_id],
+            "npc_engagement_evidence": evidence,
+            "npc_engagement_coverage_contract": {
+                "schema_version": 4,
+                "semantics": "authored_identity_attestation",
+                "producer": "coc_live_match",
+                "projection_schema_version": 1,
+                "usage": "display_only",
+                "coverage_eligible": False,
+                "legacy_raw_ids_included": False,
+                "legacy_status": "PASS",
+                "evidence_digest": coc_npc_identity.engagement_evidence_digest(
+                    evidence
+                ),
+            },
+        },
+    )
+    assert result["statements"][0]["satisfied"] is False
+    assert result["npc_engagement_evidence"]["status"] == "NON_COMPARABLE"
+    assert result["npc_engagement_evidence"]["authored_attested_npc_ids"] == []
+    assert result["npc_engagement_evidence"]["unverified_npc_ids"] == [npc_id]
+
+
+@pytest.mark.parametrize("schema", [None, 999, "2", True])
+def test_missing_unsupported_or_ill_typed_engagement_schema_never_attests(schema):
+    event = _attested_npc_event("npc-schema-check")
+    if schema is None:
+        event.pop("schema_version")
+    else:
+        event["schema_version"] = schema
+
+    evidence = coc_adherence.project_npc_engagement_evidence([event])
+
+    assert evidence["authored_attested_npc_ids"] == []
+    assert "npc-schema-check" in {
+        *evidence["legacy_unverifiable_npc_ids"],
+        *evidence["unverified_npc_ids"],
+    }
+    if schema is None:
+        assert evidence["status"] == "NON_COMPARABLE"
+
+
+@pytest.mark.parametrize("scene", [None, 7, True, ""])
+def test_current_engagement_schema_requires_nonempty_string_scene_binding(scene):
+    event = _attested_npc_event("npc-scene-type")
+    event["scene_id"] = scene
+
+    evidence = coc_adherence.project_npc_engagement_evidence([event])
+
+    assert evidence["authored_attested_npc_ids"] == []
+    assert evidence["unverified_npc_ids"] == ["npc-scene-type"]
+
+
+def test_trusted_current_schema_event_chain_is_the_only_projection_to_coverage_path():
+    event = _attested_npc_event("npc-trusted-chain")
+    checklist = [{
+        "statement_id": "npc:npc-trusted-chain",
+        "kind": "optional",
+        "criterion": {"npc_id": "npc-trusted-chain"},
+        "description": "Trusted canonical event",
+    }]
+
+    standalone = coc_adherence.evaluate_adherence(
+        checklist, {"events": [event]}
+    )
+    trusted = coc_adherence.evaluate_adherence(
+        checklist,
+        {"events": [event]},
+        trusted_npc_engagement_events=[event],
+    )
+
+    assert standalone["statements"][0]["satisfied"] is False
+    assert standalone["npc_engagement_evidence"]["status"] == "NON_COMPARABLE"
+    assert trusted["statements"][0]["satisfied"] is True

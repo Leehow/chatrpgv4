@@ -209,6 +209,31 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
 
     flushed_files = 0
     flushed_entries = 0
+    existing_by_target: dict[Path, dict[str, dict[str, Any]]] = {}
+
+    def stable_events(target: Path) -> dict[str, dict[str, Any]]:
+        cached = existing_by_target.get(target)
+        if cached is not None:
+            return cached
+        cached = {}
+        if target.is_file():
+            for line in target.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    continue
+                event_id = str(row.get("event_id") or "")
+                if not event_id:
+                    continue
+                if event_id in cached:
+                    raise RuntimeError(
+                        f"duplicate stable event id '{event_id}' in {target}"
+                    )
+                cached[event_id] = row
+        existing_by_target[target] = cached
+        return cached
+
     for pending in files:
         payload = json.loads(pending.read_text(encoding="utf-8"))
         entries = payload.get("entries", [])
@@ -226,7 +251,21 @@ def flush_pending_records(campaign_dir: Path, *, limit: int | None = None) -> di
                 target.relative_to(campaign.resolve())
             except ValueError:
                 continue
+            event_id = str(record.get("event_id") or "")
+            if event_id:
+                existing = stable_events(target).get(event_id)
+                if existing is not None:
+                    if existing != record:
+                        raise RuntimeError(
+                            f"stable event id '{event_id}' conflicts while flushing {pending.name}"
+                        )
+                    # A retry may have synchronously repaired an event while
+                    # this older durable batch was waiting.  Preserve exact
+                    # cardinality by consuming the identical queued copy.
+                    continue
             _append_jsonl_sync(target, record)
+            if event_id:
+                stable_events(target)[event_id] = record
             flushed_entries += 1
         pending.unlink()
         flushed_files += 1

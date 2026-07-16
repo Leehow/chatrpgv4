@@ -28,6 +28,7 @@ Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import os
 import time
@@ -251,6 +252,250 @@ def _truthy_flag_ids(flags_doc: dict[str, Any] | None) -> set[str]:
     return {str(k) for k, v in raw.items() if v}
 
 
+def _source_head_is_bound(
+    flags_doc: dict[str, Any], head: dict[str, Any], campaign_dir: Path
+) -> bool:
+    """Return whether a typed flag head has an integrity-bound source receipt."""
+    director_receipts = flags_doc.get(
+        coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+    ) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director_receipts):
+        raise ValueError("canonical director flag receipt map is invalid")
+    for receipt in director_receipts.values():
+        if receipt.get("entity_head") == head:
+            canonical, pending = _director_flag_event_observations(
+                campaign_dir, str(receipt["event_id"])
+            )
+            if any(row != receipt["event"] for row in [*canonical, *pending]):
+                raise ValueError("later director flag event conflicts with its receipt")
+            if len(canonical) > 1 or len(pending) > 1:
+                raise ValueError("later director flag event is duplicated")
+            return True
+    operation_receipts = flags_doc.get("operation_receipts") or {}
+    tool_receipts = (
+        operation_receipts.get("state.set_flag")
+        if isinstance(operation_receipts, dict)
+        else None
+    ) or {}
+    if isinstance(tool_receipts, dict):
+        for receipt in tool_receipts.values():
+            if not isinstance(receipt, dict) or receipt.get("schema_version") != 3:
+                continue
+            body = {
+                key: deepcopy(value)
+                for key, value in receipt.items()
+                if key != "integrity_digest"
+            }
+            if (
+                receipt.get("entity_head") == head
+                and receipt.get("tool") == "state.set_flag"
+                and str(receipt.get("decision_id") or "")
+                == str(head.get("decision_id") or "")
+                and str(head.get("producer") or "") == "state.set_flag"
+                and str(receipt.get("integrity_digest") or "")
+                == coc_flag_state.canonical_digest(body)
+                and isinstance(receipt.get("event"), dict)
+                and receipt["event"].get("event_type") == "flag_set"
+                and str(receipt["event"].get("flag_id") or "")
+                == str(head.get("entity_id") or "")
+                and str(receipt["event"].get("decision_id") or "")
+                == str(head.get("decision_id") or "")
+                and str(receipt["event"].get("event_id") or "")
+                == str(receipt.get("event_id") or "")
+                and receipt["event"].get("live_head_digest")
+                == coc_flag_state.canonical_digest(head)
+            ):
+                canonical, pending = _director_flag_event_observations(
+                    campaign_dir, str(receipt["event_id"])
+                )
+                if any(row != receipt["event"] for row in [*canonical, *pending]):
+                    raise ValueError("later toolbox flag event conflicts with its receipt")
+                if len(canonical) > 1 or len(pending) > 1:
+                    raise ValueError("later toolbox flag event is duplicated")
+                return True
+    return False
+
+
+def _validate_director_flag_live_state(
+    flags_doc: dict[str, Any], receipt: dict[str, Any], campaign_dir: Path
+) -> None:
+    """Validate source state without rolling an older receipt over a later head."""
+    target = receipt["entity_head"]
+    flag_id = str(receipt["flag_id"])
+    heads = flags_doc.get("flag_heads")
+    if not isinstance(heads, dict):
+        raise ValueError("canonical flag head map is invalid")
+    current = heads.get(flag_id)
+    if not coc_flag_state.valid_entity_head(
+        current, entity_kind="flag", entity_id=flag_id
+    ):
+        raise ValueError(f"flag '{flag_id}' has no valid live head")
+    target_sequence = int(target["source_sequence"])
+    current_sequence = int(current["source_sequence"])
+    if current_sequence < target_sequence:
+        raise ValueError(f"flag '{flag_id}' live head predates its source receipt")
+    if current_sequence == target_sequence and current != target:
+        raise ValueError(f"flag '{flag_id}' live head conflicts with its source receipt")
+    if current_sequence > target_sequence and not _source_head_is_bound(
+        flags_doc, current, campaign_dir
+    ):
+        raise ValueError(f"flag '{flag_id}' later live head has no source anchor")
+    actual = coc_flag_state.flag_live_record(flags_doc, flag_id)
+    if actual != current["live_record"]:
+        raise ValueError(f"flag '{flag_id}' live record conflicts with its source head")
+
+
+def _pending_jsonl_records(
+    campaign_dir: Path, relative_path: str
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    pending_dir = campaign_dir / "logs" / "pending-turns"
+    if not pending_dir.is_dir():
+        return rows
+    for path in sorted(pending_dir.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"unreadable pending recorder batch: {path.name}") from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("entries"), list):
+            raise ValueError(f"invalid pending recorder batch: {path.name}")
+        for entry in payload.get("entries") or []:
+            if (
+                isinstance(entry, dict)
+                and entry.get("relative_path") == relative_path
+                and isinstance(entry.get("record"), dict)
+            ):
+                rows.append(entry["record"])
+    return rows
+
+
+def _director_flag_event_observations(
+    campaign_dir: Path, event_id: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    canonical: list[dict[str, Any]] = []
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    if events_path.is_file():
+        try:
+            for line in events_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if isinstance(row, dict) and str(row.get("event_id") or "") == event_id:
+                    canonical.append(row)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("canonical events log is unreadable") from exc
+    pending = [
+        row
+        for row in _pending_jsonl_records(campaign_dir, "logs/events.jsonl")
+        if str(row.get("event_id") or "") == event_id
+    ]
+    recorder = _ACTIVE_JSONL_RECORDER
+    if recorder is not None:
+        for entry in getattr(recorder, "entries", []):
+            if (
+                isinstance(entry, dict)
+                and entry.get("relative_path") == "logs/events.jsonl"
+                and isinstance(entry.get("record"), dict)
+                and str(entry["record"].get("event_id") or "") == event_id
+            ):
+                pending.append(entry["record"])
+    return canonical, pending
+
+
+def _ensure_director_flag_event(
+    campaign_dir: Path, receipt: dict[str, Any]
+) -> bool:
+    if not coc_flag_state.valid_director_flag_receipt(receipt):
+        raise ValueError("director flag source receipt failed integrity validation")
+    expected = receipt["event"]
+    event_id = str(receipt["event_id"])
+    canonical, pending = _director_flag_event_observations(campaign_dir, event_id)
+    if any(row != expected for row in [*canonical, *pending]):
+        raise ValueError(f"director flag event '{event_id}' conflicts with its source receipt")
+    if len(canonical) > 1 or len(pending) > 1:
+        raise ValueError(f"director flag event '{event_id}' is duplicated")
+    if canonical or pending:
+        return False
+    _append_jsonl(campaign_dir / "logs" / "events.jsonl", deepcopy(expected))
+    return True
+
+
+def _reconcile_director_flag_receipts(
+    campaign_dir: Path, decision_id: str
+) -> None:
+    """Finish source-owned flag operations before an apply-ledger early return."""
+    path = campaign_dir / "save" / "flags.json"
+    if not path.is_file():
+        return
+    flags_doc = _read_json(path, {})
+    receipt_map = flags_doc.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY)
+    if receipt_map is None:
+        return
+    if not coc_flag_state.valid_director_flag_receipt_map(receipt_map):
+        raise ValueError("canonical director flag receipt map is invalid")
+    for receipt in receipt_map.values():
+        if not coc_flag_state.valid_director_flag_receipt(receipt):
+            raise ValueError("canonical director flag receipt failed integrity validation")
+        if str(receipt.get("decision_id") or "") != str(decision_id):
+            continue
+        _validate_director_flag_live_state(flags_doc, receipt, campaign_dir)
+        _ensure_director_flag_event(campaign_dir, receipt)
+
+
+def _next_director_flag_source_sequence(
+    flags_doc: dict[str, Any],
+    event_rows: list[dict[str, Any]],
+    campaign_dir: Path,
+) -> int:
+    """Allocate from receipt anchors after the one-time legacy cutover."""
+    stored = coc_flag_state.positive_sequence(
+        flags_doc.get("flag_source_sequence")
+    ) or 0
+    anchored: list[int] = []
+    director_receipts = flags_doc.get(
+        coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+    ) or {}
+    if not coc_flag_state.valid_director_flag_receipt_map(director_receipts):
+        raise ValueError("canonical director flag receipt map is invalid")
+    for receipt in director_receipts.values():
+        if not coc_flag_state.valid_director_flag_receipt(receipt):
+            raise ValueError("canonical director flag receipt is invalid")
+        canonical, pending = _director_flag_event_observations(
+            campaign_dir, str(receipt["event_id"])
+        )
+        if any(row != receipt["event"] for row in [*canonical, *pending]):
+            raise ValueError("director flag event conflicts with its receipt")
+        if len(canonical) > 1 or len(pending) > 1:
+            raise ValueError("director flag event is duplicated")
+        anchored.append(int(receipt["entity_head"]["source_sequence"]))
+    toolbox_receipts = (
+        (flags_doc.get("operation_receipts") or {}).get("state.set_flag") or {}
+    )
+    if not isinstance(toolbox_receipts, dict):
+        raise ValueError("canonical toolbox flag receipt map is invalid")
+    for receipt in toolbox_receipts.values():
+        if not isinstance(receipt, dict):
+            raise ValueError("canonical toolbox flag receipt is invalid")
+        if receipt.get("schema_version") == 2:
+            continue
+        if receipt.get("schema_version") != 3:
+            raise ValueError("canonical toolbox flag receipt schema is invalid")
+        head = receipt.get("entity_head")
+        if not coc_flag_state.valid_entity_head(
+            head, entity_kind="flag", entity_id=str((head or {}).get("entity_id") or "")
+        ) or not _source_head_is_bound(flags_doc, head, campaign_dir):
+            raise ValueError("canonical toolbox flag receipt is invalid")
+        anchored.append(int(head["source_sequence"]))
+    if anchored:
+        anchored_max = max(anchored)
+        if stored != anchored_max:
+            raise ValueError(
+                "flag source counter is not anchored to the latest valid receipt"
+            )
+        return anchored_max + 1
+    return coc_flag_state.next_source_sequence(flags_doc, event_rows)
+
+
 def _commit_plan_flags(
     save: Path,
     plan: dict[str, Any],
@@ -285,6 +530,12 @@ def _commit_plan_flags(
     })
     if not isinstance(flags_doc.get("flags"), dict):
         flags_doc["flags"] = {}
+    receipt_map = flags_doc.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY)
+    if receipt_map is None:
+        receipt_map = {}
+        flags_doc[coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY] = receipt_map
+    if not coc_flag_state.valid_director_flag_receipt_map(receipt_map):
+        raise ValueError("canonical director flag receipt map is invalid")
     event_rows = []
     events_path = logs / "events.jsonl"
     if events_path.is_file():
@@ -300,11 +551,43 @@ def _commit_plan_flags(
             event_rows = []
     committed: list[str] = []
     for flag_id in flag_ids:
+        receipt_key = coc_flag_state.director_flag_receipt_key(
+            decision_id, flag_id
+        )
+        prior_receipt = receipt_map.get(receipt_key)
+        if prior_receipt is not None:
+            if not coc_flag_state.valid_director_flag_receipt(
+                prior_receipt, decision_id=decision_id, flag_id=flag_id
+            ):
+                raise ValueError(
+                    f"director flag receipt for '{flag_id}' failed integrity validation"
+                )
+            operation = prior_receipt["operation"]
+            if operation.get("value") is not True:
+                raise ValueError(
+                    f"director decision '{decision_id}' was retried with a different flag operation"
+                )
+            _validate_director_flag_live_state(
+                flags_doc, prior_receipt, logs.parent
+            )
+            _ensure_director_flag_event(logs.parent, prior_receipt)
+            ev = deepcopy(prior_receipt["event"])
+            if not any(
+                str(row.get("event_id") or "") == str(ev["event_id"])
+                for row in events
+                if isinstance(row, dict)
+            ):
+                events.append(ev)
+            committed.append(flag_id)
+            event_rows.append(ev)
+            continue
         if flags_doc["flags"].get(flag_id):
             continue
-        source_sequence = coc_flag_state.next_source_sequence(flags_doc, event_rows)
+        source_sequence = _next_director_flag_source_sequence(
+            flags_doc, event_rows, logs.parent
+        )
         try:
-            ev, _provenance, _head = coc_flag_state.commit_flag_mutation(
+            ev, _provenance, head = coc_flag_state.commit_flag_mutation(
                 flags_doc,
                 flag_id=flag_id,
                 value=True,
@@ -314,16 +597,30 @@ def _commit_plan_flags(
                 reason=reason,
                 source_ref=f"save/flags.json#flag_provenance/{flag_id}",
                 source_sequence=source_sequence,
+                event_id=coc_flag_state.director_flag_event_id(
+                    decision_id, flag_id
+                ),
                 investigator_id=investigator_id,
             )
         except ValueError as exc:
             raise ValueError(f"cannot persist structured flag mutation: {exc}") from exc
-        committed.append(flag_id)
-        events.append(ev)
-        _append_jsonl(logs / "events.jsonl", ev)
-        event_rows.append(ev)
-    if committed:
+        receipt = coc_flag_state.new_director_flag_receipt(
+            decision_id=decision_id,
+            flag_id=flag_id,
+            value=True,
+            reason=reason,
+            event=ev,
+            entity_head=head,
+        )
+        receipt_map[receipt_key] = receipt
+        # The live transition, typed head, and source-owned receipt commit as
+        # one atomic source write.  Event/recorder durability is reconciled
+        # afterwards by stable event id on this call or any retry.
         _write_json(flags_path, flags_doc)
+        committed.append(flag_id)
+        events.append(deepcopy(ev))
+        _ensure_director_flag_event(logs.parent, receipt)
+        event_rows.append(ev)
     return committed
 
 
@@ -780,7 +1077,7 @@ def _apply_npc_state_and_agency(
             # Append-only engagement record so adherence / audits can see that
             # this NPC actually moved this turn (agency_moves may be empty).
             engagement = {
-                "schema_version": 2,
+                "schema_version": coc_npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION,
                 "event_type": "npc_engagement",
                 "decision_id": plan.get("decision_id"),
                 "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
@@ -799,7 +1096,7 @@ def _apply_npc_state_and_agency(
             if not isinstance(agency_move, dict):
                 continue
             record = {
-                "schema_version": 2,
+                "schema_version": coc_npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION,
                 "event_type": "npc_agency",
                 "decision_id": plan.get("decision_id"),
                 "turn_number": (plan.get("turn_input") or {}).get("turn_number"),
@@ -2850,34 +3147,6 @@ def apply_plan(
 
     decision_id = str(plan.get("decision_id", "unknown"))
     save_dir = Path(campaign_dir) / "save"
-    if _decision_already_applied(save_dir, decision_id):
-        return [{
-            "event_type": "apply_skipped",
-            "skipped": "duplicate_decision_id",
-            "decision_id": decision_id,
-        }]
-
-    expected_commands = coc_subsystem_executor.commands_from_rules_requests(plan)
-    settled_rule_results = coc_subsystem_executor.normalize_rule_results(
-        rules_results,
-        campaign_dir=campaign_dir,
-        expected_commands=expected_commands,
-        investigator_id=investigator_id,
-        decision_id=decision_id,
-        results_mode=rules_results_mode,
-    )
-
-    strategy_state = plan.get("director_strategy_state")
-    if isinstance(strategy_state, dict) and strategy_state:
-        canonical_strategy, strategy_findings = (
-            coc_director_strategies.validate_strategy_state(strategy_state)
-        )
-        if canonical_strategy is not None and not strategy_findings:
-            _write_json(save_dir / "director-strategy-state.json", {
-                **canonical_strategy,
-                "last_decision_id": decision_id,
-            })
-
     mode = "sync"
     flush_policy = "manual"
     recorder = None
@@ -2894,6 +3163,41 @@ def apply_plan(
     previous_recorder = _ACTIVE_JSONL_RECORDER
     _ACTIVE_JSONL_RECORDER = recorder
     try:
+        # A plan ledger can survive a recorder interruption.  Reconcile every
+        # source-owned flag receipt before honoring that early-return marker.
+        _reconcile_director_flag_receipts(Path(campaign_dir), decision_id)
+        if _decision_already_applied(save_dir, decision_id):
+            if recorder is not None:
+                pending_batch = recorder.commit()
+                if pending_batch is not None and flush_policy == "background":
+                    coc_async_recorder.spawn_background_flush(campaign_dir)
+            return [{
+                "event_type": "apply_skipped",
+                "skipped": "duplicate_decision_id",
+                "decision_id": decision_id,
+            }]
+
+        expected_commands = coc_subsystem_executor.commands_from_rules_requests(plan)
+        settled_rule_results = coc_subsystem_executor.normalize_rule_results(
+            rules_results,
+            campaign_dir=campaign_dir,
+            expected_commands=expected_commands,
+            investigator_id=investigator_id,
+            decision_id=decision_id,
+            results_mode=rules_results_mode,
+        )
+
+        strategy_state = plan.get("director_strategy_state")
+        if isinstance(strategy_state, dict) and strategy_state:
+            canonical_strategy, strategy_findings = (
+                coc_director_strategies.validate_strategy_state(strategy_state)
+            )
+            if canonical_strategy is not None and not strategy_findings:
+                _write_json(save_dir / "director-strategy-state.json", {
+                    **canonical_strategy,
+                    "last_decision_id": decision_id,
+                })
+
         events = _apply_plan_impl(
             campaign_dir,
             plan,
@@ -2904,6 +3208,10 @@ def apply_plan(
             pending_batch = recorder.commit()
             if pending_batch is not None and flush_policy == "background":
                 coc_async_recorder.spawn_background_flush(campaign_dir)
+        # The plan ledger is last: every source-owned flag transition and its
+        # sync event or durable recorder batch is reconcilable before success
+        # can suppress a retry.
+        _record_applied_decision(save_dir, decision_id)
         return events
     finally:
         _ACTIVE_JSONL_RECORDER = previous_recorder
@@ -3550,8 +3858,5 @@ def _apply_plan_impl(
               "investigator_id": investigator_id, "ts": ts}
         events.append(ev)
         _append_jsonl(logs / "events.jsonl", ev)
-
-    # 9. idempotency ledger — record after a successful apply so retries no-op.
-    _record_applied_decision(save, decision_id)
 
     return events

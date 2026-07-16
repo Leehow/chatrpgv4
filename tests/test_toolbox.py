@@ -696,8 +696,11 @@ def test_legacy_ledger_entry_matches_only_its_original_tool(campaign_ws):
         "state.npc_update",
         {"npc_id": npc_id, "trust_delta": 1, "decision_id": "legacy-id"},
     )
-    assert same_tool["data"]["flag_id"] == "legacy"
-    assert any("duplicate decision_id" in warning for warning in same_tool["warnings"])
+    assert same_tool["ok"] is False
+    assert same_tool["error"]["code"] == "legacy_recovery_unverifiable"
+    assert "should-not-write" not in coc_toolbox.Ctx(
+        campaign_ws["workspace"], campaign_ws["campaign_id"]
+    ).flags().get("flags", {})
     assert other_tool["ok"] is True
     assert other_tool["data"]["npc_id"] == npc_id
     assert other_tool["data"]["applied"]["trust"] == 1
@@ -1398,7 +1401,7 @@ def test_receipt_era_ledger_manifest_rejects_missing_canonical_source(
     assert not source_path.exists()
 
 
-def test_genuine_pre_receipt_legacy_ledger_entry_remains_replayable(campaign_ws):
+def test_pre_receipt_orphan_ledger_is_non_comparable_and_never_reapplied(campaign_ws):
     campaign_dir = campaign_ws["campaign_dir"]
     marker_path = campaign_dir / "save" / "time-markers.json"
     assert not marker_path.exists()
@@ -1415,9 +1418,8 @@ def test_genuine_pre_receipt_legacy_ledger_entry_remains_replayable(campaign_ws)
 
     replay = _run(campaign_ws, "state.time_marker", args)
 
-    assert replay["ok"] is True
-    assert replay["data"] == legacy_data
-    assert any("legacy ledger" in warning for warning in replay["warnings"])
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "legacy_recovery_unverifiable"
     assert not marker_path.exists()
 
 
@@ -3218,3 +3220,239 @@ def test_cli_describe_known_tool():
     assert payload["name"] == "state.record_clue"
     assert payload["params"]["clue_id"]["required"] is True
     assert payload["params"]["decision_id"]["required"] is True
+
+
+@pytest.mark.parametrize("entity_kind", ["flag", "marker"])
+def test_schema_v2_receipt_with_missing_live_entity_is_never_success(
+    campaign_ws, entity_kind,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    if entity_kind == "flag":
+        tool_name = "state.set_flag"
+        args = {
+            "flag_id": "v2-missing-flag",
+            "value": True,
+            "decision_id": "v2-missing-flag-decision",
+        }
+        source_path = campaign_dir / "save" / "flags.json"
+    else:
+        tool_name = "state.time_marker"
+        args = {
+            "action": "set",
+            "marker_id": "v2-missing-marker",
+            "minutes_from_now": 7,
+            "decision_id": "v2-missing-marker-decision",
+        }
+        source_path = campaign_dir / "save" / "time-markers.json"
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    receipt = source["operation_receipts"][tool_name][args["decision_id"]]
+    receipt.pop("entity_head")
+    receipt["schema_version"] = 2
+    receipt["integrity_digest"] = coc_toolbox._source_receipt_integrity(receipt)
+    if entity_kind == "flag":
+        source["flags"].pop(args["flag_id"])
+        source["flag_provenance"].pop(args["flag_id"])
+        source["flag_heads"].pop(args["flag_id"])
+    else:
+        source["markers"].pop(args["marker_id"])
+        source["marker_heads"].pop(args["marker_id"])
+    _write_json(source_path, source)
+    before = source_path.read_bytes()
+
+    replay = _run(campaign_ws, tool_name, args)
+
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "legacy_recovery_unverifiable"
+    assert source_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("entity_kind", ["flag", "marker"])
+def test_schema_v2_receipt_migrates_atomically_only_with_complete_live_evidence(
+    campaign_ws, entity_kind,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    if entity_kind == "flag":
+        tool_name = "state.set_flag"
+        args = {
+            "flag_id": "v2-provable-flag",
+            "value": False,
+            "decision_id": "v2-provable-flag-decision",
+        }
+        source_path = campaign_dir / "save" / "flags.json"
+    else:
+        tool_name = "state.time_marker"
+        args = {
+            "action": "set",
+            "marker_id": "v2-provable-marker",
+            "minutes_from_now": 11,
+            "decision_id": "v2-provable-marker-decision",
+        }
+        source_path = campaign_dir / "save" / "time-markers.json"
+    original = _run(campaign_ws, tool_name, args)
+    assert original["ok"] is True
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    receipt = source["operation_receipts"][tool_name][args["decision_id"]]
+    receipt.pop("entity_head")
+    receipt["schema_version"] = 2
+    receipt["integrity_digest"] = coc_toolbox._source_receipt_integrity(receipt)
+    _write_json(source_path, source)
+
+    replay = _run(campaign_ws, tool_name, args)
+
+    assert replay["ok"] is True
+    migrated = json.loads(source_path.read_text(encoding="utf-8"))[
+        "operation_receipts"
+    ][tool_name][args["decision_id"]]
+    assert migrated["schema_version"] == 3
+    assert coc_toolbox.coc_flag_state.valid_entity_head(migrated["entity_head"])
+
+
+def test_unanchored_flag_head_is_not_authoritative_provenance(campaign_ws):
+    campaign_dir = campaign_ws["campaign_dir"]
+    args = {
+        "flag_id": "unanchored-head-flag",
+        "value": True,
+        "decision_id": "anchored-flag-decision",
+    }
+    assert _run(campaign_ws, "state.set_flag", args)["ok"] is True
+    flags_path = campaign_dir / "save" / "flags.json"
+    flags = json.loads(flags_path.read_text(encoding="utf-8"))
+    provenance = dict(flags["flag_provenance"][args["flag_id"]])
+    provenance.update({
+        "source": "forged",
+        "producer": "forged",
+        "decision_id": "forged-decision",
+        "source_sequence": 999,
+    })
+    flags["flag_provenance"][args["flag_id"]] = provenance
+    live_record = coc_toolbox.coc_flag_state.flag_live_record(
+        flags, args["flag_id"]
+    )
+    flags["flag_heads"][args["flag_id"]] = (
+        coc_toolbox.coc_flag_state.entity_head(
+            entity_kind="flag",
+            entity_id=args["flag_id"],
+            decision_id="forged-decision",
+            source_sequence=999,
+            producer="forged",
+            live_record=live_record,
+        )
+    )
+    flags["flag_source_sequence"] = 999
+    _write_json(flags_path, flags)
+
+    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
+    live = next(
+        row for row in continuity["live_world_flags"]
+        if row["flag_id"] == args["flag_id"]
+    )
+    assert live["provenance"]["producer"] == "state.set_flag"
+    unrelated = _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "unrelated-after-forged-head",
+            "value": True,
+            "decision_id": "unrelated-after-forged-head-decision",
+        },
+    )
+    assert unrelated["ok"] is False
+    assert unrelated["error"]["code"] == "state_corrupt"
+    replay = _run(campaign_ws, "state.set_flag", args)
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+
+
+def test_unanchored_time_marker_head_is_rejected(campaign_ws):
+    campaign_dir = campaign_ws["campaign_dir"]
+    args = {
+        "action": "set",
+        "marker_id": "unanchored-head-marker",
+        "minutes_from_now": 5,
+        "decision_id": "anchored-marker-decision",
+    }
+    assert _run(campaign_ws, "state.time_marker", args)["ok"] is True
+    marker_path = campaign_dir / "save" / "time-markers.json"
+    payload = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker = dict(payload["markers"][args["marker_id"]])
+    marker.update({"decision_id": "forged-marker", "source_sequence": 999})
+    payload["markers"][args["marker_id"]] = marker
+    live_record = coc_toolbox._marker_live_record(payload, args["marker_id"])
+    payload["marker_heads"][args["marker_id"]] = (
+        coc_toolbox.coc_flag_state.entity_head(
+            entity_kind="time_marker",
+            entity_id=args["marker_id"],
+            decision_id="forged-marker",
+            source_sequence=999,
+            producer="forged",
+            live_record=live_record,
+        )
+    )
+    payload["marker_source_sequence"] = 999
+    _write_json(marker_path, payload)
+
+    unrelated = _run(
+        campaign_ws,
+        "state.time_marker",
+        {
+            "action": "set",
+            "marker_id": "unrelated-after-forged-marker",
+            "minutes_from_now": 3,
+            "decision_id": "unrelated-after-forged-marker-decision",
+        },
+    )
+    assert unrelated["ok"] is False
+    assert unrelated["error"]["code"] == "state_corrupt"
+    replay = _run(campaign_ws, "state.time_marker", args)
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "state_corrupt"
+
+
+def test_new_structured_flag_remains_recent_after_many_legacy_rows(campaign_ws):
+    campaign_dir = campaign_ws["campaign_dir"]
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    with events_path.open("a", encoding="utf-8") as handle:
+        for index in range(20):
+            handle.write(json.dumps({
+                "event_type": "flag_set",
+                "flag_id": f"legacy-{index}",
+                "decision_id": f"legacy-decision-{index}",
+                "ts": f"1920-01-01T00:{index:02d}:00Z",
+            }) + "\n")
+    assert _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "new-sequenced-transition",
+            "value": True,
+            "decision_id": "new-sequenced-decision",
+        },
+    )["ok"] is True
+
+    recent = _run(campaign_ws, "scene.context")["data"]["continuity"][
+        "recent_world_flag_changes"
+    ]
+    assert recent[-1]["flag_id"] == "new-sequenced-transition"
+    assert recent[-1]["provenance"]["order_epoch"] == "sequenced-v1"
+    assert recent[-1]["provenance"]["integrity_status"] == "source_anchored"
+
+
+def test_toolbox_npc_engagement_producer_emits_exact_current_event_schema(
+    campaign_ws,
+):
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    result = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": npc_id,
+            "interaction_kind": "dialogue",
+            "decision_id": "npc-schema-producer",
+        },
+    )
+    assert result["ok"] is True
+    assert type(result["data"]["schema_version"]) is int
+    assert result["data"]["schema_version"] == (
+        coc_toolbox.coc_npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION
+    )

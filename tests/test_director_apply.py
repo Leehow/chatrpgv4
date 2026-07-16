@@ -2906,3 +2906,125 @@ def test_apply_plan_flags_set_unlocks_and_cuts(tmp_path):
     flags = json.loads((camp / "save" / "flags.json").read_text())
     assert flags["flags"]["expedition_departs_lima"] is True
     assert flags["flags"]["arrived_puno"] is True
+
+
+@pytest.mark.parametrize(
+    ("recording_mode", "fail_stage"),
+    [
+        ("sync", "source"),
+        ("sync", "event"),
+        ("sync", "apply_ledger"),
+        ("fast", "source"),
+        ("fast", "event"),
+        ("fast", "recorder"),
+        ("fast", "apply_ledger"),
+    ],
+)
+def test_director_flag_receipt_repairs_every_commit_boundary_exactly_once(
+    tmp_path, monkeypatch, recording_mode, fail_stage,
+):
+    camp = _campaign(tmp_path)
+    decision_id = f"director-flag-{recording_mode}-{fail_stage}"
+    flag_id = "receipt-bound-flag"
+    event_id = coc_director_apply.coc_flag_state.director_flag_event_id(
+        decision_id, flag_id
+    )
+    plan = {
+        "decision_id": decision_id,
+        "scene_action": "CHARACTER",
+        "flags_set": [flag_id],
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    tripped = {"value": False}
+
+    if fail_stage == "source":
+        original = coc_director_apply._write_json
+
+        def fail_source(path, payload):
+            if (
+                not tripped["value"]
+                and Path(path).name == "flags.json"
+                and payload.get(
+                    coc_director_apply.coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+                )
+            ):
+                tripped["value"] = True
+                raise RuntimeError("source failpoint")
+            return original(path, payload)
+
+        monkeypatch.setattr(coc_director_apply, "_write_json", fail_source)
+    elif fail_stage == "event":
+        original = coc_director_apply._append_jsonl
+
+        def fail_event(path, record):
+            if not tripped["value"] and record.get("event_id") == event_id:
+                tripped["value"] = True
+                raise RuntimeError("event failpoint")
+            return original(path, record)
+
+        monkeypatch.setattr(coc_director_apply, "_append_jsonl", fail_event)
+    elif fail_stage == "recorder":
+        recorder_cls = coc_director_apply.coc_async_recorder.JsonlRecorder
+        original = recorder_cls.commit
+
+        def fail_recorder(self):
+            if not tripped["value"]:
+                tripped["value"] = True
+                raise RuntimeError("recorder failpoint")
+            return original(self)
+
+        monkeypatch.setattr(recorder_cls, "commit", fail_recorder)
+    else:
+        original = coc_director_apply._record_applied_decision
+
+        def fail_ledger(save, current_decision):
+            if not tripped["value"] and current_decision == decision_id:
+                tripped["value"] = True
+                raise RuntimeError("apply ledger failpoint")
+            return original(save, current_decision)
+
+        monkeypatch.setattr(
+            coc_director_apply, "_record_applied_decision", fail_ledger
+        )
+
+    with pytest.raises(RuntimeError):
+        coc_director_apply.apply_plan(
+            camp,
+            plan,
+            investigator_id="inv1",
+            recording_mode=recording_mode,
+        )
+    assert tripped["value"] is True
+
+    coc_director_apply.apply_plan(
+        camp,
+        plan,
+        investigator_id="inv1",
+        recording_mode=recording_mode,
+    )
+    if recording_mode == "fast":
+        coc_director_apply.coc_async_recorder.flush_pending_records(camp)
+
+    flags = json.loads((camp / "save" / "flags.json").read_text())
+    assert flags["flags"][flag_id] is True
+    receipt_key = coc_director_apply.coc_flag_state.director_flag_receipt_key(
+        decision_id, flag_id
+    )
+    receipt = flags[
+        coc_director_apply.coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY
+    ][receipt_key]
+    assert coc_director_apply.coc_flag_state.valid_director_flag_receipt(
+        receipt, decision_id=decision_id, flag_id=flag_id
+    )
+    event_rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    matching = [row for row in event_rows if row.get("event_id") == event_id]
+    assert matching == [receipt["event"]]
+    ledger = json.loads((camp / "save" / "apply-ledger.json").read_text())
+    assert decision_id in ledger["applied_decision_ids"]

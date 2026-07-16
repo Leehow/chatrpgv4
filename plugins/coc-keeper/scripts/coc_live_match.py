@@ -1538,10 +1538,12 @@ def _run_live_match_impl(
         )
         session_result["npc_engagement_evidence"] = npc_evidence
         session_result["npc_engagement_coverage_contract"] = {
-            "schema_version": 3,
+            "schema_version": 4,
             "semantics": "authored_identity_attestation",
             "producer": "coc_live_match",
             "projection_schema_version": 1,
+            "usage": "display_only",
+            "coverage_eligible": False,
             "legacy_raw_ids_included": False,
             "legacy_status": npc_evidence["status"],
             "evidence_digest": coc_adherence.coc_npc_identity.engagement_evidence_digest(
@@ -1561,7 +1563,9 @@ def _run_live_match_impl(
     if coc_adherence is not None and scenario_dir.is_dir():
         try:
             narrative_adherence = coc_adherence.compute_adherence_for_scenario(
-                scenario_dir, session_result
+                scenario_dir,
+                session_result,
+                trusted_npc_engagement_events=final_event_rows,
             )
         except Exception:
             narrative_adherence = None

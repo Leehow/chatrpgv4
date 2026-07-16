@@ -404,9 +404,10 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
             "scene-1",
         )
         match._append_jsonl_fsync(
-            campaign / "logs" / "events.jsonl",
-            {
-                "event_type": "npc_engagement",
+                campaign / "logs" / "events.jsonl",
+                {
+                    "schema_version": npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION,
+                    "event_type": "npc_engagement",
                 "npc_id": "npc-guide",
                 "scene_id": "scene-1",
                 "interaction_kind": "dialogue",
@@ -457,10 +458,12 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
     session = result["result"]
     assert session["engaged_npc_ids"] == ["npc-guide"]
     assert session["npc_engagement_coverage_contract"] == {
-        "schema_version": 3,
+        "schema_version": 4,
         "semantics": "authored_identity_attestation",
         "producer": "coc_live_match",
         "projection_schema_version": 1,
+        "usage": "display_only",
+        "coverage_eligible": False,
         "legacy_raw_ids_included": False,
         "legacy_status": "NON_COMPARABLE",
         "evidence_digest": npc_identity.engagement_evidence_digest(

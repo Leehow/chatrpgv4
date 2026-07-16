@@ -16,6 +16,10 @@ from typing import Any
 
 IDENTITY_CONTRACT_SCHEMA_VERSION = 1
 IDENTITY_BINDING_SCHEMA_VERSION = 1
+ENGAGEMENT_EVENT_SCHEMA_VERSION = 2
+SUPPORTED_ENGAGEMENT_EVENT_SCHEMA_VERSIONS = frozenset({
+    ENGAGEMENT_EVENT_SCHEMA_VERSION,
+})
 SUPPORTED_ATTESTATION_SOURCES = frozenset({
     "keeper_supplied_identity_ref",
     "director_apply.npc_move",
@@ -207,6 +211,11 @@ def validate_authored_attestation(
     """Validate one supported producer contract without reading prose meaning."""
     if not isinstance(contract, dict) or not isinstance(binding, dict):
         return False
+    if (
+        type(event_schema_version) is not int
+        or event_schema_version not in SUPPORTED_ENGAGEMENT_EVENT_SCHEMA_VERSIONS
+    ):
+        return False
     if contract.get("schema_version") != IDENTITY_CONTRACT_SCHEMA_VERSION:
         return False
     if binding.get("schema_version") != IDENTITY_BINDING_SCHEMA_VERSION:
@@ -255,11 +264,16 @@ def validate_authored_attestation(
         return False
     contract_scene = location.get("active_scene_id")
     if event_scene_present:
-        if str(event_scene_id or "") != str(contract_scene or ""):
+        if (
+            not isinstance(event_scene_id, str)
+            or not event_scene_id
+            or not isinstance(contract_scene, str)
+            or not contract_scene
+            or event_scene_id != contract_scene
+        ):
             return False
-    elif isinstance(event_schema_version, int) and event_schema_version >= 2:
-        # Schema-v2 producers promise an event-scene binding.  Schema-v1 and
-        # unversioned rows may omit it only as an explicit compatibility path.
+    else:
+        # Every supported event version promises an exact scene binding.
         return False
 
     return bool(

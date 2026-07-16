@@ -16,6 +16,8 @@ from typing import Any, Iterable
 FLAG_MUTATION_SCHEMA_VERSION = 1
 FLAG_HEAD_SCHEMA_VERSION = 1
 FLAG_DOCUMENT_SCHEMA_VERSION = 3
+DIRECTOR_FLAG_RECEIPTS_KEY = "director_flag_receipts"
+DIRECTOR_FLAG_RECEIPT_SCHEMA_VERSION = 1
 
 
 def canonical_digest(value: Any) -> str:
@@ -132,10 +134,205 @@ def valid_entity_head(
     if positive_sequence(head.get("source_sequence")) is None:
         return False
     live_record = head.get("live_record")
+    if not isinstance(live_record, dict):
+        return False
+    stable_kind = str(head.get("entity_kind") or "")
+    stable_id = str(head.get("entity_id") or "")
+    if stable_kind == "flag":
+        if set(live_record) != {
+            "schema_version", "flag_id", "present", "value", "provenance",
+        }:
+            return False
+        if (
+            live_record.get("schema_version") != 1
+            or str(live_record.get("flag_id") or "") != stable_id
+            or type(live_record.get("present")) is not bool
+        ):
+            return False
+        if live_record["present"] is True:
+            if type(live_record.get("value")) is not bool:
+                return False
+            provenance = live_record.get("provenance")
+            if not isinstance(provenance, dict):
+                return False
+            if (
+                str(provenance.get("decision_id") or "")
+                != str(head.get("decision_id") or "")
+                or str(provenance.get("producer") or "")
+                != str(head.get("producer") or "")
+                or positive_sequence(provenance.get("source_sequence"))
+                != positive_sequence(head.get("source_sequence"))
+            ):
+                return False
+        elif live_record.get("value") is not None or live_record.get("provenance") is not None:
+            return False
+    elif stable_kind == "time_marker":
+        if set(live_record) != {
+            "schema_version", "marker_id", "present", "marker",
+        }:
+            return False
+        if (
+            live_record.get("schema_version") != 1
+            or str(live_record.get("marker_id") or "") != stable_id
+            or type(live_record.get("present")) is not bool
+        ):
+            return False
+        marker = live_record.get("marker")
+        if live_record["present"] is True:
+            if (
+                not isinstance(marker, dict)
+                or str(marker.get("marker_id") or "") != stable_id
+                or str(marker.get("decision_id") or "")
+                != str(head.get("decision_id") or "")
+                or positive_sequence(marker.get("source_sequence"))
+                != positive_sequence(head.get("source_sequence"))
+            ):
+                return False
+        elif marker is not None:
+            return False
+    else:
+        return False
     return bool(
-        isinstance(live_record, dict)
-        and str(head.get("live_record_digest") or "")
-        == canonical_digest(live_record)
+        str(head.get("live_record_digest") or "") == canonical_digest(live_record)
+    )
+
+
+def director_flag_event_id(decision_id: str, flag_id: str) -> str:
+    """Stable identity for one director-owned flag transition."""
+    encoded = json.dumps(
+        ["coc_director_apply.flag", str(decision_id), str(flag_id)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"director-flag-v1:{hashlib.sha256(encoded).hexdigest()[:32]}"
+
+
+def director_flag_receipt_key(decision_id: str, flag_id: str) -> str:
+    return json.dumps(
+        [str(decision_id), str(flag_id)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def new_director_flag_receipt(
+    *,
+    decision_id: str,
+    flag_id: str,
+    value: bool,
+    reason: str | None,
+    event: dict[str, Any],
+    entity_head: dict[str, Any],
+) -> dict[str, Any]:
+    receipt = {
+        "schema_version": DIRECTOR_FLAG_RECEIPT_SCHEMA_VERSION,
+        "producer": "coc_director_apply",
+        "decision_id": str(decision_id),
+        "flag_id": str(flag_id),
+        "operation": {"value": bool(value), "reason": reason},
+        "event_id": director_flag_event_id(decision_id, flag_id),
+        "event": deepcopy(event),
+        "entity_head": deepcopy(entity_head),
+    }
+    receipt["integrity_digest"] = canonical_digest(receipt)
+    return receipt
+
+
+def valid_director_flag_receipt(
+    receipt: Any,
+    *,
+    decision_id: str | None = None,
+    flag_id: str | None = None,
+) -> bool:
+    """Validate the complete source-owned director flag receipt."""
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "schema_version",
+        "producer",
+        "decision_id",
+        "flag_id",
+        "operation",
+        "event_id",
+        "event",
+        "entity_head",
+        "integrity_digest",
+    }:
+        return False
+    if (
+        receipt.get("schema_version") != DIRECTOR_FLAG_RECEIPT_SCHEMA_VERSION
+        or receipt.get("producer") != "coc_director_apply"
+    ):
+        return False
+    stable_decision = str(receipt.get("decision_id") or "")
+    stable_flag = str(receipt.get("flag_id") or "")
+    if not stable_decision or not stable_flag:
+        return False
+    if decision_id is not None and stable_decision != str(decision_id):
+        return False
+    if flag_id is not None and stable_flag != str(flag_id):
+        return False
+    operation = receipt.get("operation")
+    if (
+        not isinstance(operation, dict)
+        or set(operation) != {"value", "reason"}
+        or type(operation.get("value")) is not bool
+        or operation.get("reason") is not None
+        and not isinstance(operation.get("reason"), str)
+    ):
+        return False
+    stable_event_id = director_flag_event_id(stable_decision, stable_flag)
+    event = receipt.get("event")
+    head = receipt.get("entity_head")
+    live_record = head.get("live_record") if isinstance(head, dict) else None
+    provenance = (
+        live_record.get("provenance") if isinstance(live_record, dict) else None
+    )
+    if (
+        str(receipt.get("event_id") or "") != stable_event_id
+        or not isinstance(event, dict)
+        or str(event.get("event_id") or "") != stable_event_id
+        or event.get("event_type") != "flag_set"
+        or event.get("flag_mutation_schema_version")
+        != FLAG_MUTATION_SCHEMA_VERSION
+        or str(event.get("decision_id") or "") != stable_decision
+        or str(event.get("flag_id") or "") != stable_flag
+        or event.get("value") is not operation.get("value")
+        or event.get("reason") != operation.get("reason")
+        or event.get("producer") != "coc_director_apply"
+        or not valid_entity_head(head, entity_kind="flag", entity_id=stable_flag)
+        or str(head.get("decision_id") or "") != stable_decision
+        or str(head.get("producer") or "") != "coc_director_apply"
+        or positive_sequence(event.get("source_sequence"))
+        != positive_sequence(head.get("source_sequence"))
+        or not isinstance(live_record, dict)
+        or live_record.get("present") is not True
+        or live_record.get("value") is not operation.get("value")
+        or not isinstance(provenance, dict)
+        or provenance.get("source") != "coc_director_apply"
+        or provenance.get("producer") != "coc_director_apply"
+        or str(provenance.get("decision_id") or "") != stable_decision
+        or provenance.get("reason") != operation.get("reason")
+        or provenance.get("previous_value") != event.get("previous_value")
+        or provenance.get("changed_at") != event.get("ts")
+        or positive_sequence(provenance.get("source_sequence"))
+        != positive_sequence(head.get("source_sequence"))
+        or str(event.get("live_head_digest") or "") != canonical_digest(head)
+    ):
+        return False
+    body = {key: deepcopy(value) for key, value in receipt.items() if key != "integrity_digest"}
+    return str(receipt.get("integrity_digest") or "") == canonical_digest(body)
+
+
+def valid_director_flag_receipt_map(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return all(
+        valid_director_flag_receipt(receipt)
+        and str(key)
+        == director_flag_receipt_key(
+            str(receipt.get("decision_id") or ""),
+            str(receipt.get("flag_id") or ""),
+        )
+        for key, receipt in value.items()
     )
 
 
