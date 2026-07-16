@@ -96,11 +96,11 @@ function assertNoStandaloneJsonDocument(wrapper) {
 }
 
 function looksLikeMalformedStandaloneJson(segment) {
-  if (isMarkdownLinkAt(segment, 0)) return false;
+  if (markdownLinkEndAt(segment, 0) !== null) return false;
   if (segment.startsWith('"')) return isStandaloneStringShaped(segment);
   if (segment.startsWith("{")) return looksLikeJsonContainer(segment, 0);
   if (segment.startsWith("[")) return looksLikeJsonContainer(segment, 0);
-  return /^(?:[+-]?(?:NaN|Infinity)|[+-]?(?:0[xX][0-9a-fA-F]*|0[oO][0-9]*|0[bB][0-9]*|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?))$/.test(segment);
+  return /^(?:[+-]?(?:NaN|Infinity)|[+-]?(?:0[xX][0-9a-zA-Z]*|0[oO][0-9a-zA-Z]*|0[bB][0-9a-zA-Z]*|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d*)?))$/.test(segment);
 }
 
 function isStandaloneStringShaped(segment) {
@@ -118,9 +118,12 @@ function findContainerCandidates(source) {
   const containers = [];
   let index = 0;
   while (index < source.length) {
-    if (source[index] === "[" && isMarkdownLinkAt(source, index)) {
-      index = endOfMarkdownLink(source, index);
-      continue;
+    if (source[index] === "[") {
+      const linkEnd = markdownLinkEndAt(source, index);
+      if (linkEnd !== null) {
+        index = linkEnd;
+        continue;
+      }
     }
     if (source[index] !== "{" && source[index] !== "[") {
       index += 1;
@@ -129,7 +132,7 @@ function findContainerCandidates(source) {
     const container = scanContainer(source, index);
     if (container.kind === "invalid_json") throw new Error(container.error);
     if (container.kind === "valid") containers.push(container);
-    index = container.end;
+    index = container.kind === "prose" ? index + 1 : container.end;
   }
   return containers;
 }
@@ -182,17 +185,31 @@ function looksLikeJsonContainer(source, start) {
   return /^(?:[\[{"]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\b|true\b|false\b|null\b|\])/.test(rest);
 }
 
-function isMarkdownLinkAt(source, start) {
-  if (source[start] !== "[") return false;
-  const labelEnd = source.indexOf("]", start + 1);
-  if (labelEnd < 0 || source[labelEnd + 1] !== "(") return false;
-  const targetEnd = source.indexOf(")", labelEnd + 2);
-  return targetEnd >= 0;
-}
+function markdownLinkEndAt(source, start) {
+  if (source[start] !== "[") return null;
+  let depth = 1;
+  let escaped = false;
+  let index = start + 1;
+  for (; index < source.length && depth; index += 1) {
+    const char = source[index];
+    if (escaped) escaped = false;
+    else if (char === "\\") escaped = true;
+    else if (char === "[") depth += 1;
+    else if (char === "]") depth -= 1;
+  }
+  if (depth || source[index] !== "(") return null;
 
-function endOfMarkdownLink(source, start) {
-  const labelEnd = source.indexOf("]", start + 1);
-  return source.indexOf(")", labelEnd + 2) + 1;
+  depth = 1;
+  escaped = false;
+  index += 1;
+  for (; index < source.length && depth; index += 1) {
+    const char = source[index];
+    if (escaped) escaped = false;
+    else if (char === "\\") escaped = true;
+    else if (char === "(") depth += 1;
+    else if (char === ")") depth -= 1;
+  }
+  return depth ? null : index;
 }
 
 function findMarkdownFences(source) {

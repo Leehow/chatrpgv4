@@ -56,13 +56,21 @@ FENCE = f"```json\n{OBJECT}\n```"
         f'"Compilation complete." Result: {OBJECT}',
         f'"bundle" is the result label.\n{OBJECT}',
         f'"bundle" is the result label.\n{FENCE}',
+        f'"bund\\\"le" follows below: {OBJECT}',
         f"```text\nnot a JSON document\n```\n{FENCE}",
         f"See [1](https://example.test): {OBJECT}",
         f"See [1](https://example.test)\n{FENCE}",
         f"See [item [1]](https://example.test/a_(b)): {OBJECT}",
         f"See [item [1]](https://example.test/a_(b))\r\n{FENCE}",
+        f"[see \\] [1]](https://example.test) {OBJECT}",
+        f"[doc](https://example.test/(part)/[1]) {OBJECT}",
+        f"[doc](https://example.test/\\)/[1]) {OBJECT}",
+        f"{OBJECT} [doc](https://example.test/(part)/[1])",
+        f"[doc](https://example.test/\\)/[1])\r\n{FENCE}",
         f"See [bundle](https://example.test) and [seven total]. Result: {OBJECT}. Thanks :) ]",
         f"Notes {{draft}} [seven total]. Result: {OBJECT}.",
+        f"The malformed token 0xG was discussed. {OBJECT}",
+        f"{OBJECT} The value NaN appears only in this sentence.",
         '{"text":"escaped quote \\\" and slash \\\\ and braces { [ ] }",'
         '"unicode":"雪人 \\u2603 \\ud83d\\ude00",'
         '"nested":{"rows":[1,{"ok":true},[null,false]]}}',
@@ -87,7 +95,10 @@ def test_rejects_bare_second_json_scalar_on_either_side(scalar, position):
 
 @pytest.mark.parametrize(
     "malformed",
-    ["+1", "0x10", "01", "1e+", "0x", "0b2", "0o8", "NaN", "Infinity", "+Infinity", "-Infinity"],
+    [
+        "+1", "0x10", "01", "1e+", "0x", "0b2", "0o8", "NaN", "Infinity", "+Infinity", "-Infinity",
+        "0xG", "0x1G", "0bfoo", "0ofoo", "0b101foo", "0o7bar",
+    ],
 )
 @pytest.mark.parametrize("position", ["before", "after"])
 @pytest.mark.parametrize("separator", [" ", "\n", "\r\n"])
@@ -108,6 +119,16 @@ def test_rejects_standalone_malformed_numeric_document(malformed, position, sepa
         (f'{OBJECT} explanation [true,null] end', "multiple JSON containers"),
         (f'{OBJECT} explanation ["x"] end', "multiple JSON containers"),
         (f'{OBJECT} explanation [[1],{{"b":2}}] end', "multiple JSON containers"),
+        (f'{OBJECT} notes [draft {{"b":2}}] end', "multiple JSON containers"),
+        (f'notes [draft {{"b":2}}] end {OBJECT}', "multiple JSON containers"),
+        (f'{OBJECT} notes {{draft [1,2]}} end', "multiple JSON containers"),
+        (f'notes {{draft [1,2]}} end {OBJECT}', "multiple JSON containers"),
+        (f'{OBJECT} notes [draft {{"b":] end', "mismatched delimiters"),
+        (f'notes [draft {{"b":] end {OBJECT}', "mismatched delimiters"),
+        (f'{OBJECT} notes {{draft [1,]}} end', "invalid JSON"),
+        (f'notes {{draft [1,]}} end {OBJECT}', "invalid JSON"),
+        (f'[doc](https://example.test) [1] {OBJECT}', "multiple JSON containers"),
+        (f'{OBJECT} [doc](https://example.test) [1]', "multiple JSON containers"),
         (f'{OBJECT}\n[1]', "multiple JSON containers"),
         (f'{OBJECT}\ntrailing {{"second":', "truncated JSON value"),
         ('[{"first":1}]', "root must be an object"),
