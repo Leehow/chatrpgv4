@@ -19,6 +19,10 @@ def _load(name, rel):
 driver = _load("coc_playtest_driver", "plugins/coc-keeper/scripts/coc_playtest_driver.py")
 scene_graph = _load("coc_scene_graph_task2", "plugins/coc-keeper/scripts/coc_scene_graph.py")
 coc_memory = _load("coc_memory_task2", "plugins/coc-keeper/scripts/coc_memory.py")
+coc_playtest_audit = _load(
+    "coc_playtest_audit_task2",
+    "plugins/coc-keeper/scripts/coc_playtest_audit.py",
+)
 
 
 def _build_mini_campaign(tmp_path):
@@ -68,6 +72,225 @@ def _build_mini_campaign(tmp_path):
     (scn / "module-meta.json").write_text(json.dumps(
         {"schema_version":1,"scenario_id":"drive","structure_type":"linear_acts","era":"1920s","content_flags":[],"win_condition":"x"}))
     return camp, char_dir / "character.json"
+
+
+def _artifact_result() -> dict:
+    return {
+        "turns": [],
+        "final_state": {"active_scene": "scene-1"},
+        "clue_coverage": {"discovered": []},
+        "terminal_evidence": {"session_ending": False},
+    }
+
+
+def _creation_evidence(investigator_id: str = "inv1") -> dict:
+    return {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "method": "standard_rulebook_chapter_3",
+        "characteristics": {
+            "LUCK": {
+                "formula": "3D6 x 5",
+                "roll_total": 11,
+                "final": 55,
+                "roll_id": "creation-luck",
+            },
+            "EDU": {
+                "formula": "2D6+6 x 5",
+                "roll_total": 13,
+                "final": 65,
+                "roll_id": "creation-edu",
+            },
+        },
+        "age": {
+            "years": 42,
+            "edu_improvement_checks": [
+                {
+                    "roll": 77,
+                    "target": 65,
+                    "improved": True,
+                    "improvement_roll": 4,
+                    "edu_before": 65,
+                    "edu_after": 69,
+                    "roll_id": "creation-edu-improvement",
+                }
+            ],
+        },
+    }
+
+
+def test_artifact_writer_packages_selected_reusable_creation_evidence(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    creation = _creation_evidence()
+    char_path.with_name("creation.json").write_text(
+        json.dumps(creation), encoding="utf-8"
+    )
+    other_dir = char_path.parents[1] / "inv2"
+    other_dir.mkdir()
+    (other_dir / "creation.json").write_text(
+        json.dumps(_creation_evidence("inv2")), encoding="utf-8"
+    )
+    roll_ids = {
+        "creation-luck",
+        "creation-edu",
+        "creation-edu-improvement",
+    }
+    (camp / "logs" / "rolls.jsonl").write_text(
+        "".join(
+            json.dumps(
+                {
+                    "type": "character_creation",
+                    "actor": "inv1",
+                    "visibility": "public",
+                    "payload": {"roll_id": roll_id},
+                }
+            )
+            + "\n"
+            for roll_id in sorted(roll_ids)
+        ),
+        encoding="utf-8",
+    )
+
+    run_dir = tmp_path / "playtests" / "creation-evidence"
+    report_path = driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        _artifact_result(),
+        metadata={"audit_profile": "haunting_module"},
+    )
+
+    target_dir = run_dir / "sandbox" / ".coc" / "investigators" / "inv1"
+    assert json.loads((target_dir / "character.json").read_text()) == json.loads(
+        char_path.read_text()
+    )
+    assert json.loads((target_dir / "creation.json").read_text()) == creation
+    assert not (run_dir / "sandbox" / ".coc" / "investigators" / "inv2").exists()
+    packaged_rolls = {
+        row["payload"]["roll_id"]
+        for row in (
+            json.loads(line)
+            for line in (
+                run_dir
+                / "sandbox"
+                / ".coc"
+                / "campaigns"
+                / "drive"
+                / "logs"
+                / "rolls.jsonl"
+            ).read_text().splitlines()
+            if line.strip()
+        )
+    }
+    creation_rolls = {
+        creation["characteristics"]["LUCK"]["roll_id"],
+        creation["characteristics"]["EDU"]["roll_id"],
+        creation["age"]["edu_improvement_checks"][0]["roll_id"],
+    }
+    assert creation_rolls <= packaged_rolls
+    assert "EDU 65, LUCK 55" in report_path.read_text(encoding="utf-8")
+    audit = coc_playtest_audit.audit_run(run_dir)
+    creation_findings = [
+        finding
+        for finding in audit["findings"]
+        if finding["code"] == "investigator_creation_missing"
+    ]
+    assert creation_findings
+    assert all(
+        "missing creation.json" not in finding["evidence"]
+        for finding in creation_findings
+    )
+
+
+def test_artifact_writer_does_not_fabricate_missing_creation_evidence(tmp_path):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    run_dir = tmp_path / "playtests" / "missing-creation"
+
+    report_path = driver.write_playtest_artifacts(
+        run_dir,
+        camp,
+        char_path,
+        "inv1",
+        [],
+        _artifact_result(),
+        metadata={"audit_profile": "haunting_module"},
+    )
+
+    target = (
+        run_dir
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / "inv1"
+        / "creation.json"
+    )
+    assert not target.exists()
+    assert "No investigator creation recorded." in report_path.read_text(encoding="utf-8")
+    audit = coc_playtest_audit.audit_run(run_dir)
+    assert any(
+        finding["code"] == "investigator_creation_missing"
+        and "missing creation.json" in finding["evidence"]
+        for finding in audit["findings"]
+    )
+
+
+def test_artifact_writer_rejects_stale_target_creation_when_source_is_missing(
+    tmp_path,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    run_dir = tmp_path / "playtests" / "stale-creation"
+    target = (
+        run_dir
+        / "sandbox"
+        / ".coc"
+        / "investigators"
+        / "inv1"
+        / "creation.json"
+    )
+    target.parent.mkdir(parents=True)
+    stale = _creation_evidence()
+    target.write_text(json.dumps(stale), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="absent from reusable investigator"):
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+
+    assert json.loads(target.read_text()) == stale
+    assert sorted(path.name for path in target.parent.iterdir()) == ["creation.json"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["not-json", "[]", '{"investigator_id": "inv2"}'],
+)
+def test_artifact_writer_fails_closed_for_invalid_creation_evidence(
+    tmp_path, content,
+):
+    camp, char_path = _build_mini_campaign(tmp_path)
+    char_path.with_name("creation.json").write_text(content, encoding="utf-8")
+    run_dir = tmp_path / "playtests" / "invalid-creation"
+
+    with pytest.raises(ValueError, match="creation record"):
+        driver.write_playtest_artifacts(
+            run_dir,
+            camp,
+            char_path,
+            "inv1",
+            [],
+            _artifact_result(),
+            generate_report=False,
+        )
+
+    assert not run_dir.exists()
 
 
 def test_artifact_writer_rejects_active_reusable_transaction_before_run_writes(

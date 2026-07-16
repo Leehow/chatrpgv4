@@ -824,6 +824,39 @@ def _ensure_campaign_report_files(
     _write_json(campaign_dir / "scenario" / "scenario.json", scenario)
 
 
+def _read_reusable_creation_snapshot(
+    coc_root: Path,
+    investigator_id: str,
+) -> dict[str, Any] | None:
+    """Read real creation evidence without manufacturing a missing record."""
+    creation_path = (
+        Path(coc_root) / "investigators" / investigator_id / "creation.json"
+    )
+    with coc_investigator_guard.guard_reusable_investigators(
+        coc_root, [investigator_id]
+    ):
+        if creation_path.is_symlink():
+            raise ValueError(f"creation record is unsafe: {creation_path}")
+        if not creation_path.exists():
+            return None
+        if not creation_path.is_file():
+            raise ValueError(f"creation record must be a file: {creation_path}")
+        try:
+            value = json.loads(creation_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"creation record is unreadable: {creation_path}") from exc
+        if not isinstance(value, dict) or not value:
+            raise ValueError(
+                f"creation record must be a non-empty object: {creation_path}"
+            )
+        if value.get("investigator_id") != investigator_id:
+            raise ValueError(
+                "creation record investigator_id does not match selected investigator: "
+                f"{creation_path}"
+            )
+        return json.loads(json.dumps(value))
+
+
 def write_playtest_artifacts(
     run_dir: Path,
     campaign_dir: Path,
@@ -845,14 +878,31 @@ def write_playtest_artifacts(
     """
     metadata = dict(metadata or {})
     result = dict(result)
+    reusable_coc_root = coc_investigator_guard.coc_root_for_campaign(campaign_dir)
     if character_snapshot is None:
         character_snapshot = coc_investigator_guard.read_reusable_character(
-            coc_investigator_guard.coc_root_for_campaign(campaign_dir),
+            reusable_coc_root,
             investigator_id,
             character_path,
         )
     else:
         character_snapshot = json.loads(json.dumps(character_snapshot))
+    creation_snapshot = _read_reusable_creation_snapshot(
+        reusable_coc_root,
+        investigator_id,
+    )
+    target_investigator_dir = (
+        run_dir / "sandbox" / ".coc" / "investigators" / investigator_id
+    )
+    target_creation = target_investigator_dir / "creation.json"
+    if target_creation.is_symlink() or (
+        target_creation.exists() and not target_creation.is_file()
+    ):
+        raise ValueError("artifact target creation record is unsafe")
+    if creation_snapshot is None and target_creation.exists():
+        raise ValueError(
+            "artifact target contains creation evidence absent from reusable investigator"
+        )
     run_dir.mkdir(parents=True, exist_ok=True)
     source_campaign = apply_mod._read_json(campaign_dir / "campaign.json", {})
     campaign_id = str(metadata.get("campaign_id") or source_campaign.get("campaign_id") or campaign_dir.name)
@@ -941,10 +991,12 @@ def write_playtest_artifacts(
         shutil.copytree(campaign_dir, target_campaign_dir, dirs_exist_ok=True)
     _ensure_campaign_report_files(target_campaign_dir, investigator_id, metadata)
 
-    target_character = run_dir / "sandbox" / ".coc" / "investigators" / investigator_id / "character.json"
+    target_character = target_investigator_dir / "character.json"
     target_character.parent.mkdir(parents=True, exist_ok=True)
     if character_path.resolve() != target_character.resolve():
         _write_json(target_character, character_snapshot)
+    if creation_snapshot is not None:
+        _write_json(target_creation, creation_snapshot)
 
     transcript = _transcript_from_driver_result(
         result,
