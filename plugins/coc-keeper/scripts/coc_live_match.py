@@ -125,6 +125,7 @@ NON_LIVE_EVIDENCE_DISCLAIMER = (
 )
 _ACTIVE_WORKER_POOLS: list[Any] = []
 _ACTIVE_RUN_HANDLES: list[Any] = []
+_ACTIVE_RUN_CONTEXTS: list[Any] = []
 
 # Narrow aliases keep the artifact-identity contract directly probeable without
 # duplicating it in this harness.
@@ -1100,14 +1101,13 @@ def _run_live_match_impl(
             raise ValueError(
                 "resume_run_dir cannot be combined with manual initial transcript inputs"
             )
-        coc_playtest_runs.require_final_run_path(
+        resume_context = coc_playtest_runs.open_published_run(
             resume_run_dir,
             purpose="live-match resume",
             require_metadata=True,
         )
-        resume_source = Path(resume_run_dir).resolve()
-        if not resume_source.is_dir():
-            raise FileNotFoundError(f"resume run not found: {resume_source}")
+        resume_source = resume_context.__enter__()
+        _ACTIVE_RUN_CONTEXTS.append(resume_context)
         prior_investigator_snapshot = (
             playtest_driver.read_artifact_investigator_snapshot(
                 resume_source, investigator_id
@@ -2079,6 +2079,7 @@ def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """Run a match and always clean persistent adapter workers on exit."""
     start = len(_ACTIVE_WORKER_POOLS)
     run_start = len(_ACTIVE_RUN_HANDLES)
+    context_start = len(_ACTIVE_RUN_CONTEXTS)
     try:
         return _run_live_match_impl(*args, **kwargs)
     finally:
@@ -2094,6 +2095,12 @@ def run_live_match(*args: Any, **kwargs: Any) -> dict[str, Any]:
             finally:
                 if handle in _ACTIVE_RUN_HANDLES:
                     _ACTIVE_RUN_HANDLES.remove(handle)
+        for context in _ACTIVE_RUN_CONTEXTS[context_start:]:
+            try:
+                context.__exit__(None, None, None)
+            finally:
+                if context in _ACTIVE_RUN_CONTEXTS:
+                    _ACTIVE_RUN_CONTEXTS.remove(context)
 
 
 def _main() -> int:

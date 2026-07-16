@@ -15,6 +15,7 @@ import os
 import shutil
 import stat
 import threading
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -1137,6 +1138,54 @@ def test_artifact_run_identity_reentry_reuses_atomic_persisted_id(tmp_path):
 
     assert first == second
     assert first.startswith("coc-run-v1:")
+
+
+def test_identity_read_retains_validated_run_inode_during_name_replacement(
+    tmp_path, monkeypatch,
+):
+    run_dir = tmp_path / "identity-source"
+    outside = tmp_path / "identity-replacement"
+    original_id = match._ensure_artifact_run_identity(run_dir, "campaign-a")
+    replacement_id = match._ensure_artifact_run_identity(outside, "campaign-b")
+    real_open = match.coc_run_identity.open_published_run
+
+    @contextmanager
+    def replace_after_validation(path, **kwargs):
+        with real_open(path, **kwargs) as anchored:
+            retained = tmp_path / "identity-source-retained"
+            run_dir.rename(retained)
+            run_dir.symlink_to(outside, target_is_directory=True)
+            yield anchored
+
+    monkeypatch.setattr(
+        match.coc_run_identity, "open_published_run", replace_after_validation
+    )
+    identity = match.coc_run_identity.read_artifact_run_identity(run_dir)
+
+    assert identity is not None
+    assert identity["run_id"] == original_id
+    assert identity["run_id"] != replacement_id
+
+
+def test_metadata_and_suite_iteration_pin_validated_regular_file(tmp_path):
+    playtests = tmp_path / ".coc" / "playtests"
+    run_dir = playtests / "pinned-run"
+    original = {"run_id": "pinned-run", "campaign_id": "original"}
+    replacement = {"run_id": "pinned-run", "campaign_id": "replacement"}
+    _write_json(run_dir / "playtest.json", original)
+
+    with match.coc_playtest_runs.open_published_run(
+        run_dir, purpose="metadata replacement regression", require_metadata=True
+    ) as anchored:
+        _write_json(run_dir / "playtest.json", replacement)
+        assert json.loads((anchored / "playtest.json").read_text()) == original
+
+    _write_json(run_dir / "playtest.json", original)
+    metadata_iter = match.coc_playtest_runs.iter_final_run_metadata(playtests)
+    metadata_path = next(metadata_iter)
+    _write_json(run_dir / "playtest.json", replacement)
+    assert json.loads(metadata_path.read_text()) == original
+    metadata_iter.close()
 
 
 def test_current_artifact_rejects_schema1_identity_without_location_witness(

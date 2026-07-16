@@ -866,10 +866,13 @@ def read_artifact_investigator_snapshot(
     """Read one historical packaged snapshot without following artifact links."""
     if not coc_investigator_guard.is_safe_investigator_id(investigator_id):
         raise ValueError("investigator ids must be stable safe ids")
-    artifact_root = Path(run_dir).absolute()
-    root_fd = os.open(
-        artifact_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    )
+    if coc_run_identity.is_anchored_path(run_dir):
+        root_fd = run_dir._open_dir(run_dir.parts)
+    else:
+        artifact_root = Path(run_dir).absolute()
+        root_fd = os.open(
+            artifact_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
     try:
         investigator_fd = coc_investigator_guard._open_directory_chain(
             root_fd,

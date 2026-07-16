@@ -8,6 +8,7 @@ import re
 import sys
 import tomllib
 from collections import Counter
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,7 @@ from coc_playtest_report import (
     _selected_language_profile,
 )
 from coc_language import localize_terms
-from coc_playtest_runs import is_final_run_name, is_final_run_path
+from coc_playtest_runs import is_final_run_name, open_published_run
 from coc_validate import validate_rules
 from coc_rules import cash_and_assets, pushed_roll_rule, rule_ids
 from coc_eval_packs import load_benchmark_pack_registry
@@ -469,24 +470,59 @@ def _active_runs(
     index: dict[str, Any],
     loop_decision: dict[str, Any],
 ) -> list[dict[str, Any]]:
+    stack = ExitStack()
     active_ids = set(loop_decision.get("evaluated_runs", []))
     active: list[dict[str, Any]] = []
-    for run in index.get("runs", []):
-        run_id = run.get("run_id")
-        path = run.get("path")
-        if isinstance(path, str) and path:
-            candidate = Path(path)
-            if not candidate.is_absolute():
-                candidate = root / candidate
-        else:
-            candidate = _playtests_dir(root) / str(run_id)
-        if (
-            run_id in active_ids
-            and is_final_run_name(run_id)
-            and is_final_run_path(candidate, require_metadata=True)
-        ):
-            active.append(run)
-    return active
+    try:
+        for run in index.get("runs", []):
+            run_id = run.get("run_id")
+            path = run.get("path")
+            if isinstance(path, str) and path:
+                candidate = Path(path)
+                if not candidate.is_absolute():
+                    candidate = root / candidate
+            else:
+                candidate = _playtests_dir(root) / str(run_id)
+            if run_id not in active_ids or not is_final_run_name(run_id):
+                continue
+            try:
+                opened = stack.enter_context(open_published_run(
+                    candidate,
+                    purpose="completion audit active-run read",
+                    require_metadata=True,
+                    allow_missing=True,
+                ))
+            except ValueError:
+                continue
+            if opened is not None:
+                retained = dict(run)
+                retained["_opened_path"] = opened
+                active.append(retained)
+    except Exception:
+        stack.close()
+        raise
+    # The caller closes this retained descriptor set after every active-run
+    # consumer has finished.  A finalizer is a safety net for direct test use.
+    return _RetainedActiveRuns(active, stack)
+
+
+class _RetainedActiveRuns(list[dict[str, Any]]):
+    def __init__(self, runs: list[dict[str, Any]], stack: ExitStack) -> None:
+        super().__init__(runs)
+        self._stack = stack
+
+    def close(self) -> None:
+        self._stack.close()
+
+    def __del__(self) -> None:
+        self.close()
+
+
+def _opened_run_path(root: Path, run: dict[str, Any]) -> Path:
+    opened = run.get("_opened_path")
+    if opened is not None:
+        return opened
+    return _playtests_dir(root) / str(run.get("run_id") or "")
 
 
 def _required_profiles(active_runs: list[dict[str, Any]]) -> dict[str, str | None]:
@@ -1183,12 +1219,12 @@ def _evaluation_report_evidence_findings(run_id: str, run_dir: Path, evaluation_
 
 def _active_evaluator_note_findings(root: Path, active_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
-    playtests_dir = _playtests_dir(root)
     for run in active_runs:
         run_id = str(run.get("run_id") or "")
         if not run_id:
             continue
-        for index, note in enumerate(_read_jsonl(playtests_dir / run_id / "evaluator-notes.jsonl"), start=1):
+        run_dir = _opened_run_path(root, run)
+        for index, note in enumerate(_read_jsonl(run_dir / "evaluator-notes.jsonl"), start=1):
             severity = str(note.get("severity") or "").strip().lower()
             if severity not in BLOCKING_EVALUATOR_NOTE_SEVERITIES:
                 continue
@@ -2989,7 +3025,7 @@ def _semantic_payloads(root: Path, active_runs: list[dict[str, Any]]) -> dict[st
     payloads: dict[str, dict[str, Any]] = {}
     for run in active_runs:
         run_id = str(run.get("run_id"))
-        semantic = _read_json(_playtests_dir(root) / run_id / "artifacts" / "semantic-eval-result.json", {})
+        semantic = _read_json(_opened_run_path(root, run) / "artifacts" / "semantic-eval-result.json", {})
         if isinstance(semantic, dict) and semantic:
             payloads[run_id] = semantic
     return payloads
@@ -5298,7 +5334,7 @@ def _active_run_source_findings(run_id: str, run_dir: Path, metadata: dict[str, 
 def _run_artifact_findings(root: Path, run: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     run_id = str(run.get("run_id"))
-    run_dir = _playtests_dir(root) / run_id
+    run_dir = _opened_run_path(root, run)
     metadata = _read_json(run_dir / "playtest.json", {})
     artifacts_dir = run_dir / "artifacts"
     campaign_id = str(metadata.get("campaign_id") or run_id)
@@ -5914,6 +5950,8 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
                 "reason": f"eval contract assessment unavailable: {exc}",
                 "historical_profiles_satisfy_release": False,
             }
+    if isinstance(active_runs, _RetainedActiveRuns):
+        active_runs.close()
     json_path = base / "completion-audit.json"
     markdown_path = base / "completion-audit.md"
     _write_json(json_path, audit)

@@ -11,6 +11,7 @@ import ctypes
 import errno
 import fnmatch
 import hashlib
+import io
 import json
 import os
 import stat
@@ -24,7 +25,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from coc_playtest_runs import require_final_run_path
+from coc_playtest_runs import open_published_run
 
 
 RUN_IDENTITY_SCHEMA_VERSION = 2
@@ -39,16 +40,24 @@ class AnchoredRunPath:
 
     _coc_anchored_path = True
 
-    def __init__(self, root_fd: int, parts: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        root_fd: int,
+        parts: tuple[str, ...] = (),
+        pinned_files: dict[tuple[str, ...], bytes] | None = None,
+    ) -> None:
         self.root_fd = root_fd
         self.parts = parts
+        self._pinned_files = pinned_files or {}
 
     def __truediv__(self, child: str) -> "AnchoredRunPath":
         raw = str(child)
         pieces = tuple(piece for piece in raw.split("/") if piece not in {"", "."})
         if any(piece == ".." for piece in pieces):
             raise ValueError("anchored run path cannot escape its root")
-        return AnchoredRunPath(self.root_fd, self.parts + pieces)
+        return AnchoredRunPath(
+            self.root_fd, self.parts + pieces, self._pinned_files
+        )
 
     def __str__(self) -> str:
         return "/".join(self.parts) if self.parts else "."
@@ -65,7 +74,18 @@ class AnchoredRunPath:
 
     @property
     def parent(self) -> "AnchoredRunPath":
-        return AnchoredRunPath(self.root_fd, self.parts[:-1])
+        return AnchoredRunPath(
+            self.root_fd, self.parts[:-1], self._pinned_files
+        )
+
+    @property
+    def parents(self) -> tuple["AnchoredRunPath", ...]:
+        return tuple(
+            AnchoredRunPath(
+                self.root_fd, self.parts[:index], self._pinned_files
+            )
+            for index in range(len(self.parts) - 1, -1, -1)
+        )
 
     @property
     def suffix(self) -> str:
@@ -196,6 +216,17 @@ class AnchoredRunPath:
         newline: str | None = None,
     ):
         binary = "b" in mode
+        pinned = self._pinned_files.get(self.parts)
+        if pinned is not None and not any(flag in mode for flag in "wax+"):
+            raw = io.BytesIO(pinned)
+            if binary:
+                return raw
+            return io.TextIOWrapper(
+                raw,
+                encoding=encoding or "utf-8",
+                errors=errors,
+                newline=newline,
+            )
         updating = "+" in mode
         flags = os.O_RDWR if updating else os.O_RDONLY
         if "w" in mode:
@@ -226,11 +257,19 @@ class AnchoredRunPath:
 
     def write_text(self, data: str, encoding: str = "utf-8", errors=None, newline=None) -> int:
         with self.open("w", encoding=encoding, errors=errors, newline=newline) as handle:
-            return handle.write(data)
+            written = handle.write(data)
+        if self.parts in self._pinned_files:
+            self._pinned_files[self.parts] = data.encode(
+                encoding, errors or "strict"
+            )
+        return written
 
     def write_bytes(self, data: bytes) -> int:
         with self.open("wb") as handle:
-            return handle.write(data)
+            written = handle.write(data)
+        if self.parts in self._pinned_files:
+            self._pinned_files[self.parts] = bytes(data)
+        return written
 
     def unlink(self, missing_ok: bool = False) -> None:
         parent_fd = self._open_dir(self.parts[:-1])
@@ -709,10 +748,15 @@ def read_artifact_run_identity(run_dir: Path | str) -> dict[str, Any] | None:
     source while preventing a copied artifact from becoming a second current
     run instance.
     """
-    require_final_run_path(
+    with open_published_run(
         run_dir, purpose="run identity read", allow_missing=True
-    )
-    directory = run_dir if is_anchored_path(run_dir) else Path(run_dir)
+    ) as directory:
+        if directory is None:
+            return None
+        return _read_identity_from_open_run(directory)
+
+
+def _read_identity_from_open_run(directory: AnchoredRunPath) -> dict[str, Any] | None:
     path = directory / RUN_IDENTITY_FILENAME
     if not path.exists() and not path.is_symlink():
         return None
