@@ -2402,11 +2402,11 @@ class CheckpointStore:
     def _manifest_party_investigator_ids(
         self, manifest: dict[str, Any]
     ) -> list[str]:
-        raw = manifest.get("party_investigator_ids")
         # Checkpoints written before party-wide snapshots supported exactly the
         # selected investigator.  Preserve that single-actor restore contract.
-        if raw is None:
+        if "party_investigator_ids" not in manifest:
             return [self.investigator_id]
+        raw = manifest.get("party_investigator_ids")
         if (
             not isinstance(raw, list)
             or not raw
@@ -2624,6 +2624,23 @@ class CheckpointStore:
                 journal_workspace.as_posix(),
             }
             presence = manifest.get("managed_file_presence")
+            # Rev5 schema-v2 checkpoints predate both party-wide snapshots and
+            # the durable development-claims file.  Normalize only that exact
+            # absent legacy presence key; every current manifest and every
+            # other presence key remains subject to the strict set equality
+            # below.  Snapshot party identity validation later still rejects
+            # old checkpoints that named unsnapshotted extra members.
+            if (
+                "party_investigator_ids" not in manifest
+                and isinstance(presence, dict)
+            ):
+                legacy_claims = (
+                    self._investigator_relative(self.investigator_id)
+                    / "development-claims.json"
+                ).as_posix()
+                if legacy_claims not in presence:
+                    presence = dict(presence)
+                    presence[legacy_claims] = False
             if (
                 not isinstance(presence, dict)
                 or set(presence) != expected_presence_paths

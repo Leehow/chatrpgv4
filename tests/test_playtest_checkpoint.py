@@ -1,8 +1,11 @@
 import hashlib
+import io
 import importlib.util
 import json
 import os
 import shutil
+import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -19,6 +22,32 @@ SPEC = importlib.util.spec_from_file_location("coc_playtest_checkpoint_test", SC
 checkpoint = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(checkpoint)
+
+
+@pytest.fixture(scope="module")
+def rev5_checkpoint_module(tmp_path_factory):
+    """Load the real rev5 checkpoint writer from commit d6751ad."""
+    checkout = tmp_path_factory.mktemp("checkpoint-rev5-source")
+    completed = subprocess.run(
+        [
+            "git",
+            "archive",
+            "--format=tar",
+            "d6751ad",
+            "plugins/coc-keeper/scripts",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+        capture_output=True,
+    )
+    with tarfile.open(fileobj=io.BytesIO(completed.stdout), mode="r:") as archive:
+        archive.extractall(checkout, filter="data")
+    script = checkout / "plugins/coc-keeper/scripts/coc_playtest_checkpoint.py"
+    spec = importlib.util.spec_from_file_location("coc_playtest_checkpoint_rev5", script)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -576,6 +605,128 @@ def test_checkpoint_snapshots_and_restores_every_unique_party_member(
             / investigator_id
             / "character.json"
         ).is_file()
+
+
+def _write_rev5_checkpoint(
+    rev5_checkpoint_module,
+    tmp_path: Path,
+    *,
+    incomplete_multi_party: bool = False,
+):
+    workspace = tmp_path / "workspace"
+    paths = _seed_workspace(workspace)
+    if incomplete_multi_party:
+        _add_checkpoint_party_member(workspace, "inv-b")
+        _write_json(
+            paths["party"],
+            {
+                "campaign_id": "masks-run-a",
+                "investigator_ids": ["inv-a", "inv-b"],
+                "active_investigator_ids": ["inv-a", "inv-b"],
+            },
+        )
+    run_dir = tmp_path / "run"
+    old_store = rev5_checkpoint_module.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+    checkpoint_dir = old_store.write_checkpoint(
+        "sess_123", 0, "rev5_initial_state"
+    )
+    manifest = json.loads(
+        (checkpoint_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["schema_version"] == 2
+    assert "party_investigator_ids" not in manifest
+    assert (
+        ".coc/investigators/inv-a/development-claims.json"
+        not in manifest["managed_file_presence"]
+    )
+    return workspace, run_dir, checkpoint_dir
+
+
+def test_restore_accepts_real_rev5_single_investigator_checkpoint(
+    tmp_path: Path, rev5_checkpoint_module
+):
+    workspace, run_dir, checkpoint_dir = _write_rev5_checkpoint(
+        rev5_checkpoint_module, tmp_path
+    )
+    current_store = checkpoint.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    restored = current_store.restore_checkpoint(checkpoint_dir, target)
+
+    assert restored["schema_version"] == 2
+    assert (
+        target / ".coc/investigators/inv-a/character.json"
+    ).is_file()
+    assert not (
+        target / ".coc/investigators/inv-a/development-claims.json"
+    ).exists()
+
+
+def test_restore_rejects_real_rev5_incomplete_multi_party_checkpoint(
+    tmp_path: Path, rev5_checkpoint_module
+):
+    workspace, run_dir, checkpoint_dir = _write_rev5_checkpoint(
+        rev5_checkpoint_module,
+        tmp_path,
+        incomplete_multi_party=True,
+    )
+    current_store = checkpoint.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    with pytest.raises(ValueError, match="party.*membership|party.*identity"):
+        current_store.restore_checkpoint(checkpoint_dir, target)
+
+
+def test_current_checkpoint_manifest_still_requires_complete_presence_keys(
+    tmp_path: Path,
+):
+    workspace = tmp_path / "workspace"
+    _seed_workspace(workspace)
+    run_dir = tmp_path / "run"
+    store = checkpoint.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+    checkpoint_dir = store.write_checkpoint("sess_123", 0, "initial_state")
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["party_investigator_ids"] == ["inv-a"]
+    del manifest["managed_file_presence"][
+        ".coc/investigators/inv-a/development-claims.json"
+    ]
+    _write_json(manifest_path, manifest)
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    with pytest.raises(ValueError, match="managed file presence"):
+        store.restore_checkpoint(checkpoint_dir, target)
+
+
+def test_legacy_checkpoint_only_normalizes_the_missing_claims_presence_key(
+    tmp_path: Path, rev5_checkpoint_module
+):
+    workspace, run_dir, checkpoint_dir = _write_rev5_checkpoint(
+        rev5_checkpoint_module, tmp_path
+    )
+    manifest_path = checkpoint_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["managed_file_presence"][".coc/runtime/sessions.json"]
+    _write_json(manifest_path, manifest)
+    store = checkpoint.CheckpointStore(
+        run_dir, workspace, "masks-run-a", "inv-a"
+    )
+    target = tmp_path / "fresh"
+    _prepare_fresh_generation(target)
+
+    with pytest.raises(ValueError, match="managed file presence"):
+        store.restore_checkpoint(checkpoint_dir, target)
 
 
 def test_checkpoint_uses_only_the_canonical_public_runtime_allowlist(tmp_path: Path):

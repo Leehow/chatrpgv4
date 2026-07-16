@@ -642,6 +642,25 @@ def _create_investigator_unlocked(
 ) -> Path:
     ensure_workspace(root)
     investigator_dir = coc_root(root) / "investigators" / investigator_id
+    character_path = _create_investigator_at(
+        investigator_dir,
+        investigator_id,
+        sheet,
+        creation=creation,
+    )
+    _upsert_investigator_index(root, investigator_id, sheet)
+    return character_path
+
+
+def _create_investigator_at(
+    investigator_dir: Path,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    *,
+    creation: dict[str, Any] | None = None,
+) -> Path:
+    """Build one complete investigator generation without publishing an index."""
+    investigator_dir = Path(investigator_dir)
     investigator_dir.mkdir(parents=True, exist_ok=True)
     creation_path = investigator_dir / "creation.json"
     character_path = investigator_dir / "character.json"
@@ -649,6 +668,15 @@ def _create_investigator_unlocked(
     write_json_atomic(character_path, sheet)
     for log_name in ("history.jsonl", "development.jsonl", "inventory-history.jsonl"):
         (investigator_dir / log_name).touch(exist_ok=True)
+    return character_path
+
+
+def _upsert_investigator_index(
+    root: Path, investigator_id: str, sheet: dict[str, Any]
+) -> None:
+    investigator_dir = coc_root(root) / "investigators" / investigator_id
+    creation_path = investigator_dir / "creation.json"
+    character_path = investigator_dir / "character.json"
     _upsert_index_entry(
         root,
         "investigators.json",
@@ -664,7 +692,6 @@ def _create_investigator_unlocked(
             "inventory_history_path": _relative_to_root(root, investigator_dir / "inventory-history.jsonl"),
         },
     )
-    return character_path
 
 
 def _safe_uncreated_child(base: Path, target: Path) -> bool:
@@ -787,16 +814,19 @@ def list_investigators(root: Path) -> list[dict[str, Any]]:
     return entries
 
 
-def create_campaign(
+def _create_campaign_at(
     root: Path,
+    campaign_dir: Path,
     campaign_id: str,
     title: str,
     era: str = "1920s",
     play_language: str = DEFAULT_PLAY_LANGUAGE,
     start_clock: dict[str, Any] | None = None,
+    *,
+    update_index: bool = False,
 ) -> Path:
-    ensure_workspace(root)
-    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    """Build a complete campaign generation at an explicit directory."""
+    campaign_dir = Path(campaign_dir)
     for directory in CAMPAIGN_DIRS:
         (campaign_dir / directory).mkdir(parents=True, exist_ok=True)
     created_at = now_iso()
@@ -821,8 +851,31 @@ def create_campaign(
     campaign_path = campaign_dir / "campaign.json"
     write_json_atomic(campaign_path, campaign)
     _initialize_campaign_runtime_files(campaign_dir, campaign_id, era=era, start_clock=start_clock)
-    _upsert_campaign_index(root, campaign_id)
+    if update_index:
+        _upsert_campaign_index(root, campaign_id)
     return campaign_path
+
+
+def create_campaign(
+    root: Path,
+    campaign_id: str,
+    title: str,
+    era: str = "1920s",
+    play_language: str = DEFAULT_PLAY_LANGUAGE,
+    start_clock: dict[str, Any] | None = None,
+) -> Path:
+    ensure_workspace(root)
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    return _create_campaign_at(
+        root,
+        campaign_dir,
+        campaign_id,
+        title,
+        era=era,
+        play_language=play_language,
+        start_clock=start_clock,
+        update_index=True,
+    )
 
 
 def prepare_character_creation_draft(
@@ -1006,6 +1059,25 @@ def seed_investigator_state_if_missing(
             coc_root(root), investigator_id, character_path
         )
 
+    return _seed_investigator_state_at(
+        campaign_dir,
+        campaign_id,
+        investigator_id,
+        sheet,
+    )
+
+
+def _seed_investigator_state_at(
+    campaign_dir: Path,
+    campaign_id: str,
+    investigator_id: str,
+    sheet: dict[str, Any],
+) -> Path:
+    """Seed an investigator state inside an explicit campaign generation."""
+    campaign_dir = Path(campaign_dir)
+    inv_path = _investigator_state_path(campaign_dir, investigator_id)
+    if inv_path.is_file():
+        return inv_path
     derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
     characteristics = (
         sheet.get("characteristics")
@@ -1033,26 +1105,26 @@ def seed_investigator_state_if_missing(
     return inv_path
 
 
-def _link_party_unlocked(
-    root: Path,
+def _link_party_at(
+    campaign_dir: Path,
     campaign_id: str,
     investigator_ids: list[str],
     *,
     sheets: dict[str, dict[str, Any]],
 ) -> Path:
-    """Publish a party from caller-owned guarded character snapshots."""
-    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    """Build party and member state inside an explicit campaign generation."""
+    campaign_dir = Path(campaign_dir)
     for investigator_id in investigator_ids:
         sheet = sheets.get(investigator_id)
         if not isinstance(sheet, dict):
             raise ValueError(
                 f"guarded character snapshot is missing: {investigator_id}"
             )
-        seed_investigator_state_if_missing(
-            root,
+        _seed_investigator_state_at(
+            campaign_dir,
             campaign_id,
             investigator_id,
-            sheet=sheet,
+            sheet,
         )
     party_path = campaign_dir / "party.json"
     write_json_atomic(
@@ -1063,6 +1135,24 @@ def _link_party_unlocked(
             "investigator_ids": investigator_ids,
             "active_investigator_ids": investigator_ids,
         },
+    )
+    return party_path
+
+
+def _link_party_unlocked(
+    root: Path,
+    campaign_id: str,
+    investigator_ids: list[str],
+    *,
+    sheets: dict[str, dict[str, Any]],
+) -> Path:
+    """Publish a party from caller-owned guarded character snapshots."""
+    campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    party_path = _link_party_at(
+        campaign_dir,
+        campaign_id,
+        investigator_ids,
+        sheets=sheets,
     )
     _upsert_campaign_index(root, campaign_id)
     return party_path

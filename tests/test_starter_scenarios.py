@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -493,6 +495,398 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     )
 
 
+def _index_has(root: Path, filename: str, collection: str, item_id: str) -> bool:
+    path = root / "indexes" / filename
+    if not path.is_file():
+        return False
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    items = payload.get(collection)
+    return isinstance(items, dict) and item_id in items
+
+
+@pytest.mark.parametrize(
+    "failure_point",
+    [
+        "after_create_campaign",
+        "during_install_starter",
+        "during_investigator_build",
+        "after_campaign_local_copy",
+        "after_state_seed",
+        "after_campaign_link_prep",
+        "after_final_campaign_rewrite",
+        "before_campaign_publication",
+    ],
+)
+def test_quick_start_failure_is_atomic_and_same_id_retry_succeeds(
+    tmp_path, monkeypatch, failure_point
+):
+    root = tmp_path / ".coc"
+    campaign_id = f"quick-start-failure-{failure_point}"
+    campaign_dir = root / "campaigns" / campaign_id
+    investigator_id = "thomas-hayes"
+
+    with monkeypatch.context() as patch:
+        if failure_point == "after_create_campaign":
+            real = coc_starter.coc_state._create_campaign_at
+
+            def fail_after_create(*args, **kwargs):
+                result = real(*args, **kwargs)
+                raise RuntimeError("injected after campaign creation")
+
+            patch.setattr(coc_starter.coc_state, "_create_campaign_at", fail_after_create)
+        elif failure_point == "during_install_starter":
+            real = coc_starter.shutil.copy2
+            copies = 0
+
+            def fail_during_install(*args, **kwargs):
+                nonlocal copies
+                copies += 1
+                if copies == 3:
+                    raise RuntimeError("injected during starter installation")
+                return real(*args, **kwargs)
+
+            patch.setattr(coc_starter.shutil, "copy2", fail_during_install)
+        elif failure_point == "during_investigator_build":
+            real = coc_starter.coc_state._create_investigator_at
+
+            def fail_during_investigator_build(*args, **kwargs):
+                result = real(*args, **kwargs)
+                raise RuntimeError("injected during investigator build")
+
+            patch.setattr(
+                coc_starter.coc_state,
+                "_create_investigator_at",
+                fail_during_investigator_build,
+            )
+        elif failure_point == "after_campaign_local_copy":
+            real = coc_starter._write_campaign_local_character
+
+            def fail_after_local_copy(*args, **kwargs):
+                result = real(*args, **kwargs)
+                raise RuntimeError("injected after campaign-local copy")
+
+            patch.setattr(
+                coc_starter,
+                "_write_campaign_local_character",
+                fail_after_local_copy,
+            )
+        elif failure_point == "after_state_seed":
+            real = coc_starter.coc_state._seed_investigator_state_at
+
+            def fail_after_state_seed(*args, **kwargs):
+                result = real(*args, **kwargs)
+                raise RuntimeError("injected after investigator state seed")
+
+            patch.setattr(
+                coc_starter.coc_state,
+                "_seed_investigator_state_at",
+                fail_after_state_seed,
+            )
+        elif failure_point == "after_campaign_link_prep":
+            real = coc_starter.coc_state._link_party_at
+
+            def fail_after_link(*args, **kwargs):
+                result = real(*args, **kwargs)
+                raise RuntimeError("injected after campaign link preparation")
+
+            patch.setattr(coc_starter.coc_state, "_link_party_at", fail_after_link)
+        elif failure_point == "after_final_campaign_rewrite":
+            real = coc_starter._finalize_quick_start_campaign
+
+            def fail_after_finalize(*args, **kwargs):
+                result = real(*args, **kwargs)
+                raise RuntimeError("injected after final campaign rewrite")
+
+            patch.setattr(coc_starter, "_finalize_quick_start_campaign", fail_after_finalize)
+        else:
+            def fail_publication(*_args, **_kwargs):
+                raise RuntimeError("injected before campaign publication")
+
+            patch.setattr(coc_starter, "_publish_campaign_generation", fail_publication)
+
+        with pytest.raises(RuntimeError, match="injected"):
+            coc_starter.quick_start(
+                root,
+                "the-haunting",
+                investigator_id,
+                campaign_id=campaign_id,
+            )
+
+    assert not campaign_dir.exists()
+    assert not _index_has(root, "campaigns.json", "campaigns", campaign_id)
+    assert not (root / "investigators" / investigator_id).exists()
+    assert not _index_has(root, "investigators.json", "investigators", investigator_id)
+    assert not list((root / "campaigns").glob(".quick-start-*"))
+    assert not list((root / "investigators").glob(".quick-start-*"))
+
+    retried = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        investigator_id,
+        campaign_id=campaign_id,
+    )
+    assert Path(retried["campaign_dir"]) == campaign_dir
+    assert (campaign_dir / "campaign.json").is_file()
+    assert _index_has(root, "campaigns.json", "campaigns", campaign_id)
+    assert _index_has(root, "investigators.json", "investigators", investigator_id)
+
+
+def test_quick_start_failure_never_changes_or_deletes_preexisting_investigator(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / ".coc"
+    first = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id="quick-start-preexisting-source",
+    )
+    investigator_dir = root / "investigators" / first["investigator_id"]
+    before_files = {
+        path.relative_to(investigator_dir).as_posix(): path.read_bytes()
+        for path in investigator_dir.rglob("*")
+        if path.is_file()
+    }
+    index_path = root / "indexes" / "investigators.json"
+    index_before = index_path.read_bytes()
+    failed_campaign_id = "quick-start-preexisting-failure"
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            coc_starter,
+            "_publish_campaign_generation",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("injected before campaign publication")
+            ),
+        )
+        with pytest.raises(RuntimeError, match="injected"):
+            coc_starter.quick_start(
+                root,
+                "the-haunting",
+                first["investigator_id"],
+                campaign_id=failed_campaign_id,
+            )
+
+    after_files = {
+        path.relative_to(investigator_dir).as_posix(): path.read_bytes()
+        for path in investigator_dir.rglob("*")
+        if path.is_file()
+    }
+    assert after_files == before_files
+    assert index_path.read_bytes() == index_before
+    assert not (root / "campaigns" / failed_campaign_id).exists()
+    assert not _index_has(root, "campaigns.json", "campaigns", failed_campaign_id)
+
+
+def test_quick_start_treats_post_publication_index_failure_as_repairable(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / ".coc"
+    campaign_id = "quick-start-index-repair"
+    real_campaign_index = coc_starter.coc_state._upsert_campaign_index
+
+    def fail_campaign_index(*_args, **_kwargs):
+        raise RuntimeError("injected campaign index failure")
+
+    monkeypatch.setattr(
+        coc_starter.coc_state, "_upsert_campaign_index", fail_campaign_index
+    )
+    started = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id=campaign_id,
+    )
+
+    campaign_dir = Path(started["campaign_dir"])
+    campaign = json.loads((campaign_dir / "campaign.json").read_text(encoding="utf-8"))
+    assert campaign_dir.is_dir()
+    assert not _index_has(root, "campaigns.json", "campaigns", campaign_id)
+    assert started["warnings"] == [
+        "campaign index repair deferred: RuntimeError"
+    ]
+    assert ".quick-start-" not in campaign["character_creation"]["briefing_path"]
+    assert campaign["character_creation"]["briefing_path"].startswith(
+        f".coc/campaigns/{campaign_id}/assets/character-creation/"
+    )
+
+    monkeypatch.setattr(
+        coc_starter.coc_state, "_upsert_campaign_index", real_campaign_index
+    )
+    coc_starter.coc_state._upsert_campaign_index(root, campaign_id)
+    assert _index_has(root, "campaigns.json", "campaigns", campaign_id)
+
+
+@pytest.mark.parametrize("existing_kind", ["empty_directory", "broken_symlink"])
+def test_quick_start_rejects_any_existing_final_campaign_entry_untouched(
+    tmp_path, existing_kind
+):
+    root = tmp_path / ".coc"
+    campaign_id = f"quick-start-existing-{existing_kind}"
+    campaign_dir = root / "campaigns" / campaign_id
+    campaign_dir.parent.mkdir(parents=True)
+    if existing_kind == "empty_directory":
+        campaign_dir.mkdir()
+        before = campaign_dir.stat()
+    else:
+        target = tmp_path / "missing-campaign-target"
+        campaign_dir.symlink_to(target, target_is_directory=True)
+        before = campaign_dir.readlink()
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        coc_starter.quick_start(
+            root,
+            "the-haunting",
+            "thomas-hayes",
+            campaign_id=campaign_id,
+        )
+
+    if existing_kind == "empty_directory":
+        assert campaign_dir.is_dir()
+        assert campaign_dir.stat().st_ino == before.st_ino
+        assert list(campaign_dir.iterdir()) == []
+    else:
+        assert campaign_dir.is_symlink()
+        assert campaign_dir.readlink() == before
+
+
+def test_quick_start_same_campaign_id_has_one_atomic_winner(tmp_path):
+    root = tmp_path / ".coc"
+    campaign_id = "quick-start-concurrent-same-id"
+    barrier = threading.Barrier(3)
+    results: list[dict[str, Any]] = []
+    errors: list[BaseException] = []
+
+    def contender():
+        barrier.wait()
+        try:
+            results.append(
+                coc_starter.quick_start(
+                    root,
+                    "the-haunting",
+                    "thomas-hayes",
+                    campaign_id=campaign_id,
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=contender) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    barrier.wait()
+    for thread in threads:
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+
+    assert len(results) == 1
+    assert len(errors) == 1
+    assert isinstance(errors[0], FileExistsError)
+    assert (root / "campaigns" / campaign_id / "campaign.json").is_file()
+    assert not list((root / "campaigns").glob(".quick-start-*"))
+    assert not list((root / "investigators").glob(".quick-start-*"))
+
+
+def test_quick_start_reuses_complete_crash_survivor_and_repairs_index(tmp_path):
+    root = tmp_path / ".coc"
+    investigator_id = "thomas-hayes"
+    sheet = json.loads(
+        coc_starter._pregen_character_path(
+            "the-haunting", investigator_id
+        ).read_text(encoding="utf-8")
+    )
+    sheet = coc_starter.ensure_pregen_backstory_provenance(sheet)
+    sheet = coc_starter.ensure_pregen_player_facing_sheet(sheet)
+    coc_starter.coc_state.ensure_workspace(root)
+    investigator_dir = root / "investigators" / investigator_id
+    coc_starter.coc_state._create_investigator_at(
+        investigator_dir,
+        investigator_id,
+        sheet,
+    )
+    before = {
+        path.name: path.read_bytes()
+        for path in investigator_dir.iterdir()
+        if path.is_file()
+    }
+    assert not _index_has(root, "investigators.json", "investigators", investigator_id)
+
+    started = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        investigator_id,
+        campaign_id="quick-start-crash-survivor",
+    )
+
+    after = {
+        path.name: path.read_bytes()
+        for path in investigator_dir.iterdir()
+        if path.is_file()
+    }
+    assert after == before
+    assert Path(started["campaign_dir"]).is_dir()
+    assert _index_has(root, "investigators.json", "investigators", investigator_id)
+
+
+@pytest.mark.parametrize("stale_shape", ["partial_stage", "orphan_sidecar"])
+def test_quick_start_recovers_verified_prepublication_stage_after_crash(
+    tmp_path, stale_shape
+):
+    root = tmp_path / ".coc"
+    campaign_id = f"quick-start-stale-{stale_shape}"
+    coc_starter.coc_state.ensure_workspace(root)
+    prefix = coc_starter._quick_start_stage_prefix("campaign", campaign_id)
+    stale = coc_starter._create_private_stage(
+        root / "campaigns",
+        prefix,
+        kind="campaign",
+        identity=campaign_id,
+    )
+    if stale_shape == "partial_stage":
+        (stale / "partial.json").write_text("{}", encoding="utf-8")
+    else:
+        stale.rmdir()
+
+    started = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id=campaign_id,
+    )
+
+    assert Path(started["campaign_dir"]).is_dir()
+    assert not os.path.lexists(stale)
+    assert not coc_starter._stage_manifest_path(stale).exists()
+
+
+def test_quick_start_post_commit_callback_failure_remains_success(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / ".coc"
+    campaign_id = "quick-start-post-commit-failure"
+    real_publish = coc_starter._publish_campaign_generation
+
+    def publish_then_fail(*args, **kwargs):
+        real_publish(*args, **kwargs)
+        raise RuntimeError("injected after campaign commit")
+
+    monkeypatch.setattr(
+        coc_starter,
+        "_publish_campaign_generation",
+        publish_then_fail,
+    )
+    started = coc_starter.quick_start(
+        root,
+        "the-haunting",
+        "thomas-hayes",
+        campaign_id=campaign_id,
+    )
+
+    assert Path(started["campaign_dir"]).is_dir()
+    assert _index_has(root, "campaigns.json", "campaigns", campaign_id)
+    assert not list((root / "campaigns").glob(".quick-start-*"))
+
+
 def test_quick_start_serializes_existing_role_validation_with_publication(
     tmp_path, monkeypatch
 ):
@@ -564,7 +958,7 @@ def test_quick_start_serializes_existing_role_validation_with_publication(
         finally:
             contender_finished.set()
 
-    real_create_campaign = coc_starter.coc_state.create_campaign
+    real_create_campaign = coc_starter.coc_state._create_campaign_at
     contender: threading.Thread | None = None
 
     def create_campaign_with_interleaving(*args, **kwargs):
@@ -578,7 +972,7 @@ def test_quick_start_serializes_existing_role_validation_with_publication(
         return real_create_campaign(*args, **kwargs)
 
     monkeypatch.setattr(
-        coc_starter.coc_state, "create_campaign", create_campaign_with_interleaving
+        coc_starter.coc_state, "_create_campaign_at", create_campaign_with_interleaving
     )
     failure: BaseException | None = None
     started = None
