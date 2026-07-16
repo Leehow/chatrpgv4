@@ -1091,7 +1091,7 @@ When `playtest.json` sets `audit_profile: haunting_module`, the audit should add
 
 - required The Haunting beats in `module_coverage`
 - social, pushed-roll, sanity, damage, and combat subsystem coverage
-- structured Keeper-controlled NPC roleplay turns for core social/investigation scenes, including Mr. Knott, Arty Wilmot, Gabriela Macario, and Vittorio Macario, rendered with localized `KP[NPC]` labels in Actual Play Replay and Session Transcript; otherwise emit `haunting_npc_dialogue_missing`
+- structured Keeper-controlled NPC roleplay turns for core social/investigation scenes, including Mr. Knott, Arty Wilmot, Gabriela Macario, and 马卡里奥一家, rendered with localized `KP[NPC]` labels in Actual Play Replay and Session Transcript; otherwise emit `haunting_npc_dialogue_missing`
 - sandbox investigator creation records with rulebook Chapter 3 steps, generated characteristics, skill-point formulas, `skill_allocation`, credit rating, rulebook Table II finances, backstory, and starting equipment; otherwise emit `investigator_creation_missing` or `investigator_skill_allocation_missing`
 - derived MOV values that do not match STR/DEX/SIZ plus the age MOV penalty; otherwise emit `derived_movement_rate_mismatch`
 - skill_allocation final values must match character.json skills; otherwise emit `investigator_skill_allocation_mismatch`
