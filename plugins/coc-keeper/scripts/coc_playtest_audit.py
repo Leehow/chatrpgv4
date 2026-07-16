@@ -3258,7 +3258,9 @@ def _combat_state_missing_gaps(combat_state: dict[str, Any], events: list[dict[s
 
 
 def audit_run(run_dir: Path) -> dict[str, Any]:
-    require_final_run_path(run_dir, purpose="playtest audit")
+    require_final_run_path(
+        run_dir, purpose="playtest audit", require_metadata=True
+    )
     context = _load_context(run_dir)
     findings: list[Finding] = []
 

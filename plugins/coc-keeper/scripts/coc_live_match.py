@@ -1100,10 +1100,12 @@ def _run_live_match_impl(
             raise ValueError(
                 "resume_run_dir cannot be combined with manual initial transcript inputs"
             )
-        resume_source = Path(resume_run_dir).resolve()
         coc_playtest_runs.require_final_run_path(
-            resume_source, purpose="live-match resume"
+            resume_run_dir,
+            purpose="live-match resume",
+            require_metadata=True,
         )
+        resume_source = Path(resume_run_dir).resolve()
         if not resume_source.is_dir():
             raise FileNotFoundError(f"resume run not found: {resume_source}")
         prior_investigator_snapshot = (

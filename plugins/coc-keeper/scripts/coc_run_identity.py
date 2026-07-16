@@ -709,7 +709,9 @@ def read_artifact_run_identity(run_dir: Path | str) -> dict[str, Any] | None:
     source while preventing a copied artifact from becoming a second current
     run instance.
     """
-    require_final_run_path(run_dir, purpose="run identity read")
+    require_final_run_path(
+        run_dir, purpose="run identity read", allow_missing=True
+    )
     directory = run_dir if is_anchored_path(run_dir) else Path(run_dir)
     path = directory / RUN_IDENTITY_FILENAME
     if not path.exists() and not path.is_symlink():

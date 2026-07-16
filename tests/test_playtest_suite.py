@@ -28,6 +28,17 @@ def test_crash_orphan_playtest_metadata_is_never_discovered_or_indexed(tmp_path)
             json.dumps({"run_id": "must-not-index"}) + "\n",
             encoding="utf-8",
         )
+    outside_run = tmp_path / "outside-run"
+    outside_run.mkdir()
+    (outside_run / "playtest.json").write_text(
+        json.dumps({"run_id": "outside-run"}) + "\n", encoding="utf-8"
+    )
+    (playtests / "linked-run").symlink_to(outside_run, target_is_directory=True)
+    metadata_link_run = playtests / "metadata-link-run"
+    metadata_link_run.mkdir()
+    (metadata_link_run / "playtest.json").symlink_to(
+        outside_run / "playtest.json"
+    )
 
     runs = coc_playtest_suite._discover_runs(
         tmp_path, coc_playtest_suite.StructuredSourceCoverageEvaluator()
@@ -38,6 +49,20 @@ def test_crash_orphan_playtest_metadata_is_never_discovered_or_indexed(tmp_path)
     assert requests == []
     assert not (staging_orphan / "artifacts" / "semantic-eval-request.json").exists()
     assert not (hidden_orphan / "artifacts" / "semantic-eval-request.json").exists()
+    assert not (outside_run / "artifacts" / "semantic-eval-request.json").exists()
+    assert not (
+        metadata_link_run / "artifacts" / "semantic-eval-request.json"
+    ).exists()
+
+    linked_root = tmp_path / "linked-root"
+    (linked_root / ".coc").mkdir(parents=True)
+    (linked_root / ".coc" / "playtests").symlink_to(
+        playtests, target_is_directory=True
+    )
+    assert coc_playtest_suite._discover_runs(
+        linked_root, coc_playtest_suite.StructuredSourceCoverageEvaluator()
+    ) == []
+    assert coc_playtest_suite.write_semantic_eval_requests(linked_root) == []
 
 
 def llm_semantic_provenance():

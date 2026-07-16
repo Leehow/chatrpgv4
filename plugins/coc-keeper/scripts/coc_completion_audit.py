@@ -464,16 +464,26 @@ def _finding(code: str, cause: str, evidence: str, recommendation: str, **extra:
     return finding
 
 
-def _active_runs(index: dict[str, Any], loop_decision: dict[str, Any]) -> list[dict[str, Any]]:
+def _active_runs(
+    root: Path,
+    index: dict[str, Any],
+    loop_decision: dict[str, Any],
+) -> list[dict[str, Any]]:
     active_ids = set(loop_decision.get("evaluated_runs", []))
     active: list[dict[str, Any]] = []
     for run in index.get("runs", []):
         run_id = run.get("run_id")
         path = run.get("path")
+        if isinstance(path, str) and path:
+            candidate = Path(path)
+            if not candidate.is_absolute():
+                candidate = root / candidate
+        else:
+            candidate = _playtests_dir(root) / str(run_id)
         if (
             run_id in active_ids
             and is_final_run_name(run_id)
-            and (path is None or is_final_run_path(path))
+            and is_final_run_path(candidate, require_metadata=True)
         ):
             active.append(run)
     return active
@@ -5824,7 +5834,7 @@ def generate_completion_audit(root: Path, automation_path: Path | None = None) -
     base = _playtests_dir(root)
     index = _read_json(base / "index.json", {})
     loop_decision = _read_json(base / "loop-decision.json", {})
-    active_runs = _active_runs(index, loop_decision)
+    active_runs = _active_runs(root, index, loop_decision)
     findings = _suite_findings(index, loop_decision, active_runs, _read_text(base / "suite-report.md"))
     findings.extend(_rules_json_validation_findings(root))
     findings.extend(_active_evaluator_note_findings(root, active_runs))

@@ -1725,6 +1725,103 @@ def test_live_resume_rejects_private_staging_generation(tmp_path):
         )
 
 
+def test_live_resume_rejects_staging_symlink_before_resolve(tmp_path):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    outside = tmp_path / "outside-historical-run"
+    outside.mkdir()
+    _write_json(outside / "playtest.json", {"run_id": "outside"})
+    staging = workspace / ".coc" / "playtests" / ".staging"
+    staging.mkdir(parents=True)
+    link = staging / "crashed-link"
+    link.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="published final playtest run"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            player_runner=tmp_path / "unused-player",
+            resume_run_dir=link,
+            max_turns=1,
+        )
+
+
+def test_explicit_consumers_reject_canonical_run_and_metadata_symlinks(tmp_path):
+    audit = _load(
+        "coc_playtest_audit_symlink_boundary_test",
+        REPO / "plugins" / "coc-keeper" / "scripts" / "coc_playtest_audit.py",
+    )
+    completion = _load(
+        "coc_completion_audit_symlink_boundary_test",
+        REPO / "plugins" / "coc-keeper" / "scripts" / "coc_completion_audit.py",
+    )
+    root = tmp_path / "workspace"
+    playtests = root / ".coc" / "playtests"
+    playtests.mkdir(parents=True)
+    outside = tmp_path / "outside-run"
+    outside.mkdir()
+    _write_json(outside / "playtest.json", {"run_id": "outside-run"})
+    final_link = playtests / "published-looking"
+    final_link.symlink_to(outside, target_is_directory=True)
+
+    consumers = [
+        lambda: match.coc_run_identity.read_artifact_run_identity(final_link),
+        lambda: match.playtest_report.generate_battle_report(final_link),
+        lambda: match.coc_eval_contract.compile_report_contract(
+            final_link, generate_base_report=False
+        ),
+        lambda: audit.audit_run(final_link),
+    ]
+    for consume in consumers:
+        with pytest.raises(ValueError, match="published final playtest run"):
+            consume()
+
+    real_run = playtests / "real-run"
+    real_run.mkdir()
+    metadata_target = tmp_path / "outside-playtest.json"
+    _write_json(metadata_target, {"run_id": "real-run"})
+    (real_run / "playtest.json").symlink_to(metadata_target)
+    assert match.coc_run_identity.read_artifact_run_identity(real_run) is None
+    for consume in (
+        lambda: match.playtest_report.generate_battle_report(real_run),
+        lambda: match.coc_eval_contract.verify_report_contract(real_run),
+        lambda: audit.audit_run(real_run),
+    ):
+        with pytest.raises(ValueError, match="published final playtest run"):
+            consume()
+
+    stale_index = {"runs": [{"run_id": "published-looking", "path": str(final_link)}]}
+    loop = {"evaluated_runs": ["published-looking"]}
+    assert completion._active_runs(root, stale_index, loop) == []
+
+
+def test_published_boundary_rejects_symlinked_playtests_ancestor(tmp_path):
+    root = tmp_path / "workspace"
+    (root / ".coc").mkdir(parents=True)
+    outside_playtests = tmp_path / "outside-playtests"
+    run = outside_playtests / "apparently-final"
+    run.mkdir(parents=True)
+    _write_json(run / "playtest.json", {"run_id": "apparently-final"})
+    (root / ".coc" / "playtests").symlink_to(
+        outside_playtests, target_is_directory=True
+    )
+    lexical_run = root / ".coc" / "playtests" / "apparently-final"
+
+    assert match.coc_playtest_runs.is_final_run_path(lexical_run) is False
+    with pytest.raises(ValueError, match="published final playtest run"):
+        match.coc_run_identity.read_artifact_run_identity(lexical_run)
+
+
+def test_published_boundary_keeps_real_outside_historical_directory(tmp_path):
+    historical = tmp_path / "portable-history" / "run"
+    historical.mkdir(parents=True)
+    _write_json(historical / "playtest.json", {"run_id": "portable-history"})
+
+    assert match.coc_playtest_runs.is_final_run_path(
+        historical, require_metadata=True
+    ) is True
+
+
 def test_resume_helpers_ignore_system_rows_and_renumber_append():
     prior = [
         {"turn": 1, "role": "player_simulator", "text": "我检查门锁。"},

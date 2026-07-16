@@ -3477,7 +3477,9 @@ def _evidence_sensitive_metadata(
 
 
 def generate_battle_report(run_dir: Path) -> Path:
-    require_final_run_path(run_dir, purpose="battle-report generation")
+    require_final_run_path(
+        run_dir, purpose="battle-report generation", require_metadata=True
+    )
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
     # Classification is derived only from the recomputed receipt. Metadata is
@@ -4075,7 +4077,9 @@ def generate_battle_report(run_dir: Path) -> Path:
 
 
 def generate_evaluation_report(run_dir: Path) -> Path:
-    require_final_run_path(run_dir, purpose="evaluation-report generation")
+    require_final_run_path(
+        run_dir, purpose="evaluation-report generation", require_metadata=True
+    )
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
     display_metadata = {

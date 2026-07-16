@@ -220,7 +220,9 @@ def _relative_to_run(run_dir: Path, path: Path) -> str:
 
 def load_roll_records(run_dir: Path | str) -> dict[str, Any]:
     """Read all campaign roll logs while preserving parse errors and provenance."""
-    require_final_run_path(run_dir, purpose="evaluation roll loading")
+    require_final_run_path(
+        run_dir, purpose="evaluation roll loading", require_metadata=True
+    )
     root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     metadata = _metadata(root)
     candidate_paths = [
@@ -1243,7 +1245,9 @@ def compile_report_contract(
     *,
     generate_base_report: bool = True,
 ) -> dict[str, Any]:
-    require_final_run_path(run_dir, purpose="report contract compilation")
+    require_final_run_path(
+        run_dir, purpose="report contract compilation", require_metadata=True
+    )
     root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     evaluation_report_path: Path | None = None
     if generate_base_report:
@@ -1297,7 +1301,9 @@ def compile_report_contract(
 
 
 def verify_report_contract(run_dir: Path | str) -> dict[str, Any]:
-    require_final_run_path(run_dir, purpose="report contract verification")
+    require_final_run_path(
+        run_dir, purpose="report contract verification", require_metadata=True
+    )
     root = run_dir if getattr(run_dir, "_coc_anchored_path", False) else Path(run_dir)
     report_path = _find_report_path(root)
     if report_path is None:
