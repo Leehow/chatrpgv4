@@ -148,17 +148,19 @@ def open_published_run(
 
     if getattr(path, "_coc_anchored_path", False):
         pinned = getattr(path, "_pinned_files", {})
-        if not require_metadata or ("playtest.json",) in pinned:
+        metadata_key = path.parts + ("playtest.json",)
+        if not require_metadata or metadata_key in pinned:
             yield path
             return
         run_fd = path._open_dir(path.parts)
         try:
             try:
-                _read_regular_file_at(run_fd, "playtest.json")
+                metadata = _read_regular_file_at(run_fd, "playtest.json")
             except (OSError, ValueError) as exc:
                 raise ValueError(
                     f"{purpose} requires a published final playtest run"
                 ) from exc
+            pinned[metadata_key] = metadata
             yield path
         finally:
             os.close(run_fd)

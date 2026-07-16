@@ -929,7 +929,11 @@ def verify_lane_artifacts(
     required_owned_artifacts: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Recompute outer lane receipts and detect missing, changed, or extra files."""
-    out = Path(output).resolve()
+    out = (
+        output
+        if getattr(output, "_coc_anchored_path", False)
+        else Path(output).resolve()
+    )
     findings: list[dict[str, Any]] = []
     if not isinstance(lane_artifacts, dict):
         return {

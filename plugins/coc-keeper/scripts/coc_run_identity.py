@@ -49,7 +49,7 @@ class AnchoredRunPath:
     ) -> None:
         self.root_fd = root_fd
         self.parts = parts
-        self._pinned_files = pinned_files or {}
+        self._pinned_files = pinned_files if pinned_files is not None else {}
         self.lexical_path = lexical_path
 
     def __truediv__(self, child: str) -> "AnchoredRunPath":
@@ -73,6 +73,16 @@ class AnchoredRunPath:
 
     def __repr__(self) -> str:
         return f"AnchoredRunPath({str(self)!r})"
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            getattr(other, "_coc_anchored_path", False) is True
+            and self.root_fd == getattr(other, "root_fd", None)
+            and self.parts == getattr(other, "parts", None)
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.root_fd, self.parts))
 
     def __lt__(self, other: object) -> bool:
         return str(self) < str(other)
@@ -280,20 +290,56 @@ class AnchoredRunPath:
             return handle.read()
 
     def write_text(self, data: str, encoding: str = "utf-8", errors=None, newline=None) -> int:
+        if self.parts in self._pinned_files:
+            payload = data.encode(encoding, errors or "strict")
+            self._replace_leaf_bytes(payload)
+            self._pinned_files[self.parts] = payload
+            return len(data)
         with self.open("w", encoding=encoding, errors=errors, newline=newline) as handle:
             written = handle.write(data)
-        if self.parts in self._pinned_files:
-            self._pinned_files[self.parts] = data.encode(
-                encoding, errors or "strict"
-            )
         return written
 
     def write_bytes(self, data: bytes) -> int:
+        if self.parts in self._pinned_files:
+            payload = bytes(data)
+            self._replace_leaf_bytes(payload)
+            self._pinned_files[self.parts] = payload
+            return len(payload)
         with self.open("wb") as handle:
             written = handle.write(data)
-        if self.parts in self._pinned_files:
-            self._pinned_files[self.parts] = bytes(data)
         return written
+
+    def _replace_leaf_bytes(self, data: bytes) -> None:
+        """Replace a pinned leaf without following a concurrently swapped name."""
+        parent_fd = self._open_dir(self.parts[:-1], create=True)
+        temporary = f".{self.name}.{uuid.uuid4().hex}.tmp"
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent_fd,
+            )
+            view = memoryview(data)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise OSError("short write while replacing anchored leaf")
+                view = view[written:]
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = None
+            os.replace(temporary, self.name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+            os.fsync(parent_fd)
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            try:
+                os.unlink(temporary, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+            os.close(parent_fd)
 
     def unlink(self, missing_ok: bool = False) -> None:
         parent_fd = self._open_dir(self.parts[:-1])
@@ -344,6 +390,17 @@ class AnchoredRunPath:
                         following.append(child)
             current = following
         return iter(current)
+
+    def rglob(self, pattern: str):
+        matches = []
+        pending = list(self.iterdir()) if self.is_dir() else []
+        while pending:
+            child = pending.pop()
+            if fnmatch.fnmatch(child.name, pattern):
+                matches.append(child)
+            if child.is_dir() and not child.is_symlink():
+                pending.extend(child.iterdir())
+        return iter(matches)
 
 
 def is_anchored_path(value: Any) -> bool:

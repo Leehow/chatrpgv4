@@ -160,7 +160,7 @@ def _registered_case_projection_findings(
 
 
 def _aggregate_contract_findings(
-    directory: Path,
+    directory: Any,
     manifest: dict[str, Any],
     lanes: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -203,11 +203,11 @@ def _aggregate_contract_findings(
 
 
 def _safe_suite_child_directory(
-    directory: Path,
+    directory: Any,
     relative: Path,
     *,
     label: str,
-) -> tuple[Path | None, dict[str, Any] | None]:
+) -> tuple[Any | None, dict[str, Any] | None]:
     if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         return None, {"code": "suite_report_path_unsafe", "report_id": label}
     candidate = directory / relative
@@ -240,7 +240,7 @@ def _read_object(path: Path) -> dict[str, Any] | None:
 
 
 def _nightly_report_runs(
-    directory: Path, manifest: dict[str, Any]
+    directory: Any, manifest: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     lanes = manifest.get("lanes")
     if not isinstance(lanes, dict):
@@ -352,19 +352,22 @@ def _nightly_report_runs(
                 }
             )
 
-    unique: dict[Path, dict[str, Any]] = {}
+    unique: dict[str, dict[str, Any]] = {}
     for report in reports:
-        unique.setdefault(Path(report["run_dir"]), report)
+        unique.setdefault(str(report["run_dir"]), report)
     return list(unique.values()), findings
 
 
 def _verify_suite_report_contract(
-    directory: Path, manifest: dict[str, Any]
+    directory: Any,
+    manifest: dict[str, Any],
+    *,
+    lexical_directory: Path,
 ) -> dict[str, Any]:
     report_runs, findings = _nightly_report_runs(directory, manifest)
     reports: list[dict[str, Any]] = []
     for item in report_runs:
-        run_dir = Path(item["run_dir"])
+        run_dir = item["run_dir"]
         result = contract.verify_report_contract(run_dir)
         entry = {
             "report_id": item["report_id"],
@@ -380,10 +383,21 @@ def _verify_suite_report_contract(
             value = entry.get(key)
             if value in (None, ""):
                 continue
-            path = Path(str(value)).resolve()
             try:
-                entry[key] = path.relative_to(directory).as_posix()
-            except ValueError:
+                if getattr(run_dir, "_coc_anchored_path", False):
+                    value_path = Path(str(value))
+                    if value_path.is_absolute():
+                        entry[key] = value_path.relative_to(
+                            lexical_directory
+                        ).as_posix()
+                        continue
+                    artifact_path = directory / value_path
+                    artifact_path.relative_to(run_dir)
+                    entry[key] = artifact_path.relative_to(directory).as_posix()
+                else:
+                    path = Path(str(value)).resolve()
+                    entry[key] = path.relative_to(lexical_directory).as_posix()
+            except (TypeError, ValueError):
                 findings.append(
                     {
                         "code": "suite_report_artifact_escaped",
@@ -448,7 +462,11 @@ def report_run_contract(run_dir: Path | str) -> dict[str, Any]:
         if isinstance(manifest, dict) and manifest.get("suite") == "nightly":
             # Nightly child reports are compiled before lane hashes are sealed.
             # A post-run report verifies them without regenerating signed lanes.
-            return _verify_suite_report_contract(lexical_directory, manifest)
+            return _verify_suite_report_contract(
+                opened_directory,
+                manifest,
+                lexical_directory=lexical_directory,
+            )
         return _remap_gameplay_result(
             dict(contract.compile_report_contract(
                 opened_directory, generate_base_report=True
@@ -520,7 +538,6 @@ def verify_run_contract(run_dir: Path | str) -> dict[str, Any]:
 def _verify_open_run_contract(
     lexical_directory: Path, opened_directory: Any
 ) -> dict[str, Any]:
-    directory = lexical_directory
     gameplay_run = (
         _is_canonical_gameplay_path(lexical_directory)
         or _has_entry(opened_directory, "playtest.json")
@@ -577,7 +594,11 @@ def _verify_open_run_contract(
     # not carry playtest.json.  Verify their declared aggregate contract first;
     # only ordinary gameplay runs enter the metadata-requiring report verifier.
     payload = (
-        _verify_suite_report_contract(directory, manifest)
+        _verify_suite_report_contract(
+            opened_directory,
+            manifest,
+            lexical_directory=lexical_directory,
+        )
         if has_aggregate_contract
         else _remap_gameplay_result(
             dict(contract.verify_report_contract(opened_directory)),
@@ -613,7 +634,7 @@ def _verify_open_run_contract(
         )
         contract_findings.extend(projection_findings)
     contract_findings.extend(
-        _aggregate_contract_findings(directory, manifest, lanes)
+        _aggregate_contract_findings(opened_directory, manifest, lanes)
     )
     if (
         manifest_suite == "nightly"
@@ -653,7 +674,7 @@ def _verify_open_run_contract(
                 {"code": "registered_case_artifact_contract_malformed"}
             )
     lane_verification = pipeline.verify_lane_artifacts(
-        directory,
+        opened_directory,
         lane_artifacts,
         expected_lanes=lanes if isinstance(lanes, dict) else None,
         required_owned_artifacts=required_owned_artifacts,

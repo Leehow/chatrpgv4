@@ -587,7 +587,14 @@ def test_nightly_report_and_verify_route_to_declared_child_playtest(
     calls: list[tuple[str, Path]] = []
 
     def report_result(mode: str, run_dir: Path) -> dict:
-        calls.append((mode, Path(run_dir)))
+        calls.append(
+            (
+                mode,
+                run_dir.lexical_path
+                if getattr(run_dir, "_coc_anchored_path", False)
+                else Path(run_dir),
+            )
+        )
         return {
             "schema_version": 1,
             "eval_spec": "eval-spec-v1",
@@ -1144,6 +1151,147 @@ def test_gameplay_verification_retains_run_across_classification_swap(
 
     assert payload.get("report_scope") != "suite"
     assert payload["status"] == "FAIL"
+
+
+@pytest.mark.parametrize("operation", ("verify", "report"))
+def test_gameplay_metadata_is_pinned_across_nested_consumer_escalation(
+    tmp_path: Path, monkeypatch, operation: str,
+):
+    cli = _load_cli()
+    playtest_runs = sys.modules["coc_playtest_runs"]
+    run = tmp_path / ".coc" / "playtests" / "metadata-pinned-run"
+    metadata_path = run / "playtest.json"
+    original = {
+        "schema_version": 1,
+        "run_id": "metadata-pinned-run",
+        "campaign_id": "original-campaign",
+    }
+    replacement = {
+        "schema_version": 1,
+        "run_id": "metadata-pinned-run",
+        "campaign_id": "replacement-campaign",
+    }
+    _write_json(metadata_path, original)
+    replacement_target = tmp_path / "replacement-playtest.json"
+    _write_json(replacement_target, replacement)
+
+    real_read = playtest_runs._read_regular_file_at
+    replaced = False
+
+    def replace_after_validation(directory_fd, name):
+        nonlocal replaced
+        payload = real_read(directory_fd, name)
+        if name == "playtest.json" and not replaced:
+            replaced = True
+            metadata_path.unlink()
+            metadata_path.symlink_to(replacement_target)
+        return payload
+
+    @playtest_runs.published_run_consumer(require_metadata=True)
+    def read_validated_metadata(run_dir, **kwargs):
+        metadata = (run_dir / "playtest.json").read_text(encoding="utf-8")
+        if operation == "report":
+            (run_dir / "playtest.json").write_text(metadata, encoding="utf-8")
+        return {
+            "status": "PASS",
+            "campaign_id": json.loads(metadata)["campaign_id"],
+        }
+
+    monkeypatch.setattr(
+        playtest_runs, "_read_regular_file_at", replace_after_validation
+    )
+    if operation == "verify":
+        monkeypatch.setattr(
+            cli.contract, "verify_report_contract", read_validated_metadata
+        )
+        payload = cli.verify_run_contract(run)
+    else:
+        monkeypatch.setattr(
+            cli.contract, "compile_report_contract", read_validated_metadata
+        )
+        payload = cli.report_run_contract(run)
+
+    assert replaced is True
+    assert payload["campaign_id"] == "original-campaign"
+    assert json.loads(replacement_target.read_text(encoding="utf-8")) == replacement
+    if operation == "report":
+        assert not metadata_path.is_symlink()
+        assert json.loads(metadata_path.read_text(encoding="utf-8")) == original
+    else:
+        assert metadata_path.is_symlink()
+
+
+def test_nested_child_metadata_pin_is_shared_by_anchored_root(tmp_path: Path):
+    cli = _load_cli()
+    playtest_runs = sys.modules["coc_playtest_runs"]
+    aggregate = tmp_path / "aggregate"
+    child = aggregate / "lanes" / "matrix" / "playtest"
+    _write_json(
+        child / "playtest.json",
+        {"run_id": "child-run", "campaign_id": "child-campaign"},
+    )
+
+    with playtest_runs.open_published_run(
+        aggregate, purpose="aggregate probe", require_metadata=False
+    ) as root:
+        anchored_child = root / "lanes" / "matrix" / "playtest"
+        with playtest_runs.open_published_run(
+            anchored_child, purpose="child probe", require_metadata=True
+        ):
+            pass
+
+        assert (
+            "lanes",
+            "matrix",
+            "playtest",
+            "playtest.json",
+        ) in root._pinned_files
+
+
+def test_aggregate_verify_retains_opened_directory_after_name_replacement(
+    tmp_path: Path, monkeypatch,
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+    expected = cli.verify_run_contract(out)
+    real_identity = cli._has_coherent_aggregate_identity
+    swapped = False
+
+    def swap_after_identity(directory, manifest):
+        nonlocal swapped
+        result = real_identity(directory, manifest)
+        if not swapped:
+            swapped = True
+            out.rename(tmp_path / "retained-nightly")
+            out.mkdir()
+        return result
+
+    monkeypatch.setattr(cli, "_has_coherent_aggregate_identity", swap_after_identity)
+
+    assert cli.verify_run_contract(out) == expected
+    assert swapped is True
+
+
+def test_aggregate_report_retains_opened_directory_after_name_replacement(
+    tmp_path: Path, monkeypatch,
+):
+    cli, out, _ = _run_bound_fake_nightly(tmp_path, monkeypatch)
+    expected = cli.report_run_contract(out)
+    real_read_object = cli._read_object
+    swapped = False
+
+    def swap_after_manifest(path):
+        nonlocal swapped
+        result = real_read_object(path)
+        if path.name == "run-manifest.json" and not swapped:
+            swapped = True
+            out.rename(tmp_path / "retained-nightly")
+            out.mkdir()
+        return result
+
+    monkeypatch.setattr(cli, "_read_object", swap_after_manifest)
+
+    assert cli.report_run_contract(out) == expected
+    assert swapped is True
 
 
 @pytest.mark.parametrize(
