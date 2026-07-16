@@ -1599,6 +1599,122 @@ def test_roll_receipt_replays_after_character_file_is_removed(campaign_ws):
     assert replay["data"] == first["data"]
 
 
+@pytest.mark.parametrize("mutable_environment", ["deleted", "casefold_ambiguous"])
+@pytest.mark.parametrize(
+    ("tool_name", "changed"),
+    [
+        ("rules.roll", {"reason": "changed reason"}),
+        ("rules.roll", {"difficulty": "hard"}),
+        ("rules.roll", {"bonus": 1}),
+        ("rules.roll", {"target": 50}),
+        ("rules.roll", {"skill": "Spot Hidden"}),
+        ("rules.roll", {"characteristic": "DEX"}),
+        ("rules.push", {"reason": "changed pushed reason"}),
+        ("rules.push", {"method_changed": "a third search method"}),
+        ("rules.push", {"failure_consequence": "the records burn"}),
+    ],
+)
+def test_owned_decision_conflicts_without_reading_mutable_character_state(
+    campaign_ws, mutable_environment, tool_name, changed
+):
+    decision_id = (
+        f"frozen-conflict-{mutable_environment}-{tool_name}-"
+        f"{next(iter(changed))}"
+    )
+    args = {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "reason": "original frozen reason",
+        "decision_id": decision_id,
+        "seed": 7,
+    }
+    if tool_name == "rules.push":
+        args.update({
+            "method_changed": "search a different archive",
+            "failure_consequence": "the archive closes",
+        })
+    first = _run(campaign_ws, tool_name, args)
+    assert first["ok"] is True
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    if mutable_environment == "deleted":
+        character_path.unlink()
+    else:
+        character = json.loads(character_path.read_text(encoding="utf-8"))
+        character["skills"]["library use"] = character["skills"]["Library Use"]
+        _write_json(character_path, character)
+
+    exact = _run(campaign_ws, tool_name, {**args, "seed": 999})
+    assert exact["ok"] is True
+    assert exact["data"] == first["data"]
+    receipt_path = (
+        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
+    )
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    state_path = (
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    ledger_path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    before = tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    )
+
+    conflict = _run(
+        campaign_ws,
+        tool_name,
+        {**args, **changed, "seed": 1234},
+    )
+
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+    assert tuple(
+        path.read_bytes()
+        for path in (receipt_path, rolls_path, state_path, ledger_path)
+    ) == before
+
+
+def test_owned_decision_exact_and_conflict_paths_are_frozen_only(
+    campaign_ws, monkeypatch
+):
+    args = {
+        "skill": "Library Use",
+        "reason": "frozen-only operation",
+        "decision_id": "frozen-only-owned-decision",
+        "seed": 5,
+    }
+    first = _run(campaign_ws, "rules.roll", args)
+    assert first["ok"] is True
+
+    def reject_mutable_read(*_args, **_kwargs):
+        raise AssertionError("owned decision consulted mutable resolution state")
+
+    monkeypatch.setattr(coc_toolbox.Ctx, "party_ids", reject_mutable_read)
+    monkeypatch.setattr(coc_toolbox.Ctx, "sheet", reject_mutable_read)
+    monkeypatch.setattr(coc_toolbox.Ctx, "inv_state", reject_mutable_read)
+    monkeypatch.setattr(coc_toolbox, "_canonical_skill_base", reject_mutable_read)
+    monkeypatch.setattr(coc_toolbox, "_resolve_target_value", reject_mutable_read)
+
+    exact = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
+    conflict = _run(
+        campaign_ws,
+        "rules.roll",
+        {**args, "reason": "changed", "seed": 999},
+    )
+
+    assert exact["ok"] is True
+    assert exact["data"] == first["data"]
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+
 @pytest.mark.parametrize(
     ("write_mode", "recovers"),
     [

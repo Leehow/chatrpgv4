@@ -1899,20 +1899,6 @@ def _migrate_intermediate_percentile_operations(
             canonical = skill
             if skill != label and skill.casefold() == label.casefold():
                 canonical = label
-            elif (
-                operation.get("explicit_target") is not None
-                and resolution.get("target_source") == "explicit"
-            ):
-                try:
-                    canonical = _canonical_skill_selector(
-                        ctx, investigator_id, skill
-                    )
-                except ToolError as exc:
-                    if exc.code != "unknown_investigator":
-                        raise
-                    # An exact retry remains provable from the frozen hint even
-                    # when the external character projection was later removed.
-                    canonical = skill
             if canonical == skill:
                 continue
             if canonical.casefold() != skill.casefold():
@@ -4194,48 +4180,28 @@ def _resolve_target_value(
     raise ToolError("unknown_skill", f"skill not on sheet: {skill}")
 
 
-def _compile_percentile_invocation(
-    ctx: Ctx,
+def _normalize_percentile_invocation(
     args: dict[str, Any],
     *,
     pushed: bool,
-    receipt_hint: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Compile caller intent and resolution from one canonical selector model."""
+    frozen_operation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Normalize immutable caller fields without consulting mutable state."""
     raw_investigator = args.get("investigator")
     investigator = (
         str(raw_investigator).strip()
         if raw_investigator is not None and str(raw_investigator).strip()
         else None
     )
-    hinted_operation = (
-        receipt_hint.get("operation")
-        if isinstance(receipt_hint, dict)
-        and isinstance(receipt_hint.get("operation"), dict)
-        else {}
-    )
-    hinted_resolution = (
-        receipt_hint.get("resolution")
-        if isinstance(receipt_hint, dict)
-        and isinstance(receipt_hint.get("resolution"), dict)
-        else {}
-    )
-    if (
-        investigator is None
-        and hinted_operation.get("investigator") is None
-        and isinstance(hinted_resolution.get("investigator_id"), str)
-        and hinted_resolution.get("investigator_id")
-    ):
-        investigator_id = str(hinted_resolution["investigator_id"])
-    else:
-        investigator_id = _resolve_investigator(
-            ctx, {"investigator": investigator}
-        )
     raw_skill = args.get("skill")
     skill = None
     if raw_skill is not None and str(raw_skill).strip():
         stripped_skill = str(raw_skill).strip()
-        hinted_skill = hinted_operation.get("skill")
+        hinted_skill = (
+            frozen_operation.get("skill")
+            if isinstance(frozen_operation, dict)
+            else None
+        )
         if (
             isinstance(hinted_skill, str)
             and hinted_skill
@@ -4243,9 +4209,7 @@ def _compile_percentile_invocation(
         ):
             skill = hinted_skill
         else:
-            skill = _canonical_skill_selector(
-                ctx, investigator_id, stripped_skill
-            )
+            skill = stripped_skill
     raw_characteristic = args.get("characteristic")
     characteristic = (
         str(raw_characteristic).strip().upper()
@@ -4258,11 +4222,7 @@ def _compile_percentile_invocation(
     difficulty = str(args.get("difficulty") or "regular")
     bonus = int(args.get("bonus") or 0)
     penalty = int(args.get("penalty") or 0)
-    if difficulty not in {"regular", "hard", "extreme"}:
-        raise ToolError("invalid_param", f"unsupported difficulty: {difficulty}")
-    if bonus < 0 or penalty < 0:
-        raise ToolError("invalid_param", "bonus and penalty must be nonnegative")
-    operation = {
+    return {
         "investigator": investigator,
         "skill": skill,
         "characteristic": characteristic,
@@ -4290,18 +4250,35 @@ def _compile_percentile_invocation(
             else None
         ),
     }
-    if (
-        receipt_hint is not None
-        and receipt_hint.get("fingerprint")
-        == _operation_fingerprint(str(receipt_hint.get("tool") or ""), operation)
-        and set(hinted_resolution) == set(_PERCENTILE_RESOLUTION_FIELDS)
-    ):
-        return operation, deepcopy(hinted_resolution)
+
+
+def _compile_new_percentile_invocation(
+    ctx: Ctx,
+    args: dict[str, Any],
+    *,
+    pushed: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve mutable investigator/target state only for an unowned decision."""
+    operation = _normalize_percentile_invocation(args, pushed=pushed)
+    difficulty = str(operation["difficulty"])
+    bonus = int(operation["bonus"])
+    penalty = int(operation["penalty"])
+    if difficulty not in {"regular", "hard", "extreme"}:
+        raise ToolError("invalid_param", f"unsupported difficulty: {difficulty}")
+    if bonus < 0 or penalty < 0:
+        raise ToolError("invalid_param", "bonus and penalty must be nonnegative")
+    investigator_id = _resolve_investigator(
+        ctx, {"investigator": operation["investigator"]}
+    )
+    if isinstance(operation.get("skill"), str) and operation.get("skill"):
+        operation["skill"] = _canonical_skill_selector(
+            ctx, investigator_id, str(operation["skill"])
+        )
     normalized = {
-        "investigator": investigator,
-        "skill": skill,
-        "characteristic": characteristic,
-        "target": explicit_target,
+        "investigator": operation["investigator"],
+        "skill": operation["skill"],
+        "characteristic": operation["characteristic"],
+        "target": operation["explicit_target"],
     }
     target, label, target_source = _resolve_target_value(
         ctx, investigator_id, normalized
@@ -4312,7 +4289,7 @@ def _compile_percentile_invocation(
         "resolved_target": target,
         "target_source": target_source,
     }
-    # ``seed`` is intentionally absent: it is a tests-only RNG transport knob.
+    # ``seed`` is intentionally absent: it is tests-only RNG transport.
     return operation, resolution
 
 
@@ -4383,8 +4360,22 @@ def _roll_common(
             tool_name=tool_name,
             decision_id=decision_id,
         )
-    operation, resolution = _compile_percentile_invocation(
-        ctx, args, pushed=pushed, receipt_hint=receipt_hint
+        operation = _normalize_percentile_invocation(
+            args,
+            pushed=pushed,
+            frozen_operation=receipt_hint["operation"],
+        )
+        if receipt_hint["fingerprint"] != _operation_fingerprint(
+            tool_name, operation
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' was already applied to a "
+                f"different {tool_name} semantic operation",
+            )
+        return _replay_roll_receipt(ctx, document, receipt_hint)
+    operation, resolution = _compile_new_percentile_invocation(
+        ctx, args, pushed=pushed
     )
     document, receipt = _existing_roll_receipt(
         ctx,
