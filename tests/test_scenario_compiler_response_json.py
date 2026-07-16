@@ -153,3 +153,31 @@ def test_rejects_ambiguous_truncated_or_structurally_invalid_output(invalid, exp
     payload = json.loads(completed.stdout)
     assert payload["ok"] is False
     assert expected in payload["error"]
+
+
+def test_nested_prose_delimiter_scan_is_linear_and_non_recursive():
+    program = """
+import { performance } from 'node:perf_hooks';
+const { parseSingleJsonObject } = await import(process.argv[1]);
+const rows = [];
+for (const depth of [2000, 4000, 8000, 12000]) {
+  const input = '{draft '.repeat(depth) + 'x' + '}'.repeat(depth) + ' {"a":1}';
+  const diagnostics = {};
+  const started = performance.now();
+  parseSingleJsonObject(input, diagnostics);
+  rows.push({ bytes: input.length, steps: diagnostics.scan_steps, ms: performance.now() - started });
+}
+process.stdout.write(JSON.stringify(rows));
+"""
+    completed = subprocess.run(
+        ["node", "--input-type=module", "--eval", program, PARSER.as_uri()],
+        capture_output=True, text=True, check=False, cwd=ROOT, timeout=10,
+    )
+    assert completed.returncode == 0, completed.stderr
+    rows = json.loads(completed.stdout)
+    assert [row["bytes"] // 1000 for row in rows] == [16, 32, 64, 96]
+    assert all(row["steps"] <= row["bytes"] * 6.1 + 100 for row in rows)
+    for previous, current in zip(rows, rows[1:]):
+        byte_ratio = current["bytes"] / previous["bytes"]
+        assert current["steps"] / previous["steps"] <= byte_ratio * 1.05
+    assert rows[-1]["ms"] < 2000

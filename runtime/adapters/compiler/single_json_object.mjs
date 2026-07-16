@@ -4,10 +4,11 @@
  * Wrapper prose is allowed. Ambiguity is checked at the standalone-document
  * level, never by promoting JSON-looking words or numbers inside sentences.
  */
-export function parseSingleJsonObject(input) {
+export function parseSingleJsonObject(input, diagnostics = null) {
   if (typeof input !== "string" || !input.trim()) {
     throw new Error("JSON response must be a non-empty string");
   }
+  if (diagnostics && typeof diagnostics === "object") diagnostics.scan_steps = 0;
 
   const source = input.trim();
   try {
@@ -22,7 +23,7 @@ export function parseSingleJsonObject(input) {
     throw new Error("JSON response contains multiple JSON fences");
   }
   if (explicitJsonFences.length === 1) {
-    return parseFencedObject(source, explicitJsonFences[0]);
+    return parseFencedObject(source, explicitJsonFences[0], diagnostics);
   }
 
   const genericJsonFences = fences.filter((fence) => {
@@ -38,10 +39,10 @@ export function parseSingleJsonObject(input) {
     throw new Error("JSON response contains multiple JSON fences");
   }
   if (genericJsonFences.length === 1) {
-    return parseFencedObject(source, genericJsonFences[0]);
+    return parseFencedObject(source, genericJsonFences[0], diagnostics);
   }
 
-  const containers = findContainerCandidates(source);
+  const containers = findContainerCandidates(source, diagnostics);
   if (containers.length !== 1) {
     throw new Error(
       containers.length === 0
@@ -50,20 +51,20 @@ export function parseSingleJsonObject(input) {
     );
   }
   const [candidate] = containers;
-  assertNoStandaloneJsonDocument(source.slice(0, candidate.start));
-  assertNoStandaloneJsonDocument(source.slice(candidate.end));
+  assertNoStandaloneJsonDocument(source.slice(0, candidate.start), diagnostics);
+  assertNoStandaloneJsonDocument(source.slice(candidate.end), diagnostics);
   return requireObject(candidate.value);
 }
 
-function parseFencedObject(source, fence) {
+function parseFencedObject(source, fence, diagnostics) {
   let parsed;
   try {
     parsed = requireObject(JSON.parse(fence.content.trim()));
   } catch (error) {
     throw new Error(`JSON fence does not contain one valid object: ${error.message}`);
   }
-  assertNoStandaloneJsonDocument(source.slice(0, fence.start));
-  assertNoStandaloneJsonDocument(source.slice(fence.end));
+  assertNoStandaloneJsonDocument(source.slice(0, fence.start), diagnostics);
+  assertNoStandaloneJsonDocument(source.slice(fence.end), diagnostics);
   return parsed;
 }
 
@@ -74,10 +75,10 @@ function requireObject(value) {
   return value;
 }
 
-function assertNoStandaloneJsonDocument(wrapper) {
+function assertNoStandaloneJsonDocument(wrapper, diagnostics) {
   const whole = wrapper.trim();
   if (!whole) return;
-  if (findContainerCandidates(whole).length) {
+  if (findContainerCandidates(whole, diagnostics).length) {
     throw new Error("JSON response contains a standalone JSON value outside its object");
   }
   const segments = [whole, ...whole.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)];
@@ -114,12 +115,14 @@ function isStandaloneStringShaped(segment) {
   return true;
 }
 
-function findContainerCandidates(source) {
+function findContainerCandidates(source, diagnostics) {
   const containers = [];
+  const nextNonWhitespace = buildNextNonWhitespace(source, diagnostics);
   let index = 0;
   while (index < source.length) {
+    countStep(diagnostics);
     if (source[index] === "[") {
-      const linkEnd = markdownLinkEndAt(source, index);
+      const linkEnd = markdownLinkEndAt(source, index, diagnostics);
       if (linkEnd !== null) {
         index = linkEnd;
         continue;
@@ -129,20 +132,24 @@ function findContainerCandidates(source) {
       index += 1;
       continue;
     }
-    const container = scanContainer(source, index);
-    if (container.kind === "invalid_json") throw new Error(container.error);
-    if (container.kind === "valid") containers.push(container);
-    index = container.kind === "prose" ? index + 1 : container.end;
+    if (!looksLikeJsonContainer(source, index, nextNonWhitespace)) {
+      index += 1;
+      continue;
+    }
+    const container = scanJsonContainer(source, index, diagnostics);
+    containers.push(container);
+    index = container.end;
   }
   return containers;
 }
 
-function scanContainer(source, start) {
+function scanJsonContainer(source, start, diagnostics) {
   const stack = [source[start]];
   let inString = false;
   let escaped = false;
   let index = start + 1;
   for (; index < source.length && stack.length; index += 1) {
+    countStep(diagnostics);
     const char = source[index];
     if (inString) {
       if (escaped) escaped = false;
@@ -150,47 +157,67 @@ function scanContainer(source, start) {
       else if (char === '"') inString = false;
       continue;
     }
-    if (char === '"') inString = true;
-    else if (char === "{" || char === "[") stack.push(char);
-    else if (char === "}" || char === "]") {
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "{" || char === "[") {
+      stack.push(char);
+    } else if (char === "}" || char === "]") {
       const expected = char === "}" ? "{" : "[";
       if (stack.at(-1) !== expected) {
-        return looksLikeJsonContainer(source, start)
-          ? { kind: "invalid_json", end: index + 1, error: "JSON response contains mismatched delimiters" }
-          : { kind: "prose", end: index + 1 };
+        throw new Error("JSON response contains mismatched delimiters");
       }
       stack.pop();
     }
   }
   if (stack.length || inString) {
-    return looksLikeJsonContainer(source, start)
-      ? { kind: "invalid_json", end: source.length, error: "JSON response contains a truncated JSON value" }
-      : { kind: "prose", end: start + 1 };
+    throw new Error("JSON response contains a truncated JSON value");
   }
   const token = source.slice(start, index);
   try {
-    return { kind: "valid", start, end: index, value: JSON.parse(token) };
+    return { start, end: index, value: JSON.parse(token) };
   } catch (error) {
-    return looksLikeJsonContainer(source, start)
-      ? { kind: "invalid_json", end: index, error: `JSON response contains invalid JSON: ${error.message}` }
-      : { kind: "prose", end: index };
+    throw new Error(`JSON response contains invalid JSON: ${error.message}`);
   }
 }
 
-function looksLikeJsonContainer(source, start) {
-  const opener = source[start];
-  const rest = source.slice(start + 1).trimStart();
-  if (!rest) return false;
-  if (opener === "{") return rest.startsWith('"') || rest.startsWith("}");
-  return /^(?:[\[{"]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\b|true\b|false\b|null\b|\])/.test(rest);
+function buildNextNonWhitespace(source, diagnostics) {
+  const nextNonWhitespace = new Int32Array(source.length + 1);
+  let next = source.length;
+  nextNonWhitespace[source.length] = next;
+  for (let index = source.length - 1; index >= 0; index -= 1) {
+    countStep(diagnostics);
+    if (!/\s/.test(source[index])) next = index;
+    nextNonWhitespace[index] = next;
+  }
+  return nextNonWhitespace;
 }
 
-function markdownLinkEndAt(source, start) {
+function looksLikeJsonContainer(source, start, nextNonWhitespace = null) {
+  const opener = source[start];
+  let contentStart = nextNonWhitespace ? nextNonWhitespace[start + 1] : start + 1;
+  if (!nextNonWhitespace) {
+    while (contentStart < source.length && /\s/.test(source[contentStart])) contentStart += 1;
+  }
+  if (contentStart >= source.length) return false;
+  const first = source[contentStart];
+  if (opener === "{") return first === '"' || first === "}";
+  if ('[{"'.includes(first) || first === "]") return true;
+  if (/\d/.test(first) || (first === "-" && /\d/.test(source[contentStart + 1] || ""))) return true;
+  return ["true", "false", "null"].some((word) => (
+    source.startsWith(word, contentStart)
+    && !/[a-zA-Z0-9_]/.test(source[contentStart + word.length] || "")
+  ));
+}
+
+function markdownLinkEndAt(source, start, diagnostics = null) {
   if (source[start] !== "[") return null;
   let depth = 1;
   let escaped = false;
   let index = start + 1;
   for (; index < source.length && depth; index += 1) {
+    countStep(diagnostics);
     const char = source[index];
     if (escaped) escaped = false;
     else if (char === "\\") escaped = true;
@@ -203,6 +230,7 @@ function markdownLinkEndAt(source, start) {
   escaped = false;
   index += 1;
   for (; index < source.length && depth; index += 1) {
+    countStep(diagnostics);
     const char = source[index];
     if (escaped) escaped = false;
     else if (char === "\\") escaped = true;
@@ -210,6 +238,10 @@ function markdownLinkEndAt(source, start) {
     else if (char === ")") depth -= 1;
   }
   return depth ? null : index;
+}
+
+function countStep(diagnostics) {
+  if (diagnostics && typeof diagnostics === "object") diagnostics.scan_steps += 1;
 }
 
 function findMarkdownFences(source) {
