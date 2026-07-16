@@ -8,6 +8,8 @@ import importlib.util
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from pathlib import Path
 
 
@@ -152,3 +154,47 @@ def test_spawn_background_flush_writes_flush_attempts_marker(tmp_path, monkeypat
     assert marker["pending_before"] == 1
     assert "ts" in marker
     assert "campaign_dir" in marker
+
+
+def test_two_concurrent_flushers_serialize_stable_event_exactly_once(
+    tmp_path, monkeypatch
+):
+    campaign = tmp_path / "camp"
+    campaign.mkdir()
+    pending = _make_pending_batch(campaign, name="stable.json")
+    payload = json.loads(pending.read_text(encoding="utf-8"))
+    payload["entries"][0]["record"].update({
+        "event_id": "stable-concurrent-event",
+        "decision_id": "stable-concurrent-decision",
+    })
+    pending.write_text(json.dumps(payload), encoding="utf-8")
+
+    real_append = recorder._append_jsonl_sync
+
+    def slow_append(path, record):
+        # Enlarge the old check/append race window.  The recorder lock keeps
+        # the second flusher outside that window.
+        if record.get("event_id") == "stable-concurrent-event":
+            time.sleep(0.05)
+        return real_append(path, record)
+
+    monkeypatch.setattr(recorder, "_append_jsonl_sync", slow_append)
+    start = Barrier(2)
+
+    def flush():
+        start.wait()
+        return recorder.flush_pending_records(campaign)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [future.result() for future in [pool.submit(flush), pool.submit(flush)]]
+
+    rows = [
+        json.loads(line)
+        for line in (campaign / "logs" / "events.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    assert [row["event_id"] for row in rows] == ["stable-concurrent-event"]
+    assert sum(result["flushed_files"] for result in results) == 1
+    assert not list((campaign / "logs" / "pending-turns").glob("*.json"))

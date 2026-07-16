@@ -30,6 +30,9 @@ coc_event_contract = _load_sibling(
 coc_npc_identity = _load_sibling(
     "coc_npc_identity_adherence", "coc_npc_identity.py"
 )
+coc_npc_event_chain = _load_sibling(
+    "coc_npc_event_chain_adherence", "coc_npc_event_chain.py"
+)
 
 
 def _read_json(path: Path, fallback: Any = None) -> Any:
@@ -369,14 +372,10 @@ def project_npc_engagement_evidence(
         npc_id = _text(coc_event_contract.value(event, "npc_id"))
         if not npc_id:
             continue
-        binding = coc_event_contract.value(event, "identity_binding")
-        contract = coc_event_contract.value(event, "identity_contract")
         event_schema = coc_event_contract.value(event, "schema_version")
         if _engagement_coverage_eligible(event):
             attested.add(npc_id)
-        elif event_schema is None or (
-            not isinstance(binding, dict) and not isinstance(contract, dict)
-        ):
+        elif event_schema is None:
             legacy.add(npc_id)
         else:
             unverified.add(npc_id)
@@ -494,13 +493,13 @@ def _harvest_npc_engagement_evidence(
     raw: dict[str, Any],
     final_state: dict[str, Any],
     *,
-    trusted_event_rows: list[dict[str, Any]] | None = None,
+    canonical_chain: Any = None,
 ) -> dict[str, Any]:
-    """Collect coverage only from a caller-separated trusted event chain.
+    """Collect coverage only from a loader-owned canonical capability.
 
     Public projections and play-record event arrays are display evidence.  A
-    caller can construct both them and their ordinary content digest, so they
-    never promote authored coverage on their own.
+    caller can construct both them and their ordinary content digest, so raw
+    rows never promote authored coverage on their own.
     """
     event_rows = _iter_play_events(raw)
     for turn in raw.get("turns") or []:
@@ -511,11 +510,18 @@ def _harvest_npc_engagement_evidence(
                 continue
             event_rows.append({"event_type": "npc_engagement", **move})
 
+    trusted_rows: list[dict[str, Any]] = []
+    trusted_chain = coc_npc_event_chain.is_canonical_capability(canonical_chain)
+    if trusted_chain:
+        canonical_rows, trusted_rows, _manifest = (
+            coc_npc_event_chain.capability_rows(canonical_chain)
+        )
+        # Canonical but unreceipted rows remain visible as legacy/unverified
+        # evidence; only receipt-matched rows may be promoted below.
+        event_rows.extend(canonical_rows)
+
     untrusted_projection = project_npc_engagement_evidence(event_rows)
-    trusted_projection = project_npc_engagement_evidence(
-        trusted_event_rows or []
-    )
-    trusted_chain = trusted_event_rows is not None
+    trusted_projection = project_npc_engagement_evidence(trusted_rows)
     attested = set(trusted_projection["authored_attested_npc_ids"])
     legacy = set(trusted_projection["legacy_unverifiable_npc_ids"])
     unverified = set(trusted_projection["unverified_npc_ids"])
@@ -589,7 +595,7 @@ def _harvest_npc_engagement_evidence(
 def _normalize_play_record(
     play: dict[str, Any] | None,
     *,
-    trusted_npc_engagement_events: list[dict[str, Any]] | None = None,
+    canonical_npc_event_chain: Any = None,
 ) -> dict[str, Any]:
     """Normalize session_result / campaign world-state shapes into one record."""
     raw = play if isinstance(play, dict) else {}
@@ -620,7 +626,7 @@ def _normalize_play_record(
     npc_evidence = _harvest_npc_engagement_evidence(
         raw,
         final_state,
-        trusted_event_rows=trusted_npc_engagement_events,
+        canonical_chain=canonical_npc_event_chain,
     )
     return {
         "discovered_clue_ids": _as_str_set(discovered),
@@ -704,17 +710,17 @@ def _statement_satisfied(statement: dict[str, Any], play: dict[str, Any]) -> boo
     return False
 
 
-def evaluate_adherence(
+def _evaluate_adherence(
     checklist: list[dict[str, Any]] | None,
     playtest_result_or_campaign_state: dict[str, Any] | None,
     *,
-    trusted_npc_engagement_events: list[dict[str, Any]] | None = None,
+    canonical_npc_event_chain: Any = None,
 ) -> dict[str, Any]:
     """Mark each checklist statement satisfied/unsatisfied from structured play data."""
     statements_in = list(checklist or [])
     play = _normalize_play_record(
         playtest_result_or_campaign_state,
-        trusted_npc_engagement_events=trusted_npc_engagement_events,
+        canonical_npc_event_chain=canonical_npc_event_chain,
     )
     evaluated: list[dict[str, Any]] = []
     required_total = 0
@@ -748,11 +754,17 @@ def evaluate_adherence(
     }
 
 
+def evaluate_adherence(
+    checklist: list[dict[str, Any]] | None,
+    playtest_result_or_campaign_state: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Public display-only evaluation; raw event arrays are never trusted."""
+    return _evaluate_adherence(checklist, playtest_result_or_campaign_state)
+
+
 def compute_adherence_for_scenario(
     scenario_dir: Path | str,
     playtest_result_or_campaign_state: dict[str, Any] | None,
-    *,
-    trusted_npc_engagement_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Fail-open helper: return evaluated adherence or None on any error."""
     try:
@@ -762,7 +774,27 @@ def compute_adherence_for_scenario(
         return evaluate_adherence(
             checklist,
             playtest_result_or_campaign_state,
-            trusted_npc_engagement_events=trusted_npc_engagement_events,
+        )
+    except Exception:
+        return None
+
+
+def compute_adherence_for_campaign(
+    scenario_dir: Path | str,
+    playtest_result_or_campaign_state: dict[str, Any] | None,
+    *,
+    campaign_dir: Path | str,
+) -> dict[str, Any] | None:
+    """Internal canonical path using a verified on-disk chain capability."""
+    try:
+        checklist = generate_adherence_checklist(scenario_dir)
+        if not checklist:
+            return None
+        capability = coc_npc_event_chain.load_canonical_chain(Path(campaign_dir))
+        return _evaluate_adherence(
+            checklist,
+            playtest_result_or_campaign_state,
+            canonical_npc_event_chain=capability,
         )
     except Exception:
         return None

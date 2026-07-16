@@ -1562,10 +1562,10 @@ def _run_live_match_impl(
     scenario_dir = camp / "scenario"
     if coc_adherence is not None and scenario_dir.is_dir():
         try:
-            narrative_adherence = coc_adherence.compute_adherence_for_scenario(
+            narrative_adherence = coc_adherence.compute_adherence_for_campaign(
                 scenario_dir,
                 session_result,
-                trusted_npc_engagement_events=final_event_rows,
+                campaign_dir=camp,
             )
         except Exception:
             narrative_adherence = None

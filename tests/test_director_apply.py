@@ -735,6 +735,94 @@ def test_apply_records_npc_engagement_without_agency_moves(tmp_path):
     assert any(e.get("event_type") == "npc_engagement" for e in events)
 
 
+@pytest.mark.parametrize("recording_mode", ["sync", "fast"])
+@pytest.mark.parametrize("crash_stage", ["after_source", "before_apply_ledger"])
+def test_director_npc_receipt_recovers_exactly_once_before_different_plan(
+    tmp_path, monkeypatch, crash_stage, recording_mode
+):
+    camp = _campaign(tmp_path)
+    plan = {
+        "decision_id": f"director-npc-crash-{crash_stage}",
+        "scene_action": "CHARACTER",
+        "turn_input": {"active_scene_id": "scene-1", "turn_number": 1},
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+        "npc_moves": [{"npc_id": "npc-recover", "agency_moves": []}],
+    }
+    real_ensure = coc_director_apply._ensure_npc_receipt_targets
+    real_record = coc_director_apply._record_applied_decision
+
+    def crash_ensure(campaign_dir, receipt):
+        if (
+            crash_stage == "after_source"
+            and receipt.get("decision_id") == plan["decision_id"]
+        ):
+            raise RuntimeError("synthetic director NPC crash after source")
+        return real_ensure(campaign_dir, receipt)
+
+    def crash_record(save_dir, decision_id):
+        if (
+            crash_stage == "before_apply_ledger"
+            and decision_id == plan["decision_id"]
+        ):
+            raise RuntimeError("synthetic director NPC crash before apply ledger")
+        return real_record(save_dir, decision_id)
+
+    with monkeypatch.context() as crash:
+        crash.setattr(
+            coc_director_apply, "_ensure_npc_receipt_targets", crash_ensure
+        )
+        crash.setattr(coc_director_apply, "_record_applied_decision", crash_record)
+        with pytest.raises(RuntimeError, match="synthetic director NPC crash"):
+            coc_director_apply.apply_plan(
+                camp,
+                plan,
+                investigator_id="inv1",
+                recording_mode=recording_mode,
+            )
+
+    later_plan = {
+        "decision_id": f"later-plan-after-{crash_stage}",
+        "scene_action": "PRESSURE",
+        "clue_policy": {"reveal": []},
+        "pressure_moves": [],
+        "memory_writes": [],
+        "rule_signals": {},
+    }
+    coc_director_apply.apply_plan(
+        camp,
+        later_plan,
+        investigator_id="inv1",
+        recording_mode=recording_mode,
+    )
+    if recording_mode == "fast":
+        coc_director_apply.flush_pending_records(camp)
+
+    rows = [
+        json.loads(line)
+        for line in (camp / "logs" / "events.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+    recovered = [
+        row for row in rows
+        if row.get("event_type") == "npc_engagement"
+        and row.get("decision_id") == plan["decision_id"]
+    ]
+    assert len(recovered) == 1
+    assert recovered[0]["event_id"].startswith("npc-engagement-v1:")
+    receipts = json.loads((
+        camp / "save" / "npc-engagement-receipts.json"
+    ).read_text(encoding="utf-8"))["receipts"]
+    assert [
+        receipt for receipt in receipts.values()
+        if receipt["decision_id"] == plan["decision_id"]
+    ]
+
+
 def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     tmp_path,
 ):
@@ -800,6 +888,21 @@ def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
     evidence = coc_adherence.project_npc_engagement_evidence(produced)
     assert evidence["status"] == "PASS"
     assert evidence["legacy_unverifiable_npc_ids"] == []
+    capability = coc_adherence.coc_npc_event_chain.load_canonical_chain(camp)
+    consumed = coc_adherence._evaluate_adherence(
+        [{
+            "statement_id": "npc:npc-authority",
+            "kind": "optional",
+            "criterion": {"npc_id": "npc-authority"},
+            "description": "Engage the structured authority",
+        }],
+        {"events": produced},
+        canonical_npc_event_chain=capability,
+    )
+    assert consumed["statements"][0]["satisfied"] is True
+    assert consumed["npc_engagement_evidence"][
+        "authored_attested_npc_ids"
+    ] == ["npc-authority"]
 
 
 def test_apply_persists_npc_stat_upgrade_log(tmp_path):
@@ -2996,8 +3099,25 @@ def test_director_flag_receipt_repairs_every_commit_boundary_exactly_once(
             plan,
             investigator_id="inv1",
             recording_mode=recording_mode,
-        )
+    )
     assert tripped["value"] is True
+
+    if fail_stage != "source":
+        # Recovery is global: a host may choose another plan instead of
+        # replaying the interrupted decision first.
+        coc_director_apply.apply_plan(
+            camp,
+            {
+                "decision_id": f"later-after-{decision_id}",
+                "scene_action": "PRESSURE",
+                "clue_policy": {"reveal": []},
+                "pressure_moves": [],
+                "memory_writes": [],
+                "rule_signals": {},
+            },
+            investigator_id="inv1",
+            recording_mode=recording_mode,
+        )
 
     coc_director_apply.apply_plan(
         camp,

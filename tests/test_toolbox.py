@@ -7,8 +7,10 @@ import random
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -1516,6 +1518,87 @@ def test_legacy_flag_set_without_value_projects_structured_true(campaign_ws):
     assert live["provenance"]["decision_id"] == "legacy-director-flag"
 
 
+def test_pre_cutover_structured_flag_survives_interleaved_nonflag_history(
+    campaign_ws,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    flags_path = campaign_dir / "save" / "flags.json"
+    flags = json.loads(flags_path.read_text(encoding="utf-8"))
+    flags.setdefault("flags", {})["historical-structured-flag"] = False
+    flags.get("flag_provenance", {}).pop("historical-structured-flag", None)
+    flags.get("flag_heads", {}).pop("historical-structured-flag", None)
+    flags.pop("flag_event_cutover", None)
+    _write_json(flags_path, flags)
+    with (campaign_dir / "logs" / "events.jsonl").open(
+        "a", encoding="utf-8"
+    ) as handle:
+        for index in range(3):
+            handle.write(json.dumps({
+                "event_type": "scene_transition",
+                "to_scene_id": f"historical-scene-{index}",
+            }) + "\n")
+        handle.write(json.dumps({
+            "flag_mutation_schema_version": 1,
+            "event_type": "flag_set",
+            "flag_id": "historical-structured-flag",
+            "value": False,
+            "producer": "historical.structured-producer",
+            "decision_id": "historical-structured-decision",
+            "source_sequence": 4,
+            "ts": "1920-01-01T00:04:00Z",
+        }) + "\n")
+
+    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
+    recent = next(
+        row for row in continuity["recent_world_flag_changes"]
+        if row["flag_id"] == "historical-structured-flag"
+    )
+    live = next(
+        row for row in continuity["live_world_flags"]
+        if row["flag_id"] == "historical-structured-flag"
+    )
+    assert recent["provenance"]["order_epoch"] == "legacy-pre-cutover"
+    assert recent["provenance"]["integrity_status"] == "legacy_unverifiable"
+    assert live["present"] is True
+    assert live["value"] is False
+    assert live["provenance"]["decision_id"] == "historical-structured-decision"
+
+
+def test_explicit_false_flag_remains_live_after_history_ages_out(campaign_ws):
+    assert _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "side_door_locked",
+            "value": False,
+            "decision_id": "side-door-explicitly-unlocked",
+        },
+    )["ok"] is True
+    for index in range(13):
+        assert _run(
+            campaign_ws,
+            "state.set_flag",
+            {
+                "flag_id": f"later-flag-{index}",
+                "value": True,
+                "decision_id": f"later-flag-decision-{index}",
+            },
+        )["ok"] is True
+
+    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
+    assert not any(
+        row["flag_id"] == "side_door_locked"
+        for row in continuity["recent_world_flag_changes"]
+    )
+    live = next(
+        row for row in continuity["live_world_flags"]
+        if row["flag_id"] == "side_door_locked"
+    )
+    assert live["present"] is True
+    assert live["value"] is False
+    assert live["provenance"]["integrity_status"] == "source_anchored"
+
+
 @pytest.mark.parametrize("entity_kind", ["flag", "marker"])
 def test_latest_receipt_reconstructs_missing_live_entity_from_bound_head(
     campaign_ws, entity_kind,
@@ -2443,6 +2526,218 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
     assert len(matching) == 1
 
 
+@pytest.mark.parametrize("crash_stage", ["after_source", "before_ledger"])
+def test_npc_engagement_receipt_recovers_before_a_different_next_decision(
+    campaign_ws, monkeypatch, crash_stage
+):
+    args = {
+        "npc_id": "npc-crash-window",
+        "interaction_kind": "witness",
+        "decision_id": f"npc-crash-{crash_stage}",
+    }
+    real_log_event = coc_toolbox.Ctx.log_event
+    real_ledger_record = coc_toolbox.Ctx.ledger_record
+
+    def crash_log_event(self, record):
+        if (
+            crash_stage == "after_source"
+            and record.get("event_type") == "npc_engagement"
+        ):
+            raise RuntimeError("synthetic NPC crash after source receipt")
+        return real_log_event(self, record)
+
+    def crash_ledger_record(self, decision_id, tool_name, data, **kwargs):
+        if crash_stage == "before_ledger" and tool_name == (
+            "state.record_npc_engagement"
+        ):
+            raise RuntimeError("synthetic NPC crash before ledger")
+        return real_ledger_record(
+            self, decision_id, tool_name, data, **kwargs
+        )
+
+    with monkeypatch.context() as crash:
+        crash.setattr(coc_toolbox.Ctx, "log_event", crash_log_event)
+        crash.setattr(coc_toolbox.Ctx, "ledger_record", crash_ledger_record)
+        with pytest.raises(RuntimeError, match="synthetic NPC crash"):
+            _run(campaign_ws, "state.record_npc_engagement", args)
+
+    # The host deliberately chooses a different valid tool instead of retrying
+    # the failed operation.  Global source preflight must finish it first.
+    later = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "continued after NPC recorder interruption",
+            "decision_id": f"later-after-{crash_stage}",
+        },
+    )
+    assert later["ok"] is True
+    replay = _run(campaign_ws, "state.record_npc_engagement", args)
+    assert replay["ok"] is True
+    events = [
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("event_type") == "npc_engagement"
+        and row.get("decision_id") == args["decision_id"]
+    ]
+    assert len(events) == 1
+    receipt_doc = json.loads((
+        campaign_ws["campaign_dir"]
+        / "save"
+        / "npc-engagement-receipts.json"
+    ).read_text(encoding="utf-8"))
+    assert len([
+        row for row in receipt_doc["receipts"].values()
+        if row["decision_id"] == args["decision_id"]
+    ]) == 1
+
+
+def test_background_flusher_and_toolbox_recovery_share_stable_event_lock(
+    campaign_ws, monkeypatch
+):
+    decision_id = "flag-recovery-vs-background-flush"
+    assert _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "stable-event-lock-domain",
+            "value": True,
+            "decision_id": decision_id,
+        },
+    )["ok"] is True
+    campaign_dir = campaign_ws["campaign_dir"]
+    flags = json.loads(
+        (campaign_dir / "save" / "flags.json").read_text(encoding="utf-8")
+    )
+    receipt = flags["operation_receipts"]["state.set_flag"][decision_id]
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    remaining = [
+        row for row in _read_jsonl(events_path)
+        if row.get("event_id") != receipt["event_id"]
+    ]
+    events_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in remaining),
+        encoding="utf-8",
+    )
+    recorder = coc_toolbox.coc_async_recorder.JsonlRecorder(
+        campaign_dir,
+        mode="fast",
+        decision_id=decision_id,
+    )
+    recorder.append_jsonl(events_path, receipt["event"])
+    assert recorder.commit() is not None
+
+    flusher_at_append = Event()
+    release_flusher = Event()
+    recovery_started = Event()
+    real_append = coc_toolbox.coc_async_recorder._append_jsonl_sync
+    real_ensure = coc_toolbox._ensure_operation_event
+
+    def pause_flusher(path, record):
+        if record.get("event_id") == receipt["event_id"]:
+            flusher_at_append.set()
+            assert release_flusher.wait(timeout=5)
+        return real_append(path, record)
+
+    def observe_recovery(ctx, current_receipt, **kwargs):
+        if current_receipt.get("event_id") == receipt["event_id"]:
+            recovery_started.set()
+        return real_ensure(ctx, current_receipt, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_async_recorder, "_append_jsonl_sync", pause_flusher
+    )
+    monkeypatch.setattr(coc_toolbox, "_ensure_operation_event", observe_recovery)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        flush_future = pool.submit(
+            coc_toolbox.coc_async_recorder.flush_pending_records, campaign_dir
+        )
+        assert flusher_at_append.wait(timeout=5)
+        recovery_future = pool.submit(
+            _run,
+            campaign_ws,
+            "state.journal",
+            {
+                "summary": "continue while a stable event flush is active",
+                "decision_id": "later-after-stable-event-lock-race",
+            },
+        )
+        assert recovery_started.wait(timeout=5)
+        release_flusher.set()
+        assert flush_future.result(timeout=5)["flushed_files"] == 1
+        assert recovery_future.result(timeout=5)["ok"] is True
+
+    matches = [
+        row for row in _read_jsonl(events_path)
+        if row.get("event_id") == receipt["event_id"]
+    ]
+    assert matches == [receipt["event"]]
+
+
+@pytest.mark.parametrize("source_kind", ["flag", "npc"])
+def test_director_preflight_repairs_interrupted_toolbox_source(
+    campaign_ws, monkeypatch, source_kind
+):
+    decision_id = f"toolbox-before-director-{source_kind}"
+    real_log_event = coc_toolbox.Ctx.log_event
+
+    def crash_before_event(self, record):
+        expected_type = "flag_set" if source_kind == "flag" else "npc_engagement"
+        if (
+            record.get("event_type") == expected_type
+            and record.get("decision_id") == decision_id
+        ):
+            raise RuntimeError("synthetic toolbox source-before-event crash")
+        return real_log_event(self, record)
+
+    with monkeypatch.context() as crash:
+        crash.setattr(coc_toolbox.Ctx, "log_event", crash_before_event)
+        with pytest.raises(RuntimeError, match="source-before-event"):
+            if source_kind == "flag":
+                _run(
+                    campaign_ws,
+                    "state.set_flag",
+                    {
+                        "flag_id": "toolbox-flag-before-director",
+                        "value": True,
+                        "decision_id": decision_id,
+                    },
+                )
+            else:
+                _run(
+                    campaign_ws,
+                    "state.record_npc_engagement",
+                    {
+                        "npc_id": "npc-before-director",
+                        "interaction_kind": "witness",
+                        "decision_id": decision_id,
+                    },
+                )
+
+    coc_director_apply.apply_plan(
+        campaign_ws["campaign_dir"],
+        {
+            "decision_id": f"director-after-{source_kind}",
+            "scene_action": "PRESSURE",
+            "clue_policy": {"reveal": []},
+            "pressure_moves": [],
+            "memory_writes": [],
+            "rule_signals": {},
+        },
+        investigator_id=campaign_ws["investigator_id"],
+    )
+    expected_type = "flag_set" if source_kind == "flag" else "npc_engagement"
+    events = [
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("event_type") == expected_type
+        and row.get("decision_id") == decision_id
+    ]
+    assert len(events) == 1
+
+
 def test_npc_engagement_identity_binding_degrades_to_warnings_not_a_gate(
     campaign_ws,
 ):
@@ -3318,12 +3613,13 @@ def test_unanchored_flag_head_is_not_authoritative_provenance(campaign_ws):
     assert _run(campaign_ws, "state.set_flag", args)["ok"] is True
     flags_path = campaign_dir / "save" / "flags.json"
     flags = json.loads(flags_path.read_text(encoding="utf-8"))
+    anchored_sequence = flags["flag_heads"][args["flag_id"]]["source_sequence"]
     provenance = dict(flags["flag_provenance"][args["flag_id"]])
     provenance.update({
         "source": "forged",
         "producer": "forged",
         "decision_id": "forged-decision",
-        "source_sequence": 999,
+        "source_sequence": anchored_sequence,
     })
     flags["flag_provenance"][args["flag_id"]] = provenance
     live_record = coc_toolbox.coc_flag_state.flag_live_record(
@@ -3334,20 +3630,16 @@ def test_unanchored_flag_head_is_not_authoritative_provenance(campaign_ws):
             entity_kind="flag",
             entity_id=args["flag_id"],
             decision_id="forged-decision",
-            source_sequence=999,
+            source_sequence=anchored_sequence,
             producer="forged",
             live_record=live_record,
         )
     )
-    flags["flag_source_sequence"] = 999
     _write_json(flags_path, flags)
 
-    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
-    live = next(
-        row for row in continuity["live_world_flags"]
-        if row["flag_id"] == args["flag_id"]
-    )
-    assert live["provenance"]["producer"] == "state.set_flag"
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is False
+    assert context["error"]["code"] == "state_corrupt"
     unrelated = _run(
         campaign_ws,
         "state.set_flag",
@@ -3375,8 +3667,15 @@ def test_unanchored_time_marker_head_is_rejected(campaign_ws):
     assert _run(campaign_ws, "state.time_marker", args)["ok"] is True
     marker_path = campaign_dir / "save" / "time-markers.json"
     payload = json.loads(marker_path.read_text(encoding="utf-8"))
+    anchored_sequence = payload["marker_heads"][args["marker_id"]][
+        "source_sequence"
+    ]
     marker = dict(payload["markers"][args["marker_id"]])
-    marker.update({"decision_id": "forged-marker", "source_sequence": 999})
+    marker.update({
+        "decision_id": "forged-marker",
+        "source_sequence": anchored_sequence,
+        "producer": "forged",
+    })
     payload["markers"][args["marker_id"]] = marker
     live_record = coc_toolbox._marker_live_record(payload, args["marker_id"])
     payload["marker_heads"][args["marker_id"]] = (
@@ -3384,14 +3683,16 @@ def test_unanchored_time_marker_head_is_rejected(campaign_ws):
             entity_kind="time_marker",
             entity_id=args["marker_id"],
             decision_id="forged-marker",
-            source_sequence=999,
+            source_sequence=anchored_sequence,
             producer="forged",
             live_record=live_record,
         )
     )
-    payload["marker_source_sequence"] = 999
     _write_json(marker_path, payload)
 
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is False
+    assert context["error"]["code"] == "state_corrupt"
     unrelated = _run(
         campaign_ws,
         "state.time_marker",
@@ -3407,6 +3708,48 @@ def test_unanchored_time_marker_head_is_rejected(campaign_ws):
     replay = _run(campaign_ws, "state.time_marker", args)
     assert replay["ok"] is False
     assert replay["error"]["code"] == "state_corrupt"
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("revision", True),
+        ("created_at", "not-an-iso-timestamp"),
+        ("updated_at", None),
+        ("due_at", {"elapsed_minutes": "soon"}),
+        ("status", "mystery"),
+    ],
+)
+def test_time_marker_payload_schema_binds_complete_typed_state(
+    campaign_ws, field, bad_value
+):
+    args = {
+        "action": "set",
+        "marker_id": f"typed-marker-{field}",
+        "minutes_from_now": 7,
+        "decision_id": f"typed-marker-decision-{field}",
+    }
+    assert _run(campaign_ws, "state.time_marker", args)["ok"] is True
+    payload = json.loads((
+        campaign_ws["campaign_dir"] / "save" / "time-markers.json"
+    ).read_text(encoding="utf-8"))
+    head = payload["marker_heads"][args["marker_id"]]
+    marker = dict(head["live_record"]["marker"])
+    assert coc_toolbox.coc_flag_state.valid_time_marker_payload(
+        marker,
+        marker_id=args["marker_id"],
+        decision_id=args["decision_id"],
+        producer="state.time_marker",
+        source_sequence=head["source_sequence"],
+    )
+    marker[field] = bad_value
+    assert not coc_toolbox.coc_flag_state.valid_time_marker_payload(
+        marker,
+        marker_id=args["marker_id"],
+        decision_id=args["decision_id"],
+        producer="state.time_marker",
+        source_sequence=head["source_sequence"],
+    )
 
 
 def test_new_structured_flag_remains_recent_after_many_legacy_rows(campaign_ws):
@@ -3438,6 +3781,71 @@ def test_new_structured_flag_remains_recent_after_many_legacy_rows(campaign_ws):
     assert recent[-1]["provenance"]["integrity_status"] == "source_anchored"
 
 
+def test_unanchored_flag_event_after_cutover_is_explicitly_unverified(
+    campaign_ws,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    assert _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "cutover-anchor",
+            "value": True,
+            "decision_id": "cutover-anchor-decision",
+        },
+    )["ok"] is True
+    with (campaign_dir / "logs" / "events.jsonl").open(
+        "a", encoding="utf-8"
+    ) as handle:
+        handle.write(json.dumps({
+            "event_type": "flag_set",
+            "flag_id": "late-old-writer",
+            "decision_id": "late-old-writer-decision",
+            "value": True,
+            "ts": "2099-01-01T00:00:00Z",
+        }) + "\n")
+    flags_path = campaign_dir / "save" / "flags.json"
+    flags = json.loads(flags_path.read_text(encoding="utf-8"))
+    flags["flags"]["late-old-writer"] = True
+    _write_json(flags_path, flags)
+
+    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
+    recent = continuity["recent_world_flag_changes"]
+    late = next(row for row in recent if row["flag_id"] == "late-old-writer")
+    assert late["provenance"]["order_epoch"] == "unverified-post-cutover"
+    assert late["provenance"]["integrity_status"] == "unverified"
+    assert recent[-1]["flag_id"] == "late-old-writer"
+    assert not any(
+        row["flag_id"] == "late-old-writer"
+        for row in continuity["live_world_flags"]
+    )
+    unverified = next(
+        row for row in continuity["unverified_world_flags"]
+        if row["flag_id"] == "late-old-writer"
+    )
+    assert unverified["provenance"]["integrity_status"] == "unverified"
+
+
+def test_flag_cutover_boundary_must_match_first_source_receipt(campaign_ws):
+    assert _run(
+        campaign_ws,
+        "state.set_flag",
+        {
+            "flag_id": "cutover-integrity-anchor",
+            "value": True,
+            "decision_id": "cutover-integrity-decision",
+        },
+    )["ok"] is True
+    flags_path = campaign_ws["campaign_dir"] / "save" / "flags.json"
+    flags = json.loads(flags_path.read_text(encoding="utf-8"))
+    flags["flag_event_cutover"]["first_event_id"] = "forged-cutover-event"
+    _write_json(flags_path, flags)
+
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is False
+    assert context["error"]["code"] == "state_corrupt"
+
+
 def test_toolbox_npc_engagement_producer_emits_exact_current_event_schema(
     campaign_ws,
 ):
@@ -3456,3 +3864,12 @@ def test_toolbox_npc_engagement_producer_emits_exact_current_event_schema(
     assert result["data"]["schema_version"] == (
         coc_toolbox.coc_npc_identity.ENGAGEMENT_EVENT_SCHEMA_VERSION
     )
+    assert result["data"]["event_id"].startswith("npc-engagement-v1:")
+    assert result["data"]["producer"] == "state.record_npc_engagement"
+    assert result["data"]["campaign_id"] == campaign_ws["campaign_id"]
+    assert result["data"]["decision_id"] == "npc-schema-producer"
+    receipt_doc = coc_toolbox.coc_npc_event_chain.load_receipt_document(
+        campaign_ws["campaign_dir"]
+    )
+    receipt = receipt_doc["receipts"][result["data"]["event_id"]]
+    assert coc_toolbox.coc_npc_event_chain.valid_receipt(receipt)

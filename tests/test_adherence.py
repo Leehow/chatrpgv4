@@ -155,13 +155,7 @@ def test_evaluate_adherence_against_synthetic_play_record():
             ),
         },
     }
-    result = coc_adherence.evaluate_adherence(
-        checklist,
-        play,
-        trusted_npc_engagement_events=[
-            _attested_npc_event("npc-steven-knott")
-        ],
-    )
+    result = coc_adherence.evaluate_adherence(checklist, play)
     assert "statements" in result
     assert "required_coverage" in result
     statements = {s["statement_id"]: s for s in result["statements"]}
@@ -182,7 +176,7 @@ def test_evaluate_adherence_against_synthetic_play_record():
         s for s in result["statements"]
         if s["criterion"].get("npc_id") == "npc-steven-knott"
     )
-    assert knott["satisfied"] is True
+    assert knott["satisfied"] is False
 
     required = [s for s in result["statements"] if s["kind"] == "required"]
     satisfied_req = sum(1 for s in required if s["satisfied"])
@@ -323,14 +317,10 @@ def test_evaluate_adherence_reads_npc_engagement_from_turns_and_events():
             },
         ],
     }
-    result = coc_adherence.evaluate_adherence(
-        checklist,
-        play,
-        trusted_npc_engagement_events=play["events"],
-    )
+    result = coc_adherence.evaluate_adherence(checklist, play)
     by_id = {s["statement_id"]: s for s in result["statements"]}
-    assert by_id["npc:npc-augustus-larkin"]["satisfied"] is True
-    assert by_id["npc:npc-nayra"]["satisfied"] is True
+    assert by_id["npc:npc-augustus-larkin"]["satisfied"] is False
+    assert by_id["npc:npc-nayra"]["satisfied"] is False
     assert by_id["npc:npc-update-only"]["satisfied"] is False
 
 
@@ -484,14 +474,10 @@ def test_unverified_or_mismatched_npc_ids_do_not_satisfy_authored_coverage():
         "legacy_unverifiable_npc_ids": ["npc-dooley"],
         "unverified_npc_ids": [],
     }
-    result = coc_adherence.evaluate_adherence(
-        checklist,
-        {"events": events},
-        trusted_npc_engagement_events=events,
-    )
+    result = coc_adherence.evaluate_adherence(checklist, {"events": events})
     by_id = {row["statement_id"]: row for row in result["statements"]}
     assert by_id["npc:npc-dooley"]["satisfied"] is False
-    assert by_id["npc:npc-kim-debrun"]["satisfied"] is True
+    assert by_id["npc:npc-kim-debrun"]["satisfied"] is False
     assert result["npc_engagement_evidence"]["status"] == "NON_COMPARABLE"
 
 
@@ -667,12 +653,26 @@ def test_missing_unsupported_or_ill_typed_engagement_schema_never_attests(schema
     evidence = coc_adherence.project_npc_engagement_evidence([event])
 
     assert evidence["authored_attested_npc_ids"] == []
-    assert "npc-schema-check" in {
-        *evidence["legacy_unverifiable_npc_ids"],
-        *evidence["unverified_npc_ids"],
-    }
     if schema is None:
+        assert evidence["legacy_unverifiable_npc_ids"] == ["npc-schema-check"]
+        assert evidence["unverified_npc_ids"] == []
         assert evidence["status"] == "NON_COMPARABLE"
+    else:
+        assert evidence["legacy_unverifiable_npc_ids"] == []
+        assert evidence["unverified_npc_ids"] == ["npc-schema-check"]
+
+
+@pytest.mark.parametrize("schema", [999, "2", True])
+def test_explicit_bad_schema_without_identity_objects_is_unverified(schema):
+    evidence = coc_adherence.project_npc_engagement_evidence([{
+        "schema_version": schema,
+        "event_type": "npc_engagement",
+        "npc_id": "npc-bad-schema",
+        "scene_id": "scene-test",
+    }])
+
+    assert evidence["legacy_unverifiable_npc_ids"] == []
+    assert evidence["unverified_npc_ids"] == ["npc-bad-schema"]
 
 
 @pytest.mark.parametrize("scene", [None, 7, True, ""])
@@ -686,7 +686,7 @@ def test_current_engagement_schema_requires_nonempty_string_scene_binding(scene)
     assert evidence["unverified_npc_ids"] == ["npc-scene-type"]
 
 
-def test_trusted_current_schema_event_chain_is_the_only_projection_to_coverage_path():
+def test_public_raw_rows_cannot_enter_trusted_adherence_path():
     event = _attested_npc_event("npc-trusted-chain")
     checklist = [{
         "statement_id": "npc:npc-trusted-chain",
@@ -698,12 +698,80 @@ def test_trusted_current_schema_event_chain_is_the_only_projection_to_coverage_p
     standalone = coc_adherence.evaluate_adherence(
         checklist, {"events": [event]}
     )
-    trusted = coc_adherence.evaluate_adherence(
-        checklist,
-        {"events": [event]},
-        trusted_npc_engagement_events=[event],
-    )
-
     assert standalone["statements"][0]["satisfied"] is False
     assert standalone["npc_engagement_evidence"]["status"] == "NON_COMPARABLE"
-    assert trusted["statements"][0]["satisfied"] is True
+    with pytest.raises(TypeError):
+        coc_adherence.evaluate_adherence(
+            checklist,
+            {"events": [event]},
+            trusted_npc_engagement_events=[event],
+        )
+
+
+def test_campaign_loader_capability_promotes_receipt_anchored_npc_event(
+    tmp_path: Path,
+):
+    campaign = tmp_path / "campaign"
+    (campaign / "save").mkdir(parents=True)
+    (campaign / "logs").mkdir(parents=True)
+    (campaign / "campaign.json").write_text(
+        json.dumps({"campaign_id": "capability-test"}), encoding="utf-8"
+    )
+    event = _attested_npc_event("npc-steven-knott")
+    producer = "state.record_npc_engagement"
+    event_id = coc_adherence.coc_npc_event_chain.stable_event_id(
+        producer=producer,
+        campaign_id="capability-test",
+        run_id="run-test",
+        decision_id="decision-test",
+        scene_id="scene-test",
+        npc_id="npc-steven-knott",
+        event_type="npc_engagement",
+        ordinal=0,
+    )
+    event.update({
+        "event_id": event_id,
+        "source_receipt_schema_version": 1,
+        "producer": producer,
+        "campaign_id": "capability-test",
+        "run_id": "run-test",
+        "decision_id": "decision-test",
+    })
+    receipt = coc_adherence.coc_npc_event_chain.new_receipt(
+        producer=producer,
+        campaign_id="capability-test",
+        run_id="run-test",
+        decision_id="decision-test",
+        scene_id="scene-test",
+        npc_id="npc-steven-knott",
+        event_type="npc_engagement",
+        ordinal=0,
+        operation={"npc_id": "npc-steven-knott"},
+        event=event,
+    )
+    document = coc_adherence.coc_npc_event_chain.empty_document(
+        "capability-test"
+    )
+    coc_adherence.coc_npc_event_chain.put_receipt(document, receipt)
+    (campaign / "save" / "npc-engagement-receipts.json").write_text(
+        json.dumps(document), encoding="utf-8"
+    )
+    (campaign / "logs" / "events.jsonl").write_text(
+        json.dumps(event) + "\n", encoding="utf-8"
+    )
+
+    result = coc_adherence.compute_adherence_for_campaign(
+        HAUNTING,
+        {"events": [event]},
+        campaign_dir=campaign,
+    )
+
+    assert result is not None
+    row = next(
+        item for item in result["statements"]
+        if item["criterion"].get("npc_id") == "npc-steven-knott"
+    )
+    assert row["satisfied"] is True
+    assert result["npc_engagement_evidence"]["authored_attested_npc_ids"] == [
+        "npc-steven-knott"
+    ]

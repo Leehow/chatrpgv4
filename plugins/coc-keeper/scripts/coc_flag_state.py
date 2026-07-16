@@ -8,6 +8,7 @@ entity-head integrity identical without interpreting narrative prose.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 import hashlib
 import json
 from typing import Any, Iterable
@@ -18,6 +19,9 @@ FLAG_HEAD_SCHEMA_VERSION = 1
 FLAG_DOCUMENT_SCHEMA_VERSION = 3
 DIRECTOR_FLAG_RECEIPTS_KEY = "director_flag_receipts"
 DIRECTOR_FLAG_RECEIPT_SCHEMA_VERSION = 1
+FLAG_EVENT_CUTOVER_KEY = "flag_event_cutover"
+FLAG_EVENT_CUTOVER_SCHEMA_VERSION = 1
+TIME_MARKER_SCHEMA_VERSION = 1
 
 
 def canonical_digest(value: Any) -> str:
@@ -39,6 +43,124 @@ def positive_sequence(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return sequence if sequence > 0 else None
+
+
+def valid_flag_event_cutover(value: Any) -> bool:
+    """Validate the persisted canonical-line boundary between legacy/new rows."""
+    return bool(
+        isinstance(value, dict)
+        and set(value) == {
+            "schema_version",
+            "events_line_count_before",
+            "first_source_sequence",
+            "first_event_id",
+        }
+        and value.get("schema_version") == FLAG_EVENT_CUTOVER_SCHEMA_VERSION
+        and isinstance(value.get("events_line_count_before"), int)
+        and not isinstance(value.get("events_line_count_before"), bool)
+        and int(value["events_line_count_before"]) >= 0
+        and positive_sequence(value.get("first_source_sequence")) is not None
+        and isinstance(value.get("first_event_id"), str)
+        and bool(value["first_event_id"].strip())
+    )
+
+
+def new_flag_event_cutover(
+    *,
+    events_line_count_before: int,
+    first_source_sequence: int,
+    first_event_id: str,
+) -> dict[str, Any]:
+    value = {
+        "schema_version": FLAG_EVENT_CUTOVER_SCHEMA_VERSION,
+        "events_line_count_before": int(events_line_count_before),
+        "first_source_sequence": int(first_source_sequence),
+        "first_event_id": str(first_event_id),
+    }
+    if not valid_flag_event_cutover(value):
+        raise ValueError("invalid flag event cutover boundary")
+    return value
+
+
+def _valid_optional_text(value: Any) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _valid_required_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _valid_iso_datetime(value: Any, *, optional: bool = False) -> bool:
+    if value is None:
+        return optional
+    if not _valid_required_text(value):
+        return False
+    try:
+        datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
+
+
+def valid_time_marker_payload(
+    marker: Any,
+    *,
+    marker_id: str,
+    decision_id: str,
+    producer: str,
+    source_sequence: int,
+) -> bool:
+    """Validate every current marker field, not merely its causal identifiers."""
+    if not isinstance(marker, dict):
+        return False
+    status = marker.get("status")
+    expected = {
+        "schema_version",
+        "marker_id",
+        "label",
+        "status",
+        "revision",
+        "due_at",
+        "created_at",
+        "updated_at",
+        "decision_id",
+        "reason",
+        "source_sequence",
+        "producer",
+    }
+    if status == "cleared":
+        expected.add("cleared_at")
+    if set(marker) != expected:
+        return False
+    revision = marker.get("revision")
+    due_at = marker.get("due_at")
+    if (
+        marker.get("schema_version") != TIME_MARKER_SCHEMA_VERSION
+        or str(marker.get("marker_id") or "") != str(marker_id)
+        or str(marker.get("decision_id") or "") != str(decision_id)
+        or str(marker.get("producer") or "") != str(producer)
+        or positive_sequence(marker.get("source_sequence"))
+        != positive_sequence(source_sequence)
+        or status not in {"active", "cleared"}
+        or not _valid_required_text(marker.get("label"))
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 1
+        or not _valid_iso_datetime(marker.get("created_at"))
+        or not _valid_iso_datetime(marker.get("updated_at"))
+        or not _valid_optional_text(marker.get("reason"))
+        or not isinstance(due_at, dict)
+        or set(due_at) != {"elapsed_minutes", "local_datetime", "display"}
+        or isinstance(due_at.get("elapsed_minutes"), bool)
+        or not isinstance(due_at.get("elapsed_minutes"), int)
+        or due_at["elapsed_minutes"] < 0
+        or not _valid_iso_datetime(due_at.get("local_datetime"), optional=True)
+        or not _valid_optional_text(due_at.get("display"))
+    ):
+        return False
+    if status == "cleared" and not _valid_iso_datetime(marker.get("cleared_at")):
+        return False
+    return True
 
 
 def next_source_sequence(
@@ -179,13 +301,12 @@ def valid_entity_head(
             return False
         marker = live_record.get("marker")
         if live_record["present"] is True:
-            if (
-                not isinstance(marker, dict)
-                or str(marker.get("marker_id") or "") != stable_id
-                or str(marker.get("decision_id") or "")
-                != str(head.get("decision_id") or "")
-                or positive_sequence(marker.get("source_sequence"))
-                != positive_sequence(head.get("source_sequence"))
+            if not valid_time_marker_payload(
+                marker,
+                marker_id=stable_id,
+                decision_id=str(head.get("decision_id") or ""),
+                producer=str(head.get("producer") or ""),
+                source_sequence=int(head.get("source_sequence") or 0),
             ):
                 return False
         elif marker is not None:

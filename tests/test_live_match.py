@@ -493,7 +493,10 @@ def test_live_match_projects_npc_engagement_ids_without_copying_event_payloads(
         for row in result["metadata"]["narrative_adherence"]["statements"]
         if row["criterion"].get("npc_id") == "npc-guide"
     )
-    assert npc_statement["satisfied"] is True
+    # Display projection may still show the structured identity, but a raw
+    # caller-appended row has no source receipt and cannot count as adherence
+    # coverage through the internal campaign capability.
+    assert npc_statement["satisfied"] is False
 
 
 def test_keeper_turn_persistence_is_visible_before_next_player_call(
