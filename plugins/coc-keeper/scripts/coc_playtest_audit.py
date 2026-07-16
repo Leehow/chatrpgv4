@@ -3038,7 +3038,9 @@ def _status_event_render_gaps(
     terms: dict[str, str],
     play_language: str,
 ) -> list[str]:
-    scene_replay = _normalize_report_text(_section_text(battle_report, "Scene-by-Scene Replay"))
+    scene_replay = _normalize_report_text(
+        _strip_html_comments(_section_text(battle_report, "Scene-by-Scene Replay"))
+    )
     comparison_terms = _report_comparison_terms(play_language, terms)
     gaps: list[str] = []
     for event in events:
@@ -3080,7 +3082,10 @@ def _non_percentile_roll_rendering_gaps(
     metadata: dict[str, Any],
     terms: dict[str, str],
 ) -> list[str]:
-    visible_report = _normalize_report_text(_strip_html_comments(battle_report))
+    mechanical_log = _section_text(battle_report, "Mechanical Log")
+    if not mechanical_log:
+        mechanical_log = _section_text(battle_report, "rules-and-dice")
+    visible_report = _normalize_report_text(_strip_html_comments(mechanical_log))
     play_language = str(metadata.get("play_language") or "en-US")
     comparison_terms = _report_comparison_terms(play_language, terms)
     profile = _selected_language_profile(metadata)

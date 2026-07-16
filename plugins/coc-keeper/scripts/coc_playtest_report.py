@@ -20,6 +20,7 @@ from coc_language import BASE_REPORT_LABELS
 from coc_language import default_localized_terms
 from coc_language import language_profile as build_language_profile
 from coc_language import localize_terms
+from coc_eval_contract import roll_visibility
 from coc_playtest_evidence import read_evidence_receipt
 from coc_roll import format_percentile_result
 import coc_epistemic_metrics
@@ -3672,12 +3673,27 @@ def generate_battle_report(run_dir: Path) -> Path:
         for handout in handouts
         if isinstance(handout, dict)
     ]
-    roll_recap_lines = [
-        _format_roll_recap(event, actor_names, localized_terms, str(play_language), language_profile)
+    public_rolls = [
+        event
+        for event in rolls
+        if roll_visibility(event) in {"public", "consequence_public"}
+    ]
+    roll_recaps_by_source = [
+        (
+            _format_roll_recap(
+                event,
+                actor_names,
+                localized_terms,
+                str(play_language),
+                language_profile,
+            )
+            if roll_visibility(event) in {"public", "consequence_public"}
+            else None
+        )
         for event in rolls
     ]
     roll_overview_lines = _format_roll_overview(
-        rolls,
+        public_rolls,
         localized_terms,
         language_profile,
         str(play_language),
@@ -3692,10 +3708,16 @@ def generate_battle_report(run_dir: Path) -> Path:
     for event in transcript:
         rendered_text = _localized_event_text(event, localized_terms, str(play_language))
         if event.get("mode") == "roll":
-            roll_count = _event_roll_count(event, len(roll_recap_lines) - roll_cursor)
-            recaps = roll_recap_lines[roll_cursor: roll_cursor + roll_count]
-            rendered_text = _format_roll_transcript_text(event, recaps, localized_terms, str(play_language))
+            roll_count = _event_roll_count(event, len(roll_recaps_by_source) - roll_cursor)
+            recaps = [
+                recap
+                for recap in roll_recaps_by_source[roll_cursor: roll_cursor + roll_count]
+                if recap is not None
+            ]
             roll_cursor += roll_count
+            if not recaps:
+                continue
+            rendered_text = _format_roll_transcript_text(event, recaps, localized_terms, str(play_language))
         actual_play_lines.extend(_format_actual_play_event(
             event,
             rendered_text,
@@ -3706,7 +3728,7 @@ def generate_battle_report(run_dir: Path) -> Path:
         ))
     roll_lines = [
         _format_roll_mechanical(event, actor_names, localized_terms, str(play_language), language_profile)
-        for event in rolls
+        for event in public_rolls
     ]
     rendered_state_lines = [
         _format_state_event(event, localized_terms, str(play_language), actor_names, clue_lookup)

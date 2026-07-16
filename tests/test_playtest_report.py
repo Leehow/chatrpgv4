@@ -145,6 +145,83 @@ def visible_markdown_text(markdown: str) -> str:
     return re.sub(r"<!--.*?-->", "", markdown, flags=re.DOTALL)
 
 
+def test_report_projects_only_structurally_public_rolls(tmp_path):
+    run_dir = tmp_path / ".coc" / "playtests" / "visibility-run"
+    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / "visibility-run"
+    write_json(run_dir / "playtest.json", {
+        "run_id": "visibility-run",
+        "campaign_id": "visibility-run",
+        "play_language": "en-US",
+    })
+    write_json(campaign_dir / "campaign.json", {
+        "campaign_id": "visibility-run",
+        "title": "Visibility Run",
+        "play_language": "en-US",
+    })
+    write_json(campaign_dir / "party.json", {"investigator_ids": []})
+    write_json(campaign_dir / "scenario" / "scenario.json", {
+        "scenario_id": "visibility-scenario",
+        "title": "Visibility Scenario",
+    })
+    write_jsonl(run_dir / "transcript.jsonl", [
+        {"turn": 1, "role": "system", "mode": "roll", "roll_count": 1, "text": "HIDDEN-ROLL-73"},
+        {"turn": 2, "role": "system", "mode": "roll", "roll_count": 1, "text": "PUBLIC-ROLL-42"},
+        {"turn": 3, "role": "system", "mode": "roll", "roll_count": 1, "text": "PUBLIC-DAMAGE-4"},
+    ])
+    write_jsonl(campaign_dir / "logs" / "rolls.jsonl", [
+        {
+            "type": "roll",
+            "actor": "keeper_under_test",
+            "visibility": "keeper_only",
+            "payload": {"roll_id": "hidden-roll", "skill": "Listen", "target": 60, "roll": 73, "outcome": "failure"},
+        },
+        {
+            "type": "roll",
+            "actor": "investigator",
+            "visibility": "public",
+            "payload": {"roll_id": "public-roll", "skill": "Library Use", "target": 60, "roll": 42, "outcome": "regular_success"},
+        },
+        {
+            "type": "damage",
+            "actor": "investigator",
+            "visibility": "consequence_public",
+            "payload": {
+                "roll_id": "public-damage",
+                "skill": "HP Damage",
+                "die": "1D4",
+                "die_rolls": [4],
+                "roll": 4,
+                "outcome": "damage_applied",
+                "hp_before": 10,
+                "hp_after": 6,
+            },
+        },
+    ])
+    write_jsonl(campaign_dir / "logs" / "events.jsonl", [])
+    write_jsonl(campaign_dir / "memory" / "session-summaries.jsonl", [])
+    write_jsonl(run_dir / "player-feedback.jsonl", [])
+
+    report = coc_playtest_report.generate_battle_report(run_dir).read_text()
+    actual_play = visible_markdown_text(
+        report.split("## Verification Replay", 1)[1].split("\n## ", 1)[0]
+    )
+    overview = visible_markdown_text(
+        report.split("## Rules & Rolls Recap", 1)[1].split("\n## ", 1)[0]
+    )
+    mechanical = report.split("## Mechanical Log", 1)[1].split("\n## ", 1)[0]
+    mechanical = mechanical.split("### State Changes", 1)[0]
+    visible_mechanical = visible_markdown_text(mechanical)
+
+    assert "HIDDEN-ROLL-73" not in actual_play
+    assert "Listen: keeper_under_test rolled 73" not in visible_mechanical
+    assert "2 rolls recorded" in overview
+    assert "3 rolls recorded" not in overview
+    assert actual_play.count("Library Use: investigator rolled 42 vs 60 -> regular_success") == 1
+    assert actual_play.count("HP Damage: investigator rolled 1D4 = 4") == 1
+    assert visible_mechanical.count("Library Use: investigator rolled 42 vs 60 -> regular_success") == 1
+    assert visible_mechanical.count("HP Damage: investigator rolled 1D4 = 4") == 1
+
+
 def test_builtin_glossary_merges_with_run_overrides():
     terms = coc_playtest_report._localized_terms({
         "play_language": "zh-Hans",

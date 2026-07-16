@@ -2694,6 +2694,27 @@ def test_status_report_comparison_uses_default_terms_and_cjk_normalization():
     ) == []
 
 
+def test_status_report_comparison_rejects_comment_only_evidence():
+    event = {
+        "type": "status",
+        "actor": "ada-king",
+        "payload": {
+            "summary": "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金。",
+        },
+    }
+    report = (
+        "## 逐场景回放 <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        "<!-- 最终 HP: 3；最终理智: 49；奖励: +4 理智、30 美元奖金。 -->\n"
+    )
+
+    assert coc_playtest_audit._status_event_render_gaps(
+        report,
+        [event],
+        {},
+        "zh-Hans",
+    ) == ["最终 HP: 3；最终理智: 49；奖励: +4 理智、30 美元奖金。"]
+
+
 def test_non_percentile_report_comparison_uses_default_sanity_term():
     roll = {
         "type": "reward",
@@ -2708,7 +2729,10 @@ def test_non_percentile_report_comparison_uses_default_sanity_term():
             "outcome": "reward_applied",
         },
     }
-    report = "- 理智奖励：ada-king掷出 1D6 = 4（骰面 4），结果获得奖励。"
+    report = (
+        "## 机制日志 <!-- report-anchor: Mechanical Log -->\n"
+        "- 理智奖励：ada-king掷出 1D6 = 4（骰面 4），结果获得奖励。\n"
+    )
 
     assert coc_playtest_audit._non_percentile_roll_rendering_gaps(
         report,
@@ -2717,6 +2741,36 @@ def test_non_percentile_report_comparison_uses_default_sanity_term():
         {"play_language": "zh-Hans"},
         {"SAN Reward": "SAN 奖励"},
     ) == []
+
+
+def test_non_percentile_report_comparison_rejects_elsewhere_only_formula():
+    roll = {
+        "type": "reward",
+        "actor": "ada-king",
+        "payload": {
+            "roll_id": "conclusion-reward",
+            "skill": "SAN Reward",
+            "reward_kind": "sanity",
+            "die": "1D6",
+            "die_rolls": [4],
+            "roll": 4,
+            "outcome": "reward_applied",
+        },
+    }
+    report = (
+        "## 实际跑团回放 <!-- report-anchor: Actual Play Replay -->\n"
+        "- 理智奖励：ada-king掷出 1D6 = 4（骰面 4），结果获得奖励。\n\n"
+        "## 机制日志 <!-- report-anchor: Mechanical Log -->\n"
+        "- No rolls.\n"
+    )
+
+    assert coc_playtest_audit._non_percentile_roll_rendering_gaps(
+        report,
+        [roll],
+        [],
+        {"play_language": "zh-Hans"},
+        {"SAN Reward": "SAN 奖励"},
+    ) == ["missing dice-formula rendering for conclusion-reward"]
 
 
 def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
