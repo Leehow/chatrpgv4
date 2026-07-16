@@ -3707,7 +3707,6 @@ def generate_battle_report(run_dir: Path) -> Path:
     roll_lines = [
         _format_roll_mechanical(event, actor_names, localized_terms, str(play_language), language_profile)
         for event in rolls
-        if _important_roll(event)
     ]
     rendered_state_lines = [
         _format_state_event(event, localized_terms, str(play_language), actor_names, clue_lookup)

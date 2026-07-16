@@ -12,8 +12,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from coc_language import language_profile as build_language_profile
-from coc_playtest_report import _format_roll_recap
+from coc_language import default_localized_terms, language_profile as build_language_profile
+from coc_playtest_report import _format_roll_recap, _format_state_event
 from coc_rules import cash_and_assets, movement_rate
 
 
@@ -3017,11 +3017,19 @@ def _normalize_report_text(text: str) -> str:
     return " ".join(text.split())
 
 
-def _localize_summary_from_terms(summary: str, terms: dict[str, str]) -> str:
-    localized = summary
-    for canonical, replacement in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
-        localized = localized.replace(canonical, replacement)
-    return localized
+def _report_comparison_terms(play_language: str, overrides: dict[str, str]) -> dict[str, str]:
+    """Reconstruct the reporter's default-then-run-override vocabulary.
+
+    General leak checks intentionally keep using only the declared run
+    glossary. Producer/consumer comparisons need the complete reporter terms.
+    """
+    merged = default_localized_terms(play_language)
+    merged.update(overrides)
+    return {
+        str(canonical): str(localized)
+        for canonical, localized in merged.items()
+        if canonical and localized and str(canonical) != str(localized)
+    }
 
 
 def _status_event_render_gaps(
@@ -3031,6 +3039,7 @@ def _status_event_render_gaps(
     play_language: str,
 ) -> list[str]:
     scene_replay = _normalize_report_text(_section_text(battle_report, "Scene-by-Scene Replay"))
+    comparison_terms = _report_comparison_terms(play_language, terms)
     gaps: list[str] = []
     for event in events:
         if event.get("type") != "status":
@@ -3041,22 +3050,14 @@ def _status_event_render_gaps(
         summary = str(payload.get("summary") or payload.get("text") or "")
         if not summary:
             continue
-        localized_text = payload.get("localized_text", {})
-        localized_payload_summary = ""
-        if isinstance(localized_text, dict):
-            localized_payload = localized_text.get(play_language, {})
-            if isinstance(localized_payload, dict):
-                localized_payload_summary = str(
-                    localized_payload.get("summary") or localized_payload.get("text") or ""
-                )
-        candidates = [
-            _normalize_report_text(summary),
-            _normalize_report_text(_localize_summary_from_terms(summary, terms)),
-            _normalize_report_text(_localize_summary_from_terms(localized_payload_summary, terms)),
-        ]
-        candidates = [candidate for candidate in candidates if candidate]
-        if candidates and not any(candidate in scene_replay for candidate in candidates):
-            gaps.append(candidates[-1])
+        expected = _format_state_event(
+            event,
+            comparison_terms,
+            play_language,
+        ).removeprefix("- ").strip()
+        expected_normalized = _normalize_report_text(expected)
+        if expected_normalized and expected_normalized not in scene_replay:
+            gaps.append(expected_normalized)
     return gaps
 
 
@@ -3081,8 +3082,9 @@ def _non_percentile_roll_rendering_gaps(
 ) -> list[str]:
     visible_report = _normalize_report_text(_strip_html_comments(battle_report))
     play_language = str(metadata.get("play_language") or "en-US")
+    comparison_terms = _report_comparison_terms(play_language, terms)
     profile = _selected_language_profile(metadata)
-    actor_names = _audit_actor_names(characters, terms)
+    actor_names = _audit_actor_names(characters, comparison_terms)
     report_labels = profile.get("report_labels", {})
     if not isinstance(report_labels, dict):
         report_labels = {}
@@ -3102,16 +3104,16 @@ def _non_percentile_roll_rendering_gaps(
             and payload.get("reward_kind") in (None, "", [], {})
         ):
             continue
-        expected = _format_roll_recap(roll, actor_names, terms, play_language, profile)
+        expected = _format_roll_recap(roll, actor_names, comparison_terms, play_language, profile)
         expected_summary = expected.splitlines()[0].removeprefix("- ").strip() if expected.splitlines() else ""
         expected_normalized = _normalize_report_text(expected_summary)
         if expected_normalized and expected_normalized not in visible_report:
             gaps.append(f"missing dice-formula rendering for {payload.get('roll_id', payload.get('skill', 'unknown'))}")
 
-        skill = terms.get(str(payload.get("skill", "check")), str(payload.get("skill", "check")))
+        skill = comparison_terms.get(str(payload.get("skill", "check")), str(payload.get("skill", "check")))
         actor = actor_names.get(str(roll.get("actor", "unknown")), str(roll.get("actor", "unknown")))
         outcome = str(payload.get("outcome", "unknown"))
-        outcome = str(outcome_labels.get(outcome, terms.get(outcome, outcome)))
+        outcome = str(outcome_labels.get(outcome, comparison_terms.get(outcome, outcome)))
         target = payload.get("effective_target", payload.get("target", "?"))
         old_target_line = roll_sentence.format(
             skill=skill,

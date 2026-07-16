@@ -46,7 +46,7 @@ def test_haunting_globe_clue_has_canonical_zh_hans_player_summary():
 
     summary = clue["localized_text"]["zh-Hans"]["player_safe_summary"]
     assert "1918 年专题" in summary
-    assert "Macario 一家" in summary
+    assert "马卡里奥一家" in summary
 
 
 def _make_valid_scenario(tmp_path):

@@ -2673,6 +2673,52 @@ def test_active_audit_accepts_localized_status_event_in_scene_replay(tmp_path):
     assert "status_event_not_rendered" not in finding_codes(audit)
 
 
+def test_status_report_comparison_uses_default_terms_and_cjk_normalization():
+    event = {
+        "type": "status",
+        "actor": "ada-king",
+        "payload": {
+            "summary": "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金。",
+        },
+    }
+    report = (
+        "## 逐场景回放 <!-- report-anchor: Scene-by-Scene Replay -->\n"
+        "- 最终 HP: 3；最终理智: 49；奖励: +4 理智、30 美元奖金。\n"
+    )
+
+    assert coc_playtest_audit._status_event_render_gaps(
+        report,
+        [event],
+        {},
+        "zh-Hans",
+    ) == []
+
+
+def test_non_percentile_report_comparison_uses_default_sanity_term():
+    roll = {
+        "type": "reward",
+        "actor": "ada-king",
+        "payload": {
+            "roll_id": "conclusion-reward",
+            "skill": "SAN Reward",
+            "reward_kind": "sanity",
+            "die": "1D6",
+            "die_rolls": [4],
+            "roll": 4,
+            "outcome": "reward_applied",
+        },
+    }
+    report = "- 理智奖励：ada-king掷出 1D6 = 4（骰面 4），结果获得奖励。"
+
+    assert coc_playtest_audit._non_percentile_roll_rendering_gaps(
+        report,
+        [roll],
+        [],
+        {"play_language": "zh-Hans"},
+        {"SAN Reward": "SAN 奖励"},
+    ) == []
+
+
 def test_haunting_module_audit_requires_structured_npc_dialogue(tmp_path):
     run_dir = coc_playtest_harness.create_haunting_module_run(tmp_path, run_id="haunting-module")
     transcript_path = run_dir / "transcript.jsonl"

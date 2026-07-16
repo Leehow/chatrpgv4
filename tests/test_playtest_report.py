@@ -881,7 +881,7 @@ def test_generate_battle_and_evaluation_reports(tmp_path):
     assert "Source: transcript.jsonl" in battle_text
     assert "## Mechanical Log" in battle_text
     assert "1 rolls recorded" in battle_text
-    assert "Library Use: ada-king rolled 80 vs 60 -> failure" not in battle_text
+    assert battle_text.count("Library Use: ada-king rolled 80 vs 60 -> failure") == 1
     assert "Smoke-test scene opened." in battle_text
     assert "scene: intro - Smoke-test scene opened." not in battle_text
     assert "## Story Recap" in battle_text

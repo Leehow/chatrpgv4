@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import random
+import re
 import shutil
 from pathlib import Path
 
@@ -613,6 +614,7 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
         metadata={"play_language": "zh-Hans", "audit_profile": "narrative_storylet_driver"},
     )
     battle_text = battle_path.read_text()
+    visible_battle_text = re.sub(r"<!--.*?-->", "", battle_text, flags=re.DOTALL)
 
     assert "## Verification Replay" in battle_text
     assert "战役 ID: driver-report-campaign" in battle_text
@@ -625,7 +627,7 @@ def test_driver_writes_battle_report_with_gameplay_evidence(tmp_path):
     assert "剧情片段：" in battle_text
     assert "线索：" in battle_text
     assert "图书馆使用" in battle_text
-    assert "Library Use" not in battle_text
+    assert "Library Use" not in visible_battle_text
     assert "结果regular" not in battle_text
     assert "结果hard" not in battle_text
     assert "npc-archivist" not in battle_text

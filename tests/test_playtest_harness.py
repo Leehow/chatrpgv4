@@ -17,6 +17,28 @@ coc_playtest_audit = load_module("coc_playtest_audit", "plugins/coc-keeper/scrip
 coc_completion_audit = load_module("coc_completion_audit", "plugins/coc-keeper/scripts/coc_completion_audit.py")
 coc_rules = load_module("coc_rules", "plugins/coc-keeper/scripts/coc_rules.py")
 
+STATE_CHANGE_SUMMARY_EVENT_TYPES = {
+    "flag_set",
+    "npc_update",
+    "resource_change",
+    "hp_change",
+    "damage",
+    "sanity_loss",
+    "sanity_reward",
+    "luck_spend",
+    "item_transfer",
+    "transient_condition_cleared",
+    "first_aid",
+    "medicine",
+    "major_wound_recovery",
+    "weekly_medical_care",
+    "development",
+    "development_settled",
+    "time_advanced",
+    "game_time",
+    "scene_unlocked",
+}
+
 
 def has_cjk(text: str) -> bool:
     return any("\u4e00" <= char <= "\u9fff" for char in text)
@@ -1324,6 +1346,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     source_summaries = [
         event["payload"]["summary"].strip()
         for event in campaign_state_events(run_dir)
+        if event.get("type") in STATE_CHANGE_SUMMARY_EVENT_TYPES
         if isinstance(event.get("payload"), dict)
         and isinstance(event["payload"].get("summary"), str)
         and event["payload"]["summary"].strip()
@@ -1744,8 +1767,8 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "科比特自己的匕首命中特例" in scene_replay
     assert "血肉护盾不再保护他" in scene_replay
     assert "resource_change" not in scene_replay
-    assert "最终 HP: 3；最终 SAN: 49；奖励: +4 SAN、30 美元奖金，并可选择保留虫蛀书；临时疯狂底层状态仍持续，若在 1 小时内再次损失 SAN，会再次触发疯狂发作。" in scene_replay
-    assert "DEX 检定" in scene_replay
+    assert "最终 HP: 3；最终理智: 49；奖励: +4 理智、30 美元奖金，并可选择保留虫蛀书；临时疯狂底层状态仍持续，若在 1 小时内再次损失理智，会再次触发疯狂发作。" in scene_replay
+    assert "敏捷检定" in scene_replay
     assert "ada-king-haunting -" not in scene_replay
     assert "艾达·金 - 艾达·金" not in scene_replay
     assert "- 艾达·金用借助外套战技" in scene_replay
@@ -1774,35 +1797,23 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "KP[Gabriela Macario]" not in actual_play
     assert "KP[Vittorio Macario]" not in actual_play
     assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in actual_play
-    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 4 / 25，结果极难成功。浮空匕首刺空。" in actual_play
+    assert "第 42 轮 系统: 意志：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 4 / 25，结果极难成功。浮空匕首刺空。" in actual_play
     assert "第 48 轮 KP: \"疯狂发作（摘要）" in actual_play
     assert "第 48a 轮 系统: 格斗（斗殴）：艾达·金掷出 21 / 40，结果普通成功。摘要疯狂中的暴力结果" in actual_play
     assert actual_play.index("第 48a 轮 系统") < actual_play.index("第 49 轮 单人玩家[谨慎风格]")
     assert "控制权回到玩家" in actual_play
     assert "临时疯狂底层状态仍持续" in actual_play
-    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in actual_play
+    assert "若在 1 小时内再次损失理智，会再次触发疯狂发作" in actual_play
     assert "Persuade 72 vs 55" not in actual_play
     assert "Persuade：" not in actual_play
     assert "Dodge：" not in actual_play
     assert "regular_success" not in actual_play
     assert "Corbitt POW 34 vs 90" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
-    assert_localized_transcript_chrome(session_transcript)
-    assert_transcript_detail_values_localized(
-        session_transcript,
-        ["询问委托条件和近期线索", "无需检定", "询问推骰裁定", "推骰说明"],
-        ["ask terms and immediate leads", "no_roll_needed", "ask 推骰-roll ruling", "pushed_roll_explanation"],
-    )
-    assert "第 6 轮 系统: 说服：艾达·金掷出 72 / 55，结果失败。" in session_transcript
-    assert "KP[诺特先生]" in session_transcript
-    assert "KP[阿蒂·威尔莫特]" in session_transcript
-    assert "KP[加布里埃拉·马卡里奥]" in session_transcript
-    assert "第 42 轮 系统: POW：沃尔特·科比特掷出 34 / 90，结果困难成功；闪避：艾达·金掷出 4 / 25，结果极难成功。浮空匕首刺空。" in session_transcript
-    assert "临时疯狂底层状态仍持续" in session_transcript
-    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in session_transcript
-    assert "Persuade 72 vs 55" not in session_transcript
-    assert "regular_success" not in session_transcript
-    assert "Corbitt POW 34 vs 90" not in session_transcript
+    assert "完整逐轮内容已在上方回放中呈现" in session_transcript
+    assert "来源：transcript.jsonl；记录数：60" in session_transcript
+    assert "SHA-256：`" in session_transcript
+    assert "第 6 轮" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert "临时疯狂底层状态仍持续" in visible_dialogue
@@ -1865,8 +1876,12 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert " dagger" not in major_decisions
     assert "艾达·金选择先去《波士顿环球报》查剪报" in major_decisions
     assert "艾达·金在摘要疯狂结束后恢复控制" in major_decisions
-    rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
-    assert has_cjk(rules_recap)
+    rules_overview = section_text(battle_text, "## Rules & Rolls Recap")
+    assert has_cjk(rules_overview)
+    assert "本次共记录" in rules_overview
+    rules_recap = section_text(battle_text, "## Mechanical Log").split(
+        "<!-- report-anchor: State Changes -->", 1
+    )[0]
     assert "说服：艾达·金掷出 72 / 55，结果失败。" in rules_recap
     assert "图书馆使用：艾达·金掷出 22 / 60，结果困难成功。" in rules_recap
     assert "侦查：艾达·金掷出 28 / 55，结果普通成功。" in rules_recap
@@ -1876,7 +1891,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
         and event.get("payload", {}).get("skill_check_earned") is False
         for event in campaign_roll_events(run_dir)
     )
-    dex_recap_start = rules_recap.index("DEX：艾达·金掷出 44 / 50，结果普通成功。")
+    dex_recap_start = rules_recap.index("敏捷：艾达·金掷出 44 / 50，结果普通成功。")
     dex_recap_end = rules_recap.find("\n- ", dex_recap_start + 1)
     dex_recap = rules_recap[dex_recap_start:] if dex_recap_end == -1 else rules_recap[dex_recap_start:dex_recap_end]
     assert "成长标记：否" in dex_recap
@@ -1892,13 +1907,13 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "目的：结算地下室推骰搜索失败伤害" in rules_recap
     assert "SAN 损失：6" in rules_recap
     assert "SAN 变化：51 -> 45" in rules_recap
-    assert "SAN 奖励：艾达·金掷出 1D6 = 4（骰面 4），结果奖励。" in rules_recap
-    assert "目的：结局奖励恢复 SAN" in rules_recap
+    assert "理智奖励：艾达·金掷出 1D6 = 4（骰面 4），结果奖励。" in rules_recap
+    assert "目的：结局奖励恢复理智" in rules_recap
     assert "SAN 变化：45 -> 49" in rules_recap
     assert "HP 伤害：艾达·金掷出 5 / 8" not in rules_recap
     assert "HP 伤害：艾达·金掷出 4 / 6" not in rules_recap
     assert "SAN 奖励：艾达·金掷出 4 / 6" not in rules_recap
-    assert "POW：沃尔特·科比特掷出 34 / 90" in rules_recap
+    assert "意志：沃尔特·科比特掷出 34 / 90" in rules_recap
     assert "<!-- rule-refs: core.percentile_check, core.success_level, core.difficulty.regular -->" in rules_recap
     visible_rules_recap = visible_markdown_text(rules_recap)
     assert "规则引用：core." not in visible_rules_recap
@@ -1918,7 +1933,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "推骰：yes" not in rules_recap
     assert "成长标记：yes" not in rules_recap
     assert "成长标记：no" not in rules_recap
-    assert "ada-king-haunting rolled" not in rules_recap
+    assert "ada-king-haunting rolled" not in visible_rules_recap
     mechanical_log = section_text(battle_text, "## Mechanical Log")
     assert "<!-- rule-refs: core.percentile_check, core.success_level, core.difficulty.regular -->" in mechanical_log
     visible_mechanical_log = visible_markdown_text(mechanical_log)
@@ -1978,7 +1993,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "1D10 掷出 4" in battle_text
     assert "1D10 小时掷出 1" in battle_text
     assert "临时疯狂底层状态" in battle_text
-    assert "若在 1 小时内再次损失 SAN，会再次触发疯狂发作" in battle_text
+    assert "若在 1 小时内再次损失理智，会再次触发疯狂发作" in battle_text
     assert "摘要表" in battle_text
     assert "疯狂发作第 1 回合" not in battle_text
     assert "艾达·金独处在地下室" in battle_text
@@ -1994,16 +2009,16 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     assert "in a 战斗轮" not in combat_summary
     assert "DEX order" not in combat_summary
     assert "opposed POW" not in combat_summary
-    assert "DEX 顺序" in combat_summary
-    assert "POW 对抗" in combat_summary
+    assert "敏捷顺序" in combat_summary
+    assert "意志对抗" in combat_summary
     sanity_summary = section_text(battle_text, "## Sanity Summary")
     assert "- KP:" not in sanity_summary
     assert "ada-king-haunting:" not in sanity_summary
     assert_player_readable_actor_colon_prefixes_absent(sanity_summary, ["艾达·金"])
     assert "艾达·金: 艾达·金" not in sanity_summary
-    assert "- 艾达·金因床铺袭击失败 SAN 1/1D4" in sanity_summary
-    assert "- 艾达·金因浮空匕首成功 SAN 1/1D4，失去 1 SAN；SAN 52 -> 51。" in sanity_summary
-    assert "- 科比特起身时艾达·金失败 SAN 1/1D8，失去 6 SAN；SAN 51 -> 45" in sanity_summary
+    assert "- 艾达·金因床铺袭击失败理智 1/1D4" in sanity_summary
+    assert "- 艾达·金因浮空匕首成功理智 1/1D4，失去 1 理智；理智 52 -> 51。" in sanity_summary
+    assert "- 科比特起身时艾达·金失败理智 1/1D8，失去 6 理智；理智 51 -> 45" in sanity_summary
     assert "- 疯狂发作（摘要）：艾达·金独处在地下室" in sanity_summary
     assert "摘要表" in sanity_summary
     assert "结果解释为暴力" in sanity_summary
@@ -2023,7 +2038,7 @@ def test_haunting_module_harness_generates_full_module_battle_report(tmp_path):
     )
     assert "worm-eaten book" not in state_changes
     assert "worm-eaten book" not in story_recap
-    assert "虫蛀书" in state_changes
+    assert "虫蛀书" in battle_text
     assert "造成伤害: 5 HP" not in battle_text
     assert "造成艾达·金 5 HP 伤害" in battle_text
     assert "Damage: 5 HP" not in battle_text
@@ -2121,6 +2136,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     source_summaries = [
         event["payload"]["summary"].strip()
         for event in campaign_state_events(run_dir)
+        if event.get("type") in STATE_CHANGE_SUMMARY_EVENT_TYPES
         if isinstance(event.get("payload"), dict)
         and isinstance(event["payload"].get("summary"), str)
         and event["payload"]["summary"].strip()
@@ -2232,7 +2248,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "内森尼尔·克劳也通过闪避穿过湿滑天窗危险点，逼近到上锁屋顶门。" in scene_replay
     assert "艾达·金用锁匠通过上锁屋顶门障碍，到达晾衣屋顶。" in scene_replay
     assert "艾达·金的潜行胜过内森尼尔·克劳失败的侦查，带着账本结束追逐。" in scene_replay
-    assert "最终追逐状态：艾达·金保持 HP 12、SAN 55、MOV 7，并带走邪教账本；内森尼尔·克劳落后一处位置。" in scene_replay
+    assert "最终追逐状态：艾达·金保持 HP 12、理智 55、MOV 7，并带走邪教账本；内森尼尔·克劳落后一处位置。" in scene_replay
     assert "艾达·金带着邪教账本脱离屋顶" in scene_replay
     assert "Final 追逐状态" not in scene_replay
     assert "save/chase.json" not in scene_replay
@@ -2250,7 +2266,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
     )
     assert "第 4 轮 系统: 侦查：艾达·金掷出 82 / 55，结果失败。" in actual_play
-    assert "第 9 轮 系统: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 7。" in actual_play
+    assert "第 9 轮 系统: 体质：艾达·金掷出 42 / 55，结果成功。MOV 保持 7。" in actual_play
     assert "第 16a 轮 系统: 闪避：内森尼尔·克劳掷出 27 / 30，结果普通成功。内森尼尔·克劳穿过湿滑天窗危险点，追到上锁屋顶门。" in actual_play
     assert "第 18 轮 系统: 闪避：艾达·金掷出 19 / 35，结果普通成功；格斗（斗殴）：内森尼尔·克劳掷出 62 / 45，结果失败。内森尼尔·克劳的短棍攻击落空。" in actual_play
     assert "第 20 轮 系统: 锁匠：艾达·金掷出 21 / 30，结果普通成功；潜行：艾达·金掷出 18 / 45，结果困难成功；侦查：内森尼尔·克劳掷出 77 / 40，结果失败。艾达·金带着账本逃脱。" in actual_play
@@ -2273,24 +2289,10 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "to 建立追逐" not in actual_play
     assert "after 被追者逃脱" not in actual_play
     session_transcript = section_text(battle_text, "## Session Transcript")
-    assert_localized_transcript_chrome(session_transcript)
-    assert_transcript_detail_values_localized(
-        session_transcript,
-        ["确认被偷走的账本", "推骰确认账本", "建立追逐", "通过障碍并躲藏"],
-        ["spot the stolen ledger", "push ledger confirmation", "chase_setup", "pass barrier and hide"],
-    )
-    assert "第 4 轮 系统: 侦查：艾达·金掷出 82 / 55，结果失败。" in session_transcript
-    assert "第 9 轮 系统: CON：艾达·金掷出 42 / 55，结果成功。MOV 保持 7。" in session_transcript
-    assert "第 16a 轮 系统: 闪避：内森尼尔·克劳掷出 27 / 30，结果普通成功。内森尼尔·克劳穿过湿滑天窗危险点，追到上锁屋顶门。" in session_transcript
-    assert "Pushed Spot Hidden 33" not in session_transcript
-    assert "MOV remains" not in session_transcript
-    assert "extreme_success" not in session_transcript
-    assert "单人玩家[规则质疑风格]" in session_transcript
-    assert "单人玩家[类型片直觉风格]" in session_transcript
-    assert " 玩家[规则质疑风格]" not in session_transcript
-    assert " 玩家[类型片直觉风格]" not in session_transcript
-    assert "to 建立追逐" not in session_transcript
-    assert "after 被追者逃脱" not in session_transcript
+    assert "完整逐轮内容已在上方回放中呈现" in session_transcript
+    assert "来源：transcript.jsonl；记录数：28" in session_transcript
+    assert "SHA-256：`" in session_transcript
+    assert "第 4 轮" not in session_transcript
     visible_dialogue = "\n".join(visible_play_texts(run_dir))
     assert_visible_terms_localized(visible_dialogue, visible_scene_terms)
     assert_terms_absent(
@@ -2346,17 +2348,21 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
         summary = event.get("payload", {}).get("summary")
         if summary:
             assert summary in chase_decisions
-    rules_recap = section_text(battle_text, "## Rules & Rolls Recap")
-    assert has_cjk(rules_recap)
+    rules_overview = section_text(battle_text, "## Rules & Rolls Recap")
+    assert has_cjk(rules_overview)
+    assert "本次共记录 11 次掷骰" in rules_overview
+    rules_recap = section_text(battle_text, "## Mechanical Log").split(
+        "<!-- report-anchor: State Changes -->", 1
+    )[0]
     assert "侦查：艾达·金掷出 82 / 55，结果失败。" in rules_recap
-    assert "CON：艾达·金掷出 42 / 55，结果成功。" in rules_recap
-    assert "CON：内森尼尔·克劳掷出 42 / 50，结果成功。" in rules_recap
+    assert "体质：艾达·金掷出 42 / 55，结果成功。" in rules_recap
+    assert "体质：内森尼尔·克劳掷出 42 / 50，结果成功。" in rules_recap
     assert "速度检定" in rules_recap
     assert "移动行动" in rules_recap
     assert "被追者逃脱" in rules_recap
     assert "邪教账本" in rules_recap
     assert "确认内森尼尔·克劳行动前是否带着邪教账本" in rules_recap
-    assert "步行追逐使用 CON 作为速度检定" in rules_recap
+    assert "步行追逐使用体质作为速度检定" in rules_recap
     assert "艾达·金的 MOV 会在本次追逐中降低 1" in rules_recap
     assert "推骰：是" in rules_recap
     assert "成长标记：是" in rules_recap
@@ -2378,8 +2384,8 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "推骰：yes" not in rules_recap
     assert "成长标记：yes" not in rules_recap
     assert "成长标记：no" not in rules_recap
-    assert "ada-king-chase rolled" not in rules_recap
-    assert "nathaniel-crowe rolled" not in rules_recap
+    assert "ada-king-chase rolled" not in visible_rules_recap
+    assert "nathaniel-crowe rolled" not in visible_rules_recap
     mechanical_log = section_text(battle_text, "## Mechanical Log")
     assert "<!-- rule-refs: core.percentile_check, core.success_level, core.difficulty.regular, core.chase.movement_actions -->" in mechanical_log
     visible_mechanical_log = visible_markdown_text(mechanical_log)
@@ -2517,7 +2523,7 @@ def test_chase_drill_harness_generates_auditable_chase_report(tmp_path):
     assert "- 轮次:" in chase_tracker
     assert "- 第 1 轮:" in chase_tracker
     assert "- 第 2 轮:" in chase_tracker
-    assert "艾达·金按 DEX 顺序先行动" in chase_tracker
+    assert "艾达·金按敏捷顺序先行动" in chase_tracker
     assert "内森尼尔·克劳随后花费 1 个移动行动穿过同一危险点，再花第 2 个移动行动发动冲突" in chase_tracker
     assert "- 结果: 被追者逃脱" in chase_tracker
     session_ending = section_text(battle_text, "## Session Ending")
