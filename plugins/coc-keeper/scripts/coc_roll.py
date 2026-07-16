@@ -91,13 +91,23 @@ def _roll_percentile_with_dice(
     active_rule = modifier_rule["bonus_die"] if bonus else modifier_rule["penalty_die"]
     extra_count = max(bonus, penalty) * int(active_rule["extra_tens_dice_per_die"])
     tens_values.extend(rng.randrange(digit_base) for _ in range(extra_count))
-    selected_tens = _select_tens_value(tens_values, str(active_rule["selected_tens"]))
-    return _percentile_from_tens_units(
-        selected_tens,
-        units,
-        digit_base=digit_base,
-        zero_zero_result=zero_zero_result,
-    ), tens_values, units
+    candidates = [
+        _percentile_from_tens_units(
+            tens,
+            units,
+            digit_base=digit_base,
+            zero_zero_result=zero_zero_result,
+        )
+        for tens in tens_values
+    ]
+    selected = str(active_rule["selected_tens"])
+    if selected == "lowest":
+        roll = min(candidates)
+    elif selected == "highest":
+        roll = max(candidates)
+    else:
+        raise ValueError(f"unsupported tens selection: {selected}")
+    return roll, tens_values, units
 
 
 def percentile_check(
@@ -129,6 +139,16 @@ def percentile_check(
             zero_zero_result=int(percentile_rule["zero_zero_result"]),
             modifier_rule=modifier_rule,
         )
+    unmodified_roll = (
+        roll
+        if units is None or not tens_values
+        else _percentile_from_tens_units(
+            int(tens_values[0]),
+            int(units),
+            digit_base=int(percentile_rule["digit_base"]),
+            zero_zero_result=int(percentile_rule["zero_zero_result"]),
+        )
+    )
 
     return {
         "target": target,
@@ -137,6 +157,7 @@ def percentile_check(
         "bonus": net_bonus,
         "penalty": net_penalty,
         "roll": roll,
+        "unmodified_roll": unmodified_roll,
         "outcome": coc_rules.success_level(roll, effective_target),
         "tens_values": tens_values,
         "units": units,
@@ -262,7 +283,10 @@ def format_percentile_result(
             return f"{roll}/{target} = 十位 {tens_digit} 个位 {units_digit}，{outcome}"
         return f"{roll}/{target} = tens {tens_digit} units {units_digit}, {outcome}"
 
-    selected_tens = min(tens_values) if bonus else max(tens_values)
+    candidates = [100 if int(tens) == 0 and int(units) == 0 else int(tens) * 10 + int(units)
+                  for tens in tens_values]
+    selected_roll = min(candidates) if bonus else max(candidates)
+    selected_tens = tens_values[candidates.index(selected_roll)]
     if language == "zh-Hans":
         modifier_label = "奖励骰" if bonus else "惩罚骰"
         tens_text = "/".join(str(value) for value in tens_values)

@@ -29,6 +29,8 @@ CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
     "investigator": 1,
 }
 
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
 def _migrate_world_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     """Normalize durable world lifecycle fields without dropping extensions.
 
@@ -664,6 +666,25 @@ def _create_investigator_unlocked(
     return character_path
 
 
+def _safe_uncreated_child(base: Path, target: Path) -> bool:
+    """Validate containment and existing parent kinds without creating paths."""
+    base = Path(base)
+    target = Path(target)
+    try:
+        relative = target.relative_to(base)
+        target.resolve(strict=False).relative_to(base.resolve(strict=False))
+    except (OSError, ValueError):
+        return False
+    if base.is_symlink() or (base.exists() and not base.is_dir()):
+        return False
+    current = base
+    for part in relative.parts[:-1]:
+        current = current / part
+        if current.is_symlink() or (current.exists() and not current.is_dir()):
+            return False
+    return not target.is_symlink() and (not target.exists() or target.is_file())
+
+
 def create_investigator(
     root: Path,
     investigator_id: str,
@@ -672,13 +693,24 @@ def create_investigator(
     creation: dict[str, Any] | None = None,
 ) -> Path:
     """Create/replace a reusable investigator under its shared file lock."""
+    if not isinstance(investigator_id, str) or _SAFE_ID.fullmatch(investigator_id) is None:
+        raise ValueError("investigator_id must be a stable safe id")
+    base = coc_root(root)
     lock_path = (
-        coc_root(root)
+        base
         / "locks"
         / "investigators"
         / investigator_id
         / ".investigator.lock"
     )
+    investigator_dir = base / "investigators" / investigator_id
+    # This preflight deliberately runs before advisory_file_lock or
+    # ensure_workspace: an invalid/traversing identity must leave no inode or
+    # directory behind anywhere in the workspace.
+    if not _safe_uncreated_child(base, lock_path) or not _safe_uncreated_child(
+        base, investigator_dir / "character.json"
+    ):
+        raise ValueError("investigator path is unsafe")
     # Setup paths do not acquire a campaign lock, and never acquire one after
     # this block.  In-session writers use campaign -> investigator.
     with _advisory_file_lock(lock_path, wait_seconds=5.0):

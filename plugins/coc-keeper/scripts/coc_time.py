@@ -450,9 +450,22 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
     ``indefinite_insane`` once the investigator reaches max SAN.
     """
     coc_healing = _load_sibling_script("coc_healing", "coc_healing.py")
+    coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
     inv = _read_inv_state(campaign_dir, investigator_id)
-    current_san = int(inv.get("current_san", 0))
-    max_san = int(inv.get("max_san", 99))
+    canonical_sanity = None
+    canonical_path = coc_sanity.sanity_snapshot_path(campaign_dir, investigator_id)
+    if canonical_path.is_file():
+        # The identity-safe SanitySession is authoritative after migration.
+        # Read it before constructing the psychotherapy input so an old
+        # compatibility mirror cannot overwrite newer canonical SAN.
+        canonical_sanity = coc_sanity.SanitySession.load(
+            campaign_dir, investigator_id
+        )
+        current_san = int(canonical_sanity.san_current)
+        max_san = int(canonical_sanity.san_max)
+    else:
+        current_san = int(inv.get("current_san", 0))
+        max_san = int(inv.get("max_san", 99))
     # The investigator's Psychoanalysis skill — read from the linked character
     # sheet if available, else treat as untrained (0 → always fails).
     skill_value = int(inv.get("psychoanalysis_skill", 0))
@@ -465,6 +478,7 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
     new_san = int(event.get("san_after", current_san))
     # Persist the recovered SAN back to investigator-state.
     inv["current_san"] = new_san
+    inv["max_san"] = max_san
     if new_san >= max_san:
         # Fully restored — clear indefinite insanity.
         inv["indefinite_insane"] = False
@@ -473,9 +487,12 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
     # snapshot, so the final write cannot replace freshly mirrored SAN fields
     # with the stale pre-treatment object above.
     _write_inv_state(campaign_dir, investigator_id, inv)
-    coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
-    if coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
-        sanity = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
+    if canonical_sanity is not None or coc_sanity.sanity_snapshot_exists(
+        campaign_dir, investigator_id
+    ):
+        sanity = canonical_sanity or coc_sanity.SanitySession.load(
+            campaign_dir, investigator_id
+        )
         sanity.san_current = new_san
         if new_san >= max_san:
             sanity.indefinite_insane = False

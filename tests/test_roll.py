@@ -424,3 +424,21 @@ def test_recover_luck_caps_at_99():
 
     assert out["success"] is True
     assert out["luck_after"] == 99
+
+
+def test_zero_units_materializes_00_before_bonus_penalty_selection():
+    bonus = coc_roll.percentile_check(
+        50, bonus=1, rng=random.Random(113)
+    )
+    penalty = coc_roll.percentile_check(
+        50, penalty=1, rng=random.Random(113)
+    )
+
+    assert bonus["tens_values"] == [4, 0]
+    assert bonus["units"] == 0
+    assert bonus["unmodified_roll"] == 40
+    assert bonus["roll"] == 40
+    assert penalty["tens_values"] == [4, 0]
+    assert penalty["units"] == 0
+    assert penalty["unmodified_roll"] == 40
+    assert penalty["roll"] == 100

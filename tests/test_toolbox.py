@@ -1464,6 +1464,243 @@ def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
     assert coc_toolbox.coc_development.ending_settlement_path(
         campaign_ws["campaign_dir"], second_ending_id, investigator_id
     ).is_file()
+    latest = json.loads((
+        campaign_ws["campaign_dir"] / "save" / "development-settlements"
+        / f"{investigator_id}.json"
+    ).read_text(encoding="utf-8"))
+    assert latest["ending_id"] == second_ending_id
+
+
+def test_pending_ending_and_new_same_skill_success_keep_distinct_event_claims(
+    campaign_ws, monkeypatch
+):
+    investigator_id = campaign_ws["investigator_id"]
+    first_roll = _run(campaign_ws, "rules.roll", {
+        "investigator": investigator_id,
+        "skill": "Spot Hidden",
+        "target": 99,
+        "seed": 1,
+        "decision_id": "same-skill-roll-a",
+    })
+    assert first_roll["ok"] is True
+    original = coc_toolbox.coc_runtime_ops.settle_development
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "settle_development",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")),
+    )
+    first_args = {
+        "kind": "cliffhanger",
+        "summary": "first same-skill claim remains pending",
+        "decision_id": "same-skill-ending-a",
+    }
+    first = _run(campaign_ws, "state.end_session", first_args)
+    assert first["data"]["development"]["status"] == "PENDING"
+    first_capsule = coc_toolbox.coc_development.load_ending_settlement_capsule(
+        campaign_ws["campaign_dir"], first["data"]["ending_id"]
+    )
+    assert first_capsule is not None
+    token_a = first_capsule["development_inputs"][investigator_id][
+        "input_tokens"
+    ][0]
+
+    second_roll = _run(campaign_ws, "rules.roll", {
+        "investigator": investigator_id,
+        "skill": "Spot Hidden",
+        "target": 99,
+        "seed": 2,
+        "decision_id": "same-skill-roll-b",
+    })
+    assert second_roll["ok"] is True
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops, "settle_development", original
+    )
+    second = _run(campaign_ws, "state.end_session", {
+        "kind": "retreat",
+        "summary": "second same-skill claim settles independently",
+        "decision_id": "same-skill-ending-b",
+    })
+    assert second["data"]["development"]["status"] == "PASS"
+    second_capsule = coc_toolbox.coc_development.load_ending_settlement_capsule(
+        campaign_ws["campaign_dir"], second["data"]["ending_id"]
+    )
+    assert second_capsule is not None
+    token_b = second_capsule["development_inputs"][investigator_id][
+        "input_tokens"
+    ][0]
+    assert token_b != token_a
+    assert second_capsule["development_inputs"][investigator_id][
+        "skills_checked"
+    ] == ["Spot Hidden"]
+
+    retried = _run(campaign_ws, "state.end_session", first_args)
+    assert retried["data"]["development"]["status"] == "PASS"
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["skill_checks_earned"] == []
+    assert state["skill_check_events"] == []
+    claims_path = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id
+        / "development-claims.json"
+    )
+    claims = json.loads(claims_path.read_text(encoding="utf-8"))["claims"]
+    assert claims[token_a]["ending_id"] == first["data"]["ending_id"]
+    assert claims[token_b]["ending_id"] == second["data"]["ending_id"]
+
+
+def test_frozen_mechanical_plan_merges_without_recomputing_later_state(
+    campaign_ws, monkeypatch
+):
+    investigator_id = campaign_ws["investigator_id"]
+    rolled = _run(campaign_ws, "rules.roll", {
+        "investigator": investigator_id,
+        "skill": "Frozen Custom Skill",
+        "target": 99,
+        "seed": 3,
+        "decision_id": "frozen-plan-roll",
+    })
+    assert rolled["ok"] is True
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_luck"] = 0
+    _write_json(state_path, state)
+    original = coc_toolbox.coc_runtime_ops.settle_development
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "settle_development",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("offline")),
+    )
+    end_args = {
+        "kind": "cliffhanger",
+        "summary": "freeze mechanics before delayed retry",
+        "decision_id": "frozen-plan-ending",
+    }
+    first = _run(campaign_ws, "state.end_session", end_args)
+    ending_id = first["data"]["ending_id"]
+    capsule = coc_toolbox.coc_development.load_ending_settlement_capsule(
+        campaign_ws["campaign_dir"], ending_id
+    )
+    assert capsule is not None
+    frozen = capsule["development_inputs"][investigator_id]
+    plan_check = frozen["deterministic_plan"]["improvement_checks"][0]
+    assert plan_check["improved"] is True
+    character_path = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character.setdefault("skills", {})["Frozen Custom Skill"] = 99
+    _write_json(character_path, character)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_luck"] = 80
+    _write_json(state_path, state)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops, "settle_development", original
+    )
+    retried = _run(campaign_ws, "state.end_session", end_args)
+    result = retried["data"]["development"]["settlements"][0][
+        "receipt"
+    ]["result"]
+    check = result["improvement_checks"][0]
+    assert check["check_roll"] == plan_check["check_roll"]
+    assert check["gain"] == plan_check["gain"]
+    assert check["value_before"] == 0
+    assert check["current_value_before_apply"] == 99
+    assert check["value_after"] == 99 + plan_check["gain"]
+    assert result["luck_recovery"]["planned_luck_before"] == 0
+    assert result["luck_recovery"]["current_luck_before_apply"] == 80
+    assert result["settlement_plan_sha256"] == frozen[
+        "deterministic_plan"
+    ]["plan_sha256"]
+
+
+def test_legacy_top_level_pass_is_adopted_without_reapplying(campaign_ws):
+    ended = _run(campaign_ws, "state.end_session", {
+        "kind": "cliffhanger",
+        "summary": "create a receipt to reshape as the base layout",
+        "decision_id": "legacy-adoption-ending",
+    })
+    assert ended["data"]["development"]["status"] == "PASS"
+    investigator_id = campaign_ws["investigator_id"]
+    ending_id = ended["data"]["ending_id"]
+    exact = coc_toolbox.coc_development.ending_settlement_path(
+        campaign_ws["campaign_dir"], ending_id, investigator_id
+    )
+    legacy = (
+        campaign_ws["campaign_dir"] / "save" / "development-settlements"
+        / f"{investigator_id}.json"
+    )
+    legacy.write_bytes(exact.read_bytes())
+    exact.unlink()
+    character = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id
+        / "character.json"
+    )
+    rolls = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before = {
+        character: character.read_bytes(),
+        rolls: rolls.read_bytes(),
+    }
+
+    replay = _run(campaign_ws, "development.settle", {
+        "investigator": investigator_id,
+        "ending_id": ending_id,
+        "decision_id": "legacy-adoption-replay",
+    })
+
+    assert replay["ok"] is True
+    assert {path: path.read_bytes() for path in before} == before
+    adopted = json.loads(exact.read_text(encoding="utf-8"))
+    assert adopted["migration"]["adopted_from"] == (
+        f"save/development-settlements/{investigator_id}.json"
+    )
+
+
+def test_latest_mirror_failure_returns_pass_with_repair_warning(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    mirror = (
+        campaign_ws["campaign_dir"] / "save" / "development-settlements"
+        / f"{investigator_id}.json"
+    )
+    mirror.mkdir(parents=True)
+    ended = _run(campaign_ws, "state.end_session", {
+        "kind": "cliffhanger",
+        "summary": "exact receipt must outrank a broken mirror",
+        "decision_id": "broken-mirror-ending",
+    })
+
+    assert ended["ok"] is True
+    assert ended["data"]["development"]["status"] == "PASS"
+    receipt = ended["data"]["development"]["settlements"][0]["receipt"]
+    assert receipt["status"] == "PASS"
+    assert receipt["projection_repair_needed"] is True
+    assert any("mirror needs repair" in item for item in receipt["warnings"])
+    exact = coc_toolbox.coc_development.ending_settlement_path(
+        campaign_ws["campaign_dir"], ended["data"]["ending_id"], investigator_id
+    )
+    assert exact.is_file()
+
+
+def test_end_session_rejects_unsafe_target_before_lock_path_creation(campaign_ws):
+    outside = campaign_ws["workspace"] / "escaped-lock-target"
+    escaped_lock = outside / ".investigator.lock"
+    result = _run(campaign_ws, "state.end_session", {
+        "kind": "cliffhanger",
+        "investigator": "../../../escaped-lock-target",
+        "decision_id": "unsafe-ending-target",
+    })
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "invalid_param"
+    assert not outside.exists()
+    assert not escaped_lock.exists()
 
 
 def test_versioned_ending_does_not_recompile_when_capsule_is_missing(
@@ -1863,12 +2100,15 @@ def test_combat_conclusion_synchronously_settles_development_once(
     assert len(conclusion_evidence["event_sha256"]) == 64
     assert result["scenario_san_reward_expr"] == "1D6"
     assert result["scenario_san_reward"]["expression"] == "1D6"
-    improvement = result["skills_improved"][0]
-    assert improvement["skill"] == "Fighting (Brawl)"
-    assert improvement["value_before"] == brawl_before
+    improvement_check = result["improvement_checks"][0]
+    assert improvement_check["skill"] == "Fighting (Brawl)"
+    assert improvement_check["value_before"] == brawl_before
     assert json.loads(character_path.read_text(encoding="utf-8"))["skills"][
         "Fighting (Brawl)"
-    ] == improvement["value_after"]
+    ] == improvement_check["value_after"]
+    assert result["skills_improved"] == (
+        [improvement_check] if improvement_check["improved"] else []
+    )
     assert json.loads(state_path.read_text(encoding="utf-8"))[
         "skill_checks_earned"
     ] == []
@@ -1877,7 +2117,7 @@ def test_combat_conclusion_synchronously_settles_development_once(
     rolls = _read_jsonl(roll_path)
     kinds = [row.get("payload", {}).get("kind") for row in rolls]
     assert kinds.count("development_check") == 1
-    assert kinds.count("development_gain") == 1
+    assert kinds.count("development_gain") == int(improvement_check["improved"])
     assert kinds.count("luck_recovery") == 1
     assert kinds.count("scenario_san_reward") == 1
     scenario_roll = next(

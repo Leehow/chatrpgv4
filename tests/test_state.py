@@ -481,3 +481,20 @@ def test_apply_luck_recovery_updates_investigator_state(tmp_path):
     pacing = json.loads((campaign_dir / "save" / "pacing-state.json").read_text(encoding="utf-8"))
     assert inv["current_luck"] == 48
     assert pacing["luck_spent_last"] == 0
+
+
+def test_create_investigator_rejects_traversal_without_filesystem_mutation(tmp_path):
+    before = sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))
+    try:
+        coc_state.create_investigator(
+            tmp_path,
+            "../../../escaped-investigator",
+            {"name": "Unsafe", "skills": {}},
+        )
+    except ValueError as exc:
+        assert "safe id" in str(exc)
+    else:
+        raise AssertionError("expected unsafe investigator id to be rejected")
+
+    assert sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*")) == before
+    assert not (tmp_path.parent / "escaped-investigator").exists()

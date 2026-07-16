@@ -727,6 +727,172 @@ def test_recovery_rejects_malformed_individual_image_before_restore(
     assert not settlement.exists()
 
 
+def test_recovery_rejects_relocated_duplicate_journal_before_any_mutation(tmp_path):
+    character, campaign, _operation = _prepare_development_cliffhanger(tmp_path)
+    ending = ops.coc_development.structured_ending_evidence(campaign)
+    assert ending is not None
+    ending_id, settlement, inflight = _exact_development_paths(campaign)
+    rng = random.Random(5)
+    journal = ops._capture_development_inflight(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        ending_id=ending_id,
+        settlement_path=settlement,
+        inflight_path=inflight,
+        ending=ending,
+        rng=rng,
+    )
+    _receipt, file_postimages, log_postimages = ops._plan_development_postimages(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        payload={},
+        rng=rng,
+        settlement_path=settlement,
+        ending=ending,
+    )
+    journal.update({
+        "status": "prepared",
+        "file_postimages": file_postimages,
+        "log_postimages": log_postimages,
+    })
+    ops._write_development_journal(inflight, journal)
+    duplicate = (
+        campaign / "save" / "development-settlements" / "endings"
+        / "zzz-relocated" / "inv.inflight.json"
+    )
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_bytes(inflight.read_bytes())
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+        campaign / "logs" / "rolls.jsonl",
+    ]
+    before = {
+        path: path.read_bytes() if path.is_file() else None for path in tracked
+    }
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as exc_info:
+        ops.recover_development_transactions(campaign)
+
+    assert exc_info.value.code == "RECOVERY_CONFLICT"
+    assert {path: (path.read_bytes() if path.is_file() else None) for path in tracked} == before
+    assert inflight.is_file()
+    assert duplicate.is_file()
+    assert not settlement.exists()
+
+
+def test_recovery_validates_overlapping_journal_set_before_any_mutation(tmp_path):
+    character, campaign, _operation = _prepare_development_cliffhanger(tmp_path)
+    ending = ops.coc_development.structured_ending_evidence(campaign)
+    assert ending is not None
+    ending_id, settlement, inflight = _exact_development_paths(campaign)
+    ops._capture_development_inflight(
+        campaign_dir=campaign,
+        investigator_id="inv",
+        ending_id=ending_id,
+        settlement_path=settlement,
+        inflight_path=inflight,
+        ending=ending,
+        rng=random.Random(5),
+    )
+
+    second_sheet = {
+        "schema_version": 1,
+        "id": "inv2",
+        "investigator_id": "inv2",
+        "name": "Second Investigator",
+        "characteristics": {"POW": 50, "INT": 60, "LUCK": 40},
+        "derived": {"HP": 10, "SAN": 50, "MP": 10},
+        "skills": {"Listen": 25},
+    }
+    state.create_investigator(tmp_path, "inv2", second_sheet)
+    second_state = campaign / "save" / "investigator-state" / "inv2.json"
+    second_state.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "camp",
+        "investigator_id": "inv2",
+        "current_luck": 40,
+        "current_san": 50,
+        "current_hp": 10,
+        "skill_checks_earned": [],
+    }), encoding="utf-8")
+    second_ending = {**ending, "ending_id": "ending-second-journal"}
+    second_settlement = ops.coc_development.ending_settlement_path(
+        campaign, second_ending["ending_id"], "inv2"
+    )
+    second_inflight = second_settlement.with_name("inv2.inflight.json")
+    ops._capture_development_inflight(
+        campaign_dir=campaign,
+        investigator_id="inv2",
+        ending_id=second_ending["ending_id"],
+        settlement_path=second_settlement,
+        inflight_path=second_inflight,
+        ending=second_ending,
+        rng=random.Random(6),
+    )
+    tracked = [
+        character,
+        second_state,
+        campaign / "logs" / "events.jsonl",
+        inflight,
+        second_inflight,
+    ]
+    before = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(ops.DevelopmentRecoveryConflict) as exc_info:
+        ops.recover_development_transactions(campaign)
+
+    assert exc_info.value.transaction_id == "development-recovery-set"
+    assert any("logs/events.jsonl" in path for path in exc_info.value.conflicting_paths)
+    assert {path: path.read_bytes() for path in tracked} == before
+    assert not settlement.exists()
+    assert not second_settlement.exists()
+
+
+def test_invalid_exact_receipt_is_rejected_before_new_journal_or_state_write(tmp_path):
+    character, campaign, operation = _prepare_development_cliffhanger(tmp_path)
+    ending_id, settlement, inflight = _exact_development_paths(campaign)
+    settlement.parent.mkdir(parents=True, exist_ok=True)
+    settlement.write_text(json.dumps({
+        "schema_version": 1,
+        "ending_id": ending_id,
+        "investigator_id": "foreign-investigator",
+        "settled_at": "2026-07-16T00:00:00Z",
+        "receipt": {
+            "schema_version": 1,
+            "status": "PASS",
+            "kind": "development.settle",
+            "operation_id": "forged",
+            "result": {"ending_evidence": {"ending_id": ending_id}},
+            "state_refs": ["save/investigator-state/inv.json"],
+        },
+    }), encoding="utf-8")
+    tracked = [
+        character,
+        campaign / "save" / "investigator-state" / "inv.json",
+        campaign / "logs" / "events.jsonl",
+        settlement,
+    ]
+    before = {path: path.read_bytes() for path in tracked}
+
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match="existing exact development settlement receipt is invalid",
+    ):
+        ops.execute_operation(
+            tmp_path,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=character,
+            operation=operation,
+            rng_seed=5,
+        )
+
+    assert {path: path.read_bytes() for path in tracked} == before
+    assert not inflight.exists()
+
+
 def test_two_campaigns_shared_investigator_serialize_without_deadlock(tmp_path):
     character = _workspace(tmp_path)
     campaign_one = tmp_path / ".coc" / "campaigns" / "camp"

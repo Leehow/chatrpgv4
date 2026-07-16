@@ -2743,14 +2743,19 @@ def _record_development_ticks(
     consumers see the same structured flag on apply-layer events.
     """
     events: list[dict[str, Any]] = []
-    for result in rules_results or []:
+    for result_index, result in enumerate(rules_results or []):
         if not isinstance(result, dict):
             continue
         skill = str(result.get("skill") or "").strip()
         if not skill:
             continue
         tick = coc_development.record_skill_tick(
-            campaign_dir, investigator_id, skill, result
+            campaign_dir,
+            investigator_id,
+            skill,
+            result,
+            source_event_id=f"director.apply:{decision_id}:{result_index}",
+            source_kind="director.apply",
         )
         if tick is None:
             continue
@@ -2762,6 +2767,7 @@ def _record_development_ticks(
             "skill": skill,
             "roll": tick.get("roll", result.get("roll")),
             "decision_id": decision_id,
+            "event_token": tick.get("event_token"),
             "investigator_id": investigator_id,
             "summary": f"skill check earned: {skill}",
             "ts": ts,

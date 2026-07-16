@@ -24,6 +24,7 @@ import hashlib
 import random
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,10 @@ def _investigator_dir(campaign_dir: Path, investigator_id: str) -> Path:
 
 def _development_path(campaign_dir: Path, investigator_id: str) -> Path:
     return _investigator_dir(campaign_dir, investigator_id) / "development.jsonl"
+
+
+def _development_claims_path(campaign_dir: Path, investigator_id: str) -> Path:
+    return _investigator_dir(campaign_dir, investigator_id) / "development-claims.json"
 
 
 def _investigator_lock_path(campaign_dir: Path, investigator_id: str) -> Path:
@@ -127,9 +132,11 @@ def _is_bonus_die_only(roll_result: dict[str, Any]) -> bool:
         )
         if without_bonus == 0:
             without_bonus = 100
-        with_bonus = min(int(t) for t in tens_values) * 10 + units_i
-        if with_bonus == 0:
-            with_bonus = 100
+        candidates = [
+            100 if int(t) == 0 and units_i == 0 else int(t) * 10 + units_i
+            for t in tens_values
+        ]
+        with_bonus = min(candidates)
     except (TypeError, ValueError):
         return False
     return with_bonus <= target < without_bonus
@@ -196,11 +203,53 @@ def skill_tick_eligible(skill: str, roll_result: dict[str, Any]) -> bool:
     ))
 
 
+def _campaign_id(campaign_dir: Path) -> str:
+    path = Path(campaign_dir) / "campaign.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        value = {}
+    candidate = value.get("campaign_id") if isinstance(value, dict) else None
+    return str(candidate) if isinstance(candidate, str) and candidate else Path(campaign_dir).name
+
+
+def _logical_development_session_id(campaign_dir: Path) -> str:
+    """Return the open play segment identity bounded by durable endings."""
+    count = sum(
+        1
+        for _line, row in _read_event_rows(Path(campaign_dir))
+        if row.get("event_type") == "session_ending"
+    )
+    return f"{_campaign_id(campaign_dir)}:session:{count + 1}"
+
+
+def _tick_event_token(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    session_id: str,
+    source_kind: str,
+    source_event_id: str,
+) -> str:
+    identity = {
+        "campaign_id": _campaign_id(campaign_dir),
+        "session_id": session_id,
+        "investigator_id": investigator_id,
+        "source_kind": source_kind,
+        "source_event_id": source_event_id,
+    }
+    return "development-check-" + _canonical_sha256(identity)
+
+
 def record_skill_tick(
     campaign_dir: Path,
     investigator_id: str,
     skill: str,
     roll_result: dict[str, Any],
+    *,
+    source_event_id: str | None = None,
+    source_kind: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Append one development tick when the roll qualifies (p.94).
 
@@ -209,9 +258,48 @@ def record_skill_tick(
     skill = str(skill or "").strip()
     if not skill_tick_eligible(skill, roll_result):
         return None
+    if not isinstance(investigator_id, str) or _SAFE_ID.fullmatch(investigator_id) is None:
+        raise ValueError("investigator_id must be a stable safe id")
 
+    campaign_dir = Path(campaign_dir)
     path = _development_path(campaign_dir, investigator_id)
+    stable_source_id = source_event_id
+    if not isinstance(stable_source_id, str) or not stable_source_id:
+        for key in ("source_event_id", "roll_id", "command_id", "decision_id"):
+            candidate = roll_result.get(key)
+            if isinstance(candidate, str) and candidate:
+                stable_source_id = candidate
+                break
+    if not isinstance(stable_source_id, str) or not stable_source_id:
+        stable_source_id = "generated:" + uuid.uuid4().hex
+    stable_source_kind = str(
+        source_kind
+        or roll_result.get("source_kind")
+        or roll_result.get("kind")
+        or roll_result.get("roll_kind")
+        or "skill_check"
+    )
+    stable_session_id = str(
+        session_id
+        or roll_result.get("session_id")
+        or _logical_development_session_id(campaign_dir)
+    )
+    token = _tick_event_token(
+        campaign_dir=campaign_dir,
+        investigator_id=investigator_id,
+        session_id=stable_session_id,
+        source_kind=stable_source_kind,
+        source_event_id=stable_source_id,
+    )
     tick = {
+        "schema_version": 2,
+        "event_type": "development_check_earned",
+        "event_token": token,
+        "investigator_id": investigator_id,
+        "campaign_id": _campaign_id(campaign_dir),
+        "session_id": stable_session_id,
+        "source_kind": stable_source_kind,
+        "source_event_id": stable_source_id,
         "skill": skill,
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "roll": roll_result.get("roll"),
@@ -224,6 +312,16 @@ def record_skill_tick(
         wait_seconds=5.0,
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_file():
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    existing = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(existing, dict) and existing.get("event_token") == token:
+                    if existing.get("skill") != skill:
+                        raise ValueError("development event token has conflicting skill")
+                    return existing
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(tick, ensure_ascii=False) + "\n")
     return tick
@@ -287,6 +385,54 @@ def _consume_development_inputs(
         tick_path.parent.mkdir(parents=True, exist_ok=True)
         tick_path.write_text("", encoding="utf-8")
         _clear_campaign_ticks(campaign_dir, investigator_id)
+        return
+
+    if development_input.get("schema_version") == 2:
+        tokens = {
+            str(token)
+            for token in (development_input.get("input_tokens") or [])
+            if isinstance(token, str)
+        }
+        tick_path = _development_path(campaign_dir, investigator_id)
+        if tick_path.is_file() and tokens:
+            kept: list[str] = []
+            for raw in tick_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    kept.append(raw)
+                    continue
+                if not isinstance(row, dict) or row.get("event_token") not in tokens:
+                    kept.append(raw)
+            text = "\n".join(kept)
+            if text:
+                text += "\n"
+            coc_fileio.write_text_atomic(tick_path, text)
+        state_path = _investigator_state_path(campaign_dir, investigator_id)
+        if state_path.is_file() and tokens:
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                state = None
+            if isinstance(state, dict):
+                events = state.get("skill_check_events")
+                if isinstance(events, list):
+                    remaining = [
+                        row for row in events
+                        if not isinstance(row, dict)
+                        or row.get("event_token") not in tokens
+                    ]
+                    state["skill_check_events"] = remaining
+                    state["skill_checks_earned"] = list(dict.fromkeys(
+                        str(row.get("skill"))
+                        for row in remaining
+                        if isinstance(row, dict)
+                        and isinstance(row.get("skill"), str)
+                        and row.get("skill")
+                    ))
+                    coc_fileio.write_json_atomic(
+                        state_path, state, indent=2, ensure_ascii=False
+                    )
         return
 
     legacy_tokens = {
@@ -623,7 +769,7 @@ def _valid_source_image(value: Any) -> bool:
     )
 
 
-def _valid_development_input(value: Any) -> bool:
+def _valid_development_input_v1(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
     required = {
@@ -688,6 +834,229 @@ def _valid_development_input(value: Any) -> bool:
     )
 
 
+def _valid_frozen_roll(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and set(value) == {"expression", "count", "sides", "modifier", "rolls", "total"}
+        and isinstance(value.get("expression"), str)
+        and isinstance(value.get("count"), int)
+        and not isinstance(value.get("count"), bool)
+        and value["count"] > 0
+        and isinstance(value.get("sides"), int)
+        and not isinstance(value.get("sides"), bool)
+        and value["sides"] > 0
+        and isinstance(value.get("modifier"), int)
+        and not isinstance(value.get("modifier"), bool)
+        and isinstance(value.get("rolls"), list)
+        and len(value["rolls"]) == value["count"]
+        and all(
+            isinstance(item, int)
+            and not isinstance(item, bool)
+            and 1 <= item <= value["sides"]
+            for item in value["rolls"]
+        )
+        and isinstance(value.get("total"), int)
+        and not isinstance(value.get("total"), bool)
+        and value["total"] == sum(value["rolls"]) + value["modifier"]
+    )
+
+
+def _valid_plan_against_baseline(
+    plan: dict[str, Any], baseline: dict[str, Any], skills: list[str]
+) -> bool:
+    table = coc_rules.load_rule_table("development")
+    rule = coc_rules.development_rule()
+    improvement = rule["improvement_roll"]
+    always_above = int(improvement.get("always_improves_above", 95))
+    threshold = int(table.get("improvement_roll", {}).get(
+        "san_reward_threshold", improvement.get("cap_for_san_reward", 90)
+    ))
+    earns_development_san = False
+    for row in plan.get("improvement_checks") or []:
+        skill = row.get("skill")
+        before = baseline["skills"].get(skill)
+        gain = row.get("gain") or 0
+        if (
+            before != row.get("value_before")
+            or row.get("planned_value_after") != before + gain
+            or not 1 <= int(row.get("check_roll") or 0) <= 100
+            or (
+                row.get("improved") is not (
+                    row["check_roll"] > before or row["check_roll"] > always_above
+                )
+            )
+        ):
+            return False
+        earns_development_san = earns_development_san or (
+            bool(row["improved"]) and int(row["planned_value_after"]) >= threshold
+        )
+    luck = plan.get("luck_recovery")
+    if not isinstance(luck, dict) or set(luck) != {
+        "roll", "success", "gained", "luck_before", "luck_after", "rule_ref"
+    }:
+        return False
+    if (
+        isinstance(luck.get("roll"), bool)
+        or not isinstance(luck.get("roll"), int)
+        or not 1 <= luck["roll"] <= 100
+        or not isinstance(luck.get("success"), bool)
+        or luck["luck_before"] != baseline["luck"]
+        or luck["success"] is not (luck["roll"] > baseline["luck"])
+        or isinstance(luck.get("gained"), bool)
+        or not isinstance(luck.get("gained"), int)
+        or not 0 <= luck["gained"] <= 10
+        or luck["luck_after"] != min(99, baseline["luck"] + luck["gained"])
+        or (not luck["success"] and luck["gained"] != 0)
+    ):
+        return False
+    development_reward = plan.get("development_san_reward")
+    if earns_development_san != isinstance(development_reward, dict):
+        return False
+    if isinstance(development_reward, dict) and development_reward.get(
+        "expression"
+    ) != str(rule.get("sanity_reward", {}).get("reward", "2D6")):
+        return False
+    return plan.get("awfulness_decay") == {
+        key: max(0, int(value) - 1)
+        for key, value in baseline["sanity"]["awfulness_caps"].items()
+    }
+
+
+def _valid_development_input_v2(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    required = {
+        "schema_version",
+        "skills_checked",
+        "check_events",
+        "input_tokens",
+        "claim_owner",
+        "source_images",
+        "mechanical_baseline",
+        "deterministic_plan",
+        "input_sha256",
+    }
+    if set(value) != required or value.get("schema_version") != 2:
+        return False
+    skills = value.get("skills_checked")
+    events = value.get("check_events")
+    tokens = value.get("input_tokens")
+    owner = value.get("claim_owner")
+    images = value.get("source_images")
+    baseline = value.get("mechanical_baseline")
+    plan = value.get("deterministic_plan")
+    if (
+        not isinstance(skills, list)
+        or not all(isinstance(item, str) and item for item in skills)
+        or len(skills) != len(set(skills))
+        or not isinstance(events, list)
+        or not all(
+            isinstance(row, dict)
+            and set(row) == {
+                "event_token", "skill", "campaign_id", "session_id",
+                "source_kind", "source_event_id",
+            }
+            and all(isinstance(row.get(key), str) and row.get(key) for key in row)
+            for row in events
+        )
+        or not isinstance(tokens, list)
+        or tokens != [row["event_token"] for row in events]
+        or len(tokens) != len(set(tokens))
+        or skills != list(dict.fromkeys(row["skill"] for row in events))
+        or not isinstance(owner, dict)
+        or set(owner) != {"campaign_id", "ending_id", "investigator_id"}
+        or not all(isinstance(owner.get(key), str) and owner.get(key) for key in owner)
+        or _SAFE_ID.fullmatch(owner["ending_id"]) is None
+        or _SAFE_ID.fullmatch(owner["investigator_id"]) is None
+        or not isinstance(images, dict)
+        or set(images) != {
+            "development_events", "investigator_state", "claim_ledger",
+            "character", "sanity",
+        }
+        or not all(_valid_source_image(image) for image in images.values())
+        or not isinstance(baseline, dict)
+        or set(baseline) != {"skills", "luck", "sanity"}
+        or not isinstance(baseline.get("skills"), dict)
+        or set(baseline["skills"]) != set(skills)
+        or not all(
+            isinstance(key, str)
+            and isinstance(item, int)
+            and not isinstance(item, bool)
+            and item >= 0
+            for key, item in baseline["skills"].items()
+        )
+        or isinstance(baseline.get("luck"), bool)
+        or not isinstance(baseline.get("luck"), int)
+        or not 0 <= baseline["luck"] <= 99
+        or not isinstance(baseline.get("sanity"), dict)
+        or set(baseline["sanity"]) != {"source", "current", "max", "awfulness_caps"}
+        or baseline["sanity"].get("source") not in {
+            "canonical", "legacy_owner", "investigator_state"
+        }
+        or any(
+            isinstance(baseline["sanity"].get(key), bool)
+            or not isinstance(baseline["sanity"].get(key), int)
+            for key in ("current", "max")
+        )
+        or not 0 <= baseline["sanity"]["current"] <= baseline["sanity"]["max"] <= 99
+        or not isinstance(baseline["sanity"].get("awfulness_caps"), dict)
+        or not all(
+            isinstance(key, str)
+            and isinstance(item, int)
+            and not isinstance(item, bool)
+            and item >= 0
+            for key, item in baseline["sanity"]["awfulness_caps"].items()
+        )
+        or not isinstance(plan, dict)
+        or set(plan) != {
+            "schema_version", "improvement_checks", "luck_recovery",
+            "awfulness_decay", "development_san_reward",
+            "scenario_san_reward", "plan_sha256",
+        }
+        or plan.get("schema_version") != 1
+        or not isinstance(plan.get("improvement_checks"), list)
+        or [row.get("skill") for row in plan["improvement_checks"]] != skills
+        or not all(
+            isinstance(row, dict)
+            and set(row) == {
+                "skill", "check_roll", "gain", "value_before",
+                "planned_value_after", "improved",
+            }
+            and isinstance(row.get("check_roll"), int)
+            and isinstance(row.get("value_before"), int)
+            and isinstance(row.get("planned_value_after"), int)
+            and isinstance(row.get("improved"), bool)
+            and (
+                (row["improved"] and isinstance(row.get("gain"), int) and row["gain"] > 0)
+                or (not row["improved"] and row.get("gain") is None)
+            )
+            for row in plan["improvement_checks"]
+        )
+        or not isinstance(plan.get("luck_recovery"), dict)
+        or not isinstance(plan.get("awfulness_decay"), dict)
+        or (
+            plan.get("development_san_reward") is not None
+            and not _valid_frozen_roll(plan.get("development_san_reward"))
+        )
+        or (
+            plan.get("scenario_san_reward") is not None
+            and not _valid_frozen_roll(plan.get("scenario_san_reward"))
+        )
+        or plan.get("plan_sha256") != _canonical_sha256({
+            key: item for key, item in plan.items() if key != "plan_sha256"
+        })
+        or not _valid_plan_against_baseline(plan, baseline, skills)
+    ):
+        return False
+    return value.get("input_sha256") == _canonical_sha256({
+        key: item for key, item in value.items() if key != "input_sha256"
+    })
+
+
+def _valid_development_input(value: Any) -> bool:
+    return _valid_development_input_v1(value) or _valid_development_input_v2(value)
+
+
 def _valid_ending_capsule(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
@@ -697,7 +1066,7 @@ def _valid_ending_capsule(value: Any) -> bool:
     rng_identity = value.get("rng_identity")
     source_digest = value.get("source_digest")
     if not (
-        value.get("schema_version") == 1
+        value.get("schema_version") in {1, 2}
         and value.get("capsule_type") == "ending_settlement"
         and isinstance(ending_id, str)
         and _SAFE_ID.fullmatch(ending_id) is not None
@@ -727,6 +1096,18 @@ def _valid_ending_capsule(value: Any) -> bool:
             for item in development_inputs.values()
         )
         and all(
+            (
+                item.get("schema_version") == 2
+                and item.get("claim_owner") == {
+                    "campaign_id": item["claim_owner"]["campaign_id"],
+                    "ending_id": ending_id,
+                    "investigator_id": investigator_id,
+                }
+            )
+            if value.get("schema_version") == 2 else _valid_development_input_v1(item)
+            for investigator_id, item in development_inputs.items()
+        )
+        and all(
             isinstance(identity, dict)
             and identity == {
                 "algorithm": "python-random-seed-v1",
@@ -735,6 +1116,25 @@ def _valid_ending_capsule(value: Any) -> bool:
                 ),
             }
             for investigator_id, identity in rng_identity.items()
+        )
+        and (
+            value.get("schema_version") != 2
+            or all(
+                (
+                    isinstance(value.get("scenario_san_reward_expr"), str)
+                    and isinstance(
+                        item["deterministic_plan"].get("scenario_san_reward"), dict
+                    )
+                    and item["deterministic_plan"]["scenario_san_reward"].get(
+                        "expression"
+                    ) == value.get("scenario_san_reward_expr")
+                )
+                or (
+                    value.get("scenario_san_reward_expr") is None
+                    and item["deterministic_plan"].get("scenario_san_reward") is None
+                )
+                for item in development_inputs.values()
+            )
         )
         and isinstance(source_digest, dict)
         and set(source_digest) == {
@@ -858,59 +1258,432 @@ def _prior_development_claims(
     return claimed, settled_by_skill
 
 
-def _development_input_snapshot(
+def _capsule_tick_event(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        "event_token": str(row["event_token"]),
+        "skill": str(row["skill"]),
+        "campaign_id": str(row["campaign_id"]),
+        "session_id": str(row["session_id"]),
+        "source_kind": str(row["source_kind"]),
+        "source_event_id": str(row["source_event_id"]),
+    }
+
+
+def _migrate_reusable_tick_events(
+    campaign_dir: Path, investigator_id: str
+) -> list[dict[str, str]]:
+    """Normalize legacy rows to immutable reusable event identities in place."""
+    path = _development_path(campaign_dir, investigator_id)
+    if not path.is_file():
+        return []
+    raw_lines = path.read_text(encoding="utf-8").splitlines()
+    normalized_lines: list[str] = []
+    events: list[dict[str, str]] = []
+    by_token: dict[str, dict[str, Any]] = {}
+    occurrences: dict[str, int] = {}
+    changed = False
+    for raw in raw_lines:
+        if not raw.strip():
+            changed = True
+            continue
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            # Malformed historical rows were never valid settlement input. Keep
+            # their bytes for operator inspection; do not invent semantics.
+            normalized_lines.append(raw)
+            continue
+        if not isinstance(parsed, dict):
+            normalized_lines.append(raw)
+            continue
+        skill = str(parsed.get("skill") or "").strip()
+        if not skill:
+            normalized_lines.append(raw)
+            continue
+        token = parsed.get("event_token")
+        if isinstance(token, str) and token:
+            required = (
+                "campaign_id", "session_id", "source_kind", "source_event_id"
+            )
+            if not all(isinstance(parsed.get(key), str) and parsed.get(key) for key in required):
+                raise ValueError("development event identity is incomplete")
+            normalized = dict(parsed)
+        else:
+            digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            occurrence = occurrences.get(digest, 0)
+            occurrences[digest] = occurrence + 1
+            source_event_id = f"legacy-row:{digest}:{occurrence}"
+            legacy_identity = {
+                "investigator_id": investigator_id,
+                "source_event_id": source_event_id,
+            }
+            token = "development-check-legacy-" + _canonical_sha256(legacy_identity)
+            normalized = {
+                "schema_version": 2,
+                "event_type": "development_check_earned",
+                "event_token": token,
+                "investigator_id": investigator_id,
+                "campaign_id": "legacy-unattributed",
+                "session_id": "legacy-unattributed",
+                "source_kind": "legacy.development_row",
+                "source_event_id": source_event_id,
+                "skill": skill,
+                "ts": str(parsed.get("ts") or ""),
+                "roll": parsed.get("roll"),
+            }
+            changed = True
+        prior = by_token.get(str(token))
+        if prior is not None:
+            if _capsule_tick_event(prior) != _capsule_tick_event(normalized):
+                raise ValueError("development event token is duplicated with conflicting identity")
+            changed = True
+            continue
+        by_token[str(token)] = normalized
+        events.append(_capsule_tick_event(normalized))
+        encoded = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+        normalized_lines.append(encoded)
+        if encoded != raw:
+            changed = True
+    if changed:
+        text = "\n".join(normalized_lines)
+        if text:
+            text += "\n"
+        coc_fileio.write_text_atomic(path, text)
+    return events
+
+
+def _migrate_campaign_skill_names(
+    campaign_dir: Path,
+    investigator_id: str,
+    events: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Conservatively materialize old skill-name state as one event per name."""
+    state_path = _investigator_state_path(campaign_dir, investigator_id)
+    if not state_path.is_file():
+        return events
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return events
+    if not isinstance(state, dict):
+        return events
+    campaign_id = _campaign_id(campaign_dir)
+    compatibility_events = state.get("skill_check_events")
+    if not isinstance(compatibility_events, list):
+        compatibility_events = []
+    normalized_compatibility: list[dict[str, str]] = []
+    for row in compatibility_events:
+        if not isinstance(row, dict):
+            continue
+        try:
+            event = _capsule_tick_event(row)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not all(event.values()):
+            continue
+        normalized_compatibility.append(event)
+    by_token = {row["event_token"]: row for row in events}
+    for event in normalized_compatibility:
+        token = event["event_token"]
+        prior = by_token.get(token)
+        if prior is not None and prior != event:
+            raise ValueError(
+                "development event token has conflicting campaign identity"
+            )
+        by_token[token] = event
+    earned = state.get("skill_checks_earned")
+    earned_skills = (
+        list(dict.fromkeys(str(item).strip() for item in earned if str(item).strip()))
+        if isinstance(earned, list) else []
+    )
+    appended: list[dict[str, Any]] = []
+    for index, skill in enumerate(earned_skills):
+        if any(
+            row["skill"] == skill
+            and row["campaign_id"] in {campaign_id, "legacy-unattributed"}
+            for row in by_token.values()
+        ):
+            continue
+        source_event_id = f"legacy-state:{campaign_id}:{investigator_id}:{index}:{skill}"
+        token = _tick_event_token(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            session_id=_logical_development_session_id(campaign_dir),
+            source_kind="legacy.investigator_state",
+            source_event_id=source_event_id,
+        )
+        event = {
+            "event_token": token,
+            "skill": skill,
+            "campaign_id": campaign_id,
+            "session_id": _logical_development_session_id(campaign_dir),
+            "source_kind": "legacy.investigator_state",
+            "source_event_id": source_event_id,
+        }
+        if token not in by_token:
+            by_token[token] = event
+            appended.append({
+                "schema_version": 2,
+                "event_type": "development_check_earned",
+                **event,
+                "investigator_id": investigator_id,
+                "ts": "",
+                "roll": None,
+            })
+    if appended:
+        tick_path = _development_path(campaign_dir, investigator_id)
+        tick_path.parent.mkdir(parents=True, exist_ok=True)
+        with tick_path.open("a", encoding="utf-8") as handle:
+            for row in appended:
+                handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    all_events = list(by_token.values())
+    campaign_events = [
+        row for row in all_events
+        if row["campaign_id"] == campaign_id
+        or (
+            row["campaign_id"] == "legacy-unattributed"
+            and row["skill"] in earned_skills
+        )
+    ]
+    state["skill_check_events"] = campaign_events
+    state["skill_checks_earned"] = list(dict.fromkeys(
+        row["skill"] for row in campaign_events
+    ))
+    coc_fileio.write_json_atomic(state_path, state, indent=2, ensure_ascii=False)
+    return all_events
+
+
+def _load_development_claims(
     campaign_dir: Path, investigator_id: str
 ) -> dict[str, Any]:
-    claimed, settled_by_skill = _prior_development_claims(
-        campaign_dir, investigator_id
-    )
-    legacy_path = _development_path(campaign_dir, investigator_id)
-    legacy_rows: list[dict[str, Any]] = []
-    if legacy_path.is_file():
-        for raw in legacy_path.read_text(encoding="utf-8").splitlines():
-            if not raw.strip():
-                continue
-            try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            skill = str(row.get("skill") or "").strip() if isinstance(row, dict) else ""
-            if not skill:
-                continue
-            token = "legacy:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
-            if token not in claimed:
-                legacy_rows.append({"skill": skill, "token": token})
-
-    campaign_rows: list[dict[str, Any]] = []
-    for skill in _campaign_ticked_skills(campaign_dir, investigator_id):
-        generation = settled_by_skill.get(skill, 0)
-        token = "campaign:" + _canonical_sha256(
-            {"skill": skill, "generation": generation}
+    path = _development_claims_path(campaign_dir, investigator_id)
+    if not path.is_file():
+        return {"schema_version": 1, "investigator_id": investigator_id, "claims": {}}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("development claim ledger is unreadable") from exc
+    claims = value.get("claims") if isinstance(value, dict) else None
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
+        or value.get("investigator_id") != investigator_id
+        or not isinstance(claims, dict)
+        or not all(
+            isinstance(token, str)
+            and token
+            and isinstance(claim, dict)
+            and set(claim) == {
+                "campaign_id", "ending_id", "investigator_id", "claimed_at"
+            }
+            and isinstance(claim.get("campaign_id"), str)
+            and isinstance(claim.get("ending_id"), str)
+            and _SAFE_ID.fullmatch(claim["ending_id"]) is not None
+            and claim.get("investigator_id") == investigator_id
+            and isinstance(claim.get("claimed_at"), str)
+            for token, claim in claims.items()
         )
-        if token not in claimed:
-            campaign_rows.append({
-                "skill": skill,
-                "generation": generation,
-                "token": token,
-            })
-    skills_checked = list(dict.fromkeys(
-        [row["skill"] for row in legacy_rows]
-        + [row["skill"] for row in campaign_rows]
+    ):
+        raise ValueError("development claim ledger identity is invalid")
+    return value
+
+
+def _claim_development_events(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    ending_id: str,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    events = _migrate_reusable_tick_events(campaign_dir, investigator_id)
+    events = _migrate_campaign_skill_names(campaign_dir, investigator_id, events)
+    ledger = _load_development_claims(campaign_dir, investigator_id)
+    owner = {
+        "campaign_id": _campaign_id(campaign_dir),
+        "ending_id": ending_id,
+        "investigator_id": investigator_id,
+    }
+    claims = ledger["claims"]
+    owned: list[dict[str, str]] = []
+    changed = False
+    for event in events:
+        token = event["event_token"]
+        prior = claims.get(token)
+        if prior is None:
+            claims[token] = {**owner, "claimed_at": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+            )}
+            changed = True
+            owned.append(event)
+        elif all(prior.get(key) == value for key, value in owner.items()):
+            owned.append(event)
+    if changed:
+        path = _development_claims_path(campaign_dir, investigator_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        coc_fileio.write_json_atomic(path, ledger, indent=2, ensure_ascii=False)
+    return owned, owner
+
+
+def _sanity_mechanical_baseline(
+    campaign_dir: Path, investigator_id: str
+) -> tuple[dict[str, Any], Path]:
+    canonical = coc_sanity.sanity_snapshot_path(campaign_dir, investigator_id)
+    legacy = coc_sanity.legacy_sanity_snapshot_path(campaign_dir)
+    inv_path = _investigator_state_path(campaign_dir, investigator_id)
+    source = "investigator_state"
+    path = inv_path
+    value: dict[str, Any] = {}
+    if canonical.is_file():
+        value = json.loads(canonical.read_text(encoding="utf-8"))
+        if value.get("investigator_id") != investigator_id:
+            raise ValueError("canonical SAN identity does not match investigator")
+        source = "canonical"
+        path = canonical
+    elif legacy.is_file():
+        candidate = json.loads(legacy.read_text(encoding="utf-8"))
+        if isinstance(candidate, dict) and candidate.get("investigator_id") == investigator_id:
+            value = candidate
+            source = "legacy_owner"
+            path = legacy
+    if source == "investigator_state":
+        try:
+            candidate = json.loads(inv_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            candidate = {}
+        value = candidate if isinstance(candidate, dict) else {}
+    raw_current = value.get("san_current")
+    if raw_current is None:
+        raw_current = value.get("current_san", 0)
+    raw_maximum = value.get("san_max")
+    if raw_maximum is None:
+        raw_maximum = value.get("max_san", 99)
+    if (
+        isinstance(raw_current, bool)
+        or not isinstance(raw_current, int)
+        or isinstance(raw_maximum, bool)
+        or not isinstance(raw_maximum, int)
+    ):
+        raise ValueError("SAN baseline is invalid")
+    current = raw_current
+    maximum = raw_maximum
+    if not 0 <= current <= maximum <= 99:
+        raise ValueError("SAN baseline is invalid")
+    caps = value.get("awfulness_caps")
+    awfulness = {
+        str(key): max(0, int(item))
+        for key, item in (caps.items() if isinstance(caps, dict) else [])
+    }
+    return {
+        "source": source,
+        "current": current,
+        "max": maximum,
+        "awfulness_caps": awfulness,
+    }, path
+
+
+def _deterministic_development_plan(
+    *,
+    skills: dict[str, int],
+    luck: int,
+    sanity: dict[str, Any],
+    seed_material: str,
+    scenario_reward_expr: str | None,
+) -> dict[str, Any]:
+    rng = random.Random(seed_material)
+    rule = coc_rules.development_rule()
+    improvement = rule["improvement_roll"]
+    always_above = int(improvement.get("always_improves_above", 95))
+    table = coc_rules.load_rule_table("development")
+    threshold = int(table.get("improvement_roll", {}).get(
+        "san_reward_threshold", improvement.get("cap_for_san_reward", 90)
     ))
-    input_tokens = [
-        row["token"] for row in [*legacy_rows, *campaign_rows]
-    ]
+    sanity_expr = str(rule.get("sanity_reward", {}).get("reward", "2D6"))
+    checks: list[dict[str, Any]] = []
+    earns_san = False
+    for skill, current in skills.items():
+        check_roll = rng.randint(1, 100)
+        improved = check_roll > current or check_roll > always_above
+        gain = rng.randint(1, 10) if improved else None
+        planned_after = current + int(gain or 0)
+        earns_san = earns_san or (improved and planned_after >= threshold)
+        checks.append({
+            "skill": skill,
+            "check_roll": check_roll,
+            "gain": gain,
+            "value_before": current,
+            "planned_value_after": planned_after,
+            "improved": improved,
+        })
+    luck_recovery = coc_roll.recover_luck(luck, rng=rng)
+    development_reward = (
+        coc_roll.roll_expression(sanity_expr, rng) if earns_san else None
+    )
+    scenario_reward = (
+        coc_roll.roll_expression(scenario_reward_expr, rng)
+        if isinstance(scenario_reward_expr, str) and scenario_reward_expr else None
+    )
+    plan = {
+        "schema_version": 1,
+        "improvement_checks": checks,
+        "luck_recovery": luck_recovery,
+        "awfulness_decay": {
+            key: max(0, int(value) - 1)
+            for key, value in sanity["awfulness_caps"].items()
+        },
+        "development_san_reward": development_reward,
+        "scenario_san_reward": scenario_reward,
+    }
+    plan["plan_sha256"] = _canonical_sha256(plan)
+    return plan
+
+
+def _development_input_snapshot(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    ending_id: str,
+    seed_material: str,
+    scenario_reward_expr: str | None,
+) -> dict[str, Any]:
+    owned_events, owner = _claim_development_events(
+        campaign_dir, investigator_id, ending_id=ending_id
+    )
+    skills_checked = list(dict.fromkeys(row["skill"] for row in owned_events))
+    sheet = _read_character(campaign_dir, investigator_id)
+    sheet_skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    frozen_skills = {
+        skill: int(sheet_skills.get(skill, 0) or 0) for skill in skills_checked
+    }
+    luck = _current_luck(campaign_dir, investigator_id, sheet)
+    sanity, sanity_path = _sanity_mechanical_baseline(campaign_dir, investigator_id)
+    baseline = {"skills": frozen_skills, "luck": luck, "sanity": sanity}
+    plan = _deterministic_development_plan(
+        skills=frozen_skills,
+        luck=luck,
+        sanity=sanity,
+        seed_material=seed_material,
+        scenario_reward_expr=scenario_reward_expr,
+    )
     snapshot = {
+        "schema_version": 2,
         "skills_checked": skills_checked,
-        "legacy_tick_tokens": legacy_rows,
-        "campaign_skill_tokens": campaign_rows,
-        "input_tokens": input_tokens,
+        "check_events": owned_events,
+        "input_tokens": [row["event_token"] for row in owned_events],
+        "claim_owner": owner,
         "source_images": {
-            "legacy_ticks": _source_image(legacy_path),
+            "development_events": _source_image(
+                _development_path(campaign_dir, investigator_id)
+            ),
             "investigator_state": _source_image(
                 _investigator_state_path(campaign_dir, investigator_id)
             ),
+            "claim_ledger": _source_image(
+                _development_claims_path(campaign_dir, investigator_id)
+            ),
+            "character": _source_image(_character_path(campaign_dir, investigator_id)),
+            "sanity": _source_image(sanity_path),
         },
+        "mechanical_baseline": baseline,
+        "deterministic_plan": plan,
     }
     snapshot["input_sha256"] = _canonical_sha256(snapshot)
     return snapshot
@@ -942,12 +1715,6 @@ def build_ending_settlement_capsule(
         and all(isinstance(item, str) for item in event["investigator_ids"])
         else []
     )
-    development_inputs = {
-        investigator_id: _development_input_snapshot(
-            campaign_dir, investigator_id
-        )
-        for investigator_id in investigator_ids
-    }
     rng_identity = {
         investigator_id: {
             "algorithm": "python-random-seed-v1",
@@ -957,8 +1724,22 @@ def build_ending_settlement_capsule(
         }
         for investigator_id in investigator_ids
     }
+    development_inputs = {
+        investigator_id: _development_input_snapshot(
+            campaign_dir,
+            investigator_id,
+            ending_id=evidence["ending_id"],
+            seed_material=rng_identity[investigator_id]["seed_material"],
+            scenario_reward_expr=(
+                evidence.get("scenario_san_reward_expr")
+                if isinstance(evidence.get("scenario_san_reward_expr"), str)
+                else None
+            ),
+        )
+        for investigator_id in investigator_ids
+    }
     capsule = {
-        "schema_version": 1,
+        "schema_version": 2,
         "capsule_type": "ending_settlement",
         **evidence,
         "investigator_ids": investigator_ids,
@@ -1125,6 +1906,31 @@ def _decay_awfulness(campaign_dir: Path, investigator_id: str) -> dict[str, int]
     return decayed
 
 
+def _apply_frozen_awfulness_decay(
+    campaign_dir: Path,
+    investigator_id: str,
+    baseline_caps: dict[str, int],
+) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
+    if not baseline_caps or not coc_sanity.sanity_snapshot_exists(
+        campaign_dir, investigator_id
+    ):
+        return {}, {}
+    sess = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
+    merged: dict[str, dict[str, int]] = {}
+    for creature in baseline_caps:
+        before = int(sess.awfulness_caps.get(creature, baseline_caps[creature]))
+        after = max(0, before - 1)
+        sess.awfulness_caps[creature] = after
+        merged[creature] = {
+            "current_before_apply": before,
+            "planned_delta": -1,
+            "applied_delta": after - before,
+            "value_after": after,
+        }
+    sess.save(campaign_dir)
+    return dict(sess.awfulness_caps), merged
+
+
 def run_development_phase(
     campaign_dir: Path,
     investigator_id: str,
@@ -1177,6 +1983,87 @@ def run_development_phase(
     if not isinstance(skills, dict):
         skills = {}
         sheet["skills"] = skills
+
+    if development_input is not None and development_input.get("schema_version") == 2:
+        baseline = development_input["mechanical_baseline"]
+        plan = development_input["deterministic_plan"]
+        improvement_checks: list[dict[str, Any]] = []
+        skills_improved: list[dict[str, Any]] = []
+        for frozen in plan["improvement_checks"]:
+            skill = str(frozen["skill"])
+            current_live = int(skills.get(skill, 0) or 0)
+            gain = int(frozen["gain"] or 0)
+            value_after = current_live + gain if frozen["improved"] else current_live
+            if frozen["improved"]:
+                skills[skill] = value_after
+            row = {
+                "skill": skill,
+                "check_roll": int(frozen["check_roll"]),
+                "gain": int(frozen["gain"]) if frozen["improved"] else None,
+                "value_before": int(frozen["value_before"]),
+                "planned_value_after": int(frozen["planned_value_after"]),
+                "current_value_before_apply": current_live,
+                "applied_delta": gain,
+                "value_after": value_after,
+                "improved": bool(frozen["improved"]),
+                "merge_policy": "additive_monotonic",
+            }
+            improvement_checks.append(dict(row))
+            if frozen["improved"]:
+                skills_improved.append(row)
+        if skills_improved:
+            _write_character(campaign_dir, investigator_id, sheet)
+
+        luck_plan = dict(plan["luck_recovery"])
+        current_luck = _current_luck(campaign_dir, investigator_id, sheet)
+        planned_gain = int(luck_plan.get("gained", 0) or 0)
+        luck_after = min(99, current_luck + planned_gain)
+        applied_luck = luck_after - current_luck
+        coc_state.apply_luck_recovery(
+            campaign_dir, investigator_id, luck_after=luck_after
+        )
+        luck_recovery = {
+            **luck_plan,
+            "planned_luck_before": int(baseline["luck"]),
+            "planned_luck_after": int(luck_plan["luck_after"]),
+            "planned_gained": planned_gain,
+            "current_luck_before_apply": current_luck,
+            "gained": applied_luck,
+            "luck_after": luck_after,
+            "applied_delta": applied_luck,
+            "merge_policy": "additive_monotonic_capped_99",
+        }
+        awfulness_decay, awfulness_merge = _apply_frozen_awfulness_decay(
+            campaign_dir,
+            investigator_id,
+            baseline["sanity"]["awfulness_caps"],
+        )
+        _consume_development_inputs(campaign_dir, investigator_id, development_input)
+        ending = ending_evidence or structured_ending_evidence(campaign_dir)
+        development_reward = plan.get("development_san_reward")
+        scenario_reward = plan.get("scenario_san_reward")
+        return {
+            "skills_checked": skills_checked,
+            "improvement_checks": improvement_checks,
+            "skills_improved": skills_improved,
+            "san_reward_expr": (
+                development_reward.get("expression")
+                if isinstance(development_reward, dict) else None
+            ),
+            "san_reward_roll": development_reward,
+            "ending_evidence": ending,
+            "scenario_san_reward_expr": (
+                ending.get("scenario_san_reward_expr") if ending else None
+            ),
+            "scenario_san_reward_roll": scenario_reward,
+            "luck_recovery": luck_recovery,
+            "awfulness_decay": awfulness_decay,
+            "awfulness_merge": awfulness_merge,
+            "mechanical_baseline": baseline,
+            "settlement_plan_sha256": plan["plan_sha256"],
+            "merge_policy": "frozen_plan_additive_monotonic_v1",
+            "input_tokens_consumed": list(development_input["input_tokens"]),
+        }
 
     improvement_checks: list[dict[str, Any]] = []
     skills_improved: list[dict[str, Any]] = []

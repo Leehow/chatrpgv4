@@ -208,6 +208,179 @@ def test_record_tick_appends_qualifying_success(tmp_path):
     assert rows[0]["roll"] == 22
 
 
+def test_same_skill_successes_receive_distinct_stable_event_tokens(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    first = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        "Spot Hidden",
+        _success_result(),
+        source_event_id="rules.roll:first",
+        source_kind="rules.roll",
+    )
+    second = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        "Spot Hidden",
+        _success_result(roll=23),
+        source_event_id="rules.roll:second",
+        source_kind="rules.roll",
+    )
+    replay = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        "Spot Hidden",
+        _success_result(),
+        source_event_id="rules.roll:first",
+        source_kind="rules.roll",
+    )
+
+    assert first is not None and second is not None and replay is not None
+    assert first["event_token"] != second["event_token"]
+    assert replay["event_token"] == first["event_token"]
+    assert [row["event_token"] for row in _read_ticks(camp, inv_id)] == [
+        first["event_token"], second["event_token"]
+    ]
+
+
+def test_capsule_rejects_conflicting_identity_for_existing_event_token(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    tick = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        "Spot Hidden",
+        _success_result(),
+        source_event_id="rules.roll:identity-conflict",
+        source_kind="rules.roll",
+    )
+    assert tick is not None
+    state_path = camp / "save" / "investigator-state" / f"{inv_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["skill_checks_earned"] = ["Listen"]
+    state["skill_check_events"] = [{
+        "event_token": tick["event_token"],
+        "skill": "Listen",
+        "campaign_id": tick["campaign_id"],
+        "session_id": tick["session_id"],
+        "source_kind": tick["source_kind"],
+        "source_event_id": tick["source_event_id"],
+    }]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="conflicting campaign identity"):
+        coc_development.build_ending_settlement_capsule(
+            camp,
+            {
+                "event_type": "session_ending",
+                "ending_id": "ending-event-token-conflict",
+                "scene_id": "finale",
+                "kind": "cliffhanger",
+                "decision_id": "event-token-conflict",
+                "investigator_ids": [inv_id],
+                "ts": "2026-07-16T00:00:00Z",
+            },
+        )
+    assert not (
+        camp.parents[1] / "investigators" / inv_id / "development-claims.json"
+    ).exists()
+
+
+def test_two_campaign_capsules_can_claim_one_reusable_event_only_once(tmp_path):
+    camp_a, inv_id = _campaign_with_investigator(
+        tmp_path, skills={"Custom Skill": 0}
+    )
+    camp_b = camp_a.parent / "case-2"
+    (camp_b / "save" / "investigator-state").mkdir(parents=True)
+    (camp_b / "logs").mkdir(parents=True)
+    (camp_b / "campaign.json").write_text(
+        json.dumps({"campaign_id": "case-2"}), encoding="utf-8"
+    )
+    (camp_b / "save" / "investigator-state" / f"{inv_id}.json").write_text(
+        json.dumps({
+            "investigator_id": inv_id,
+            "current_luck": 40,
+            "current_san": 50,
+            "max_san": 99,
+            "skill_checks_earned": [],
+        }),
+        encoding="utf-8",
+    )
+    tick = coc_development.record_skill_tick(
+        camp_a,
+        inv_id,
+        "Custom Skill",
+        _success_result(skill="Custom Skill"),
+        source_event_id="shared-reusable-roll",
+        source_kind="rules.roll",
+    )
+    assert tick is not None
+
+    def capsule(campaign: Path, ending_id: str, decision_id: str):
+        return coc_development.build_ending_settlement_capsule(
+            campaign,
+            {
+                "event_type": "session_ending",
+                "ending_id": ending_id,
+                "scene_id": "finale",
+                "kind": "cliffhanger",
+                "decision_id": decision_id,
+                "investigator_ids": [inv_id],
+                "ts": "2026-07-16T00:00:00Z",
+            },
+        )
+
+    capsule_a = capsule(camp_a, "ending-campaign-a", "decision-campaign-a")
+    capsule_b = capsule(camp_b, "ending-campaign-b", "decision-campaign-b")
+    input_a = capsule_a["development_inputs"][inv_id]
+    input_b = capsule_b["development_inputs"][inv_id]
+
+    assert input_a["input_tokens"] == [tick["event_token"]]
+    assert input_b["input_tokens"] == []
+    settled_a = coc_development.run_development_phase(
+        camp_a,
+        inv_id,
+        ending_evidence=capsule_a,
+        development_input=input_a,
+    )
+    settled_b = coc_development.run_development_phase(
+        camp_b,
+        inv_id,
+        ending_evidence=capsule_b,
+        development_input=input_b,
+    )
+    assert settled_a["skills_checked"] == ["Custom Skill"]
+    assert settled_b["skills_checked"] == []
+    claims = json.loads((
+        camp_a.parents[1] / "investigators" / inv_id
+        / "development-claims.json"
+    ).read_text(encoding="utf-8"))["claims"]
+    assert claims[tick["event_token"]]["ending_id"] == "ending-campaign-a"
+
+
+def test_canonical_san_baseline_preserves_zero_maximum(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    canonical = coc_sanity.sanity_snapshot_path(camp, inv_id)
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text(json.dumps({
+        "investigator_id": inv_id,
+        "san_current": 0,
+        "san_max": 0,
+        "awfulness_caps": {},
+    }), encoding="utf-8")
+
+    baseline, source_path = coc_development._sanity_mechanical_baseline(
+        camp, inv_id
+    )
+
+    assert source_path == canonical
+    assert baseline == {
+        "source": "canonical",
+        "current": 0,
+        "max": 0,
+        "awfulness_caps": {},
+    }
+
+
 # ---------------------------------------------------------------------------
 # run_development_phase
 # ---------------------------------------------------------------------------

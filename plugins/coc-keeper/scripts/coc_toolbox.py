@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 _HERE = Path(__file__).resolve().parent
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 def _load_sibling(name: str, filename: str):
@@ -1098,15 +1099,44 @@ def _mark_improvement_tick(
     investigator_id: str,
     skill: str,
     roll_result: dict[str, Any],
+    *,
+    source_event_id: str,
+    source_kind: str,
 ) -> bool:
-    if not coc_development.skill_tick_eligible(skill, roll_result):
+    tick = coc_development.record_skill_tick(
+        ctx.campaign_dir,
+        investigator_id,
+        skill,
+        roll_result,
+        source_event_id=source_event_id,
+        source_kind=source_kind,
+    )
+    if tick is None:
         return False
     state = ctx.inv_state(investigator_id)
-    earned = state.get("skill_checks_earned") or []
-    if skill not in earned:
-        earned.append(skill)
-        state["skill_checks_earned"] = earned
-        ctx.save_inv_state(investigator_id, state)
+    events = state.get("skill_check_events")
+    if not isinstance(events, list):
+        events = []
+    token = tick["event_token"]
+    if not any(
+        isinstance(row, dict) and row.get("event_token") == token
+        for row in events
+    ):
+        events.append({
+            "event_token": token,
+            "skill": skill,
+            "campaign_id": tick["campaign_id"],
+            "session_id": tick["session_id"],
+            "source_kind": tick["source_kind"],
+            "source_event_id": tick["source_event_id"],
+        })
+    state["skill_check_events"] = events
+    state["skill_checks_earned"] = list(dict.fromkeys(
+        str(row.get("skill"))
+        for row in events
+        if isinstance(row, dict) and isinstance(row.get("skill"), str)
+    ))
+    ctx.save_inv_state(investigator_id, state)
     return True
 
 
@@ -1158,7 +1188,14 @@ def _roll_common(
         and label not in _CHARACTERISTIC_NAMES
         and label not in ("SAN", "LUCK")
     ):
-        if _mark_improvement_tick(ctx, investigator_id, label, result):
+        if _mark_improvement_tick(
+            ctx,
+            investigator_id,
+            label,
+            result,
+            source_event_id=f"{tool_name}:{args['decision_id']}",
+            source_kind=tool_name,
+        ):
             hints.append(f"success: improvement tick recorded for {label}")
     if outcome == "critical":
         hints.append("critical success: consider an exceptional narrative payoff")
@@ -1757,7 +1794,21 @@ def _record_combat_improvement_ticks(
         roll_id = roll.get("roll_id")
         if isinstance(roll_id, str) and roll_id in opposed_wins:
             roll["opposed_won"] = opposed_wins[roll_id]
-        if _mark_improvement_tick(ctx, investigator_id, skill, roll):
+        source_event_id = (
+            str(roll_id)
+            if isinstance(roll_id, str) and roll_id
+            else "combat-roll:" + hashlib.sha256(
+                json.dumps(event, sort_keys=True, ensure_ascii=False).encode("utf-8")
+            ).hexdigest()
+        )
+        if _mark_improvement_tick(
+            ctx,
+            investigator_id,
+            skill,
+            roll,
+            source_event_id=source_event_id,
+            source_kind="combat.resolve",
+        ):
             if skill not in recorded:
                 recorded.append(skill)
     return recorded
@@ -3676,9 +3727,17 @@ def _record_settlement_pending(ctx: Ctx, development: dict[str, Any]) -> None:
 def _normalized_investigator_ids(values: Any) -> list[str]:
     if not isinstance(values, list):
         return []
-    return list(dict.fromkeys(
-        str(value) for value in values if isinstance(value, str) and value
-    ))
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        if _SAFE_ID.fullmatch(value) is None:
+            raise ToolError(
+                "invalid_param", "investigator id must be a stable safe id"
+            )
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
 
 
 def _requested_ending_targets(ctx: Ctx, args: dict[str, Any]) -> list[str]:
@@ -3933,12 +3992,22 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
             # the global order remains campaign -> investigator.
             with ExitStack() as input_locks:
                 for investigator_id in sorted(set(targets)):
-                    input_locks.enter_context(coc_fileio.advisory_file_lock(
+                    lock_path = (
                         ctx.coc_root
                         / "locks"
                         / "investigators"
                         / investigator_id
-                        / ".investigator.lock",
+                        / ".investigator.lock"
+                    )
+                    if not coc_development._safe_campaign_child_target(
+                        ctx.coc_root, lock_path
+                    ):
+                        raise ToolError(
+                            "development_settlement_failed",
+                            "investigator lock target is unsafe",
+                        )
+                    input_locks.enter_context(coc_fileio.advisory_file_lock(
+                        lock_path,
                         wait_seconds=5.0,
                     ))
                 capsule_path = coc_development.ending_settlement_capsule_path(

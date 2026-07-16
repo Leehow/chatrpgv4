@@ -362,6 +362,40 @@ def test_partial_treatment_updates_canonical_san_and_preserves_indefinite(
     assert inv_after["indefinite_insane"] is True
 
 
+def test_treatment_uses_canonical_san_over_divergent_compatibility_state(
+    campaign_with_inv,
+):
+    campaign = campaign_with_inv
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({
+        "current_san": 5,
+        "max_san": 20,
+        "indefinite_insane": True,
+        "psychoanalysis_skill": 1,
+    })
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    sanity = coc_sanity.SanitySession(
+        "inv1", san_max=60, int_value=50, rng=random.Random(103),
+        campaign_dir=campaign,
+    )
+    sanity.san_current = 40
+    sanity.indefinite_insane = True
+    sanity.save(campaign)
+    # Re-introduce a divergent old compatibility value after canonical save.
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_san": 5, "max_san": 20, "psychoanalysis_skill": 1})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+
+    outcome = coc_time._handler_apply_treatment(campaign, "inv1", {})
+    inv_after = json.loads(inv_path.read_text(encoding="utf-8"))
+
+    assert outcome["san_before"] == 40
+    assert inv_after["current_san"] == outcome["san_after"]
+    assert inv_after["current_san"] >= 40
+    assert inv_after["max_san"] == 60
+
+
 def test_handler_dispatch_failure_does_not_block_time(campaign_with_inv, monkeypatch):
     """A handler that raises must not block time advance; the error is recorded."""
     campaign = campaign_with_inv
