@@ -35,6 +35,7 @@ coc_starter = _load("coc_starter_for_toolbox", SCRIPTS / "coc_starter.py")
 EXPECTED_NAMESPACES = {
     "rules",
     "combat",
+    "development",
     "scene",
     "clues",
     "npc",
@@ -993,6 +994,94 @@ def test_state_end_session_idempotent_on_decision_id(campaign_ws):
     assert len(endings) == 1
 
 
+def test_state_end_session_process_retry_reuses_persisted_ending(
+    campaign_ws, monkeypatch
+):
+    original = coc_toolbox.coc_runtime_ops.settle_development
+
+    def crash_before_settlement(*_args, **_kwargs):
+        raise SystemExit("simulated host process exit")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "settle_development",
+        crash_before_settlement,
+    )
+    args = {
+        "kind": "cliffhanger",
+        "summary": "ending survives a host crash",
+        "decision_id": "toolbox-end-crash-retry",
+    }
+    with pytest.raises(SystemExit, match="simulated host process exit"):
+        _run(campaign_ws, "state.end_session", args)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "settle_development",
+        original,
+    )
+    recovered = _run(campaign_ws, "state.end_session", args)
+    assert recovered["ok"] is True
+    assert recovered["data"]["development"]["status"] == "PASS"
+    endings = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("event_type") == "session_ending"
+        and row.get("decision_id") == args["decision_id"]
+    ]
+    assert len(endings) == 1
+
+
+def test_state_end_session_keeps_ending_when_settlement_is_pending(
+    campaign_ws, monkeypatch
+):
+    original = coc_toolbox.coc_runtime_ops.settle_development
+    attempts = 0
+
+    def unavailable(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise OSError("synthetic settlement outage")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "settle_development",
+        unavailable,
+    )
+    args = {
+        "kind": "retreat",
+        "summary": "the investigation closes despite bookkeeping trouble",
+        "decision_id": "toolbox-end-pending-retry",
+    }
+    pending = _run(campaign_ws, "state.end_session", args)
+    assert pending["ok"] is True
+    assert pending["data"]["session_ending"] is True
+    assert pending["data"]["development"]["status"] == "PENDING"
+    assert attempts == coc_toolbox._TOOL_TRANSIENT_RETRY_ATTEMPTS
+    assert any("ending is durable" in warning for warning in pending["warnings"])
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "settle_development",
+        original,
+    )
+    recovered = _run(campaign_ws, "state.end_session", args)
+    assert recovered["ok"] is True
+    assert recovered["data"]["development"]["status"] == "PASS"
+    assert any("pending development settlement completed" in warning
+               for warning in recovered["warnings"])
+    endings = [
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
+        )
+        if row.get("event_type") == "session_ending"
+        and row.get("decision_id") == args["decision_id"]
+    ]
+    assert len(endings) == 1
+
+
 def test_state_end_session_rejects_unknown_ending_kind(campaign_ws):
     envelope = _run(
         campaign_ws,
@@ -1005,6 +1094,172 @@ def test_state_end_session_rejects_unknown_ending_kind(campaign_ws):
     )
     assert envelope["ok"] is False
     assert envelope["error"]["code"] == "invalid_param"
+
+
+def test_combat_conclusion_synchronously_settles_development_once(
+    campaign_ws, monkeypatch
+):
+    monkeypatch.setattr(
+        coc_toolbox,
+        "_ending_rng",
+        lambda _ctx, _investigator_id: random.Random(5),
+    )
+    investigator_id = campaign_ws["investigator_id"]
+    clue = _run(
+        campaign_ws,
+        "state.record_clue",
+        {
+            "clue_id": "clue-own-dagger-ends-him",
+            "method": "structured fixture discovery",
+            "decision_id": "settle-own-dagger-clue",
+        },
+    )
+    assert clue["ok"] is True
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "settle-move"},
+    )
+    assert moved["ok"] is True
+
+    character_path = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id
+        / "character.json"
+    )
+    brawl_before = json.loads(character_path.read_text(encoding="utf-8"))[
+        "skills"
+    ]["Fighting (Brawl)"]
+    combat = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "strike-with-his-dagger",
+            "investigator": investigator_id,
+            "decision_id": "settle-combat",
+            "seed": 0,
+        },
+    )
+    assert combat["ok"] is True, combat
+    assert combat["data"]["combat"]["status"] == "concluded"
+    assert combat["data"]["combat"]["outcome"] == "investigators_win"
+    assert combat["data"]["improvement_ticks_recorded"] == [
+        "Fighting (Brawl)"
+    ]
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{investigator_id}.json"
+    )
+    assert json.loads(state_path.read_text(encoding="utf-8"))[
+        "skill_checks_earned"
+    ] == ["Fighting (Brawl)"]
+    combat_roll_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    combat_rolls_before_replay = combat_roll_path.read_text(encoding="utf-8")
+    replayed_combat = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "strike-with-his-dagger",
+            "investigator": investigator_id,
+            "decision_id": "settle-combat",
+            "seed": 999,
+        },
+    )
+    assert replayed_combat["ok"] is True
+    assert replayed_combat["data"] == combat["data"]
+    assert combat_roll_path.read_text(encoding="utf-8") == combat_rolls_before_replay
+    assert json.loads(state_path.read_text(encoding="utf-8"))[
+        "skill_checks_earned"
+    ] == ["Fighting (Brawl)"]
+
+    end_args = {
+        "kind": "conclusion",
+        "summary": "Corbitt is destroyed.",
+        "decision_id": "settle-ending",
+    }
+    ended = _run(campaign_ws, "state.end_session", end_args)
+    assert ended["ok"] is True, ended
+    assert ended["data"]["development"]["status"] == "PASS"
+    settlement = ended["data"]["development"]["settlements"][0]
+    assert settlement["status"] == "PASS"
+    receipt = settlement["receipt"]
+    result = receipt["result"]
+    assert result["skills_checked"] == ["Fighting (Brawl)"]
+    assert result["ending_evidence"]["conclusion_id"] == "corbitt-destroyed"
+    assert result["ending_evidence"]["conclusion_evidence"] == {
+        "kind": "combat_outcome",
+        "combat_id": "combat-corbitt-confrontation",
+        "combat_outcome": "investigators_win",
+        "scene_ref": "scene/corbitt-confrontation",
+        "event_type": "combat_ended",
+    }
+    assert result["scenario_san_reward_expr"] == "1D6"
+    assert result["scenario_san_reward"]["expression"] == "1D6"
+    improvement = result["skills_improved"][0]
+    assert improvement["skill"] == "Fighting (Brawl)"
+    assert improvement["value_before"] == brawl_before
+    assert json.loads(character_path.read_text(encoding="utf-8"))["skills"][
+        "Fighting (Brawl)"
+    ] == improvement["value_after"]
+    assert json.loads(state_path.read_text(encoding="utf-8"))[
+        "skill_checks_earned"
+    ] == []
+
+    roll_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rolls = _read_jsonl(roll_path)
+    kinds = [row.get("payload", {}).get("kind") for row in rolls]
+    assert kinds.count("development_check") == 1
+    assert kinds.count("development_gain") == 1
+    assert kinds.count("luck_recovery") == 1
+    assert kinds.count("scenario_san_reward") == 1
+    scenario_roll = next(
+        row for row in rolls
+        if row.get("payload", {}).get("kind") == "scenario_san_reward"
+    )
+    assert scenario_roll["visibility"] == "public"
+    assert scenario_roll["payload"]["die"] == "1D6"
+    roll_ids = [row["roll_id"] for row in rolls]
+    assert len(roll_ids) == len(set(roll_ids))
+    assert all(row.get("source_ref") == f"logs/rolls.jsonl#{row['roll_id']}"
+               for row in rolls)
+    assert all(row.get("payload", {}).get("roll_id") == row["roll_id"]
+               for row in rolls)
+
+    rolls_before_retry = roll_path.read_text(encoding="utf-8")
+    replay = _run(
+        campaign_ws,
+        "development.settle",
+        {
+            "investigator": investigator_id,
+            "decision_id": "settle-explicit-replay",
+            "seed": 999,
+        },
+    )
+    duplicate_replay = _run(
+        campaign_ws,
+        "development.settle",
+        {
+            "investigator": investigator_id,
+            "decision_id": "settle-explicit-replay",
+            "seed": 1,
+        },
+    )
+    duplicate_ending = _run(campaign_ws, "state.end_session", end_args)
+    assert replay["ok"] and duplicate_replay["ok"] and duplicate_ending["ok"]
+    assert replay["data"]["receipt"] == receipt
+    assert duplicate_replay["data"] == replay["data"]
+    assert duplicate_ending["data"] == ended["data"]
+    assert roll_path.read_text(encoding="utf-8") == rolls_before_retry
+    events = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
+    assert len([
+        row for row in events
+        if row.get("event_type") == "session_ending"
+        and row.get("decision_id") == "settle-ending"
+    ]) == 1
+    assert len([
+        row for row in events
+        if row.get("event_type") == "reward"
+        and row.get("source") == "conclusion_rewards"
+    ]) == 1
 
 
 # --------------------------------------------------------------------------- #

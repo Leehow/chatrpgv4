@@ -62,6 +62,8 @@ coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_time = _load_sibling("coc_time", "coc_time.py")
 coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
+coc_development = _load_sibling("coc_development_toolbox", "coc_development.py")
+coc_runtime_ops = _load_sibling("coc_runtime_ops_toolbox", "coc_runtime_ops.py")
 coc_narrative_enrichment = _load_sibling(
     "coc_narrative_enrichment_toolbox", "coc_narrative_enrichment.py"
 )
@@ -82,7 +84,10 @@ _LEDGER_MAX_ENTRIES = 300
 _TOOL_TRANSACTION_WAIT_SECONDS = 10.0
 _TOOL_TRANSIENT_RETRY_ATTEMPTS = 3
 _TOOL_TRANSIENT_RETRY_DELAY_SECONDS = 0.05
-_TRANSIENT_TOOL_ERRORS = {"campaign_busy", "subsystem_transaction_failed"}
+_TRANSIENT_TOOL_ERRORS = {
+    "campaign_busy", "subsystem_transaction_failed",
+    "development_settlement_failed",
+}
 _SKILL_BASES_CACHE: dict[str, tuple[str, int]] | None = None
 
 
@@ -409,6 +414,12 @@ def _error_recovery_hints(code: str) -> list[str]:
         ],
         "subsystem_transaction_failed": [
             "the subsystem rolled back the failed transaction; retry later with the same decision_id if automatic recovery is exhausted"
+        ],
+        "development_settlement_failed": [
+            "the ending remains recorded and the development transaction was rolled back; retry with the same decision_id"
+        ],
+        "settlement_unavailable": [
+            "record state.end_session first, then retry development.settle for that persisted ending"
         ],
     }
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
@@ -807,13 +818,21 @@ def _resolve_target_value(
     raise ToolError("unknown_skill", f"skill not on sheet: {skill}")
 
 
-def _mark_improvement_tick(ctx: Ctx, investigator_id: str, skill: str) -> None:
+def _mark_improvement_tick(
+    ctx: Ctx,
+    investigator_id: str,
+    skill: str,
+    roll_result: dict[str, Any],
+) -> bool:
+    if not coc_development.skill_tick_eligible(skill, roll_result):
+        return False
     state = ctx.inv_state(investigator_id)
     earned = state.get("skill_checks_earned") or []
     if skill not in earned:
         earned.append(skill)
         state["skill_checks_earned"] = earned
         ctx.save_inv_state(investigator_id, state)
+    return True
 
 
 def _roll_common(
@@ -864,8 +883,8 @@ def _roll_common(
         and label not in _CHARACTERISTIC_NAMES
         and label not in ("SAN", "LUCK")
     ):
-        _mark_improvement_tick(ctx, investigator_id, label)
-        hints.append(f"success: improvement tick recorded for {label}")
+        if _mark_improvement_tick(ctx, investigator_id, label, result):
+            hints.append(f"success: improvement tick recorded for {label}")
     if outcome == "critical":
         hints.append("critical success: consider an exceptional narrative payoff")
     if outcome == "fumble":
@@ -1399,6 +1418,76 @@ def _execute_subsystem_requests(
     return results, events
 
 
+def _record_combat_improvement_ticks(
+    ctx: Ctx,
+    *,
+    investigator_id: str,
+    events: list[dict[str, Any]],
+) -> list[str]:
+    """Project qualifying investigator combat rolls into toolbox tick state.
+
+    Combat remains owned by the subsystem executor.  This consumer reads only
+    its structured roll/turn receipts, binds them to skills on the reusable
+    investigator sheet, and delegates eligibility to ``coc_development``.
+    NPC, characteristic, damage, opposed-loser, and Luck-bought rolls therefore
+    cannot enter the development stream.
+    """
+    sheet_skills = ctx.sheet(investigator_id).get("skills") or {}
+    if not isinstance(sheet_skills, dict):
+        return []
+    canonical_skills = {
+        str(name).casefold(): str(name) for name in sheet_skills
+        if isinstance(name, str) and name.strip()
+    }
+    opposed_wins: dict[str, bool] = {}
+    for event in events:
+        if event.get("event_type") != "combat_turn_resolved":
+            continue
+        turn = event.get("turn")
+        if not isinstance(turn, dict):
+            continue
+        outcome = turn.get("opposed_outcome")
+        attack_roll_id = turn.get("roll_id")
+        defense_roll_id = turn.get("opposed_roll_id")
+        if isinstance(attack_roll_id, str) and outcome in {
+            "attacker_higher", "tie_attacker_wins",
+            "defender_higher", "tie_defender_wins",
+        }:
+            opposed_wins[attack_roll_id] = outcome in {
+                "attacker_higher", "tie_attacker_wins",
+            }
+        if isinstance(defense_roll_id, str) and outcome in {
+            "attacker_higher", "tie_attacker_wins",
+            "defender_higher", "tie_defender_wins",
+        }:
+            opposed_wins[defense_roll_id] = outcome in {
+                "defender_higher", "tie_defender_wins",
+            }
+
+    recorded: list[str] = []
+    for event in events:
+        if (
+            event.get("event_type") != "combat_roll"
+            or event.get("actor_id") != investigator_id
+        ):
+            continue
+        raw_skill = event.get("skill")
+        if not isinstance(raw_skill, str):
+            continue
+        skill = canonical_skills.get(raw_skill.casefold())
+        if skill is None:
+            continue
+        roll = deepcopy(event)
+        roll["kind"] = "combat_skill"
+        roll_id = roll.get("roll_id")
+        if isinstance(roll_id, str) and roll_id in opposed_wins:
+            roll["opposed_won"] = opposed_wins[roll_id]
+        if _mark_improvement_tick(ctx, investigator_id, skill, roll):
+            if skill not in recorded:
+                recorded.append(skill)
+    return recorded
+
+
 def _healing_tool_data(
     ctx: Ctx,
     investigator_id: str,
@@ -1887,14 +1976,25 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         requests=requests,
         seed=args.get("seed"),
     )
+    improvement_ticks = _record_combat_improvement_ticks(
+        ctx,
+        investigator_id=investigator_id,
+        events=events,
+    )
     current = _combat_state(ctx)
     data = {
         "results": results,
         "events": events,
         "combat": current,
         "pending_defense": deepcopy(current.get("pending_attack")),
+        "improvement_ticks_recorded": improvement_ticks,
     }
     hints: list[str] = []
+    if improvement_ticks:
+        hints.append(
+            "qualifying combat success: improvement tick recorded for "
+            + ", ".join(improvement_ticks)
+        )
     if isinstance(current.get("pending_attack"), dict):
         hints.append(
             "an attack is pending: ask the player for a legal defense, then call "
@@ -2943,34 +3043,243 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     return data, warnings, []
 
 
+def _ending_rng(ctx: Ctx, investigator_id: str) -> random.Random:
+    ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+    ending_id = ending.get("ending_id") if isinstance(ending, dict) else "pending-ending"
+    return random.Random(f"{ending_id}:{investigator_id}:development.settle")
+
+
+def _development_finalizer(
+    ctx: Ctx,
+    investigator_ids: list[str],
+) -> dict[str, Any]:
+    """Synchronously settle deterministic post-ending bookkeeping.
+
+    This is deliberately not a narrative gate.  Exhausted retries leave the
+    ending in place and return structured pending evidence for later replay.
+    """
+    ending = coc_development.structured_ending_evidence(ctx.campaign_dir)
+    if ending is None:
+        return {
+            "status": "PENDING",
+            "ending_id": None,
+            "settlements": [],
+            "error": "persisted ending evidence is unavailable",
+        }
+    unique_ids = list(dict.fromkeys(str(value) for value in investigator_ids if str(value)))
+    if not unique_ids:
+        return {
+            "status": "PENDING",
+            "ending_id": ending["ending_id"],
+            "settlements": [],
+            "error": "campaign party has no investigator identity to settle",
+        }
+    settlements: list[dict[str, Any]] = []
+    for investigator_id in unique_ids:
+        last_error: str | None = None
+        for attempt in range(1, _TOOL_TRANSIENT_RETRY_ATTEMPTS + 1):
+            try:
+                receipt = coc_runtime_ops.settle_development(
+                    ctx.campaign_dir,
+                    investigator_id,
+                    rng=_ending_rng(ctx, investigator_id),
+                )
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if attempt < _TOOL_TRANSIENT_RETRY_ATTEMPTS:
+                    time.sleep(_TOOL_TRANSIENT_RETRY_DELAY_SECONDS * attempt)
+                    continue
+                settlements.append({
+                    "investigator_id": investigator_id,
+                    "status": "PENDING",
+                    "attempts": attempt,
+                    "error": last_error,
+                })
+            else:
+                settlements.append({
+                    "investigator_id": investigator_id,
+                    "status": "PASS",
+                    "attempts": attempt,
+                    "receipt": receipt,
+                })
+            break
+    status = (
+        "PASS"
+        if settlements and all(row.get("status") == "PASS" for row in settlements)
+        else "PENDING"
+    )
+    return {
+        "status": status,
+        "ending_id": ending["ending_id"],
+        "settlements": settlements,
+    }
+
+
+def _record_settlement_pending(ctx: Ctx, development: dict[str, Any]) -> None:
+    ending_id = development.get("ending_id")
+    path = ctx.campaign_dir / "logs" / "events.jsonl"
+    existing: set[tuple[str, str]] = set()
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("event_type") == "development_settlement_pending":
+                existing.add((
+                    str(row.get("ending_id") or ""),
+                    str(row.get("investigator_id") or ""),
+                ))
+    for settlement in development.get("settlements") or []:
+        if not isinstance(settlement, dict) or settlement.get("status") != "PENDING":
+            continue
+        investigator_id = str(settlement.get("investigator_id") or "")
+        key = (str(ending_id or ""), investigator_id)
+        if key in existing:
+            continue
+        ctx.log_event({
+            "event_type": "development_settlement_pending",
+            "ending_id": ending_id,
+            "investigator_id": investigator_id,
+            "attempts": settlement.get("attempts"),
+            "error": settlement.get("error"),
+        })
+        existing.add(key)
+
+
+@tool(
+    "development.settle",
+    "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id; defaults to the linked party member"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+        "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
+    },
+)
+def _tool_development_settle(ctx: Ctx, args: dict[str, Any]):
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup("development.settle", decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    investigator_id = _resolve_investigator(ctx, args)
+    try:
+        rng = _rng(args) if args.get("seed") is not None else _ending_rng(
+            ctx, investigator_id
+        )
+        receipt = coc_runtime_ops.settle_development(
+            ctx.campaign_dir,
+            investigator_id,
+            rng=rng,
+        )
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        if "requires a persisted state.end_session" in str(exc):
+            raise ToolError("settlement_unavailable", str(exc)) from exc
+        raise ToolError("development_settlement_failed", str(exc)) from exc
+    except Exception as exc:
+        raise ToolError("development_settlement_failed", str(exc)) from exc
+    data = {
+        "ending_id": (receipt.get("result") or {}).get("ending_evidence", {}).get("ending_id"),
+        "receipt": receipt,
+    }
+    ctx.ledger_record(decision_id, "development.settle", data)
+    return data, [], ["development settlement is complete and safe to report"]
+
+
 @tool(
     "state.end_session",
-    "Declare a structured story ending at the current scene. Call exactly once, after your closing narration is decided.",
+    "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration.",
     {
         "kind": {"type": "string", "desc": "ending flavor: conclusion | tpk | retreat | cliffhanger (default conclusion)"},
         "summary": {"type": "string", "desc": "player-safe closing summary"},
+        "investigator": {"type": "string", "desc": "optional investigator id; defaults to every linked party member"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
 def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
     prior = ctx.ledger_lookup("state.end_session", args.get("decision_id"))
     if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
-    world = ctx.world()
-    scene_id = world.get("active_scene_id")
-    kind = str(args.get("kind") or "conclusion")
-    if kind not in {"conclusion", "tpk", "retreat", "cliffhanger"}:
-        raise ToolError(
-            "invalid_param",
-            "kind must be conclusion, tpk, retreat, or cliffhanger",
-        )
-    record: dict[str, Any] = {"event_type": "session_ending", "scene_id": scene_id, "kind": kind}
-    if args.get("summary"):
-        record["summary"] = str(args["summary"])
-    ctx.log_event(record)
-    data = {"session_ending": True, "scene_id": scene_id, "kind": kind}
+        data = deepcopy(prior.get("data") or {})
+        development = data.get("development")
+        if not isinstance(development, dict) or development.get("status") != "PASS":
+            targets = (
+                [str(args["investigator"])]
+                if args.get("investigator") else ctx.party_ids()
+            )
+            development = _development_finalizer(ctx, targets)
+            data["development"] = development
+            data["ending_id"] = development.get("ending_id")
+            ctx.ledger_record(args.get("decision_id"), "state.end_session", data)
+            if development.get("status") != "PASS":
+                _record_settlement_pending(ctx, development)
+                return data, [
+                    "duplicate ending receipt replayed; development settlement remains pending"
+                ], [
+                    "retry state.end_session or development.settle with the same decision identity"
+                ]
+            return data, [
+                "duplicate ending receipt replayed; pending development settlement completed"
+            ], []
+        return data, ["duplicate decision_id: returning the previously settled result"], []
+    decision_id = str(args["decision_id"])
+    existing_ending: dict[str, Any] | None = None
+    event_path = ctx.campaign_dir / "logs" / "events.jsonl"
+    if event_path.is_file():
+        for line in reversed(event_path.read_text(encoding="utf-8").splitlines()):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(row, dict)
+                and row.get("event_type") == "session_ending"
+                and row.get("decision_id") == decision_id
+            ):
+                existing_ending = row
+                break
+    if existing_ending is not None:
+        scene_id = existing_ending.get("scene_id")
+        kind = str(existing_ending.get("kind") or "conclusion")
+    else:
+        world = ctx.world()
+        scene_id = world.get("active_scene_id")
+        kind = str(args.get("kind") or "conclusion")
+        if kind not in {"conclusion", "tpk", "retreat", "cliffhanger"}:
+            raise ToolError(
+                "invalid_param",
+                "kind must be conclusion, tpk, retreat, or cliffhanger",
+            )
+        record: dict[str, Any] = {
+            "event_type": "session_ending",
+            "scene_id": scene_id,
+            "kind": kind,
+            "decision_id": decision_id,
+        }
+        if args.get("summary"):
+            record["summary"] = str(args["summary"])
+        ctx.log_event(record)
+    targets = (
+        [str(args["investigator"])]
+        if args.get("investigator") else ctx.party_ids()
+    )
+    development = _development_finalizer(ctx, targets)
+    data = {
+        "session_ending": True,
+        "scene_id": scene_id,
+        "kind": kind,
+        "ending_id": development.get("ending_id"),
+        "development": development,
+    }
     ctx.ledger_record(args.get("decision_id"), "state.end_session", data)
-    return data, [], []
+    if development.get("status") != "PASS":
+        _record_settlement_pending(ctx, development)
+        return data, [
+            "session ending is durable, but development settlement remains pending after bounded retries"
+        ], [
+            "retry state.end_session or development.settle with the same decision identity; do not reopen narration"
+        ]
+    return data, [], ["development settlement completed synchronously"]
 
 
 # --------------------------------------------------------------------------- #
@@ -2991,6 +3300,7 @@ _MUTATING_TOOLS = frozenset({
     "rules.dying_check",
     "combat.resolve",
     "combat.end",
+    "development.settle",
     "state.record_clue",
     "state.move_scene",
     "state.set_flag",

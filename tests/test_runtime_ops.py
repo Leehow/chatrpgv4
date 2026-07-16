@@ -30,6 +30,16 @@ state = _load(
 )
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def _workspace(root: Path) -> Path:
     state.create_campaign(root, "camp", "Parity Campaign")
     sheet = {
@@ -54,6 +64,30 @@ def _workspace(root: Path) -> Path:
         encoding="utf-8",
     )
     return root / ".coc" / "investigators" / "inv" / "character.json"
+
+
+def _seed_structured_combat_conclusion(
+    campaign: Path,
+    *,
+    scene_id: str = "corbitt-confrontation",
+    outcome: str = "investigators_win",
+) -> None:
+    combat_id = f"combat-{scene_id}"
+    (campaign / "save" / "combat.json").write_text(json.dumps({
+        "schema_version": 2,
+        "combat_id": combat_id,
+        "scene_ref": f"scene/{scene_id}",
+        "status": "concluded",
+        "outcome": outcome,
+    }), encoding="utf-8")
+    events = campaign / "logs" / "events.jsonl"
+    events.parent.mkdir(parents=True, exist_ok=True)
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "event_type": "combat_ended",
+            "combat_id": combat_id,
+            "outcome": outcome,
+        }) + "\n")
 
 
 def _cast_operation() -> dict:
@@ -244,6 +278,266 @@ def test_development_settle_is_shared_and_records_all_public_rolls(tmp_path):
     assert (direct_root / ".coc" / "campaigns" / "camp" / "logs" / "rolls.jsonl").read_text() == before
 
 
+def test_development_settle_recovers_crash_before_commit_marker(
+    tmp_path, monkeypatch
+):
+    crash_root = tmp_path / "crash"
+    control_root = tmp_path / "control"
+    crash_character = _workspace(crash_root)
+    control_character = _workspace(control_root)
+    for root in (crash_root, control_root):
+        campaign = root / ".coc" / "campaigns" / "camp"
+        inv_state = campaign / "save" / "investigator-state" / "inv.json"
+        inv_state.parent.mkdir(parents=True, exist_ok=True)
+        inv_state.write_text(json.dumps({
+            "investigator_id": "inv",
+            "current_luck": 50,
+            "current_san": 60,
+            "current_hp": 12,
+            "skill_checks_earned": ["Spot Hidden"],
+        }), encoding="utf-8")
+        events = campaign / "logs" / "events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(json.dumps({
+            "event_type": "session_ending",
+            "scene_id": "finale",
+            "kind": "cliffhanger",
+            "decision_id": "ending-crash-test",
+            "ts": "2026-07-15T00:00:00Z",
+        }) + "\n", encoding="utf-8")
+
+    operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
+    control = ops.execute_operation(
+        control_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=control_character,
+        operation=operation,
+        rng_seed=5,
+    )
+
+    original_write_roll = ops._write_public_roll
+
+    def crash_before_luck_roll(*args, **kwargs):
+        if kwargs.get("kind") == "luck_recovery":
+            raise SystemExit("simulated process crash before settlement commit")
+        return original_write_roll(*args, **kwargs)
+
+    monkeypatch.setattr(ops, "_write_public_roll", crash_before_luck_roll)
+    with pytest.raises(SystemExit, match="simulated process crash"):
+        ops.execute_operation(
+            crash_root,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=crash_character,
+            operation=operation,
+            rng_seed=5,
+        )
+    campaign = crash_root / ".coc" / "campaigns" / "camp"
+    inflight = campaign / "save" / "development-settlements" / "inv.inflight.json"
+    settlement = campaign / "save" / "development-settlements" / "inv.json"
+    assert inflight.is_file()
+    assert not settlement.exists()
+
+    monkeypatch.setattr(ops, "_write_public_roll", original_write_roll)
+    recovered = ops.execute_operation(
+        crash_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=crash_character,
+        operation=operation,
+        # The prepared journal, not this changed retry seed, owns replay dice.
+        rng_seed=999,
+    )
+    assert recovered == control
+    assert settlement.is_file()
+    assert not inflight.exists()
+    assert json.loads(crash_character.read_text(encoding="utf-8")) == json.loads(
+        control_character.read_text(encoding="utf-8")
+    )
+    crash_state = json.loads((
+        campaign / "save" / "investigator-state" / "inv.json"
+    ).read_text(encoding="utf-8"))
+    control_state = json.loads((
+        control_root / ".coc" / "campaigns" / "camp" / "save"
+        / "investigator-state" / "inv.json"
+    ).read_text(encoding="utf-8"))
+    assert crash_state == control_state
+    crash_rolls = [
+        row.get("payload")
+        for row in _read_jsonl(campaign / "logs" / "rolls.jsonl")
+    ]
+    control_rolls = [
+        row.get("payload")
+        for row in _read_jsonl(
+            control_root / ".coc" / "campaigns" / "camp" / "logs" / "rolls.jsonl"
+        )
+    ]
+    assert crash_rolls == control_rolls
+    assert len([
+        row for row in _read_jsonl(campaign / "logs" / "events.jsonl")
+        if row.get("type") == "development"
+    ]) == 1
+
+    rolls_before = (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8")
+    replay = ops.execute_operation(
+        crash_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=crash_character,
+        operation=operation,
+        rng_seed=1,
+    )
+    assert replay == recovered
+    assert (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8") == rolls_before
+
+
+@pytest.mark.parametrize(
+    "crash_site",
+    ["scenario_public_roll", "scenario_reward_event", "settlement_receipt"],
+)
+def test_development_settle_recovers_late_scenario_reward_crashes(
+    tmp_path, monkeypatch, crash_site
+):
+    crash_root = tmp_path / f"crash-{crash_site}"
+    control_root = tmp_path / f"control-{crash_site}"
+    crash_character = _workspace(crash_root)
+    control_character = _workspace(control_root)
+
+    def prepare(root: Path) -> Path:
+        campaign = root / ".coc" / "campaigns" / "camp"
+        scenario = campaign / "scenario"
+        scenario.mkdir(parents=True, exist_ok=True)
+        (scenario / "story-graph.json").write_text(json.dumps({
+            "scenes": [{
+                "scene_id": "corbitt-confrontation",
+                "conclusion_contract": {
+                    "conclusion_id": "corbitt-destroyed",
+                    "requires_combat_outcome": "investigators_win",
+                    "session_ending": True,
+                    "sanity_reward": {"die": "1D6", "rule_ref": "module.reward"},
+                },
+            }],
+        }), encoding="utf-8")
+        inv_state = campaign / "save" / "investigator-state" / "inv.json"
+        inv_state.write_text(json.dumps({
+            "investigator_id": "inv",
+            "current_luck": 50,
+            "current_san": 60,
+            "current_hp": 12,
+            "skill_checks_earned": ["Spot Hidden"],
+        }), encoding="utf-8")
+        _seed_structured_combat_conclusion(campaign)
+        with (campaign / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "event_type": "session_ending",
+                "scene_id": "corbitt-confrontation",
+                "kind": "conclusion",
+                "decision_id": "late-crash-ending",
+            }) + "\n")
+        return campaign
+
+    crash_campaign = prepare(crash_root)
+    control_campaign = prepare(control_root)
+    operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
+    control = ops.execute_operation(
+        control_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=control_character,
+        operation=operation,
+        rng_seed=5,
+    )
+
+    restore = None
+    if crash_site == "scenario_public_roll":
+        original = ops._write_public_roll
+
+        def crash_on_scenario_roll(*args, **kwargs):
+            if kwargs.get("kind") == "scenario_san_reward":
+                raise SystemExit("crash after scenario SAN mutation")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(ops, "_write_public_roll", crash_on_scenario_roll)
+        restore = lambda: monkeypatch.setattr(ops, "_write_public_roll", original)
+    elif crash_site == "scenario_reward_event":
+        original = ops._write_sanity_reward_event
+
+        def crash_after_reward_event(*args, **kwargs):
+            original(*args, **kwargs)
+            if kwargs.get("source") == "conclusion_rewards":
+                raise SystemExit("crash after scenario reward event")
+
+        monkeypatch.setattr(ops, "_write_sanity_reward_event", crash_after_reward_event)
+        restore = lambda: monkeypatch.setattr(
+            ops, "_write_sanity_reward_event", original
+        )
+    else:
+        original = ops.coc_fileio.write_json_atomic
+        settlement_path = (
+            crash_campaign / "save" / "development-settlements" / "inv.json"
+        )
+
+        def crash_before_receipt(path, *args, **kwargs):
+            if Path(path) == settlement_path:
+                raise SystemExit("crash immediately before settlement receipt")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(
+            ops.coc_fileio, "write_json_atomic", crash_before_receipt
+        )
+        restore = lambda: monkeypatch.setattr(
+            ops.coc_fileio, "write_json_atomic", original
+        )
+
+    with pytest.raises(SystemExit, match="crash"):
+        ops.execute_operation(
+            crash_root,
+            campaign_id="camp",
+            investigator_id="inv",
+            character_path=crash_character,
+            operation=operation,
+            rng_seed=5,
+        )
+    assert restore is not None
+    restore()
+    recovered = ops.execute_operation(
+        crash_root,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=crash_character,
+        operation=operation,
+        rng_seed=999,
+    )
+    assert recovered == control
+    assert json.loads(crash_character.read_text(encoding="utf-8")) == json.loads(
+        control_character.read_text(encoding="utf-8")
+    )
+    for relative in (
+        Path("save/investigator-state/inv.json"),
+        Path("save/sanity.json"),
+    ):
+        assert json.loads((crash_campaign / relative).read_text(encoding="utf-8")) == json.loads(
+            (control_campaign / relative).read_text(encoding="utf-8")
+        )
+    crash_rolls = _read_jsonl(crash_campaign / "logs" / "rolls.jsonl")
+    assert [row.get("payload") for row in crash_rolls] == [
+        row.get("payload")
+        for row in _read_jsonl(control_campaign / "logs" / "rolls.jsonl")
+    ]
+    roll_ids = [row["roll_id"] for row in crash_rolls]
+    assert len(roll_ids) == len(set(roll_ids))
+    reward_events = [
+        row for row in _read_jsonl(crash_campaign / "logs" / "events.jsonl")
+        if row.get("event_type") == "reward"
+        and row.get("source") == "conclusion_rewards"
+    ]
+    assert len(reward_events) == 1
+    assert not (
+        crash_campaign / "save" / "development-settlements" / "inv.inflight.json"
+    ).exists()
+
+
 def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
     character = _workspace(tmp_path)
     campaign = tmp_path / ".coc" / "campaigns" / "camp"
@@ -254,6 +548,7 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
             "scene_id": "corbitt-confrontation",
             "conclusion_contract": {
                 "conclusion_id": "corbitt-destroyed",
+                "requires_combat_outcome": "investigators_win",
                 "session_ending": True,
                 "sanity_reward": {
                     "die": "1D6",
@@ -262,15 +557,14 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
             },
         }],
     }), encoding="utf-8")
-    (campaign / "save" / "flags.json").write_text(json.dumps({
-        "flags": {"corbitt-destroyed": True},
-    }), encoding="utf-8")
-    (campaign / "logs" / "events.jsonl").write_text(json.dumps({
-        "event_type": "session_ending",
-        "scene_id": "corbitt-confrontation",
-        "kind": "conclusion",
-        "ts": "2026-07-15T00:00:00Z",
-    }) + "\n", encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign)
+    with (campaign / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({
+            "event_type": "session_ending",
+            "scene_id": "corbitt-confrontation",
+            "kind": "conclusion",
+            "ts": "2026-07-15T00:00:00Z",
+        }) + "\n")
 
     receipt = ops.execute_operation(
         tmp_path,
@@ -317,6 +611,65 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
     assert reward_event["conclusion_id"] == "corbitt-destroyed"
 
 
+def test_development_settle_rejects_stale_combat_victory(tmp_path):
+    character = _workspace(tmp_path)
+    campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True, exist_ok=True)
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": "corbitt-confrontation",
+            "conclusion_contract": {
+                "conclusion_id": "corbitt-destroyed",
+                "requires_combat_outcome": "investigators_win",
+                "session_ending": True,
+                "sanity_reward": {"die": "1D6", "rule_ref": "module.reward"},
+            },
+        }],
+    }), encoding="utf-8")
+    combat_id = "combat-corbitt-rematch"
+    (campaign / "save" / "combat.json").write_text(json.dumps({
+        "schema_version": 2,
+        "combat_id": combat_id,
+        "scene_ref": "scene/corbitt-confrontation",
+        "status": "concluded",
+        "outcome": "monsters_win",
+    }), encoding="utf-8")
+    (campaign / "logs" / "events.jsonl").write_text("\n".join([
+        json.dumps({
+            "event_type": "combat_ended",
+            "combat_id": combat_id,
+            "outcome": "investigators_win",
+        }),
+        json.dumps({
+            "event_type": "combat_ended",
+            "combat_id": combat_id,
+            "outcome": "monsters_win",
+        }),
+        json.dumps({
+            "event_type": "session_ending",
+            "scene_id": "corbitt-confrontation",
+            "kind": "conclusion",
+        }),
+    ]) + "\n", encoding="utf-8")
+
+    receipt = ops.execute_operation(
+        tmp_path,
+        campaign_id="camp",
+        investigator_id="inv",
+        character_path=character,
+        operation={"schema_version": 1, "kind": "development.settle", "payload": {}},
+        rng_seed=11,
+    )
+    assert receipt["result"]["ending_evidence"]["conclusion_id"] is None
+    assert receipt["result"]["scenario_san_reward_expr"] is None
+    assert "scenario_san_reward" not in receipt["result"]
+    assert not any(
+        row.get("payload", {}).get("kind") == "scenario_san_reward"
+        for row in _read_jsonl(campaign / "logs" / "rolls.jsonl")
+    )
+
+
 def _seed_quick_start_corbitt_ending(root: Path, campaign_id: str = "quick-san"):
     started = ops.execute_setup_operation(
         root,
@@ -331,10 +684,7 @@ def _seed_quick_start_corbitt_ending(root: Path, campaign_id: str = "quick-san")
         },
     )
     campaign = root / ".coc" / "campaigns" / campaign_id
-    flags_path = campaign / "save" / "flags.json"
-    flags = json.loads(flags_path.read_text(encoding="utf-8"))
-    flags.setdefault("flags", {})["corbitt-destroyed"] = True
-    flags_path.write_text(json.dumps(flags), encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign)
     with (campaign / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({
             "event_type": "session_ending",

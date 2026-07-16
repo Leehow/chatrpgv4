@@ -12,13 +12,19 @@ Settle only from structured ending evidence. Require a persisted
 scenario ending or conclusion identifier. Never infer an ending from narration,
 player prose, or keyword matching.
 
-Use the canonical `development.settle` runtime operation in
-`../../scripts/coc_runtime_ops.py`. Do not reproduce its arithmetic in the host.
+Use the canonical `development.settle` operation exposed by the Keeper toolbox
+and implemented in `../../scripts/coc_runtime_ops.py`. Do not reproduce its
+arithmetic in the host. A successful `state.end_session` synchronously composes
+this operation for linked investigators; the first-class operation remains
+available to replay a structured pending settlement.
 
 ## Workflow
 
-1. Confirm the ending receipt and investigator identity.
-2. Call `development.settle` once. The operation must synchronously consume all
+1. Confirm the ending receipt, investigator identity, and the development
+   status returned by `state.end_session`.
+2. When that status is `PASS`, use its settlement receipt. When it is
+   `PENDING`, retry `state.end_session` or call `development.settle` with the
+   same decision/ending identity. The operation must synchronously consume all
    earned skill checks, roll improvements, recover Luck, apply any structured
    scenario SAN reward, update the reusable `character.json`, clear consumed
    campaign ticks, and return a settlement receipt.
@@ -30,7 +36,9 @@ Use the canonical `development.settle` runtime operation in
 ## Persistence and evidence
 
 Treat permanent character changes and campaign investigator state as critical
-writes: complete them before reporting success. Record every public development,
+writes: complete them before reporting success. The settlement journal restores
+any crash-before-receipt attempt and replays its original dice before committing.
+Record every public development,
 reward, and Luck die in the authoritative roll log with a stable `roll_id`,
 public visibility, expression/target, component dice, and numerical result.
 

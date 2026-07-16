@@ -797,7 +797,162 @@ def _hazard_operation(
     }
 
 
-def _development_operation(
+def _development_transaction_paths(
+    campaign_dir: Path,
+    investigator_id: str,
+    settlement_path: Path,
+) -> tuple[dict[str, Path], dict[str, Path]]:
+    coc_root = campaign_dir.parents[1]
+    files = {
+        "character": coc_root / "investigators" / investigator_id / "character.json",
+        "legacy_ticks": coc_root / "investigators" / investigator_id / "development.jsonl",
+        "investigator_state": (
+            campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json"
+        ),
+        "pacing_state": campaign_dir / "save" / "pacing-state.json",
+        "sanity": campaign_dir / "save" / "sanity.json",
+        "settlement": settlement_path,
+    }
+    logs = {
+        "events": campaign_dir / "logs" / "events.jsonl",
+        "rolls": campaign_dir / "logs" / "rolls.jsonl",
+    }
+    return files, logs
+
+
+def _random_state_to_json(value: Any) -> Any:
+    if isinstance(value, tuple):
+        return [_random_state_to_json(item) for item in value]
+    return value
+
+
+def _random_state_from_json(value: Any) -> Any:
+    if isinstance(value, list):
+        return tuple(_random_state_from_json(item) for item in value)
+    return value
+
+
+def _capture_development_inflight(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    ending_id: str,
+    settlement_path: Path,
+    inflight_path: Path,
+    rng: random.Random,
+) -> dict[str, Any]:
+    files, logs = _development_transaction_paths(
+        campaign_dir, investigator_id, settlement_path
+    )
+    file_preimages: dict[str, Any] = {}
+    for name, path in files.items():
+        if path.is_file():
+            file_preimages[name] = {
+                "exists": True,
+                "text": path.read_text(encoding="utf-8"),
+            }
+        else:
+            file_preimages[name] = {"exists": False, "text": None}
+    log_preimages: dict[str, Any] = {}
+    for name, path in logs.items():
+        log_preimages[name] = {
+            "exists": path.is_file(),
+            "size": path.stat().st_size if path.is_file() else 0,
+        }
+    journal = {
+        "schema_version": 1,
+        "status": "prepared",
+        "ending_id": ending_id,
+        "investigator_id": investigator_id,
+        "rng_state": _random_state_to_json(rng.getstate()),
+        "file_preimages": file_preimages,
+        "log_preimages": log_preimages,
+        "prepared_at": _now(),
+    }
+    inflight_path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        inflight_path,
+        journal,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return journal
+
+
+def _restore_development_inflight(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    settlement_path: Path,
+    journal: dict[str, Any],
+) -> None:
+    if (
+        journal.get("schema_version") != 1
+        or journal.get("status") != "prepared"
+        or journal.get("investigator_id") != investigator_id
+    ):
+        raise RuntimeOperationError("invalid development settlement inflight journal")
+    files, logs = _development_transaction_paths(
+        campaign_dir, investigator_id, settlement_path
+    )
+    file_preimages = journal.get("file_preimages")
+    log_preimages = journal.get("log_preimages")
+    if (
+        not isinstance(file_preimages, dict)
+        or set(file_preimages) != set(files)
+        or not isinstance(log_preimages, dict)
+        or set(log_preimages) != set(logs)
+    ):
+        raise RuntimeOperationError("development settlement journal target set is invalid")
+    for name, path in files.items():
+        preimage = file_preimages[name]
+        if not isinstance(preimage, dict) or set(preimage) != {"exists", "text"}:
+            raise RuntimeOperationError("development settlement file preimage is invalid")
+        if preimage.get("exists") is True:
+            text = preimage.get("text")
+            if not isinstance(text, str):
+                raise RuntimeOperationError("development settlement file preimage is unreadable")
+            coc_fileio.write_text_atomic(path, text)
+        elif preimage.get("exists") is False and preimage.get("text") is None:
+            path.unlink(missing_ok=True)
+        else:
+            raise RuntimeOperationError("development settlement file preimage is invalid")
+    for name, path in logs.items():
+        preimage = log_preimages[name]
+        if not isinstance(preimage, dict) or set(preimage) != {"exists", "size"}:
+            raise RuntimeOperationError("development settlement log preimage is invalid")
+        size = preimage.get("size")
+        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+            raise RuntimeOperationError("development settlement log offset is invalid")
+        if preimage.get("exists") is True:
+            if not path.is_file() or path.stat().st_size < size:
+                raise RuntimeOperationError(
+                    "development settlement log cannot be restored to its prepared offset"
+                )
+            with path.open("r+b") as handle:
+                handle.truncate(size)
+                handle.flush()
+                os.fsync(handle.fileno())
+        elif preimage.get("exists") is False and size == 0:
+            path.unlink(missing_ok=True)
+        else:
+            raise RuntimeOperationError("development settlement log preimage is invalid")
+
+
+def _settled_receipt_for_ending(
+    settlement_path: Path, ending_id: str
+) -> dict[str, Any] | None:
+    if not settlement_path.is_file():
+        return None
+    settled = _read_object(settlement_path)
+    if settled.get("ending_id") != ending_id:
+        return None
+    receipt = settled.get("receipt")
+    return receipt if isinstance(receipt, dict) else None
+
+
+def _development_operation_body(
     *,
     campaign_dir: Path,
     investigator_id: str,
@@ -1004,6 +1159,123 @@ def _development_operation(
         trailing_newline=True,
     )
     return receipt
+
+
+def _development_operation(
+    *,
+    campaign_dir: Path,
+    investigator_id: str,
+    payload: dict[str, Any],
+    rng: random.Random,
+) -> dict[str, Any]:
+    """Run one crash-recoverable development transaction.
+
+    The completed settlement receipt is the commit marker.  Before any
+    permanent sheet/resource mutation, a durable journal records exact file
+    preimages, append-log offsets, and the caller RNG state.  A process restart
+    restores an uncommitted attempt and replays it with the original dice;
+    ordinary exceptions restore immediately.  This keeps same-ending retries
+    side-effect-free without moving deterministic bookkeeping into a host.
+    """
+    if payload:
+        raise RuntimeOperationError("development.settle payload must be empty")
+    ending = coc_development.structured_ending_evidence(campaign_dir)
+    if ending is None:
+        raise RuntimeOperationError(
+            "development.settle requires a persisted state.end_session receipt"
+        )
+    ending_id = str(ending["ending_id"])
+    settlement_path = (
+        campaign_dir / "save" / "development-settlements" / f"{investigator_id}.json"
+    )
+    inflight_path = settlement_path.with_name(f"{investigator_id}.inflight.json")
+
+    receipt = _settled_receipt_for_ending(settlement_path, ending_id)
+    if receipt is not None:
+        # A crash after the commit marker but before journal cleanup is already
+        # a completed transaction; cleanup cannot cause a second settlement.
+        if inflight_path.is_file():
+            inflight_path.unlink(missing_ok=True)
+        return receipt
+
+    journal: dict[str, Any] | None = None
+    if inflight_path.is_file():
+        journal = _read_object(inflight_path)
+        journal_ending_id = journal.get("ending_id")
+        committed = (
+            _settled_receipt_for_ending(settlement_path, str(journal_ending_id))
+            if isinstance(journal_ending_id, str) else None
+        )
+        if committed is not None:
+            inflight_path.unlink(missing_ok=True)
+            journal = None
+        else:
+            _restore_development_inflight(
+                campaign_dir=campaign_dir,
+                investigator_id=investigator_id,
+                settlement_path=settlement_path,
+                journal=journal,
+            )
+            if journal_ending_id == ending_id:
+                try:
+                    rng.setstate(_random_state_from_json(journal.get("rng_state")))
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeOperationError(
+                        "development settlement journal RNG state is invalid"
+                    ) from exc
+            else:
+                inflight_path.unlink(missing_ok=True)
+                journal = None
+
+    if journal is None:
+        journal = _capture_development_inflight(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            ending_id=ending_id,
+            settlement_path=settlement_path,
+            inflight_path=inflight_path,
+            rng=rng,
+        )
+
+    try:
+        receipt = _development_operation_body(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            payload=payload,
+            rng=rng,
+        )
+    except Exception:
+        _restore_development_inflight(
+            campaign_dir=campaign_dir,
+            investigator_id=investigator_id,
+            settlement_path=settlement_path,
+            journal=journal,
+        )
+        inflight_path.unlink(missing_ok=True)
+        raise
+    inflight_path.unlink(missing_ok=True)
+    return receipt
+
+
+def settle_development(
+    campaign_dir: Path | str,
+    investigator_id: str,
+    *,
+    rng: random.Random | None = None,
+) -> dict[str, Any]:
+    """Shared non-locking settlement entry for an already locked host/tool.
+
+    Top-level hosts should continue to use :func:`execute_operation`, which
+    acquires the campaign lock.  The canonical toolbox already owns that lock,
+    so its post-ending finalizer calls this narrow entry instead of nesting a
+    second lock.
+    """
+    return _development_operation(
+        campaign_dir=Path(campaign_dir),
+        investigator_id=_id(investigator_id, "investigator_id"),
+        payload={},
+        rng=rng or random.Random(),
+    )
 
 
 def _campaign_summaries(workspace: Path) -> list[dict[str, Any]]:

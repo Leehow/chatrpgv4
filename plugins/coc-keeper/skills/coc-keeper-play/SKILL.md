@@ -392,9 +392,12 @@ Close a scenario the way a human Keeper would (p.212-213):
 2. **Give each investigator a short epilogue.** Invite the player to co-write
    it — one beat of aftermath, consequence, or unresolved dread per person.
 3. **Route settlement to `coc-development`.** That canonical skill consumes
-   the persisted `state.end_session` receipt and structured scenario ending;
-   it calls `development.settle` for improvement checks, permanent sheet
-   write-back, scenario SAN reward, Luck recovery, and evidence exactly once.
+   the persisted `state.end_session` receipt and structured scenario ending.
+   `state.end_session` synchronously composes `development.settle` for
+   improvement checks, permanent sheet write-back, scenario SAN reward, Luck
+   recovery, and evidence exactly once. Inspect its returned development
+   status; if it is `PENDING`, preserve the ending and replay the same identity
+   through `state.end_session` or the first-class `development.settle` tool.
    Do not copy its arithmetic here or infer an ending from prose.
 4. **Do not recover Luck separately.** It is part of `development.settle`.
 5. **Investigator deaths must be meaningful.** Before the lights go out,

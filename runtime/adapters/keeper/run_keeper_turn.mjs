@@ -125,6 +125,8 @@ function keeperSystemPrompt(request) {
     "state.journal is not a substitute: call state.end_session exactly once with the",
     "matching structured kind. A retreat may leave the scenario unresolved. Never write",
     "a definitive closing narration while leaving the structured ending receipt absent.",
+    "state.end_session synchronously returns development PASS or PENDING; a PENDING result",
+    "does not reopen or invalidate the ending and may be replayed with the same identity.",
     ...continuationPolicy,
     "Never defer dice, HP/SAN/Luck, clues, NPC state, time, scene, journal, ending,",
     "or development writes. Only append-only JSONL audit/mirror flushing may happen",

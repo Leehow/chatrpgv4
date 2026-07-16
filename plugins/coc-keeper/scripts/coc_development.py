@@ -162,6 +162,20 @@ def _tick_excluded(skill: str, roll_result: dict[str, Any]) -> bool:
     return False
 
 
+def skill_tick_eligible(skill: str, roll_result: dict[str, Any]) -> bool:
+    """Return whether structured roll evidence earns a development tick.
+
+    Toolbox percentile checks and subsystem combat rolls share this predicate
+    so host adapters cannot drift into separate improvement rules.  Callers
+    remain responsible for binding the roll to the active investigator and to
+    a skill that exists on that investigator's reusable sheet.
+    """
+    skill = str(skill or "").strip()
+    return bool(skill and isinstance(roll_result, dict) and not _tick_excluded(
+        skill, roll_result
+    ))
+
+
 def record_skill_tick(
     campaign_dir: Path,
     investigator_id: str,
@@ -173,9 +187,7 @@ def record_skill_tick(
     Returns the tick record, or ``None`` when excluded by W0-6 structured rules.
     """
     skill = str(skill or "").strip()
-    if not skill or not isinstance(roll_result, dict):
-        return None
-    if _tick_excluded(skill, roll_result):
+    if not skill_tick_eligible(skill, roll_result):
         return None
 
     path = _development_path(campaign_dir, investigator_id)
@@ -241,8 +253,10 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
     """Return the latest persisted ending plus any authored scenario reward.
 
     The match is entirely structured: the ending event supplies the scene and
-    ending kind, the story graph supplies its conclusion contract, and a
-    same-named flag proves the conclusion when a SAN reward is present.
+    ending kind, the story graph supplies its conclusion contract, and any
+    required combat outcome is proven by the canonical combat snapshot plus a
+    matching ``combat_ended`` receipt recorded before the ending.  No prose,
+    decision-id fragment, or duplicate generic flag participates in matching.
     """
     campaign_dir = Path(campaign_dir)
     event_path = campaign_dir / "logs" / "events.jsonl"
@@ -250,11 +264,14 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
         return None
     ending: dict[str, Any] | None = None
     ending_index = 0
+    event_rows: list[tuple[int, dict[str, Any]]] = []
     for index, line in enumerate(event_path.read_text(encoding="utf-8").splitlines(), start=1):
         try:
             row = json.loads(line)
         except json.JSONDecodeError:
             continue
+        if isinstance(row, dict):
+            event_rows.append((index, row))
         if isinstance(row, dict) and row.get("event_type") == "session_ending":
             ending = row
             ending_index = index
@@ -277,13 +294,54 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
 
     conclusion_id = contract.get("conclusion_id")
     conclusion_proven = False
+    conclusion_evidence: dict[str, Any] | None = None
     if ending.get("kind") == "conclusion" and isinstance(conclusion_id, str):
-        flags_path = campaign_dir / "save" / "flags.json"
-        try:
-            flags = json.loads(flags_path.read_text(encoding="utf-8")) if flags_path.is_file() else {}
-        except (OSError, json.JSONDecodeError):
-            flags = {}
-        conclusion_proven = (flags.get("flags") or {}).get(conclusion_id) is True
+        required_outcome = contract.get("requires_combat_outcome")
+        if isinstance(required_outcome, str) and required_outcome:
+            combat_path = campaign_dir / "save" / "combat.json"
+            try:
+                combat = (
+                    json.loads(combat_path.read_text(encoding="utf-8"))
+                    if combat_path.is_file() else {}
+                )
+            except (OSError, json.JSONDecodeError):
+                combat = {}
+            combat_id = combat.get("combat_id") if isinstance(combat, dict) else None
+            scene_ref = combat.get("scene_ref") if isinstance(combat, dict) else None
+            receipt = next((
+                row
+                for index, row in reversed(event_rows)
+                if index < ending_index
+                and row.get("event_type") == "combat_ended"
+                and row.get("combat_id") == combat_id
+            ), None)
+            conclusion_proven = bool(
+                isinstance(combat_id, str)
+                and combat_id
+                and scene_ref == f"scene/{ending.get('scene_id')}"
+                and combat.get("status") == "concluded"
+                and combat.get("outcome") == required_outcome
+                and isinstance(receipt, dict)
+                and receipt.get("outcome") == required_outcome
+            )
+            if conclusion_proven:
+                conclusion_evidence = {
+                    "kind": "combat_outcome",
+                    "combat_id": combat_id,
+                    "combat_outcome": required_outcome,
+                    "scene_ref": scene_ref,
+                    "event_type": "combat_ended",
+                }
+        else:
+            # A conclusion contract without an additional mechanical
+            # prerequisite is proven by the persisted conclusion ending itself.
+            conclusion_proven = contract.get("session_ending") is True
+            if conclusion_proven:
+                conclusion_evidence = {
+                    "kind": "session_ending",
+                    "event_type": "session_ending",
+                    "scene_id": ending.get("scene_id"),
+                }
 
     reward = contract.get("sanity_reward") if conclusion_proven else None
     reward_expr = reward.get("die") if isinstance(reward, dict) else None
@@ -303,6 +361,7 @@ def structured_ending_evidence(campaign_dir: Path) -> dict[str, Any] | None:
         "scene_id": ending.get("scene_id"),
         "kind": ending.get("kind"),
         "conclusion_id": conclusion_id if conclusion_proven else None,
+        "conclusion_evidence": conclusion_evidence,
         "scenario_san_reward_expr": reward_expr if isinstance(reward_expr, str) else None,
         "scenario_san_reward_rule_ref": (
             reward.get("rule_ref") if isinstance(reward, dict) else None
