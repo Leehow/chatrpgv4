@@ -47,11 +47,14 @@ Edition fields
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import shutil
 import stat
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -76,6 +79,13 @@ SOURCE_INDEX_FILES = (
     "parse-manifest.json",
     "evidence-segments.jsonl",
 )
+_LOCAL_SOURCE_PATH_FIELDS = {
+    "base_dir",
+    "module_source",
+    "source_bundle_path",
+    "source_pdf",
+    "source_root",
+}
 
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+", re.UNICODE)
@@ -119,6 +129,36 @@ def registry_path(coc_root: Path) -> Path:
 
 def module_dir(coc_root: Path, canonical_module_id: str) -> Path:
     return library_root(coc_root) / canonical_module_id
+
+
+def _require_safe_component(value: str, field: str) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", text):
+        raise ValueError(f"{field} must be a safe path component")
+    return text
+
+
+def _require_contained_without_symlinks(root: Path, path: Path, field: str) -> None:
+    trusted_root = Path(os.path.abspath(root))
+    candidate = Path(os.path.abspath(path))
+    try:
+        relative = candidate.relative_to(trusted_root)
+    except ValueError as exc:
+        raise ValueError(f"{field} escapes its trusted root") from exc
+    cursor = trusted_root
+    if cursor.is_symlink():
+        raise ValueError(f"{field} contains a symlink: {cursor}")
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError(f"{field} contains a symlink: {cursor}")
+
+
+def _require_safe_destination_directory(path: Path, field: str) -> None:
+    if path.is_symlink():
+        raise ValueError(f"{field} must not be a symlink")
+    if path.exists() and not path.is_dir():
+        raise ValueError(f"{field} must be a directory")
 
 
 def normalize_module_identity(identity: dict[str, Any]) -> dict[str, Any]:
@@ -404,6 +444,50 @@ def _contained_regular_file(root: Path, path: Path) -> Path:
     return resolved
 
 
+def _is_unsafe_local_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    text = value.strip().replace("\\", "/")
+    path = Path(text)
+    return (
+        "\x00" in text
+        or path.is_absolute()
+        or ".." in path.parts
+        or bool(re.match(r"^[A-Za-z]:/", text))
+    )
+
+
+def _reject_unsafe_persisted_source_paths(value: Any) -> None:
+    """Reject local-machine paths only in explicitly structured source fields."""
+    if isinstance(value, list):
+        for item in value:
+            _reject_unsafe_persisted_source_paths(item)
+        return
+    if not isinstance(value, dict):
+        return
+    for key, item in value.items():
+        source_ref_path = key == "path" and (
+            "source_id" in value
+            or any(
+                locator in value
+                for locator in ("grep_anchor", "page", "pdf_index", "printed_page")
+            )
+        )
+        if (key in _LOCAL_SOURCE_PATH_FIELDS or source_ref_path) and _is_unsafe_local_path(item):
+            raise ValueError(f"absolute or unsafe local source path is not allowed in {key}")
+        _reject_unsafe_persisted_source_paths(item)
+
+
+def _validate_scenario_source_paths(scenario_dir: Path) -> None:
+    for filename in SCENARIO_FILES:
+        path = _contained_regular_file(scenario_dir, scenario_dir / filename)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid scenario JSON in {filename}: {exc}") from exc
+        _reject_unsafe_persisted_source_paths(payload)
+
+
 def _discover_source_index_dir(scenario_dir: Path) -> Path | None:
     """Return sibling package index/ when present as an atomic optional bundle."""
     package_root = Path(scenario_dir).resolve().parent
@@ -433,7 +517,9 @@ def _discover_source_index_dir(scenario_dir: Path) -> Path | None:
     return index_dir
 
 
-def _load_and_strip_source_bundle(index_dir: Path) -> dict[str, Any]:
+def _load_and_strip_source_bundle(
+    index_dir: Path, *, expected_scenario_id: str | None = None
+) -> dict[str, Any]:
     page_map = json.loads((index_dir / "page-map.json").read_text(encoding="utf-8"))
     parse_manifest = json.loads(
         (index_dir / "parse-manifest.json").read_text(encoding="utf-8")
@@ -448,6 +534,73 @@ def _load_and_strip_source_bundle(index_dir: Path) -> dict[str, Any]:
         segments.append(row)
     if not isinstance(page_map, dict) or not isinstance(parse_manifest, dict):
         raise ValueError("source evidence page-map/parse-manifest must be objects")
+    for filename, payload in (
+        ("page-map.json", page_map),
+        ("parse-manifest.json", parse_manifest),
+    ):
+        if payload.get("schema_version") != 1:
+            raise ValueError(f"invalid source evidence {filename}: schema_version must be 1")
+        scenario_id = str(payload.get("scenario_id") or "").strip()
+        if not scenario_id:
+            raise ValueError(f"invalid source evidence {filename}: scenario_id is required")
+        if expected_scenario_id is not None and scenario_id != expected_scenario_id:
+            raise ValueError(
+                f"source evidence scenario_id {scenario_id!r} in {filename} "
+                f"does not match scenario {expected_scenario_id!r}"
+            )
+    if page_map["scenario_id"] != parse_manifest["scenario_id"]:
+        raise ValueError("source evidence scenario_id values do not match")
+
+    sources = page_map.get("sources")
+    ranges = parse_manifest.get("ranges")
+    if not isinstance(sources, list) or not isinstance(ranges, list):
+        raise ValueError("source evidence sources/ranges must be lists")
+    source_by_id: dict[str, dict[str, Any]] = {}
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ValueError("source evidence source entries must be objects")
+        source_id = str(source.get("source_id") or "").strip()
+        if not source_id or source_id in source_by_id:
+            raise ValueError("source evidence source_id values must be unique and non-empty")
+        if not isinstance(source.get("pages"), list):
+            raise ValueError(f"source evidence pages for {source_id!r} must be a list")
+        source_by_id[source_id] = source
+    for record in ranges:
+        if not isinstance(record, dict):
+            raise ValueError("source evidence range entries must be objects")
+        source_id = str(record.get("source_id") or "").strip()
+        source = source_by_id.get(source_id)
+        if source is None:
+            raise ValueError(f"source evidence range has unknown source_id {source_id!r}")
+        if not isinstance(record.get("pdf_indices"), list):
+            raise ValueError("source evidence range pdf_indices must be a list")
+        source_hash = str(source.get("file_sha256") or "").strip()
+        range_hash = str(record.get("file_sha256") or "").strip()
+        if source_hash and range_hash and source_hash != range_hash:
+            raise ValueError(f"source evidence hash binding mismatch for {source_id!r}")
+    for segment in segments:
+        source_id = str(segment.get("source_id") or "").strip()
+        if source_id not in source_by_id:
+            raise ValueError(f"source evidence segment has unknown source_id {source_id!r}")
+        locator = segment.get("locator")
+        if not isinstance(locator, dict) or coc_pdf_source.resolve_locator(
+            {"source_id": source_id, **locator}, page_map
+        ) is None:
+            raise ValueError(
+                f"invalid source evidence locator for {segment.get('segment_id')!r}"
+            )
+        declared_hash = str(segment.get("text_sha256") or "").strip()
+        local_text = segment.get("text")
+        if isinstance(local_text, str):
+            actual_hash = hashlib.sha256(local_text.encode("utf-8")).hexdigest()
+            if not declared_hash or declared_hash != actual_hash:
+                raise ValueError(
+                    f"source evidence text_sha256 mismatch for {segment.get('segment_id')!r}"
+                )
+        elif not declared_hash:
+            raise ValueError(
+                f"source evidence text_sha256 is required for {segment.get('segment_id')!r}"
+            )
     # Never persist absolute staging roots into the library entry.
     if "source_root" in page_map:
         page_map = dict(page_map)
@@ -457,96 +610,109 @@ def _load_and_strip_source_bundle(index_dir: Path) -> dict[str, Any]:
         "parse_manifest": parse_manifest,
         "evidence_segments": segments,
     }
+    _reject_unsafe_persisted_source_paths(bundle)
     return coc_pdf_source.strip_local_evidence_text(bundle)
 
 
-def _install_stripped_index_bundle(entry_index: Path, campaign_dir: Path) -> None:
-    """Copy a library index bundle into the campaign and rebind source_root locally."""
-    if not entry_index.is_dir():
-        return
-    for name in SOURCE_INDEX_FILES:
-        _contained_regular_file(entry_index, entry_index / name)
-    bundle = _load_and_strip_source_bundle(entry_index)
-    # Fail closed if registry somehow retained local prose.
-    for segment in bundle.get("evidence_segments") or []:
-        if isinstance(segment, dict) and "text" in segment:
-            raise ValueError("registry source evidence must not contain text")
-    dest = campaign_dir / "index"
-    if dest.exists():
-        for name in SOURCE_INDEX_FILES:
-            if (dest / name).exists():
-                raise FileExistsError(
-                    f"campaign already has source index file {name}; "
-                    "refusing to overwrite"
-                )
-    staging = campaign_dir / ".index.staging-root"
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True, exist_ok=True)
-    try:
-        coc_pdf_source.write_source_bundle(
-            staging,
-            bundle["page_map"],
-            bundle["parse_manifest"],
-            bundle["evidence_segments"],
-        )
-        staged_index = staging / "index"
-        if dest.exists():
-            backup = campaign_dir / ".index.bak"
-            if backup.exists():
-                shutil.rmtree(backup)
-            dest.rename(backup)
-            try:
-                staged_index.rename(dest)
-            except Exception:
-                backup.rename(dest)
-                raise
-            shutil.rmtree(backup, ignore_errors=True)
-        else:
-            staged_index.rename(dest)
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
+def _write_source_index_bundle(package_root: Path, bundle: dict[str, Any]) -> dict[str, str]:
+    """Transactionally replace the three source members, preserving other index files."""
+    package_root = Path(package_root)
+    _require_safe_destination_directory(package_root, "source evidence package")
+    package_root.mkdir(parents=True, exist_ok=True)
+    index_dir = package_root / "index"
+    _require_safe_destination_directory(index_dir, "source evidence index")
+    index_dir.mkdir(parents=True, exist_ok=True)
+    targets = {name: index_dir / name for name in SOURCE_INDEX_FILES}
+    for name, target in targets.items():
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError(f"source evidence target must be a regular file: {name}")
 
-
-def _register_source_index(scenario_dir: Path, entry_dir: Path) -> bool:
-    index_dir = _discover_source_index_dir(scenario_dir)
-    if index_dir is None:
-        return False
-    bundle = _load_and_strip_source_bundle(index_dir)
-    for segment in bundle.get("evidence_segments") or []:
-        if isinstance(segment, dict) and "text" in segment:
-            raise ValueError("stripped source evidence still contains text")
-    staging_root = entry_dir / ".index.staging-root"
-    if staging_root.exists():
-        shutil.rmtree(staging_root)
-    staging_root.mkdir(parents=True, exist_ok=True)
-    try:
+    with tempfile.TemporaryDirectory(prefix=".source-evidence-", dir=package_root) as temporary:
+        temporary_root = Path(temporary)
+        staging_root = temporary_root / "payload"
         coc_pdf_source.write_source_bundle(
             staging_root,
             bundle["page_map"],
             bundle["parse_manifest"],
             bundle["evidence_segments"],
         )
-        staged = staging_root / "index"
-        dest = entry_dir / "index"
-        if dest.exists():
-            backup = entry_dir / ".index.bak"
-            if backup.exists():
-                shutil.rmtree(backup)
-            dest.rename(backup)
-            try:
-                staged.rename(dest)
-            except Exception:
-                backup.rename(dest)
-                raise
-            shutil.rmtree(backup, ignore_errors=True)
-        else:
-            staged.rename(dest)
-    finally:
-        if staging_root.exists():
-            shutil.rmtree(staging_root, ignore_errors=True)
-    return True
+        staged_index = staging_root / "index"
+        backup_dir = temporary_root / "backup"
+        backup_dir.mkdir()
+        backups: dict[str, Path] = {}
+        installed: list[str] = []
+        try:
+            for name in SOURCE_INDEX_FILES:
+                target = targets[name]
+                if target.exists():
+                    backup = backup_dir / name
+                    target.replace(backup)
+                    backups[name] = backup
+                (staged_index / name).replace(target)
+                installed.append(name)
+        except BaseException:
+            for name in reversed(installed):
+                targets[name].unlink(missing_ok=True)
+            for name, backup in backups.items():
+                backup.replace(targets[name])
+            raise
+    return {name: str(targets[name]) for name in SOURCE_INDEX_FILES}
+
+
+def _preflight_campaign_source_index(campaign_dir: Path) -> None:
+    index_dir = campaign_dir / "index"
+    if index_dir.is_symlink():
+        raise ValueError("campaign source evidence index must not be a symlink")
+    if index_dir.exists() and not index_dir.is_dir():
+        raise ValueError("campaign source evidence index must be a directory")
+    present: list[str] = []
+    for name in SOURCE_INDEX_FILES:
+        member = index_dir / name
+        if member.is_symlink():
+            raise ValueError(f"campaign source evidence member must not be a symlink: {name}")
+        if member.exists():
+            if not member.is_file():
+                raise ValueError(f"campaign source evidence member must be a file: {name}")
+            present.append(name)
+    if present and set(present) != set(SOURCE_INDEX_FILES):
+        missing = sorted(set(SOURCE_INDEX_FILES) - set(present))
+        raise ValueError(
+            "campaign source evidence bundle must contain all members; missing: "
+            + ", ".join(missing)
+        )
+
+
+def _install_stripped_index_bundle(
+    entry_index: Path, campaign_dir: Path, *, expected_scenario_id: str
+) -> dict[str, str]:
+    """Copy a library index bundle into the campaign and rebind source_root locally."""
+    if not entry_index.is_dir():
+        return {}
+    for name in SOURCE_INDEX_FILES:
+        _contained_regular_file(entry_index, entry_index / name)
+    bundle = _load_and_strip_source_bundle(
+        entry_index, expected_scenario_id=expected_scenario_id
+    )
+    # Fail closed if registry somehow retained local prose.
+    for segment in bundle.get("evidence_segments") or []:
+        if isinstance(segment, dict) and "text" in segment:
+            raise ValueError("registry source evidence must not contain text")
+    return _write_source_index_bundle(campaign_dir, bundle)
+
+
+def _register_source_index(
+    scenario_dir: Path, entry_dir: Path, *, expected_scenario_id: str
+) -> dict[str, str]:
+    index_dir = _discover_source_index_dir(scenario_dir)
+    if index_dir is None:
+        return {}
+    bundle = _load_and_strip_source_bundle(
+        index_dir, expected_scenario_id=expected_scenario_id
+    )
+    for segment in bundle.get("evidence_segments") or []:
+        if isinstance(segment, dict) and "text" in segment:
+            raise ValueError("stripped source evidence still contains text")
+    return _write_source_index_bundle(entry_dir, bundle)
 
 
 def _write_license_note(entry_dir: Path) -> None:
@@ -570,6 +736,7 @@ def register_module(
         raise ValueError(
             "refusing to register invalid scenario: " + "; ".join(errors)
         )
+    _validate_scenario_source_paths(scenario_dir)
 
     identity.setdefault("schema_version", IDENTITY_SCHEMA_VERSION)
     identity["canonical_module_id"] = cid
@@ -592,9 +759,20 @@ def register_module(
             )
 
     entry_dir = module_dir(coc_root, cid)
+    _require_contained_without_symlinks(
+        library_root(coc_root), entry_dir, "module library entry"
+    )
+    _require_safe_destination_directory(entry_dir, "module library entry")
     entry_dir.mkdir(parents=True, exist_ok=True)
     _copy_scenario_atomic(scenario_dir, entry_dir / "scenario")
-    has_source_index = _register_source_index(scenario_dir, entry_dir)
+    scenario_meta = json.loads(
+        (scenario_dir / "module-meta.json").read_text(encoding="utf-8")
+    )
+    expected_scenario_id = str(scenario_meta.get("scenario_id") or "").strip()
+    source_evidence_paths = _register_source_index(
+        scenario_dir, entry_dir, expected_scenario_id=expected_scenario_id
+    )
+    has_source_index = bool(source_evidence_paths)
     sidecar_names = discover_optional_scenario_sidecars(entry_dir / "scenario")
     coc_fileio.write_json_atomic(
         entry_dir / "identity.json",
@@ -620,6 +798,7 @@ def register_module(
         "summary": registry["modules"][cid],
         "validation_warnings": result.get("warnings") or [],
         "has_source_index": has_source_index,
+        "source_evidence_paths": source_evidence_paths,
         "has_epistemic_sidecars": bool(sidecar_names),
     }
 
@@ -760,16 +939,31 @@ def install_to_campaign(
     campaign_id: str,
 ) -> dict[str, Any]:
     """Copy library scenario into a campaign and activate it (starter semantics)."""
+    canonical_module_id = _require_safe_component(
+        canonical_module_id, "canonical_module_id"
+    )
+    campaign_id = _require_safe_component(campaign_id, "campaign_id")
     entry = _load_entry(coc_root, canonical_module_id)
     if entry is None:
         raise FileNotFoundError(f"unknown module: {canonical_module_id}")
 
     base = _coc_root(coc_root)
     campaign_dir = base / "campaigns" / campaign_id
+    _require_contained_without_symlinks(
+        base / "campaigns", campaign_dir, "campaign directory"
+    )
     if not campaign_dir.is_dir():
         raise FileNotFoundError(f"unknown campaign: {campaign_id}")
 
     src_dir = Path(entry["scenario_dir"])
+    meta = json.loads((src_dir / "module-meta.json").read_text(encoding="utf-8"))
+    scenario_id = str(meta.get("scenario_id") or canonical_module_id)
+    entry_index = Path(entry["path"]) / "index"
+    if entry_index.is_dir():
+        _preflight_campaign_source_index(campaign_dir)
+        _load_and_strip_source_bundle(
+            entry_index, expected_scenario_id=scenario_id
+        )
     scenario_dir = campaign_dir / "scenario"
     for fname in SCENARIO_FILES:
         if (scenario_dir / fname).exists():
@@ -785,12 +979,13 @@ def install_to_campaign(
     for fname in sidecars:
         shutil.copy2(src_dir / fname, scenario_dir / fname)
 
-    entry_index = Path(entry["path"]) / "index"
+    source_evidence_paths: dict[str, str] = {}
     if entry_index.is_dir():
-        _install_stripped_index_bundle(entry_index, campaign_dir)
-
-    meta = json.loads((scenario_dir / "module-meta.json").read_text(encoding="utf-8"))
-    scenario_id = str(meta.get("scenario_id") or canonical_module_id)
+        source_evidence_paths = _install_stripped_index_bundle(
+            entry_index,
+            campaign_dir,
+            expected_scenario_id=scenario_id,
+        )
 
     campaign_path = campaign_dir / "campaign.json"
     campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
@@ -832,6 +1027,7 @@ def install_to_campaign(
         "scenario_dir": str(scenario_dir),
         "paths": installed_paths,
         "has_source_index": (campaign_dir / "index" / "page-map.json").is_file(),
+        "source_evidence_paths": source_evidence_paths,
         "has_epistemic_sidecars": bool(sidecars),
     }
 

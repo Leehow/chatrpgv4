@@ -820,6 +820,8 @@ def _write_source_index(
     with_text: bool = True,
     file_sha256: str = "a" * 64,
 ) -> None:
+    import hashlib
+
     index = package_root / "index"
     index.mkdir(parents=True, exist_ok=True)
     page_map = {
@@ -852,23 +854,36 @@ def _write_source_index(
             }
         ],
     }
+    evidence_text = "SECRET SOURCE PROSE MUST NOT ENTER THE REGISTRY"
     segment = {
         "segment_id": "seg-1",
         "source_id": "pdf:x",
         "locator": {"pdf_index": 9, "printed_page": 12},
         "parse_confidence": 0.91,
         "review_state": "manual_accepted",
-        "text_sha256": "b" * 64,
+        "text_sha256": hashlib.sha256(evidence_text.encode("utf-8")).hexdigest(),
         "grep_anchors": ["Corbitt"],
     }
     if with_text:
-        segment["text"] = "SECRET SOURCE PROSE MUST NOT ENTER THE REGISTRY"
+        segment["text"] = evidence_text
     (index / "page-map.json").write_text(json.dumps(page_map), encoding="utf-8")
     (index / "parse-manifest.json").write_text(
         json.dumps(parse_manifest), encoding="utf-8"
     )
     (index / "evidence-segments.jsonl").write_text(
         json.dumps(segment) + "\n", encoding="utf-8"
+    )
+
+
+def _register_demo(root: Path, scenario: Path) -> dict:
+    return coc_module_registry.register_module(
+        root,
+        scenario,
+        {
+            "canonical_module_id": "demo-module",
+            "canonical_title": "Demo Module",
+            "edition": "7e",
+        },
     )
 
 
@@ -897,16 +912,24 @@ def test_register_strips_evidence_text_and_install_rebinds_source_root(tmp_path:
         },
     )
     assert entry["has_source_index"] is True
+    assert set(entry["source_evidence_paths"]) == set(
+        coc_module_registry.SOURCE_INDEX_FILES
+    )
     library_segments = (
         root / "module-library" / "demo-module" / "index" / "evidence-segments.jsonl"
     ).read_text(encoding="utf-8")
     assert "SECRET SOURCE PROSE" not in library_segments
     assert '"text"' not in library_segments
     assert "seg-1" in library_segments
-    assert "b" * 64 in library_segments
+    assert hashlib.sha256(
+        b"SECRET SOURCE PROSE MUST NOT ENTER THE REGISTRY"
+    ).hexdigest() in library_segments
 
     result = coc_module_registry.install_to_campaign(root, "demo-module", "camp-1")
     assert result["has_source_index"] is True
+    assert set(result["source_evidence_paths"]) == set(
+        coc_module_registry.SOURCE_INDEX_FILES
+    )
     campaign = root / "campaigns" / "camp-1"
     installed_segment = json.loads(
         (campaign / "index" / "evidence-segments.jsonl")
@@ -967,6 +990,138 @@ def test_register_rejects_symlink_source_index(tmp_path: Path):
                 "edition": "7e",
             },
         )
+
+
+@pytest.mark.parametrize(
+    ("member", "mutation", "message"),
+    [
+        ("page-map.json", lambda row: row.update(schema_version=2), "schema_version"),
+        ("page-map.json", lambda row: row.update(scenario_id="other"), "scenario_id"),
+        (
+            "parse-manifest.json",
+            lambda row: row["ranges"][0].update(file_sha256="f" * 64),
+            "hash binding",
+        ),
+    ],
+)
+def test_register_deep_validates_source_bundle(
+    tmp_path: Path, member, mutation, message
+):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    _write_source_index(package)
+    path = package / "index" / member
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutation(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        _register_demo(root, scenario)
+    assert not (root / "module-library" / "demo-module" / "identity.json").exists()
+
+
+def test_register_rejects_source_text_hash_mismatch(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    _write_source_index(package)
+    path = package / "index" / "evidence-segments.jsonl"
+    segment = json.loads(path.read_text(encoding="utf-8"))
+    segment["text_sha256"] = "0" * 64
+    path.write_text(json.dumps(segment) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="text_sha256 mismatch"):
+        _register_demo(root, scenario)
+
+
+def test_register_rejects_absolute_structured_source_path(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    story = scenario / "story-graph.json"
+    payload = json.loads(story.read_text(encoding="utf-8"))
+    payload["source_refs"] = [{"source_id": "pdf:x", "path": "/private/book.pdf"}]
+    story.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="absolute or unsafe local source path"):
+        _register_demo(root, scenario)
+
+
+def test_register_rejects_symlinked_module_destination(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "module-library" / "demo-module").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        _register_demo(root, scenario)
+    assert list(outside.iterdir()) == []
+
+
+def test_install_rejects_campaign_traversal_before_mutation(tmp_path: Path):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    _register_demo(root, scenario)
+    sentinel = tmp_path / "sentinel"
+    sentinel.write_text("unchanged", encoding="utf-8")
+    with pytest.raises(ValueError, match="safe path component"):
+        coc_module_registry.install_to_campaign(root, "demo-module", "../../outside")
+    assert sentinel.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_install_rejects_partial_campaign_source_bundle_before_scenario_write(
+    tmp_path: Path,
+):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    coc_state.create_campaign(root, "camp-1", "Camp")
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    _write_source_index(package, with_text=False)
+    _register_demo(root, scenario)
+    campaign = root / "campaigns" / "camp-1"
+    (campaign / "index").mkdir(exist_ok=True)
+    (campaign / "index" / "page-map.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="all members"):
+        coc_module_registry.install_to_campaign(root, "demo-module", "camp-1")
+    assert not any((campaign / "scenario").iterdir())
+
+
+def test_source_bundle_write_failure_rolls_back_and_preserves_unrelated_index(
+    tmp_path: Path, monkeypatch
+):
+    root = tmp_path / ".coc"
+    coc_state.ensure_workspace(root)
+    package = tmp_path / "package"
+    scenario = _make_valid_scenario(package)
+    _write_source_index(package)
+    entry = root / "module-library" / "demo-module"
+    entry.mkdir(parents=True)
+    (entry / "index").mkdir()
+    unrelated = entry / "index" / "keep.json"
+    unrelated.write_text('{"keep":true}\n', encoding="utf-8")
+
+    real_writer = coc_module_registry.coc_pdf_source.write_source_bundle
+
+    def fail_writer(staging_root, page_map, manifest, segments):
+        real_writer(staging_root, page_map, manifest, segments)
+        raise OSError("injected source bundle failure")
+
+    monkeypatch.setattr(
+        coc_module_registry.coc_pdf_source, "write_source_bundle", fail_writer
+    )
+    with pytest.raises(OSError, match="injected source bundle failure"):
+        _register_demo(root, scenario)
+    assert unrelated.read_text(encoding="utf-8") == '{"keep":true}\n'
+    assert not any(
+        (entry / "index" / name).exists()
+        for name in coc_module_registry.SOURCE_INDEX_FILES
+    )
 
 
 def _write_epistemic_sidecars(scenario_dir: Path, *, partial: bool = False) -> None:
