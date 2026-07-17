@@ -139,6 +139,56 @@ def test_final_report_preserves_zero_character_and_roll_values(tmp_path):
     assert "- Target: 60" not in markdown
 
 
+@pytest.mark.parametrize(
+    ("expression", "raw", "total", "expected_roll"),
+    [
+        ("2D6", [6, 3], 9, "2D6 = 9"),
+        ("1D1-1", [1], 0, "1D1-1 = 0"),
+    ],
+)
+def test_nested_dice_total_is_complete_and_rendered(
+    tmp_path, expression, raw, total, expected_roll
+):
+    module = _load()
+    run = tmp_path / f"nested-{total}"
+    _fixture(run)
+    rolls = (
+        run
+        / "sandbox"
+        / ".coc"
+        / "campaigns"
+        / "case-1"
+        / "logs"
+        / "rolls.jsonl"
+    )
+    _write_jsonl(
+        rolls,
+        [
+            {
+                "roll_id": f"nested-{total}",
+                "visibility": "public",
+                "payload": {
+                    "roll_id": f"nested-{total}",
+                    "dice": {
+                        "expression": expression,
+                        "raw": raw,
+                        "total": total,
+                    },
+                },
+            }
+        ],
+    )
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "COMPLETE"
+    assert report["public_rolls"]["status"] == "PASS"
+    assert report["public_rolls"]["malformed_source_lines"] == []
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert f"- Roll: {expected_roll}" in markdown
+    assert f"- Raw Dice: {', '.join(map(str, raw))}" in markdown
+
+
 def test_evidence_hashes_sources_and_renders_public_roll_exactly_once(tmp_path):
     module = _load()
     run = tmp_path / "run"

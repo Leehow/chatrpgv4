@@ -205,18 +205,25 @@ def _roll_id(row: Any) -> str | None:
     return None
 
 
+def _is_numeric(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _has_numeric_roll(row: Any) -> bool:
     if not isinstance(row, dict):
         return False
     payload = row.get("payload")
+    if isinstance(payload, dict):
+        dice = payload.get("dice")
+        if isinstance(dice, dict) and _is_numeric(dice.get("total")):
+            return True
     for source in (row, payload if isinstance(payload, dict) else {}):
         for key in ("roll", "rolls", "total", "result", "value"):
             value = source.get(key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if _is_numeric(value):
                 return True
             if isinstance(value, list) and value and all(
-                isinstance(item, (int, float)) and not isinstance(item, bool)
-                for item in value
+                _is_numeric(item) for item in value
             ):
                 return True
     return False
@@ -456,6 +463,21 @@ def _first_not_none(*values: Any) -> Any:
     return None
 
 
+def _nested_dice_display(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return None
+    dice = payload.get("dice")
+    if not isinstance(dice, dict):
+        return None
+    total = dice.get("total")
+    if not _is_numeric(total):
+        return None
+    expression = dice.get("expression")
+    if isinstance(expression, str) and expression.strip():
+        return f"{expression.strip()} = {total}"
+    return total
+
+
 def _display(value: Any) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
@@ -527,6 +549,7 @@ def _markdown(report: dict[str, Any]) -> str:
     lines.extend(["## Public Rules and Dice", "", f"Public roll count: **{rolls['required_count']}**.", f"Dice completeness: **{rolls['status']}**.", ""])
     for roll in rolls["records"]:
         payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else {}
+        dice = payload.get("dice") if isinstance(payload.get("dice"), dict) else {}
         lines.extend([f"### `{_roll_id(roll) or 'MISSING'}`", ""])
         fields = (
             (
@@ -547,9 +570,11 @@ def _markdown(report: dict[str, Any]) -> str:
                 "Roll",
                 _first_not_none(
                     _first(payload, ("roll", "rolls", "total", "result", "value")),
+                    _nested_dice_display(payload),
                     _first(roll, ("roll", "rolls", "total", "result", "value")),
                 ),
             ),
+            ("Raw Dice", _first(dice, ("raw",))),
             (
                 "Target",
                 _first_not_none(
