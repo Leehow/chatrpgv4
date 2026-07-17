@@ -187,3 +187,8 @@ deleted before starting a fresh run. Do not add migrations, dual readers,
 compatibility fallbacks, or old-ID remapping. Historical battle reports remain
 read-only evidence and are never resumed as runtime state. Same-version atomic
 backup/restore for crash safety is allowed; it is not a compatibility layer.
+
+Coverage plans, per-run observations, and cross-lane visited unions are
+evaluator-only post-run evidence. They may report gaps or schedule additional
+playtest lanes, but must never allow, deny, reorder, suppress, or force scenes,
+clues, narration, actions, rewards, development, or endings.

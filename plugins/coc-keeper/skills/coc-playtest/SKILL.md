@@ -381,6 +381,28 @@ Completion audit output should preserve `optional_evidence_runs` from `loop-deci
 
 Do not use a natural-language matcher based on literal headings, keyword hits, or fixed prose fragments to prove playtest coverage, module fidelity, rule intent, spoiler safety, player intent, or KP answer quality. If a judgment depends on what human-language text means, route it through an LLM semantic evaluator and record the evaluator id plus `coverage_reasons`.
 
+### Exhaustive structured coverage ledger
+
+`../../scripts/coc_playtest_coverage.py` provides an evaluator-only ledger for
+new-format Scenario IR. Its `plan` command derives targets only from structured
+IDs and explicit graph edges; `observe` projects authoritative post-run
+receipts; `aggregate` unions independent fresh-baseline lanes. All three
+artifacts carry `narrative_gate: false`. An incomplete aggregate is evidence
+for another playtest lane, never a live-turn gate or permission signal.
+
+```bash
+uv run --frozen python ../../scripts/coc_playtest_coverage.py plan \
+  --scenario-dir <campaign>/scenario --output <private-plan.json>
+uv run --frozen python ../../scripts/coc_playtest_coverage.py observe \
+  --plan <private-plan.json> --run-dir <run-dir>
+uv run --frozen python ../../scripts/coc_playtest_coverage.py aggregate \
+  --plan <private-plan.json> --observation <observation.json> \
+  --output <coverage-aggregate.json>
+```
+
+Coverage artifacts require the exact current schema and source-bundle digest;
+do not migrate or reuse stale plans or observations.
+
 Exact matching is allowed only for machine-controlled schema fields, enum values, JSON keys, file paths, and system markers such as `coverage_evaluator`, `coverage_reasons`, `run_id`, `audit_profile`, or `subsystems_covered`. Offline deterministic tests may inject a fixture evaluator. The default non-LLM path may use structured source data only; it must not claim semantic coverage from Markdown section titles or keyword snippets.
 
 Rulebook audits should use deterministic checks only for structured evidence such as coverage enums, event types, roll payload fields, rule ids, chase state fields, and required source files. Do not require hardcoded natural-language report moment strings as proof of module fidelity, chase quality, or rule intent. Semantic quality is recorded in `semantic-eval-result.json`; source-to-report completeness is checked separately against structured source records.
