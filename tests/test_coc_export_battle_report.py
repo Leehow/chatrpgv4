@@ -92,6 +92,53 @@ def test_final_report_is_readable_actual_play_not_raw_payload_dump(tmp_path):
     assert "{'condition':" not in markdown
 
 
+def test_final_report_preserves_zero_character_and_roll_values(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
+    _write_json(
+        investigator / "character.json",
+        {
+            "id": "ada",
+            "name": "艾达 | Ada",
+            "hp": 11,
+            "san": 54,
+            "mp": 9,
+        },
+    )
+    _write_json(
+        campaign / "save" / "investigator-state" / "ada.json",
+        {"investigator_id": "ada", "hp": 0, "san": 0, "mp": 0},
+    )
+    _write_jsonl(
+        campaign / "logs" / "rolls.jsonl",
+        [
+            {
+                "roll_id": "zero-roll",
+                "roll": 87,
+                "effective_target": 60,
+                "visibility": "public",
+                "payload": {
+                    "roll_id": "zero-roll",
+                    "roll": 0,
+                    "effective_target": 0,
+                    "outcome": "failure",
+                },
+            }
+        ],
+    )
+
+    module.export_battle_report(run)
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    for field in ("HP", "SAN", "MP", "Roll", "Target"):
+        assert f"- {field}: 0" in markdown
+    assert "- HP: 11" not in markdown
+    assert "- Roll: 87" not in markdown
+    assert "- Target: 60" not in markdown
+
+
 def test_evidence_hashes_sources_and_renders_public_roll_exactly_once(tmp_path):
     module = _load()
     run = tmp_path / "run"

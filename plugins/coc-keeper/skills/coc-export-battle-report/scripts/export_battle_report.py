@@ -449,6 +449,13 @@ def _first(mapping: Any, keys: tuple[str, ...]) -> Any:
     return None
 
 
+def _first_not_none(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def _display(value: Any) -> str:
     if isinstance(value, bool):
         return "yes" if value else "no"
@@ -482,9 +489,27 @@ def _markdown(report: dict[str, Any]) -> str:
             ("ID", investigator["investigator_id"]),
             ("Occupation", _first(character, ("occupation", "profession"))),
             ("Age", _first(character, ("age",))),
-            ("HP", _first(state, ("hp", "hit_points")) or _first(character, ("hp", "hit_points"))),
-            ("SAN", _first(state, ("san", "sanity")) or _first(character, ("san", "sanity"))),
-            ("MP", _first(state, ("mp", "magic_points")) or _first(character, ("mp", "magic_points"))),
+            (
+                "HP",
+                _first_not_none(
+                    _first(state, ("hp", "hit_points")),
+                    _first(character, ("hp", "hit_points")),
+                ),
+            ),
+            (
+                "SAN",
+                _first_not_none(
+                    _first(state, ("san", "sanity")),
+                    _first(character, ("san", "sanity")),
+                ),
+            ),
+            (
+                "MP",
+                _first_not_none(
+                    _first(state, ("mp", "magic_points")),
+                    _first(character, ("mp", "magic_points")),
+                ),
+            ),
             ("Conditions", _first(state, ("conditions",))),
         )
         lines.extend(f"- {label}: {_display(value)}" for label, value in fields if value not in (None, "", []))
@@ -504,12 +529,48 @@ def _markdown(report: dict[str, Any]) -> str:
         payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else {}
         lines.extend([f"### `{_roll_id(roll) or 'MISSING'}`", ""])
         fields = (
-            ("Actor", _first(roll, ("actor", "investigator_id")) or _first(payload, ("actor", "investigator_id"))),
-            ("Check", _first(payload, ("skill", "attribute", "reason", "expression")) or _first(roll, ("skill", "reason", "expression"))),
-            ("Roll", _first(payload, ("roll", "rolls", "total", "result", "value")) or _first(roll, ("roll", "rolls", "total", "result", "value"))),
-            ("Target", _first(payload, ("effective_target", "target")) or _first(roll, ("effective_target", "target"))),
-            ("Difficulty", _first(payload, ("difficulty",)) or _first(roll, ("difficulty",))),
-            ("Outcome", _first(payload, ("outcome", "success_level")) or _first(roll, ("outcome", "success_level"))),
+            (
+                "Actor",
+                _first_not_none(
+                    _first(roll, ("actor", "investigator_id")),
+                    _first(payload, ("actor", "investigator_id")),
+                ),
+            ),
+            (
+                "Check",
+                _first_not_none(
+                    _first(payload, ("skill", "attribute", "reason", "expression")),
+                    _first(roll, ("skill", "reason", "expression")),
+                ),
+            ),
+            (
+                "Roll",
+                _first_not_none(
+                    _first(payload, ("roll", "rolls", "total", "result", "value")),
+                    _first(roll, ("roll", "rolls", "total", "result", "value")),
+                ),
+            ),
+            (
+                "Target",
+                _first_not_none(
+                    _first(payload, ("effective_target", "target")),
+                    _first(roll, ("effective_target", "target")),
+                ),
+            ),
+            (
+                "Difficulty",
+                _first_not_none(
+                    _first(payload, ("difficulty",)),
+                    _first(roll, ("difficulty",)),
+                ),
+            ),
+            (
+                "Outcome",
+                _first_not_none(
+                    _first(payload, ("outcome", "success_level")),
+                    _first(roll, ("outcome", "success_level")),
+                ),
+            ),
             ("Visibility", _roll_visibility(roll)),
             ("Source", roll.get("source_ref")),
         )

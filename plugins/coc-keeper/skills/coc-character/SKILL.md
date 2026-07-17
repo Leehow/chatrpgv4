@@ -67,7 +67,7 @@ player-visible background prose and detail blocks in `player_facing_sheet_zh`
 (`backstory_summary` and optional `backstory_details`) before rendering. Raw
 English/canonical backstory is audit data unless explicitly localized.
 
-<!-- CODEX_ONLY_IMAGEGEN_START -->
+<!-- CODEX_ONLY_IMAGEGEN_BEGIN -->
 ## Codex-Only Portrait Generation
 
 Portrait generation is available only in Codex. If this skill is running outside
