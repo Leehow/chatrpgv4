@@ -2,7 +2,7 @@
 
 模组编译产出的 7 个 JSON 文件 schema + 字段说明 + 完整示例。文件存于 `campaigns/<id>/scenario/`，由 coc-scenario-import 的"剧情图编译"流程产出，被 coc-story-director 在运行期消费。
 
-源 spec：`docs/superpowers/specs/2026-07-05-story-director-design.md` 的 "Scenario Story-Graph Schema" 章节。
+历史 spec 已退役归档，见墓碑索引 `docs/status/DIAGNOSIS-LEDGER.md`。
 
 编译期硬断言（由 `scripts/coc_scenario_compile.py --validate` 校验）：
 

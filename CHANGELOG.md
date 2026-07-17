@@ -2,8 +2,9 @@
 
 本文件集中记录 COC Keeper 对玩家、Keeper、插件集成方和 runtime 调用方有影响的变更。
 格式参考 Keep a Changelog；发布边界以 Git tag 和
-`plugins/coc-keeper/.codex-plugin/plugin.json` 为准。历史执行细节仍保留在
-`docs/superpowers/` 与 `.superpowers/sdd/`，但不再要求读者从这些文件拼接版本变化。
+`plugins/coc-keeper/.codex-plugin/plugin.json` 为准。历史 specs/plans/reviews 已按
+`docs/status/DIAGNOSIS-LEDGER.md` 逐条终结归档并从版本库移除；LEDGER 保留为墓碑索引，
+不再要求读者从历史文件拼接版本变化。
 唯一实时状态来源是 `docs/status/CURRENT.md`。
 
 ## [Unreleased] — manifest `0.4.0-alpha.0` (release name `0.4.0a`)

@@ -1,6 +1,6 @@
 # Memory Protocol
 
-Grep-native memory layer for the COC Story Director. See `docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md`.
+Grep-native memory layer for the COC Story Director. The historical design spec is retired; see the tombstone index `docs/status/DIAGNOSIS-LEDGER.md`.
 
 ## Layout
 ```

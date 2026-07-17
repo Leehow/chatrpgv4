@@ -8,7 +8,7 @@ DirectorPlan.narrative_directives"). We cannot unit-test LLM narration output
 sufficient directives for an LLM narrator to write a compliant scene without
 violating constraints.
 
-Spec: docs/superpowers/specs/2026-07-05-story-director-design.md (Section 6)
+Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 """
 from __future__ import annotations
 

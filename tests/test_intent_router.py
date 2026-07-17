@@ -2,8 +2,8 @@
 """Tests for coc_intent_router: Semantic Matcher Constitution compliant.
 
 The router no longer does keyword matching for intent classification — that
-would violate the Constitution (docs/superpowers/specs/2026-07-03-coc-keeper-
-design.md:541). Semantic judgments are delegated to an ``IntentEvaluator``
+would violate the Semantic Matcher Constitution (see `AGENTS.md`). Semantic
+judgments are delegated to an ``IntentEvaluator``
 (Protocol). These tests inject a fixture evaluator (as the Constitution
 permits) and verify:
 

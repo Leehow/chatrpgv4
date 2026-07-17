@@ -24,7 +24,7 @@ evidence is structured only — never prose keywords:
 - LEGACY: the scene is the last entry in ``story-graph.json`` ``scenes``
   when the graph never declares ``scene_edges``.
 
-Spec: docs/superpowers/specs/2026-07-06-story-director-v2-blueprint.md
+Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 """
 from __future__ import annotations
 

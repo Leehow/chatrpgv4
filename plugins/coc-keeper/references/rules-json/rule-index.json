@@ -733,7 +733,7 @@
       "id": "director.structure_weights",
       "category": "director",
       "source_table": "structure-weights.json",
-      "source_note": "Story Director Scoring Engine Layer 2: per-action multiplier by module structure_type (linear_acts, branching_investigation, etc.). Spec: docs/superpowers/specs/2026-07-05-story-director-design.md.",
+      "source_note": "Story Director Scoring Engine Layer 2: per-action multiplier by module structure_type (linear_acts, branching_investigation, etc.). Historical spec retired; see docs/status/DIAGNOSIS-LEDGER.md.",
       "numeric": {
         "structure_types": 7,
         "actions": 10

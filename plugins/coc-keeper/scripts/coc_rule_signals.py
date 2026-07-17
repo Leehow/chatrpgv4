@@ -10,7 +10,7 @@ Rulebook refs (Keeper Rulebook 40th Anniversary):
 - Sanity states: p.154-158
 - Credit Rating tiers: p.45-47 (cash-assets.json)
 
-Spec: docs/superpowers/specs/2026-07-05-story-director-design.md
+Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 """
 from __future__ import annotations
 

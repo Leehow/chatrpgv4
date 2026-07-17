@@ -1,6 +1,6 @@
 # Director Protocol
 
-DirectorPlan schema and scoring engine reference. See `docs/superpowers/specs/2026-07-05-story-director-design.md` for full design.
+DirectorPlan schema and scoring engine reference. The historical design spec is retired; see the tombstone index `docs/status/DIAGNOSIS-LEDGER.md`.
 
 ## Narration specialization contract (A22–A25)
 

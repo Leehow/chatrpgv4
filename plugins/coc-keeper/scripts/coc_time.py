@@ -6,7 +6,7 @@ source of truth for in-world elapsed time. The LLM proposes how long an
 action takes (via DirectorPlan.time_advance); this module validates,
 clamps, advances, and fires time-based triggers.
 
-Design principles (see docs/superpowers/specs time-system design):
+Design principles (historical spec retired; see docs/status/DIAGNOSIS-LEDGER.md):
 1. elapsed_minutes only moves forward; never backward.
 2. LLM estimates time, script advances the clock.
 3. Game time and real (UTC) time are separate.

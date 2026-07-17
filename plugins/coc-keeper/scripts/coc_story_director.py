@@ -5,7 +5,7 @@ Each turn, reads rule state + scenario story-graph + player intent, produces
 a DirectorPlan JSON guiding coc-keeper-play's narrative direction. Read-only
 with respect to rule state; never modifies save/combat/sanity.
 
-Spec: docs/superpowers/specs/2026-07-05-story-director-design.md
+Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 """
 from __future__ import annotations
 
@@ -904,7 +904,7 @@ def write_director_plan(plan: dict[str, Any], artifacts_dir: Path) -> Path:
 
 # =============================================================================
 # Three-layer scoring engine
-# Spec: docs/superpowers/specs/2026-07-05-story-director-design.md
+# Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 # =============================================================================
 
 RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"

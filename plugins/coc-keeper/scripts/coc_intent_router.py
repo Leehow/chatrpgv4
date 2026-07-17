@@ -6,7 +6,8 @@ Director (and other consumers) receive more than a single intent class.
 Supports 中英文.
 
 **Compliance note — Semantic Matcher Constitution**
-(docs/superpowers/specs/2026-07-03-coc-keeper-design.md:541): the COC Keeper
+(see the "Semantic Matcher Constitution" section of `AGENTS.md`; the retired
+spec text is archived in `docs/status/DIAGNOSIS-LEDGER.md`): the COC Keeper
 plugin must not judge *what human-language text means* (including player
 intent) by keyword hits or fixed prose fragments. Any such judgment must be
 routed through an LLM semantic evaluator and must record the evaluator id
@@ -20,7 +21,8 @@ evaluator, as the Constitution explicitly permits
 ("Offline deterministic tests may inject a fixture evaluator").
 
 Only machine-controlled signals use exact matching here, per the
-Constitution carve-out (line 543): empty/None text → ``idle`` (enum), and a
+Constitution carve-out for structured enums and explicit machine markers:
+empty/None text → ``idle`` (enum), and a
 leading ``[`` → ``meta`` (machine out-of-fiction marker). Everything that
 depends on the *meaning* of the text is routed through the evaluator.
 
@@ -171,7 +173,7 @@ class LLMIntentEvaluator:
                     "enum and provide reasons.intent_detail; never emit free prose "
                     "as a time category."
                 ),
-                "reference": "docs/superpowers/specs/2026-07-03-coc-keeper-design.md:541",
+                "reference": "AGENTS.md — Semantic Matcher Constitution",
             },
             "player_text": player_text,
             "active_scene": active_scene,

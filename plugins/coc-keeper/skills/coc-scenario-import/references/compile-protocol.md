@@ -1,6 +1,6 @@
 # Compile Protocol
 
-`coc-scenario-import` 的"剧情图编译"流程指引：如何判定模组的 `structure_type`，以及完整的解析步骤序列。源 spec：`docs/superpowers/specs/2026-07-05-story-director-design.md` 的 "Module Structure Types" 与 "Module Compilation" 章节。
+`coc-scenario-import` 的"剧情图编译"流程指引：如何判定模组的 `structure_type`，以及完整的解析步骤序列。历史 spec 已退役归档，见墓碑索引 `docs/status/DIAGNOSIS-LEDGER.md`。
 
 ---
 

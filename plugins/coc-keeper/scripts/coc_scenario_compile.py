@@ -8,7 +8,7 @@ a module. Reports errors (must fix) and warnings (soft).
 Also provides ``validate_compiled_scenario`` (structured findings), provenance
 annotation, and a dependency ``doctor`` for CI / local env checks (R-5).
 
-Spec: docs/superpowers/specs/2026-07-05-story-director-design.md
+Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 """
 from __future__ import annotations
 
