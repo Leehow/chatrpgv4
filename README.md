@@ -107,8 +107,8 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_pdf_bundle.py \
 
 ## 开发 / Development
 
-唯一解释器是 CPython 3.14.6，唯一依赖来源是提交的 `uv.lock`，uv 版本固定为
-0.11.16：
+开发前先安装精确版本 uv 0.11.16。唯一解释器是 CPython 3.14.6，唯一依赖
+来源是提交的 `uv.lock`；然后从仓库根目录按冻结锁文件同步开发环境：
 
 ```bash
 uv sync --frozen --dev
