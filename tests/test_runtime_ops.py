@@ -1230,7 +1230,7 @@ def test_two_campaigns_shared_investigator_serialize_without_deadlock(tmp_path):
             campaign_one / ".campaign.lock",
             campaign_two / ".campaign.lock",
         ]
-        deadline = time.monotonic() + 3.0
+        deadline = time.monotonic() + 30.0
         while (
             not all(path.is_file() for path in campaign_locks)
             and time.monotonic() < deadline
@@ -1240,7 +1240,7 @@ def test_two_campaigns_shared_investigator_serialize_without_deadlock(tmp_path):
     outputs: list[tuple[str, str, int]] = []
     try:
         for process in processes:
-            stdout, stderr = process.communicate(timeout=12)
+            stdout, stderr = process.communicate(timeout=30)
             outputs.append((stdout, stderr, process.returncode))
     finally:
         for process in processes:

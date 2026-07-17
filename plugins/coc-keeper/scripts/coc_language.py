@@ -316,9 +316,6 @@ BASE_REPORT_FIELD_LABELS = {
 BASE_REPORT_VALUE_LABELS = {
     "baseline": "baseline",
     "rulebook_smoke": "rulebook_smoke",
-    "haunting_module": "haunting_module",
-    "chase_drill": "chase_drill",
-    "multi_profile_pressure": "multi_profile_pressure",
     "transcript_driven_virtual_table": "transcript_driven_virtual_table",
     "codex": "codex",
     "warn_before_reveal": "warn_before_reveal",
@@ -530,9 +527,6 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "report_value_labels": {
             "baseline": "基线测试",
             "rulebook_smoke": "规则书冒烟测试",
-            "haunting_module": "《鬼屋》完整模组审计",
-            "chase_drill": "追逐规则演练",
-            "multi_profile_pressure": "单人多风格压测",
             "transcript_driven_virtual_table": "转录驱动虚拟桌面",
             "codex": "Codex 掷骰",
             "warn_before_reveal": "剧透前警告",
@@ -808,9 +802,6 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
         "report_value_labels": {
             "baseline": "ベースラインテスト",
             "rulebook_smoke": "ルールブックスモークテスト",
-            "haunting_module": "『ホーンティング』全編モジュール監査",
-            "chase_drill": "チェイスルールドリル",
-            "multi_profile_pressure": "単独プレイヤー複数スタイル圧力テスト",
             "transcript_driven_virtual_table": "トランスクリプト駆動の仮想卓",
             "codex": "Codex ダイス",
             "warn_before_reveal": "ネタバレ前に警告",

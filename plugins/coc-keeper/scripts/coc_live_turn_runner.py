@@ -41,7 +41,6 @@ director = _load_sibling("coc_story_director", "coc_story_director.py")
 apply_mod = _load_sibling("coc_director_apply", "coc_director_apply.py")
 narrative_enrichment = _load_sibling("coc_narrative_enrichment", "coc_narrative_enrichment.py")
 narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
-playtest_driver = _load_sibling("coc_playtest_driver", "coc_playtest_driver.py")
 subsystem_executor = _load_sibling(
     "coc_subsystem_executor_live_turn",
     "coc_subsystem_executor.py",
@@ -484,9 +483,46 @@ def _resolve_turn_intent(
     )
 
 
+def _decision_turn_number(value: Any) -> int | None:
+    text = str(value or "")
+    if not text.startswith("turn-"):
+        return None
+    suffix = text[5:]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _next_logged_decision_number(campaign_dir: Path) -> int:
+    """Return the next turn number represented in authoritative logs."""
+    max_seen = 0
+    for path in (
+        campaign_dir / "logs" / "events.jsonl",
+        campaign_dir / "logs" / "rolls.jsonl",
+    ):
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            candidates = [row.get("decision_id")]
+            payload = row.get("payload")
+            if isinstance(payload, dict):
+                candidates.append(payload.get("decision_id"))
+            for candidate in candidates:
+                number = _decision_turn_number(candidate)
+                if number is not None:
+                    max_seen = max(max_seen, number)
+    return max_seen + 1
+
+
 def _next_live_decision_number(campaign_dir: Path) -> int:
     """Choose a turn number that remains monotonic even before fast logs flush."""
-    from_logs = int(playtest_driver._next_decision_number(campaign_dir))
+    from_logs = _next_logged_decision_number(campaign_dir)
     pacing = _read_json(campaign_dir / "save" / "pacing-state.json", {})
     try:
         from_pacing = int(pacing.get("turn_number", 0)) + 1

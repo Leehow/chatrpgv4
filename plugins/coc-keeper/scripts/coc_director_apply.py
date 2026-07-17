@@ -15,7 +15,7 @@ Clue reveal is intentionally *fail-forward*, not a hard gate:
 
 Session ending (W1-6 / Keeper Rulebook p.212-213): when ``scene_action`` is
 ``PAYOFF`` and the active story-graph scene is terminal, append a structured
-``session_ending`` event (playtest-compatible ``type`` + ``payload``). Terminal
+``session_ending`` event with a stable ``type`` + ``payload`` shape. Terminal
 evidence is structured only — never prose keywords:
 
 - ``scene.is_final is True``, or
@@ -3902,9 +3902,8 @@ def _apply_plan_impl(
     # 1b. spoiler reveals — warning-gated Keeper-only disclosures.
     # The director's clue_policy.withhold keeps keeper_secrets private; a
     # spoiler_reveal is the rare opposite: a secret the player explicitly
-    # requested and confirmed after a warning. We mirror the playtest harness
-    # record shape (coc_playtest_harness.py:4075) into logs/audit.jsonl so the
-    # live path records the same Keeper-only reveal evidence the harness does,
+    # requested and confirmed after a warning. Record the canonical reveal
+    # shape in logs/audit.jsonl so the live path preserves Keeper-only evidence,
     # and populate save/flags.json's spoiler_reveals list (previously a dead
     # field initialized by coc_state but never written).
     for spec in plan.get("spoiler_reveals", []) or []:

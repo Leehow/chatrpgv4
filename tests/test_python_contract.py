@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import ast
 import importlib.util
-import json
 import re
 import sys
 import tomllib
@@ -13,7 +12,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 REQUIRED = "3.14.6"
 REQUIRED_UV = "0.11.16"
-PYTHON_TOKEN = "{python}"
 ACTIVE_COMMAND_SUFFIXES = {".md", ".py", ".sh", ".js", ".mjs"}
 EXCLUDED_COMMAND_PARTS = {
     ".coc",
@@ -127,10 +125,10 @@ def test_ci_uses_the_pin_frozen_sync_and_sha_pinned_actions_only():
     assert "matrix.python-version" not in workflow
     assert "python-version:" not in workflow
     assert "3.11" not in workflow and "3.12" not in workflow and "3.13" not in workflow
-    assert workflow.count("python-version-file: .python-version") == 5
-    assert workflow.count("astral-sh/setup-uv@") == 5
-    assert workflow.count(f'version: "{REQUIRED_UV}"') == 5
-    assert workflow.count("uv sync --frozen --dev") == 5
+    assert workflow.count("python-version-file: .python-version") == 3
+    assert workflow.count("astral-sh/setup-uv@") == 3
+    assert workflow.count(f'version: "{REQUIRED_UV}"') == 3
+    assert workflow.count("uv sync --frozen --dev") == 3
     assert "python -m pip" not in workflow and "python3 " not in workflow
     for line in workflow.splitlines():
         if "uses:" in line:
@@ -163,25 +161,6 @@ def test_active_docs_and_source_examples_use_only_the_official_uv_python_command
     assert f"uv {REQUIRED_UV}" in readme
     assert "uv run --frozen python ..." in agents
     assert "shebangs are portability metadata" in agents
-
-
-def test_registry_commands_inherit_sys_executable_via_the_python_token():
-    registry = json.loads(
-        (REPO / "evaluation/spec/v1/case-registry.json").read_text(encoding="utf-8")
-    )
-    manifest = json.loads(
-        (REPO / "evaluation/spec/v1/benchmark-manifest.json").read_text(encoding="utf-8")
-    )
-
-    assert registry["cases"]
-    assert all(case["command"][0] == PYTHON_TOKEN for case in registry["cases"])
-    suite_commands = [
-        command
-        for suite in manifest["suites"].values()
-        for command in suite["commands"]
-    ]
-    assert suite_commands
-    assert all(command[0] == PYTHON_TOKEN for command in suite_commands)
 
 
 def test_production_subprocesses_do_not_select_python_from_path():

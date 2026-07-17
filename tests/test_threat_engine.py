@@ -16,6 +16,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import coc_threat_state  # noqa: E402
+import coc_subsystem_executor  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -171,11 +172,7 @@ def _campaign_and_char_for_san(tmp_path: Path):
 
 
 def test_sanity_check_settles_san_loss(tmp_path):
-    """A sanity_check request with san_loss params should deduct SAN via SanitySession."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("coc_playtest_driver_san", SCRIPTS_DIR / "coc_playtest_driver.py")
-    drv = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(drv)
+    """The canonical executor deducts SAN through SanitySession."""
 
     camp, char_path = _campaign_and_char_for_san(tmp_path)
     import random
@@ -185,7 +182,11 @@ def test_sanity_check_settles_san_loss(tmp_path):
          "difficulty": "regular", "bonus_penalty_dice": 0,
          "san_loss_success": 0, "san_loss_fail_expr": "1",
          "source": "the blast chamber carnage", "creature_type": None}]}
-    results = drv._execute_rules_requests(camp, char_path, "inv1", plan, rng)
+    commands = coc_subsystem_executor.commands_from_rules_requests(plan)
+    normalized = coc_subsystem_executor.execute_commands(
+        camp, char_path, "inv1", commands, rng=rng
+    )
+    results = coc_subsystem_executor.flatten_result_events(normalized)
 
     assert len(results) == 2
     r = next(row for row in results if row.get("kind") == "sanity_check")

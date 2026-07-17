@@ -1,10 +1,4 @@
-"""Tests for the structured combat state (coc_combat.CombatSession) and the
-combat_state_* audits that read save/combat.json.
-
-These tests verify the combat engine in isolation — they construct a
-CombatSession, drive a short fight, and assert both the produced state and
-the audit findings. They do not depend on the playtest harness.
-"""
+"""Deterministic tests for structured combat state (CombatSession)."""
 import importlib.util
 import json
 import random
@@ -21,7 +15,6 @@ def _load(name, rel):
 
 
 coc_combat = _load("coc_combat", "plugins/coc-keeper/scripts/coc_combat.py")
-coc_playtest_audit = _load("coc_playtest_audit", "plugins/coc-keeper/scripts/coc_playtest_audit.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -223,165 +216,6 @@ def test_combat_load_rejects_dead_hp_coherence_and_extra_root_key(tmp_path):
     path.write_text(json.dumps(raw))
     with pytest.raises(ValueError, match="exact schema"):
         coc_combat.CombatSession.load(tmp_path, rng=random.Random(1))
-
-
-# --------------------------------------------------------------------------- #
-# Audit function tests (call _combat_*_gaps directly with crafted state)
-# --------------------------------------------------------------------------- #
-def test_audit_combat_dex_order_detects_out_of_order_turns():
-    state = {
-        "participants": [
-            {"actor_id": "fast", "dex": 80, "combat_skill": 50},
-            {"actor_id": "slow", "dex": 30, "combat_skill": 40},
-        ],
-        "rounds": [{
-            "round": 1,
-            "initiative_order": [
-                {"actor_id": "fast", "dex": 80, "dex_reason": None},
-                {"actor_id": "slow", "dex": 30, "dex_reason": None},
-            ],
-            "turns": [
-                {"turn_id": "t1-1", "actor_id": "slow", "dex": 30, "action": "attack"},
-                {"turn_id": "t1-2", "actor_id": "fast", "dex": 80, "action": "attack"},
-            ],
-        }],
-    }
-    gaps = coc_playtest_audit._combat_dex_order_gaps(state)
-    assert len(gaps) == 1
-    assert "out of DEX order" in gaps[0]
-
-
-def test_audit_combat_dex_order_passes_when_sorted():
-    state = {
-        "participants": [
-            {"actor_id": "fast", "dex": 80, "combat_skill": 50},
-            {"actor_id": "slow", "dex": 30, "combat_skill": 40},
-        ],
-        "rounds": [{"round": 1, "initiative_order": [], "turns": [
-            {"turn_id": "t1-1", "actor_id": "fast", "dex": 80, "action": "attack"},
-            {"turn_id": "t1-2", "actor_id": "slow", "dex": 30, "action": "attack"},
-        ]}],
-    }
-    assert coc_playtest_audit._combat_dex_order_gaps(state) == []
-
-
-def test_audit_combat_dex_order_honors_per_turn_override():
-    # caster normally DEX 35 but casts Dominate at DEX 85 -> acts first
-    state = {
-        "participants": [
-            {"actor_id": "hero", "dex": 70, "combat_skill": 60},
-            {"actor_id": "caster", "dex": 35, "combat_skill": 50},
-        ],
-        "rounds": [{"round": 1, "initiative_order": [], "turns": [
-            {"turn_id": "t1-1", "actor_id": "caster", "dex": 85,
-             "dex_reason": "casting_dominate", "action": "cast"},
-            {"turn_id": "t1-2", "actor_id": "hero", "dex": 70, "action": "attack"},
-        ]}],
-    }
-    assert coc_playtest_audit._combat_dex_order_gaps(state) == []
-
-
-def test_audit_combat_opposed_pairing_flags_attack_without_opposed_roll():
-    state = {"rounds": [{"round": 1, "turns": [
-        {"turn_id": "t1-1", "actor_id": "a", "action": "attack",
-         "defense_kind": "fight_back", "opposed_roll_id": None},
-    ]}]}
-    gaps = coc_playtest_audit._combat_opposed_pairing_gaps(state)
-    assert len(gaps) == 1
-
-
-def test_audit_combat_opposed_pairing_allows_surprise_attack_unopposed():
-    state = {"rounds": [{"round": 1, "turns": [
-        {"turn_id": "t1-1", "actor_id": "a", "action": "surprise_attack",
-         "defense_kind": "none", "opposed_roll_id": None},
-    ]}]}
-    assert coc_playtest_audit._combat_opposed_pairing_gaps(state) == []
-
-
-def test_audit_combat_damage_chain_detects_hp_imbalance():
-    state = {"damage_chain": [{
-        "damage_roll_id": "r1", "hp_before": 10, "hp_delta": -3, "hp_after": 8,
-        "armor_absorbed": 0, "raw_damage": 3,
-    }]}
-    gaps = coc_playtest_audit._combat_damage_chain_gaps(state)
-    assert any("hp imbalance" in g for g in gaps)
-
-
-def test_audit_combat_damage_chain_detects_armor_imbalance():
-    state = {"damage_chain": [{
-        "damage_roll_id": "r1", "hp_before": 10, "hp_delta": -3, "hp_after": 7,
-        "armor_absorbed": 1, "raw_damage": 5,
-    }]}
-    gaps = coc_playtest_audit._combat_damage_chain_gaps(state)
-    # armor_absorbed(1) + (-hp_delta)(3) = 4 != raw_damage(5)
-    assert any("armor imbalance" in g for g in gaps)
-
-
-def test_audit_combat_damage_chain_passes_balanced():
-    state = {"damage_chain": [{
-        "damage_roll_id": "r1", "hp_before": 10, "hp_delta": -3, "hp_after": 7,
-        "armor_absorbed": 2, "raw_damage": 5,
-    }]}
-    assert coc_playtest_audit._combat_damage_chain_gaps(state) == []
-
-
-def test_audit_combat_pushed_roll_flags_pushed_combat_roll():
-    state = {"damage_chain": [{
-        "damage_roll_id": "cr1", "source_turn_id": "t1-1",
-        "hp_before": 10, "hp_delta": -3, "hp_after": 7,
-        "armor_absorbed": 0, "raw_damage": 3,
-    }]}
-    rolls = [{"payload": {"roll_id": "cr1", "pushed": True}}]
-    gaps = coc_playtest_audit._combat_pushed_roll_gaps(state, rolls)
-    assert len(gaps) == 1
-    assert "forbidden" in gaps[0]
-
-
-def test_audit_combat_outcome_flags_concluded_without_outcome():
-    state = {"status": "concluded", "outcome": None,
-             "participants": [{"side": "investigator", "hp_current": 5}]}
-    gaps = coc_playtest_audit._combat_outcome_gaps(state)
-    assert any("outcome is null" in g for g in gaps)
-
-
-def test_audit_combat_outcome_flags_inconsistent_victor():
-    state = {"status": "concluded", "outcome": "investigators_win",
-             "participants": [
-                 {"side": "investigator", "hp_current": 0},
-                 {"side": "monster", "hp_current": 5}]}
-    gaps = coc_playtest_audit._combat_outcome_gaps(state)
-    assert any("all investigators down" in g for g in gaps)
-
-
-# --------------------------------------------------------------------------- #
-# Integration: a clean CombatSession-driven fight produces no audit gaps
-# --------------------------------------------------------------------------- #
-def test_clean_combat_session_passes_all_audits(tmp_path):
-    """Regression guard: a well-formed CombatSession fight yields a combat.json
-    that passes every combat_state_* audit."""
-    s = _make_session(rng_seed=99)
-    s.begin_round()
-    # Hero attacks; ghoul fights back.
-    s.declare_and_resolve_turn("hero", "slash ghoul", "attack",
-                               target_actor_id="ghoul",
-                               defense_kind="fight_back", weapon_id="sword")
-    # Ghoul attacks; hero fights back.
-    s.declare_and_resolve_turn("ghoul", "claw hero", "attack",
-                               target_actor_id="hero",
-                               defense_kind="fight_back", weapon_id="claws")
-    if s.participants["ghoul"]["hp_current"] <= 0:
-        s.conclude("investigators_win")
-    elif s.participants["hero"]["hp_current"] <= 0:
-        s.conclude("monsters_win")
-    else:
-        s.conclude("stalemate")
-    state = s.snapshot()
-    # All structural audits should pass.
-    assert coc_playtest_audit._combat_dex_order_gaps(state) == []
-    assert coc_playtest_audit._combat_opposed_pairing_gaps(state) == []
-    assert coc_playtest_audit._combat_damage_chain_gaps(state) == []
-    assert coc_playtest_audit._combat_pushed_roll_gaps(state, []) == []
-    assert coc_playtest_audit._combat_outcome_gaps(state) == []
 
 
 # --------------------------------------------------------------------------- #

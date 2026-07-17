@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """COC Narration Contract — verifies a DirectorPlan is narration-ready.
 
-Parallel to coc_story_harness's GM-quality assertions, this checker verifies
-the CONTRACT between the Story Director's output and the narration layer
+This checker verifies the contract between the Story Director's output and the narration layer
 (coc-keeper-play SKILL step 5: "Narrate consequences per
 DirectorPlan.narrative_directives"). We cannot unit-test LLM narration output
 (non-deterministic), but we CAN assert that every DirectorPlan carries

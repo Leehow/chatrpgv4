@@ -13,7 +13,6 @@ import pytest
 
 SCRIPTS_DIR = Path("plugins/coc-keeper/scripts")
 EXECUTOR_PATH = SCRIPTS_DIR / "coc_subsystem_executor.py"
-DRIVER_PATH = SCRIPTS_DIR / "coc_playtest_driver.py"
 RESULT_KEYS = {
     "command_id",
     "kind",
@@ -35,10 +34,6 @@ def _load(name: str, path: Path):
 
 def _executor(name: str = "coc_subsystem_executor_test"):
     return _load(name, EXECUTOR_PATH)
-
-
-def _driver(name: str = "coc_playtest_driver_executor_test"):
-    return _load(name, DRIVER_PATH)
 
 
 def _campaign_and_character(tmp_path: Path) -> tuple[Path, Path]:
@@ -5185,73 +5180,25 @@ def test_malformed_persisted_state_fails_closed_without_silent_reset(tmp_path):
         ),
     ],
 )
-def test_every_legacy_request_kind_runs_through_executor_and_wrapper(
+def test_every_legacy_request_kind_runs_through_executor(
     tmp_path,
     kind,
     legacy_request,
 ):
     executor = _executor(f"coc_subsystem_executor_compat_{kind}")
-    driver = _driver(f"coc_playtest_driver_compat_{kind}")
     campaign, character = _campaign_and_character(tmp_path)
     plan = {
         "decision_id": f"turn-{kind}",
         "rules_requests": [{"kind": kind, **legacy_request}],
     }
 
-    wrapper_result = driver._execute_rules_requests(
-        campaign,
-        character,
-        "inv1",
-        plan,
-        random.Random(44),
-    )
     commands = executor.commands_from_rules_requests(plan)
-    state_after_wrapper = random.Random(99)
-    normalized = _execute(executor, campaign, character, commands, state_after_wrapper)
+    normalized = _execute(executor, campaign, character, commands, random.Random(44))
+    events = executor.flatten_result_events(normalized)
 
     assert len(commands) == 1
     assert set(normalized[0]) == RESULT_KEYS
     assert normalized[0]["kind"] == kind
     assert normalized[0]["status"] == "completed"
-    assert normalized[0]["events"] == wrapper_result
-    assert wrapper_result[0]["kind"] == kind
-    assert isinstance(wrapper_result[0]["success"], bool)
-
-
-def test_wrapper_delegates_to_execute_commands_and_only_unwraps_events(tmp_path, monkeypatch):
-    driver = _driver()
-    campaign, character = _campaign_and_character(tmp_path)
-    captured: dict = {}
-    normalized = [{
-        "command_id": "turn-1-rule-1",
-        "kind": "skill_check",
-        "status": "completed",
-        "events": [{"kind": "skill_check", "roll": 22, "success": True}],
-        "pending_choice": None,
-        "state_refs": ["logs/rolls.jsonl#turn-1-rule-1"],
-    }]
-
-    def fake_execute(campaign_dir, character_path, investigator_id, commands, *, rng, **kwargs):
-        captured.update({
-            "campaign_dir": campaign_dir,
-            "character_path": character_path,
-            "investigator_id": investigator_id,
-            "commands": commands,
-            "rng": rng,
-        })
-        return normalized
-
-    monkeypatch.setattr(driver.subsystem_executor, "execute_commands", fake_execute)
-    plan = {
-        "decision_id": "turn-1",
-        "rules_requests": [{"kind": "skill_check", "skill": "Spot Hidden"}],
-    }
-    rng = random.Random(1)
-    result = driver._execute_rules_requests(campaign, character, "inv1", plan, rng)
-
-    assert result == normalized[0]["events"]
-    assert captured["campaign_dir"] == campaign
-    assert captured["character_path"] == character
-    assert captured["investigator_id"] == "inv1"
-    assert captured["rng"] is rng
-    assert captured["commands"][0]["command_id"] == "turn-1-rule-1"
+    assert events[0]["kind"] == kind
+    assert isinstance(events[0]["success"], bool)

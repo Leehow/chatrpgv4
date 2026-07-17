@@ -13,9 +13,9 @@ routed through an LLM semantic evaluator and must record the evaluator id
 plus reasons. This module therefore does NOT do keyword matching for intent
 classification; it delegates the semantic judgment to an ``IntentEvaluator``
 (Protocol). The default implementation, ``LLMIntentEvaluator``, is a
-file-mediated LLM evaluator that mirrors the existing semantic-eval artifact
-contract in ``coc_playtest_suite.py`` (write request → external LLM → read
-result, with provenance + request_sha256). Offline tests inject a fixture
+file-mediated LLM evaluator with a request/result artifact contract (write
+request → external LLM → read result, with provenance + request_sha256).
+Offline tests inject a fixture
 evaluator, as the Constitution explicitly permits
 ("Offline deterministic tests may inject a fixture evaluator").
 
@@ -43,7 +43,7 @@ from typing import Any, Protocol
 
 
 # ---------------------------------------------------------------------------
-# Artifact contract (mirrors coc_playtest_suite.py semantic-eval conventions)
+# Artifact contract for semantic intent evaluation
 # ---------------------------------------------------------------------------
 
 LLM_INTENT_EVALUATOR_ID = "codex-llm-semantic-v1"
@@ -89,15 +89,14 @@ _TIME_CATEGORY_ENUM = _load_time_category_enum()
 def _json_sha256(payload: Any) -> str:
     """SHA-256 of the canonical JSON encoding (sort_keys, tight separators).
 
-    Mirrors ``coc_playtest_suite.py``'s provenance hash so a result's
-    ``request_sha256`` can be verified against the request that produced it.
+    A result's ``request_sha256`` is verified against its exact request.
     """
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
 # ---------------------------------------------------------------------------
-# IntentEvaluator Protocol (mirrors coc_playtest_suite.CoverageEvaluator)
+# IntentEvaluator Protocol
 # ---------------------------------------------------------------------------
 
 class IntentEvaluator(Protocol):
@@ -135,7 +134,7 @@ class LLMIntentEvaluator:
     (e.g. Codex) to read it and write ``intent-eval-result.json`` carrying
     ``evaluator_id``, ``evaluation_provenance`` (with a matching
     ``request_sha256``), the structured intent fields, and per-field ``reasons``.
-    This mirrors the request/result contract in ``coc_playtest_suite.py``.
+    The request/result pair is bound by canonical SHA-256 provenance.
     """
 
     evaluator_id = LLM_INTENT_EVALUATOR_ID

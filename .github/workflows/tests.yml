@@ -4,9 +4,12 @@ on:
   push:
   pull_request:
 
+# Whole-product acceptance is intentionally not scripted in CI. It is run by
+# loading the real Codex plugin and relaying player-safe turns to a context-free
+# collaboration subagent. CI covers deterministic contracts only.
 jobs:
   python:
-    name: Python contract (CPython 3.14.6)
+    name: Deterministic Python contracts (CPython 3.14.6)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -19,7 +22,7 @@ jobs:
           enable-cache: true
       - name: Sync frozen Python environment
         run: uv sync --frozen --dev
-      - name: Run Python suite
+      - name: Run deterministic contracts
         run: PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/ -q -p no:cacheprovider
 
   plugin-metadata:
@@ -43,105 +46,8 @@ jobs:
           tests/test_release_consistency.py
           -q -p no:cacheprovider
 
-  evaluation-contract:
-    name: Evaluation contract
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.11.16"
-          enable-cache: true
-      - name: Sync frozen Python environment
-        run: uv sync --frozen --dev
-      - name: Run focused evaluation contract tests
-        id: focused-eval-tests
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
-            tests/test_eval_contract.py \
-            tests/test_eval_contract_hardening.py \
-            tests/test_eval_report_schema.py \
-            tests/test_eval_cases.py \
-            tests/test_eval_compare.py \
-            tests/test_eval_replay.py \
-            tests/test_eval_semantic.py \
-            tests/test_eval_matrix.py \
-            tests/test_eval_longrun.py \
-            tests/test_eval_calibration.py \
-            tests/test_eval_integration.py \
-            -q -p no:cacheprovider \
-            2>&1 | tee "${RUNNER_TEMP}/eval-contract-pytest.log"
-      - name: Upload focused evaluation diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: eval-contract-pytest-${{ github.run_id }}
-          path: ${{ runner.temp }}/eval-contract-pytest.log
-          if-no-files-found: error
-          retention-days: 7
-      - name: Fail when focused evaluation tests fail
-        if: steps.focused-eval-tests.outcome == 'failure'
-        run: exit 1
-      - name: Run canonical smoke suite through coc_eval.py
-        if: steps.focused-eval-tests.outcome == 'success'
-        run: >-
-          PYTHONDONTWRITEBYTECODE=1
-          uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py
-          run --suite smoke --root .
-          --output "${RUNNER_TEMP}/coc-eval-smoke"
-      - name: Run canonical PR suite through coc_eval.py
-        if: steps.focused-eval-tests.outcome == 'success'
-        run: >-
-          PYTHONDONTWRITEBYTECODE=1
-          uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py
-          run --suite pr --root .
-          --output "${RUNNER_TEMP}/coc-eval-pr"
-      # Model-backed nightly (glm-5.2 / gpt-5.6-luna / gpt-5.6-sol) requires
-      # local relay/Zhipu credentials and is NOT executed on ordinary
-      # GitHub-hosted runners. Here we only assert honest NOT_RUN without secrets.
-      - name: Record external/human lanes as NOT_RUN without secrets
-        if: steps.focused-eval-tests.outcome == 'success'
-        shell: bash
-        run: |
-          mkdir -p "${RUNNER_TEMP}/coc-eval-not-run"
-          PYTHONDONTWRITEBYTECODE=1 uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py \
-            run --suite nightly --root . \
-            --output "${RUNNER_TEMP}/coc-eval-not-run/nightly" \
-            > "${RUNNER_TEMP}/coc-eval-not-run/nightly.stdout" || true
-          PYTHONDONTWRITEBYTECODE=1 uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py \
-            run --suite release --root . \
-            --output "${RUNNER_TEMP}/coc-eval-not-run/release" \
-            > "${RUNNER_TEMP}/coc-eval-not-run/release.stdout" || true
-          uv run --frozen python - <<'PY'
-          import json
-          from pathlib import Path
-          base = Path("${{ runner.temp }}") / "coc-eval-not-run"
-          for suite in ("nightly", "release"):
-              manifest = json.loads((base / suite / "run-manifest.json").read_text())
-              assert manifest["status"] == "NOT_RUN", (suite, manifest.get("status"))
-              assert manifest.get("missing_capabilities"), suite
-          print("nightly/release honestly NOT_RUN without external/human evidence")
-          PY
-      - name: Upload canonical evaluation evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coc-eval-contract-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/coc-eval-smoke
-            ${{ runner.temp }}/coc-eval-pr
-            ${{ runner.temp }}/coc-eval-not-run
-          if-no-files-found: warn
-          retention-days: 7
-
-  node-adapters:
-    name: Node adapter contracts
+  production-node-adapters:
+    name: Production narrator adapter contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -159,107 +65,14 @@ jobs:
           cache-dependency-path: |
             runtime/adapters/keeper/package-lock.json
             runtime/adapters/pi/package-lock.json
-            runtime/adapters/player/package-lock.json
-      - name: Install adapter and contract dependencies
+      - name: Install production adapter dependencies
         run: |
           uv sync --frozen --dev
           npm ci --prefix runtime/adapters/keeper
           npm ci --prefix runtime/adapters/pi
-          npm ci --prefix runtime/adapters/player
-      - name: Run adapter contract tests
+      - name: Run production adapter contracts
         run: >-
           PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest
           tests/test_runtime_pi_adapter_contract.py
-          tests/test_runtime_player_adapter_contract.py
           -q -p no:cacheprovider
           -k 'not optional_pi_node_integration_smoke'
-
-  product-smoke:
-    name: Quick start save and reload smoke
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version-file: .python-version
-      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.11.16"
-          enable-cache: true
-      - name: Sync frozen Python environment
-        run: uv sync --frozen --dev
-      - name: Quick start, play four turns, reload, and continue
-        run: |
-          PYTHONDONTWRITEBYTECODE=1 uv run --frozen python - <<'PY'
-          import os
-          import sys
-          import tempfile
-          from pathlib import Path
-
-          scripts = Path.cwd() / "plugins" / "coc-keeper" / "scripts"
-          sys.path.insert(0, str(scripts))
-
-          import coc_starter
-          from runtime.engine.events import validate_event
-          from runtime.sdk.api import close_session, create_session, get_state, send
-
-          workspace = Path(
-              tempfile.mkdtemp(
-                  prefix="coc-product-smoke-",
-                  dir=os.environ.get("RUNNER_TEMP"),
-              )
-          )
-          started = coc_starter.quick_start(
-              workspace,
-              "the-haunting",
-              "thomas-hayes",
-              campaign_id="ci-product-smoke",
-          )
-          session = create_session(
-              workspace,
-              campaign_id=started["campaign_id"],
-              investigator_id=started["investigator_id"],
-              character_path=started["character_path"],
-          )
-
-          previous_turn = get_state(session)["turn_number"]
-          for number in range(1, 5):
-              events = send(session, f"[meta] ci-product-smoke-turn-{number}")
-              assert events, f"turn {number} produced no events"
-              for event in events:
-                  validate_event(event)
-              assert any(event["type"] == "state_patch" for event in events)
-              state = get_state(session)
-              assert state["turn_number"] > previous_turn, (previous_turn, state)
-              previous_turn = state["turn_number"]
-
-          before_close = get_state(session)
-          close_session(session)
-          try:
-              get_state(session)
-          except KeyError:
-              pass
-          else:
-              raise AssertionError("closed session remained accessible")
-
-          reloaded_session = create_session(
-              workspace,
-              campaign_id=started["campaign_id"],
-              investigator_id=started["investigator_id"],
-              character_path=started["character_path"],
-          )
-          reloaded = get_state(reloaded_session)
-          assert reloaded == before_close, (before_close, reloaded)
-
-          events = send(reloaded_session, "[meta] ci-product-smoke-continued-turn")
-          assert events
-          for event in events:
-              validate_event(event)
-          continued = get_state(reloaded_session)
-          assert continued["turn_number"] > reloaded["turn_number"], (reloaded, continued)
-          close_session(reloaded_session)
-          print(
-              f"product smoke passed: campaign={started['campaign_id']} "
-              f"turn={continued['turn_number']}"
-          )
-          PY

@@ -1,3 +1,3 @@
 interface:
-  display_name: "Coc Playtest"
-  short_description: "Help with Coc Playtest tasks"
+  display_name: "COC Plugin Playtest"
+  short_description: "Run real Codex Keeper play with a context-free subagent player"

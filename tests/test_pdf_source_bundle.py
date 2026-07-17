@@ -214,6 +214,7 @@ def test_bound_bundle_digest_rejects_replaced_valid_content(tmp_path):
     (root / "pages/0000.md").write_bytes(replacement)
     manifest = _manifest(root)
     manifest["pages"][0]["text_sha256"] = _sha(replacement)
+    manifest["pages"][0]["grep_anchors"] = ["Different but valid extracted text."]
     _write_manifest(root, manifest)
     changed = bundle_module.load_host_bundle(root)
     assert changed["bundle_sha256"] != bound["bundle_sha256"]

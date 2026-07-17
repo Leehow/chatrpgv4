@@ -17,7 +17,6 @@ def _load(name, rel):
 
 
 coc_director_apply = _load("coc_director_apply", "plugins/coc-keeper/scripts/coc_director_apply.py")
-coc_adherence = _load("coc_adherence_for_director", "plugins/coc-keeper/scripts/coc_adherence.py")
 
 
 def _clue_roll_contract(clue_id="clue-A"):
@@ -1251,7 +1250,7 @@ def test_completed_schema1_director_decision_without_receipts_fails_closed(
     assert _campaign_bytes(camp) == before
 
 
-def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
+def test_apply_plan_npc_producer_contract_has_attested_identity_binding(
     tmp_path,
 ):
     """A real apply_plan event uses the same versioned identity binding."""
@@ -1313,37 +1312,6 @@ def test_apply_plan_npc_producer_contract_is_consumed_as_attested_coverage(
         == "director_apply.npc_move"
         for row in produced
     )
-    assert coc_adherence.project_engaged_npc_ids(produced) == {"npc-authority"}
-    evidence = coc_adherence.project_npc_engagement_evidence(produced)
-    assert evidence["status"] == "PASS"
-    assert evidence["legacy_unverifiable_npc_ids"] == []
-    binding = coc_adherence.coc_npc_event_chain.build_artifact_binding(
-        camp,
-        artifact_run_id="producer-consumer-run",
-        cumulative_run_ids=["producer-consumer-run"],
-    )
-    capability = coc_adherence.coc_npc_event_chain.load_canonical_chain(
-        camp,
-        expected_campaign_id=camp.name,
-        expected_artifact_run_id="producer-consumer-run",
-        expected_cumulative_run_ids=["producer-consumer-run"],
-        expected_binding=binding,
-    )
-    consumed = coc_adherence._evaluate_adherence(
-        [{
-            "statement_id": "npc:npc-authority",
-            "kind": "optional",
-            "criterion": {"npc_id": "npc-authority"},
-            "description": "Engage the structured authority",
-        }],
-        {"events": produced},
-        canonical_npc_event_chain=capability,
-        canonical_npc_binding=binding,
-    )
-    assert consumed["statements"][0]["satisfied"] is True
-    assert consumed["npc_engagement_evidence"][
-        "authored_attested_npc_ids"
-    ] == ["npc-authority"]
 
 
 def test_apply_persists_npc_stat_upgrade_log(tmp_path):
