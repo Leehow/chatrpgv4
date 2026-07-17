@@ -94,6 +94,65 @@ def _seed_structured_combat_conclusion(
         }) + "\n")
 
 
+def _persist_current_ending(campaign: Path, event: dict) -> dict:
+    record = dict(event)
+    record.setdefault("investigator_ids", ["inv"])
+    record.setdefault("ts", "2026-07-15T00:00:00Z")
+    record.setdefault(
+        "ending_id", ops.coc_development.ending_id_for_event(record)
+    )
+    record["event_id"] = ops.coc_development.ending_event_id(record["ending_id"])
+    capsule = ops.coc_development.build_ending_settlement_capsule(
+        campaign, record
+    )
+    capsule_path = ops.coc_development.persist_ending_settlement_capsule(
+        campaign, capsule
+    )
+    record["settlement_capsule_ref"] = capsule_path.relative_to(
+        campaign
+    ).as_posix()
+    record["settlement_capsule_sha256"] = capsule["capsule_sha256"]
+    events = campaign / "logs" / "events.jsonl"
+    events.parent.mkdir(parents=True, exist_ok=True)
+    with events.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+    return capsule
+
+
+def _record_current_tick(
+    campaign: Path, skill: str = "Spot Hidden", source: str = "runtime-test:tick"
+) -> dict:
+    tick = ops.coc_development.record_skill_tick(
+        campaign,
+        "inv",
+        skill,
+        {
+            "skill": skill,
+            "outcome": "regular_success",
+            "success": True,
+            "roll": 20,
+            "target": 50,
+            "kind": "skill_check",
+        },
+        source_event_id=source,
+        source_kind="runtime-test",
+    )
+    assert tick is not None
+    return tick
+
+
+def _without_capsule_source_digests(receipt: dict) -> dict:
+    normalized = json.loads(json.dumps(receipt))
+    ending = normalized.get("result", {}).get("ending_evidence")
+    if isinstance(ending, dict):
+        normalized["result"]["ending_evidence"] = {
+            "ending_id": ending.get("ending_id"),
+            "event_id": ending.get("event_id"),
+            "conclusion_id": ending.get("conclusion_id"),
+        }
+    return normalized
+
+
 def _prepare_development_cliffhanger(root: Path) -> tuple[Path, Path, dict]:
     character = _workspace(root)
     campaign = root / ".coc" / "campaigns" / "camp"
@@ -106,17 +165,32 @@ def _prepare_development_cliffhanger(root: Path) -> tuple[Path, Path, dict]:
         "current_san": 60,
         "current_hp": 12,
         "current_mp": 12,
-        "skill_checks_earned": ["Spot Hidden"],
+        "skill_checks_earned": [],
     }), encoding="utf-8")
-    events = campaign / "logs" / "events.jsonl"
-    events.write_text(json.dumps({
+    tick = ops.coc_development.record_skill_tick(
+        campaign,
+        "inv",
+        "Spot Hidden",
+        {
+            "skill": "Spot Hidden",
+            "outcome": "regular_success",
+            "success": True,
+            "roll": 20,
+            "target": 20,
+            "kind": "skill_check",
+        },
+        source_event_id="runtime-test:spot-hidden",
+        source_kind="runtime-test",
+    )
+    assert tick is not None
+    _persist_current_ending(campaign, {
         "event_type": "session_ending",
         "scene_id": "finale",
         "kind": "cliffhanger",
         "decision_id": "ending-crash-interleave",
         "investigator_ids": ["inv"],
         "ts": "2026-07-15T00:00:00Z",
-    }) + "\n", encoding="utf-8")
+    })
     operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
     return character, campaign, operation
 
@@ -483,30 +557,14 @@ def test_development_settle_is_shared_and_records_all_public_rolls(tmp_path):
     _workspace(pi_root)
     for root in (direct_root, pi_root):
         campaign = root / ".coc" / "campaigns" / "camp"
-        development = root / ".coc" / "investigators" / "inv" / "development.jsonl"
-        development.write_text("", encoding="utf-8")
-        inv_state = campaign / "save" / "investigator-state" / "inv.json"
-        inv_state.parent.mkdir(parents=True, exist_ok=True)
-        inv_state.write_text(
-            json.dumps({
-                "current_luck": 50,
-                "current_san": 60,
-                "current_hp": 12,
-                "skill_checks_earned": ["Spot Hidden"],
-            }),
-            encoding="utf-8",
-        )
-        events = campaign / "logs" / "events.jsonl"
-        events.parent.mkdir(parents=True, exist_ok=True)
-        events.write_text(
-            json.dumps({
-                "event_type": "session_ending",
-                "scene_id": "finale",
-                "kind": "conclusion",
-                "ts": "2026-07-15T00:00:00Z",
-            }) + "\n",
-            encoding="utf-8",
-        )
+        _record_current_tick(campaign)
+        _persist_current_ending(campaign, {
+            "event_type": "session_ending",
+            "scene_id": "finale",
+            "kind": "conclusion",
+            "decision_id": "shared-development-ending",
+            "ts": "2026-07-15T00:00:00Z",
+        })
     operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
     direct = ops.execute_operation(
         direct_root,
@@ -519,7 +577,9 @@ def test_development_settle_is_shared_and_records_all_public_rolls(tmp_path):
     api = _load("runtime_sdk_development_parity", REPO / "runtime" / "sdk" / "api.py")
     session_id = api.create_session(pi_root, campaign_id="camp", investigator_id="inv")
     through_pi = api.operate(session_id, operation, rng_seed=4)
-    assert through_pi == direct
+    assert _without_capsule_source_digests(through_pi) == (
+        _without_capsule_source_digests(direct)
+    )
     assert direct["result"]["improvement_checks"]
     for root in (direct_root, pi_root):
         rolls = (root / ".coc" / "campaigns" / "camp" / "logs" / "rolls.jsonl")
@@ -553,24 +613,14 @@ def test_development_settle_recovers_crash_before_commit_marker(
     control_character = _workspace(control_root)
     for root in (crash_root, control_root):
         campaign = root / ".coc" / "campaigns" / "camp"
-        inv_state = campaign / "save" / "investigator-state" / "inv.json"
-        inv_state.parent.mkdir(parents=True, exist_ok=True)
-        inv_state.write_text(json.dumps({
-            "investigator_id": "inv",
-            "current_luck": 50,
-            "current_san": 60,
-            "current_hp": 12,
-            "skill_checks_earned": ["Spot Hidden"],
-        }), encoding="utf-8")
-        events = campaign / "logs" / "events.jsonl"
-        events.parent.mkdir(parents=True, exist_ok=True)
-        events.write_text(json.dumps({
+        _record_current_tick(campaign)
+        _persist_current_ending(campaign, {
             "event_type": "session_ending",
             "scene_id": "finale",
             "kind": "cliffhanger",
             "decision_id": "ending-crash-test",
             "ts": "2026-07-15T00:00:00Z",
-        }) + "\n", encoding="utf-8")
+        })
 
     operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
     control = ops.execute_operation(
@@ -618,7 +668,9 @@ def test_development_settle_recovers_crash_before_commit_marker(
         # The prepared journal, not this changed retry seed, owns replay dice.
         rng_seed=999,
     )
-    assert recovered == control
+    assert _without_capsule_source_digests(recovered) == (
+        _without_capsule_source_digests(control)
+    )
     assert settlement.is_file()
     assert not inflight.exists()
     assert json.loads(crash_character.read_text(encoding="utf-8")) == json.loads(
@@ -1136,20 +1188,15 @@ def test_two_campaigns_shared_investigator_serialize_without_deadlock(tmp_path):
         (campaign_one, "Spot Hidden", "ending-camp-one"),
         (campaign_two, "Listen", "ending-camp-two"),
     ):
-        inv_path = campaign / "save" / "investigator-state" / "inv.json"
-        value = json.loads(inv_path.read_text(encoding="utf-8"))
-        value["skill_checks_earned"] = [skill]
-        inv_path.write_text(json.dumps(value), encoding="utf-8")
-        events = campaign / "logs" / "events.jsonl"
-        events.parent.mkdir(parents=True, exist_ok=True)
-        events.write_text(json.dumps({
+        _record_current_tick(campaign, skill, f"runtime-test:{decision}")
+        _persist_current_ending(campaign, {
             "event_type": "session_ending",
             "scene_id": "finale",
             "kind": "cliffhanger",
             "decision_id": decision,
             "investigator_ids": ["inv"],
             "ts": "2026-07-16T00:00:00Z",
-        }) + "\n", encoding="utf-8")
+        })
 
     # Hold the shared lock briefly so both subprocesses first acquire their
     # own campaign locks and queue in the documented campaign->investigator
@@ -1312,22 +1359,14 @@ def test_development_settle_recovers_late_scenario_reward_crashes(
                 },
             }],
         }), encoding="utf-8")
-        inv_state = campaign / "save" / "investigator-state" / "inv.json"
-        inv_state.write_text(json.dumps({
-            "investigator_id": "inv",
-            "current_luck": 50,
-            "current_san": 60,
-            "current_hp": 12,
-            "skill_checks_earned": ["Spot Hidden"],
-        }), encoding="utf-8")
+        _record_current_tick(campaign)
         _seed_structured_combat_conclusion(campaign)
-        with (campaign / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({
-                "event_type": "session_ending",
-                "scene_id": "corbitt-confrontation",
-                "kind": "conclusion",
-                "decision_id": "late-crash-ending",
-            }) + "\n")
+        _persist_current_ending(campaign, {
+            "event_type": "session_ending",
+            "scene_id": "corbitt-confrontation",
+            "kind": "conclusion",
+            "decision_id": "late-crash-ending",
+        })
         return campaign
 
     crash_campaign = prepare(crash_root)
@@ -1405,7 +1444,9 @@ def test_development_settle_recovers_late_scenario_reward_crashes(
         operation=operation,
         rng_seed=999,
     )
-    assert recovered == control
+    assert _without_capsule_source_digests(recovered) == (
+        _without_capsule_source_digests(control)
+    )
     assert json.loads(crash_character.read_text(encoding="utf-8")) == json.loads(
         control_character.read_text(encoding="utf-8")
     )
@@ -1457,13 +1498,13 @@ def test_development_settle_applies_structured_scenario_san_reward(tmp_path):
         }],
     }), encoding="utf-8")
     _seed_structured_combat_conclusion(campaign)
-    with (campaign / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-            "event_type": "session_ending",
-            "scene_id": "corbitt-confrontation",
-            "kind": "conclusion",
-            "ts": "2026-07-15T00:00:00Z",
-        }) + "\n")
+    _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": "structured-scenario-ending",
+        "ts": "2026-07-15T00:00:00Z",
+    })
 
     receipt = ops.execute_operation(
         tmp_path,
@@ -1530,14 +1571,13 @@ def test_same_structured_conclusion_reward_is_consumed_once_across_endings(
     }), encoding="utf-8")
     _seed_structured_combat_conclusion(campaign)
     event_path = campaign / "logs" / "events.jsonl"
-    with event_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-            "event_type": "session_ending",
-            "scene_id": "corbitt-confrontation",
-            "kind": "conclusion",
-            "decision_id": "conclusion-one",
-            "investigator_ids": ["inv"],
-        }) + "\n")
+    _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": "conclusion-one",
+        "investigator_ids": ["inv"],
+    })
     operation = {"schema_version": 1, "kind": "development.settle", "payload": {}}
     first = ops.execute_operation(
         tmp_path,
@@ -1554,18 +1594,16 @@ def test_same_structured_conclusion_reward_is_consumed_once_across_endings(
         "san_current"
     ]
 
-    inv_path = campaign / "save" / "investigator-state" / "inv.json"
-    inv_state = json.loads(inv_path.read_text(encoding="utf-8"))
-    inv_state["skill_checks_earned"] = ["Spot Hidden"]
-    inv_path.write_text(json.dumps(inv_state), encoding="utf-8")
-    with event_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-            "event_type": "session_ending",
-            "scene_id": "corbitt-confrontation",
-            "kind": "conclusion",
-            "decision_id": "conclusion-two",
-            "investigator_ids": ["inv"],
-        }) + "\n")
+    _record_current_tick(
+        campaign, "Spot Hidden", "runtime-test:conclusion-two-tick"
+    )
+    _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": "conclusion-two",
+        "investigator_ids": ["inv"],
+    })
     second = ops.execute_operation(
         tmp_path,
         campaign_id="camp",
@@ -1648,12 +1686,13 @@ def test_development_settle_rejects_stale_combat_victory(tmp_path):
             "combat_id": combat_id,
             "outcome": "monsters_win",
         }),
-        json.dumps({
-            "event_type": "session_ending",
-            "scene_id": "corbitt-confrontation",
-            "kind": "conclusion",
-        }),
     ]) + "\n", encoding="utf-8")
+    _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": "stale-combat-ending",
+    })
 
     receipt = ops.execute_operation(
         tmp_path,
@@ -1687,13 +1726,27 @@ def _seed_quick_start_corbitt_ending(root: Path, campaign_id: str = "quick-san")
     )
     campaign = root / ".coc" / "campaigns" / campaign_id
     _seed_structured_combat_conclusion(campaign)
+    investigator_id = started["result"]["investigator_id"]
+    record = {
+        "event_type": "session_ending",
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": f"{campaign_id}-ending",
+        "investigator_ids": [investigator_id],
+        "ts": "2026-07-15T00:00:00Z",
+    }
+    record["ending_id"] = ops.coc_development.ending_id_for_event(record)
+    record["event_id"] = ops.coc_development.ending_event_id(record["ending_id"])
+    capsule = ops.coc_development.build_ending_settlement_capsule(
+        campaign, record
+    )
+    capsule_path = ops.coc_development.persist_ending_settlement_capsule(
+        campaign, capsule
+    )
+    record["settlement_capsule_ref"] = capsule_path.relative_to(campaign).as_posix()
+    record["settlement_capsule_sha256"] = capsule["capsule_sha256"]
     with (campaign / "logs" / "events.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({
-            "event_type": "session_ending",
-            "scene_id": "corbitt-confrontation",
-            "kind": "conclusion",
-            "ts": "2026-07-15T00:00:00Z",
-        }) + "\n")
+        handle.write(json.dumps(record) + "\n")
     return started, campaign
 
 
@@ -1716,15 +1769,15 @@ def test_fresh_quick_start_development_reward_seeds_sanity_from_investigator_sta
     )
 
     reward = receipt["result"]["scenario_san_reward"]
-    assert reward["rolls"] == [3]
+    assert reward["rolls"] == [4]
     assert reward["san_before"] == 55
-    assert reward["san_gained"] == 3
-    assert reward["san_after"] == 58
+    assert reward["san_gained"] == 4
+    assert reward["san_after"] == 59
     assert reward["san_max"] == 99
     sanity = json.loads((campaign / "save" / "sanity.json").read_text(encoding="utf-8"))
     investigator = json.loads(inv_path.read_text(encoding="utf-8"))
-    assert sanity["san_current"] == 58
-    assert investigator["current_san"] == 58
+    assert sanity["san_current"] == 59
+    assert investigator["current_san"] == 59
     rolls_before = (campaign / "logs" / "rolls.jsonl").read_text(encoding="utf-8")
     state_before = (campaign / "save" / "sanity.json").read_text(encoding="utf-8")
 
@@ -1771,7 +1824,7 @@ def test_development_reward_uses_existing_sanity_snapshot_and_respects_cap(tmp_p
     )
 
     reward = receipt["result"]["scenario_san_reward"]
-    assert reward["rolls"] == [3]
+    assert reward["rolls"] == [4]
     assert reward["san_before"] == 55
     assert reward["san_gained"] == 1
     assert reward["san_after"] == reward["san_max"] == 56
@@ -1781,6 +1834,20 @@ def test_development_reward_uses_existing_sanity_snapshot_and_respects_cap(tmp_p
 def test_frozen_capped_san_reward_cannot_turn_into_later_healing(tmp_path):
     character = _workspace(tmp_path)
     campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True, exist_ok=True)
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": "corbitt-confrontation",
+            "conclusion_contract": {
+                "conclusion_id": "corbitt-destroyed",
+                "requires_combat_outcome": "investigators_win",
+                "session_ending": True,
+                "sanity_reward": {"die": "1D6", "rule_ref": "test.reward"},
+            },
+        }],
+    }), encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign)
     sanity = ops.coc_sanity.SanitySession(
         "inv", san_max=99, int_value=70, rng=random.Random(1),
         campaign_dir=campaign,
@@ -1788,43 +1855,16 @@ def test_frozen_capped_san_reward_cannot_turn_into_later_healing(tmp_path):
     sanity.san_current = 99
     sanity.day_start_san = 99
     sanity.save(campaign, strict_mirror=True)
-    baseline = {
-        "skills": {},
-        "luck": 50,
-        "sanity": {
-            "source": "canonical",
-            "current": 99,
-            "max": 99,
-            "awfulness_caps": {},
-        },
-    }
-    plan = ops.coc_development._deterministic_development_plan(
-        skills={},
-        luck=50,
-        sanity=baseline["sanity"],
-        seed_material="frozen-zero-san",
-        scenario_reward_expr="1D6",
-    )
+    ending = _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "ending_id": "ending-frozen-zero-san",
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": "frozen-zero-san",
+    })
+    plan = ending["development_inputs"]["inv"]["deterministic_plan"]
     assert plan["scenario_san_reward"]["total"] > 0
     assert plan["scenario_san_planned_delta"] == 0
-    development_input = {
-        "schema_version": 2,
-        "skills_checked": [],
-        "input_tokens": [],
-        "mechanical_baseline": baseline,
-        "deterministic_plan": plan,
-    }
-    ending = {
-        "ending_id": "ending-frozen-zero-san",
-        "investigator_ids": ["inv"],
-        "development_inputs": {"inv": development_input},
-        "scenario_san_reward_expr": "1D6",
-        "scenario_san_reward_rule_ref": "test.reward",
-        "scenario_id": "test-scenario",
-        "conclusion_id": "test-conclusion",
-        "conclusion_reward_id": "test-conclusion-reward",
-        "conclusion_evidence": {"kind": "structured-test"},
-    }
     # A legitimate later loss occurs before the delayed ending retry.
     sanity = ops.coc_sanity.SanitySession.load(campaign, "inv")
     sanity.san_current = 90
@@ -1855,6 +1895,33 @@ def test_scenario_reward_planned_baseline_includes_frozen_development_delta(
 ):
     character = _workspace(tmp_path)
     campaign = tmp_path / ".coc" / "campaigns" / "camp"
+    sheet = json.loads(Path(character).read_text(encoding="utf-8"))
+    sheet["skills"]["Spot Hidden"] = 89
+    Path(character).write_text(json.dumps(sheet), encoding="utf-8")
+    sanity = ops.coc_sanity.SanitySession(
+        "inv", san_max=99, int_value=70, rng=random.Random(1),
+        campaign_dir=campaign,
+    )
+    sanity.san_current = 80
+    sanity.day_start_san = 80
+    sanity.save(campaign, strict_mirror=True)
+    scenario = campaign / "scenario"
+    scenario.mkdir(parents=True, exist_ok=True)
+    (scenario / "story-graph.json").write_text(json.dumps({
+        "scenes": [{
+            "scene_id": "corbitt-confrontation",
+            "conclusion_contract": {
+                "conclusion_id": "corbitt-destroyed",
+                "requires_combat_outcome": "investigators_win",
+                "session_ending": True,
+                "sanity_reward": {
+                    "die": "1D6", "rule_ref": "test.reward-order"
+                },
+            },
+        }],
+    }), encoding="utf-8")
+    _seed_structured_combat_conclusion(campaign)
+    _record_current_tick(campaign, source="runtime-test:reward-order")
     baseline = {
         "skills": {"Spot Hidden": 89},
         "luck": 50,
@@ -1865,40 +1932,37 @@ def test_scenario_reward_planned_baseline_includes_frozen_development_delta(
             "awfulness_caps": {},
         },
     }
+    ending_id = None
     plan = None
     for index in range(500):
+        candidate_ending_id = f"ending-planned-reward-order-{index}"
         candidate = ops.coc_development._deterministic_development_plan(
             skills=baseline["skills"],
             luck=baseline["luck"],
             sanity=baseline["sanity"],
-            seed_material=f"planned-reward-order-{index}",
+            seed_material=(
+                f"{candidate_ending_id}:inv:development.settle"
+            ),
             scenario_reward_expr="1D6",
         )
         if (
             candidate["development_san_planned_delta"] > 0
             and candidate["scenario_san_planned_delta"] > 0
         ):
+            ending_id = candidate_ending_id
             plan = candidate
             break
-    assert plan is not None
-    development_input = {
-        "schema_version": 2,
-        "skills_checked": ["Spot Hidden"],
-        "input_tokens": [],
-        "mechanical_baseline": baseline,
-        "deterministic_plan": plan,
-    }
-    ending = {
-        "ending_id": "ending-planned-reward-order",
-        "investigator_ids": ["inv"],
-        "development_inputs": {"inv": development_input},
-        "scenario_san_reward_expr": "1D6",
-        "scenario_san_reward_rule_ref": "test.reward-order",
-        "scenario_id": "test-scenario",
-        "conclusion_id": "test-conclusion",
-        "conclusion_reward_id": "test-conclusion-reward-order",
-        "conclusion_evidence": {"kind": "structured-test"},
-    }
+    assert plan is not None and ending_id is not None
+    ending = _persist_current_ending(campaign, {
+        "event_type": "session_ending",
+        "ending_id": ending_id,
+        "scene_id": "corbitt-confrontation",
+        "kind": "conclusion",
+        "decision_id": "planned-reward-order",
+    })
+    frozen = ending["development_inputs"]["inv"]
+    assert frozen["mechanical_baseline"] == baseline
+    assert frozen["deterministic_plan"] == plan
     live_sanity = ops.coc_sanity.SanitySession(
         "inv", san_max=99, int_value=70, rng=random.Random(1),
         campaign_dir=campaign,

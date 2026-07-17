@@ -15,7 +15,6 @@ Files managed:
   .coc/investigators/<id>/development.jsonl  — tick log (append / truncate)
   .coc/investigators/<id>/character.json     — skill write-back
   save/sanity-state/<id>.json                — awfulness_caps decay
-  save/sanity.json                           — legacy single-investigator mirror
 """
 from __future__ import annotations
 
@@ -35,6 +34,9 @@ _SUCCESS_OUTCOMES = frozenset({
     "extreme_success", "hard_success", "regular_success", "critical_success",
 })
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+DEVELOPMENT_EVENT_SCHEMA_VERSION = 2
+DEVELOPMENT_CLAIM_SCHEMA_VERSION = 3
+ENDING_CAPSULE_SCHEMA_VERSION = 2
 
 
 def _load_sibling(name: str, filename: str):
@@ -149,8 +151,7 @@ def _is_bonus_die_only(roll_result: dict[str, Any]) -> bool:
         return True
     # Structured reconstruction: bonus die present, no penalty, and the
     # physical/base roll would have failed the effective target.  The roller
-    # stores that explicitly on new receipts; legacy receipts preserve it as
-    # tens_values[0] followed by the extra tens dice.
+    # stores the physical roll as tens_values[0], followed by extra tens dice.
     bonus = int(roll_result.get("bonus", 0) or 0)
     penalty = int(roll_result.get("penalty", 0) or 0)
     tens_values = roll_result.get("tens_values")
@@ -365,11 +366,11 @@ def record_skill_tick(
         existing_tick: dict[str, Any] | None = None
         existing_source_tick: dict[str, Any] | None = None
         if path.is_file():
+            _read_current_development_events(campaign_dir, investigator_id)
             for raw in path.read_text(encoding="utf-8").splitlines():
-                try:
-                    existing = json.loads(raw)
-                except json.JSONDecodeError:
+                if not raw.strip():
                     continue
+                existing = json.loads(raw)
                 if isinstance(existing, dict) and existing.get("event_token") == token:
                     if existing.get("skill") != skill:
                         raise ValueError("development event token has conflicting skill")
@@ -385,9 +386,6 @@ def record_skill_tick(
                         pass
 
         ledger = _load_development_claims(campaign_dir, investigator_id)
-        _hydrate_development_event_archive(
-            campaign_dir, investigator_id, ledger
-        )
         archive = ledger["events"]
         archived = archive.get(token)
         identity = _development_event_identity(tick)
@@ -399,8 +397,7 @@ def record_skill_tick(
             if existing_tick is not None:
                 return existing_tick
             # Claims survive active-queue consumption.  Return archived
-            # evidence but mark it so callers do not recreate compatibility
-            # projections for an already-consumed event.
+            # evidence while marking the event as already consumed.
             if token in ledger["claims"]:
                 replay = dict(archived)
                 replay["development_event_status"] = "already_claimed"
@@ -425,151 +422,56 @@ def record_skill_tick(
     return tick
 
 
-def _read_ticked_skills(path: Path) -> list[str]:
-    if not path.exists():
-        return []
-    seen: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        skill = str(row.get("skill") or "").strip()
-        if skill and skill not in seen:
-            seen.append(skill)
-    return seen
-
-
-def _campaign_ticked_skills(campaign_dir: Path, investigator_id: str) -> list[str]:
-    """Read toolbox-earned ticks from the campaign's transient investigator state."""
-    path = _investigator_state_path(campaign_dir, investigator_id)
-    if not path.is_file():
-        return []
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    earned = state.get("skill_checks_earned") if isinstance(state, dict) else None
-    if not isinstance(earned, list):
-        return []
-    return list(dict.fromkeys(str(skill).strip() for skill in earned if str(skill).strip()))
-
-
-def _clear_campaign_ticks(campaign_dir: Path, investigator_id: str) -> None:
-    path = _investigator_state_path(campaign_dir, investigator_id)
-    if not path.is_file():
-        return
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(state, dict):
-        return
-    state["skill_checks_earned"] = []
-    coc_fileio.write_json_atomic(path, state, indent=2, ensure_ascii=False)
-
-
 def _consume_development_inputs(
     campaign_dir: Path,
     investigator_id: str,
     development_input: dict[str, Any] | None,
 ) -> None:
     """Consume only the input tokens owned by one ending capsule."""
-    if development_input is None:
-        tick_path = _development_path(campaign_dir, investigator_id)
-        tick_path.parent.mkdir(parents=True, exist_ok=True)
-        tick_path.write_text("", encoding="utf-8")
-        _clear_campaign_ticks(campaign_dir, investigator_id)
-        return
-
-    if development_input.get("schema_version") == 2:
-        tokens = {
-            str(token)
-            for token in (development_input.get("input_tokens") or [])
-            if isinstance(token, str)
-        }
-        tick_path = _development_path(campaign_dir, investigator_id)
-        if tick_path.is_file() and tokens:
-            kept: list[str] = []
-            for raw in tick_path.read_text(encoding="utf-8").splitlines():
-                try:
-                    row = json.loads(raw)
-                except json.JSONDecodeError:
-                    kept.append(raw)
-                    continue
-                if not isinstance(row, dict) or row.get("event_token") not in tokens:
-                    kept.append(raw)
-            text = "\n".join(kept)
-            if text:
-                text += "\n"
-            coc_fileio.write_text_atomic(tick_path, text)
-        state_path = _investigator_state_path(campaign_dir, investigator_id)
-        if state_path.is_file() and tokens:
-            try:
-                state = json.loads(state_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, json.JSONDecodeError):
-                state = None
-            if isinstance(state, dict):
-                events = state.get("skill_check_events")
-                if isinstance(events, list):
-                    remaining = [
-                        row for row in events
-                        if not isinstance(row, dict)
-                        or row.get("event_token") not in tokens
-                    ]
-                    state["skill_check_events"] = remaining
-                    state["skill_checks_earned"] = list(dict.fromkeys(
-                        str(row.get("skill"))
-                        for row in remaining
-                        if isinstance(row, dict)
-                        and isinstance(row.get("skill"), str)
-                        and row.get("skill")
-                    ))
-                    coc_fileio.write_json_atomic(
-                        state_path, state, indent=2, ensure_ascii=False
-                    )
-        return
-
-    legacy_tokens = {
-        str(row.get("token"))
-        for row in (development_input.get("legacy_tick_tokens") or [])
-        if isinstance(row, dict) and isinstance(row.get("token"), str)
-    }
+    if not _valid_development_input_v2(development_input):
+        raise ValueError("development input must use the current schema")
+    tokens = set(development_input["input_tokens"])
     tick_path = _development_path(campaign_dir, investigator_id)
-    if tick_path.is_file() and legacy_tokens:
+    if tick_path.is_file() and tokens:
         kept: list[str] = []
         for raw in tick_path.read_text(encoding="utf-8").splitlines():
-            token = "legacy:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
-            if token not in legacy_tokens:
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError("development event log is invalid") from exc
+            if not isinstance(row, dict):
+                raise ValueError("development event log is invalid")
+            if row.get("event_token") not in tokens:
                 kept.append(raw)
         text = "\n".join(kept)
         if text:
             text += "\n"
         coc_fileio.write_text_atomic(tick_path, text)
-
-    captured_skills = {
-        str(row.get("skill"))
-        for row in (development_input.get("campaign_skill_tokens") or [])
-        if isinstance(row, dict) and isinstance(row.get("skill"), str)
-    }
     state_path = _investigator_state_path(campaign_dir, investigator_id)
-    if state_path.is_file() and captured_skills:
+    if state_path.is_file() and tokens:
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            state = None
-        if isinstance(state, dict):
-            earned = state.get("skill_checks_earned")
-            if isinstance(earned, list):
-                state["skill_checks_earned"] = [
-                    skill for skill in earned if str(skill) not in captured_skills
-                ]
-                coc_fileio.write_json_atomic(
-                    state_path, state, indent=2, ensure_ascii=False
-                )
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("investigator development projection is invalid") from exc
+        if not isinstance(state, dict):
+            raise ValueError("investigator development projection is invalid")
+        events = state.get("skill_check_events")
+        if isinstance(events, list):
+            remaining = [
+                row for row in events
+                if not isinstance(row, dict) or row.get("event_token") not in tokens
+            ]
+            state["skill_check_events"] = remaining
+            state["skill_checks_earned"] = list(dict.fromkeys(
+                str(row.get("skill"))
+                for row in remaining
+                if isinstance(row, dict)
+                and isinstance(row.get("skill"), str)
+                and row.get("skill")
+            ))
+            coc_fileio.write_json_atomic(
+                state_path, state, indent=2, ensure_ascii=False
+            )
 
 
 def _compile_ending_evidence(
@@ -867,71 +769,6 @@ def _valid_source_image(value: Any) -> bool:
     )
 
 
-def _valid_development_input_v1(value: Any) -> bool:
-    if not isinstance(value, dict):
-        return False
-    required = {
-        "skills_checked",
-        "legacy_tick_tokens",
-        "campaign_skill_tokens",
-        "input_tokens",
-        "source_images",
-        "input_sha256",
-    }
-    if set(value) != required:
-        return False
-    skills = value.get("skills_checked")
-    legacy = value.get("legacy_tick_tokens")
-    campaign = value.get("campaign_skill_tokens")
-    tokens = value.get("input_tokens")
-    source_images = value.get("source_images")
-    if (
-        not isinstance(skills, list)
-        or not all(isinstance(skill, str) and skill for skill in skills)
-        or len(skills) != len(set(skills))
-        or not isinstance(legacy, list)
-        or not all(
-            isinstance(row, dict)
-            and set(row) == {"skill", "token"}
-            and isinstance(row.get("skill"), str)
-            and bool(row.get("skill"))
-            and isinstance(row.get("token"), str)
-            for row in legacy
-        )
-        or not isinstance(campaign, list)
-        or not all(
-            isinstance(row, dict)
-            and set(row) == {"skill", "generation", "token"}
-            and isinstance(row.get("skill"), str)
-            and bool(row.get("skill"))
-            and isinstance(row.get("generation"), int)
-            and not isinstance(row.get("generation"), bool)
-            and row["generation"] >= 0
-            and isinstance(row.get("token"), str)
-            for row in campaign
-        )
-        or not isinstance(tokens, list)
-        or not all(isinstance(token, str) and token for token in tokens)
-        or not isinstance(source_images, dict)
-        or set(source_images) != {"legacy_ticks", "investigator_state"}
-        or not all(_valid_source_image(image) for image in source_images.values())
-    ):
-        return False
-    expected_skills = list(dict.fromkeys(
-        [row["skill"] for row in legacy]
-        + [row["skill"] for row in campaign]
-    ))
-    expected_tokens = [row["token"] for row in [*legacy, *campaign]]
-    return bool(
-        skills == expected_skills
-        and tokens == expected_tokens
-        and value.get("input_sha256")
-        == _canonical_sha256({
-            key: item for key, item in value.items() if key != "input_sha256"
-        })
-    )
-
-
 def _valid_frozen_roll(value: Any) -> bool:
     return bool(
         isinstance(value, dict)
@@ -1111,7 +948,7 @@ def _valid_development_input_v2(value: Any) -> bool:
         or not isinstance(baseline.get("sanity"), dict)
         or set(baseline["sanity"]) != {"source", "current", "max", "awfulness_caps"}
         or baseline["sanity"].get("source") not in {
-            "canonical", "legacy_owner", "investigator_state"
+            "canonical", "investigator_state"
         }
         or any(
             isinstance(baseline["sanity"].get(key), bool)
@@ -1128,24 +965,13 @@ def _valid_development_input_v2(value: Any) -> bool:
             for key, item in baseline["sanity"]["awfulness_caps"].items()
         )
         or not isinstance(plan, dict)
-        or plan.get("schema_version") not in {1, 2}
-        or (
-            plan.get("schema_version") == 1
-            and set(plan) != {
-                "schema_version", "improvement_checks", "luck_recovery",
-                "awfulness_decay", "development_san_reward",
-                "scenario_san_reward", "plan_sha256",
-            }
-        )
-        or (
-            plan.get("schema_version") == 2
-            and set(plan) != {
-                "schema_version", "improvement_checks", "luck_recovery",
-                "awfulness_decay", "development_san_reward",
-                "scenario_san_reward", "development_san_planned_delta",
-                "scenario_san_planned_delta", "plan_sha256",
-            }
-        )
+        or plan.get("schema_version") != 2
+        or set(plan) != {
+            "schema_version", "improvement_checks", "luck_recovery",
+            "awfulness_decay", "development_san_reward",
+            "scenario_san_reward", "development_san_planned_delta",
+            "scenario_san_planned_delta", "plan_sha256",
+        }
         or not isinstance(plan.get("improvement_checks"), list)
         or [row.get("skill") for row in plan["improvement_checks"]] != skills
         or not all(
@@ -1174,16 +1000,13 @@ def _valid_development_input_v2(value: Any) -> bool:
             plan.get("scenario_san_reward") is not None
             and not _valid_frozen_roll(plan.get("scenario_san_reward"))
         )
-        or (
-            plan.get("schema_version") == 2
-            and any(
-                isinstance(plan.get(key), bool)
-                or not isinstance(plan.get(key), int)
-                or plan[key] < 0
-                for key in (
-                    "development_san_planned_delta",
-                    "scenario_san_planned_delta",
-                )
+        or any(
+            isinstance(plan.get(key), bool)
+            or not isinstance(plan.get(key), int)
+            or plan[key] < 0
+            for key in (
+                "development_san_planned_delta",
+                "scenario_san_planned_delta",
             )
         )
         or plan.get("plan_sha256") != _canonical_sha256({
@@ -1198,7 +1021,7 @@ def _valid_development_input_v2(value: Any) -> bool:
 
 
 def _valid_development_input(value: Any) -> bool:
-    return _valid_development_input_v1(value) or _valid_development_input_v2(value)
+    return _valid_development_input_v2(value)
 
 
 def _valid_ending_capsule(value: Any) -> bool:
@@ -1210,7 +1033,7 @@ def _valid_ending_capsule(value: Any) -> bool:
     rng_identity = value.get("rng_identity")
     source_digest = value.get("source_digest")
     if not (
-        value.get("schema_version") in {1, 2}
+        value.get("schema_version") == ENDING_CAPSULE_SCHEMA_VERSION
         and value.get("capsule_type") == "ending_settlement"
         and isinstance(ending_id, str)
         and _SAFE_ID.fullmatch(ending_id) is not None
@@ -1240,15 +1063,11 @@ def _valid_ending_capsule(value: Any) -> bool:
             for item in development_inputs.values()
         )
         and all(
-            (
-                item.get("schema_version") == 2
-                and item.get("claim_owner") == {
-                    "campaign_id": item["claim_owner"]["campaign_id"],
-                    "ending_id": ending_id,
-                    "investigator_id": investigator_id,
-                }
-            )
-            if value.get("schema_version") == 2 else _valid_development_input_v1(item)
+            item.get("claim_owner") == {
+                "campaign_id": item["claim_owner"]["campaign_id"],
+                "ending_id": ending_id,
+                "investigator_id": investigator_id,
+            }
             for investigator_id, item in development_inputs.items()
         )
         and all(
@@ -1261,24 +1080,21 @@ def _valid_ending_capsule(value: Any) -> bool:
             }
             for investigator_id, identity in rng_identity.items()
         )
-        and (
-            value.get("schema_version") != 2
-            or all(
-                (
-                    isinstance(value.get("scenario_san_reward_expr"), str)
-                    and isinstance(
-                        item["deterministic_plan"].get("scenario_san_reward"), dict
-                    )
-                    and item["deterministic_plan"]["scenario_san_reward"].get(
-                        "expression"
-                    ) == value.get("scenario_san_reward_expr")
+        and all(
+            (
+                isinstance(value.get("scenario_san_reward_expr"), str)
+                and isinstance(
+                    item["deterministic_plan"].get("scenario_san_reward"), dict
                 )
-                or (
-                    value.get("scenario_san_reward_expr") is None
-                    and item["deterministic_plan"].get("scenario_san_reward") is None
-                )
-                for item in development_inputs.values()
+                and item["deterministic_plan"]["scenario_san_reward"].get(
+                    "expression"
+                ) == value.get("scenario_san_reward_expr")
             )
+            or (
+                value.get("scenario_san_reward_expr") is None
+                and item["deterministic_plan"].get("scenario_san_reward") is None
+            )
+            for item in development_inputs.values()
         )
         and isinstance(source_digest, dict)
         and set(source_digest) == {
@@ -1336,72 +1152,6 @@ def ending_settlement_capsule_for_decision(
     return matches[0] if matches else None
 
 
-def _has_valid_exact_settlement(
-    campaign_dir: Path,
-    ending_id: str,
-    investigator_id: str,
-) -> bool:
-    path = ending_settlement_path(campaign_dir, ending_id, investigator_id)
-    if not _safe_campaign_child_target(campaign_dir, path) or not path.is_file():
-        return False
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return False
-    receipt = value.get("receipt") if isinstance(value, dict) else None
-    return bool(
-        isinstance(value, dict)
-        and value.get("schema_version") == 1
-        and value.get("ending_id") == ending_id
-        and value.get("investigator_id") == investigator_id
-        and isinstance(receipt, dict)
-        and receipt.get("schema_version") == 1
-        and receipt.get("status") == "PASS"
-        and receipt.get("kind") == "development.settle"
-    )
-
-
-def _prior_development_claims(
-    campaign_dir: Path, investigator_id: str
-) -> tuple[set[str], dict[str, int]]:
-    """Return all durable input claims and settled generations per skill."""
-    root = (
-        Path(campaign_dir)
-        / "save"
-        / "development-settlements"
-        / "endings"
-    )
-    claimed: set[str] = set()
-    settled_by_skill: dict[str, int] = {}
-    if not root.is_dir():
-        return claimed, settled_by_skill
-    for capsule_path in sorted(root.glob("*/capsule.json")):
-        if not _safe_campaign_child_target(campaign_dir, capsule_path):
-            continue
-        try:
-            capsule = json.loads(capsule_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
-        if not _valid_ending_capsule(capsule):
-            continue
-        inputs = (capsule.get("development_inputs") or {}).get(investigator_id)
-        if not isinstance(inputs, dict):
-            continue
-        tokens = inputs.get("input_tokens") or []
-        claimed.update(str(token) for token in tokens if isinstance(token, str))
-        ending_id = str(capsule["ending_id"])
-        if not _has_valid_exact_settlement(
-            campaign_dir, ending_id, investigator_id
-        ):
-            continue
-        for row in inputs.get("campaign_skill_tokens") or []:
-            if not isinstance(row, dict) or not isinstance(row.get("skill"), str):
-                continue
-            skill = row["skill"]
-            settled_by_skill[skill] = settled_by_skill.get(skill, 0) + 1
-    return claimed, settled_by_skill
-
-
 def _capsule_tick_event(row: dict[str, Any]) -> dict[str, str]:
     return {
         "event_token": str(row["event_token"]),
@@ -1428,7 +1178,8 @@ def _development_event_archive_record(
     row: dict[str, Any], *, investigator_id: str | None = None
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": DEVELOPMENT_EVENT_SCHEMA_VERSION,
+        "event_type": "development_check_earned",
         "event_token": str(row["event_token"]),
         "investigator_id": str(
             row.get("investigator_id") or investigator_id or ""
@@ -1447,13 +1198,15 @@ def _valid_development_event_archive_record(
     token: str, value: Any, investigator_id: str
 ) -> bool:
     required = {
-        "schema_version", "event_token", "investigator_id", "campaign_id",
-        "session_id", "source_kind", "source_event_id", "skill", "ts", "roll",
+        "schema_version", "event_type", "event_token", "investigator_id",
+        "campaign_id", "session_id", "source_kind", "source_event_id",
+        "skill", "ts", "roll",
     }
     return bool(
         isinstance(value, dict)
         and set(value) == required
-        and value.get("schema_version") == 1
+        and value.get("schema_version") == DEVELOPMENT_EVENT_SCHEMA_VERSION
+        and value.get("event_type") == "development_check_earned"
         and value.get("event_token") == token
         and value.get("investigator_id") == investigator_id
         and all(
@@ -1467,188 +1220,55 @@ def _valid_development_event_archive_record(
     )
 
 
-def _migrate_reusable_tick_events(
+def _read_current_development_events(
     campaign_dir: Path, investigator_id: str
 ) -> list[dict[str, str]]:
-    """Normalize legacy rows to immutable reusable event identities in place."""
+    """Read only exact current-schema development events without rewriting."""
     path = _development_path(campaign_dir, investigator_id)
     if not path.is_file():
         return []
-    raw_lines = path.read_text(encoding="utf-8").splitlines()
-    normalized_lines: list[str] = []
     events: list[dict[str, str]] = []
-    by_token: dict[str, dict[str, Any]] = {}
-    occurrences: dict[str, int] = {}
-    changed = False
-    for raw in raw_lines:
+    seen_tokens: set[str] = set()
+    required = {
+        "schema_version", "event_type", "event_token", "investigator_id",
+        "campaign_id", "session_id", "source_kind", "source_event_id",
+        "skill", "ts", "roll",
+    }
+    for raw in path.read_text(encoding="utf-8").splitlines():
         if not raw.strip():
-            changed = True
             continue
         try:
             parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            # Malformed historical rows were never valid settlement input. Keep
-            # their bytes for operator inspection; do not invent semantics.
-            normalized_lines.append(raw)
-            continue
-        if not isinstance(parsed, dict):
-            normalized_lines.append(raw)
-            continue
-        skill = str(parsed.get("skill") or "").strip()
-        if not skill:
-            normalized_lines.append(raw)
-            continue
-        token = parsed.get("event_token")
-        if isinstance(token, str) and token:
-            required = (
-                "campaign_id", "session_id", "source_kind", "source_event_id"
+        except json.JSONDecodeError as exc:
+            raise ValueError("development event log is unreadable") from exc
+        if (
+            not isinstance(parsed, dict)
+            or set(parsed) != required
+            or parsed.get("schema_version") != DEVELOPMENT_EVENT_SCHEMA_VERSION
+            or parsed.get("event_type") != "development_check_earned"
+            or parsed.get("investigator_id") != investigator_id
+            or not all(
+                isinstance(parsed.get(key), str) and parsed.get(key)
+                for key in (
+                    "event_token", "campaign_id", "session_id", "source_kind",
+                    "source_event_id", "skill",
+                )
             )
-            if not all(isinstance(parsed.get(key), str) and parsed.get(key) for key in required):
-                raise ValueError("development event identity is incomplete")
-            normalized = dict(parsed)
-        else:
-            digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-            occurrence = occurrences.get(digest, 0)
-            occurrences[digest] = occurrence + 1
-            source_event_id = f"legacy-row:{digest}:{occurrence}"
-            legacy_identity = {
-                "investigator_id": investigator_id,
-                "source_event_id": source_event_id,
-            }
-            token = "development-check-legacy-" + _canonical_sha256(legacy_identity)
-            normalized = {
-                "schema_version": 2,
-                "event_type": "development_check_earned",
-                "event_token": token,
-                "investigator_id": investigator_id,
-                "campaign_id": "legacy-unattributed",
-                "session_id": "legacy-unattributed",
-                "source_kind": "legacy.development_row",
-                "source_event_id": source_event_id,
-                "skill": skill,
-                "ts": str(parsed.get("ts") or ""),
-                "roll": parsed.get("roll"),
-            }
-            changed = True
-        prior = by_token.get(str(token))
-        if prior is not None:
-            if _capsule_tick_event(prior) != _capsule_tick_event(normalized):
-                raise ValueError("development event token is duplicated with conflicting identity")
-            changed = True
-            continue
-        by_token[str(token)] = normalized
-        events.append(_capsule_tick_event(normalized))
-        encoded = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
-        normalized_lines.append(encoded)
-        if encoded != raw:
-            changed = True
-    if changed:
-        text = "\n".join(normalized_lines)
-        if text:
-            text += "\n"
-        coc_fileio.write_text_atomic(path, text)
-    return events
-
-
-def _migrate_campaign_skill_names(
-    campaign_dir: Path,
-    investigator_id: str,
-    events: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    """Conservatively materialize old skill-name state as one event per name."""
-    state_path = _investigator_state_path(campaign_dir, investigator_id)
-    if not state_path.is_file():
-        return events
-    try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return events
-    if not isinstance(state, dict):
-        return events
-    campaign_id = _campaign_id(campaign_dir)
-    compatibility_events = state.get("skill_check_events")
-    if not isinstance(compatibility_events, list):
-        compatibility_events = []
-    normalized_compatibility: list[dict[str, str]] = []
-    for row in compatibility_events:
-        if not isinstance(row, dict):
-            continue
-        try:
-            event = _capsule_tick_event(row)
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not all(event.values()):
-            continue
-        normalized_compatibility.append(event)
-    by_token = {row["event_token"]: row for row in events}
-    for event in normalized_compatibility:
-        token = event["event_token"]
-        prior = by_token.get(token)
-        if prior is not None and prior != event:
-            raise ValueError(
-                "development event token has conflicting campaign identity"
-            )
-        by_token[token] = event
-    earned = state.get("skill_checks_earned")
-    earned_skills = (
-        list(dict.fromkeys(str(item).strip() for item in earned if str(item).strip()))
-        if isinstance(earned, list) else []
-    )
-    appended: list[dict[str, Any]] = []
-    for index, skill in enumerate(earned_skills):
-        if any(
-            row["skill"] == skill
-            and row["campaign_id"] in {campaign_id, "legacy-unattributed"}
-            for row in by_token.values()
+            or not isinstance(parsed.get("ts"), str)
         ):
-            continue
-        source_event_id = f"legacy-state:{campaign_id}:{investigator_id}:{index}:{skill}"
-        token = _tick_event_token(
-            campaign_dir=campaign_dir,
-            investigator_id=investigator_id,
-            session_id=_logical_development_session_id(campaign_dir),
-            source_kind="legacy.investigator_state",
-            source_event_id=source_event_id,
-        )
-        event = {
-            "event_token": token,
-            "skill": skill,
-            "campaign_id": campaign_id,
-            "session_id": _logical_development_session_id(campaign_dir),
-            "source_kind": "legacy.investigator_state",
-            "source_event_id": source_event_id,
-        }
-        if token not in by_token:
-            by_token[token] = event
-            appended.append({
-                "schema_version": 2,
-                "event_type": "development_check_earned",
-                **event,
-                "investigator_id": investigator_id,
-                "ts": "",
-                "roll": None,
-            })
-    if appended:
-        tick_path = _development_path(campaign_dir, investigator_id)
-        tick_path.parent.mkdir(parents=True, exist_ok=True)
-        with tick_path.open("a", encoding="utf-8") as handle:
-            for row in appended:
-                handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
-    all_events = list(by_token.values())
-    campaign_events = [
-        row for row in all_events
-        if row["campaign_id"] == campaign_id
-        or (
-            row["campaign_id"] == "legacy-unattributed"
-            and row["skill"] in earned_skills
-        )
-    ]
-    state["skill_check_events"] = campaign_events
-    state["skill_checks_earned"] = list(dict.fromkeys(
-        row["skill"] for row in campaign_events
-    ))
-    coc_fileio.write_json_atomic(state_path, state, indent=2, ensure_ascii=False)
-    return all_events
+            raise ValueError("development event log uses an unsupported schema")
+        token = str(parsed["event_token"])
+        expected_token = "development-check-" + _canonical_sha256({
+            "campaign_id": str(parsed["campaign_id"]),
+            "investigator_id": investigator_id,
+            "source_kind": str(parsed["source_kind"]),
+            "source_event_id": str(parsed["source_event_id"]),
+        })
+        if token != expected_token or token in seen_tokens:
+            raise ValueError("development event identity is invalid")
+        seen_tokens.add(token)
+        events.append(_capsule_tick_event(parsed))
+    return events
 
 
 def _load_development_claims(
@@ -1657,11 +1277,10 @@ def _load_development_claims(
     path = _development_claims_path(campaign_dir, investigator_id)
     if not path.is_file():
         return {
-            "schema_version": 2,
+            "schema_version": DEVELOPMENT_CLAIM_SCHEMA_VERSION,
             "investigator_id": investigator_id,
             "claims": {},
             "events": {},
-            "capsule_archive_hydrated": False,
         }
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -1669,10 +1288,12 @@ def _load_development_claims(
         raise ValueError("development claim ledger is unreadable") from exc
     claims = value.get("claims") if isinstance(value, dict) else None
     events = value.get("events") if isinstance(value, dict) else None
-    schema_version = value.get("schema_version") if isinstance(value, dict) else None
     if (
         not isinstance(value, dict)
-        or schema_version not in {1, 2}
+        or value.get("schema_version") != DEVELOPMENT_CLAIM_SCHEMA_VERSION
+        or set(value) != {
+            "schema_version", "investigator_id", "claims", "events",
+        }
         or value.get("investigator_id") != investigator_id
         or not isinstance(claims, dict)
         or not all(
@@ -1691,23 +1312,8 @@ def _load_development_claims(
         )
     ):
         raise ValueError("development claim ledger identity is invalid")
-    if schema_version == 1:
-        if set(value) != {"schema_version", "investigator_id", "claims"}:
-            raise ValueError("development claim ledger identity is invalid")
-        return {
-            "schema_version": 2,
-            "investigator_id": investigator_id,
-            "claims": claims,
-            "events": {},
-            "capsule_archive_hydrated": False,
-        }
     if (
-        set(value) != {
-            "schema_version", "investigator_id", "claims", "events",
-            "capsule_archive_hydrated",
-        }
-        or not isinstance(value.get("capsule_archive_hydrated"), bool)
-        or not isinstance(events, dict)
+        not isinstance(events, dict)
         or not all(
             isinstance(token, str)
             and token
@@ -1721,119 +1327,14 @@ def _load_development_claims(
     return value
 
 
-def _hydrate_development_event_archive(
-    campaign_dir: Path,
-    investigator_id: str,
-    ledger: dict[str, Any],
-) -> bool:
-    """Adopt durable pre-v4 capsule identities into the reusable archive."""
-    if ledger.get("capsule_archive_hydrated") is True:
-        return False
-    changed = False
-    campaigns_root = Path(campaign_dir).parent
-    if not campaigns_root.is_dir():
-        return False
-    for capsule_path in sorted(
-        campaigns_root.glob(
-            "*/save/development-settlements/endings/*/capsule.json"
-        )
-    ):
-        try:
-            capsule = json.loads(capsule_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
-        if not _valid_ending_capsule(capsule):
-            continue
-        development_input = (
-            capsule.get("development_inputs") or {}
-        ).get(investigator_id)
-        if (
-            not isinstance(development_input, dict)
-            or development_input.get("schema_version") != 2
-        ):
-            continue
-        owner = development_input.get("claim_owner")
-        if not isinstance(owner, dict):
-            continue
-        old_tokens = development_input.get("input_tokens") or []
-        for index, event in enumerate(development_input.get("check_events") or []):
-            if not isinstance(event, dict):
-                continue
-            stable_identity = {
-                "campaign_id": str(event.get("campaign_id") or ""),
-                "investigator_id": investigator_id,
-                "source_kind": str(event.get("source_kind") or ""),
-                "source_event_id": str(event.get("source_event_id") or ""),
-            }
-            if not all(stable_identity.values()):
-                continue
-            stable_token = "development-check-" + _canonical_sha256(
-                stable_identity
-            )
-            archive_record = _development_event_archive_record(
-                {
-                    **event,
-                    "event_token": stable_token,
-                    "investigator_id": investigator_id,
-                    "ts": "",
-                    "roll": None,
-                }
-            )
-            prior_event = ledger["events"].get(stable_token)
-            if prior_event is None:
-                ledger["events"][stable_token] = archive_record
-                changed = True
-            elif _development_event_identity(
-                prior_event
-            ) != _development_event_identity(archive_record):
-                raise ValueError(
-                    "development event archive has conflicting capsule identity"
-                )
-            old_token = old_tokens[index] if index < len(old_tokens) else None
-            prior_claim = (
-                ledger["claims"].get(old_token)
-                if isinstance(old_token, str) else None
-            )
-            claim = (
-                dict(prior_claim)
-                if isinstance(prior_claim, dict)
-                else {
-                    "campaign_id": str(owner.get("campaign_id") or ""),
-                    "ending_id": str(owner.get("ending_id") or ""),
-                    "investigator_id": investigator_id,
-                    "claimed_at": str(capsule.get("captured_at") or ""),
-                }
-            )
-            existing_claim = ledger["claims"].get(stable_token)
-            if existing_claim is None:
-                ledger["claims"][stable_token] = claim
-                changed = True
-            elif any(
-                existing_claim.get(key) != claim.get(key)
-                for key in ("campaign_id", "ending_id", "investigator_id")
-            ):
-                raise ValueError(
-                    "development event archive has conflicting capsule owner"
-                )
-    ledger["capsule_archive_hydrated"] = True
-    changed = True
-    if changed:
-        path = _development_claims_path(campaign_dir, investigator_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        coc_fileio.write_json_atomic(path, ledger, indent=2, ensure_ascii=False)
-    return changed
-
-
 def _claim_development_events(
     campaign_dir: Path,
     investigator_id: str,
     *,
     ending_id: str,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
-    events = _migrate_reusable_tick_events(campaign_dir, investigator_id)
-    events = _migrate_campaign_skill_names(campaign_dir, investigator_id, events)
+    events = _read_current_development_events(campaign_dir, investigator_id)
     ledger = _load_development_claims(campaign_dir, investigator_id)
-    _hydrate_development_event_archive(campaign_dir, investigator_id, ledger)
     owner = {
         "campaign_id": _campaign_id(campaign_dir),
         "ending_id": ending_id,
@@ -1842,7 +1343,7 @@ def _claim_development_events(
     claims = ledger["claims"]
     archive = ledger["events"]
     owned: list[dict[str, str]] = []
-    changed = ledger.get("schema_version") != 2
+    changed = False
     for event in events:
         token = event["event_token"]
         archived = archive.get(token)
@@ -1858,45 +1359,17 @@ def _claim_development_events(
             raise ValueError(
                 "development event token has conflicting durable identity"
             )
-        stable_token = "development-check-" + _canonical_sha256({
-            "campaign_id": event["campaign_id"],
-            "investigator_id": investigator_id,
-            "source_kind": event["source_kind"],
-            "source_event_id": event["source_event_id"],
-        })
-        claim_tokens = [token]
-        if stable_token != token:
-            stable_archive = _development_event_archive_record(
-                {**event, "event_token": stable_token},
-                investigator_id=investigator_id,
-            )
-            prior_stable = archive.get(stable_token)
-            if prior_stable is None:
-                archive[stable_token] = stable_archive
-                changed = True
-            elif _development_event_identity(
-                prior_stable
-            ) != _development_event_identity(stable_archive):
-                raise ValueError(
-                    "development event stable alias has conflicting identity"
-                )
-            claim_tokens.append(stable_token)
-        priors = [claims.get(item) for item in claim_tokens]
-        foreign_owner = any(
-            prior is not None
-            and not all(prior.get(key) == value for key, value in owner.items())
-            for prior in priors
-        )
-        if foreign_owner:
+        prior = claims.get(token)
+        if prior is not None and not all(
+            prior.get(key) == value for key, value in owner.items()
+        ):
             continue
         claimed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        for claim_token, prior in zip(claim_tokens, priors):
-            if prior is None:
-                claims[claim_token] = {**owner, "claimed_at": claimed_at}
-                changed = True
+        if prior is None:
+            claims[token] = {**owner, "claimed_at": claimed_at}
+            changed = True
         if all(
-            claims[item].get(key) == value
-            for item in claim_tokens
+            claims[token].get(key) == value
             for key, value in owner.items()
         ):
             owned.append(event)
@@ -1911,7 +1384,6 @@ def _sanity_mechanical_baseline(
     campaign_dir: Path, investigator_id: str
 ) -> tuple[dict[str, Any], Path]:
     canonical = coc_sanity.sanity_snapshot_path(campaign_dir, investigator_id)
-    legacy = coc_sanity.legacy_sanity_snapshot_path(campaign_dir)
     inv_path = _investigator_state_path(campaign_dir, investigator_id)
     source = "investigator_state"
     path = inv_path
@@ -1922,12 +1394,6 @@ def _sanity_mechanical_baseline(
             raise ValueError("canonical SAN identity does not match investigator")
         source = "canonical"
         path = canonical
-    elif legacy.is_file():
-        candidate = json.loads(legacy.read_text(encoding="utf-8"))
-        if isinstance(candidate, dict) and candidate.get("investigator_id") == investigator_id:
-            value = candidate
-            source = "legacy_owner"
-            path = legacy
     if source == "investigator_state":
         try:
             candidate = json.loads(inv_path.read_text(encoding="utf-8"))
@@ -2198,11 +1664,7 @@ def structured_ending_evidence(
     ending_id: str | None = None,
     decision_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """Return one exact persisted ending, defaulting to the latest.
-
-    New endings resolve through their immutable settlement capsule.  Legacy
-    events without a capsule retain the old structured compilation path.
-    """
+    """Return one exact current ending bound to its immutable capsule."""
     campaign_dir = Path(campaign_dir)
     rows = _read_event_rows(campaign_dir)
     candidates = [
@@ -2213,52 +1675,43 @@ def structured_ending_evidence(
     selected: tuple[int, dict[str, Any]] | None = None
     for index, row in candidates:
         if ending_id is not None and row.get("ending_id") != ending_id:
-            if row.get("ending_id") is not None:
-                continue
-            # Compatibility for pre-capsule ending events: derive their old
-            # structured identity once so an already-issued ledger ending_id
-            # remains replayable after upgrade.
-            if _compile_ending_evidence(
-                campaign_dir, row, index, rows
-            ).get("ending_id") != ending_id:
-                continue
+            continue
         if decision_id is not None and row.get("decision_id") != decision_id:
             continue
         selected = (index, row)
     if selected is None:
         return None
-    index, ending = selected
+    _index, ending = selected
     explicit_id = ending.get("ending_id")
-    if isinstance(explicit_id, str):
-        if _SAFE_ID.fullmatch(explicit_id) is None:
-            return None
-        capsule = load_ending_settlement_capsule(campaign_dir, explicit_id)
-        capsule_contract = (
-            "settlement_capsule_ref" in ending
-            or "settlement_capsule_sha256" in ending
-        )
-        if capsule is None:
-            # A versioned ending that declared a capsule must never drift back
-            # to a fresh compilation from current scenario/combat state.
-            if capsule_contract:
-                return None
-        else:
-            if (
-                capsule.get("decision_id") != ending.get("decision_id")
-                or capsule.get("event_id") != ending.get("event_id")
-                or capsule.get("captured_at") != str(ending.get("ts") or "")
-                or capsule.get("summary") != ending.get("summary")
-                or capsule.get("scene_id") != ending.get("scene_id")
-                or capsule.get("kind") != ending.get("kind")
-                or capsule.get("investigator_ids")
-                != ending.get("investigator_ids")
-            ):
-                return None
-            expected_digest = ending.get("settlement_capsule_sha256")
-            if expected_digest not in (None, capsule.get("capsule_sha256")):
-                return None
-            return capsule
-    return _compile_ending_evidence(campaign_dir, ending, index, rows)
+    if not isinstance(explicit_id, str) or _SAFE_ID.fullmatch(explicit_id) is None:
+        return None
+    expected_ref = ending_settlement_capsule_path(
+        campaign_dir, explicit_id
+    ).relative_to(campaign_dir).as_posix()
+    if (
+        ending.get("event_id") != ending_event_id(explicit_id)
+        or not isinstance(ending.get("decision_id"), str)
+        or not ending.get("decision_id")
+        or ending.get("settlement_capsule_ref") != expected_ref
+        or not isinstance(ending.get("settlement_capsule_sha256"), str)
+    ):
+        return None
+    capsule = load_ending_settlement_capsule(campaign_dir, explicit_id)
+    if capsule is None:
+        return None
+    if (
+        capsule.get("decision_id") != ending.get("decision_id")
+        or capsule.get("event_id") != ending.get("event_id")
+        or capsule.get("captured_at") != str(ending.get("ts") or "")
+        or capsule.get("summary") != ending.get("summary")
+        or capsule.get("scene_id") != ending.get("scene_id")
+        or capsule.get("kind") != ending.get("kind")
+        or capsule.get("investigator_ids") != ending.get("investigator_ids")
+        or capsule.get("capsule_sha256")
+        != ending.get("settlement_capsule_sha256")
+    ):
+        return None
+    return capsule
 
 
 def _read_character(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
@@ -2296,31 +1749,15 @@ def _current_luck(campaign_dir: Path, investigator_id: str, sheet: dict[str, Any
     return 50
 
 
-def _decay_awfulness(campaign_dir: Path, investigator_id: str) -> dict[str, int]:
-    """Decrement each creature_type awfulness cap by 1 (floor 0) and persist."""
-    if not coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
-        return {}
-    try:
-        sess = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
-    except Exception:
-        return {}
-    decayed: dict[str, int] = {}
-    for creature, value in list(sess.awfulness_caps.items()):
-        decayed[str(creature)] = max(0, int(value) - 1)
-    sess.awfulness_caps = decayed
-    sess.save(campaign_dir)
-    return decayed
-
-
 def _apply_frozen_awfulness_decay(
     campaign_dir: Path,
     investigator_id: str,
     baseline_caps: dict[str, int],
     planned_caps: dict[str, int],
 ) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
-    if not baseline_caps or not coc_sanity.sanity_snapshot_exists(
+    if not baseline_caps or not coc_sanity.sanity_snapshot_path(
         campaign_dir, investigator_id
-    ):
+    ).is_file():
         return {}, {}
     sess = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
     merged: dict[str, dict[str, int]] = {}
@@ -2347,222 +1784,100 @@ def run_development_phase(
     ending_evidence: dict[str, Any] | None = None,
     development_input: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Settle the Investigator Development Phase for one investigator (p.94-95).
-
-    Steps:
-      1. Deduplicate ticked skills from development.jsonl
-      2. Per skill: 1D100 > value or >95 → +1D10 write-back to character.json
-      3. Any improved skill reaching ≥ san_reward_threshold → san_reward_expr
-      4. Luck recovery via coc_roll.recover_luck + coc_state.apply_luck_recovery
-      5. awfulness_caps each −1 (floor 0)
-      6. Truncate development.jsonl
-      7. Return structured summary
-    """
-    rng = rng or random.Random()
+    """Apply one frozen current-schema ending settlement plan."""
     campaign_dir = Path(campaign_dir)
-    rule = coc_rules.development_rule()
-    improvement = rule["improvement_roll"]
-    always_above = int(improvement.get("always_improves_above", 95))
-    # Prefer san_reward_threshold from table; fall back to cap_for_san_reward.
-    table = coc_rules.load_rule_table("development")
-    threshold = int(
-        table.get("improvement_roll", {}).get(
-            "san_reward_threshold",
-            improvement.get("cap_for_san_reward", 90),
-        )
-    )
-    san_expr = str(rule.get("sanity_reward", {}).get("reward", "2D6"))
-
-    tick_path = _development_path(campaign_dir, investigator_id)
-    if development_input is not None:
-        frozen_skills = development_input.get("skills_checked")
-        if not isinstance(frozen_skills, list) or not all(
-            isinstance(skill, str) for skill in frozen_skills
-        ):
-            raise ValueError("ending development input skills are invalid")
-        skills_checked = list(dict.fromkeys(frozen_skills))
-    else:
-        skills_checked = list(dict.fromkeys(
-            _read_ticked_skills(tick_path)
-            + _campaign_ticked_skills(campaign_dir, investigator_id)
-        ))
+    if not _valid_development_input_v2(development_input):
+        raise ValueError("development settlement requires current frozen input")
+    if not _valid_ending_capsule(ending_evidence):
+        raise ValueError("development settlement requires a current ending capsule")
+    frozen_skills = development_input["skills_checked"]
+    skills_checked = list(frozen_skills)
     sheet = _read_character(campaign_dir, investigator_id)
     skills = sheet.setdefault("skills", {})
     if not isinstance(skills, dict):
         skills = {}
         sheet["skills"] = skills
 
-    if development_input is not None and development_input.get("schema_version") == 2:
-        baseline = development_input["mechanical_baseline"]
-        plan = development_input["deterministic_plan"]
-        improvement_checks: list[dict[str, Any]] = []
-        skills_improved: list[dict[str, Any]] = []
-        for frozen in plan["improvement_checks"]:
-            skill = str(frozen["skill"])
-            current_live = int(skills.get(skill, 0) or 0)
-            gain = int(frozen["gain"] or 0)
-            value_after = current_live + gain if frozen["improved"] else current_live
-            if frozen["improved"]:
-                skills[skill] = value_after
-            row = {
-                "skill": skill,
-                "check_roll": int(frozen["check_roll"]),
-                "gain": int(frozen["gain"]) if frozen["improved"] else None,
-                "value_before": int(frozen["value_before"]),
-                "planned_value_after": int(frozen["planned_value_after"]),
-                "current_value_before_apply": current_live,
-                "applied_delta": gain,
-                "value_after": value_after,
-                "improved": bool(frozen["improved"]),
-                "merge_policy": "additive_monotonic",
-            }
-            improvement_checks.append(dict(row))
-            if frozen["improved"]:
-                skills_improved.append(row)
-        if skills_improved:
-            _write_character(campaign_dir, investigator_id, sheet)
-
-        luck_plan = dict(plan["luck_recovery"])
-        current_luck = _current_luck(campaign_dir, investigator_id, sheet)
-        planned_gain = int(luck_plan.get("gained", 0) or 0)
-        luck_after = min(99, current_luck + planned_gain)
-        applied_luck = luck_after - current_luck
-        coc_state.apply_luck_recovery(
-            campaign_dir, investigator_id, luck_after=luck_after
-        )
-        luck_recovery = {
-            **luck_plan,
-            "planned_luck_before": int(baseline["luck"]),
-            "planned_luck_after": int(luck_plan["luck_after"]),
-            "planned_gained": planned_gain,
-            "current_luck_before_apply": current_luck,
-            "gained": applied_luck,
-            "luck_after": luck_after,
-            "applied_delta": applied_luck,
-            "merge_policy": "additive_monotonic_capped_99",
-        }
-        awfulness_decay, awfulness_merge = _apply_frozen_awfulness_decay(
-            campaign_dir,
-            investigator_id,
-            baseline["sanity"]["awfulness_caps"],
-            plan["awfulness_decay"],
-        )
-        _consume_development_inputs(campaign_dir, investigator_id, development_input)
-        ending = ending_evidence or structured_ending_evidence(campaign_dir)
-        development_reward = plan.get("development_san_reward")
-        scenario_reward = plan.get("scenario_san_reward")
-        return {
-            "skills_checked": skills_checked,
-            "improvement_checks": improvement_checks,
-            "skills_improved": skills_improved,
-            "san_reward_expr": (
-                development_reward.get("expression")
-                if isinstance(development_reward, dict) else None
-            ),
-            "san_reward_roll": development_reward,
-            "san_reward_planned_delta": (
-                int(plan["development_san_planned_delta"])
-                if plan.get("schema_version") == 2
-                else min(
-                    int(development_reward["total"])
-                    if isinstance(development_reward, dict) else 0,
-                    int(baseline["sanity"]["max"])
-                    - int(baseline["sanity"]["current"]),
-                )
-            ),
-            "ending_evidence": ending,
-            "scenario_san_reward_expr": (
-                ending.get("scenario_san_reward_expr") if ending else None
-            ),
-            "scenario_san_reward_roll": scenario_reward,
-            "scenario_san_reward_planned_delta": (
-                int(plan["scenario_san_planned_delta"])
-                if plan.get("schema_version") == 2
-                else min(
-                    int(scenario_reward["total"])
-                    if isinstance(scenario_reward, dict) else 0,
-                    max(
-                        0,
-                        int(baseline["sanity"]["max"])
-                        - int(baseline["sanity"]["current"])
-                        - min(
-                            int(development_reward["total"])
-                            if isinstance(development_reward, dict) else 0,
-                            int(baseline["sanity"]["max"])
-                            - int(baseline["sanity"]["current"]),
-                        ),
-                    ),
-                )
-            ),
-            "luck_recovery": luck_recovery,
-            "awfulness_decay": awfulness_decay,
-            "awfulness_merge": awfulness_merge,
-            "mechanical_baseline": baseline,
-            "settlement_plan_sha256": plan["plan_sha256"],
-            "merge_policy": "frozen_plan_additive_monotonic_v1",
-            "input_tokens_consumed": list(development_input["input_tokens"]),
-        }
-
+    baseline = development_input["mechanical_baseline"]
+    plan = development_input["deterministic_plan"]
     improvement_checks: list[dict[str, Any]] = []
     skills_improved: list[dict[str, Any]] = []
-    san_reward_expr: str | None = None
-
-    for skill in skills_checked:
-        current = int(skills.get(skill, 0) or 0)
-        check_roll = rng.randint(1, 100)
-        improved = check_roll > current or check_roll > always_above
-        if not improved:
-            improvement_checks.append({
-                "skill": skill,
-                "check_roll": check_roll,
-                "value_before": current,
-                "improved": False,
-                "gain": None,
-                "value_after": current,
-            })
-            continue
-        gain = rng.randint(1, 10)
-        new_value = current + gain
-        skills[skill] = new_value
+    for frozen in plan["improvement_checks"]:
+        skill = str(frozen["skill"])
+        current_live = int(skills.get(skill, 0) or 0)
+        gain = int(frozen["gain"] or 0)
+        value_after = current_live + gain if frozen["improved"] else current_live
+        if frozen["improved"]:
+            skills[skill] = value_after
         row = {
             "skill": skill,
-            "check_roll": check_roll,
-            "gain": gain,
-            "value_before": current,
-            "value_after": new_value,
-            "improved": True,
+            "check_roll": int(frozen["check_roll"]),
+            "gain": int(frozen["gain"]) if frozen["improved"] else None,
+            "value_before": int(frozen["value_before"]),
+            "planned_value_after": int(frozen["planned_value_after"]),
+            "current_value_before_apply": current_live,
+            "applied_delta": gain,
+            "value_after": value_after,
+            "improved": bool(frozen["improved"]),
+            "merge_policy": "additive_monotonic",
         }
         improvement_checks.append(dict(row))
-        skills_improved.append(row)
-        if new_value >= threshold:
-            san_reward_expr = san_expr
-
+        if frozen["improved"]:
+            skills_improved.append(row)
     if skills_improved:
         _write_character(campaign_dir, investigator_id, sheet)
 
-    luck_before = _current_luck(campaign_dir, investigator_id, sheet)
-    luck_recovery = coc_roll.recover_luck(luck_before, rng=rng)
+    luck_plan = dict(plan["luck_recovery"])
+    current_luck = _current_luck(campaign_dir, investigator_id, sheet)
+    planned_gain = int(luck_plan.get("gained", 0) or 0)
+    luck_after = min(99, current_luck + planned_gain)
+    applied_luck = luck_after - current_luck
     coc_state.apply_luck_recovery(
-        campaign_dir, investigator_id, luck_after=int(luck_recovery["luck_after"])
+        campaign_dir, investigator_id, luck_after=luck_after
     )
-
-    awfulness_decay = _decay_awfulness(campaign_dir, investigator_id)
-
-    _consume_development_inputs(
-        campaign_dir, investigator_id, development_input
+    luck_recovery = {
+        **luck_plan,
+        "planned_luck_before": int(baseline["luck"]),
+        "planned_luck_after": int(luck_plan["luck_after"]),
+        "planned_gained": planned_gain,
+        "current_luck_before_apply": current_luck,
+        "gained": applied_luck,
+        "luck_after": luck_after,
+        "applied_delta": applied_luck,
+        "merge_policy": "additive_monotonic_capped_99",
+    }
+    awfulness_decay, awfulness_merge = _apply_frozen_awfulness_decay(
+        campaign_dir,
+        investigator_id,
+        baseline["sanity"]["awfulness_caps"],
+        plan["awfulness_decay"],
     )
-
-    ending = ending_evidence or structured_ending_evidence(campaign_dir)
-
+    _consume_development_inputs(campaign_dir, investigator_id, development_input)
+    development_reward = plan.get("development_san_reward")
+    scenario_reward = plan.get("scenario_san_reward")
     return {
         "skills_checked": skills_checked,
         "improvement_checks": improvement_checks,
         "skills_improved": skills_improved,
-        "san_reward_expr": san_reward_expr,
-        "ending_evidence": ending,
-        "scenario_san_reward_expr": (
-            ending.get("scenario_san_reward_expr") if ending else None
+        "san_reward_expr": (
+            development_reward.get("expression")
+            if isinstance(development_reward, dict) else None
+        ),
+        "san_reward_roll": development_reward,
+        "san_reward_planned_delta": int(plan["development_san_planned_delta"]),
+        "ending_evidence": ending_evidence,
+        "scenario_san_reward_expr": ending_evidence.get(
+            "scenario_san_reward_expr"
+        ),
+        "scenario_san_reward_roll": scenario_reward,
+        "scenario_san_reward_planned_delta": int(
+            plan["scenario_san_planned_delta"]
         ),
         "luck_recovery": luck_recovery,
         "awfulness_decay": awfulness_decay,
+        "awfulness_merge": awfulness_merge,
+        "mechanical_baseline": baseline,
+        "settlement_plan_sha256": plan["plan_sha256"],
+        "merge_policy": "frozen_plan_additive_monotonic_v1",
+        "input_tokens_consumed": list(development_input["input_tokens"]),
     }

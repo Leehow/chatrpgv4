@@ -4210,9 +4210,22 @@ def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
         campaign_ws["campaign_dir"] / "save" / "investigator-state"
         / f"{investigator_id}.json"
     )
-    state_value = json.loads(state_path.read_text(encoding="utf-8"))
-    state_value["skill_checks_earned"] = ["Spot Hidden"]
-    _write_json(state_path, state_value)
+    spot_tick = coc_toolbox.coc_development.record_skill_tick(
+        campaign_ws["campaign_dir"],
+        investigator_id,
+        "Spot Hidden",
+        {
+            "skill": "Spot Hidden",
+            "outcome": "regular_success",
+            "success": True,
+            "roll": 20,
+            "target": 50,
+            "kind": "skill_check",
+        },
+        source_event_id="capsule-pending-spot",
+        source_kind="toolbox-test",
+    )
+    assert spot_tick is not None
 
     original = coc_toolbox.coc_runtime_ops.settle_development
 
@@ -4252,9 +4265,22 @@ def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
     _write_json(graph_path, graph)
     combat_path = campaign_ws["campaign_dir"] / "save" / "combat.json"
     _write_json(combat_path, {"status": "newer-ending-only"})
-    state_value = json.loads(state_path.read_text(encoding="utf-8"))
-    state_value["skill_checks_earned"] = ["Spot Hidden", "Listen"]
-    _write_json(state_path, state_value)
+    listen_tick = coc_toolbox.coc_development.record_skill_tick(
+        campaign_ws["campaign_dir"],
+        investigator_id,
+        "Listen",
+        {
+            "skill": "Listen",
+            "outcome": "regular_success",
+            "success": True,
+            "roll": 20,
+            "target": 50,
+            "kind": "skill_check",
+        },
+        source_event_id="capsule-pending-listen",
+        source_kind="toolbox-test",
+    )
+    assert listen_tick is not None
     monkeypatch.setattr(
         coc_toolbox.coc_runtime_ops, "settle_development", original
     )
@@ -4284,7 +4310,7 @@ def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
     assert second_result["skills_checked"] == ["Listen"]
     assert json.loads(state_path.read_text(encoding="utf-8"))[
         "skill_checks_earned"
-    ] == ["Spot Hidden"]
+    ] == []
 
     recovered = _run(campaign_ws, "state.end_session", first_args)
     assert recovered["ok"] is True
@@ -4306,28 +4332,10 @@ def test_pending_ending_capsule_survives_newer_ending_with_its_own_inputs(
     assert coc_toolbox.coc_development.ending_settlement_path(
         campaign_ws["campaign_dir"], second_ending_id, investigator_id
     ).is_file()
-    latest = json.loads((
+    assert not (
         campaign_ws["campaign_dir"] / "save" / "development-settlements"
         / f"{investigator_id}.json"
-    ).read_text(encoding="utf-8"))
-    assert latest["ending_id"] == second_ending_id
-    # Exercise the actual rev2 projection shape (derived source, no order).
-    latest.pop("ending_order")
-    latest_path = (
-        campaign_ws["campaign_dir"] / "save" / "development-settlements"
-        / f"{investigator_id}.json"
-    )
-    _write_json(latest_path, latest)
-    warning = coc_toolbox.coc_runtime_ops._write_latest_settlement_mirror(
-        campaign_ws["campaign_dir"],
-        investigator_id,
-        first_capsule,
-        recovered["data"]["development"]["settlements"][0]["receipt"],
-    )
-    assert warning is None
-    assert json.loads(latest_path.read_text(encoding="utf-8"))[
-        "ending_id"
-    ] == second_ending_id
+    ).exists()
 
 
 def test_pending_ending_and_new_same_skill_success_keep_distinct_event_claims(
@@ -4480,11 +4488,13 @@ def test_frozen_mechanical_plan_merges_without_recomputing_later_state(
     ]["plan_sha256"]
 
 
-def test_legacy_top_level_pass_is_adopted_without_reapplying(campaign_ws):
+def test_base_layout_settlement_receipt_is_rejected_without_reapplying(
+    campaign_ws,
+):
     ended = _run(campaign_ws, "state.end_session", {
         "kind": "cliffhanger",
         "summary": "create a receipt to reshape as the base layout",
-        "decision_id": "legacy-adoption-ending",
+        "decision_id": "base-layout-rejection-ending",
     })
     assert ended["data"]["development"]["status"] == "PASS"
     investigator_id = campaign_ws["investigator_id"]
@@ -4492,11 +4502,11 @@ def test_legacy_top_level_pass_is_adopted_without_reapplying(campaign_ws):
     exact = coc_toolbox.coc_development.ending_settlement_path(
         campaign_ws["campaign_dir"], ending_id, investigator_id
     )
-    legacy = (
+    base_layout = (
         campaign_ws["campaign_dir"] / "save" / "development-settlements"
         / f"{investigator_id}.json"
     )
-    legacy.write_bytes(exact.read_bytes())
+    base_layout.write_bytes(exact.read_bytes())
     exact.unlink()
     character = (
         campaign_ws["coc_root"] / "investigators" / investigator_id
@@ -4511,40 +4521,40 @@ def test_legacy_top_level_pass_is_adopted_without_reapplying(campaign_ws):
     replay = _run(campaign_ws, "development.settle", {
         "investigator": investigator_id,
         "ending_id": ending_id,
-        "decision_id": "legacy-adoption-replay",
+        "decision_id": "base-layout-rejection-replay",
     })
 
-    assert replay["ok"] is True
+    assert replay["ok"] is False
+    assert replay["error"]["code"] == "development_settlement_failed"
+    assert "unsupported base-layout" in replay["error"]["message"]
     assert {path: path.read_bytes() for path in before} == before
-    adopted = json.loads(exact.read_text(encoding="utf-8"))
-    assert adopted["migration"]["adopted_from"] == (
-        f"save/development-settlements/{investigator_id}.json"
-    )
+    assert not exact.exists()
+    assert base_layout.is_file()
 
 
-def test_latest_mirror_failure_returns_pass_with_repair_warning(campaign_ws):
+def test_current_settlement_writes_only_exact_ending_receipt(campaign_ws):
     investigator_id = campaign_ws["investigator_id"]
-    mirror = (
+    base_layout = (
         campaign_ws["campaign_dir"] / "save" / "development-settlements"
         / f"{investigator_id}.json"
     )
-    mirror.mkdir(parents=True)
     ended = _run(campaign_ws, "state.end_session", {
         "kind": "cliffhanger",
-        "summary": "exact receipt must outrank a broken mirror",
-        "decision_id": "broken-mirror-ending",
+        "summary": "only the exact ending receipt is current state",
+        "decision_id": "exact-only-ending",
     })
 
     assert ended["ok"] is True
     assert ended["data"]["development"]["status"] == "PASS"
     receipt = ended["data"]["development"]["settlements"][0]["receipt"]
     assert receipt["status"] == "PASS"
-    assert receipt["projection_repair_needed"] is True
-    assert any("mirror needs repair" in item for item in receipt["warnings"])
+    assert "projection_repair_needed" not in receipt
+    assert "warnings" not in receipt
     exact = coc_toolbox.coc_development.ending_settlement_path(
         campaign_ws["campaign_dir"], ended["data"]["ending_id"], investigator_id
     )
     assert exact.is_file()
+    assert not base_layout.exists()
 
 
 def test_end_session_rejects_unsafe_target_before_lock_path_creation(campaign_ws):

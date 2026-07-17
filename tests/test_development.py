@@ -50,11 +50,27 @@ def _campaign_with_investigator(tmp_path: Path, *, skills: dict | None = None,
     (inv_dir / "character.json").write_text(json.dumps(sheet), encoding="utf-8")
     (inv_dir / "development.jsonl").write_text("", encoding="utf-8")
     (camp / "save" / "investigator-state" / f"{inv_id}.json").write_text(
-        json.dumps({"current_luck": luck, "current_san": 50, "current_hp": 11}),
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "case-1",
+            "investigator_id": inv_id,
+            "current_luck": luck,
+            "current_san": 50,
+            "current_hp": 11,
+            "current_mp": 10,
+            "conditions": [],
+            "skill_checks_earned": [],
+        }),
         encoding="utf-8",
     )
     (camp / "save" / "pacing-state.json").write_text(
-        json.dumps({"luck_spent_last": 0, "tension_level": "low", "turn_number": 0}),
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "case-1",
+            "luck_spent_last": 0,
+            "tension_level": "low",
+            "turn_number": 0,
+        }),
         encoding="utf-8",
     )
     return camp, inv_id
@@ -295,13 +311,13 @@ def test_consumed_event_replay_keeps_source_token_across_later_session(tmp_path)
         camp.parents[1] / "investigators" / inv_id
         / "development-claims.json"
     ).read_text(encoding="utf-8"))
-    assert ledger["schema_version"] == 2
+    assert ledger["schema_version"] == 3
     assert ledger["events"][first["event_token"]]["source_event_id"] == (
         "rules.roll:durable-replay"
     )
 
 
-def test_capsule_rejects_conflicting_identity_for_existing_event_token(tmp_path):
+def test_capsule_does_not_treat_investigator_projection_as_tick_source(tmp_path):
     camp, inv_id = _campaign_with_investigator(tmp_path)
     tick = coc_development.record_skill_tick(
         camp,
@@ -325,23 +341,27 @@ def test_capsule_rejects_conflicting_identity_for_existing_event_token(tmp_path)
     }]
     state_path.write_text(json.dumps(state), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="conflicting campaign identity"):
-        coc_development.build_ending_settlement_capsule(
-            camp,
-            {
-                "event_type": "session_ending",
-                "ending_id": "ending-event-token-conflict",
-                "scene_id": "finale",
-                "kind": "cliffhanger",
-                "decision_id": "event-token-conflict",
-                "investigator_ids": [inv_id],
-                "ts": "2026-07-16T00:00:00Z",
-            },
-        )
+    capsule = coc_development.build_ending_settlement_capsule(
+        camp,
+        {
+            "event_type": "session_ending",
+            "ending_id": "ending-event-token-conflict",
+            "scene_id": "finale",
+            "kind": "cliffhanger",
+            "decision_id": "event-token-conflict",
+            "investigator_ids": [inv_id],
+            "ts": "2026-07-16T00:00:00Z",
+        },
+    )
+    assert capsule["development_inputs"][inv_id]["skills_checked"] == [
+        "Spot Hidden"
+    ]
     archive = json.loads((
         camp.parents[1] / "investigators" / inv_id / "development-claims.json"
     ).read_text(encoding="utf-8"))
-    assert archive["claims"] == {}
+    assert archive["claims"][tick["event_token"]]["ending_id"] == (
+        "ending-event-token-conflict"
+    )
     assert list(archive["events"]) == [tick["event_token"]]
 
 
@@ -357,14 +377,26 @@ def test_two_campaign_capsules_can_claim_one_reusable_event_only_once(tmp_path):
     )
     (camp_b / "save" / "investigator-state" / f"{inv_id}.json").write_text(
         json.dumps({
+            "schema_version": 1,
+            "campaign_id": "case-2",
             "investigator_id": inv_id,
             "current_luck": 40,
             "current_san": 50,
+            "current_hp": 11,
+            "current_mp": 10,
+            "conditions": [],
             "max_san": 99,
             "skill_checks_earned": [],
         }),
         encoding="utf-8",
     )
+    (camp_b / "save" / "pacing-state.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "case-2",
+        "luck_spent_last": 0,
+        "tension_level": "low",
+        "turn_number": 0,
+    }), encoding="utf-8")
     tick = coc_development.record_skill_tick(
         camp_a,
         inv_id,
@@ -442,188 +474,119 @@ def test_canonical_san_baseline_preserves_zero_maximum(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# run_development_phase
+# current-schema settlement and clean-slate rejection
 # ---------------------------------------------------------------------------
 
-def _seed_tick(camp: Path, inv_id: str, skill: str, roll: int = 20) -> None:
-    inv_dir = camp.parents[1] / "investigators" / inv_id
-    with (inv_dir / "development.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"skill": skill, "ts": "2026-01-01T00:00:00Z", "roll": roll}) + "\n")
-
-
-def test_development_phase_always_improves_when_roll_over_95(tmp_path):
-    """p.94: 1D100 > skill OR >95 always improves."""
-    camp, inv_id = _campaign_with_investigator(
-        tmp_path, skills={"Spot Hidden": 99}
+def _current_capsule(camp: Path, inv_id: str, skill: str = "Spot Hidden") -> dict:
+    tick = coc_development.record_skill_tick(
+        camp,
+        inv_id,
+        skill,
+        _success_result(skill=skill),
+        source_event_id=f"rules.roll:{skill}",
+        source_kind="rules.roll",
     )
-    _seed_tick(camp, inv_id, "Spot Hidden")
-    # seed 23 → check 100 (>95), gain 5
-    seed = 23
-    probe = random.Random(seed)
-    check = probe.randint(1, 100)
-    gain = probe.randint(1, 10)
-    assert check > 95
-
-    out = coc_development.run_development_phase(
-        camp, inv_id, rng=random.Random(seed)
-    )
-    assert "Spot Hidden" in out["skills_checked"]
-    assert any(s["skill"] == "Spot Hidden" for s in out["skills_improved"])
-    sheet = json.loads(
-        (camp.parents[1] / "investigators" / inv_id / "character.json").read_text()
-    )
-    assert sheet["skills"]["Spot Hidden"] == 99 + gain
-
-
-def test_development_phase_improves_when_roll_exceeds_skill(tmp_path):
-    camp, inv_id = _campaign_with_investigator(
-        tmp_path, skills={"Library Use": 30}
-    )
-    _seed_tick(camp, inv_id, "Library Use")
-    # Find a seed where first 1D100 > 30 and <=95, then capture gain.
-    for seed in range(500):
-        probe = random.Random(seed)
-        check = probe.randint(1, 100)
-        if check > 30 and check <= 95:
-            gain = probe.randint(1, 10)
-            break
-    else:
-        pytest.fail("no suitable RNG seed")
-
-    out = coc_development.run_development_phase(
-        camp, inv_id, rng=random.Random(seed)
-    )
-    improved = {row["skill"]: row for row in out["skills_improved"]}
-    assert "Library Use" in improved
-    assert improved["Library Use"]["gain"] == gain
-    sheet = json.loads(
-        (camp.parents[1] / "investigators" / inv_id / "character.json").read_text()
-    )
-    assert sheet["skills"]["Library Use"] == 30 + gain
-
-
-def test_development_phase_san_reward_when_skill_reaches_90(tmp_path):
-    camp, inv_id = _campaign_with_investigator(
-        tmp_path, skills={"Persuade": 88}
-    )
-    _seed_tick(camp, inv_id, "Persuade")
-    for seed in range(500):
-        probe = random.Random(seed)
-        check = probe.randint(1, 100)
-        if check > 88:
-            gain = probe.randint(1, 10)
-            if 88 + gain >= 90:
-                break
-    else:
-        pytest.fail("no suitable RNG seed")
-
-    out = coc_development.run_development_phase(
-        camp, inv_id, rng=random.Random(seed)
-    )
-    assert out["san_reward_expr"] == "2D6"
-    sheet = json.loads(
-        (camp.parents[1] / "investigators" / inv_id / "character.json").read_text()
-    )
-    assert sheet["skills"]["Persuade"] >= 90
-
-
-def test_development_phase_awfulness_caps_decay(tmp_path):
-    camp, inv_id = _campaign_with_investigator(tmp_path, skills={"Spot Hidden": 40})
-    sess = coc_sanity.SanitySession(
-        inv_id, san_max=99, int_value=70, rng=random.Random(1), campaign_dir=camp
-    )
-    sess.awfulness_caps = {"ghoul": 3, "byakhee": 1, "deep_one": 0}
-    sess.save(camp)
-
-    _seed_tick(camp, inv_id, "Spot Hidden")
-    # Use a seed that fails the improvement so we still exercise decay.
-    for seed in range(200):
-        probe = random.Random(seed)
-        if probe.randint(1, 100) <= 40:
-            break
-    out = coc_development.run_development_phase(
-        camp, inv_id, rng=random.Random(seed)
-    )
-    assert out["awfulness_decay"] == {"ghoul": 2, "byakhee": 0, "deep_one": 0}
-    loaded = coc_sanity.SanitySession.load(camp, inv_id, int_value=70)
-    assert loaded.awfulness_caps == {"ghoul": 2, "byakhee": 0, "deep_one": 0}
-
-
-def test_frozen_floor_zero_awfulness_decay_does_not_affect_later_cap(tmp_path):
-    camp, inv_id = _campaign_with_investigator(tmp_path)
-    sess = coc_sanity.SanitySession(
-        inv_id, san_max=99, int_value=60, rng=random.Random(41),
-        campaign_dir=camp,
-    )
-    sess.san_current = 60
-    sess.awfulness_caps = {"ghoul": 0}
-    sess.save(camp)
-    baseline = {
-        "skills": {},
-        "luck": 40,
-        "sanity": {
-            "source": "canonical",
-            "current": 60,
-            "max": 99,
-            "awfulness_caps": {"ghoul": 0},
+    assert tick is not None
+    return coc_development.build_ending_settlement_capsule(
+        camp,
+        {
+            "event_type": "session_ending",
+            "ending_id": "ending-current-development",
+            "scene_id": "finale",
+            "kind": "cliffhanger",
+            "decision_id": "ending-current-development",
+            "investigator_ids": [inv_id],
+            "ts": "2026-07-16T00:00:00Z",
         },
-    }
-    plan = coc_development._deterministic_development_plan(
-        skills={},
-        luck=40,
-        sanity=baseline["sanity"],
-        seed_material="awfulness-floor-zero",
-        scenario_reward_expr=None,
     )
-    assert plan["awfulness_decay"] == {"ghoul": 0}
-    sess = coc_sanity.SanitySession.load(camp, inv_id)
-    sess.awfulness_caps["ghoul"] = 10
-    sess.save(camp)
+
+
+def test_current_capsule_applies_frozen_plan_and_consumes_exact_token(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    state_path = camp / "save" / "investigator-state" / f"{inv_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["schema_version"] = 1
+    state["campaign_id"] = "case-1"
+    state["investigator_id"] = inv_id
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    capsule = _current_capsule(camp, inv_id)
+    development_input = capsule["development_inputs"][inv_id]
 
     result = coc_development.run_development_phase(
         camp,
         inv_id,
-        ending_evidence={"ending_id": "ending-awfulness-floor"},
-        development_input={
-            "schema_version": 2,
-            "skills_checked": [],
-            "input_tokens": [],
-            "mechanical_baseline": baseline,
-            "deterministic_plan": plan,
-        },
+        ending_evidence=capsule,
+        development_input=development_input,
     )
 
-    assert result["awfulness_decay"]["ghoul"] == 10
-    assert result["awfulness_merge"]["ghoul"] == {
-        "current_before_apply": 10,
-        "planned_delta": 0,
-        "applied_delta": 0,
-        "value_after": 10,
-    }
-    assert coc_sanity.SanitySession.load(camp, inv_id).awfulness_caps["ghoul"] == 10
-
-
-def test_development_phase_clears_ticks(tmp_path):
-    camp, inv_id = _campaign_with_investigator(tmp_path, skills={"Spot Hidden": 40})
-    _seed_tick(camp, inv_id, "Spot Hidden")
-    _seed_tick(camp, inv_id, "Spot Hidden", roll=11)  # duplicate skill
-    path = camp.parents[1] / "investigators" / inv_id / "development.jsonl"
-    assert path.read_text(encoding="utf-8").strip()
-
-    coc_development.run_development_phase(camp, inv_id, rng=random.Random(7))
-    assert path.read_text(encoding="utf-8") == ""
+    assert result["skills_checked"] == ["Spot Hidden"]
+    assert result["settlement_plan_sha256"] == development_input[
+        "deterministic_plan"
+    ]["plan_sha256"]
+    assert result["input_tokens_consumed"] == development_input["input_tokens"]
     assert _read_ticks(camp, inv_id) == []
 
 
-def test_development_phase_returns_luck_recovery(tmp_path):
-    camp, inv_id = _campaign_with_investigator(
-        tmp_path, skills={"Spot Hidden": 99}, luck=20
+def test_unversioned_development_row_is_rejected_without_rewrite(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    path = camp.parents[1] / "investigators" / inv_id / "development.jsonl"
+    original = json.dumps({
+        "skill": "Spot Hidden", "ts": "2026-01-01T00:00:00Z", "roll": 20,
+    }) + "\n"
+    path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported schema"):
+        coc_development.build_ending_settlement_capsule(
+            camp,
+            {
+                "event_type": "session_ending",
+                "ending_id": "ending-old-tick",
+                "scene_id": "finale",
+                "kind": "cliffhanger",
+                "decision_id": "ending-old-tick",
+                "investigator_ids": [inv_id],
+                "ts": "2026-07-16T00:00:00Z",
+            },
+        )
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_v1_claim_ledger_is_rejected_instead_of_migrated(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    ledger = camp.parents[1] / "investigators" / inv_id / "development-claims.json"
+    ledger.write_text(json.dumps({
+        "schema_version": 1,
+        "investigator_id": inv_id,
+        "claims": {},
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="claim ledger identity"):
+        coc_development.record_skill_tick(
+            camp,
+            inv_id,
+            "Spot Hidden",
+            _success_result(),
+            source_event_id="rules.roll:old-ledger",
+            source_kind="rules.roll",
+        )
+    assert json.loads(ledger.read_text(encoding="utf-8"))["schema_version"] == 1
+
+
+def test_legacy_singleton_san_is_not_a_development_baseline(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    legacy = camp / "save" / "sanity.json"
+    legacy.write_text(json.dumps({
+        "investigator_id": inv_id,
+        "san_current": 3,
+        "san_max": 4,
+        "awfulness_caps": {"ghoul": 9},
+    }), encoding="utf-8")
+
+    baseline, source_path = coc_development._sanity_mechanical_baseline(
+        camp, inv_id
     )
-    _seed_tick(camp, inv_id, "Spot Hidden")
-    out = coc_development.run_development_phase(camp, inv_id, rng=random.Random(3))
-    assert "luck_recovery" in out
-    assert "luck_after" in out["luck_recovery"]
-    inv = json.loads(
-        (camp / "save" / "investigator-state" / f"{inv_id}.json").read_text()
-    )
-    assert inv["current_luck"] == out["luck_recovery"]["luck_after"]
+
+    assert source_path.name == f"{inv_id}.json"
+    assert baseline["source"] == "investigator_state"
+    assert baseline["current"] == 50
+    assert baseline["max"] == 99
