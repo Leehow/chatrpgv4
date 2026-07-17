@@ -21,6 +21,14 @@ coc_director_apply = _load(
     "coc_director_apply_epistemic_integration",
     "plugins/coc-keeper/scripts/coc_director_apply.py",
 )
+coc_state = _load(
+    "coc_state_epistemic_integration",
+    "plugins/coc-keeper/scripts/coc_state.py",
+)
+coc_flag_state = _load(
+    "coc_flag_state_epistemic_integration",
+    "plugins/coc-keeper/scripts/coc_flag_state.py",
+)
 
 
 def _campaign(tmp_path: Path):
@@ -41,7 +49,7 @@ def _campaign(tmp_path: Path):
         "skill_checks_earned": [],
     }))
     (camp / "save" / "world-state.json").write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": coc_state.CURRENT_SCHEMA_VERSIONS["world"],
         "campaign_id": "test",
         "scenario_id": "test-mod",
         "status": "active",
@@ -51,12 +59,11 @@ def _campaign(tmp_path: Path):
         "discovered_clue_ids": [],
         "major_decisions": [],
     }))
-    (camp / "save" / "flags.json").write_text(json.dumps({
-        "schema_version": 1,
-        "campaign_id": "test",
-        "clues_found": {},
-        "decisions": [],
-    }))
+    (camp / "save" / "flags.json").write_text(json.dumps(
+        coc_flag_state.new_flag_document(
+            campaign_id="test", scenario_id="test-mod"
+        )
+    ))
     (camp / "save" / "pacing-state.json").write_text(json.dumps({
         "schema_version": 1,
         "tension_level": "low",

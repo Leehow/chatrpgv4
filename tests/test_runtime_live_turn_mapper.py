@@ -11,6 +11,12 @@ def _load(name, rel):
     return mod
 
 
+coc_state = _load(
+    "coc_state_runtime_live_turn_mapper_tests",
+    "plugins/coc-keeper/scripts/coc_state.py",
+)
+
+
 def _build_live_campaign(tmp_path):
     camp = tmp_path / "campaigns" / "live"
     scn = camp / "scenario"
@@ -22,7 +28,7 @@ def _build_live_campaign(tmp_path):
     (logs / "events.jsonl").write_text("")
     (logs / "rolls.jsonl").write_text("")
     (save / "world-state.json").write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": coc_state.CURRENT_SCHEMA_VERSIONS["world"],
         "campaign_id": "live",
         "scenario_id": "live-mod",
         "active_scene_id": "scene-1",

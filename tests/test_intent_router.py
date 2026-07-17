@@ -383,23 +383,24 @@ def test_primary_intent_enum_includes_director_classes():
         assert cls in router._PRIMARY_INTENT_ENUM, f"{cls} missing from enum"
 
 
-def test_player_adapter_intent_class_enum_stays_in_sync_with_router():
-    """Runtime adapter mirrors the plugin enum (Runtime Track: no plugin import).
+def test_runtime_intent_contract_enum_stays_in_sync_with_router():
+    """Runtime contract mirrors the plugin enum (Runtime Track: no plugin import).
 
     Source of truth: coc_intent_router._PRIMARY_INTENT_ENUM.
     """
-    adapter_path = (
+    contract_path = (
         Path(__file__).resolve().parents[1]
         / "runtime"
-        / "adapters"
-        / "player"
-        / "adapter.py"
+        / "engine"
+        / "intent_contract.py"
     )
-    spec = importlib.util.spec_from_file_location("runtime_player_adapter_sync", adapter_path)
-    adapter = importlib.util.module_from_spec(spec)
+    spec = importlib.util.spec_from_file_location(
+        "runtime_intent_contract_sync", contract_path
+    )
+    contract = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
-    spec.loader.exec_module(adapter)
-    assert frozenset(router._PRIMARY_INTENT_ENUM) == adapter.CANONICAL_INTENT_CLASSES
+    spec.loader.exec_module(contract)
+    assert frozenset(router._PRIMARY_INTENT_ENUM) == contract.CANONICAL_INTENT_CLASSES
 
 
 def test_llm_evaluator_accepts_movement_intent(tmp_path):

@@ -40,6 +40,14 @@ coc_director_apply = _load(
     "coc_director_apply_task9",
     "plugins/coc-keeper/scripts/coc_director_apply.py",
 )
+coc_state = _load(
+    "coc_state_story_director_tests",
+    "plugins/coc-keeper/scripts/coc_state.py",
+)
+coc_flag_state = _load(
+    "coc_flag_state_story_director_tests",
+    "plugins/coc-keeper/scripts/coc_flag_state.py",
+)
 
 
 def _make_minimal_campaign(tmp_path):
@@ -54,13 +62,16 @@ def _make_minimal_campaign(tmp_path):
         "conditions": [], "skill_checks_earned": [],
     }))
     (camp / "save" / "world-state.json").write_text(json.dumps({
-        "schema_version": 1, "campaign_id": "test", "scenario_id": "test-mod",
+        "schema_version": coc_state.CURRENT_SCHEMA_VERSIONS["world"],
+        "campaign_id": "test", "scenario_id": "test-mod",
         "status": "active", "active_scene_id": "scene-1", "active_subsystem": "play",
         "current_phase": "middle", "discovered_clue_ids": [], "major_decisions": [],
     }))
-    (camp / "save" / "flags.json").write_text(json.dumps({
-        "schema_version": 1, "campaign_id": "test", "clues_found": {}, "decisions": [],
-    }))
+    (camp / "save" / "flags.json").write_text(json.dumps(
+        coc_flag_state.new_flag_document(
+            campaign_id="test", scenario_id="test-mod"
+        )
+    ))
     (camp / "save" / "pacing-state.json").write_text(json.dumps({
         "schema_version": 1, "tension_level": "low", "lethal_chances_used": 0,
         "recent_intent_classes": [],
@@ -396,7 +407,7 @@ def _make_legacy_live_campaign(tmp_path):
         "skill_checks_earned": [],
     }))
     (camp / "save" / "world-state.json").write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": coc_state.CURRENT_SCHEMA_VERSIONS["world"],
         "campaign_id": "legacy-live",
         "scenario_id": "legacy-mod",
         "status": "active",
@@ -423,12 +434,11 @@ def _make_legacy_live_campaign(tmp_path):
             "走廊尽头的警员压低声音催促，医生也开始看表。"
         ],
     }))
-    (camp / "save" / "flags.json").write_text(json.dumps({
-        "schema_version": 1,
-        "campaign_id": "legacy-live",
-        "clues_found": {},
-        "decisions": [],
-    }))
+    (camp / "save" / "flags.json").write_text(json.dumps(
+        coc_flag_state.new_flag_document(
+            campaign_id="legacy-live", scenario_id="legacy-mod"
+        )
+    ))
     (camp / "save" / "pacing-state.json").write_text(json.dumps({
         "schema_version": 1,
         "campaign_id": "legacy-live",

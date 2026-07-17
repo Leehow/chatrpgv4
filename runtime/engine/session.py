@@ -471,100 +471,14 @@ def _load_keeper_adapter():
     return _load_module("runtime_keeper_adapter", path)
 
 
-_PUBLIC_PLAYER_INTENT_FIELDS = frozenset({
-    "primary_intent",
-    "secondary_intents",
-    "target_entities",
-    "risk_posture",
-    "explicit_roll_request",
-    "player_hypothesis",
-    "action_atoms",
-    "npc_interactions",
-})
-_RISK_POSTURES = frozenset({"cautious", "neutral", "reckless"})
-
-
-def _canonical_intent_classes() -> frozenset[str]:
-    """Load the runtime enum that is contract-tested against the router."""
-    path = _repo_root() / "runtime" / "adapters" / "player" / "adapter.py"
-    adapter = _load_module("runtime_session_player_adapter", path)
-    values = getattr(adapter, "CANONICAL_INTENT_CLASSES", None)
-    if not isinstance(values, frozenset) or not all(type(item) is str for item in values):
-        raise RuntimeError("canonical player intent enum is unavailable")
-    return values
-
-
-def _copy_json_only(value: Any, field: str) -> Any:
-    """Copy a strict JSON value without coercing caller-owned structures."""
-    if value is None or type(value) in {bool, int, str}:
-        return value
-    if type(value) is float:
-        if not math.isfinite(value):
-            raise ValueError(f"{field} must contain finite JSON numbers")
-        return value
-    if type(value) is list:
-        return [
-            _copy_json_only(item, f"{field}[{index}]")
-            for index, item in enumerate(value)
-        ]
-    if type(value) is dict:
-        copied: dict[str, Any] = {}
-        for key, item in value.items():
-            if type(key) is not str:
-                raise TypeError(f"{field} JSON object keys must be strings")
-            copied[key] = _copy_json_only(item, f"{field}.{key}")
-        return copied
-    raise TypeError(f"{field} must contain JSON-only values")
-
-
-def _validate_json_object_list(value: Any, field: str) -> list[dict[str, Any]]:
-    if type(value) is not list or not all(type(item) is dict for item in value):
-        raise TypeError(f"{field} must be a list of JSON objects")
-    return [_copy_json_only(item, f"{field}[{index}]") for index, item in enumerate(value)]
+def _load_intent_contract():
+    return _load_module("runtime_intent_contract", _engine_dir() / "intent_contract.py")
 
 
 def _validate_player_intent(player_intent: Any) -> dict[str, Any]:
-    """Validate caller-owned semantic evidence without interpreting prose."""
-    if not isinstance(player_intent, Mapping):
-        raise TypeError("player_intent must be an object")
-    if set(player_intent) != _PUBLIC_PLAYER_INTENT_FIELDS:
-        raise ValueError("player_intent must contain exactly the public intent fields")
-
-    primary = player_intent["primary_intent"]
-    if type(primary) is not str or primary not in _canonical_intent_classes():
-        raise ValueError("player_intent.primary_intent is not canonical")
-
-    string_lists: dict[str, list[str]] = {}
-    for field in ("secondary_intents", "target_entities"):
-        value = player_intent[field]
-        if type(value) is not list or not all(type(item) is str for item in value):
-            raise TypeError(f"player_intent.{field} must be a list of strings")
-        string_lists[field] = list(value)
-
-    risk_posture = player_intent["risk_posture"]
-    if type(risk_posture) is not str or risk_posture not in _RISK_POSTURES:
-        raise ValueError("player_intent.risk_posture is not canonical")
-    explicit_roll_request = player_intent["explicit_roll_request"]
-    if type(explicit_roll_request) is not bool:
-        raise TypeError("player_intent.explicit_roll_request must be a boolean")
-    player_hypothesis = player_intent["player_hypothesis"]
-    if player_hypothesis is not None and type(player_hypothesis) is not str:
-        raise TypeError("player_intent.player_hypothesis must be a string or null")
-
-    return {
-        "primary_intent": primary,
-        "secondary_intents": string_lists["secondary_intents"],
-        "target_entities": string_lists["target_entities"],
-        "risk_posture": risk_posture,
-        "explicit_roll_request": explicit_roll_request,
-        "player_hypothesis": player_hypothesis,
-        "action_atoms": _validate_json_object_list(
-            player_intent["action_atoms"], "player_intent.action_atoms"
-        ),
-        "npc_interactions": _validate_json_object_list(
-            player_intent["npc_interactions"], "player_intent.npc_interactions"
-        ),
-    }
+    """Delegate validation to the host-neutral structured intent contract."""
+    contract = _load_intent_contract()
+    return contract.validate_player_intent(player_intent)
 
 
 def _validate_rng_seed(rng_seed: Any) -> int | str:

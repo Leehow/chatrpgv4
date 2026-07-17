@@ -56,10 +56,13 @@ def _valid_player_intent() -> dict:
 
 def test_player_intent_validator_accepts_exact_public_shape_without_aliasing():
     session = _load_session()
+    contract = session._load_intent_contract()
     intent = _valid_player_intent()
 
     normalized = session._validate_player_intent(intent)
 
+    assert contract.validate_player_intent(intent) == normalized
+    assert "runtime/engine/intent_contract.py" in contract.__file__.replace("\\", "/")
     assert normalized == intent
     assert normalized is not intent
     assert normalized["action_atoms"] is not intent["action_atoms"]

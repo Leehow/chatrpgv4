@@ -27,6 +27,10 @@ coc_director_apply = _load(
 coc_story_director = _load(
     "coc_story_director", "plugins/coc-keeper/scripts/coc_story_director.py"
 )
+coc_state = _load("coc_state_scene_graph", "plugins/coc-keeper/scripts/coc_state.py")
+coc_flag_state = _load(
+    "coc_flag_state_scene_graph", "plugins/coc-keeper/scripts/coc_flag_state.py"
+)
 
 
 def _campaign(tmp_path: Path) -> Path:
@@ -39,7 +43,7 @@ def _campaign(tmp_path: Path) -> Path:
     (camp / "save" / "world-state.json").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": coc_state.CURRENT_SCHEMA_VERSIONS["world"],
                 "campaign_id": "test",
                 "discovered_clue_ids": [],
                 "active_scene_id": "archive",
@@ -58,18 +62,9 @@ def _campaign(tmp_path: Path) -> Path:
             }
         )
     )
-    (camp / "save" / "flags.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "campaign_id": "test",
-                "clues_found": {},
-                "decisions": [],
-                "spoiler_reveals": [],
-                "flags": {},
-            }
-        )
-    )
+    (camp / "save" / "flags.json").write_text(json.dumps(
+        coc_flag_state.new_flag_document(campaign_id="test")
+    ))
     (camp / "logs" / "events.jsonl").write_text("")
     return camp
 
@@ -336,9 +331,6 @@ def test_flag_set_condition_unlocks(tmp_path):
         ]
     }
     (camp / "scenario" / "story-graph.json").write_text(json.dumps(sg))
-    flags = json.loads((camp / "save" / "flags.json").read_text())
-    flags["flags"] = {"met_informant": True}
-    (camp / "save" / "flags.json").write_text(json.dumps(flags))
     world = json.loads((camp / "save" / "world-state.json").read_text())
     world["active_scene_id"] = "hub"
     (camp / "save" / "world-state.json").write_text(json.dumps(world))
@@ -351,6 +343,7 @@ def test_flag_set_condition_unlocks(tmp_path):
         "memory_writes": [],
         "rule_signals": {},
         "narrative_directives": {},
+        "flags_set": ["met_informant"],
     }
     events = coc_director_apply.apply_plan(camp, plan, investigator_id="inv1")
     world2 = json.loads((camp / "save" / "world-state.json").read_text())
