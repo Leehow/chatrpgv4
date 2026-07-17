@@ -65,7 +65,7 @@ PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_plugin_met
 ## Keeper Toolbox Architecture
 
 The keeper LLM drives every play turn. There is no fixed turn pipeline: the
-host agent (Codex, Claude Code, Cursor, or Pi) reads the canonical skills and
+host agent (Codex, Claude Code, Cursor, Kimi, or Pi) reads the canonical skills and
 calls tools from the single registry:
 
 ```bash

@@ -2,13 +2,14 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-COC Keeper 是一个《克苏鲁的呼唤》第 7 版守秘人插件。Codex、Claude Code
-和 Cursor 共用唯一实现 `plugins/coc-keeper/`；各宿主只保留薄 manifest 或入口。
+COC Keeper 是一个《克苏鲁的呼唤》第 7 版守秘人插件。Codex、Claude Code、
+Cursor 和 Kimi 共用唯一实现 `plugins/coc-keeper/`；各宿主只保留薄 manifest
+或入口。
 它提供规则工具、持久化战役状态、调查员管理、剧本导入、战斗、追逐、理智与
 实际跑团支持。
 
 English: COC Keeper is a local Call of Cthulhu 7th edition Keeper plugin. Codex,
-Claude Code, and Cursor share the single canonical implementation under
+Claude Code, Cursor, and Kimi share the single canonical implementation under
 `plugins/coc-keeper/`; host integrations are thin adapters only.
 
 当前版本是 **`0.4.0-alpha.0`**（发布名 **0.4.0a**，Python 包版本
@@ -63,6 +64,26 @@ bash plugins/coc-keeper/scripts/install-cursor-plugin.sh
 
 然后在 Cursor 里 `Developer: Reload Window`，再打开 Customize → Plugins
 确认 `COC Keeper` 版本与仓库一致。
+
+### Kimi
+
+仓库内入口 `.kimi/skills/coc-keeper/SKILL.md` 和插件 manifest
+`plugins/coc-keeper/.kimi-plugin/kimi.plugin.json` 都路由到 canonical skills
+树。Kimi 没有 Codex imagegen 时同样跳过立绘。
+
+把薄入口安装到 Kimi Work 的用户技能目录（只复制路由入口，不复制 canonical
+树）：
+
+```bash
+bash plugins/coc-keeper/scripts/install-kimi-plugin.sh
+```
+
+脚本幂等，可反复运行以同步最新入口。安装后在本仓库工作区**新开 Kimi 会话**
+（Kimi 的技能索引在会话启动时注入），然后说：
+
+```text
+进入 COC 模式。
+```
 
 ## 主要能力 / Features
 
@@ -169,6 +190,7 @@ plugins/coc-keeper/              # 唯一 canonical 插件
   .codex-plugin/                 # Codex manifest
   .claude-plugin/                # Claude Code manifest
   .cursor-plugin/                # Cursor manifest
+  .kimi-plugin/                  # Kimi manifest
   references/                    # 结构化规则和内置剧本
   scripts/                       # 生产工具与确定性辅助程序
   skills/                        # 全宿主共用 skills

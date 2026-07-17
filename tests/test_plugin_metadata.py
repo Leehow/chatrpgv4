@@ -22,6 +22,7 @@ def test_all_host_manifests_share_the_040a_version():
         _json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")["version"],
         _json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")["version"],
         _json(PLUGIN_ROOT / ".cursor-plugin" / "plugin.json")["version"],
+        _json(PLUGIN_ROOT / ".kimi-plugin" / "kimi.plugin.json")["version"],
         marketplace["plugins"][0]["version"],
     }
     assert versions == {EXPECTED_PLUGIN_VERSION}
@@ -31,7 +32,38 @@ def test_plugin_is_single_track_with_thin_host_entries():
     assert (PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md").is_file()
     assert (ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md").is_file()
     assert not (ROOT / ".cursor" / "skills" / "coc-main").exists()
+    assert (ROOT / ".kimi" / "skills" / "coc-keeper" / "SKILL.md").is_file()
+    assert not (ROOT / ".kimi" / "skills" / "coc-main").exists()
     assert not (ROOT / "plugins" / "coc-keeper-zcode").exists()
+
+
+def test_kimi_adapter_is_thin_and_points_at_canonical_tree():
+    manifest = _json(PLUGIN_ROOT / ".kimi-plugin" / "kimi.plugin.json")
+    assert manifest["name"] == "coc-keeper"
+    assert manifest["version"] == EXPECTED_PLUGIN_VERSION
+    skills_ref = manifest["skills"]
+    resolved = (
+        PLUGIN_ROOT / ".kimi-plugin" / skills_ref
+    ).resolve()
+    assert resolved == (PLUGIN_ROOT / "skills").resolve()
+    assert (resolved / "coc-main" / "SKILL.md").is_file()
+
+    entry = _text(ROOT / ".kimi" / "skills" / "coc-keeper" / "SKILL.md")
+    compact = " ".join(entry.split()).lower()
+    for phrase in (
+        "host adapter only",
+        "plugins/coc-keeper/skills/",
+        "coc-main/skill.md",
+        "coc-keeper-play/skill.md",
+        "coc-story-director/skill.md",
+        "codex_only_imagegen",
+        "skip portrait generation",
+        "install-kimi-plugin.sh",
+        "evidence.record_adoption",
+    ):
+        assert phrase in compact, phrase
+    # The thin entry must not embed canonical skill bodies.
+    assert "core keeper response contract (always active)" not in compact
 
 
 def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():

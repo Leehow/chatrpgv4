@@ -1,0 +1,29 @@
+{
+  "$schema": "https://catalog.msh.team/schemas/kimi.plugin.schema.json",
+  "name": "coc-keeper",
+  "version": "0.4.0-alpha.0",
+  "description": "Call of Cthulhu Keeper mode plugin with structured rules and persistent campaign state. Skills live under ../skills/ (single-track with Codex/Claude Code/Cursor). Portrait generation is Codex-only; Kimi skips that capability.",
+  "keywords": [
+    "call-of-cthulhu",
+    "coc",
+    "trpg",
+    "keeper",
+    "克苏鲁的呼唤",
+    "守秘人",
+    "skills"
+  ],
+  "author": "Leehow",
+  "homepage": "https://github.com/Leehow/chatrpgv4",
+  "repository": "https://github.com/Leehow/chatrpgv4",
+  "license": "Apache-2.0",
+  "skills": "../skills/",
+  "skillInstructions": "COC Keeper is a Call of Cthulhu 7th edition Keeper plugin. Activate it only after the user explicitly enters COC mode (e.g. \"Activate COC mode\" / \"进入 COC 模式\"), then load the canonical skill tree under plugins/coc-keeper/skills/ starting with coc-main/SKILL.md and follow it exactly. All rules, state, and toolbox behavior live in the canonical plugins/coc-keeper/ tree; this manifest is a thin host adapter and must never grow a second skill copy. Investigator portrait generation is Codex-only; on Kimi skip imagegen and continue with the rest of character creation.",
+  "interface": {
+    "displayName": "COC Keeper",
+    "shortDescription": "Run Call of Cthulhu campaigns inside Kimi.",
+    "longDescription": "COC Keeper adds an explicit COC mode for immersive Call of Cthulhu 7th edition play, structured rules lookup, JSON campaign state, reusable investigators, module indexing, and deterministic dice/HP/SAN tooling. The single canonical implementation lives under plugins/coc-keeper/ and is shared with Codex, Claude Code, and Cursor; Kimi consumes the same skill tree through this thin adapter. Investigator portrait generation is Codex-only and is skipped on Kimi.",
+    "developerName": "Leehow",
+    "websiteURL": "https://github.com/Leehow/chatrpgv4",
+    "category": "PRODUCTIVITY"
+  }
+}
