@@ -11,16 +11,28 @@ from copy import deepcopy
 from datetime import datetime
 import hashlib
 import json
-from typing import Any, Iterable
+from typing import Any
 
 
 FLAG_MUTATION_SCHEMA_VERSION = 1
 FLAG_HEAD_SCHEMA_VERSION = 1
 FLAG_DOCUMENT_SCHEMA_VERSION = 3
+FLAG_DOCUMENT_FIELDS = frozenset({
+    "schema_version",
+    "campaign_id",
+    "scenario_id",
+    "clues_found",
+    "decisions",
+    "spoiler_reveals",
+    "flags",
+    "flag_provenance",
+    "flag_heads",
+    "flag_source_sequence",
+    "operation_receipts",
+    "director_flag_receipts",
+})
 DIRECTOR_FLAG_RECEIPTS_KEY = "director_flag_receipts"
 DIRECTOR_FLAG_RECEIPT_SCHEMA_VERSION = 1
-FLAG_EVENT_CUTOVER_KEY = "flag_event_cutover"
-FLAG_EVENT_CUTOVER_SCHEMA_VERSION = 1
 TIME_MARKER_SCHEMA_VERSION = 1
 
 
@@ -45,41 +57,56 @@ def positive_sequence(value: Any) -> int | None:
     return sequence if sequence > 0 else None
 
 
-def valid_flag_event_cutover(value: Any) -> bool:
-    """Validate the persisted canonical-line boundary between legacy/new rows."""
-    return bool(
-        isinstance(value, dict)
-        and set(value) == {
-            "schema_version",
-            "events_line_count_before",
-            "first_source_sequence",
-            "first_event_id",
-        }
-        and value.get("schema_version") == FLAG_EVENT_CUTOVER_SCHEMA_VERSION
-        and isinstance(value.get("events_line_count_before"), int)
-        and not isinstance(value.get("events_line_count_before"), bool)
-        and int(value["events_line_count_before"]) >= 0
-        and positive_sequence(value.get("first_source_sequence")) is not None
-        and isinstance(value.get("first_event_id"), str)
-        and bool(value["first_event_id"].strip())
-    )
-
-
-def new_flag_event_cutover(
-    *,
-    events_line_count_before: int,
-    first_source_sequence: int,
-    first_event_id: str,
+def new_flag_document(
+    *, campaign_id: str | None, scenario_id: str | None = None
 ) -> dict[str, Any]:
-    value = {
-        "schema_version": FLAG_EVENT_CUTOVER_SCHEMA_VERSION,
-        "events_line_count_before": int(events_line_count_before),
-        "first_source_sequence": int(first_source_sequence),
-        "first_event_id": str(first_event_id),
+    """Create the only supported flag persistence document."""
+    return {
+        "schema_version": FLAG_DOCUMENT_SCHEMA_VERSION,
+        "campaign_id": campaign_id,
+        "scenario_id": scenario_id,
+        "clues_found": {},
+        "decisions": [],
+        "spoiler_reveals": [],
+        "flags": {},
+        "flag_provenance": {},
+        "flag_heads": {},
+        "flag_source_sequence": 0,
+        "operation_receipts": {},
+        DIRECTOR_FLAG_RECEIPTS_KEY: {},
     }
-    if not valid_flag_event_cutover(value):
-        raise ValueError("invalid flag event cutover boundary")
-    return value
+
+
+def valid_flag_document_structure(value: Any) -> bool:
+    """Validate the exact current document shape without migrating old data."""
+    if (
+        not isinstance(value, dict)
+        or set(value) != set(FLAG_DOCUMENT_FIELDS)
+        or value.get("schema_version") != FLAG_DOCUMENT_SCHEMA_VERSION
+        or (
+            value.get("campaign_id") is not None
+            and not isinstance(value.get("campaign_id"), str)
+        )
+        or (
+            value.get("scenario_id") is not None
+            and not isinstance(value.get("scenario_id"), str)
+        )
+        or not isinstance(value.get("clues_found"), dict)
+        or not isinstance(value.get("decisions"), list)
+        or not isinstance(value.get("spoiler_reveals"), list)
+        or not isinstance(value.get("flags"), dict)
+        or not isinstance(value.get("flag_provenance"), dict)
+        or not isinstance(value.get("flag_heads"), dict)
+        or not isinstance(value.get("operation_receipts"), dict)
+        or not isinstance(value.get(DIRECTOR_FLAG_RECEIPTS_KEY), dict)
+    ):
+        return False
+    sequence = value.get("flag_source_sequence")
+    return bool(
+        isinstance(sequence, int)
+        and not isinstance(sequence, bool)
+        and sequence >= 0
+    )
 
 
 def _valid_optional_text(value: Any) -> bool:
@@ -161,31 +188,6 @@ def valid_time_marker_payload(
     if status == "cleared" and not _valid_iso_datetime(marker.get("cleared_at")):
         return False
     return True
-
-
-def next_source_sequence(
-    flags_doc: dict[str, Any],
-    event_rows: Iterable[dict[str, Any]] = (),
-) -> int:
-    stored = positive_sequence(flags_doc.get("flag_source_sequence")) or 0
-    event_max = max(
-        (
-            positive_sequence(row.get("source_sequence")) or 0
-            for row in event_rows
-            if isinstance(row, dict) and row.get("event_type") == "flag_set"
-        ),
-        default=0,
-    )
-    head_map = flags_doc.get("flag_heads")
-    head_max = max(
-        (
-            positive_sequence(head.get("source_sequence")) or 0
-            for head in (head_map or {}).values()
-            if isinstance(head, dict)
-        ),
-        default=0,
-    ) if isinstance(head_map, dict) else 0
-    return max(stored, event_max, head_max) + 1
 
 
 def flag_live_record(flags_doc: dict[str, Any], flag_id: str) -> dict[str, Any]:
@@ -494,6 +496,8 @@ def commit_flag_mutation(
     investigator_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Apply one flag transition and return event, provenance, entity head."""
+    if not valid_flag_document_structure(flags_doc):
+        raise ValueError("flag mutation requires the exact current document schema")
     stable_flag_id = str(flag_id)
     sequence = positive_sequence(source_sequence)
     if not stable_flag_id or sequence is None:
@@ -524,9 +528,7 @@ def commit_flag_mutation(
     }
     flag_map[stable_flag_id] = bool(value)
     provenance_map[stable_flag_id] = deepcopy(provenance)
-    flags_doc["schema_version"] = max(
-        int(flags_doc.get("schema_version") or 1), FLAG_DOCUMENT_SCHEMA_VERSION
-    )
+    flags_doc["schema_version"] = FLAG_DOCUMENT_SCHEMA_VERSION
     flags_doc["flag_source_sequence"] = sequence
 
     live_record = flag_live_record(flags_doc, stable_flag_id)
@@ -557,31 +559,3 @@ def commit_flag_mutation(
     if investigator_id:
         event["investigator_id"] = str(investigator_id)
     return event, provenance, head
-
-
-def project_flag_event(row: dict[str, Any], *, source_ref: str) -> dict[str, Any]:
-    """Project current and genuine legacy flag_set rows without prose inference."""
-    structured = row.get("flag_mutation_schema_version") == FLAG_MUTATION_SCHEMA_VERSION
-    has_value = isinstance(row.get("value"), bool)
-    # Legacy ``flag_set`` has explicit structured set semantics even though its
-    # producer predated a value field.  It therefore means True, never
-    # ``bool(None) == False``.
-    value = bool(row.get("value")) if has_value else True
-    producer = str(row.get("producer") or (
-        "legacy.flag_set" if not structured else "unknown.flag_producer"
-    ))
-    return {
-        "flag_id": str(row.get("flag_id")),
-        "value": value,
-        "provenance": {
-            "source": producer,
-            "producer": producer,
-            "source_ref": source_ref,
-            "decision_id": row.get("decision_id"),
-            "changed_at": row.get("ts"),
-            "reason": row.get("reason"),
-            "previous_value": row.get("previous_value"),
-            "source_sequence": row.get("source_sequence"),
-            "legacy_compatibility": not structured,
-        },
-    }

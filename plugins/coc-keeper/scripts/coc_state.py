@@ -19,6 +19,7 @@ from coc_fileio import (
 )
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 import coc_investigator_guard
+import coc_flag_state
 
 
 # Per-kind current schema versions. Persisted state is accepted only when it
@@ -1094,15 +1095,7 @@ def _initialize_campaign_runtime_files(
     )
     _write_json_if_missing(
         campaign_dir / "save" / "flags.json",
-        {
-            "schema_version": 1,
-            "campaign_id": campaign_id,
-            "scenario_id": None,
-            "clues_found": {},
-            "decisions": [],
-            "spoiler_reveals": [],
-            "flags": {},
-        },
+        coc_flag_state.new_flag_document(campaign_id=campaign_id),
     )
     _write_json_if_missing(
         campaign_dir / "save" / "pacing-state.json",

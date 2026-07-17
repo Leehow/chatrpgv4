@@ -2109,10 +2109,9 @@ def test_apply_writes_spoiler_reveal_to_audit_jsonl(tmp_path):
     director decision would flow through. See w5-t4-report.md for scope note."""
     camp = _campaign(tmp_path)
     # flags.json initialized with the dead spoiler_reveals field, mirroring coc_state
-    (camp / "save" / "flags.json").write_text(json.dumps({
-        "schema_version": 1, "campaign_id": "test",
-        "clues_found": {}, "decisions": [], "spoiler_reveals": [],
-    }))
+    (camp / "save" / "flags.json").write_text(json.dumps(
+        coc_director_apply.coc_flag_state.new_flag_document(campaign_id="test")
+    ))
     plan = {
         "decision_id": "d-spoiler",
         "scene_action": "REVEAL",
@@ -3421,10 +3420,9 @@ def test_apply_plan_flags_set_unlocks_and_cuts(tmp_path):
         "discovered_clue_ids": ["clue-a"],
     })
     (camp / "save" / "world-state.json").write_text(json.dumps(world))
-    (camp / "save" / "flags.json").write_text(json.dumps({
-        "schema_version": 1, "campaign_id": "test",
-        "clues_found": {}, "decisions": [], "spoiler_reveals": [], "flags": {},
-    }))
+    (camp / "save" / "flags.json").write_text(json.dumps(
+        coc_director_apply.coc_flag_state.new_flag_document(campaign_id="test")
+    ))
 
     events = coc_director_apply.apply_plan(
         camp,

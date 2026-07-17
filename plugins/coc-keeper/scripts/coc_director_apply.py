@@ -288,7 +288,7 @@ def _source_head_is_bound(
     if isinstance(tool_receipts, dict):
         for receipt in tool_receipts.values():
             if not isinstance(receipt, dict) or receipt.get("schema_version") != 3:
-                continue
+                raise ValueError("canonical toolbox flag receipt schema is invalid")
             body = {
                 key: deepcopy(value)
                 for key, value in receipt.items()
@@ -446,97 +446,17 @@ def _ensure_director_flag_event(
         return True
 
 
-def _ensure_director_flag_cutover(
-    campaign_dir: Path,
-    flags_doc: dict[str, Any],
-    receipt_map: dict[str, Any],
-) -> bool:
-    """Persist the canonical-line boundary at the receipt-era transition."""
-    existing = flags_doc.get(coc_flag_state.FLAG_EVENT_CUTOVER_KEY)
-    if existing is not None:
-        if not coc_flag_state.valid_flag_event_cutover(existing):
-            raise ValueError("canonical flag cutover boundary is invalid")
-        return False
-    events_path = campaign_dir / "logs" / "events.jsonl"
-    rows: list[dict[str, Any]] = []
-    if events_path.is_file():
-        try:
-            rows = [
-                row
-                for line in events_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-                for row in [json.loads(line)]
-                if isinstance(row, dict)
-            ]
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise ValueError("canonical events log is unreadable") from exc
-    line_by_event_id = {
-        str(row.get("event_id") or ""): line_number
-        for line_number, row in enumerate(rows, start=1)
-        if str(row.get("event_id") or "")
-    }
-    receipt_candidates = list(receipt_map.values())
-    toolbox_receipts = (
-        (flags_doc.get("operation_receipts") or {}).get("state.set_flag") or {}
-    )
-    if not isinstance(toolbox_receipts, dict):
-        raise ValueError("canonical toolbox flag receipt map is invalid")
-    for receipt in toolbox_receipts.values():
-        if not isinstance(receipt, dict):
-            raise ValueError("canonical toolbox flag receipt is invalid")
-        if receipt.get("schema_version") == 2:
-            continue
-        head = receipt.get("entity_head")
-        if (
-            receipt.get("schema_version") != 3
-            or not coc_flag_state.valid_entity_head(head)
-            or not _source_head_is_bound(flags_doc, head, campaign_dir)
-        ):
-            raise ValueError("canonical toolbox flag receipt is invalid")
-        receipt_candidates.append(receipt)
-    if not receipt_candidates:
-        return False
-    receipts = sorted(
-        receipt_candidates,
-        key=lambda receipt: (
-            int(receipt["entity_head"]["source_sequence"]),
-            str(receipt.get("event_id") or ""),
-        ),
-    )
-    anchored_lines = [
-        line_by_event_id[str(receipt["event_id"])]
-        for receipt in receipts
-        if str(receipt["event_id"]) in line_by_event_id
-    ]
-    first = receipts[0]
-    flags_doc[coc_flag_state.FLAG_EVENT_CUTOVER_KEY] = (
-        coc_flag_state.new_flag_event_cutover(
-            events_line_count_before=(min(anchored_lines) - 1)
-            if anchored_lines
-            else len(rows),
-            first_source_sequence=int(first["entity_head"]["source_sequence"]),
-            first_event_id=str(first["event_id"]),
-        )
-    )
-    return True
-
-
 def _reconcile_director_flag_receipts(campaign_dir: Path) -> None:
     """Finish every source-owned flag operation before a later plan."""
     path = campaign_dir / "save" / "flags.json"
     if not path.is_file():
         return
     flags_doc = _read_json(path, {})
-    receipt_map = flags_doc.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY)
-    if receipt_map is None:
-        receipt_map = {}
+    if not coc_flag_state.valid_flag_document_structure(flags_doc):
+        raise ValueError("flags document does not match the current schema")
+    receipt_map = flags_doc[coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY]
     if not coc_flag_state.valid_director_flag_receipt_map(receipt_map):
         raise ValueError("canonical director flag receipt map is invalid")
-    cutover_changed = _ensure_director_flag_cutover(
-        campaign_dir, flags_doc, receipt_map
-    )
-    if cutover_changed:
-        _write_json(path, flags_doc)
     for receipt in receipt_map.values():
         if not coc_flag_state.valid_director_flag_receipt(receipt):
             raise ValueError("canonical director flag receipt failed integrity validation")
@@ -552,8 +472,6 @@ def _reconcile_director_flag_receipts(campaign_dir: Path) -> None:
     for receipt in toolbox_receipts.values():
         if not isinstance(receipt, dict):
             raise ValueError("canonical toolbox flag receipt is invalid")
-        if receipt.get("schema_version") == 2:
-            continue
         head = receipt.get("entity_head")
         if (
             receipt.get("schema_version") != 3
@@ -587,13 +505,16 @@ def _reconcile_director_flag_receipts(campaign_dir: Path) -> None:
 
 def _next_director_flag_source_sequence(
     flags_doc: dict[str, Any],
-    event_rows: list[dict[str, Any]],
     campaign_dir: Path,
 ) -> int:
-    """Allocate from receipt anchors after the one-time legacy cutover."""
-    stored = coc_flag_state.positive_sequence(
-        flags_doc.get("flag_source_sequence")
-    ) or 0
+    """Allocate only from current source-receipt anchors."""
+    stored = flags_doc.get("flag_source_sequence")
+    if (
+        not isinstance(stored, int)
+        or isinstance(stored, bool)
+        or stored < 0
+    ):
+        raise ValueError("flag source counter is invalid")
     anchored: list[int] = []
     head_digest_by_sequence: dict[int, str] = {}
 
@@ -631,8 +552,6 @@ def _next_director_flag_source_sequence(
     for receipt in toolbox_receipts.values():
         if not isinstance(receipt, dict):
             raise ValueError("canonical toolbox flag receipt is invalid")
-        if receipt.get("schema_version") == 2:
-            continue
         if receipt.get("schema_version") != 3:
             raise ValueError("canonical toolbox flag receipt schema is invalid")
         head = receipt.get("entity_head")
@@ -648,7 +567,9 @@ def _next_director_flag_source_sequence(
                 "flag source counter is not anchored to the latest valid receipt"
             )
         return anchored_max + 1
-    return coc_flag_state.next_source_sequence(flags_doc, event_rows)
+    if stored != 0:
+        raise ValueError("flag source counter has no current source receipt anchor")
+    return 1
 
 
 def _commit_plan_flags(
@@ -674,36 +595,15 @@ def _commit_plan_flags(
     if not flag_ids:
         return []
     flags_path = save / "flags.json"
-    flags_doc = _read_json(flags_path, {
-        "schema_version": 1,
-        "campaign_id": None,
-        "scenario_id": None,
-        "clues_found": {},
-        "decisions": [],
-        "spoiler_reveals": [],
-        "flags": {},
-    })
-    if not isinstance(flags_doc.get("flags"), dict):
-        flags_doc["flags"] = {}
-    receipt_map = flags_doc.get(coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY)
-    if receipt_map is None:
-        receipt_map = {}
-        flags_doc[coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY] = receipt_map
+    flags_doc = _read_json(
+        flags_path,
+        coc_flag_state.new_flag_document(campaign_id=logs.parent.name),
+    )
+    if not coc_flag_state.valid_flag_document_structure(flags_doc):
+        raise ValueError("flags document does not match the current schema")
+    receipt_map = flags_doc[coc_flag_state.DIRECTOR_FLAG_RECEIPTS_KEY]
     if not coc_flag_state.valid_director_flag_receipt_map(receipt_map):
         raise ValueError("canonical director flag receipt map is invalid")
-    event_rows = []
-    events_path = logs / "events.jsonl"
-    if events_path.is_file():
-        try:
-            event_rows = [
-                row
-                for line in events_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-                for row in [json.loads(line)]
-                if isinstance(row, dict)
-            ]
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            event_rows = []
     committed: list[str] = []
     for flag_id in flag_ids:
         receipt_key = coc_flag_state.director_flag_receipt_key(
@@ -734,12 +634,11 @@ def _commit_plan_flags(
             ):
                 events.append(ev)
             committed.append(flag_id)
-            event_rows.append(ev)
             continue
         if flags_doc["flags"].get(flag_id):
             continue
         source_sequence = _next_director_flag_source_sequence(
-            flags_doc, event_rows, logs.parent
+            flags_doc, logs.parent
         )
         try:
             ev, _provenance, head = coc_flag_state.commit_flag_mutation(
@@ -768,7 +667,6 @@ def _commit_plan_flags(
             entity_head=head,
         )
         receipt_map[receipt_key] = receipt
-        _ensure_director_flag_cutover(logs.parent, flags_doc, receipt_map)
         # The live transition, typed head, and source-owned receipt commit as
         # one atomic source write.  Event/recorder durability is reconciled
         # afterwards by stable event id on this call or any retry.
@@ -776,7 +674,6 @@ def _commit_plan_flags(
         committed.append(flag_id)
         events.append(deepcopy(ev))
         _ensure_director_flag_event(logs.parent, receipt)
-        event_rows.append(ev)
     return committed
 
 
@@ -4040,10 +3937,12 @@ def _apply_plan_impl(
         _append_jsonl(logs / "events.jsonl", ev)
         # record in flags.json so resume/UI can see prior spoiler disclosures.
         flags_path = save / "flags.json"
-        flags = _read_json(flags_path, {
-            "schema_version": 1, "campaign_id": campaign_dir.name,
-            "clues_found": {}, "decisions": [], "spoiler_reveals": [],
-        })
+        flags = _read_json(
+            flags_path,
+            coc_flag_state.new_flag_document(campaign_id=campaign_dir.name),
+        )
+        if not coc_flag_state.valid_flag_document_structure(flags):
+            raise ValueError("flags document does not match the current schema")
         reveals = list(flags.get("spoiler_reveals", []))
         reveals.append({
             "spoiler_id": spoiler_id,

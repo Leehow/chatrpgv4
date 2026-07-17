@@ -168,52 +168,8 @@ def _read_jsonl(path: Path) -> list[dict]:
     return out
 
 
-def _as_real_rev3_roll_receipt(receipt: dict) -> dict:
-    legacy = deepcopy(receipt)
-    operation = legacy["operation"]
-    resolution = legacy.pop("resolution")
-    if legacy["tool"] != "rules.roll_dice":
-        operation = {
-            "investigator_id": resolution["investigator_id"],
-            "skill": (
-                resolution["resolved_label"]
-                if operation.get("skill") is not None
-                else None
-            ),
-            "characteristic": operation.get("characteristic"),
-            "resolved_label": resolution["resolved_label"],
-            "target": resolution["resolved_target"],
-            "target_source": resolution["target_source"],
-            "difficulty": operation["difficulty"],
-            "bonus": operation["bonus"],
-            "penalty": operation["penalty"],
-            "reason": operation["reason"],
-            "fumble_consequence": operation["fumble_consequence"],
-            "pushed": operation["pushed"],
-            "method_changed": operation["method_changed"],
-            "failure_consequence": operation["failure_consequence"],
-        }
-    legacy["schema_version"] = coc_toolbox._ROLL_RECEIPT_LEGACY_SCHEMA_VERSION
-    legacy["operation"] = operation
-    legacy["fingerprint"] = coc_toolbox._operation_fingerprint(
-        legacy["tool"], operation
-    )
-    legacy[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
-        coc_toolbox._source_receipt_integrity(legacy)
-    )
-    return legacy
 
 
-def _downgrade_roll_document_to_real_rev3(path: Path) -> dict:
-    current = json.loads(path.read_text(encoding="utf-8"))
-    legacy = {"schema_version": 1, "receipts": {}}
-    for tool_name, by_tool in current["receipts"].items():
-        legacy["receipts"][tool_name] = {
-            decision_id: _as_real_rev3_roll_receipt(receipt)
-            for decision_id, receipt in by_tool.items()
-        }
-    _write_json(path, legacy)
-    return legacy
 
 
 def _run_concurrent_cli(
@@ -732,7 +688,7 @@ def test_roll_legacy_ledger_without_roll_id_fails_closed_without_guessing(
     )
 
     assert replay["ok"] is False
-    assert replay["error"]["code"] == "legacy_recovery_unverifiable"
+    assert replay["error"]["code"] == "state_corrupt"
     assert rolls_path.read_bytes() == before
     assert not (
         campaign_ws["campaign_dir"]
@@ -771,7 +727,7 @@ def test_roll_ledger_with_id_but_no_operation_proof_fails_closed(
     rejected = _run(campaign_ws, "rules.roll_dice", {**args, "seed": 999})
 
     assert rejected["ok"] is False
-    assert rejected["error"]["code"] == "legacy_recovery_unverifiable"
+    assert rejected["error"]["code"] == "state_corrupt"
     assert not receipt_path.exists()
     assert len([
         row
@@ -782,382 +738,87 @@ def test_roll_ledger_with_id_but_no_operation_proof_fails_closed(
     ]) == 1
 
 
-def test_real_rev3_document_migrates_without_bricking_unrelated_tools(
-    campaign_ws,
-):
-    dice_args = {
-        "expression": "1D8+2",
-        "reason": "rev3 migration dice",
-        "decision_id": "rev3-dice-replay",
-        "seed": 31,
-    }
-    roll_args = {
-        "investigator": campaign_ws["investigator_id"],
-        "skill": "Spot Hidden",
-        "target": 99,
-        "reason": "rev3 percentile audit",
-        "decision_id": "rev3-percentile-unverifiable",
-        "seed": 1,
-    }
-    dice = _run(campaign_ws, "rules.roll_dice", dice_args)
-    percentile = _run(campaign_ws, "rules.roll", roll_args)
-    assert dice["ok"] is True and percentile["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    _downgrade_roll_document_to_real_rev3(receipt_path)
-    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
-    before_rolls = rolls_path.read_bytes()
-
-    unrelated = _run(
-        campaign_ws,
-        "state.journal",
-        {"summary": "rev3 migration continues", "decision_id": "after-rev3-doc"},
-    )
-
-    assert unrelated["ok"] is True
-    migrated = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert migrated["schema_version"] == (
-        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
-    )
-    assert migrated["pending_side_effects"] == {}
-    assert migrated["receipts"]["rules.roll_dice"][
-        dice_args["decision_id"]
-    ]["schema_version"] == coc_toolbox._ROLL_RECEIPT_SCHEMA_VERSION
-    assert migrated["legacy_receipts"]["rules.roll"][
-        roll_args["decision_id"]
-    ]["schema_version"] == coc_toolbox._ROLL_RECEIPT_LEGACY_SCHEMA_VERSION
-    assert rolls_path.read_bytes() == before_rolls
-
-    dice_replay = _run(
-        campaign_ws, "rules.roll_dice", {**dice_args, "seed": 999}
-    )
-    assert dice_replay["ok"] is True
-    assert dice_replay["data"] == dice["data"]
-    percentile_replay = _run(
-        campaign_ws, "rules.roll", {**roll_args, "seed": 999}
-    )
-    assert percentile_replay["ok"] is False
-    assert percentile_replay["error"]["code"] == "legacy_recovery_unverifiable"
-    assert _run(
-        campaign_ws,
-        "state.journal",
-        {"summary": "still usable", "decision_id": "after-legacy-replay"},
-    )["ok"] is True
 
 
-def test_rev3_document_migration_is_idempotent_after_post_commit_interruption(
-    campaign_ws, monkeypatch
-):
-    args = {
-        "expression": "2D6+1",
-        "decision_id": "rev3-interrupted-migration",
-        "seed": 17,
-    }
-    settled = _run(campaign_ws, "rules.roll_dice", args)
-    assert settled["ok"] is True
-    legacy_roll_decision = "rev3-interrupted-percentile"
-    assert _run(
-        campaign_ws,
-        "rules.roll",
-        {
-            "investigator": campaign_ws["investigator_id"],
-            "skill": "Spot Hidden",
-            "target": 99,
-            "decision_id": legacy_roll_decision,
-            "seed": 1,
-        },
-    )["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    _downgrade_roll_document_to_real_rev3(receipt_path)
-    real_save = coc_toolbox._save_roll_receipt_document
-    crashed = False
-
-    def save_then_interrupt(ctx, document):
-        nonlocal crashed
-        real_save(ctx, document)
-        if not crashed:
-            crashed = True
-            raise RuntimeError("synthetic migration interruption")
-
-    with monkeypatch.context() as interruption:
-        interruption.setattr(
-            coc_toolbox, "_save_roll_receipt_document", save_then_interrupt
-        )
-        with pytest.raises(RuntimeError, match="migration interruption"):
-            _run(
-                campaign_ws,
-                "state.journal",
-                {"summary": "interrupt migration", "decision_id": "migration-cut"},
-            )
-
-    after_interruption = receipt_path.read_bytes()
-    assert json.loads(after_interruption)["schema_version"] == (
-        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
-    )
-    recovered = _run(
-        campaign_ws,
-        "state.journal",
-        {"summary": "interrupt migration", "decision_id": "migration-cut"},
-    )
-    assert recovered["ok"] is True
-    recovered_document = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert recovered_document["pending_side_effects"] == {}
-    assert receipt_path.read_bytes() != after_interruption
-    replay = _run(campaign_ws, "rules.roll_dice", {**args, "seed": 999})
-    assert replay["ok"] is True
-    assert replay["data"] == settled["data"]
-    assert len([
-        row
-        for row in _read_jsonl(
-            campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
-        )
-        if row.get("roll_id") == settled["data"]["roll_id"]
-    ]) == 1
-    state = json.loads((
-        campaign_ws["campaign_dir"]
-        / "save"
-        / "investigator-state"
-        / f"{campaign_ws['investigator_id']}.json"
-    ).read_text(encoding="utf-8"))
-    assert len([
-        event
-        for event in state.get("skill_check_events", [])
-        if event.get("source_event_id") == f"rules.roll:{legacy_roll_decision}"
-    ]) == 1
 
 
-def test_real_rev4_document_migrates_to_legacy_archive_shape(campaign_ws):
-    args = {
-        "expression": "1D10",
-        "decision_id": "rev4-document-migration",
-        "seed": 13,
-    }
-    settled = _run(campaign_ws, "rules.roll_dice", args)
-    assert settled["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    document = json.loads(receipt_path.read_text(encoding="utf-8"))
-    document["schema_version"] = 2
-    document.pop("legacy_receipts")
-    _write_json(receipt_path, document)
-
-    unrelated = _run(
-        campaign_ws,
-        "state.journal",
-        {"summary": "rev4 migration continues", "decision_id": "after-rev4-doc"},
-    )
-
-    assert unrelated["ok"] is True
-    migrated = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert migrated["schema_version"] == (
-        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
-    )
-    assert migrated["legacy_receipts"] == {}
-    replay = _run(campaign_ws, "rules.roll_dice", {**args, "seed": 999})
-    assert replay["ok"] is True
-    assert replay["data"] == settled["data"]
 
 
-def test_rev3_document_precommit_interruption_preserves_original_bytes(
-    campaign_ws, monkeypatch
-):
-    args = {
-        "expression": "1D4",
-        "decision_id": "rev3-precommit-interruption",
-        "seed": 5,
-    }
-    assert _run(campaign_ws, "rules.roll_dice", args)["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    _downgrade_roll_document_to_real_rev3(receipt_path)
-    legacy_bytes = receipt_path.read_bytes()
-
-    def interrupt_before_save(*_args, **_kwargs):
-        raise RuntimeError("synthetic precommit interruption")
-
-    with monkeypatch.context() as interruption:
-        interruption.setattr(
-            coc_toolbox,
-            "_save_roll_receipt_document",
-            interrupt_before_save,
-        )
-        with pytest.raises(RuntimeError, match="precommit interruption"):
-            _run(
-                campaign_ws,
-                "state.journal",
-                {"summary": "before publish", "decision_id": "precommit-cut"},
-            )
-
-    assert receipt_path.read_bytes() == legacy_bytes
-    recovered = _run(
-        campaign_ws,
-        "state.journal",
-        {"summary": "before publish", "decision_id": "precommit-cut"},
-    )
-    assert recovered["ok"] is True
-    assert json.loads(receipt_path.read_text(encoding="utf-8"))["schema_version"] == (
-        coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
-    )
 
 
-def test_rev3_duplicate_roll_id_batch_fails_before_any_migration_or_append(
-    campaign_ws,
-):
-    for ordinal, expression in enumerate(("1D6", "1D8")):
-        assert _run(
-            campaign_ws,
-            "rules.roll_dice",
-            {
-                "expression": expression,
-                "decision_id": f"duplicate-rev3-roll-{ordinal}",
-                "seed": ordinal + 1,
-            },
-        )["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    legacy = _downgrade_roll_document_to_real_rev3(receipt_path)
-    by_dice = legacy["receipts"]["rules.roll_dice"]
-    first = by_dice["duplicate-rev3-roll-0"]
-    second = by_dice["duplicate-rev3-roll-1"]
-    duplicate_id = first["roll_id"]
-    second["roll_id"] = duplicate_id
-    second["data"]["roll_id"] = duplicate_id
-    second["roll_record"]["roll_id"] = duplicate_id
-    second["roll_record"]["payload"]["roll_id"] = duplicate_id
-    second["roll_record"]["source_ref"] = f"logs/rolls.jsonl#{duplicate_id}"
-    for receipt in (first, second):
-        receipt["log_prefix_size"] = 0
-        receipt["log_prefix_sha256"] = (
-            f"sha256:{hashlib.sha256(b'').hexdigest()}"
-        )
-        receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
-            coc_toolbox._source_receipt_integrity(receipt)
-        )
-    _write_json(receipt_path, legacy)
-    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
-    rolls_path.write_text("", encoding="utf-8")
-    state_path = (
-        campaign_ws["campaign_dir"]
-        / "save"
-        / "investigator-state"
-        / f"{campaign_ws['investigator_id']}.json"
-    )
-    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
-
-    for _attempt in range(2):
-        rejected = _run(
-            campaign_ws,
-            "state.journal",
-            {"summary": "duplicate must not mutate", "decision_id": "duplicate-cut"},
-        )
-        assert rejected["ok"] is False
-        assert rejected["error"]["code"] == "state_corrupt"
-        assert (
-            receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()
-        ) == before
 
 
-def test_rev4_ghost_pending_fails_before_document_publication_or_state_change(
-    campaign_ws,
-):
-    assert _run(
-        campaign_ws,
-        "rules.roll_dice",
-        {"expression": "1D6", "decision_id": "ghost-pending-source", "seed": 7},
-    )["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    document = json.loads(receipt_path.read_text(encoding="utf-8"))
-    document["schema_version"] = 2
-    document.pop("legacy_receipts")
-    document["pending_side_effects"] = {"ghost-effect": "ghost-roll"}
-    _write_json(receipt_path, document)
-    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
-    state_path = (
-        campaign_ws["campaign_dir"]
-        / "save"
-        / "investigator-state"
-        / f"{campaign_ws['investigator_id']}.json"
-    )
-    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
 
-    for _attempt in range(2):
-        rejected = _run(
-            campaign_ws,
-            "state.journal",
-            {"summary": "ghost pending must not mutate", "decision_id": "ghost-cut"},
-        )
-        assert rejected["ok"] is False
-        assert rejected["error"]["code"] == "state_corrupt"
-        assert (
-            receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()
-        ) == before
+
 
 
 @pytest.mark.parametrize(
-    ("tool_name", "operation_field", "tampered_value"),
+    "document",
     [
-        ("rules.roll", "resolved_label", "Stealth"),
-        ("rules.roll", "target", 1),
-        ("rules.roll", "skill", "Stealth"),
-        ("rules.push", "pushed", False),
+        {"schema_version": 1, "receipts": {}},
+        {"schema_version": 2, "receipts": {}, "pending_side_effects": {}},
+        {
+            "schema_version": 3,
+            "receipts": {},
+            "legacy_receipts": {},
+            "pending_side_effects": {},
+        },
     ],
 )
-def test_legacy_percentile_cross_field_tamper_fails_before_migration_or_state(
-    campaign_ws, tool_name, operation_field, tampered_value
+def test_noncurrent_roll_receipt_documents_are_rejected_without_rewrite(
+    campaign_ws, document,
 ):
-    decision_id = f"legacy-cross-{tool_name}-{operation_field}"
-    args = {
-        "investigator": campaign_ws["investigator_id"],
-        "skill": "Library Use",
-        "target": 99,
-        "decision_id": decision_id,
-        "seed": 1,
-    }
-    if tool_name == "rules.push":
-        args.update({
-            "method_changed": "cross-check another archive",
-            "failure_consequence": "the archive closes",
-        })
-    assert _run(campaign_ws, tool_name, args)["ok"] is True
-    receipt_path = (
+    path = (
         campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
     )
-    legacy = _downgrade_roll_document_to_real_rev3(receipt_path)
-    receipt = legacy["receipts"][tool_name][decision_id]
-    receipt["operation"][operation_field] = tampered_value
-    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
-        tool_name, receipt["operation"]
-    )
-    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
-        coc_toolbox._source_receipt_integrity(receipt)
-    )
-    _write_json(receipt_path, legacy)
-    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
-    state_path = (
-        campaign_ws["campaign_dir"]
-        / "save"
-        / "investigator-state"
-        / f"{campaign_ws['investigator_id']}.json"
-    )
-    before = (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes())
+    _write_json(path, document)
+    before = path.read_bytes()
 
     rejected = _run(
         campaign_ws,
         "state.journal",
-        {"summary": "legacy contradiction", "decision_id": f"after-{decision_id}"},
+        {"summary": "must not migrate", "decision_id": "reject-old-roll-doc"},
     )
 
     assert rejected["ok"] is False
     assert rejected["error"]["code"] == "state_corrupt"
-    assert (receipt_path.read_bytes(), rolls_path.read_bytes(), state_path.read_bytes()) == before
+    assert path.read_bytes() == before
+
+
+def test_malformed_or_decision_only_ledger_is_never_overwritten(campaign_ws):
+    path = campaign_ws["campaign_dir"] / "save" / "toolbox-ledger.json"
+    path.write_text("{broken", encoding="utf-8")
+    before = path.read_bytes()
+    malformed = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "must not replace", "decision_id": "bad-ledger-json"},
+    )
+    assert malformed["ok"] is False
+    assert malformed["error"]["code"] == "state_corrupt"
+    assert path.read_bytes() == before
+
+    _write_json(path, {
+        "schema_version": coc_toolbox._LEDGER_SCHEMA_VERSION,
+        "entries": {
+            "decision-only": {
+                "entry_schema_version": 2,
+                "tool": "state.journal",
+                "decision_id": "decision-only",
+                "ts": "2026-01-01T00:00:00+00:00",
+                "data": {},
+            },
+        },
+    })
+    before = path.read_bytes()
+    rejected = _run(
+        campaign_ws,
+        "state.journal",
+        {"summary": "must use composite key", "decision_id": "another-id"},
+    )
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize(
@@ -1360,39 +1021,6 @@ def test_case_only_selector_retry_reuses_one_receipt_and_roll(
     assert [row["roll_id"] for row in rows] == [first["data"]["roll_id"]]
 
 
-def test_intermediate_schema4_skill_case_migrates_before_exact_retry(campaign_ws):
-    decision_id = "intermediate-schema4-selector-case"
-    args = {
-        "skill": "Spot Hidden",
-        "decision_id": decision_id,
-        "seed": 5,
-    }
-    first = _run(campaign_ws, "rules.roll", args)
-    assert first["ok"] is True
-    receipt_path = (
-        campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
-    )
-    document = json.loads(receipt_path.read_text(encoding="utf-8"))
-    receipt = document["receipts"]["rules.roll"][decision_id]
-    receipt["operation"]["skill"] = "spot hidden"
-    receipt["fingerprint"] = coc_toolbox._operation_fingerprint(
-        "rules.roll", receipt["operation"]
-    )
-    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
-        coc_toolbox._source_receipt_integrity(receipt)
-    )
-    _write_json(receipt_path, document)
-
-    replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
-
-    assert replay["ok"] is True
-    assert replay["data"] == first["data"]
-    migrated = json.loads(receipt_path.read_text(encoding="utf-8"))
-    assert migrated["receipts"]["rules.roll"][decision_id]["operation"][
-        "skill"
-    ] == "Spot Hidden"
-    rows = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
-    assert len(rows) == 1
 
 
 def test_intermediate_schema4_contradiction_fails_before_migration_mutation(
@@ -2097,7 +1725,6 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
     document = {
         "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "receipts": {},
-        "legacy_receipts": {},
         "pending_side_effects": {},
     }
     raw = b""
@@ -2200,7 +1827,6 @@ def test_settled_skill_receipts_do_not_replay_development_side_effects(
     document = {
         "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "receipts": {},
-        "legacy_receipts": {},
         "pending_side_effects": {},
     }
     raw = b""
@@ -2543,13 +2169,12 @@ def test_legacy_ledger_entry_matches_only_its_original_tool(campaign_ws):
         {"npc_id": npc_id, "trust_delta": 1, "decision_id": "legacy-id"},
     )
     assert same_tool["ok"] is False
-    assert same_tool["error"]["code"] == "legacy_recovery_unverifiable"
+    assert same_tool["error"]["code"] == "state_corrupt"
     assert "should-not-write" not in coc_toolbox.Ctx(
         campaign_ws["workspace"], campaign_ws["campaign_id"]
     ).flags().get("flags", {})
-    assert other_tool["ok"] is True
-    assert other_tool["data"]["npc_id"] == npc_id
-    assert other_tool["data"]["applied"]["trust"] == 1
+    assert other_tool["ok"] is False
+    assert other_tool["error"]["code"] == "state_corrupt"
 
 
 def test_state_flag_and_npc_updates_are_idempotent(campaign_ws):
@@ -3265,7 +2890,7 @@ def test_pre_receipt_orphan_ledger_is_non_comparable_and_never_reapplied(campaig
     replay = _run(campaign_ws, "state.time_marker", args)
 
     assert replay["ok"] is False
-    assert replay["error"]["code"] == "legacy_recovery_unverifiable"
+    assert replay["error"]["code"] == "state_corrupt"
     assert not marker_path.exists()
 
 
@@ -3329,83 +2954,8 @@ def test_director_and_toolbox_share_flag_mutation_head_and_capsule(campaign_ws):
     assert history[-1]["provenance"]["source"] == "coc_director_apply"
 
 
-def test_legacy_flag_set_without_value_projects_structured_true(campaign_ws):
-    campaign_dir = campaign_ws["campaign_dir"]
-    flags_path = campaign_dir / "save" / "flags.json"
-    flags = json.loads(flags_path.read_text(encoding="utf-8"))
-    flags.setdefault("flags", {})["legacy-locked-door"] = True
-    flags.get("flag_provenance", {}).pop("legacy-locked-door", None)
-    flags.get("flag_heads", {}).pop("legacy-locked-door", None)
-    _write_json(flags_path, flags)
-    with (campaign_dir / "logs" / "events.jsonl").open(
-        "a", encoding="utf-8"
-    ) as handle:
-        handle.write(json.dumps({
-            "event_type": "flag_set",
-            "flag_id": "legacy-locked-door",
-            "decision_id": "legacy-director-flag",
-            "ts": "1920-01-01T00:00:00Z",
-        }) + "\n")
-
-    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
-
-    recent = next(
-        row for row in continuity["recent_world_flag_changes"]
-        if row["flag_id"] == "legacy-locked-door"
-    )
-    live = next(
-        row for row in continuity["live_world_flags"]
-        if row["flag_id"] == "legacy-locked-door"
-    )
-    assert recent["value"] is True
-    assert recent["provenance"]["source"] == "legacy.flag_set"
-    assert live["provenance"]["decision_id"] == "legacy-director-flag"
 
 
-def test_pre_cutover_structured_flag_survives_interleaved_nonflag_history(
-    campaign_ws,
-):
-    campaign_dir = campaign_ws["campaign_dir"]
-    flags_path = campaign_dir / "save" / "flags.json"
-    flags = json.loads(flags_path.read_text(encoding="utf-8"))
-    flags.setdefault("flags", {})["historical-structured-flag"] = False
-    flags.get("flag_provenance", {}).pop("historical-structured-flag", None)
-    flags.get("flag_heads", {}).pop("historical-structured-flag", None)
-    flags.pop("flag_event_cutover", None)
-    _write_json(flags_path, flags)
-    with (campaign_dir / "logs" / "events.jsonl").open(
-        "a", encoding="utf-8"
-    ) as handle:
-        for index in range(3):
-            handle.write(json.dumps({
-                "event_type": "scene_transition",
-                "to_scene_id": f"historical-scene-{index}",
-            }) + "\n")
-        handle.write(json.dumps({
-            "flag_mutation_schema_version": 1,
-            "event_type": "flag_set",
-            "flag_id": "historical-structured-flag",
-            "value": False,
-            "producer": "historical.structured-producer",
-            "decision_id": "historical-structured-decision",
-            "source_sequence": 4,
-            "ts": "1920-01-01T00:04:00Z",
-        }) + "\n")
-
-    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
-    recent = next(
-        row for row in continuity["recent_world_flag_changes"]
-        if row["flag_id"] == "historical-structured-flag"
-    )
-    live = next(
-        row for row in continuity["live_world_flags"]
-        if row["flag_id"] == "historical-structured-flag"
-    )
-    assert recent["provenance"]["order_epoch"] == "legacy-pre-cutover"
-    assert recent["provenance"]["integrity_status"] == "legacy_unverifiable"
-    assert live["present"] is True
-    assert live["value"] is False
-    assert live["provenance"]["decision_id"] == "historical-structured-decision"
 
 
 def test_explicit_false_flag_remains_live_after_history_ages_out(campaign_ws):
@@ -6831,49 +6381,155 @@ def test_schema_v2_receipt_with_missing_live_entity_is_never_success(
     replay = _run(campaign_ws, tool_name, args)
 
     assert replay["ok"] is False
-    assert replay["error"]["code"] == "legacy_recovery_unverifiable"
+    assert replay["error"]["code"] == "state_corrupt"
     assert source_path.read_bytes() == before
 
 
+
+
+@pytest.mark.parametrize("source_kind", ["flags", "markers"])
+def test_noncurrent_flag_and_marker_documents_are_rejected_without_rewrite(
+    campaign_ws, source_kind,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    if source_kind == "flags":
+        path = campaign_dir / "save" / "flags.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["schema_version"] = 2
+        tool_name = "scene.context"
+        args = {}
+    else:
+        path = campaign_dir / "save" / "time-markers.json"
+        document = {
+            "schema_version": 2,
+            "markers": {},
+            "marker_heads": {},
+            "marker_source_sequence": 0,
+            "operation_receipts": {},
+        }
+        tool_name = "state.time_marker"
+        args = {
+            "action": "set",
+            "marker_id": "old-document",
+            "minutes_from_now": 5,
+            "decision_id": "reject-old-marker-document",
+        }
+    _write_json(path, document)
+    before = path.read_bytes()
+
+    rejected = _run(campaign_ws, tool_name, args)
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize("entity_kind", ["flag", "marker"])
-def test_schema_v2_receipt_migrates_atomically_only_with_complete_live_evidence(
+def test_schema_v2_source_receipt_is_rejected_even_with_complete_live_evidence(
     campaign_ws, entity_kind,
 ):
     campaign_dir = campaign_ws["campaign_dir"]
     if entity_kind == "flag":
         tool_name = "state.set_flag"
         args = {
-            "flag_id": "v2-provable-flag",
-            "value": False,
-            "decision_id": "v2-provable-flag-decision",
+            "flag_id": "old-receipt-live-flag",
+            "value": True,
+            "decision_id": "old-receipt-live-flag-decision",
         }
-        source_path = campaign_dir / "save" / "flags.json"
+        path = campaign_dir / "save" / "flags.json"
     else:
         tool_name = "state.time_marker"
         args = {
             "action": "set",
-            "marker_id": "v2-provable-marker",
-            "minutes_from_now": 11,
-            "decision_id": "v2-provable-marker-decision",
+            "marker_id": "old-receipt-live-marker",
+            "minutes_from_now": 9,
+            "decision_id": "old-receipt-live-marker-decision",
         }
-        source_path = campaign_dir / "save" / "time-markers.json"
-    original = _run(campaign_ws, tool_name, args)
-    assert original["ok"] is True
-    source = json.loads(source_path.read_text(encoding="utf-8"))
-    receipt = source["operation_receipts"][tool_name][args["decision_id"]]
+        path = campaign_dir / "save" / "time-markers.json"
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    document = json.loads(path.read_text(encoding="utf-8"))
+    receipt = document["operation_receipts"][tool_name][args["decision_id"]]
     receipt.pop("entity_head")
     receipt["schema_version"] = 2
     receipt["integrity_digest"] = coc_toolbox._source_receipt_integrity(receipt)
-    _write_json(source_path, source)
+    _write_json(path, document)
+    before = path.read_bytes()
 
-    replay = _run(campaign_ws, tool_name, args)
+    rejected = _run(campaign_ws, tool_name, args)
 
-    assert replay["ok"] is True
-    migrated = json.loads(source_path.read_text(encoding="utf-8"))[
-        "operation_receipts"
-    ][tool_name][args["decision_id"]]
-    assert migrated["schema_version"] == 3
-    assert coc_toolbox.coc_flag_state.valid_entity_head(migrated["entity_head"])
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert path.read_bytes() == before
+
+
+def test_extra_legacy_flag_cutover_field_is_rejected(campaign_ws):
+    path = campaign_ws["campaign_dir"] / "save" / "flags.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["flag_event_cutover"] = {"schema_version": 1}
+    _write_json(path, document)
+    before = path.read_bytes()
+
+    rejected = _run(campaign_ws, "scene.context", {})
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("entity_kind", ["flag", "marker"])
+def test_current_document_rejects_live_entity_without_current_receipt(
+    campaign_ws, entity_kind,
+):
+    campaign_dir = campaign_ws["campaign_dir"]
+    if entity_kind == "flag":
+        tool_name = "state.set_flag"
+        entity_id = "orphan-current-flag"
+        args = {
+            "flag_id": entity_id,
+            "value": True,
+            "decision_id": "orphan-current-flag-decision",
+        }
+        path = campaign_dir / "save" / "flags.json"
+        document_key = "flags"
+        head_key = "flag_heads"
+    else:
+        tool_name = "state.time_marker"
+        entity_id = "orphan-current-marker"
+        args = {
+            "action": "set",
+            "marker_id": entity_id,
+            "minutes_from_now": 5,
+            "decision_id": "orphan-current-marker-decision",
+        }
+        path = campaign_dir / "save" / "time-markers.json"
+        document_key = "markers"
+        head_key = "marker_heads"
+    assert _run(campaign_ws, tool_name, args)["ok"] is True
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["operation_receipts"] = {}
+    _write_json(path, document)
+    before = path.read_bytes()
+
+    unrelated = (
+        _run(campaign_ws, "scene.context", {})
+        if entity_kind == "flag"
+        else _run(
+            campaign_ws,
+            "state.time_marker",
+            {
+                "action": "set",
+                "marker_id": "unrelated-marker",
+                "minutes_from_now": 1,
+                "decision_id": "unrelated-marker-decision",
+            },
+        )
+    )
+
+    assert document[document_key][entity_id]
+    assert document[head_key][entity_id]
+    assert unrelated["ok"] is False
+    assert unrelated["error"]["code"] == "state_corrupt"
+    assert path.read_bytes() == before
 
 
 def test_unanchored_flag_head_is_not_authoritative_provenance(campaign_ws):
@@ -7054,69 +6710,8 @@ def test_new_structured_flag_remains_recent_after_many_legacy_rows(campaign_ws):
     assert recent[-1]["provenance"]["integrity_status"] == "source_anchored"
 
 
-def test_unanchored_flag_event_after_cutover_is_explicitly_unverified(
-    campaign_ws,
-):
-    campaign_dir = campaign_ws["campaign_dir"]
-    assert _run(
-        campaign_ws,
-        "state.set_flag",
-        {
-            "flag_id": "cutover-anchor",
-            "value": True,
-            "decision_id": "cutover-anchor-decision",
-        },
-    )["ok"] is True
-    with (campaign_dir / "logs" / "events.jsonl").open(
-        "a", encoding="utf-8"
-    ) as handle:
-        handle.write(json.dumps({
-            "event_type": "flag_set",
-            "flag_id": "late-old-writer",
-            "decision_id": "late-old-writer-decision",
-            "value": True,
-            "ts": "2099-01-01T00:00:00Z",
-        }) + "\n")
-    flags_path = campaign_dir / "save" / "flags.json"
-    flags = json.loads(flags_path.read_text(encoding="utf-8"))
-    flags["flags"]["late-old-writer"] = True
-    _write_json(flags_path, flags)
-
-    continuity = _run(campaign_ws, "scene.context")["data"]["continuity"]
-    recent = continuity["recent_world_flag_changes"]
-    late = next(row for row in recent if row["flag_id"] == "late-old-writer")
-    assert late["provenance"]["order_epoch"] == "unverified-post-cutover"
-    assert late["provenance"]["integrity_status"] == "unverified"
-    assert recent[-1]["flag_id"] == "late-old-writer"
-    assert not any(
-        row["flag_id"] == "late-old-writer"
-        for row in continuity["live_world_flags"]
-    )
-    unverified = next(
-        row for row in continuity["unverified_world_flags"]
-        if row["flag_id"] == "late-old-writer"
-    )
-    assert unverified["provenance"]["integrity_status"] == "unverified"
 
 
-def test_flag_cutover_boundary_must_match_first_source_receipt(campaign_ws):
-    assert _run(
-        campaign_ws,
-        "state.set_flag",
-        {
-            "flag_id": "cutover-integrity-anchor",
-            "value": True,
-            "decision_id": "cutover-integrity-decision",
-        },
-    )["ok"] is True
-    flags_path = campaign_ws["campaign_dir"] / "save" / "flags.json"
-    flags = json.loads(flags_path.read_text(encoding="utf-8"))
-    flags["flag_event_cutover"]["first_event_id"] = "forged-cutover-event"
-    _write_json(flags_path, flags)
-
-    context = _run(campaign_ws, "scene.context")
-    assert context["ok"] is False
-    assert context["error"]["code"] == "state_corrupt"
 
 
 def test_toolbox_npc_engagement_producer_emits_exact_current_event_schema(

@@ -267,13 +267,18 @@ def test_create_campaign_initializes_resume_state_files(tmp_path):
         "pending_choices": None,
     }
     assert flags == {
-        "schema_version": 1,
+        "schema_version": 3,
         "campaign_id": "haunting-test",
         "scenario_id": None,
         "clues_found": {},
         "decisions": [],
         "spoiler_reveals": [],
         "flags": {},
+        "flag_provenance": {},
+        "flag_heads": {},
+        "flag_source_sequence": 0,
+        "operation_receipts": {},
+        "director_flag_receipts": {},
     }
     assert (campaign_dir / "logs" / "events.jsonl").read_text() == ""
     assert (campaign_dir / "logs" / "rolls.jsonl").read_text() == ""
