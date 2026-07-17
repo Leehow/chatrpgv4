@@ -198,7 +198,7 @@ def test_source_first_compiles_keeper_pages_validates_and_warms(tmp_path, monkey
     assert "Keeper-only source text" in segments
 
 
-def test_cold_source_compile_installs_epistemic_sidecars_in_same_publish(tmp_path, monkeypatch):
+def test_cold_source_compile_publishes_base_before_optional_epistemic(tmp_path, monkeypatch):
     campaign = _campaign(tmp_path)
     (campaign / "scenario" / "scenario.json").write_text(json.dumps({
         "schema_version": 1,
@@ -225,6 +225,19 @@ def test_cold_source_compile_installs_epistemic_sidecars_in_same_publish(tmp_pat
 
     def compile_epistemic(request):
         seen["request"] = request
+        assert hydration._validation(campaign / "scenario")["ok"] is True
+        base_receipt = json.loads(
+            (campaign / "scenario" / "resolution-receipt.json").read_text()
+        )
+        assert base_receipt["status"] == "PASS"
+        assert base_receipt["epistemic_sidecars"] == {
+            "status": "NOT_RUN",
+            "reason": "optional_compile_pending",
+        }
+        assert not any(
+            (campaign / "scenario" / name).exists()
+            for name in hydration.EPISTEMIC_FILES
+        )
         digest = hydration.coc_epistemic_compile.request_sha256(request)
         return {
             "ok": True,
@@ -257,6 +270,153 @@ def test_cold_source_compile_installs_epistemic_sidecars_in_same_publish(tmp_pat
     assert receipt["epistemic_sidecars"]["status"] == "PASS"
     assert all((campaign / "scenario" / name).is_file() for name in hydration.EPISTEMIC_FILES)
     assert "Keeper-only source text" not in json.dumps(seen["request"], ensure_ascii=False)
+
+
+def test_epistemic_failure_keeps_base_playable_and_removes_stale_sidecars(
+    tmp_path, monkeypatch
+):
+    campaign = _campaign(tmp_path)
+    (campaign / "scenario" / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "resolution_policy": "source_first",
+        "source": {"path": "/private/local/module.pdf", "pdf_index_start": 446},
+    }), encoding="utf-8")
+    monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
+    for name in hydration.EPISTEMIC_FILES:
+        (campaign / "scenario" / name).write_text(
+            '{"stale":"must-not-survive"}\n', encoding="utf-8"
+        )
+    secret_error = "KEEPER_PRIVATE_SIDECAR_FAILURE"
+
+    def fail_epistemic(_request):
+        assert hydration._validation(campaign / "scenario")["ok"] is True
+        base_receipt = json.loads(
+            (campaign / "scenario" / "resolution-receipt.json").read_text()
+        )
+        assert base_receipt["epistemic_sidecars"]["status"] == "NOT_RUN"
+        assert not any(
+            (campaign / "scenario" / name).exists()
+            for name in hydration.EPISTEMIC_FILES
+        )
+        raise RuntimeError(secret_error)
+
+    receipt = hydration.ensure_scenario_ready(
+        campaign,
+        compiler=lambda _request: {
+            "ok": True,
+            "scenario_bundle": _retarget_source_refs(_haunting_bundle()),
+        },
+        epistemic_compiler=fail_epistemic,
+        compile_epistemic_sidecars=True,
+        force_recompile=True,
+    )
+    assert receipt["status"] == "PASS"
+    assert receipt["epistemic_sidecars"]["status"] == "FAIL"
+    assert receipt["epistemic_sidecars"]["reason"] == "sidecar_compile_failed"
+    assert len(receipt["epistemic_sidecars"]["error_sha256"]) == 64
+    assert hydration._validation(campaign / "scenario")["ok"] is True
+    assert not any(
+        (campaign / "scenario" / name).exists() for name in hydration.EPISTEMIC_FILES
+    )
+    persisted = (campaign / "scenario" / "resolution-receipt.json").read_text()
+    assert secret_error not in persisted
+
+
+def test_partial_sidecar_stage_is_discarded_without_campaign_pollution(
+    tmp_path, monkeypatch
+):
+    campaign = _campaign(tmp_path)
+    (campaign / "scenario" / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "resolution_policy": "source_first",
+        "source": {"path": "/private/local/module.pdf", "pdf_index_start": 446},
+    }), encoding="utf-8")
+    monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
+
+    def fail_after_partial_stage(staging, *, compiler):
+        _ = compiler
+        hydration._write_json(
+            staging / hydration.EPISTEMIC_FILES[0],
+            {"partial": "keeper-only-stage"},
+        )
+        raise hydration.ScenarioHydrationError("private partial sidecar failure")
+
+    monkeypatch.setattr(hydration, "_compile_epistemic_sidecars", fail_after_partial_stage)
+    receipt = hydration.ensure_scenario_ready(
+        campaign,
+        compiler=lambda _request: {
+            "ok": True,
+            "scenario_bundle": _retarget_source_refs(_haunting_bundle()),
+        },
+        epistemic_compiler=lambda _request: pytest.fail("injected by helper"),
+        compile_epistemic_sidecars=True,
+    )
+    assert receipt["status"] == "PASS"
+    assert receipt["epistemic_sidecars"]["status"] == "FAIL"
+    assert receipt["epistemic_sidecars"]["reason"] == "sidecar_validation_failed"
+    assert not any(
+        (campaign / "scenario" / name).exists() for name in hydration.EPISTEMIC_FILES
+    )
+    assert not list(campaign.glob(".scenario-compile-*"))
+
+
+def test_base_publication_failure_restores_all_current_files(tmp_path, monkeypatch):
+    campaign = _campaign(tmp_path)
+    (campaign / "scenario" / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "scenario_id": "the-haunting",
+        "title": "The Haunting",
+        "resolution_policy": "source_first",
+        "source": {"path": "/private/local/module.pdf", "pdf_index_start": 446},
+    }), encoding="utf-8")
+    for name in hydration.REQUIRED_FILES:
+        shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
+    for name in hydration.EPISTEMIC_FILES:
+        (campaign / "scenario" / name).write_text('{"old_sidecar":true}\n', encoding="utf-8")
+    (campaign / "scenario" / "resolution-receipt.json").write_text(
+        '{"schema_version":1,"status":"PASS","old":true}\n', encoding="utf-8"
+    )
+    (campaign / "index").mkdir()
+    for name in hydration.coc_module_registry.SOURCE_INDEX_FILES:
+        (campaign / "index" / name).write_text(f"old-index:{name}\n", encoding="utf-8")
+    monkeypatch.setattr(hydration, "_extract_source", lambda _seed: _source_fixture())
+    tracked = hydration._publication_paths(campaign)
+    before = {
+        path: path.read_text(encoding="utf-8") if path.is_file() else None
+        for path in tracked
+    }
+    real_persist = hydration._persist_source_bundle
+
+    def fail_source_publish(target, seed, source, pages):
+        if Path(target).resolve() != campaign.resolve():
+            return real_persist(target, seed, source, pages)
+        hydration._write_json(campaign / "index" / "page-map.json", {"partial": True})
+        raise OSError("simulated base publication failure")
+
+    monkeypatch.setattr(hydration, "_persist_source_bundle", fail_source_publish)
+    with pytest.raises(OSError, match="simulated base publication failure"):
+        hydration.ensure_scenario_ready(
+            campaign,
+            compiler=lambda _request: {
+                "ok": True,
+                "scenario_bundle": _retarget_source_refs(_haunting_bundle()),
+            },
+            epistemic_compiler=lambda _request: pytest.fail(
+                "optional sidecar must not run before base commit"
+            ),
+            compile_epistemic_sidecars=True,
+            force_recompile=True,
+        )
+    after = {
+        path: path.read_text(encoding="utf-8") if path.is_file() else None
+        for path in tracked
+    }
+    assert after == before
+    assert not list(campaign.glob(".scenario-compile-*"))
 
 
 def test_invalid_compiler_bundle_is_rejected_without_partial_install(tmp_path, monkeypatch):

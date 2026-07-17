@@ -964,6 +964,120 @@ def _record_receipt(campaign_dir: Path, receipt: dict[str, Any]) -> dict[str, An
     return receipt
 
 
+def _publication_paths(campaign_dir: Path) -> list[Path]:
+    """Files that form the base Scenario IR publication transaction."""
+    return [
+        *(campaign_dir / "scenario" / name for name in REQUIRED_FILES),
+        *(campaign_dir / "scenario" / name for name in EPISTEMIC_FILES),
+        campaign_dir / "scenario" / "resolution-receipt.json",
+        *(campaign_dir / "index" / name for name in coc_module_registry.SOURCE_INDEX_FILES),
+        campaign_dir / "save" / "world-state.json",
+    ]
+
+
+def _snapshot_publication(paths: list[Path]) -> dict[Path, str | None]:
+    snapshot: dict[Path, str | None] = {}
+    for path in paths:
+        if path.is_file():
+            snapshot[path] = path.read_text(encoding="utf-8")
+        elif path.exists():
+            raise ScenarioHydrationError(
+                f"scenario publication target is not a regular file: {path}"
+            )
+        else:
+            snapshot[path] = None
+    return snapshot
+
+
+def _restore_publication(snapshot: dict[Path, str | None]) -> None:
+    for path, previous in snapshot.items():
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            coc_fileio.write_text_atomic(path, previous)
+
+
+def _publish_validated_base(
+    campaign_dir: Path,
+    staging: Path,
+    *,
+    seed: dict[str, Any],
+    source: dict[str, Any],
+    pages: list[dict[str, Any]],
+    receipt: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Publish base IR first and roll back any in-process publication failure."""
+    snapshot = _snapshot_publication(_publication_paths(campaign_dir))
+    scenario_dir = campaign_dir / "scenario"
+    try:
+        for name in REQUIRED_FILES:
+            payload = json.loads((staging / name).read_text(encoding="utf-8"))
+            _write_json(scenario_dir / name, payload)
+        for name in EPISTEMIC_FILES:
+            (scenario_dir / name).unlink(missing_ok=True)
+        _persist_source_bundle(campaign_dir, seed, source, pages)
+        _ensure_active_scene(campaign_dir)
+        final = _validation(scenario_dir, deep=True)
+        if not final["ok"]:
+            raise ScenarioHydrationError(
+                "persisted base scenario failed validation: "
+                + "; ".join(final["errors"])
+            )
+        base_receipt = _record_receipt(campaign_dir, {
+            **receipt,
+            "bundle_sha256": _bundle_digest(scenario_dir),
+            "epistemic_sidecars": {
+                "status": "NOT_RUN",
+                "reason": "optional_compile_pending",
+            },
+            "warnings": final["warnings"],
+        })
+        return final, base_receipt
+    except BaseException:
+        _restore_publication(snapshot)
+        raise
+
+
+def _publish_validated_sidecars(staging: Path, scenario_dir: Path) -> dict[str, Any]:
+    """Publish exactly one complete optional sidecar set or none."""
+    paths = [scenario_dir / name for name in EPISTEMIC_FILES]
+    snapshot = _snapshot_publication(paths)
+    try:
+        for name in EPISTEMIC_FILES:
+            payload = json.loads((staging / name).read_text(encoding="utf-8"))
+            _write_json(scenario_dir / name, payload)
+        final = _validation(scenario_dir, deep=True)
+        if not final["ok"]:
+            raise ScenarioHydrationError(
+                "persisted epistemic sidecars failed validation: "
+                + "; ".join(final["errors"])
+            )
+        return final
+    except BaseException:
+        _restore_publication(snapshot)
+        raise
+
+
+def _safe_epistemic_failure(exc: Exception) -> dict[str, Any]:
+    """Return bounded failure evidence without persisting exception prose."""
+    if isinstance(exc, epistemic_adapter.EpistemicCompileRejected):
+        reason = "compile_result_rejected"
+    elif isinstance(exc, epistemic_adapter.EpistemicCompilerProtocolError):
+        reason = "compiler_protocol_failed"
+    elif isinstance(exc, ScenarioHydrationError):
+        reason = "sidecar_validation_failed"
+    elif isinstance(exc, OSError):
+        reason = "sidecar_io_failed"
+    else:
+        reason = "sidecar_compile_failed"
+    encoded = str(exc).encode("utf-8", errors="replace")
+    return {
+        "status": "FAIL",
+        "reason": reason,
+        "error_sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
 def _warm_receipt(campaign_dir: Path, receipt: dict[str, Any]) -> dict[str, Any]:
     """Return a warm-check receipt without rewriting identical persisted evidence."""
     path = campaign_dir / "scenario" / "resolution-receipt.json"
@@ -1225,6 +1339,34 @@ def ensure_scenario_ready(
             }
     if staging is None:
         raise ScenarioHydrationError("scenario compiler exhausted without staged output")
+    base_receipt_fields = {
+        "status": "PASS",
+        "mode": "cold_source_compile",
+        "cache": "miss",
+        "scenario_id": seed["scenario_id"],
+        "source_id": source["source_id"],
+        "source_file_sha256": source["file_sha256"],
+        "source_pdf_indices": [page["pdf_index"] for page in pages],
+        "request_sha256": request_digest,
+        "model_identity": response.get("model_identity"),
+        "usage": response.get("usage"),
+        "compile_attempts": 1 + len(validation_errors),
+        "rejected_validation_errors": validation_errors,
+        "accepted_normalized_bundle_sha256": accepted_bundle_sha256,
+        "revision_lineage": lineage,
+    }
+    try:
+        final, _base_receipt = _publish_validated_base(
+            campaign,
+            staging,
+            seed=seed,
+            source=source,
+            pages=pages,
+            receipt=base_receipt_fields,
+        )
+    except BaseException:
+        shutil.rmtree(staging.parent, ignore_errors=True)
+        raise
     # Dependency-injected base compilers are predominantly deterministic test
     # fixtures. Production cold compilation (no injected compiler) always runs
     # the second, minimum-privilege semantic phase. Tests and custom callers can
@@ -1248,57 +1390,33 @@ def ensure_scenario_ready(
                 epistemic_receipt = _compile_epistemic_sidecars(
                     staging, compiler=invoke_epistemic
                 )
-            except epistemic_adapter.EpistemicCompileRejected as exc:
                 _record_epistemic_rejections(
-                    campaign, request_digest, exc.diagnostics
+                    campaign,
+                    request_digest,
+                    epistemic_receipt.get("rejected_attempts") or [],
                 )
-                raise ScenarioHydrationError(str(exc)) from exc
-            _record_epistemic_rejections(
-                campaign,
-                request_digest,
-                epistemic_receipt.get("rejected_attempts") or [],
-            )
-            epistemic_receipt.pop("rejected_attempts", None)
-        backup_dir = scenario_dir / ".runtime-backups" / request_digest
-        publish_files = [*REQUIRED_FILES]
-        if epistemic_receipt.get("status") == "PASS":
-            publish_files.extend(EPISTEMIC_FILES)
-        existing = [
-            scenario_dir / name for name in publish_files
-            if (scenario_dir / name).is_file()
-        ]
-        if existing:
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            for path in existing:
-                shutil.copy2(path, backup_dir / path.name)
-        for name in publish_files:
-            payload = json.loads((staging / name).read_text(encoding="utf-8"))
-            _write_json(scenario_dir / name, payload)
-        _persist_source_bundle(campaign, seed, source, pages)
-        _ensure_active_scene(campaign)
-        final = _validation(scenario_dir, deep=True)
-        if not final["ok"]:
-            raise ScenarioHydrationError(
-                "persisted scenario failed validation: " + "; ".join(final["errors"])
-            )
+                epistemic_receipt.pop("rejected_attempts", None)
+                final = _publish_validated_sidecars(staging, scenario_dir)
+            except Exception as exc:
+                epistemic_receipt = _safe_epistemic_failure(exc)
+                if isinstance(exc, epistemic_adapter.EpistemicCompileRejected):
+                    try:
+                        _record_epistemic_rejections(
+                            campaign, request_digest, exc.diagnostics
+                        )
+                        epistemic_receipt["rejection_receipts"] = "PASS"
+                    except Exception as receipt_exc:
+                        epistemic_receipt["rejection_receipts"] = "FAIL"
+                        epistemic_receipt["rejection_receipt_error_sha256"] = (
+                            hashlib.sha256(
+                                str(receipt_exc).encode("utf-8", errors="replace")
+                            ).hexdigest()
+                        )
     finally:
         shutil.rmtree(staging.parent, ignore_errors=True)
     return _record_receipt(campaign, {
-        "status": "PASS",
-        "mode": "cold_source_compile",
-        "cache": "miss",
-        "scenario_id": seed["scenario_id"],
-        "source_id": source["source_id"],
-        "source_file_sha256": source["file_sha256"],
-        "source_pdf_indices": [page["pdf_index"] for page in pages],
-        "request_sha256": request_digest,
+        **base_receipt_fields,
         "bundle_sha256": _bundle_digest(scenario_dir),
-        "model_identity": response.get("model_identity"),
-        "usage": response.get("usage"),
         "epistemic_sidecars": epistemic_receipt,
-        "compile_attempts": 1 + len(validation_errors),
-        "rejected_validation_errors": validation_errors,
-        "accepted_normalized_bundle_sha256": accepted_bundle_sha256,
-        "revision_lineage": lineage,
         "warnings": final["warnings"],
     })

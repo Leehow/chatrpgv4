@@ -14,6 +14,24 @@ Use a two-stage import strategy:
 2. The repository validates/reformats the bundle and compiles scenario JSON.
    It never parses or performs OCR on the original PDF.
 
+## Clean-Slate Version Boundary
+
+Scenario manifests/stores, campaign saves, module-library caches, and resume
+metadata that will be run, resumed, or installed support exactly the current
+schema. A missing, older, newer, or malformed version is `version_mismatch`:
+name the affected path, delete that campaign/cache, and start or recompile.
+
+Do not migrate, dual-read, decode through a legacy fallback, remap old IDs, or
+preserve IDs from an unsupported artifact. Current-schema materialized views
+and transactional backups are crash-safety mechanisms, not compatibility
+layers. Historical battle/evaluation reports remain read-only reference and
+must not be resumed or presented as current qualifying evidence.
+
+Coverage/visited unions are evaluator-only post-run evidence. Import readiness
+and prefetch state may choose compilation, prefetch, or source-query work, but
+none of these states may allow, deny, reorder, suppress, or force narrative
+content.
+
 ## Scripts
 
 Use `../../scripts/coc_scenario.py` for:
@@ -96,6 +114,9 @@ summary, and source page instead.
 
 `.coc/module-library/` 可缓存**编译后的结构化索引**（7 文件 JSON 图、identity、LICENSE-note），供同模组异名 PDF / 译本二次命中时跳过解析。
 
+Cache lookup/install requires the exact current schema. On
+`version_mismatch`, delete the entry and recompile; never adapt it in place.
+
 - **可入库 / 可缓存：** 结构化 ID、标签、枚举、机制字段、为游玩撰写的 player-safe 摘要、`source_refs`（path + **印刷页**）。
 - **不得提交到 git 的源散文：** 从 PDF 原样抄录的模组正文、handout 全文、keeper-secret 叙事段落。Chaosium 等出版社的 Product Identity 留在本地 PDF；registry 注册时会在每个库条目写入 `LICENSE-note.md` 提醒此边界。
 - 源 PDF 路径只作本地引用，不要把受版权保护的模组文件推进仓库。
@@ -106,7 +127,8 @@ After the seven canonical scenario files validate, a belief-aware compile may
 also emit optional `epistemic-graph.json` and `reveal-contracts.json`. Questions
 must reference structured clue ids; `reframe` evidence requires a reveal
 contract with at least two setup clue refs and non-empty `preserve_as_true`.
-Missing sidecars preserve legacy Director behavior.
+Missing or failed sidecars keep the validated current base Scenario IR
+playable and never roll it back.
 
 ## Artifact-Mediated Epistemic Compilation v2
 
@@ -143,7 +165,7 @@ reveal-contracts.json
 compile-confidence.json
 ```
 
-For migration:
+For current-version batch compilation only:
 
 ```bash
 uv run --frozen python plugins/coc-keeper/scripts/coc_epistemic_compile.py scan <campaign-root>
@@ -152,8 +174,9 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_epistemic_compile.py reque
 ```
 
 A partial sidecar set is reported; it is never silently filled with guessed
-semantics. Missing sidecars preserve legacy Director behavior until a validated
-semantic result is installed.
+semantics. Missing or failed sidecars use the current base Director behavior
+until a validated semantic result is installed. Batch commands reject a
+version-mismatched campaign rather than migrate or dual-read it.
 
 When a critical source cannot pass the evidence gate, emit a structured source
 resolution request and keep the cognitive treatment at `HOLD`; never improvise a

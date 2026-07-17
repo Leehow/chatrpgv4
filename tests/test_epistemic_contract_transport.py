@@ -617,11 +617,12 @@ def test_rejection_receipt_parent_name_swap_stays_in_opened_directory(tmp_path):
     assert (retained / "receipt.json").is_file()
 
 
-def test_exhausted_correction_rolls_back_and_records_both_safe_attempts(tmp_path, monkeypatch):
+def test_exhausted_correction_keeps_new_base_and_records_both_safe_attempts(
+    tmp_path, monkeypatch
+):
     campaign = _campaign(tmp_path)
     for name in hydration.REQUIRED_FILES:
         shutil.copy2(HAUNTING / name, campaign / "scenario" / name)
-    before = {name: (campaign / "scenario" / name).read_bytes() for name in hydration.REQUIRED_FILES}
     old_resolution = b'{"schema_version":1,"status":"PASS","sentinel":"OLD"}\n'
     (campaign / "scenario/resolution-receipt.json").write_bytes(old_resolution)
     old_sidecars = {
@@ -633,21 +634,25 @@ def test_exhausted_correction_rolls_back_and_records_both_safe_attempts(tmp_path
         (campaign / "scenario" / name).write_bytes(content)
     _source(monkeypatch)
 
-    with pytest.raises(hydration.ScenarioHydrationError, match="rejected result"):
-        hydration.ensure_scenario_ready(
-            campaign,
-            compiler=lambda _request: {"ok": True, "scenario_bundle": _bundle()},
-            epistemic_runner_path=_fake_runner(tmp_path, always_reject=True),
-            compile_epistemic_sidecars=True,
-            force_recompile=True,
-        )
+    receipt = hydration.ensure_scenario_ready(
+        campaign,
+        compiler=lambda _request: {"ok": True, "scenario_bundle": _bundle()},
+        epistemic_runner_path=_fake_runner(tmp_path, always_reject=True),
+        compile_epistemic_sidecars=True,
+        force_recompile=True,
+    )
 
-    after = {name: (campaign / "scenario" / name).read_bytes() for name in hydration.REQUIRED_FILES}
-    assert after == before
-    assert (campaign / "scenario/resolution-receipt.json").read_bytes() == old_resolution
+    assert receipt["status"] == "PASS"
+    assert receipt["epistemic_sidecars"]["status"] == "FAIL"
+    assert receipt["epistemic_sidecars"]["reason"] == "compile_result_rejected"
+    assert receipt["epistemic_sidecars"]["rejection_receipts"] == "PASS"
+    assert len(receipt["epistemic_sidecars"]["error_sha256"]) == 64
+    assert (campaign / "scenario/resolution-receipt.json").read_bytes() != old_resolution
     assert {
-        name: (campaign / "scenario" / name).read_bytes() for name in old_sidecars
-    } == old_sidecars
+        name: json.loads((campaign / "scenario" / name).read_text(encoding="utf-8"))
+        for name in hydration.REQUIRED_FILES
+    } == _bundle()
+    assert not any((campaign / "scenario" / name).exists() for name in old_sidecars)
     receipts = sorted((campaign / "logs/scenario-resolution").glob("*.epistemic-*.rejected-*.json"))
     assert len(receipts) == 2
     combined = "".join(path.read_text(encoding="utf-8") for path in receipts)
