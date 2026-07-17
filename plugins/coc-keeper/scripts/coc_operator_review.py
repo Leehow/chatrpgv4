@@ -88,7 +88,7 @@ def validate_review(
         if player_id is not None and raw_player["id"] != player_id:
             raise ValueError("codex subagent review player does not match run evidence")
         if reviewer.get("kind") != "codex":
-            raise ValueError("codex subagent actual play requires a main Codex reviewer")
+            raise ValueError("codex subagent diagnostic review requires a main Codex reviewer")
         if reviewer["id"].strip() == raw_player["id"]:
             raise ValueError("reviewer and codex subagent player must be separate actors")
         player = {"kind": "codex_subagent", "id": raw_player["id"]}
@@ -248,7 +248,7 @@ def record_review(run_dir: Path, input_path: Path) -> Path:
         metadata.get("operator_long_play") is True
         or metadata.get("codex_subagent_player") is True
     ):
-        raise ValueError("run is not a reviewed Codex actual-play artifact")
+        raise ValueError("run is not a reviewed Codex protocol artifact")
     subagent_mode = metadata.get("codex_subagent_player") is True
     contract = metadata.get("subagent_player_contract")
     actor = contract.get("actor") if isinstance(contract, dict) else None
@@ -284,12 +284,9 @@ def record_review(run_dir: Path, input_path: Path) -> Path:
     evidence.write_evidence_receipt(run_dir, receipt)
     qualified_receipt = evidence.read_evidence_receipt(run_dir)
     reviewed_actual_play = (
-        review["status"] == "approved"
-        and qualified_receipt.get("play_kind") == (
-            "codex_subagent_actual_play"
-            if subagent_mode
-            else "operator_reviewed_actual_play"
-        )
+        not subagent_mode
+        and review["status"] == "approved"
+        and qualified_receipt.get("play_kind") == "operator_reviewed_actual_play"
         and qualified_receipt.get("eligible_as_gameplay_evidence") is True
     )
     metadata["operator_review_status"] = review["status"]
@@ -297,40 +294,38 @@ def record_review(run_dir: Path, input_path: Path) -> Path:
     metadata["operator_reviewed_actual_play"] = bool(
         reviewed_actual_play and not subagent_mode
     )
-    metadata["codex_subagent_actual_play"] = bool(
-        reviewed_actual_play and subagent_mode
-    )
+    metadata["codex_subagent_actual_play"] = False
     metadata["eligible_as_gameplay_evidence"] = reviewed_actual_play
     metadata["evidence_reasons"] = list(
         qualified_receipt.get("evidence_reasons") or []
     )
-    metadata["simulation_method"] = (
-        (
-            "codex_subagent_actual_play"
-            if subagent_mode
-            else "operator_reviewed_actual_play"
-        )
-        if reviewed_actual_play
-        else (
-            (
-                "codex_subagent_actual_play_changes_required"
-                if subagent_mode
-                else "operator_long_play_changes_required"
-            )
+    if subagent_mode:
+        metadata["simulation_method"] = (
+            "manual_protocol_blind_diagnostic_changes_required"
             if review["status"] == "changes_required"
+            else "manual_protocol_blind_diagnostic_reviewed"
+        )
+    else:
+        metadata["simulation_method"] = (
+            "operator_reviewed_actual_play"
+            if reviewed_actual_play
             else (
-                "codex_subagent_actual_play_reviewed_unqualified"
-                if subagent_mode
+                "operator_long_play_changes_required"
+                if review["status"] == "changes_required"
                 else "operator_long_play_reviewed_unqualified"
             )
         )
-    )
     metadata["official_suite_status"] = "NOT_RUN"
     metadata["evidence_disclaimer"] = (
-        "Structured operator review qualifies this artifact as actual play; "
-        "it does not establish nightly or release PASS."
-        if reviewed_actual_play
-        else "Operator review does not qualify this run as official gameplay evidence."
+        "The reviewed manual relay remains a protocol-blind diagnostic because "
+        "no Codex collaboration receipt attests the player actor."
+        if subagent_mode
+        else (
+            "Structured operator review qualifies this artifact as actual play; "
+            "it does not establish nightly or release PASS."
+            if reviewed_actual_play
+            else "Operator review does not qualify this run as official gameplay evidence."
+        )
     )
     metadata_path.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -371,14 +366,17 @@ def _main() -> int:
                 run_dir
             )
             expected_play_kind = (
-                "codex_subagent_actual_play"
+                "manual_protocol_blind_diagnostic"
                 if validated.get("protocol") == SUBAGENT_PROTOCOL
                 else "operator_reviewed_actual_play"
             )
-            if (
-                receipt.get("play_kind") != expected_play_kind
-                or receipt.get("eligible_as_gameplay_evidence") is not True
-            ):
+            subagent_review = validated.get("protocol") == SUBAGENT_PROTOCOL
+            eligibility_matches = (
+                receipt.get("eligible_as_gameplay_evidence") is False
+                if subagent_review
+                else receipt.get("eligible_as_gameplay_evidence") is True
+            )
+            if receipt.get("play_kind") != expected_play_kind or not eligibility_matches:
                 raise ValueError(
                     "approved operator review is not linked to qualifying run evidence"
                 )

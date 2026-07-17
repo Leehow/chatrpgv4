@@ -3441,12 +3441,6 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
 def _evidence_sensitive_metadata(
     receipt: dict[str, Any], metadata: dict[str, Any]
 ) -> dict[str, str]:
-    if receipt.get("play_kind") == "codex_subagent_actual_play":
-        return {
-            "audit_profile": str(metadata.get("audit_profile") or "full_module"),
-            "simulation_method": "codex_subagent_actual_play",
-            "player_profile": "codex_subagent_player",
-        }
     if receipt.get("play_kind") == "operator_reviewed_actual_play":
         return {
             "audit_profile": str(metadata.get("audit_profile") or "full_module"),
@@ -3543,7 +3537,7 @@ def generate_battle_report(run_dir: Path) -> Path:
                 f"- Reviewer: {reviewer.get('kind', 'unknown')} / {reviewer.get('id', 'unknown')}",
                 "- Automated fact-fidelity PASS: false",
                 (
-                    f"- Player/reviewer: Codex subagent {((operator_review.get('player') or {}).get('id') or 'unknown')} / separate main Codex review"
+                    f"- Player/reviewer: claimed Codex subagent actor {((operator_review.get('player') or {}).get('id') or 'unknown')} / separate main Codex review; collaboration identity NOT_ATTESTED"
                     if subagent_mode
                     else "- Player/reviewer: main Codex black-box operator / self-review"
                 ),

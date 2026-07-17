@@ -178,6 +178,58 @@ def _operator_provenance(run_dir: Path) -> dict:
 def _subagent_provenance(run_dir: Path) -> dict:
     provenance = _operator_provenance(run_dir)
     player_id = "player-agent-01"
+    request = {
+        "narration": "Rain traces the office window.",
+        "character_card": {"name": "Ada"},
+        "transcript_tail": [],
+        "pending_choice": None,
+        "play_language": "en-US",
+    }
+    binding = {
+        "schema_version": 1,
+        "protocol": "codex_subagent_player_v1",
+        "actor_id": player_id,
+        "turn": 1,
+        "request": request,
+    }
+    request_sha = _sha256(
+        json.dumps(
+            binding, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    )
+    envelope = {
+        **binding,
+        "type": "player_request",
+        "request_sha256": request_sha,
+    }
+    response = {
+        "schema_version": 1,
+        "protocol": "codex_subagent_player_v1",
+        "actor_id": player_id,
+        "turn": 1,
+        "request_sha256": request_sha,
+        "player_text": "look",
+        "intent_class": "investigate",
+    }
+    response_sha = _sha256(
+        json.dumps(
+            response, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    )
+    exchange = {
+        "schema_version": 1,
+        "protocol": "codex_subagent_player_v1",
+        "actor_id": player_id,
+        "turn": 1,
+        "request_envelope": envelope,
+        "response": response,
+        "request_sha256": request_sha,
+        "response_sha256": response_sha,
+    }
+    (run_dir / "subagent-player-exchanges.jsonl").write_text(
+        json.dumps(exchange, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
 
     def replace_player(rows):
         player = next(row for row in rows if row["role"] == "player")
@@ -189,8 +241,8 @@ def _subagent_provenance(run_dir: Path) -> dict:
             response_mode="codex_subagent_jsonl",
             actor_kind="codex_subagent",
             actor_id=player_id,
-            request_sha256="1" * 64,
-            response_sha256="2" * 64,
+            request_sha256=request_sha,
+            response_sha256=response_sha,
         )
 
     _rewrite_ledger(run_dir, replace_player)
@@ -204,7 +256,13 @@ def _subagent_provenance(run_dir: Path) -> dict:
             "transport": "stdio_relay",
             "visibility": "player_safe_request_only",
             "filesystem_isolation": "not_attested_shared_workspace",
+            "collaboration_receipt": "NOT_ATTESTED",
+            "exchange_ledger": {
+                "schema_version": 1,
+                "path": "subagent-player-exchanges.jsonl",
+            },
         },
+        subagent_player_exchange_path="subagent-player-exchanges.jsonl",
     )
     return provenance
 
@@ -458,7 +516,9 @@ def test_approved_operator_review_qualifies_actual_play_and_renders_battle_repor
     assert not report.exists()
 
 
-def test_separate_codex_review_qualifies_subagent_actual_play(tmp_path, evidence):
+def test_manual_subagent_relay_remains_diagnostic_after_separate_review(
+    tmp_path, evidence
+):
     run_dir = tmp_path / "subagent-reviewed-run"
     provenance = _subagent_provenance(run_dir)
     receipt = evidence.build_evidence_receipt(run_dir, provenance)
@@ -467,6 +527,14 @@ def test_separate_codex_review_qualifies_subagent_actual_play(tmp_path, evidence
     assert receipt["runners"]["player"]["kind"] == "codex_subagent"
     assert receipt["runners"]["player"]["isolation"] == (
         "protocol_blind_shared_filesystem_not_attested"
+    )
+    assert receipt["runners"]["player"]["collaboration_receipt"] == "NOT_ATTESTED"
+    assert receipt["play_kind"] == "manual_protocol_blind_diagnostic"
+    assert "codex_collaboration_receipt_not_attested" in receipt["evidence_reasons"]
+    exchange_artifact = receipt["artifacts"]["subagent_player_exchanges"]
+    assert exchange_artifact["path"] == "subagent-player-exchanges.jsonl"
+    assert exchange_artifact["sha256"] == _sha256(
+        (run_dir / "subagent-player-exchanges.jsonl").read_bytes()
     )
     evidence.write_evidence_receipt(run_dir, receipt)
     (run_dir / "playtest.json").write_text(
@@ -481,7 +549,7 @@ def test_separate_codex_review_qualifies_subagent_actual_play(tmp_path, evidence
                 "subagent_player_contract": provenance["subagent_player_contract"],
                 "operator_review_protocol": "codex_subagent_player_v1",
                 "operator_review_status": "pending",
-                "simulation_method": "codex_subagent_player_pending_review",
+                "simulation_method": "manual_protocol_blind_diagnostic_pending_review",
                 "player_profile": "codex_collaboration_subagent_player",
             }
         ),
@@ -509,12 +577,27 @@ def test_separate_codex_review_qualifies_subagent_actual_play(tmp_path, evidence
     )
 
     qualified = evidence.read_evidence_receipt(run_dir)
-    assert qualified["eligible_as_gameplay_evidence"] is True
-    assert qualified["play_kind"] == "codex_subagent_actual_play"
-    assert qualified["qualification_method"] == "structured_separate_codex_review"
+    assert qualified["eligible_as_gameplay_evidence"] is False
+    assert qualified["play_kind"] == "manual_protocol_blind_diagnostic"
+    assert qualified["qualification_method"] == "manual_stdio_digest_binding_only"
+    assert "codex_collaboration_receipt_not_attested" in qualified["evidence_reasons"]
     metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
-    assert metadata["codex_subagent_actual_play"] is True
+    assert metadata["codex_subagent_actual_play"] is False
     assert metadata["operator_reviewed_actual_play"] is False
+    assert metadata["simulation_method"] == "manual_protocol_blind_diagnostic_reviewed"
+
+
+def test_subagent_exchange_digest_is_recomputed_from_exact_response(tmp_path, evidence):
+    provenance = _subagent_provenance(tmp_path)
+    path = tmp_path / "subagent-player-exchanges.jsonl"
+    exchange = json.loads(path.read_text(encoding="utf-8"))
+    exchange["response"]["player_text"] = "tampered after relay"
+    path.write_text(json.dumps(exchange) + "\n", encoding="utf-8")
+
+    receipt = evidence.build_evidence_receipt(tmp_path, provenance)
+
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert "subagent_player_exchange_ledger_invalid" in receipt["evidence_reasons"]
 
 
 def test_fact_fidelity_fallback_is_counted_without_malformed_ledger(

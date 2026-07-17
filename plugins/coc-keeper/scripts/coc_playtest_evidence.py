@@ -36,6 +36,7 @@ RUN_KINDS = frozenset({"diagnostic_spoiler_run", "blind_actual_play"})
 EXPECTED_INTERACTIVE_NARRATOR_MODEL = {"provider": "zhipu-coding", "id": "glm-5.2"}
 CODEX_SUBAGENT_PLAYER_PROTOCOL = "codex_subagent_player_v1"
 CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION = 1
+CODEX_SUBAGENT_EXCHANGE_LEDGER = "subagent-player-exchanges.jsonl"
 _SAFE_SUBAGENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _TRUSTED_KIND_BY_ROLE = {
@@ -495,11 +496,12 @@ def _evaluate_ledger(
 def _validate_codex_subagent_player(
     contract: Any,
     ledger_rows: list[dict[str, Any]],
+    exchange_rows: list[dict[str, Any]],
     findings: list[dict[str, str]],
 ) -> dict[str, Any]:
     expected_keys = {
         "schema_version", "protocol", "actor", "transport", "visibility",
-        "filesystem_isolation",
+        "filesystem_isolation", "collaboration_receipt", "exchange_ledger",
     }
     if not isinstance(contract, dict) or set(contract) != expected_keys:
         _finding(findings, "subagent_player_contract_invalid", "subagent_player_contract")
@@ -517,8 +519,21 @@ def _validate_codex_subagent_player(
         or contract.get("transport") != "stdio_relay"
         or contract.get("visibility") != "player_safe_request_only"
         or contract.get("filesystem_isolation") != "not_attested_shared_workspace"
+        or contract.get("collaboration_receipt") != "NOT_ATTESTED"
+        or contract.get("exchange_ledger") != {
+            "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+            "path": CODEX_SUBAGENT_EXCHANGE_LEDGER,
+        }
     ):
         _finding(findings, "subagent_player_contract_invalid", "subagent_player_contract")
+    # A manual stdin/provider relay can bind bytes to a claimed actor id, but it
+    # cannot prove that the Codex collaboration service produced those bytes.
+    # Keep the distinction explicit even after a successful content review.
+    _finding(
+        findings,
+        "codex_collaboration_receipt_not_attested",
+        "subagent_player_contract.collaboration_receipt",
+    )
     rows = [row for row in ledger_rows if row.get("role") == "player"]
     if not rows:
         _finding(findings, "subagent_player_ledger_missing", "invocation_ledger.player")
@@ -545,11 +560,80 @@ def _validate_codex_subagent_player(
             request_hashes.add(request_sha)
         if isinstance(response_sha, str):
             response_hashes.add(response_sha)
+    if len(exchange_rows) != len(rows) or not exchange_rows:
+        _finding(
+            findings,
+            "subagent_player_exchange_ledger_invalid",
+            "artifacts.subagent_player_exchanges",
+        )
+    expected_exchange_keys = {
+        "schema_version", "protocol", "actor_id", "turn", "request_envelope",
+        "response", "request_sha256", "response_sha256",
+    }
+    for index, exchange in enumerate(exchange_rows, start=1):
+        field = f"subagent_player_exchanges.{index - 1}"
+        if not isinstance(exchange, dict) or set(exchange) != expected_exchange_keys:
+            _finding(findings, "subagent_player_exchange_ledger_invalid", field)
+            continue
+        envelope = exchange.get("request_envelope")
+        response = exchange.get("response")
+        request = envelope.get("request") if isinstance(envelope, dict) else None
+        binding = {
+            "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+            "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
+            "actor_id": actor_id,
+            "turn": index,
+            "request": request,
+        }
+        expected_request_sha = _sha256_bytes(_canonical_json_bytes(binding))
+        expected_envelope = {
+            **binding,
+            "type": "player_request",
+            "request_sha256": expected_request_sha,
+        }
+        expected_response_sha = (
+            _sha256_bytes(_canonical_json_bytes(response))
+            if isinstance(response, dict)
+            else None
+        )
+        invocation = rows[index - 1] if index <= len(rows) else {}
+        pending = request.get("pending_choice") if isinstance(request, dict) else None
+        response_keys = {
+            "schema_version", "protocol", "actor_id", "turn", "request_sha256",
+            "player_text", "intent_class",
+        }
+        if pending is not None:
+            response_keys.add("pending_choice_response")
+        if (
+            not isinstance(request, dict)
+            or not isinstance(response, dict)
+            or set(response) != response_keys
+            or envelope != expected_envelope
+            or exchange.get("schema_version") != CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION
+            or exchange.get("protocol") != CODEX_SUBAGENT_PLAYER_PROTOCOL
+            or exchange.get("actor_id") != actor_id
+            or exchange.get("turn") != index
+            or exchange.get("request_sha256") != expected_request_sha
+            or exchange.get("response_sha256") != expected_response_sha
+            or response.get("schema_version") != CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION
+            or response.get("protocol") != CODEX_SUBAGENT_PLAYER_PROTOCOL
+            or response.get("actor_id") != actor_id
+            or response.get("turn") != index
+            or response.get("request_sha256") != expected_request_sha
+            or not isinstance(response.get("player_text"), str)
+            or not response["player_text"].strip()
+            or not isinstance(response.get("intent_class"), str)
+            or not response["intent_class"].strip()
+            or invocation.get("request_sha256") != expected_request_sha
+            or invocation.get("response_sha256") != expected_response_sha
+        ):
+            _finding(findings, "subagent_player_exchange_ledger_invalid", field)
     return {
         "kind": "codex_subagent",
         "identity": actor_id,
         "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
         "isolation": "protocol_blind_shared_filesystem_not_attested",
+        "collaboration_receipt": "NOT_ATTESTED",
         "model_identities": [],
     }
 
@@ -906,8 +990,24 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
         _finding(findings, "player_mode_conflict", "codex_subagent_player")
     subagent_descriptor: dict[str, Any] | None = None
     if subagent_mode:
+        exchange_path = _validate_artifact(
+            root,
+            artifacts.get("subagent_player_exchanges"),
+            findings,
+            field="artifacts.subagent_player_exchanges",
+            missing_code="subagent_player_exchange_ledger_missing",
+            mismatch_code="subagent_player_exchange_ledger_hash_mismatch",
+        )
+        exchange_rows = _read_jsonl(
+            exchange_path,
+            findings,
+            "subagent_player_exchange_ledger_malformed",
+        )
         subagent_descriptor = _validate_codex_subagent_player(
-            validated.get("subagent_player_contract"), ledger_rows, findings
+            validated.get("subagent_player_contract"),
+            ledger_rows,
+            exchange_rows,
+            findings,
         )
         runners["player"] = subagent_descriptor
     if operator_mode or subagent_mode:
@@ -997,24 +1097,22 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
     validated["fallback_turns"] = fallback_turns
     validated["operator_review_status"] = operator_review_status
     validated["play_kind"] = (
-        (
-            "codex_subagent_actual_play"
-            if subagent_mode
-            else "operator_reviewed_actual_play"
+        "manual_protocol_blind_diagnostic"
+        if subagent_mode
+        else (
+            "operator_reviewed_actual_play"
+            if operator_review_status == "approved" and not reasons
+            else None
         )
-        if operator_review_status == "approved" and not reasons
-        else None
     )
     validated["qualification_method"] = (
-        (
-            "structured_separate_codex_review"
-            if subagent_mode
-            else "structured_operator_review"
+        "manual_stdio_digest_binding_only"
+        if subagent_mode
+        else (
+            "structured_operator_review"
+            if validated["play_kind"] == "operator_reviewed_actual_play"
+            else None
         )
-        if validated["play_kind"] in {
-            "operator_reviewed_actual_play", "codex_subagent_actual_play",
-        }
-        else None
     )
     validated["validation_findings"] = findings
     validated["evidence_reasons"] = reasons
@@ -1039,6 +1137,11 @@ def build_evidence_receipt(
         ),
         "event_logs": [_build_artifact(root, path) for path in event_paths],
     }
+    if source.get("codex_subagent_player") is True:
+        artifacts["subagent_player_exchanges"] = _build_artifact(
+            root,
+            source.get("subagent_player_exchange_path"),
+        )
     if run_kind in RUN_KINDS:
         artifacts["player_view"] = _build_artifact(root, source.get("player_view_path"))
         artifacts["action_ledger"] = _build_artifact(

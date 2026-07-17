@@ -27,6 +27,7 @@ OPERATOR_LONG_PLAY_PROTOCOL = "operator_codex_black_box_v2"
 OPERATOR_PLAYER_PROTOCOL = "coc_operator_player_v2"
 CODEX_SUBAGENT_PLAYER_PROTOCOL = "codex_subagent_player_v1"
 CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION = 1
+CODEX_SUBAGENT_EXCHANGE_LEDGER = "subagent-player-exchanges.jsonl"
 _SAFE_SUBAGENT_PLAYER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -601,10 +602,111 @@ def _codex_subagent_player_turn(
         "subagent_player_id": actor_id,
         "request_sha256": envelope["request_sha256"],
         "response_sha256": hashlib.sha256(_canonical_json_bytes(response)).hexdigest(),
+        # Private harness fields: persist the exact bytes-equivalent JSON values
+        # that crossed the manual relay.  These are protocol receipts, not proof
+        # that a Codex collaboration actor produced the response.
+        "_request_envelope": deepcopy(envelope),
+        "_exact_response": deepcopy(response),
     }
     if pending_response is not None:
         result["pending_choice_response"] = pending_response
     return result
+
+
+def _subagent_exchange_row(player_result: dict[str, Any]) -> dict[str, Any]:
+    envelope = player_result.get("_request_envelope")
+    response = player_result.get("_exact_response")
+    if not isinstance(envelope, dict) or not isinstance(response, dict):
+        raise RuntimeError("subagent exchange values were not retained")
+    return {
+        "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+        "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
+        "actor_id": envelope.get("actor_id"),
+        "turn": envelope.get("turn"),
+        "request_envelope": deepcopy(envelope),
+        "response": deepcopy(response),
+        "request_sha256": player_result.get("request_sha256"),
+        "response_sha256": player_result.get("response_sha256"),
+    }
+
+
+def _validate_subagent_exchange_rows(
+    rows: Any,
+    *,
+    actor_id: str,
+    invocation_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Accept only the single current, fully recomputable exchange schema."""
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("unsupported_save_schema")
+    expected_row_keys = {
+        "schema_version", "protocol", "actor_id", "turn", "request_envelope",
+        "response", "request_sha256", "response_sha256",
+    }
+    normalized: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict) or set(row) != expected_row_keys:
+            raise ValueError("unsupported_save_schema")
+        envelope = row.get("request_envelope")
+        response = row.get("response")
+        if not isinstance(envelope, dict) or not isinstance(response, dict):
+            raise ValueError("unsupported_save_schema")
+        request = envelope.get("request")
+        if not isinstance(request, dict):
+            raise ValueError("unsupported_save_schema")
+        expected_envelope = _subagent_request_envelope(
+            request, actor_id=actor_id, turn_number=index
+        )
+        pending = request.get("pending_choice")
+        required_response = {
+            "schema_version", "protocol", "actor_id", "turn", "request_sha256",
+            "player_text", "intent_class",
+        }
+        if pending is not None:
+            required_response.add("pending_choice_response")
+        if (
+            set(response) != required_response
+            or envelope != expected_envelope
+            or row.get("schema_version") != CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION
+            or row.get("protocol") != CODEX_SUBAGENT_PLAYER_PROTOCOL
+            or row.get("actor_id") != actor_id
+            or row.get("turn") != index
+            or response.get("schema_version") != CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION
+            or response.get("protocol") != CODEX_SUBAGENT_PLAYER_PROTOCOL
+            or response.get("actor_id") != actor_id
+            or response.get("turn") != index
+            or response.get("request_sha256") != expected_envelope["request_sha256"]
+            or row.get("request_sha256") != expected_envelope["request_sha256"]
+            or row.get("response_sha256")
+            != hashlib.sha256(_canonical_json_bytes(response)).hexdigest()
+        ):
+            raise ValueError("unsupported_save_schema")
+        try:
+            _validate_subagent_pending_choice(
+                pending, response.get("pending_choice_response")
+            )
+        except ValueError as exc:
+            raise ValueError("unsupported_save_schema") from exc
+        if not isinstance(response.get("player_text"), str) or not response["player_text"].strip():
+            raise ValueError("unsupported_save_schema")
+        if not isinstance(response.get("intent_class"), str) or not response["intent_class"].strip():
+            raise ValueError("unsupported_save_schema")
+        normalized.append(deepcopy(row))
+    if invocation_rows is not None:
+        players = [row for row in invocation_rows if row.get("role") == "player"]
+        if len(players) != len(normalized):
+            raise ValueError("unsupported_save_schema")
+        for exchange, invocation in zip(normalized, players):
+            if (
+                invocation.get("outcome") != "codex_subagent_input"
+                or invocation.get("actor_kind") != "codex_subagent"
+                or invocation.get("actor_id") != actor_id
+                or invocation.get("attempt") != exchange["turn"]
+                or invocation.get("request_sha256") != exchange["request_sha256"]
+                or invocation.get("response_sha256") != exchange["response_sha256"]
+            ):
+                raise ValueError("unsupported_save_schema")
+    return normalized
 
 
 def investigator_playability(
@@ -1324,6 +1426,7 @@ def _run_live_match_impl(
     prior_run: Path | None = resume_source
     prior_transcript_rows: list[dict[str, Any]] = []
     prior_invocation_rows: list[dict[str, Any]] = []
+    prior_subagent_exchange_rows: list[dict[str, Any]] = []
     prior_metadata: dict[str, Any] = {}
     prior_run_ids: list[str] = []
     prior_current_run_id: str | None = None
@@ -1351,6 +1454,11 @@ def _run_live_match_impl(
                 "transport": "stdio_relay",
                 "visibility": "player_safe_request_only",
                 "filesystem_isolation": "not_attested_shared_workspace",
+                "collaboration_receipt": "NOT_ATTESTED",
+                "exchange_ledger": {
+                    "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+                    "path": CODEX_SUBAGENT_EXCHANGE_LEDGER,
+                },
             }
             player_rows = [
                 row for row in prior_invocation_rows if row.get("role") == "player"
@@ -1374,6 +1482,14 @@ def _run_live_match_impl(
                 )
             ):
                 raise ValueError("unsupported_save_schema")
+            exchange_path = prior_run / CODEX_SUBAGENT_EXCHANGE_LEDGER
+            if not exchange_path.is_file():
+                raise ValueError("unsupported_save_schema")
+            prior_subagent_exchange_rows = _validate_subagent_exchange_rows(
+                _read_jsonl_rows(exchange_path),
+                actor_id=str(subagent_player_id),
+                invocation_rows=prior_invocation_rows,
+            )
         elif prior_metadata.get("codex_subagent_player") is True:
             raise ValueError("unsupported_save_schema")
         prior_identity = coc_run_identity.read_artifact_run_identity(prior_run)
@@ -1432,6 +1548,13 @@ def _run_live_match_impl(
         if operator_issue_ledger_path.is_symlink():
             operator_issue_ledger_path.unlink()
         operator_issue_ledger_path.write_text("", encoding="utf-8")
+    subagent_exchange_path = out / CODEX_SUBAGENT_EXCHANGE_LEDGER
+    if codex_subagent_player:
+        if subagent_exchange_path.is_symlink():
+            subagent_exchange_path.unlink()
+        _write_jsonl_rows_atomic(
+            subagent_exchange_path, prior_subagent_exchange_rows
+        )
     match_id = run_id
 
     def _server_pool(path: Path | None):
@@ -1567,6 +1690,8 @@ def _run_live_match_impl(
                 ),
                 response_provider=subagent_player_provider,
             )
+            exchange_row = _subagent_exchange_row(player_result)
+            _append_jsonl_fsync(subagent_exchange_path, exchange_row)
         elif player_worker_pool is None:
             player_result = player_adapter.player_send_turn(
                 request, runner_path=runner, timeout_s=timeout_s,
@@ -2044,17 +2169,23 @@ def _run_live_match_impl(
             "transport": "stdio_relay",
             "visibility": "player_safe_request_only",
             "filesystem_isolation": "not_attested_shared_workspace",
+            "collaboration_receipt": "NOT_ATTESTED",
+            "exchange_ledger": {
+                "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+                "path": CODEX_SUBAGENT_EXCHANGE_LEDGER,
+            },
         }
         metadata_extra["operator_contract"] = {
             "schema_version": 1,
             "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
             "module_scope": "any_compiled_module",
             "player": {
-                "role": "codex_collaboration_subagent",
+                "role": "claimed_codex_collaboration_subagent",
                 "actor_id": subagent_player_id,
                 "visibility": "kp_player_visible_request_only",
                 "transport": "stdio_relay",
                 "filesystem_isolation": "not_attested_shared_workspace",
+                "collaboration_receipt": "NOT_ATTESTED",
             },
             "reviewer": {
                 "role": "separate_main_codex_reviewer",
@@ -2063,7 +2194,7 @@ def _run_live_match_impl(
                 "dimensions": ["rules", "facts", "progression", "style"],
             },
             "model_call_boundary": {
-                "player": "codex_collaboration_subagent_protocol_blind",
+                "player": "manual_relay_claimed_codex_subagent_protocol_blind",
                 "kp_keeper_agent": "single_pass_production_model_under_test",
                 "independent_judge": "NOT_CONFIGURED",
                 "independent_fact_verification": "NOT_RUN",
@@ -2180,6 +2311,9 @@ def _run_live_match_impl(
             "operator_long_play": bool(operator_long_play),
             "codex_subagent_player": bool(codex_subagent_player),
             "subagent_player_contract": metadata_extra.get("subagent_player_contract"),
+            "subagent_player_exchange_path": (
+                CODEX_SUBAGENT_EXCHANGE_LEDGER if codex_subagent_player else None
+            ),
             "transcript_path": "transcript.jsonl",
             "invocation_ledger_path": invocation_ledger_path.name,
             "event_log_paths": event_log_paths,
@@ -2209,7 +2343,7 @@ def _run_live_match_impl(
                 "simulation_method": (
                     "operator_long_play_pending_review"
                     if operator_long_play
-                    else "codex_subagent_actual_play_pending_review"
+                    else "manual_protocol_blind_diagnostic_pending_review"
                 ),
                 "player_profile": (
                     "operator_player"
@@ -2217,7 +2351,10 @@ def _run_live_match_impl(
                     else "codex_subagent_player"
                 ),
                 "evidence_disclaimer": (
-                    "Codex-mediated actual play is pending structured review; "
+                    "The manual stdin relay has no Codex collaboration receipt. "
+                    "It is protocol-blind diagnostic evidence only, even after review."
+                    if codex_subagent_player
+                    else "Codex-mediated actual play is pending structured review; "
                     "it is not an official nightly or release PASS."
                 ),
                 "evidence_reasons": list(
@@ -2393,7 +2530,8 @@ def _main() -> int:
         action="store_true",
         help=(
             f"use {CODEX_SUBAGENT_PLAYER_PROTOCOL} hash-bound JSONL stdin/stdout "
-            "for a separate Codex collaboration-subagent player"
+            "for a manually relayed claimed Codex subagent actor; collaboration "
+            "identity and shared-workspace isolation remain NOT_ATTESTED"
         ),
     )
     ap.add_argument(
@@ -2452,38 +2590,80 @@ def _main() -> int:
         except ValueError:
             pass
 
-    result = run_live_match(
-        args.workspace,
-        args.campaign_id,
-        args.investigator_id,
-        player_runner=args.runner,
-        max_turns=args.max_turns,
-        rng_seed=rng_seed,
-        live=bool(args.live),
-        character_path=args.character,
-        run_dir=args.run_dir,
-        resume_run_dir=args.resume_run,
-        intent_class=args.intent_class,
-        timeout_s=args.timeout,
-        keeper_runner=args.keeper_runner,
-        narrator_runner=args.narrator_runner,
-        resolve_player_actions=bool(args.resolve_player_actions),
-        operator_long_play=bool(args.operator_long_play),
-        codex_subagent_player=bool(args.codex_subagent_player),
-        subagent_player_id=args.subagent_player_id,
-    )
-    print(f"stop_reason: {result['stop_reason']}")
-    print(f"player_turns: {len(result['player_turns'])}")
-    print(f"kp_turns: {len(result['turns'])}")
-    print(f"battle_report: {result['battle_report_path']}")
-    print(f"simulation_method: {result['metadata']['simulation_method']}")
-    print(f"narration_method: {result.get('narration_method')}")
-    print(f"fallback_turns: {result.get('fallback_turns')}")
-    print(
-        "eligible_as_gameplay_evidence: "
-        f"{result['metadata']['eligible_as_gameplay_evidence']}"
-    )
-    print(f"evidence: {result['evidence_path']}")
+    try:
+        result = run_live_match(
+            args.workspace,
+            args.campaign_id,
+            args.investigator_id,
+            player_runner=args.runner,
+            max_turns=args.max_turns,
+            rng_seed=rng_seed,
+            live=bool(args.live),
+            character_path=args.character,
+            run_dir=args.run_dir,
+            resume_run_dir=args.resume_run,
+            intent_class=args.intent_class,
+            timeout_s=args.timeout,
+            keeper_runner=args.keeper_runner,
+            narrator_runner=args.narrator_runner,
+            resolve_player_actions=bool(args.resolve_player_actions),
+            operator_long_play=bool(args.operator_long_play),
+            codex_subagent_player=bool(args.codex_subagent_player),
+            subagent_player_id=args.subagent_player_id,
+        )
+    except Exception as exc:
+        if not args.codex_subagent_player:
+            raise
+        terminal_event = {
+            "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+            "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
+            "type": "terminal",
+            "status": "failed",
+            "error": {
+                "class": type(exc).__name__,
+                "message": str(exc),
+            },
+            "eligible_as_gameplay_evidence": False,
+        }
+        sys.stdout.write(
+            json.dumps(terminal_event, ensure_ascii=False, separators=(",", ":"))
+            + "\n"
+        )
+        sys.stdout.flush()
+        return 1
+    if args.codex_subagent_player:
+        terminal_event = {
+            "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
+            "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
+            "type": "terminal",
+            "status": "completed",
+            "stop_reason": result["stop_reason"],
+            "player_turns": len(result["player_turns"]),
+            "keeper_turns": len(result["turns"]),
+            "run_dir": result["run_dir"],
+            "report_path": result["battle_report_path"],
+            "evidence_path": result["evidence_path"],
+            "play_kind": result["evidence"].get("play_kind"),
+            "eligible_as_gameplay_evidence": False,
+        }
+        sys.stdout.write(
+            json.dumps(terminal_event, ensure_ascii=False, separators=(",", ":"))
+            + "\n"
+        )
+        sys.stdout.flush()
+    else:
+        print(f"stop_reason: {result['stop_reason']}")
+        print(f"player_turns: {len(result['player_turns'])}")
+        print(f"kp_turns: {len(result['turns'])}")
+        print(f"battle_report: {result['battle_report_path']}")
+        print(f"simulation_method: {result['metadata']['simulation_method']}")
+        print(f"narration_method: {result.get('narration_method')}")
+        print(f"fallback_turns: {result.get('fallback_turns')}")
+        print(
+            "eligible_as_gameplay_evidence: "
+            f"{result['metadata']['eligible_as_gameplay_evidence']}"
+        )
+        print(f"evidence: {result['evidence_path']}")
     return 0
 
 

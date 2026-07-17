@@ -116,11 +116,10 @@ Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/cam
 A current playtest artifact is bound to its canonical resolved directory by a
 SHA-256 location witness in `run-identity.json`. Do not copy or move a current
 artifact and then continue it in place: start a new output directory and pass
-the completed copy as `resume_run_dir` instead. Historical resume sources are
-portable and retain their opaque prior `run_id`; the new current output always
-mints a different identity. Legacy completed artifacts without an identity file
-remain valid historical resume sources, but a schema-1 identity cannot be
-reopened as a current artifact because it has no location witness.
+the completed source as `resume_run_dir` only when it matches the exact current
+schema. Version-mismatched or legacy artifacts are never resumed or migrated;
+delete their runtime state and start fresh. Historical battle reports may be
+retained read-only as evidence, but are not runtime resume sources.
 
 ## Roles
 
@@ -230,10 +229,10 @@ review hashes becomes `operator_reviewed_actual_play` and renders a real
 `battle-report.md`. None of these states may be described as an official
 `nightly` or `release` PASS; only the exact canonical suite can make that claim.
 
-### Codex collaboration-subagent player actual play
+### Codex collaboration-subagent manual diagnostic
 
-When a separate Codex collaboration subagent is the player and the main Codex
-is the reviewer/orchestrator, use the distinct `codex_subagent_player_v1`
+When the main Codex manually relays turns to a claimed separate Codex
+collaboration-subagent player, use the distinct `codex_subagent_player_v1`
 transport. Do not route those responses through `operator_codex_black_box_v2`,
 which means that the same main Codex is both player and reviewer.
 
@@ -247,17 +246,20 @@ python3 ../../scripts/coc_live_match.py \
 ```
 
 Spawn the player with no inherited conversation context and relay only the
-emitted player-safe request. Reuse that same actor id for every turn and clean
-continuation. Each response is bound to the exact request digest and turn. The
-player is a separate `codex_subagent` actor, not an external-model trusted
-runner. The main Codex records the four-dimension review with protocol
-`codex_subagent_player_v1`; reviewer and player ids must differ. Only approved,
-hash-complete evidence is classified `codex_subagent_actual_play`.
+emitted player-safe request. Reuse that same claimed actor id for every turn and
+clean continuation. The stdin/manual relay persists every exact request envelope
+and exact response in `subagent-player-exchanges.jsonl`; request and response
+digests must be recomputable and agree with the invocation ledger. This proves
+protocol binding only. Without a genuine Codex collaboration-service receipt it
+does not attest who produced the response, so it is classified
+`manual_protocol_blind_diagnostic` and is never gameplay-evidence eligible.
+Four-dimension review may approve the diagnostic content, but must not upgrade
+it to `codex_subagent_actual_play`.
 
 Codex collaboration agents share the workspace. This protocol proves which
 player-safe requests the orchestrator relayed; it does not prove filesystem
-isolation. Reports must state `NOT_ATTESTED` rather than inventing a no-file-read
-claim.
+isolation or collaboration identity. Reports and receipts must state
+`NOT_ATTESTED` rather than inventing a no-file-read or actor-attestation claim.
 
 New-protocol continuation accepts only the exact current
 `subagent_player_contract` and actor-bound invocation schema. An old or mismatched

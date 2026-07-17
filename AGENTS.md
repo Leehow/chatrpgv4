@@ -136,3 +136,12 @@ fixed prose fragments.
 `runtime/` is the open headless agent interface (Event SDK + debug/pi adapters).
 It must not fork keeper skills or rules. Shared behavior remains in
 `plugins/coc-keeper/`. Project brain switch lives at `.coc/runtime.json`.
+
+## Clean-Slate Persistence Policy
+
+This is a new project. A campaign save, resume artifact, runtime store, or cache
+whose schema/version does not exactly match the current version is rejected and
+deleted before starting a fresh run. Do not add migrations, dual readers,
+compatibility fallbacks, or old-ID remapping. Historical battle reports remain
+read-only evidence and are never resumed as runtime state. Same-version atomic
+backup/restore for crash safety is allowed; it is not a compatibility layer.

@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import stat
+import sys
 import threading
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
@@ -2293,7 +2294,35 @@ def test_codex_subagent_mode_hash_binds_actor_turn_and_player_safe_request(
         "transport": "stdio_relay",
         "visibility": "player_safe_request_only",
         "filesystem_isolation": "not_attested_shared_workspace",
+        "collaboration_receipt": "NOT_ATTESTED",
+        "exchange_ledger": {
+            "schema_version": 1,
+            "path": "subagent-player-exchanges.jsonl",
+        },
     }
+    assert result["metadata"]["simulation_method"] == (
+        "manual_protocol_blind_diagnostic_pending_review"
+    )
+    assert result["evidence"]["play_kind"] == "manual_protocol_blind_diagnostic"
+    assert result["evidence"]["eligible_as_gameplay_evidence"] is False
+    assert "codex_collaboration_receipt_not_attested" in result["evidence"][
+        "evidence_reasons"
+    ]
+    exchanges = _read_jsonl(
+        Path(result["run_dir"]) / "subagent-player-exchanges.jsonl"
+    )
+    assert len(exchanges) == 1
+    assert exchanges[0]["request_envelope"] == observed[0]
+    assert exchanges[0]["response"] == _subagent_response(observed[0])
+    assert exchanges[0]["request_sha256"] == observed[0]["request_sha256"]
+    assert exchanges[0]["response_sha256"] == hashlib.sha256(
+        json.dumps(
+            exchanges[0]["response"],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
     rows = _read_jsonl(Path(result["run_dir"]) / "runner-invocations.jsonl")
     player_row = next(row for row in rows if row["role"] == "player")
     assert player_row["outcome"] == "codex_subagent_input"
@@ -2465,6 +2494,124 @@ def test_codex_subagent_resume_rejects_legacy_runner_schema(tmp_path, monkeypatc
             run_dir=tmp_path / "legacy-resume-attempt",
             resume_run_dir=legacy["run_dir"],
         )
+
+
+def test_codex_subagent_resume_rejects_incomplete_current_exchange_schema(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    _install_keeper(monkeypatch)
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        codex_subagent_player=True,
+        subagent_player_id="player-agent-01",
+        subagent_player_provider=lambda envelope: _subagent_response(envelope),
+        max_turns=1,
+        run_dir=tmp_path / "subagent-current",
+    )
+    exchange_path = Path(first["run_dir"]) / "subagent-player-exchanges.jsonl"
+    exchange = json.loads(exchange_path.read_text(encoding="utf-8"))
+    exchange.pop("response")
+    exchange_path.write_text(json.dumps(exchange) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            codex_subagent_player=True,
+            subagent_player_id="player-agent-01",
+            subagent_player_provider=lambda envelope: _subagent_response(envelope),
+            max_turns=1,
+            run_dir=tmp_path / "subagent-rejected",
+            resume_run_dir=first["run_dir"],
+        )
+
+
+def test_codex_subagent_cli_stdout_ends_with_jsonl_terminal_event(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(
+        match,
+        "run_live_match",
+        lambda *_args, **_kwargs: {
+            "stop_reason": "max_turns_reached",
+            "player_turns": [{}],
+            "turns": [{}],
+            "run_dir": str(tmp_path / "run"),
+            "battle_report_path": str(tmp_path / "run" / "verification-sample.md"),
+            "evidence_path": str(tmp_path / "run" / "evidence.json"),
+            "evidence": {
+                "play_kind": "manual_protocol_blind_diagnostic",
+                "eligible_as_gameplay_evidence": False,
+            },
+            "metadata": {
+                "simulation_method": "manual_protocol_blind_diagnostic_pending_review",
+                "eligible_as_gameplay_evidence": False,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--workspace", str(tmp_path),
+            "--campaign", "campaign",
+            "--investigator", "inv",
+            "--codex-subagent-player",
+            "--subagent-player-id", "player-agent-01",
+        ],
+    )
+
+    assert match._main() == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    terminal = json.loads(lines[0])
+    assert terminal["type"] == "terminal"
+    assert terminal["protocol"] == "codex_subagent_player_v1"
+    assert terminal["play_kind"] == "manual_protocol_blind_diagnostic"
+    assert terminal["eligible_as_gameplay_evidence"] is False
+
+
+def test_codex_subagent_cli_failure_still_ends_with_jsonl_terminal_event(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(
+        match,
+        "run_live_match",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("unsupported_save_schema")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--workspace", str(tmp_path),
+            "--campaign", "campaign",
+            "--investigator", "inv",
+            "--codex-subagent-player",
+            "--subagent-player-id", "player-agent-01",
+        ],
+    )
+
+    assert match._main() == 1
+
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    terminal = json.loads(lines[0])
+    assert terminal["type"] == "terminal"
+    assert terminal["status"] == "failed"
+    assert terminal["error"] == {
+        "class": "ValueError",
+        "message": "unsupported_save_schema",
+    }
+    assert terminal["eligible_as_gameplay_evidence"] is False
 
 
 def test_keeper_failure_stops_without_template_or_background_fallback(
