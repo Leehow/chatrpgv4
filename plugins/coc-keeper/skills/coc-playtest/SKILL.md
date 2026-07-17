@@ -230,6 +230,44 @@ review hashes becomes `operator_reviewed_actual_play` and renders a real
 `battle-report.md`. None of these states may be described as an official
 `nightly` or `release` PASS; only the exact canonical suite can make that claim.
 
+### Codex collaboration-subagent player actual play
+
+When a separate Codex collaboration subagent is the player and the main Codex
+is the reviewer/orchestrator, use the distinct `codex_subagent_player_v1`
+transport. Do not route those responses through `operator_codex_black_box_v2`,
+which means that the same main Codex is both player and reviewer.
+
+```bash
+python3 ../../scripts/coc_live_match.py \
+  --workspace <isolated-workspace> --campaign <campaign> \
+  --investigator <investigator> --codex-subagent-player \
+  --subagent-player-id <stable-collaboration-task-id> \
+  --keeper-runner <repo-root>/runtime/adapters/keeper/run_keeper_turn.mjs \
+  --max-turns <turns>
+```
+
+Spawn the player with no inherited conversation context and relay only the
+emitted player-safe request. Reuse that same actor id for every turn and clean
+continuation. Each response is bound to the exact request digest and turn. The
+player is a separate `codex_subagent` actor, not an external-model trusted
+runner. The main Codex records the four-dimension review with protocol
+`codex_subagent_player_v1`; reviewer and player ids must differ. Only approved,
+hash-complete evidence is classified `codex_subagent_actual_play`.
+
+Codex collaboration agents share the workspace. This protocol proves which
+player-safe requests the orchestrator relayed; it does not prove filesystem
+isolation. Reports must state `NOT_ATTESTED` rather than inventing a no-file-read
+claim.
+
+New-protocol continuation accepts only the exact current
+`subagent_player_contract` and actor-bound invocation schema. An old or mismatched
+save fails with `unsupported_save_schema` and the test restarts from a fresh
+isolated workspace. There is no legacy migration or dual-format reader.
+
+Coverage ledgers, completeness receipts, and audits remain post-run evidence.
+They may disqualify a report or schedule another test lane, but must never block
+Keeper narration, scene movement, earned clue delivery, or ending resolution.
+
 For long-lived production-path white-box play (Masks Peru/America and similar), use
 `../../scripts/coc_interactive_playtest.py` rather than the Haunting simulated-player
 harness profiles below. The interactive driver speaks JSONL over stdin/stdout,

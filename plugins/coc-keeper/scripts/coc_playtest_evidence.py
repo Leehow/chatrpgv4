@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import importlib.util
+import re
 import secrets
 from collections import Counter
 from datetime import datetime
@@ -25,6 +26,7 @@ LEDGER_OUTCOMES = frozenset(
     {
         "external_success", "template", "template_fallback", "runner_failure",
         "operator_input", "operator_review_pending",
+        "codex_subagent_input",
     }
 )
 FALLBACK_KINDS = frozenset(
@@ -32,6 +34,10 @@ FALLBACK_KINDS = frozenset(
 )
 RUN_KINDS = frozenset({"diagnostic_spoiler_run", "blind_actual_play"})
 EXPECTED_INTERACTIVE_NARRATOR_MODEL = {"provider": "zhipu-coding", "id": "glm-5.2"}
+CODEX_SUBAGENT_PLAYER_PROTOCOL = "codex_subagent_player_v1"
+CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION = 1
+_SAFE_SUBAGENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _TRUSTED_KIND_BY_ROLE = {
     "player": "external_model_bridge",
     "narrator": "external_model_bridge",
@@ -486,6 +492,68 @@ def _evaluate_ledger(
     return runners, external_model_turns, fallback_turns
 
 
+def _validate_codex_subagent_player(
+    contract: Any,
+    ledger_rows: list[dict[str, Any]],
+    findings: list[dict[str, str]],
+) -> dict[str, Any]:
+    expected_keys = {
+        "schema_version", "protocol", "actor", "transport", "visibility",
+        "filesystem_isolation",
+    }
+    if not isinstance(contract, dict) or set(contract) != expected_keys:
+        _finding(findings, "subagent_player_contract_invalid", "subagent_player_contract")
+        return {"kind": "codex_subagent", "identity": None, "isolation": None}
+    actor = contract.get("actor")
+    actor_id = actor.get("id") if isinstance(actor, dict) else None
+    if (
+        contract.get("schema_version") != CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION
+        or contract.get("protocol") != CODEX_SUBAGENT_PLAYER_PROTOCOL
+        or not isinstance(actor, dict)
+        or set(actor) != {"kind", "id"}
+        or actor.get("kind") != "codex_subagent"
+        or not isinstance(actor_id, str)
+        or _SAFE_SUBAGENT_ID.fullmatch(actor_id) is None
+        or contract.get("transport") != "stdio_relay"
+        or contract.get("visibility") != "player_safe_request_only"
+        or contract.get("filesystem_isolation") != "not_attested_shared_workspace"
+    ):
+        _finding(findings, "subagent_player_contract_invalid", "subagent_player_contract")
+    rows = [row for row in ledger_rows if row.get("role") == "player"]
+    if not rows:
+        _finding(findings, "subagent_player_ledger_missing", "invocation_ledger.player")
+    request_hashes: set[str] = set()
+    response_hashes: set[str] = set()
+    for index, row in enumerate(rows, start=1):
+        field = f"invocation_ledger.player.{index - 1}"
+        request_sha = row.get("request_sha256")
+        response_sha = row.get("response_sha256")
+        if (
+            row.get("outcome") != "codex_subagent_input"
+            or row.get("actor_kind") != "codex_subagent"
+            or row.get("actor_id") != actor_id
+            or row.get("attempt") != index
+            or not isinstance(request_sha, str)
+            or _SHA256.fullmatch(request_sha) is None
+            or not isinstance(response_sha, str)
+            or _SHA256.fullmatch(response_sha) is None
+            or request_sha in request_hashes
+            or response_sha in response_hashes
+        ):
+            _finding(findings, "subagent_player_ledger_invalid", field)
+        if isinstance(request_sha, str):
+            request_hashes.add(request_sha)
+        if isinstance(response_sha, str):
+            response_hashes.add(response_sha)
+    return {
+        "kind": "codex_subagent",
+        "identity": actor_id,
+        "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
+        "isolation": "protocol_blind_shared_filesystem_not_attested",
+        "model_identities": [],
+    }
+
+
 def _canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -832,9 +900,19 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
     )
     operator_review_status = "not_required"
     operator_review_artifact = artifacts.get("operator_review")
-    if validated.get("operator_long_play") is True:
+    subagent_mode = validated.get("codex_subagent_player") is True
+    operator_mode = validated.get("operator_long_play") is True
+    if subagent_mode and operator_mode:
+        _finding(findings, "player_mode_conflict", "codex_subagent_player")
+    subagent_descriptor: dict[str, Any] | None = None
+    if subagent_mode:
+        subagent_descriptor = _validate_codex_subagent_player(
+            validated.get("subagent_player_contract"), ledger_rows, findings
+        )
+        runners["player"] = subagent_descriptor
+    if operator_mode or subagent_mode:
         # Operator mode intentionally replaces the external player model with
-        # an attested operator-input lane.  This is a mode fact, independent
+        # an operator-input or explicitly bound Codex-subagent lane. This is a mode fact, independent
         # of whether the later review approves or requests changes.
         findings = [
             item for item in findings
@@ -856,6 +934,11 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
                     normalized_review = _load_operator_review().validate_review(
                         review_payload,
                         run_id=root.name,
+                        player_id=(
+                            subagent_descriptor.get("identity")
+                            if subagent_mode and subagent_descriptor is not None
+                            else None
+                        ),
                     )
                     if (
                         review_payload.get("status") != normalized_review["status"]
@@ -872,9 +955,10 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
                     operator_review_status = "invalid"
         if operator_review_status == "approved":
             player_rows = [row for row in ledger_rows if row.get("role") == "player"]
-            if not player_rows or any(
-                row.get("outcome") != "operator_input" for row in player_rows
-            ):
+            expected_outcome = (
+                "codex_subagent_input" if subagent_mode else "operator_input"
+            )
+            if not player_rows or any(row.get("outcome") != expected_outcome for row in player_rows):
                 _finding(
                     findings,
                     "operator_player_ledger_invalid",
@@ -913,13 +997,23 @@ def validate_evidence_receipt(run_dir: Path, receipt: dict[str, Any]) -> dict[st
     validated["fallback_turns"] = fallback_turns
     validated["operator_review_status"] = operator_review_status
     validated["play_kind"] = (
-        "operator_reviewed_actual_play"
+        (
+            "codex_subagent_actual_play"
+            if subagent_mode
+            else "operator_reviewed_actual_play"
+        )
         if operator_review_status == "approved" and not reasons
         else None
     )
     validated["qualification_method"] = (
-        "structured_operator_review"
-        if validated["play_kind"] == "operator_reviewed_actual_play"
+        (
+            "structured_separate_codex_review"
+            if subagent_mode
+            else "structured_operator_review"
+        )
+        if validated["play_kind"] in {
+            "operator_reviewed_actual_play", "codex_subagent_actual_play",
+        }
         else None
     )
     validated["validation_findings"] = findings
@@ -972,6 +1066,10 @@ def build_evidence_receipt(
         "ended_at": source.get("ended_at"),
         "user_claimed_live": source.get("user_claimed_live") is True,
         "operator_long_play": source.get("operator_long_play") is True,
+        "codex_subagent_player": source.get("codex_subagent_player") is True,
+        "subagent_player_contract": copy.deepcopy(
+            source.get("subagent_player_contract")
+        ),
         "run_kind": run_kind if run_kind in RUN_KINDS else None,
         "runners": {},
         "external_model_turns": 0,

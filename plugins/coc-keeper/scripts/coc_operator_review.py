@@ -16,6 +16,7 @@ DIMENSIONS = ("rules", "facts", "progression", "style")
 DECISIONS = {"pass", "fail"}
 CURRENT_PROTOCOL = "operator_codex_black_box_v2"
 LEGACY_PROTOCOL = "operator_long_play_v1"
+SUBAGENT_PROTOCOL = "codex_subagent_player_v1"
 ISSUE_LEDGER_NAME = "operator-issue-ledger.jsonl"
 HARD_STOP_ISSUE_CLASSES = {
     "crash_or_cannot_continue",
@@ -48,13 +49,15 @@ def _load_sibling(name: str):
     return module
 
 
-def validate_review(payload: Any, *, run_id: str) -> dict[str, Any]:
+def validate_review(
+    payload: Any, *, run_id: str, player_id: str | None = None
+) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("operator review must be an object")
     if payload.get("schema_version") != 1:
         raise ValueError("operator review schema_version must be 1")
     protocol = payload.get("protocol")
-    if protocol not in {CURRENT_PROTOCOL, LEGACY_PROTOCOL}:
+    if protocol not in {CURRENT_PROTOCOL, LEGACY_PROTOCOL, SUBAGENT_PROTOCOL}:
         raise ValueError(
             "operator review protocol must be operator_codex_black_box_v2"
         )
@@ -71,6 +74,26 @@ def validate_review(payload: Any, *, run_id: str) -> dict[str, Any]:
         )
     if not isinstance(reviewer.get("id"), str) or not reviewer["id"].strip():
         raise ValueError("reviewer.id must be non-empty")
+    player: dict[str, str] | None = None
+    if protocol == SUBAGENT_PROTOCOL:
+        raw_player = payload.get("player")
+        if (
+            not isinstance(raw_player, dict)
+            or set(raw_player) != {"kind", "id"}
+            or raw_player.get("kind") != "codex_subagent"
+            or not isinstance(raw_player.get("id"), str)
+            or not raw_player["id"].strip()
+        ):
+            raise ValueError("codex subagent review requires an exact player actor")
+        if player_id is not None and raw_player["id"] != player_id:
+            raise ValueError("codex subagent review player does not match run evidence")
+        if reviewer.get("kind") != "codex":
+            raise ValueError("codex subagent actual play requires a main Codex reviewer")
+        if reviewer["id"].strip() == raw_player["id"]:
+            raise ValueError("reviewer and codex subagent player must be separate actors")
+        player = {"kind": "codex_subagent", "id": raw_player["id"]}
+    elif "player" in payload:
+        raise ValueError("player actor is supported only by codex_subagent_player_v1")
     dimensions = payload.get("dimensions")
     if not isinstance(dimensions, dict) or set(dimensions) != set(DIMENSIONS):
         raise ValueError("dimensions must contain rules, facts, progression, and style")
@@ -96,7 +119,7 @@ def validate_review(payload: Any, *, run_id: str) -> dict[str, Any]:
     status = "approved" if all(
         row["decision"] == "pass" for row in normalized.values()
     ) else "changes_required"
-    return {
+    result = {
         "schema_version": 1,
         "protocol": protocol,
         "run_id": run_id,
@@ -106,6 +129,9 @@ def validate_review(payload: Any, *, run_id: str) -> dict[str, Any]:
         "reviewed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "automated_fact_fidelity_pass": False,
     }
+    if player is not None:
+        result["player"] = player
+    return result
 
 
 def validate_issue(payload: Any, *, run_id: str) -> dict[str, Any]:
@@ -120,8 +146,8 @@ def validate_issue(payload: Any, *, run_id: str) -> dict[str, Any]:
         raise ValueError("operator issue has missing or unsupported fields")
     if payload.get("schema_version") != 1:
         raise ValueError("operator issue schema_version must be 1")
-    if payload.get("protocol") != CURRENT_PROTOCOL:
-        raise ValueError("operator issue protocol must be operator_codex_black_box_v2")
+    if payload.get("protocol") not in {CURRENT_PROTOCOL, SUBAGENT_PROTOCOL}:
+        raise ValueError("operator issue protocol is unsupported")
     if payload.get("run_id") != run_id:
         raise ValueError("operator issue run_id does not match the run directory")
     issue_id = payload.get("issue_id")
@@ -162,7 +188,7 @@ def validate_issue(payload: Any, *, run_id: str) -> dict[str, Any]:
         normalized_lists[key] = [value.strip() for value in values]
     return {
         "schema_version": 1,
-        "protocol": CURRENT_PROTOCOL,
+        "protocol": payload["protocol"],
         "run_id": run_id,
         "issue_id": issue_id,
         "issue_class": issue_class,
@@ -218,9 +244,22 @@ def record_review(run_dir: Path, input_path: Path) -> Path:
     run_dir = run_dir.resolve()
     metadata_path = run_dir / "playtest.json"
     metadata = _read(metadata_path)
-    if not isinstance(metadata, dict) or metadata.get("operator_long_play") is not True:
-        raise ValueError("run is not an operator long-play artifact")
-    review = validate_review(_read(input_path), run_id=run_dir.name)
+    if not isinstance(metadata, dict) or not (
+        metadata.get("operator_long_play") is True
+        or metadata.get("codex_subagent_player") is True
+    ):
+        raise ValueError("run is not a reviewed Codex actual-play artifact")
+    subagent_mode = metadata.get("codex_subagent_player") is True
+    contract = metadata.get("subagent_player_contract")
+    actor = contract.get("actor") if isinstance(contract, dict) else None
+    player_id = actor.get("id") if isinstance(actor, dict) else None
+    if subagent_mode and not isinstance(player_id, str):
+        raise ValueError("codex subagent player contract is invalid")
+    review = validate_review(
+        _read(input_path),
+        run_id=run_dir.name,
+        player_id=player_id if subagent_mode else None,
+    )
     expected_protocol = metadata.get("operator_review_protocol") or LEGACY_PROTOCOL
     if review["protocol"] != expected_protocol:
         raise ValueError(
@@ -238,27 +277,52 @@ def record_review(run_dir: Path, input_path: Path) -> Path:
     }
     receipt["artifacts"] = artifacts
     receipt["operator_long_play"] = True
+    if subagent_mode:
+        receipt["operator_long_play"] = False
+        receipt["codex_subagent_player"] = True
+        receipt["subagent_player_contract"] = contract
     evidence.write_evidence_receipt(run_dir, receipt)
     qualified_receipt = evidence.read_evidence_receipt(run_dir)
     reviewed_actual_play = (
         review["status"] == "approved"
-        and qualified_receipt.get("play_kind") == "operator_reviewed_actual_play"
+        and qualified_receipt.get("play_kind") == (
+            "codex_subagent_actual_play"
+            if subagent_mode
+            else "operator_reviewed_actual_play"
+        )
         and qualified_receipt.get("eligible_as_gameplay_evidence") is True
     )
     metadata["operator_review_status"] = review["status"]
     metadata["operator_review_path"] = output.name
-    metadata["operator_reviewed_actual_play"] = reviewed_actual_play
+    metadata["operator_reviewed_actual_play"] = bool(
+        reviewed_actual_play and not subagent_mode
+    )
+    metadata["codex_subagent_actual_play"] = bool(
+        reviewed_actual_play and subagent_mode
+    )
     metadata["eligible_as_gameplay_evidence"] = reviewed_actual_play
     metadata["evidence_reasons"] = list(
         qualified_receipt.get("evidence_reasons") or []
     )
     metadata["simulation_method"] = (
-        "operator_reviewed_actual_play"
+        (
+            "codex_subagent_actual_play"
+            if subagent_mode
+            else "operator_reviewed_actual_play"
+        )
         if reviewed_actual_play
         else (
-            "operator_long_play_changes_required"
+            (
+                "codex_subagent_actual_play_changes_required"
+                if subagent_mode
+                else "operator_long_play_changes_required"
+            )
             if review["status"] == "changes_required"
-            else "operator_long_play_reviewed_unqualified"
+            else (
+                "codex_subagent_actual_play_reviewed_unqualified"
+                if subagent_mode
+                else "operator_long_play_reviewed_unqualified"
+            )
         )
     )
     metadata["official_suite_status"] = "NOT_RUN"
@@ -306,8 +370,13 @@ def _main() -> int:
             receipt = _load_sibling("coc_playtest_evidence.py").read_evidence_receipt(
                 run_dir
             )
+            expected_play_kind = (
+                "codex_subagent_actual_play"
+                if validated.get("protocol") == SUBAGENT_PROTOCOL
+                else "operator_reviewed_actual_play"
+            )
             if (
-                receipt.get("play_kind") != "operator_reviewed_actual_play"
+                receipt.get("play_kind") != expected_play_kind
                 or receipt.get("eligible_as_gameplay_evidence") is not True
             ):
                 raise ValueError(

@@ -3441,6 +3441,12 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
 def _evidence_sensitive_metadata(
     receipt: dict[str, Any], metadata: dict[str, Any]
 ) -> dict[str, str]:
+    if receipt.get("play_kind") == "codex_subagent_actual_play":
+        return {
+            "audit_profile": str(metadata.get("audit_profile") or "full_module"),
+            "simulation_method": "codex_subagent_actual_play",
+            "player_profile": "codex_subagent_player",
+        }
     if receipt.get("play_kind") == "operator_reviewed_actual_play":
         return {
             "audit_profile": str(metadata.get("audit_profile") or "full_module"),
@@ -3508,7 +3514,11 @@ def generate_battle_report(run_dir: Path) -> Path:
     }
     operator_review = _read_json(run_dir / "operator-review.json", {})
     operator_review_lines: list[str] = []
-    if metadata.get("operator_long_play") is True:
+    if (
+        metadata.get("operator_long_play") is True
+        or metadata.get("codex_subagent_player") is True
+    ):
+        subagent_mode = metadata.get("codex_subagent_player") is True
         operator_protocol = str(
             metadata.get("operator_review_protocol")
             or operator_review.get("protocol")
@@ -3532,8 +3542,16 @@ def generate_battle_report(run_dir: Path) -> Path:
                 f"- Status: {operator_review['status']}",
                 f"- Reviewer: {reviewer.get('kind', 'unknown')} / {reviewer.get('id', 'unknown')}",
                 "- Automated fact-fidelity PASS: false",
-                "- Player/reviewer: main Codex black-box operator / self-review",
-                "- Additional player or judge model: NOT_CONFIGURED",
+                (
+                    f"- Player/reviewer: Codex subagent {((operator_review.get('player') or {}).get('id') or 'unknown')} / separate main Codex review"
+                    if subagent_mode
+                    else "- Player/reviewer: main Codex black-box operator / self-review"
+                ),
+                (
+                    "- Filesystem isolation: NOT_ATTESTED (protocol-blind shared workspace)"
+                    if subagent_mode
+                    else "- Additional player or judge model: NOT_CONFIGURED"
+                ),
                 f"- Model call boundary: {json.dumps(model_boundary, ensure_ascii=False, sort_keys=True)}",
                 "- Official suite status: NOT_RUN; this review cannot establish nightly or release PASS.",
             ]
@@ -3547,8 +3565,16 @@ def generate_battle_report(run_dir: Path) -> Path:
                 "## Operator Review",
                 f"- Protocol: {operator_protocol}",
                 "- Status: pending",
-                "- Player/reviewer: main Codex black-box operator / self-review",
-                "- Additional player or judge model: NOT_CONFIGURED",
+                (
+                    "- Player/reviewer: Codex collaboration subagent / separate main Codex review"
+                    if subagent_mode
+                    else "- Player/reviewer: main Codex black-box operator / self-review"
+                ),
+                (
+                    "- Filesystem isolation: NOT_ATTESTED (protocol-blind shared workspace)"
+                    if subagent_mode
+                    else "- Additional player or judge model: NOT_CONFIGURED"
+                ),
                 f"- Model call boundary: {json.dumps(model_boundary, ensure_ascii=False, sort_keys=True)}",
                 "- Operator review is required for rules, facts, progression, and style.",
                 "- Automated fact-fidelity PASS: false (independent model verification NOT_RUN).",

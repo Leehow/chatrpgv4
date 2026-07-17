@@ -29,6 +29,19 @@ def _payload(run_id="run-1", *, fact_decision="pass"):
     }
 
 
+def _subagent_payload(
+    run_id="run-1",
+    *,
+    player_id="player-agent-01",
+    reviewer_id="main-reviewer-01",
+):
+    payload = _payload(run_id)
+    payload["protocol"] = "codex_subagent_player_v1"
+    payload["player"] = {"kind": "codex_subagent", "id": player_id}
+    payload["reviewer"] = {"kind": "codex", "id": reviewer_id}
+    return payload
+
+
 def test_operator_review_requires_all_four_dimensions_and_never_claims_automated_fact_pass():
     result = review.validate_review(_payload(), run_id="run-1")
     assert result["status"] == "approved"
@@ -53,6 +66,31 @@ def test_operator_v2_requires_same_codex_reviewer_kind():
     payload["reviewer"] = {"kind": "human", "id": "different-reviewer"}
     with pytest.raises(ValueError, match="same main Codex"):
         review.validate_review(payload, run_id="run-1")
+
+
+def test_codex_subagent_review_requires_separate_main_codex_reviewer():
+    result = review.validate_review(
+        _subagent_payload(), run_id="run-1", player_id="player-agent-01"
+    )
+    assert result["status"] == "approved"
+    assert result["player"] == {
+        "kind": "codex_subagent", "id": "player-agent-01"
+    }
+    assert result["reviewer"] == {"kind": "codex", "id": "main-reviewer-01"}
+
+    with pytest.raises(ValueError, match="must be separate"):
+        review.validate_review(
+            _subagent_payload(reviewer_id="player-agent-01"),
+            run_id="run-1",
+            player_id="player-agent-01",
+        )
+
+    with pytest.raises(ValueError, match="does not match .*evidence"):
+        review.validate_review(
+            _subagent_payload(player_id="different-player"),
+            run_id="run-1",
+            player_id="player-agent-01",
+        )
 
 
 def _issue(

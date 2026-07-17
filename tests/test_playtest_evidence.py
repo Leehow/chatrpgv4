@@ -175,6 +175,40 @@ def _operator_provenance(run_dir: Path) -> dict:
     }
 
 
+def _subagent_provenance(run_dir: Path) -> dict:
+    provenance = _operator_provenance(run_dir)
+    player_id = "player-agent-01"
+
+    def replace_player(rows):
+        player = next(row for row in rows if row["role"] == "player")
+        player.update(
+            runner_kind=None,
+            runner_identity=None,
+            model_identity=None,
+            outcome="codex_subagent_input",
+            response_mode="codex_subagent_jsonl",
+            actor_kind="codex_subagent",
+            actor_id=player_id,
+            request_sha256="1" * 64,
+            response_sha256="2" * 64,
+        )
+
+    _rewrite_ledger(run_dir, replace_player)
+    provenance.update(
+        operator_long_play=False,
+        codex_subagent_player=True,
+        subagent_player_contract={
+            "schema_version": 1,
+            "protocol": "codex_subagent_player_v1",
+            "actor": {"kind": "codex_subagent", "id": player_id},
+            "transport": "stdio_relay",
+            "visibility": "player_safe_request_only",
+            "filesystem_isolation": "not_attested_shared_workspace",
+        },
+    )
+    return provenance
+
+
 def _rewrite_ledger(run_dir: Path, mutate) -> None:
     path = run_dir / "runner-invocations.jsonl"
     rows = [json.loads(line) for line in path.read_text().splitlines() if line]
@@ -422,6 +456,65 @@ def test_approved_operator_review_qualifies_actual_play_and_renders_battle_repor
     assert downgraded_completeness["passed"] is True
     assert downgraded_completeness["required_public_roll_count"] == 0
     assert not report.exists()
+
+
+def test_separate_codex_review_qualifies_subagent_actual_play(tmp_path, evidence):
+    run_dir = tmp_path / "subagent-reviewed-run"
+    provenance = _subagent_provenance(run_dir)
+    receipt = evidence.build_evidence_receipt(run_dir, provenance)
+    assert receipt["eligible_as_gameplay_evidence"] is False
+    assert receipt["operator_review_status"] == "pending"
+    assert receipt["runners"]["player"]["kind"] == "codex_subagent"
+    assert receipt["runners"]["player"]["isolation"] == (
+        "protocol_blind_shared_filesystem_not_attested"
+    )
+    evidence.write_evidence_receipt(run_dir, receipt)
+    (run_dir / "playtest.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_dir.name,
+                "campaign_id": "operator-campaign",
+                "scenario": "Subagent Module",
+                "scenario_id": "subagent-module",
+                "play_language": "en-US",
+                "codex_subagent_player": True,
+                "subagent_player_contract": provenance["subagent_player_contract"],
+                "operator_review_protocol": "codex_subagent_player_v1",
+                "operator_review_status": "pending",
+                "simulation_method": "codex_subagent_player_pending_review",
+                "player_profile": "codex_collaboration_subagent_player",
+            }
+        ),
+        encoding="utf-8",
+    )
+    review_input = {
+        "schema_version": 1,
+        "protocol": "codex_subagent_player_v1",
+        "run_id": run_dir.name,
+        "player": {"kind": "codex_subagent", "id": "player-agent-01"},
+        "reviewer": {"kind": "codex", "id": "main-reviewer-01"},
+        "dimensions": {
+            name: {
+                "decision": "pass",
+                "notes": f"Reviewed {name} against the transcript and logs.",
+                "evidence_refs": ["transcript.jsonl#line-1"],
+            }
+            for name in ("rules", "facts", "progression", "style")
+        },
+    }
+    review_path = run_dir / "operator-review-input.json"
+    review_path.write_text(json.dumps(review_input), encoding="utf-8")
+    _load("coc_subagent_review_record", OPERATOR_REVIEW_SCRIPT).record_review(
+        run_dir, review_path
+    )
+
+    qualified = evidence.read_evidence_receipt(run_dir)
+    assert qualified["eligible_as_gameplay_evidence"] is True
+    assert qualified["play_kind"] == "codex_subagent_actual_play"
+    assert qualified["qualification_method"] == "structured_separate_codex_review"
+    metadata = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
+    assert metadata["codex_subagent_actual_play"] is True
+    assert metadata["operator_reviewed_actual_play"] is False
 
 
 def test_fact_fidelity_fallback_is_counted_without_malformed_ledger(

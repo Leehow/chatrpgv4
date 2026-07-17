@@ -365,6 +365,27 @@ def _install_keeper(
     return calls
 
 
+def _subagent_response(
+    envelope: dict,
+    *,
+    player_text: str = "我检查眼前的痕迹。",
+    intent_class: str = "investigate",
+    pending_choice_response: dict | None = None,
+) -> dict:
+    response = {
+        "schema_version": 1,
+        "protocol": "codex_subagent_player_v1",
+        "actor_id": envelope["actor_id"],
+        "turn": envelope["turn"],
+        "request_sha256": envelope["request_sha256"],
+        "player_text": player_text,
+        "intent_class": intent_class,
+    }
+    if pending_choice_response is not None:
+        response["pending_choice_response"] = pending_choice_response
+    return response
+
+
 def test_keeper_agent_match_runs_three_turns_and_writes_incremental_transcript(
     tmp_path, monkeypatch,
 ):
@@ -2231,6 +2252,219 @@ def test_operator_mode_uses_operator_player_and_remains_review_pending(
         "kp_keeper_agent"
     ] == "single_pass_production_model_under_test"
     assert keeper_calls[0]["run_policy"] == "continue_until_scenario_terminal"
+
+
+def test_codex_subagent_mode_hash_binds_actor_turn_and_player_safe_request(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    observed: list[dict] = []
+
+    def provider(envelope):
+        observed.append(envelope)
+        request = envelope["request"]
+        assert "world_state" not in request
+        assert "public_state" not in request
+        assert set(envelope) == {
+            "schema_version", "protocol", "actor_id", "turn", "request",
+            "type", "request_sha256",
+        }
+        return _subagent_response(envelope)
+
+    keeper_calls = _install_keeper(monkeypatch)
+    result = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        codex_subagent_player=True,
+        subagent_player_id="player-agent-01",
+        subagent_player_provider=provider,
+        max_turns=1,
+        run_dir=tmp_path / "subagent-run",
+    )
+
+    assert len(observed) == 1
+    assert observed[0]["turn"] == 1
+    assert result["metadata"]["operator_review_status"] == "pending"
+    assert result["metadata"]["subagent_player_contract"] == {
+        "schema_version": 1,
+        "protocol": "codex_subagent_player_v1",
+        "actor": {"kind": "codex_subagent", "id": "player-agent-01"},
+        "transport": "stdio_relay",
+        "visibility": "player_safe_request_only",
+        "filesystem_isolation": "not_attested_shared_workspace",
+    }
+    rows = _read_jsonl(Path(result["run_dir"]) / "runner-invocations.jsonl")
+    player_row = next(row for row in rows if row["role"] == "player")
+    assert player_row["outcome"] == "codex_subagent_input"
+    assert player_row["actor_kind"] == "codex_subagent"
+    assert player_row["actor_id"] == "player-agent-01"
+    assert len(player_row["request_sha256"]) == 64
+    assert len(player_row["response_sha256"]) == 64
+    assert keeper_calls[0]["run_policy"] == "continue_until_scenario_terminal"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda response: response.update(actor_id="wrong-player"),
+        lambda response: response.update(turn=99),
+        lambda response: response.update(request_sha256="0" * 64),
+        lambda response: response.update(extra="not-allowed"),
+    ],
+    ids=["actor", "turn", "request-hash", "extra-field"],
+)
+def test_codex_subagent_response_rejects_binding_or_shape_drift(mutate):
+    request = {
+        "narration": "门上有一道新划痕。",
+        "character_card": {"name": "Ada"},
+        "transcript_tail": [],
+        "pending_choice": None,
+        "play_language": "zh-Hans",
+    }
+
+    def provider(envelope):
+        response = _subagent_response(envelope)
+        mutate(response)
+        return response
+
+    with pytest.raises(ValueError, match="binding mismatch|invalid exact shape"):
+        match._codex_subagent_player_turn(
+            request,
+            actor_id="player-agent-01",
+            turn_number=1,
+            response_provider=provider,
+        )
+
+
+def test_codex_subagent_pending_choice_requires_exact_identity_revision_and_action():
+    pending = {
+        "choice_id": "choice-7",
+        "responder": "player",
+        "revision": 3,
+        "options": [
+            {"action": "open_the_door", "label": "开门"},
+            {"action": "listen_first", "label": "先听"},
+        ],
+    }
+    request = {
+        "narration": "门后传来脚步声。",
+        "character_card": {"name": "Ada"},
+        "transcript_tail": [],
+        "pending_choice": pending,
+        "play_language": "zh-Hans",
+    }
+    exact = {
+        "choice_id": "choice-7",
+        "responder": "player",
+        "revision": 3,
+        "action": "listen_first",
+    }
+    result = match._codex_subagent_player_turn(
+        request,
+        actor_id="player-agent-01",
+        turn_number=4,
+        response_provider=lambda envelope: _subagent_response(
+            envelope, pending_choice_response=exact
+        ),
+    )
+    assert result["pending_choice_response"] == exact
+
+    invalid = {**exact, "revision": 2}
+    with pytest.raises(ValueError, match="canonical player choice"):
+        match._codex_subagent_player_turn(
+            request,
+            actor_id="player-agent-01",
+            turn_number=4,
+            response_provider=lambda envelope: _subagent_response(
+                envelope, pending_choice_response=invalid
+            ),
+        )
+
+
+def test_codex_subagent_resume_requires_exact_new_schema_and_continues_turn_order(
+    tmp_path, monkeypatch,
+):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    first_seen: list[dict] = []
+    second_seen: list[dict] = []
+    _install_keeper(monkeypatch, texts=["锁眼里有木屑。", "门轴刚上过油。"])
+    first = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        codex_subagent_player=True,
+        subagent_player_id="player-agent-01",
+        subagent_player_provider=lambda envelope: (
+            first_seen.append(envelope) or _subagent_response(envelope)
+        ),
+        max_turns=1,
+        run_dir=tmp_path / "subagent-first",
+    )
+    second = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        codex_subagent_player=True,
+        subagent_player_id="player-agent-01",
+        subagent_player_provider=lambda envelope: (
+            second_seen.append(envelope)
+            or _subagent_response(envelope, player_text="我继续检查门轴。")
+        ),
+        max_turns=1,
+        run_dir=tmp_path / "subagent-second",
+        resume_run_dir=first["run_dir"],
+    )
+
+    assert first_seen[0]["turn"] == 1
+    assert second_seen[0]["turn"] == 2
+    rows = _read_jsonl(Path(second["run_dir"]) / "runner-invocations.jsonl")
+    player_rows = [row for row in rows if row["role"] == "player"]
+    assert [row["attempt"] for row in player_rows] == [1, 2]
+    assert [row["actor_id"] for row in player_rows] == [
+        "player-agent-01", "player-agent-01",
+    ]
+
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            codex_subagent_player=True,
+            subagent_player_id="different-player",
+            subagent_player_provider=lambda envelope: _subagent_response(envelope),
+            max_turns=1,
+            run_dir=tmp_path / "subagent-wrong-actor",
+            resume_run_dir=first["run_dir"],
+        )
+
+
+def test_codex_subagent_resume_rejects_legacy_runner_schema(tmp_path, monkeypatch):
+    workspace, campaign_id, investigator_id = _build_workspace(tmp_path)
+    player = tmp_path / "legacy-player"
+    _write_scripted_player_runner(player, ["我检查门锁。"])
+    _install_keeper(monkeypatch)
+    legacy = match.run_live_match(
+        workspace,
+        campaign_id,
+        investigator_id,
+        player_runner=player,
+        max_turns=1,
+        run_dir=tmp_path / "legacy-run",
+    )
+
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        match.run_live_match(
+            workspace,
+            campaign_id,
+            investigator_id,
+            codex_subagent_player=True,
+            subagent_player_id="player-agent-01",
+            subagent_player_provider=lambda envelope: _subagent_response(envelope),
+            max_turns=1,
+            run_dir=tmp_path / "legacy-resume-attempt",
+            resume_run_dir=legacy["run_dir"],
+        )
 
 
 def test_keeper_failure_stops_without_template_or_background_fallback(
