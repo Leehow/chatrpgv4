@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "coc-keeper",
-      "description": "Call of Cthulhu Keeper mode — structured rules, campaign state, and playtest reporting. Portrait generation is Codex-only; Claude Code skips that capability.",
-      "version": "0.16.0-alpha.1",
+      "description": "Call of Cthulhu Keeper mode — structured rules and persistent campaign state. Portrait generation is Codex-only; Claude Code skips that capability.",
+      "version": "0.4.0-alpha.0",
       "source": "./plugins/coc-keeper",
       "author": {
         "name": "Leehow"

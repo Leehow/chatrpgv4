@@ -44,32 +44,20 @@ After activation, read and follow these canonical skills (same tree Codex uses):
 Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`
 (`scripts/`, `references/`).
 
-## Canonical evaluation routing
+## Acceptance routing
 
-For official testing, report generation, report verification, baseline
-compare, matrix planning, calibration, or holdouts, follow the root
-`AGENTS.md` **Canonical Evaluation Contract** and
-`plugins/coc-keeper/skills/coc-playtest/SKILL.md` (official evaluation
-section). Invoke the shared CLI only — do not create a parallel `coc-eval`
-skill under `.cursor/skills/` or `plugins/coc-keeper/skills/`:
+Deterministic contract tests may run on Cursor, but whole-product acceptance is
+Codex-only: the main Codex opens this canonical plugin as KP and a collaboration
+subagent created with `fork_turns: "none"` acts as the player. Only player-safe
+content crosses that boundary, and every run starts in a fresh exact-schema
+workspace. Follow root `AGENTS.md` and
+`plugins/coc-keeper/skills/coc-playtest/SKILL.md`; do not create a Cursor-
+specific player, test harness, or evaluation skill.
 
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
-```
-
-Do not replace a named suite with Cursor-specific commands. Status vocabulary
-is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and `NON_COMPARABLE`. Read
-`artifacts/report-completeness.json` before delivering a battle report, bind
-delivery to report hashes, and **must not rewrite** generated factual content
-or reconstruct missing dice by hand. Deterministic fixture evidence is not
-external-model gameplay evidence.
+Only `coc-export-battle-report` may produce the final readable
+`artifacts/battle-report.md` and completeness evidence. Never rewrite generated
+facts or reconstruct missing dice by hand. Deterministic fixture evidence is
+not gameplay evidence.
 
 ## Platform gating
 

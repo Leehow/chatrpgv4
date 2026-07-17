@@ -8,7 +8,7 @@
  * stdout: { ok: true, final_text, notes? }
  *      or { ok: false, error: "..." }
  *
- * V1 is stateless per process; match continuity lives in coc_live_match.py.
+ * V1 is stateless per process; the production caller owns session continuity.
  * Direct GLM Chat Completions uses provider-supported thinking-disabled JSON
  * mode; accepted prose is independently checked by coding-relay/gpt-5.6-sol.
  *

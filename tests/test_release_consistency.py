@@ -1,66 +1,53 @@
 import json
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_ROOT = ROOT / "plugins" / "coc-keeper"
-RELEASE_VERSION = "0.16.0-alpha.1"
+RELEASE_VERSION = "0.4.0-alpha.0"
+PYTHON_RELEASE_VERSION = "0.4.0a0"
 CURRENT_STATUS_PATH = "docs/status/CURRENT.md"
-HISTORICAL_BANNER = (
-    "> **HISTORICAL — DO NOT EXECUTE.** "
-    "Current status lives in `docs/status/CURRENT.md`."
-)
-LIVE_NOTES_BANNER = (
-    "> **HISTORICAL EVIDENCE ONLY.** "
-    "Live issue status is maintained in `docs/status/CURRENT.md`."
-)
 
 
 def _read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _text(path: Path):
+    return path.read_text(encoding="utf-8")
+
+
 def manifest_versions():
-    claude_marketplace = _read_json(ROOT / ".claude-plugin" / "marketplace.json")
+    marketplace = _read_json(ROOT / ".claude-plugin" / "marketplace.json")
     return [
         _read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".cursor-plugin" / "plugin.json")["version"],
-        claude_marketplace["plugins"][0]["version"],
+        marketplace["plugins"][0]["version"],
     ]
 
 
-def documented_starter_ids(readme: str | None = None):
-    if readme is None:
-        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+def documented_starter_ids():
     return set(
         re.findall(
             r"`plugins/coc-keeper/references/starter-scenarios/([a-z0-9-]+)/?`",
-            readme,
+            _text(ROOT / "README.md"),
         )
     )
 
 
 def packaged_starter_ids():
-    starter_root = PLUGIN_ROOT / "references" / "starter-scenarios"
     ids = set()
-    for path in starter_root.iterdir():
-        meta_path = path / "module-meta.json"
-        if not meta_path.is_file():
-            continue
-        scenario_id = _read_json(meta_path)["scenario_id"]
-        assert scenario_id == path.name
-        ids.add(scenario_id)
+    for path in (PLUGIN_ROOT / "references" / "starter-scenarios").iterdir():
+        metadata = path / "module-meta.json"
+        if metadata.is_file():
+            scenario_id = _read_json(metadata)["scenario_id"]
+            assert scenario_id == path.name
+            ids.add(scenario_id)
     return ids
-
-
-def _inventory_row(text: str, asset_group: str):
-    prefix = f"| {asset_group} |"
-    rows = [line for line in text.splitlines() if line.startswith(prefix)]
-    assert len(rows) == 1, f"expected one inventory row for {asset_group!r}, got {rows}"
-    return rows[0]
 
 
 def tracked_extract_paths():
@@ -80,99 +67,92 @@ def tracked_extract_paths():
     return result.stdout.splitlines()
 
 
-def test_release_version_is_consistent():
-    assert all(version == RELEASE_VERSION for version in manifest_versions())
+def test_release_versions_are_consistent():
+    assert manifest_versions() == [RELEASE_VERSION] * 4
+    project = tomllib.loads(_text(ROOT / "pyproject.toml"))["project"]
+    assert project["version"] == PYTHON_RELEASE_VERSION
+
+
+def test_release_documents_share_version_and_current_status_authority():
+    readme = _text(ROOT / "README.md")
+    changelog = _text(ROOT / "CHANGELOG.md")
+    current = _text(ROOT / CURRENT_STATUS_PATH)
+
+    assert f"**`{RELEASE_VERSION}`**" in readme
+    assert f"]({CURRENT_STATUS_PATH})" in readme
+    assert f"## [Unreleased] — manifest `{RELEASE_VERSION}`" in changelog
+    assert f"**Current manifest version:** `{RELEASE_VERSION}`" in current
+    assert "only live status source" in current
+    assert "0.4.0a" in readme and "0.4.0a" in changelog and "0.4.0a" in current
 
 
 def test_readme_matches_packaged_starters():
     assert documented_starter_ids() == packaged_starter_ids()
 
 
-def test_starter_identity_check_rejects_same_count_with_wrong_id():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    mutated = readme.replace(
-        "starter-scenarios/the-haunting/",
-        "starter-scenarios/not-the-haunting/",
+def test_active_docs_define_plugin_native_subagent_acceptance():
+    paths = (
+        ROOT / "README.md",
+        ROOT / "AGENTS.md",
+        ROOT / CURRENT_STATUS_PATH,
+        ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md",
     )
-    assert len(documented_starter_ids(mutated)) == len(packaged_starter_ids())
-    assert documented_starter_ids(mutated) != packaged_starter_ids()
-
-
-def test_release_documents_share_version_and_current_status_authority():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    current = (ROOT / CURRENT_STATUS_PATH).read_text(encoding="utf-8")
-    historical_audit = (
-        ROOT / "docs/superpowers/specs/2026-07-10-next-phase-optimization-audit.md"
-    ).read_text(encoding="utf-8")
-
-    assert f"**`{RELEASE_VERSION}`**" in readme
-    assert f"]({CURRENT_STATUS_PATH})" in readme
-    assert f"## [Unreleased] — manifest `{RELEASE_VERSION}`" in changelog
-    assert f"唯一实时状态来源是 `{CURRENT_STATUS_PATH}`" in changelog
-    assert f"**Current manifest version:** `{RELEASE_VERSION}`" in current
-    assert "only live status source" in current
-    assert HISTORICAL_BANNER in historical_audit
-
-
-def test_content_inventory_covers_all_declared_python_dependencies():
-    inventory = (ROOT / "CONTENT_LICENSES.md").read_text(encoding="utf-8")
-
-    test_row = _inventory_row(inventory, "Python test dependency")
-    assert all(term in test_row for term in ("`pytest`", ".github/workflows/tests.yml"))
-
-    for removed in (
-        "Python runtime PDF dependency",
-        "PDF-ingest parser dependency",
-        "Optional PDF-ingest overlay dependency",
+    combined = "\n".join(_text(path) for path in paths)
+    compact = " ".join(combined.split()).lower()
+    for phrase in (
+        "main codex",
+        "fork_turns: \"none\"",
+        "player-safe",
+        "fresh isolated workspace",
+        "coc-export-battle-report",
+        "artifacts/battle-report.md",
     ):
-        assert removed not in inventory
+        assert phrase in compact
+    assert "coc_eval.py" not in combined
+    assert "coc_playtest_harness.py" not in combined
 
 
-def test_extreme_cold_reveal_resolution_is_consistent_across_status_sources():
-    current = (ROOT / CURRENT_STATUS_PATH).read_text(encoding="utf-8")
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    notes = (ROOT / "docs/live-playtest-notes.md").read_text(encoding="utf-8")
-
-    assert "### Resolved: Extreme-cold REVEAL time advance" in current
-    assert "### Open: Extreme-cold REVEAL time advance" not in current
-    for term in ("`REVEAL`", "`single_room_search`", "20 minutes", "`quick_observation`"):
-        assert term in current
-    assert "极寒场景" in changelog
-    assert "`quick_observation`" in changelog
-    known_issues = changelog.split("### Known Issues", 1)[1].split("## [", 1)[0]
-    assert "极寒场景" not in known_issues
-    assert "## Fixed - Director Time Advance In Extreme Cold Scenes" in notes
-    assert (
-        "test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_defers_exposure"
-        in notes
+def test_readable_report_has_one_named_skill_owner():
+    readme = _text(ROOT / "README.md")
+    agents = _text(ROOT / "AGENTS.md")
+    current = _text(ROOT / CURRENT_STATUS_PATH)
+    for text in (readme, agents, current):
+        assert "coc-export-battle-report" in text
+        assert "battle-report.md" in text
+    skill = _text(
+        PLUGIN_ROOT / "skills" / "coc-export-battle-report" / "SKILL.md"
     )
+    assert "only final battle-report writer" in " ".join(skill.split()).lower()
 
 
-def test_changelog_does_not_delegate_live_status_to_playtest_notes():
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+def test_pdf_docs_define_external_skill_and_no_repository_fallback():
+    combined = "\n".join(
+        _text(path)
+        for path in (
+            ROOT / "README.md",
+            ROOT / "AGENTS.md",
+            ROOT / CURRENT_STATUS_PATH,
+            ROOT / "CONTENT_LICENSES.md",
+        )
+    ).lower()
+    assert "external" in combined and "pdf skill" in combined
+    assert "source bundle" in combined or "source-bundle" in combined
+    assert "no pdf parser" in combined
+    assert "ocr fallback" in combined
 
-    assert "`docs/live-playtest-notes.md` 中保持 Open" not in changelog
-    assert "historical evidence only" in changelog
-    assert f"live status remains in `{CURRENT_STATUS_PATH}`" in changelog
+
+def test_content_inventory_has_no_removed_player_adapter_dependency():
+    inventory = _text(ROOT / "CONTENT_LICENSES.md")
+    ignored = _text(ROOT / ".gitignore")
+    assert "runtime/adapters/player" not in inventory
+    assert "runtime/adapters/player" not in ignored
+    assert "`pytest`" in inventory
 
 
-def test_live_playtest_notes_are_historical_evidence_only():
-    notes = (ROOT / "docs/live-playtest-notes.md").read_text(encoding="utf-8")
-
-    assert LIVE_NOTES_BANNER in notes
-    assert "## Open - Director Time Advance In Extreme Cold Scenes" not in notes
+def test_obsolete_active_playtest_status_docs_are_removed():
+    assert not (ROOT / "docs" / "live-playtest-notes.md").exists()
+    assert not (ROOT / "docs" / "status" / "MASKS-WHITEBOX-PLAYTEST.md").exists()
 
 
 def test_rulebook_extracts_are_not_tracked():
     assert tracked_extract_paths() == []
-
-
-def test_official_docs_name_real_model_roles_and_nightly_baseline_flow():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    playtest_skill = (
-        PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md"
-    ).read_text(encoding="utf-8")
-    combined = readme + playtest_skill
-    for value in ("glm-5.2", "gpt-5.6-luna", "gpt-5.6-sol", "--baseline"):
-        assert value in combined, f"official docs missing {value!r}"

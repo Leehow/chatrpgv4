@@ -1,163 +1,92 @@
 # Narrator adapter
 
-Constrained subprocess bridge that turns a player-safe `narration_envelope`
-into tabletop KP prose. Used by `plugins/coc-keeper/scripts/coc_live_match.py`
-when `--narrator-runner` is set.
+This production adapter turns a player-safe `narration_envelope` into tabletop
+KP prose. It is a render step after structured planning: it does not adjudicate
+rules, mutate campaign state, choose player actions, or invent outcomes.
 
-This is **not** a session `brain` in `.coc/runtime.json`. The narrator is a
-render step after the structured KP planner (`run_live_turn`); it never
-adjudicates rules or invents outcomes.
-
-**Key insight:** the live “KP narrator LLM” is the same class of brain as the
-player bridge — Pi Coding Agent (`@earendil-works/pi-coding-agent@0.79.9`),
-one scoped server worker across turns (with one-shot compatibility), a single
-allowlisted custom tool, auth via Pi’s normal
-discovery.
+It is not a scripted playtest driver and is not the whole-product test entry
+point. Global acceptance opens the real Codex plugin and uses a no-context
+collaboration subagent as the player; see
+`plugins/coc-keeper/skills/coc-playtest/SKILL.md`.
 
 ## Install
 
 ```bash
-cd runtime/adapters/narrator && npm install
+cd runtime/adapters/narrator
+npm ci
 ```
 
-Pins `@earendil-works/pi-coding-agent@0.79.9`. Do not commit `node_modules/`.
-You may symlink `../player/node_modules` if both adapters share the same pin.
+The lockfile pins `@earendil-works/pi-coding-agent`. Do not commit
+`node_modules/`.
 
-## Auth / model
+## Authority boundary
 
-Same as the Pi KP / player adapters (`~/.pi/agent` or environment variables).
-Do not commit secrets or API keys.
+The adapter receives an already sanitized envelope. It may phrase only the
+approved facts and outcomes carried by that envelope. In particular:
 
-Narration and semantic verification are intentionally model-independent. The
-narrator remains `zhipu-coding/glm-5.2`; every accepted narration is separately
-checked by the canonical semantic judge `coding-relay/gpt-5.6-sol` at
-`http://127.0.0.1:18888/v1/chat/completions`. The judge request uses
-`max_completion_tokens` and resolves auth from `CODING_RELAY_API_KEY`, then
-`OPENAI_API_KEY`, then the relay's harmless local placeholder. It never falls
-back to the narrator model. If Sol is unavailable or cannot return a valid
-structured verdict within its bounded timeout, narration fails closed to the
-deterministic template.
+- Keeper rationale, raw module truth, state files, and hidden logs are not
+  narrator inputs.
+- Player transcript rows describe attempts unless the structured current-turn
+  result settles them.
+- Previously visible Keeper rows may establish continuity only; they cannot
+  authorize a new fact.
+- A player-requested object, answer, permission, promise, or relationship does
+  not become real merely because the narrator can phrase it.
 
-The direct narrator path has a shared 270-second end-to-end deadline (hard cap
-285 seconds) and 120-second per-provider-call timeouts. The Sol judge has a
-90-second per-call timeout inside that same end-to-end budget.
-
-Direct GLM JSON generation uses the provider's supported low-latency structured
-mode: `thinking: {type: "disabled"}`, `reasoning_effort: "none"`,
-`do_sample: false`, `response_format: {type: "json_object"}`, and a bounded
-`max_tokens: 4096`. Correction calls do not resend the full narration envelope;
-they receive the rejected submission, semantic findings, exact allowed refs,
-required facts, forbidden refs, and provenance-partitioned authority bundle.
-Successful responses persist privacy-safe generation and verifier receipts with
-attempt counts and millisecond phase durations, never prompts or credentials.
-
-The semantic judge distinguishes new facts from faithful staging. An already
-authorized exact disclosure/transfer may use an ephemeral, non-actionable
-carrier or gesture only when it creates no independent contents, inspectability,
-route, availability, possession continuity, or continuing object state. A
-completed agreement/action may receive a brief acknowledgement only when it
-adds no terms, permission, promise, answer, or relationship. This never makes a
-player-requested independent document real. Exhausting semantic correction is
-reported separately as `semantic_verification_exhausted`, with only safe finding
-categories and a count; it is not classified as a provider failure.
-
-## Layout
-
-| File | Role |
-|------|------|
-| `adapter.py` | Python wrapper: `narrator_send_turn(request) -> {final_text, notes?, model_identity?, response_mode?}` |
-| `run_narration.mjs` | Real Pi bridge: stdin JSON → stdout `{ok, final_text\|error, model_identity?, response_mode?}` |
-| `package.json` | Node dependency pin |
-
-## Live match
-
-```bash
-cd runtime/adapters/narrator && npm install
-
-uv run --frozen python plugins/coc-keeper/scripts/coc_live_match.py \
-  --workspace /path/to/workspace \
-  --campaign <campaign_id> \
-  --investigator inv1 \
-  --runner runtime/adapters/player/run_player_turn.mjs \
-  --narrator-runner runtime/adapters/narrator/run_narration.mjs \
-  --live \
-  --max-turns 8
-```
-
-`--live` records a user claim only. The narrator is optional for gameplay
-evidence: deterministic template narration, including template fallback after
-a configured narrator failure, is allowed and counted. If narrator output is
-actually used, its runner must match the canonical path and exact digest in
-`plugins/coc-keeper/references/trusted-playtest-runners.json`, and its selected
-model identity must be present. Used output from a scripted, fake, modified, or
-unknown narrator makes the run ineligible.
-
-`evidence.json` derives model and fallback counts from the hashed
-`runner-invocations.jsonl` ledger and reconciles its player/narrator rows to the
-transcript. Caller provenance and caller turn counts are non-authoritative.
+`guard_player_visible_text` remains the final local safety boundary for accepted
+prose. Provider failures and rejected prose must remain explicit; callers may
+choose a safe production fallback without presenting the failed model output.
 
 ## Request / response
 
-**Request** (envelope is already spoiler-safe; adapter strips `rationale`):
+The process reads one JSON object from stdin:
 
 ```json
 {
-  "narration_envelope": { "...": "from build_narration_envelope" },
+  "narration_envelope": {"...": "player-safe structured result"},
   "last_player_text": "player action this turn",
   "play_language": "zh-Hans",
-  "recent_narrations": ["previous KP final_text", "..."],
+  "recent_narrations": ["previous player-visible KP prose"],
   "public_transcript_tail": [
-    {"role": "keeper", "text": "previously player-visible continuity"},
-    {"role": "player", "text": "declared action or attempt"}
+    {"role": "keeper", "text": "previously visible continuity"},
+    {"role": "player", "text": "declared attempt"}
   ]
 }
 ```
 
-`public_transcript_tail` is optional and bounded to eight player-visible
-player/KP rows. Keeper rows may ground only continuity already stated to the
-player; player rows never prove that an attempted action succeeded.
-
-**Response:**
+`public_transcript_tail` is optional and bounded to eight player-visible rows.
+The process writes exactly one response:
 
 ```json
 {
   "ok": true,
   "final_text": "...",
-  "notes": "optional; narrator_missing_tool_use when prose-degraded",
+  "notes": "optional sanitized note",
   "model_identity": {"provider": "actual-provider", "id": "actual-model-id"},
   "response_mode": "tool"
 }
 ```
 
-The canonical Node bridge reads `model_identity` from the selected Pi session
-model. `response_mode` is `tool` or `prose_fallback`; prose degradation remains
-eligible but is recorded as a fallback.
+On failure it writes `{"ok": false, "error": "..."}`. `response_mode` may be
+`tool` or `prose_fallback`; degradation is observable rather than silently
+reported as a fully structured response.
 
-## Fallback ladder
+## Files
 
-1. Call narrator runner with the sanitized envelope.
-2. On success: run `guard_player_visible_text` on `final_text`; if rewrite
-   findings change the text, use the guarded `final_text`; append audit lines
-   with `field=final_text` to `logs/narration-audit.jsonl`.
-3. On runner error / timeout: log `narrator_fallback` on the turn record and
-   fall back to the deterministic template text from
-   `coc_playtest_driver._keeper_turn_text` (current headless behavior).
-4. Match metadata: `narration_method` is `llm_narrator` when at least one
-   narrator result was used, else `template`. `fallback_turns` is derived from
-   ledger markers and counts deterministic templates, template fallbacks, and
-   prose degradation.
+| File | Role |
+|---|---|
+| `adapter.py` | Python wrapper exposing `narrator_send_turn(request)` |
+| `run_narration.mjs` | Constrained Pi bridge: stdin JSON to stdout JSON |
+| `package.json` / lockfile | Node dependency contract |
 
-## V1 behavior
+Relative runner paths are resolved against the caller working directory before
+the subprocess changes directory. Contract tests may invoke a small executable
+fixture, but such fixtures are deterministic adapter evidence—not gameplay and
+not battle reports.
 
-- One process invocation per turn (no Pi session file continuity).
-- Only custom tool `coc_keeper_narration` is allowlisted.
-- **Prose degradation:** if the model returns free text without the tool, the
-  bridge still returns `ok: true` with that prose as `final_text` and
-  `notes` set to `narrator_missing_tool_use: ...`.
-- Relative runner paths are resolved against the **caller cwd** before spawn
-  (subprocess cwd is the adapter directory).
+## Model and secrets
 
-## Fake runners (tests)
-
-Non-`.mjs` / non-`.js` paths are executed directly so contract tests can use a
-tiny Python executable without Node.
+Authentication uses Pi's normal discovery (`~/.pi/agent` or provider
+environment variables). Never commit credentials, prompts, or raw provider
+responses. Persist only privacy-safe model identity, attempt counts, timing,
+and sanitized failure classes needed for operations.

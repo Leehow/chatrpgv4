@@ -1,146 +1,109 @@
 # COC Keeper Current Status
 
 **Last updated:** 2026-07-17
-**Current manifest version:** `0.16.0-alpha.1`
-**Release tag:** none for this manifest version
 
-> This file is the repository's only live status source. Plans, audits, worker
-> reports, and tagged release notes are historical evidence unless this file
-> explicitly adopts their state.
+**Current manifest version:** `0.4.0-alpha.0`
 
-## Current release posture
+**Release name:** `0.4.0a`
 
-- Full-hardening implementation evidence is complete through A01-A32. A33
-  (terminal validation) and A34 (diagnosis completeness) are awaiting final
-  independent acceptance after review-driven Task 15 revisions. The exact
-  root-cause and status mapping is in `DIAGNOSIS-LEDGER.md`.
-- `plugins/coc-keeper/` is the only canonical plugin implementation. Codex,
-  Claude Code, and Cursor use thin host metadata over that single tree.
-- Two play-ready starters are packaged: **The White War** and **The Haunting**.
-  The Haunting distribution basis remains `UNVERIFIED` pending external rights
-  review; see `CONTENT_LICENSES.md`.
-- Local rulebook extraction outputs under `checks/ocr-cached/` and
-  `checks/py4llm-cached/` are ignored and are not tracked in current HEAD.
-- PDF extraction is host-owned: Codex uses its `pdf` skill to produce a
-  versioned source bundle; the repository only validates hashes/locators and
-  deterministically reformats Markdown through `coc_pdf_bundle.py`. No PDF
-  parser or OCR package is a project dependency.
-- CI has independently diagnosable `python`, `plugin-metadata`,
-  `evaluation-contract`, `node-adapters`, and `product-smoke` jobs. Every job
-  uses the exact CPython 3.14.6 pin and frozen `uv.lock`; there is no version
-  matrix or job-local dependency installation path.
-- Evaluation contract on `design/eval-contract-v1` is executable through
-  `coc_eval.py`: completion audit and suite aggregation consume
-  `evaluation/spec/v1` case/persona/seed requirements; holdout examples are
-  `example_unbound` (`NOT_RUN`); official CLI docs cover
-  run/report/verify/compare/baseline/matrix/calibrate/holdouts plus capture-
-  then-compare nightly and release external inputs in `coc-playtest` + root
-  `AGENTS.md` + `README.md` (no separate `coc-eval` skill — Phase 1 gate
-  forbids that parallel skill path).
+**Release tag:** not created
 
-## Evaluation contract honesty
+> This file is the repository's only live status source. Historical plans,
+> audits, old run artifacts, and tagged release notes do not override it.
 
-Implemented capabilities (all ten):
+## Release posture
 
-- `canonical_cli`
-- `case_registry`
-- `report_contract`
-- `roll_completeness`
-- `baseline_identity_compare`
-- `ai_player_matrix`
-- `semantic_judge`
-- `long_memory`
-- `chapter_transition`
-- `human_calibration`
+- `plugins/coc-keeper/` is the only canonical plugin. Codex, Claude Code, and
+  Cursor use thin host metadata over the same skills and runtime tools.
+- The White War and The Haunting are packaged as play-ready starters. The
+  Haunting distribution basis and plugin-image provenance remain `UNVERIFIED`;
+  see `CONTENT_LICENSES.md`.
+- Historical scripted players, fixed profiles, evaluation matrices, suite
+  aggregators, and parallel report generators are not part of the 0.4.0a test
+  strategy.
+- Runtime saves must match the exact current schema. Old or mismatched runtime
+  state is rejected and replaced with a fresh campaign generation; historical
+  reports remain read-only evidence.
 
-Suite posture:
+## Whole-product acceptance
 
-- `smoke` / `pr`: deterministic and expected `PASS` on ordinary CI
-- `nightly`: model-backed (KP `glm-5.2`, player `gpt-5.6-luna`, judge
-  `gpt-5.6-sol`); capture with `run --suite nightly --output <baseline>`, then
-  compare with `run --suite nightly --baseline <baseline> --output <candidate>`,
-  then `report` / `verify`. Ordinary GitHub-hosted runners record honest
-  `NOT_RUN` without credentials — they do not fake model-backed execution
-- `release`: requires `--chapter-run`, `--holdout-bundle`, and
-  `--calibration-reviews`; without them status is honest `NOT_RUN` (never claim
-  release readiness from a smaller suite)
+The only canonical global test is a real plugin-native session:
 
-Evidence classes:
+1. The main Codex opens the canonical COC Keeper plugin and acts as KP through
+   `coc-main` and `coc-keeper-play`.
+2. The run uses a fresh isolated workspace and an exact-current-schema campaign.
+3. A collaboration subagent created with `fork_turns: "none"` acts as the
+   player. It receives only player-visible narration, character information,
+   public rolls, and explicit choices.
+4. Play continues to structured terminal evidence, or records a concrete
+   operational blocker without converting missing evidence into success.
+5. `coc-export-battle-report` alone writes the final readable
+   `artifacts/battle-report.md` and its completeness evidence.
 
-- Deterministic fixture / registry pytest / schema self-tests = contract evidence
-- External-model gameplay / human calibration / bound holdouts = gameplay or
-  calibrated judgment evidence; without secrets or attestation they stay
-  `NOT_RUN`
+The collaboration subagent shares the filesystem with the main Codex. The
+isolation claim is therefore protocol-enforced no-context/player-safe relay,
+not a cryptographic sandbox.
+
+## Deterministic verification
+
+pytest remains the right tool for claims with deterministic or structural
+answers:
+
+- rules, dice, HP/SAN, and skill arithmetic;
+- transactional, idempotent state writes and exact schemas;
+- path safety and secret/public data contracts;
+- plugin metadata and single-track packaging;
+- PDF source-bundle hashing, evidence, hydration, and drift rejection;
+- production subsystem and runtime adapter interfaces.
+
+These checks are contract evidence. They are not a simulated player, actual
+gameplay, or a battle report.
+
+## PDF source-bundle boundary
+
+PDF rendering, OCR, layout recognition, text extraction, and asset extraction
+belong to an external host PDF skill. Codex normally supplies its `pdf` skill.
+The repository has no PDF parser or OCR fallback and no PDF parsing dependency.
+
+The external skill must produce the versioned source-bundle contract with
+`producer: codex-pdf-skill`, original PDF identity/hash, explicit zero-based
+page indexes, Markdown/hash entries, accepted review state, realistic parse
+confidence, grep anchors, and asset hashes. `coc_pdf_bundle.py` only validates
+and deterministically reformats that evidence. Binding persists
+`bundle_sha256`; hydration rejects later drift.
 
 ## Supported product surface
 
-- Ordinary COC play enters through `run_live_turn(...)` and the canonical
-  plugin skills under `plugins/coc-keeper/skills/`.
-- The open headless runtime exposes Event/PublicState contracts, explicit
-  planner/rules/narrator/player composition, durable sessions, scoped reusable
-  adapter workers and privacy-safe per-turn telemetry. Legacy `brain` config is
-  migrated with an explicit warning.
-- Optional epistemic scenario sidecars now carry PDF page/hash provenance,
-  artifact-bound semantic compilation, multi-effect belief updates, structured
-  question lifecycle, cognitive Storylets, least-privilege Narrator projection
-  and replayable epistemic metrics.
-- Deterministic automated tests and scripted playtest fixtures are verification
-  evidence, not live LLM-vs-KP battle reports.
+- The Keeper LLM drives normal play through canonical skills and the shared
+  `coc_toolbox.py` registry.
+- Deterministic tools enforce only rules arithmetic, transactional state, and
+  read-only/secret module truth. Narrative advice remains warnings and hints.
+- `runtime/` exposes the open headless Event SDK and debug/Pi adapters without
+  forking keeper skills or rules.
+- Optional epistemic sidecars can carry source provenance, semantic compilation,
+  belief updates, question lifecycle, cognitive Storylets, least-privilege
+  narrator projection, and replayable metrics.
 
 ## Known release risks
 
-- The Haunting rights posture and plugin-image provenance are `UNVERIFIED`.
-- An evidence-grade external-model playtest is not claimed by this release
-  governance task.
-- A credentialed 10–20-turn external-model journey is not present. The product
-  smoke is deterministic **NON-GAMEPLAY verification evidence** and is never
-  represented as a battle report.
-
-## Known pre-existing CI failures (not introduced by eval-contract-v1)
-
-Documented here so Batch D verification does not paper them over:
-
-| Test / job | Symptom | Evidence it predates this branch |
-|---|---|---|
-| CI job `product-smoke` / “Quick start save and reload smoke” | Fails on `main` as well as this branch | Job exists unchanged in `.github/workflows/tests.yml` and is out of Batch D allowed-file scope. |
-
-## Runtime narrator retry lifecycle fix (eval-contract-v1)
-
-`tests/test_runtime_sdk_debug.py::test_sdk_legacy_pi_runs_deterministic_turn_then_safe_narrator_only`
-previously asserted two pool requests while the incomplete fixture omitted
-`secret_audit_complete` / `asserted_fact_refs` / `semantic_audit` and used
-`response_mode=prose_fallback`, so coverage retry issued three identical-key
-attempts per logical turn (six total). Fix: align the fixture to the approved
-coverage-retry contract (`secret_audit_complete=True`, empty asserted/semantic
-lists, `response_mode=tool`) so each turn records one successful pool request
-on a stable worker key. Commit: `fix(runtime): align narrator retry lifecycle evidence`.
-
-## Resolved hardening items
-
-### Resolved: Extreme-cold REVEAL time advance
-
-Director time selection now uses structured priority: an authored scene
-`time_profile` wins, followed by an exact structured intent detail/category,
-then the action default. A `REVEAL` carrying `quick_observation` therefore uses
-the existing `quick_observation` category (at most five minutes), while an
-authored or ordinary deliberate `single_room_search` remains 20 minutes even
-in extreme cold. No player prose is scanned. The live regression
-`test_live_turn_quick_observation_in_extreme_cold_persists_short_time_and_defers_exposure`
-proves that `run_live_turn(...)` persists the shorter clock delta and leaves a
-five-minute cold-exposure trigger pending.
+- The Haunting distribution basis and plugin-image provenance are
+  `UNVERIFIED`.
+- A release candidate is not accepted until a fresh real plugin/subagent run
+  reaches terminal evidence and its final report completeness receipt passes.
+- Context-free subagent isolation is not filesystem isolation; player-safe
+  relay discipline remains part of the acceptance procedure.
 
 ## Verification entry points
 
 ```bash
-uv sync --frozen --dev                       # uv 0.11.16 + exact CPython 3.14.6 + uv.lock
-PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_release_consistency.py tests/test_plugin_metadata.py tests/test_starter_scenarios.py tests/test_runtime_sdk_debug.py -q -p no:cacheprovider
-PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_product_smoke.py -q -p no:cacheprovider
-PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests -q -p no:cacheprovider
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
+uv sync --frozen --dev
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
+  tests/test_plugin_metadata.py tests/test_release_consistency.py \
+  -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest \
+  tests -q -p no:cacheprovider
 git ls-files 'checks/ocr-cached/**' 'checks/py4llm-cached/**'
 ```
 
-The tracked-file command must print nothing. See `CHANGELOG.md` for committed
-post-tag changes and `docs/superpowers/specs/2026-07-10-coc-full-hardening-design.md`
-for the approved architecture and complete acceptance definitions.
+The tracked-file command must print nothing. See `CHANGELOG.md` for the current
+release delta.

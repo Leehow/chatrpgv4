@@ -88,37 +88,33 @@ clue-reveal gates, storylet eligibility suppression, narration output audits)
 into the turn path. Narrative legality belongs in tool warnings, not in
 exceptions.
 
-## Canonical Evaluation Contract
+## Plugin-Native Acceptance Contract
 
-Codex, ZCode, Cursor, CI, and local agents must use the same versioned evaluation
-entry point for official COC Keeper validation:
+Whole-product COC Keeper acceptance uses the real Codex plugin, not a scripted
+player, fixed profile, evaluation matrix, or parallel test runtime.
 
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
-```
+- The main Codex opens the canonical `plugins/coc-keeper/` plugin and acts as
+  Keeper through the normal `coc-main` / `coc-keeper-play` flow.
+- Create a fresh isolated workspace and exact-current-schema campaign for every
+  run. Never resume a historical test save.
+- Spawn a collaboration subagent with `fork_turns: "none"` as the player. It
+  receives only player-visible narration, character information, public rolls,
+  and explicit choices. Never relay module truth, Keeper state, tool rationale,
+  hidden logs, or other secrets.
+- Continue until structured terminal evidence or an honestly documented
+  operational blocker. A convenient turn limit is not a successful ending.
+- After play, `coc-export-battle-report` is the sole owner of the final readable
+  `artifacts/battle-report.md` and its completeness evidence. Do not hand-edit
+  missing facts or reconstruct dice from prose.
 
-Additional official commands on the same CLI: `report`, `verify`, `compare`,
-`baseline`, `matrix`, `calibrate`, and `holdouts`. Details live in
-`plugins/coc-keeper/skills/coc-playtest/SKILL.md` (official evaluation
-section). Do not add a parallel `coc-eval` skill tree.
+The subagent shares the filesystem with the main Codex, so this is protocol-
+enforced context isolation rather than a cryptographic sandbox. State that
+limitation in the resulting evidence.
 
-Use `smoke` for fast local contract checks and `pr` for ordinary change
-validation. Do not replace the named suite with an agent-specific collection of
-commands and still call the result an official evaluation. `nightly` or
-`release` may be claimed only when that exact suite records `PASS`; a
-`NOT_RUN` capability must not be hidden by running a smaller suite.
-
-For an existing playtest run, generate or verify its report contract with:
-
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
-```
-
-The exact status vocabulary is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and
-`NON_COMPARABLE`. Missing evidence never becomes `PASS`. Deterministic fixture
-and registry self-tests are contract evidence; they are not external-model
-gameplay battle reports.
+Deterministic pytest remains authoritative only for rules/dice arithmetic,
+transactional and idempotent state, exact schemas, path safety, plugin metadata,
+PDF source-bundle validation, and structured subsystem contracts. Such tests
+are contract evidence, not gameplay or battle-report evidence.
 
 ### Dice Completeness Gate
 
@@ -148,8 +144,9 @@ synthetic unit-test fixture.
   investigator context, player/KP transcript or actual-play turns, rules/rolls
   when relevant, discovered clues, scene progression, and any narrative
   enrichment/storylet effects being evaluated.
-- Before delivering any report, read `artifacts/report-completeness.json`; a
-  failed or missing receipt must be stated directly.
+- Before delivering any report, read `artifacts/battle-report-evidence.json`
+  and inspect its completeness findings; a failed or missing evidence file must
+  be stated directly.
 - If no live LLM-vs-KP runner or real playtest artifact is available, state that
   limitation directly and do not substitute a smoke-test artifact as if it were
   gameplay evidence.
@@ -188,7 +185,7 @@ compatibility fallbacks, or old-ID remapping. Historical battle reports remain
 read-only evidence and are never resumed as runtime state. Same-version atomic
 backup/restore for crash safety is allowed; it is not a compatibility layer.
 
-Coverage plans, per-run observations, and cross-lane visited unions are
-evaluator-only post-run evidence. They may report gaps or schedule additional
-playtest lanes, but must never allow, deny, reorder, suppress, or force scenes,
-clues, narration, actions, rewards, development, or endings.
+Coverage plans, per-run observations, and cross-run visited unions are post-run
+acceptance evidence only. They may report gaps or motivate another fresh
+plugin-native playtest, but must never allow, deny, reorder, suppress, or force
+scenes, clues, narration, actions, rewards, development, or endings.

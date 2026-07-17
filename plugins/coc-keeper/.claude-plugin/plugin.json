@@ -1,7 +1,7 @@
 {
   "name": "coc-keeper",
-  "version": "0.16.0-alpha.1",
-  "description": "Call of Cthulhu Keeper mode plugin with structured rules, persistent campaign state, and playtest reporting. Skills live under ./skills/ (single-track with Codex/Cursor).",
+  "version": "0.4.0-alpha.0",
+  "description": "Call of Cthulhu Keeper mode plugin with structured rules and persistent campaign state. Skills live under ./skills/ (single-track with Codex/Cursor).",
   "author": {
     "name": "Leehow"
   },

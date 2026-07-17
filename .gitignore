@@ -6,7 +6,6 @@ __pycache__/
 node_modules
 .venv/
 runtime/adapters/pi/node_modules
-runtime/adapters/player/node_modules
 runtime/adapters/narrator/node_modules
 checks/ocr-cached/
 checks/py4llm-cached/

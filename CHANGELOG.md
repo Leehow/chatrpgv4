@@ -6,13 +6,27 @@
 `docs/superpowers/` 与 `.superpowers/sdd/`，但不再要求读者从这些文件拼接版本变化。
 唯一实时状态来源是 `docs/status/CURRENT.md`。
 
-## [Unreleased] — manifest `0.16.0-alpha.1`
+## [Unreleased] — manifest `0.4.0-alpha.0` (release name `0.4.0a`)
+
+### Changed for 0.4.0a
+
+- 删除旧的固定 profile、脚本玩家、评测矩阵和多套报告流程。全局验收改为主
+  Codex 打开 canonical 插件担任 KP，并用 `fork_turns: "none"` 的 collaboration
+  subagent 当玩家；只允许转发玩家可见信息，每次从全新当前 schema workspace
+  开始。
+- `coc-export-battle-report` 成为最终可读 `artifacts/battle-report.md` 与完整性证据
+  的唯一输出入口；确定性 pytest 不再冒充实际跑团战报。
+- 确定性测试收敛到规则/骰点、事务与幂等状态、schema、路径安全、插件元数据、
+  PDF source bundle 和生产子系统结构化合同。
+- 明确 PDF 是外部宿主 skill 的 source-bundle 边界：仓库不解析 PDF、不做 OCR，
+  也没有 parser/OCR fallback。
+- Codex、Claude Code、Cursor manifests 和 Claude marketplace 统一为
+  `0.4.0-alpha.0`；Python 项目版本为 PEP 440 `0.4.0a0`。
 
 ### 已提交（`v0.2a` 之后）
 
-- 恢复单调 SemVer：Codex、Claude Code、Cursor manifests 与 Claude marketplace
-  统一为 `0.16.0-alpha.1`；加入内容权利清单、四类 CI job、当前状态单一来源，
-  并停止跟踪本地规则书提取缓存。
+- 旧开发标识曾用于收敛多宿主 manifest、内容权利清单、CI 和当前状态来源；
+  0.4.0a 已重新建立面向用户的预发布版本边界。
 - 新增开放的 headless runtime：项目级 `debug` / `pi` brain 选择、结构化
   Event/PublicState 协议、Python session SDK、debug adapter 与受约束的 Pi
   bridge；同时补上 roll 事件结构校验和 Pi 工具失败显式上报
@@ -48,22 +62,21 @@
   现在按「场景作者显式 `time_profile` → 结构化 intent detail/category → action
   默认值」选择时间档；`quick_observation` 最多推进 5 分钟，显式或普通
   `single_room_search` 仍保持 20 分钟，并由真实 `run_live_turn(...)` 回归覆盖。
-  `docs/live-playtest-notes.md` remains historical evidence only; live status remains in `docs/status/CURRENT.md`.
+  live status remains in `docs/status/CURRENT.md`.
 - 完成 A01-A34 全量硬化：live SAN/Push/战斗/追逐与救援、结构化终局、可信
   evidence receipt、持久化威胁/NPC/策略状态、crisis frame、恐怖风格与秘密审计，
   以及 runtime 路径/存档迁移/会话恢复/显式组合/worker 复用/telemetry。
 - 合入 scenario epistemic blueprint：PDF 页码与 hash 来源桥、artifact-bound 语义
   编译、compile confidence、多效果认知合同、Question Lifecycle、belief reducer、
   Cognitive Storylets、Narrator 最小权限投影，以及认知指标和条件式报告章节。
-- 新增跨 starter、调查/社交、SAN、Push、战斗、追逐、保存恢复、结构化终局、
-  evidence/report 和完整 epistemic 链的确定性 product smoke。该产物明确标记为
-  **NON-GAMEPLAY verification evidence**，不冒充真实战报。
+- 新增跨 starter、调查/社交、SAN、Push、战斗、追逐、保存恢复、结构化终局和
+  完整 epistemic 链的确定性合同测试。该证据不是实际跑团，也不冒充战报。
 - 新增 `docs/status/DIAGNOSIS-LEDGER.md`，逐项说明两份原始审查中真实缺陷、
   live wiring/test gap、过期文档和误导性元数据的根因与当前证据。
 ### Known Issues
 
-- 当前自动 playtest driver 不是 live LLM-vs-KP；已有 suite/completion 产物不能
-  替代项目要求的真实战报证据。外部模型证据状态见 `docs/status/CURRENT.md`。
+- The Haunting 的分发依据和插件图片来源仍为 `UNVERIFIED`；稳定发布前需要外部
+  权利审查。
 
 ## [0.2.0-alpha] - 2026-07-09
 
