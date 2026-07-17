@@ -270,6 +270,43 @@ Coverage ledgers, completeness receipts, and audits remain post-run evidence.
 They may disqualify a report or schedule another test lane, but must never block
 Keeper narration, scene movement, earned clue delivery, or ending resolution.
 
+When the **main Codex itself** is the Keeper host loading the canonical plugin
+skills, do not describe `coc_live_match.py`'s keeper runner as that topology.
+Use the manual post-turn recorder instead:
+
+```bash
+python3 ../../scripts/coc_codex_host_playtest.py init \
+  --run-dir <new-empty-run-dir> --workspace <workspace> \
+  --campaign <campaign> --investigator <investigator> \
+  --player-actor-id <stable-actor-id> \
+  --player-task-id <stable-collaboration-task-id> \
+  --orchestrator-id <main-codex-id> \
+  --toolbox-log <workspace>/.coc/campaigns/<campaign>/logs/toolbox-calls.jsonl
+
+python3 ../../scripts/coc_codex_host_playtest.py append-turn \
+  --run-dir <run-dir> --record-json <turn-record.json>
+
+python3 ../../scripts/coc_codex_host_playtest.py finalize --run-dir <run-dir>
+python3 ../../scripts/coc_codex_host_playtest.py verify --run-dir <run-dir>
+```
+
+The `append-turn` JSON is an exact schema-version-1 object containing
+`player_request`, `subagent_response`, and `kp_narration`. Record only after the
+main Codex has completed the turn. The recorder snapshots the new byte range of
+`toolbox-calls.jsonl`, binds stable actor/task ids, and writes a hash-chained
+`turns.jsonl`. `finalize` projects the source into `transcript.jsonl`,
+`player-view.jsonl`, `keeper-view.jsonl`, `runner-invocations.jsonl`,
+`player-requests.jsonl`, and `subagent-responses.jsonl` for a later report
+exporter. It does not call or impersonate the existing report/evidence compiler.
+
+These records are `orchestrator_attested` at a `manual` attestation level.
+Shared-filesystem isolation remains `NOT_ATTESTED`; the hash chain is artifact
+integrity, not cryptographic actor identity; and finalization never upgrades
+the evidence grade automatically. Old or mismatched recorder directories are
+rejected with a delete-and-restart instruction. There is no migration reader.
+The recorder never evaluates narration, scenes, clues, or story eligibility and
+must not be inserted as a runtime narrative gate.
+
 For long-lived production-path white-box play (Masks Peru/America and similar), use
 `../../scripts/coc_interactive_playtest.py` rather than the Haunting simulated-player
 harness profiles below. The interactive driver speaks JSONL over stdin/stdout,

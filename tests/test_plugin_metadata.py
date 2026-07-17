@@ -907,3 +907,25 @@ def test_coc_playtest_skill_documents_loop_decision_artifact():
     for term in required_terms:
         assert term in skill_text
         assert term in spec_text
+
+
+def test_coc_playtest_skill_documents_manual_codex_host_recorder():
+    script = PLUGIN_ROOT / "scripts" / "coc_codex_host_playtest.py"
+    skill_text = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    assert script.is_file()
+    required_terms = [
+        "coc_codex_host_playtest.py init",
+        "append-turn",
+        "finalize",
+        "verify",
+        "orchestrator_attested",
+        "NOT_ATTESTED",
+        "transcript.jsonl",
+        "player-view.jsonl",
+        "keeper-view.jsonl",
+        "runner-invocations.jsonl",
+        "There is no migration reader",
+        "must not be inserted as a runtime narrative gate",
+    ]
+    for term in required_terms:
+        assert term in skill_text
