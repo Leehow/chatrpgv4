@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -26,8 +27,8 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
-PROTOCOL = "codex_host_manual_playtest_v1"
+SCHEMA_VERSION = 2
+PROTOCOL = "codex_host_manual_playtest_v2"
 SUBAGENT_PROTOCOL = "codex_subagent_player_v1"
 STATE_NAME = "codex-host-recorder.json"
 SOURCE_NAME = "turns.jsonl"
@@ -48,6 +49,8 @@ STATE_KEYS = {
     "keeper_host",
     "evidence_boundary",
     "toolbox_log",
+    "roll_log",
+    "event_log",
     "turn_count",
     "chain_head_sha256",
     "created_at",
@@ -68,7 +71,7 @@ EVIDENCE_BOUNDARY_KEYS = {
     "shared_fs_isolation", "identity_attestation", "hash_chain_scope",
     "narrative_gate_policy",
 }
-TOOLBOX_STATE_KEYS = {"path", "device", "inode", "initial_offset", "next_offset"}
+SOURCE_LOG_STATE_KEYS = {"path", "device", "inode", "initial_offset", "next_offset"}
 RECORD_KEYS = {
     "schema_version",
     "player_request",
@@ -113,6 +116,8 @@ TURN_KEYS = {
     "subagent_response",
     "keeper_narration",
     "toolbox_log",
+    "roll_log",
+    "event_log",
     "shared_fs_isolation",
     "previous_sha256",
     "row_sha256",
@@ -126,10 +131,27 @@ SUBAGENT_RECORD_KEYS = {"payload", "sha256"}
 KEEPER_NARRATION_KEYS = {
     "text", "sha256", "host", "host_attestation", "attestation_level",
 }
-TOOLBOX_SLICE_KEYS = {
+SOURCE_LOG_SLICE_KEYS = {
     "source_path", "start_offset", "end_offset", "byte_length", "sha256",
     "snapshot_path", "source_file_size_at_capture",
 }
+
+REPORT_CONTEXT_CAMPAIGN_FILES = (
+    "campaign.json",
+    "party.json",
+    "scenario/module-meta.json",
+    "scenario/scenario.json",
+    "scenario/clue-graph.json",
+    "scenario/handouts.json",
+    "memory/session-summaries.jsonl",
+)
+REPORT_CONTEXT_INVESTIGATOR_FILES = (
+    "character.json",
+    "creation.json",
+    "history.jsonl",
+    "development.jsonl",
+    "inventory-history.jsonl",
+)
 
 
 class RecorderError(ValueError):
@@ -189,7 +211,11 @@ def _safe_task_id(value: Any) -> str:
 
 def _regular_file(path: Path, label: str) -> os.stat_result:
     try:
-        info = path.lstat()
+        info = (
+            path._lstat()
+            if getattr(path, "_coc_anchored_path", False)
+            else path.lstat()
+        )
     except OSError as exc:
         raise RecorderError("source_unavailable", f"{label} is unavailable: {path}") from exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
@@ -277,7 +303,11 @@ def _load_state(run_dir: Path) -> dict[str, Any]:
     orchestrator = state.get("orchestrator")
     keeper_host = state.get("keeper_host")
     boundary = state.get("evidence_boundary")
-    toolbox = state.get("toolbox_log")
+    source_logs = [
+        state.get("toolbox_log"),
+        state.get("roll_log"),
+        state.get("event_log"),
+    ]
     valid_ids = (
         isinstance(state.get("run_id"), str)
         and SAFE_ID.fullmatch(state["run_id"]) is not None
@@ -294,17 +324,19 @@ def _load_state(run_dir: Path) -> dict[str, Any]:
         and isinstance(orchestrator.get("actor_id"), str)
         and SAFE_ID.fullmatch(orchestrator["actor_id"]) is not None
     )
-    offsets_valid = (
-        isinstance(toolbox, dict)
-        and isinstance(toolbox.get("path"), str)
-        and Path(toolbox["path"]).is_absolute()
+    offsets_valid = all(
+        isinstance(source, dict)
+        and set(source) == SOURCE_LOG_STATE_KEYS
+        and isinstance(source.get("path"), str)
+        and Path(source["path"]).is_absolute()
         and all(
-            isinstance(toolbox.get(key), int)
-            and not isinstance(toolbox.get(key), bool)
-            and toolbox[key] >= 0
+            isinstance(source.get(key), int)
+            and not isinstance(source.get(key), bool)
+            and source[key] >= 0
             for key in ("device", "inode", "initial_offset", "next_offset")
         )
-        and toolbox["next_offset"] >= toolbox["initial_offset"]
+        and source["next_offset"] >= source["initial_offset"]
+        for source in source_logs
     )
     if (
         set(state) != STATE_KEYS
@@ -338,8 +370,6 @@ def _load_state(run_dir: Path) -> dict[str, Any]:
         or boundary.get("identity_attestation") != "manual_orchestrator_attestation_only"
         or boundary.get("hash_chain_scope") != "artifact_integrity_not_actor_identity"
         or boundary.get("narrative_gate_policy") != "none_recorder_is_post_turn_only"
-        or not isinstance(toolbox, dict)
-        or set(toolbox) != TOOLBOX_STATE_KEYS
         or not valid_ids
         or not offsets_valid
         or not isinstance(state.get("workspace"), str)
@@ -376,6 +406,20 @@ def _read_record_input(path: str) -> dict[str, Any]:
     return value
 
 
+def _source_log_state(path: Path, label: str, *, start_offset: int | None = None) -> dict[str, Any]:
+    info = _regular_file(path, label)
+    start = info.st_size if start_offset is None else start_offset
+    if isinstance(start, bool) or not isinstance(start, int) or start < 0 or start > info.st_size:
+        raise RecorderError("invalid_source_log_offset", f"{label} start offset must be inside the current file")
+    return {
+        "path": str(path),
+        "device": info.st_dev,
+        "inode": info.st_ino,
+        "initial_offset": start,
+        "next_offset": start,
+    }
+
+
 def init_run(
     run_dir: Path | str,
     *,
@@ -403,19 +447,30 @@ def init_run(
     workspace_path = Path(workspace).resolve()
     if not workspace_path.is_dir():
         raise RecorderError("workspace_unavailable", "workspace must be an existing directory")
+    safe_campaign_id = _safe_id(campaign_id, "campaign_id")
+    safe_investigator_id = _safe_id(investigator_id, "investigator_id")
+    campaign_source = workspace_path / ".coc" / "campaigns" / safe_campaign_id
+    if not campaign_source.is_dir() or campaign_source.is_symlink():
+        raise RecorderError("campaign_source_unavailable", "campaign source must be an existing non-symlink directory")
     source = Path(toolbox_log).resolve()
-    info = _regular_file(source, "toolbox log")
-    start = info.st_size if toolbox_start_offset is None else toolbox_start_offset
-    if isinstance(start, bool) or not isinstance(start, int) or start < 0 or start > info.st_size:
-        raise RecorderError("invalid_toolbox_offset", "toolbox start offset must be inside the current file")
-    identity = _safe_id(run_id or f"coc-codex-host-v1:{uuid.uuid4().hex}", "run_id")
+    expected_toolbox = (campaign_source / "logs" / "toolbox-calls.jsonl").resolve()
+    if source != expected_toolbox:
+        raise RecorderError("source_log_mismatch", "toolbox log must belong to the selected campaign")
+    roll_source = (campaign_source / "logs" / "rolls.jsonl").resolve()
+    event_source = (campaign_source / "logs" / "events.jsonl").resolve()
+    # Current-schema runs begin at the current EOF for all authoritative logs.
+    # Every later byte is captured in the turn that observed it.
+    toolbox_state = _source_log_state(source, "toolbox log", start_offset=toolbox_start_offset)
+    roll_state = _source_log_state(roll_source, "roll log")
+    event_state = _source_log_state(event_source, "event log")
+    identity = _safe_id(run_id or f"coc-codex-host-v2:{uuid.uuid4().hex}", "run_id")
     state = {
         "schema_version": SCHEMA_VERSION,
         "protocol": PROTOCOL,
         "status": "open",
         "run_id": identity,
-        "campaign_id": _safe_id(campaign_id, "campaign_id"),
-        "investigator_id": _safe_id(investigator_id, "investigator_id"),
+        "campaign_id": safe_campaign_id,
+        "investigator_id": safe_investigator_id,
         "workspace": str(workspace_path),
         "player": {
             "kind": "codex_subagent",
@@ -447,13 +502,9 @@ def init_run(
             "hash_chain_scope": "artifact_integrity_not_actor_identity",
             "narrative_gate_policy": "none_recorder_is_post_turn_only",
         },
-        "toolbox_log": {
-            "path": str(source),
-            "device": info.st_dev,
-            "inode": info.st_ino,
-            "initial_offset": start,
-            "next_offset": start,
-        },
+        "toolbox_log": toolbox_state,
+        "roll_log": roll_state,
+        "event_log": event_state,
         "turn_count": 0,
         "chain_head_sha256": EMPTY_CHAIN_SHA256,
         "created_at": _utc_now(),
@@ -547,15 +598,60 @@ def _validated_request_response(
     return request, response
 
 
-def _validate_toolbox_source(state: dict[str, Any]) -> tuple[Path, os.stat_result]:
-    expected = state.get("toolbox_log")
+def _validate_source_log(
+    state: dict[str, Any], state_key: str, label: str
+) -> tuple[Path, os.stat_result]:
+    expected = state.get(state_key)
     if not isinstance(expected, dict):
-        raise RecorderError("unsupported_save_schema", "toolbox source is not current schema; delete and restart")
+        raise RecorderError("unsupported_save_schema", f"{label} source is not current schema; delete and restart")
     source = Path(str(expected.get("path") or ""))
-    info = _regular_file(source, "toolbox log")
+    info = _regular_file(source, label)
     if info.st_dev != expected.get("device") or info.st_ino != expected.get("inode"):
-        raise RecorderError("toolbox_source_changed", "toolbox log identity changed; start a new run")
+        raise RecorderError("source_log_changed", f"{label} identity changed; start a new run")
     return source, info
+
+
+def _capture_source_slice(
+    state: dict[str, Any],
+    state_key: str,
+    label: str,
+    slice_directory: str,
+    turn_number: int,
+    *,
+    requested_end: int | None = None,
+) -> tuple[dict[str, Any], bytes]:
+    source, info = _validate_source_log(state, state_key, label)
+    start = state[state_key]["next_offset"]
+    end = info.st_size if requested_end is None else requested_end
+    if isinstance(end, bool) or not isinstance(end, int) or end < start or end > info.st_size:
+        raise RecorderError("invalid_source_log_offset", f"{label} end offset must be between the prior offset and current EOF")
+    with source.open("rb") as handle:
+        opened = os.fstat(handle.fileno())
+        if opened.st_dev != info.st_dev or opened.st_ino != info.st_ino:
+            raise RecorderError("source_log_changed", f"{label} identity changed during capture")
+        handle.seek(start)
+        payload = handle.read(end - start)
+        after = os.fstat(handle.fileno())
+    if (
+        len(payload) != end - start
+        or after.st_dev != info.st_dev
+        or after.st_ino != info.st_ino
+        or after.st_size < end
+    ):
+        raise RecorderError("source_log_read_incomplete", f"{label} changed while its slice was captured")
+    slice_name = f"{slice_directory}/turn-{turn_number:06d}.jsonl"
+    return (
+        {
+            "source_path": str(source),
+            "start_offset": start,
+            "end_offset": end,
+            "byte_length": len(payload),
+            "sha256": _sha256_bytes(payload),
+            "snapshot_path": slice_name,
+            "source_file_size_at_capture": after.st_size,
+        },
+        payload,
+    )
 
 
 def append_turn(
@@ -576,17 +672,20 @@ def append_turn(
         raise RecorderError("record_integrity_failed", ",".join(existing_findings))
     turn_number = len(rows) + 1
     request, response = _validated_request_response(state, record, turn_number)
-    source, info = _validate_toolbox_source(state)
-    start = state["toolbox_log"]["next_offset"]
-    end = info.st_size if toolbox_end_offset is None else toolbox_end_offset
-    if isinstance(end, bool) or not isinstance(end, int) or end < start or end > info.st_size:
-        raise RecorderError("invalid_toolbox_offset", "toolbox end offset must be between the prior offset and current EOF")
-    with source.open("rb") as handle:
-        handle.seek(start)
-        toolbox_bytes = handle.read(end - start)
-    if len(toolbox_bytes) != end - start:
-        raise RecorderError("toolbox_read_incomplete", "toolbox log changed while its slice was captured")
-    slice_name = f"toolbox-slices/turn-{turn_number:06d}.jsonl"
+    toolbox_record, toolbox_bytes = _capture_source_slice(
+        state,
+        "toolbox_log",
+        "toolbox log",
+        "toolbox-slices",
+        turn_number,
+        requested_end=toolbox_end_offset,
+    )
+    roll_record, roll_bytes = _capture_source_slice(
+        state, "roll_log", "roll log", "roll-slices", turn_number
+    )
+    event_record, event_bytes = _capture_source_slice(
+        state, "event_log", "event log", "event-slices", turn_number
+    )
     prior = state["chain_head_sha256"]
     row: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -620,24 +719,28 @@ def append_turn(
             "host_attestation": "orchestrator_attested",
             "attestation_level": "manual",
         },
-        "toolbox_log": {
-            "source_path": str(source),
-            "start_offset": start,
-            "end_offset": end,
-            "byte_length": len(toolbox_bytes),
-            "sha256": _sha256_bytes(toolbox_bytes),
-            "snapshot_path": slice_name,
-            "source_file_size_at_capture": info.st_size,
-        },
+        "toolbox_log": toolbox_record,
+        "roll_log": roll_record,
+        "event_log": event_record,
         "shared_fs_isolation": "NOT_ATTESTED",
         "previous_sha256": prior,
     }
     row["row_sha256"] = _sha256_value(row)
-    _atomic_write(destination / slice_name, toolbox_bytes)
+    for slice_record, payload in (
+        (toolbox_record, toolbox_bytes),
+        (roll_record, roll_bytes),
+        (event_record, event_bytes),
+    ):
+        _atomic_write(destination / slice_record["snapshot_path"], payload)
     _atomic_write(destination / SOURCE_NAME, _jsonl_bytes([*rows, row]))
     state["turn_count"] = turn_number
     state["chain_head_sha256"] = row["row_sha256"]
-    state["toolbox_log"]["next_offset"] = end
+    for state_key, slice_record in (
+        ("toolbox_log", toolbox_record),
+        ("roll_log", roll_record),
+        ("event_log", event_record),
+    ):
+        state[state_key]["next_offset"] = slice_record["end_offset"]
     _write_json(destination / STATE_NAME, state)
     return row
 
@@ -647,7 +750,10 @@ def _validate_chain(
 ) -> list[str]:
     findings: list[str] = []
     previous = EMPTY_CHAIN_SHA256
-    toolbox_offset = state.get("toolbox_log", {}).get("initial_offset")
+    source_offsets = {
+        key: state.get(key, {}).get("initial_offset")
+        for key in ("toolbox_log", "roll_log", "event_log")
+    }
     for index, row in enumerate(rows, start=1):
         stored_sha = row.get("row_sha256")
         without_sha = dict(row)
@@ -681,7 +787,6 @@ def _validate_chain(
             or actor.get("attestation_level") != "manual"
         ):
             findings.append(f"turn_nested_schema_invalid:{index}")
-        toolbox = row.get("toolbox_log") if isinstance(row.get("toolbox_log"), dict) else {}
         request_record = row.get("player_safe_request")
         response_record = row.get("subagent_response")
         narration_record = row.get("keeper_narration")
@@ -722,44 +827,47 @@ def _validate_chain(
                 findings.append(f"turn_payload_digest_mismatch:{index}")
         except (KeyError, TypeError, RecorderError):
             findings.append(f"turn_nested_schema_invalid:{index}")
-        snapshot = Path(str(toolbox.get("snapshot_path") or ""))
-        start = toolbox.get("start_offset")
-        end = toolbox.get("end_offset")
-        length = toolbox.get("byte_length")
-        if (
-            set(toolbox) != TOOLBOX_SLICE_KEYS
-            or start != toolbox_offset
-            or isinstance(end, bool)
-            or not isinstance(end, int)
-            or isinstance(length, bool)
-            or not isinstance(length, int)
-            or not isinstance(start, int)
-            or end < start
-            or length != end - start
-            or isinstance(toolbox.get("source_file_size_at_capture"), bool)
-            or not isinstance(toolbox.get("source_file_size_at_capture"), int)
-            or toolbox["source_file_size_at_capture"] < end
-            or SHA256.fullmatch(str(toolbox.get("sha256") or "")) is None
-            or toolbox.get("source_path") != state.get("toolbox_log", {}).get("path")
+        for state_key, slice_directory in (
+            ("toolbox_log", "toolbox-slices"),
+            ("roll_log", "roll-slices"),
+            ("event_log", "event-slices"),
         ):
-            findings.append(f"toolbox_slice_contract_invalid:{index}")
-        else:
-            toolbox_offset = end
-        if (
-            snapshot != Path(f"toolbox-slices/turn-{index:06d}.jsonl")
-            or snapshot.is_absolute()
-            or ".." in snapshot.parts
-        ):
-            findings.append(f"toolbox_snapshot_path_invalid:{index}")
-        else:
-            target = run_dir / snapshot if run_dir is not None else None
-            if target is not None and (
-                not target.is_file()
-                or target.is_symlink()
-                or _sha256_path(target) != toolbox.get("sha256")
-                or target.stat().st_size != toolbox.get("byte_length")
+            source_record = row.get(state_key) if isinstance(row.get(state_key), dict) else {}
+            snapshot = Path(str(source_record.get("snapshot_path") or ""))
+            start = source_record.get("start_offset")
+            end = source_record.get("end_offset")
+            length = source_record.get("byte_length")
+            if (
+                set(source_record) != SOURCE_LOG_SLICE_KEYS
+                or start != source_offsets[state_key]
+                or isinstance(end, bool)
+                or not isinstance(end, int)
+                or isinstance(length, bool)
+                or not isinstance(length, int)
+                or not isinstance(start, int)
+                or end < start
+                or length != end - start
+                or isinstance(source_record.get("source_file_size_at_capture"), bool)
+                or not isinstance(source_record.get("source_file_size_at_capture"), int)
+                or source_record["source_file_size_at_capture"] < end
+                or SHA256.fullmatch(str(source_record.get("sha256") or "")) is None
+                or source_record.get("source_path") != state.get(state_key, {}).get("path")
             ):
-                findings.append(f"toolbox_snapshot_digest_mismatch:{index}")
+                findings.append(f"{state_key}_slice_contract_invalid:{index}")
+            else:
+                source_offsets[state_key] = end
+            expected_snapshot = Path(f"{slice_directory}/turn-{index:06d}.jsonl")
+            if snapshot != expected_snapshot or snapshot.is_absolute() or ".." in snapshot.parts:
+                findings.append(f"{state_key}_snapshot_path_invalid:{index}")
+            else:
+                target = run_dir / snapshot if run_dir is not None else None
+                if target is not None and (
+                    not target.is_file()
+                    or target.is_symlink()
+                    or _sha256_path(target) != source_record.get("sha256")
+                    or target.stat().st_size != source_record.get("byte_length")
+                ):
+                    findings.append(f"{state_key}_snapshot_digest_mismatch:{index}")
         previous = stored_sha if isinstance(stored_sha, str) else calculated
     if state.get("turn_count") != len(rows):
         findings.append("state_turn_count_mismatch")
@@ -832,6 +940,8 @@ def _projections(state: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str,
                 "subagent_response": row["subagent_response"],
                 "kp_narration": row["keeper_narration"],
                 "toolbox_log": row["toolbox_log"],
+                "roll_log": row["roll_log"],
+                "event_log": row["event_log"],
                 "actor_binding": row["actor_binding"],
                 "record_chain_sha256": chain_sha,
             }
@@ -904,11 +1014,14 @@ def _projections(state: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str,
                     "actor_id": state["orchestrator"]["actor_id"],
                     "narration_sha256": row["keeper_narration"]["sha256"],
                     "toolbox_log": row["toolbox_log"],
+                    "roll_log": row["roll_log"],
+                    "event_log": row["event_log"],
                     "identity_attestation": "orchestrator_attested",
                     "attestation_level": "manual",
                 },
             ]
         )
+    first_request = rows[0]["player_safe_request"]["envelope"]["request"] if rows else {}
     playtest = {
         "schema_version": 1,
         "run_id": state["run_id"],
@@ -916,7 +1029,11 @@ def _projections(state: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str,
         "investigator_id": state["investigator_id"],
         "audit_profile": "codex_host_manual_recorder",
         "player_profile": "codex_collaboration_subagent_player",
+        "play_language": str(first_request.get("play_language") or "zh-Hans"),
         "simulation_method": "main_codex_canonical_plugin_manual_orchestration",
+        "play_kind": "blind_actual_play",
+        "actual_play_occurred": True,
+        "report_kind": "battle_report",
         "keeper_host": state["keeper_host"],
         "player": state["player"],
         "orchestrator": state["orchestrator"],
@@ -924,6 +1041,7 @@ def _projections(state: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str,
         "operator_review_status": "pending",
         "eligible_as_gameplay_evidence": False,
         "evidence_grade": "NOT_ATTESTED",
+        "collaboration_attestation": "NOT_ATTESTED",
         "evidence_reasons": [
             "manual_orchestrator_attestation_only",
             "shared_fs_isolation_not_attested",
@@ -950,21 +1068,246 @@ def _projections(state: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str,
     }
 
 
-def _manifest(state: dict[str, Any], rows: list[dict[str, Any]], projections: dict[str, bytes]) -> dict[str, Any]:
-    return {
+def verify_actual_play_source(run_dir: Path | str) -> dict[str, Any]:
+    """Recompute current-recorder actual-play provenance without report metadata.
+
+    This proves only that exact v2 recorder sources, payload bindings, log
+    slices, and transcript projection agree. It does not attest actor identity
+    or shared-filesystem isolation and must never upgrade evidence eligibility.
+    """
+    destination = (
+        run_dir
+        if getattr(run_dir, "_coc_anchored_path", False)
+        else Path(run_dir).absolute()
+    )
+    try:
+        state = _load_state(destination)
+        rows = _read_jsonl(destination / SOURCE_NAME, "turn source")
+        findings = _source_findings(destination, state, rows)
+        if state["status"] != "finalized":
+            findings.append("recorder_not_finalized")
+        if not rows:
+            findings.append("recorder_turns_missing")
+        expected_transcript = _projections(state, rows)["transcript.jsonl"]
+        transcript_path = destination / "transcript.jsonl"
+        if (
+            not transcript_path.is_file()
+            or transcript_path.is_symlink()
+            or transcript_path.read_bytes() != expected_transcript
+        ):
+            findings.append("transcript_projection_mismatch")
+        return {
+            "schema_version": 1,
+            "recorder_schema_version": SCHEMA_VERSION,
+            "protocol": PROTOCOL,
+            "run_id": state["run_id"],
+            "actual_play_occurred": not findings,
+            "evidence_grade": "NOT_ATTESTED",
+            "eligible_as_gameplay_evidence": False,
+            "shared_fs_isolation": "NOT_ATTESTED",
+            "findings": findings,
+        }
+    except RecorderError as exc:
+        return {
+            "schema_version": 1,
+            "recorder_schema_version": SCHEMA_VERSION,
+            "protocol": PROTOCOL,
+            "actual_play_occurred": False,
+            "evidence_grade": "NOT_ATTESTED",
+            "eligible_as_gameplay_evidence": False,
+            "shared_fs_isolation": "NOT_ATTESTED",
+            "findings": [exc.code],
+        }
+
+
+def _read_stable_file(path: Path, label: str) -> bytes:
+    info = _regular_file(path, label)
+    with path.open("rb") as handle:
+        opened = os.fstat(handle.fileno())
+        payload = handle.read()
+        after = os.fstat(handle.fileno())
+    if (
+        opened.st_dev != info.st_dev
+        or opened.st_ino != info.st_ino
+        or after.st_dev != info.st_dev
+        or after.st_ino != info.st_ino
+        or opened.st_size != len(payload)
+        or after.st_size != len(payload)
+        or opened.st_mtime_ns != after.st_mtime_ns
+    ):
+        raise RecorderError("source_snapshot_changed", f"{label} changed while it was captured")
+    return payload
+
+
+def _concatenated_slices(run_dir: Path, rows: list[dict[str, Any]], source_key: str) -> bytes:
+    chunks: list[bytes] = []
+    for row in rows:
+        source_record = row[source_key]
+        path = run_dir / source_record["snapshot_path"]
+        chunks.append(_read_stable_file(path, f"{source_key} turn slice"))
+    return b"".join(chunks)
+
+
+def _assert_all_source_bytes_captured(state: dict[str, Any]) -> None:
+    for state_key, label in (
+        ("toolbox_log", "toolbox log"),
+        ("roll_log", "roll log"),
+        ("event_log", "event log"),
+    ):
+        _source, info = _validate_source_log(state, state_key, label)
+        if info.st_size != state[state_key]["next_offset"]:
+            raise RecorderError(
+                "uncaptured_source_log_bytes",
+                f"{label} has bytes not bound to a recorded turn; append the completed turn before finalizing",
+            )
+
+
+def _report_source_projections(
+    run_dir: Path, state: dict[str, Any], rows: list[dict[str, Any]]
+) -> dict[str, bytes]:
+    campaign_id = state["campaign_id"]
+    investigator_id = state["investigator_id"]
+    workspace = Path(state["workspace"])
+    campaign_source = workspace / ".coc" / "campaigns" / campaign_id
+    campaign_output = Path("sandbox/.coc/campaigns") / campaign_id
+    projections: dict[str, bytes] = {
+        str(campaign_output / "logs/toolbox-calls.jsonl"): _concatenated_slices(
+            run_dir, rows, "toolbox_log"
+        ),
+        str(campaign_output / "logs/rolls.jsonl"): _concatenated_slices(
+            run_dir, rows, "roll_log"
+        ),
+        str(campaign_output / "logs/events.jsonl"): _concatenated_slices(
+            run_dir, rows, "event_log"
+        ),
+    }
+    for relative in REPORT_CONTEXT_CAMPAIGN_FILES:
+        source = campaign_source / relative
+        if not source.exists():
+            if relative in {"campaign.json", "party.json"}:
+                raise RecorderError("report_context_missing", f"required report context is missing: {relative}")
+            continue
+        projections[str(campaign_output / relative)] = _read_stable_file(
+            source, f"campaign report context {relative}"
+        )
+
+    investigator_candidates = (
+        workspace / ".coc" / "investigators" / investigator_id,
+        campaign_source / "investigators" / investigator_id,
+    )
+    investigator_source = next(
+        (candidate for candidate in investigator_candidates if candidate.is_dir() and not candidate.is_symlink()),
+        None,
+    )
+    if investigator_source is None:
+        raise RecorderError("report_context_missing", "investigator report context is missing")
+    investigator_output = Path("sandbox/.coc/investigators") / investigator_id
+    for relative in REPORT_CONTEXT_INVESTIGATOR_FILES:
+        source = investigator_source / relative
+        if not source.exists():
+            if relative == "character.json":
+                raise RecorderError("report_context_missing", "investigator character.json is missing")
+            continue
+        projections[str(investigator_output / relative)] = _read_stable_file(
+            source, f"investigator report context {relative}"
+        )
+
+    try:
+        module_meta = json.loads(
+            projections.get(str(campaign_output / "scenario/module-meta.json"), b"{}")
+        )
+    except json.JSONDecodeError as exc:
+        raise RecorderError("report_context_malformed", "scenario/module-meta.json is malformed") from exc
+    scenario_id = (
+        module_meta.get("scenario_id")
+        if isinstance(module_meta, dict)
+        else None
+    )
+    run_manifest = {
         "schema_version": 1,
+        "eval_spec": "eval-spec-v1",
+        "run_id": state["run_id"],
+        "case_id": state["run_id"],
+        "scenario_id": scenario_id or campaign_id,
+        "report_schema_version": 2,
+        "host_id": "main_codex_manual_NOT_ATTESTED",
+        "kp_model": None,
+        "player_model": None,
+        "prompt_hashes": {},
+        "evidence_grade": "NOT_ATTESTED",
+        "eligible_as_gameplay_evidence": False,
+    }
+    projections["run-manifest.json"] = (
+        json.dumps(run_manifest, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
+        + b"\n"
+    )
+    source_manifest = {
+        "schema_version": 1,
+        "recorder_schema_version": SCHEMA_VERSION,
+        "protocol": PROTOCOL,
+        "capture_policy": "turn_bounded_authoritative_log_slices_plus_finalize_context_snapshot",
+        "authoritative_logs": {
+            "rolls": str(campaign_output / "logs/rolls.jsonl"),
+            "events": str(campaign_output / "logs/events.jsonl"),
+            "toolbox": str(campaign_output / "logs/toolbox-calls.jsonl"),
+        },
+        "artifacts": {
+            name: {"sha256": _sha256_bytes(payload), "byte_length": len(payload)}
+            for name, payload in sorted(projections.items())
+        },
+    }
+    projections["report-source-manifest.json"] = (
+        json.dumps(source_manifest, ensure_ascii=False, indent=2, allow_nan=False).encode("utf-8")
+        + b"\n"
+    )
+    return projections
+
+
+def _load_eval_contract() -> Any:
+    path = Path(__file__).resolve().with_name("coc_eval_contract.py")
+    spec = importlib.util.spec_from_file_location("coc_codex_host_eval_contract", path)
+    if spec is None or spec.loader is None:
+        raise RecorderError("report_compiler_unavailable", "canonical report compiler is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _artifact_digests(run_dir: Path) -> dict[str, dict[str, Any]]:
+    excluded = {STATE_NAME, "artifact-manifest.json", "verification.json"}
+    artifacts: dict[str, dict[str, Any]] = {}
+    for path in sorted(run_dir.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(run_dir).as_posix()
+        if relative in excluded:
+            continue
+        artifacts[relative] = {
+            "sha256": _sha256_path(path),
+            "byte_length": path.stat().st_size,
+        }
+    return artifacts
+
+
+def _manifest(
+    state: dict[str, Any],
+    rows: list[dict[str, Any]],
+    artifacts: dict[str, dict[str, Any]],
+    report_contract: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
         "protocol": PROTOCOL,
         "run_id": state["run_id"],
         "status": "finalized",
         "turn_count": len(rows),
         "chain_head_sha256": state["chain_head_sha256"],
-        "artifacts": {
-            SOURCE_NAME: {"sha256": _sha256_bytes(_jsonl_bytes(rows))},
-            **{
-                name: {"sha256": _sha256_bytes(payload)}
-                for name, payload in sorted(projections.items())
-            },
-        },
+        "artifacts": artifacts,
+        "report_contract_status": report_contract.get("status"),
+        "report_completeness_passed": (
+            (report_contract.get("report_completeness") or {}).get("passed") is True
+        ),
         "evidence_boundary": state["evidence_boundary"],
     }
 
@@ -978,14 +1321,44 @@ def finalize_run(run_dir: Path | str) -> dict[str, Any]:
         raise RecorderError("record_integrity_failed", ",".join(findings))
     if not rows:
         raise RecorderError("empty_run", "record at least one completed turn before finalize")
-    if state["status"] == "open":
-        state["status"] = "finalized"
-        state["finalized_at"] = _utc_now()
-    projections = _projections(state, rows)
+    if state["status"] == "finalized":
+        receipt = verify_run(destination)
+        if not receipt["valid"]:
+            raise RecorderError("record_integrity_failed", ",".join(receipt["findings"]))
+        return _read_json(destination / "artifact-manifest.json", "artifact manifest")
+    _assert_all_source_bytes_captured(state)
+    open_state = json.loads(json.dumps(state, ensure_ascii=False))
+    state["status"] = "finalized"
+    state["finalized_at"] = _utc_now()
+    projections = {
+        **_projections(state, rows),
+        **_report_source_projections(destination, state, rows),
+    }
     for name, payload in projections.items():
         _atomic_write(destination / name, payload)
+    # The reporter recomputes exact current-recorder provenance from this state
+    # and turns.jsonl. Roll back to the open state if report compilation fails so
+    # the same current-schema run can retry without a migration or dual reader.
     _write_json(destination / STATE_NAME, state)
-    manifest = _manifest(state, rows, projections)
+    try:
+        report_contract = _load_eval_contract().compile_report_contract(
+            destination, generate_base_report=True
+        )
+    except Exception as exc:
+        _write_json(destination / STATE_NAME, open_state)
+        if isinstance(exc, RecorderError):
+            raise
+        raise RecorderError("report_compilation_failed", str(exc)) from exc
+    completeness = report_contract.get("report_completeness") or {}
+    if completeness.get("passed") is not True:
+        _write_json(destination / STATE_NAME, open_state)
+        raise RecorderError("report_completeness_failed", "canonical report completeness did not pass")
+    manifest = _manifest(
+        state,
+        rows,
+        _artifact_digests(destination),
+        report_contract,
+    )
     _write_json(destination / "artifact-manifest.json", manifest)
     receipt = verify_run(destination)
     _write_json(destination / "verification.json", receipt)
@@ -1004,6 +1377,10 @@ def verify_run(run_dir: Path | str) -> dict[str, Any]:
             expected = _projections(state, rows)
             for name, payload in expected.items():
                 path = destination / name
+                # The canonical report compiler adds computed epistemic metrics to
+                # playtest.json. Its final bytes are instead bound by the manifest.
+                if name == "playtest.json":
+                    continue
                 if not path.is_file() or path.is_symlink() or path.read_bytes() != payload:
                     findings.append(f"final_artifact_mismatch:{name}")
             manifest_path = destination / "artifact-manifest.json"
@@ -1011,8 +1388,65 @@ def verify_run(run_dir: Path | str) -> dict[str, Any]:
                 findings.append("artifact_manifest_missing")
             else:
                 manifest = _read_json(manifest_path, "artifact manifest")
-                if manifest != _manifest(state, rows, expected):
+                if (
+                    manifest.get("schema_version") != 2
+                    or manifest.get("protocol") != PROTOCOL
+                    or manifest.get("run_id") != state["run_id"]
+                    or manifest.get("status") != "finalized"
+                    or manifest.get("turn_count") != len(rows)
+                    or manifest.get("chain_head_sha256") != state["chain_head_sha256"]
+                    or manifest.get("report_contract_status") not in {"INELIGIBLE", "PASS"}
+                    or manifest.get("report_completeness_passed") is not True
+                    or manifest.get("evidence_boundary") != state["evidence_boundary"]
+                    or not isinstance(manifest.get("artifacts"), dict)
+                ):
                     findings.append("artifact_manifest_mismatch")
+                else:
+                    required_artifacts = {
+                        SOURCE_NAME,
+                        *FINAL_ARTIFACTS,
+                        "artifacts/battle-report.md",
+                        "artifacts/report-completeness.json",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/logs/rolls.jsonl",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/logs/events.jsonl",
+                    }
+                    if not required_artifacts.issubset(manifest["artifacts"]):
+                        findings.append("artifact_manifest_required_entries_missing")
+                    for relative, receipt in manifest["artifacts"].items():
+                        candidate = Path(str(relative))
+                        path = destination / candidate
+                        if (
+                            candidate.is_absolute()
+                            or ".." in candidate.parts
+                            or not isinstance(receipt, dict)
+                            or set(receipt) != {"sha256", "byte_length"}
+                            or SHA256.fullmatch(str(receipt.get("sha256") or "")) is None
+                            or isinstance(receipt.get("byte_length"), bool)
+                            or not isinstance(receipt.get("byte_length"), int)
+                            or receipt["byte_length"] < 0
+                            or not path.is_file()
+                            or path.is_symlink()
+                            or _sha256_path(path) != receipt["sha256"]
+                            or path.stat().st_size != receipt["byte_length"]
+                        ):
+                            findings.append(f"manifest_artifact_mismatch:{relative}")
+            playtest = _read_json(destination / "playtest.json", "playtest metadata")
+            if (
+                playtest.get("actual_play_occurred") is not True
+                or playtest.get("report_kind") != "battle_report"
+                or playtest.get("evidence_grade") != "NOT_ATTESTED"
+                or playtest.get("collaboration_attestation") != "NOT_ATTESTED"
+                or playtest.get("shared_fs_isolation") != "NOT_ATTESTED"
+                or playtest.get("eligible_as_gameplay_evidence") is not False
+                or playtest.get("recorder_protocol") != PROTOCOL
+            ):
+                findings.append("playtest_evidence_boundary_mismatch")
+            completeness = _read_json(
+                destination / "artifacts" / "report-completeness.json",
+                "report completeness",
+            )
+            if completeness.get("passed") is not True:
+                findings.append("report_completeness_failed")
         return {
             "schema_version": 1,
             "protocol": PROTOCOL,

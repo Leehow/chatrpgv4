@@ -290,26 +290,37 @@ uv run --frozen python ../../scripts/coc_codex_host_playtest.py finalize --run-d
 uv run --frozen python ../../scripts/coc_codex_host_playtest.py verify --run-dir <run-dir>
 ```
 
-The `append-turn` JSON is an exact schema-version-1 object containing
+The `append-turn` relay JSON remains an exact schema-version-1
+`codex_subagent_player_v1` object containing
 `player_request`, `subagent_response`, and `kp_narration`. Record only after the
-main Codex has completed the turn. The recorder snapshots the new byte range of
+main Codex has completed the turn. Recorder schema v2 snapshots the new byte
+ranges of authoritative `rolls.jsonl` and `events.jsonl` alongside
 `toolbox-calls.jsonl`, binds stable actor/task ids, and writes a hash-chained
-`turns.jsonl`. `finalize` projects the source into `transcript.jsonl`,
+`turns.jsonl`. `finalize` refuses uncaptured trailing source bytes, projects the
+source into `transcript.jsonl`,
 `player-view.jsonl`, `keeper-view.jsonl`, `runner-invocations.jsonl`,
-`player-requests.jsonl`, and `subagent-responses.jsonl` for a later report
-exporter. It does not call or impersonate the existing report/evidence compiler.
+`player-requests.jsonl`, and `subagent-responses.jsonl`, exports the exact
+turn-bounded campaign roll/event logs into the run sandbox, and calls the
+canonical report compiler. A structured main-Codex-host actual play therefore
+renders `artifacts/battle-report.md`; `artifacts/report-completeness.json` passes
+only when every required public source roll is rendered exactly once.
 
 These records are `orchestrator_attested` at a `manual` attestation level.
 Shared-filesystem isolation remains `NOT_ATTESTED`; the hash chain is artifact
 integrity, not cryptographic actor identity; and finalization never upgrades
-the evidence grade automatically. Old or mismatched recorder directories are
-rejected with a delete-and-restart instruction. There is no migration reader.
+the evidence grade automatically. The battle report visibly remains
+evidence-ineligible even when Dice Completeness passes. Missing source logs,
+missing public roll rows, or missing transcript evidence fail closed and are
+never reconstructed from narration or toolbox arguments. Old or mismatched
+recorder directories are rejected with a delete-and-restart instruction.
+There is no migration reader.
 The recorder never evaluates narration, scenes, clues, or story eligibility and
 must not be inserted as a runtime narrative gate.
 
-For long-lived production-path white-box play (Masks Peru/America and similar), use
-`../../scripts/coc_interactive_playtest.py` rather than the Haunting simulated-player
-harness profiles below. The interactive driver speaks JSONL over stdin/stdout,
+For long-lived production-path white-box play (Masks Peru/America and similar),
+use `../../scripts/coc_interactive_playtest.py` rather than the Haunting
+simulated-player harness profiles below. The interactive driver speaks JSONL
+over stdin/stdout,
 calls only `runtime.sdk.api.send`, checkpoints every accepted turn, and resumes from
 validated checkpoints into a fresh workspace generation.
 

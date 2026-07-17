@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -3476,25 +3477,71 @@ def _evidence_sensitive_metadata(
     return values
 
 
+def _verified_codex_host_recorder_actual_play(
+    run_dir: Path, metadata: dict[str, Any]
+) -> bool:
+    """Recompute current-recorder provenance without trusting playtest metadata."""
+    if metadata.get("recorder_protocol") != "codex_host_manual_playtest_v2":
+        return False
+    path = Path(__file__).resolve().with_name("coc_codex_host_playtest.py")
+    spec = importlib.util.spec_from_file_location(
+        "coc_playtest_report_codex_host_recorder", path
+    )
+    if spec is None or spec.loader is None:
+        return False
+    module = importlib.util.module_from_spec(spec)
+    try:
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        receipt = module.verify_actual_play_source(run_dir)
+    except Exception:
+        return False
+    return bool(
+        receipt.get("protocol") == "codex_host_manual_playtest_v2"
+        and receipt.get("recorder_schema_version") == 2
+        and receipt.get("run_id") == metadata.get("run_id")
+        and receipt.get("actual_play_occurred") is True
+        and receipt.get("eligible_as_gameplay_evidence") is False
+        and receipt.get("evidence_grade") == "NOT_ATTESTED"
+        and receipt.get("shared_fs_isolation") == "NOT_ATTESTED"
+    )
+
+
 @published_run_consumer(require_metadata=True)
 def generate_battle_report(run_dir: Path) -> Path:
     metadata = _read_json(run_dir / "playtest.json", {})
     evidence_receipt = read_evidence_receipt(run_dir)
-    # Classification is derived only from the recomputed receipt. Metadata is
-    # descriptive and cannot self-attest an unknown/scripted runner as actual play.
+    # Actual-play occurrence and evidence eligibility are separate facts. A
+    # current-schema manual Codex-host recorder can establish that a structured
+    # player/KP exchange occurred without establishing cryptographic actor
+    # identity or shared-filesystem isolation.
     run_kind = evidence_receipt.get("run_kind") or evidence_receipt.get("play_kind")
     eligible = evidence_receipt.get("eligible_as_gameplay_evidence") is True
+    transcript_rows = _read_jsonl(run_dir / "transcript.jsonl")
+    transcript_roles = {
+        str(row.get("role"))
+        for row in transcript_rows
+        if isinstance(row.get("text"), str) and row["text"].strip()
+    }
+    structured_actual_play_transcript = {
+        "player_simulator", "keeper_under_test"
+    }.issubset(transcript_roles)
+    recorder_actual_play = _verified_codex_host_recorder_actual_play(
+        run_dir, metadata
+    )
+    actual_play_occurred = (
+        run_kind == "blind_actual_play"
+        and eligible
+        and structured_actual_play_transcript
+    ) or recorder_actual_play
+    identity_ineligible_actual_play = actual_play_occurred and not eligible
     if run_kind == "diagnostic_spoiler_run":
         report_basename = "diagnostic-play-report.md"
         non_gameplay_sample = True
         diagnostic_spoiler = True
-    elif run_kind == "blind_actual_play" and eligible:
+    elif actual_play_occurred:
         report_basename = "battle-report.md"
         non_gameplay_sample = False
-        diagnostic_spoiler = False
-    elif run_kind == "blind_actual_play":
-        report_basename = "verification-sample.md"
-        non_gameplay_sample = True
         diagnostic_spoiler = False
     else:
         report_basename = (
@@ -3934,7 +3981,14 @@ def generate_battle_report(run_dir: Path) -> Path:
                     "",
                 ]
                 if non_gameplay_sample
-                else []
+                else (
+                    [
+                        "**ACTUAL PLAY, EVIDENCE-INELIGIBLE: actor identity, collaboration provenance, and shared-filesystem isolation remain NOT_ATTESTED. This battle report is not qualified evidence for an official gameplay PASS.**",
+                        "",
+                    ]
+                    if identity_ineligible_actual_play
+                    else []
+                )
             )
         ),
         _report_heading(2, "Run Setup", language_profile),

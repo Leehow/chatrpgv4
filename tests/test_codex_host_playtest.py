@@ -68,12 +68,57 @@ def _record(actor_id, turn, *, narration="墙上的裂痕在烛光下像一条�
     }
 
 
+def _prepare_workspace(workspace, *, campaign_id="haunting", investigator_id="ada"):
+    campaign = workspace / ".coc" / "campaigns" / campaign_id
+    logs = campaign / "logs"
+    scenario = campaign / "scenario"
+    logs.mkdir(parents=True)
+    scenario.mkdir()
+    (logs / "toolbox-calls.jsonl").write_text('{"before":"run"}\n', encoding="utf-8")
+    (logs / "rolls.jsonl").write_text("", encoding="utf-8")
+    (logs / "events.jsonl").write_text("", encoding="utf-8")
+    (campaign / "campaign.json").write_text(
+        json.dumps({"schema_version": 1, "campaign_id": campaign_id, "title": "鬼屋"}),
+        encoding="utf-8",
+    )
+    (campaign / "party.json").write_text(
+        json.dumps({"schema_version": 1, "campaign_id": campaign_id, "investigator_ids": [investigator_id]}),
+        encoding="utf-8",
+    )
+    (scenario / "module-meta.json").write_text(
+        json.dumps({"schema_version": 1, "scenario_id": "the-haunting", "title": "鬼屋"}),
+        encoding="utf-8",
+    )
+    (scenario / "clue-graph.json").write_text(
+        json.dumps({"schema_version": 1, "clues": [], "conclusions": []}),
+        encoding="utf-8",
+    )
+    investigator = workspace / ".coc" / "investigators" / investigator_id
+    investigator.mkdir(parents=True)
+    (investigator / "character.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "id": investigator_id,
+                "name": "艾达",
+                "occupation": "记者",
+                "characteristics": {"POW": 60},
+                "derived": {"HP": 10, "SAN": 60},
+                "skills": {"Spot Hidden": 55},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return campaign, logs
+
+
 def _new_run(tmp_path):
     module = _load()
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    toolbox = workspace / "toolbox-calls.jsonl"
-    toolbox.write_text('{"before":"run"}\n', encoding="utf-8")
+    _campaign, logs = _prepare_workspace(workspace)
+    toolbox = logs / "toolbox-calls.jsonl"
     run_dir = tmp_path / "run"
     state = module.init_run(
         run_dir,
@@ -90,6 +135,39 @@ def _new_run(tmp_path):
 
 def _jsonl(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def _append_jsonl(path, row):
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _pending_record(actor_id, turn):
+    record = _record(actor_id, turn, narration="你接受风险，门锁发出清脆的一声。")
+    pending = {
+        "choice_id": "push-lock-1",
+        "responder": "player",
+        "revision": 1,
+        "options": [
+            {"action": "push", "label": "孤注一掷"},
+            {"action": "decline", "label": "放弃"},
+        ],
+    }
+    record["player_request"]["request"]["pending_choice"] = pending
+    binding = {
+        key: record["player_request"][key]
+        for key in ("schema_version", "protocol", "actor_id", "turn", "request")
+    }
+    request_sha = _canonical_sha(binding)
+    record["player_request"]["request_sha256"] = request_sha
+    record["subagent_response"]["request_sha256"] = request_sha
+    record["subagent_response"]["pending_choice_response"] = {
+        "choice_id": "push-lock-1",
+        "responder": "player",
+        "revision": 1,
+        "action": "push",
+    }
+    return record
 
 
 def test_manual_codex_host_lifecycle_exports_current_schema_artifacts(tmp_path):
@@ -113,6 +191,8 @@ def test_manual_codex_host_lifecycle_exports_current_schema_artifacts(tmp_path):
     assert turn["toolbox_log"]["start_offset"] == state["toolbox_log"]["initial_offset"]
     assert turn["toolbox_log"]["byte_length"] == len(appended.encode())
     assert (run_dir / turn["toolbox_log"]["snapshot_path"]).read_text() == appended
+    assert turn["roll_log"]["byte_length"] == 0
+    assert turn["event_log"]["byte_length"] == 0
     assert len(turn["row_sha256"]) == 64
 
     manifest = module.finalize_run(run_dir)
@@ -145,6 +225,236 @@ def test_manual_codex_host_lifecycle_exports_current_schema_artifacts(tmp_path):
     assert playtest["automatic_evidence_upgrade"] is False
 
 
+def test_current_recorder_renders_ineligible_actual_play_battle_report_with_complete_dice(tmp_path):
+    module, run_dir, toolbox, _state = _new_run(tmp_path)
+    campaign_logs = toolbox.parent
+    clue_graph = campaign_logs.parent / "scenario" / "clue-graph.json"
+    clue_graph.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "conclusions": [
+                    {
+                        "id": "archive",
+                        "clues": [
+                            {
+                                "clue_id": "clue-archive-date",
+                                "player_safe_summary": "旧档案把火灾日期指向1878年。",
+                                "visibility": "player-safe",
+                            }
+                        ],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    _append_jsonl(toolbox, {"tool": "rules.check", "decision_id": "t1-roll"})
+    _append_jsonl(
+        campaign_logs / "rolls.jsonl",
+        {
+            "event_type": "roll",
+            "type": "roll",
+            "actor": "ada",
+            "visibility": "public",
+            "roll_id": "codex-host-roll-001",
+            "payload": {
+                "roll_id": "codex-host-roll-001",
+                "investigator_id": "ada",
+                "skill": "Spot Hidden",
+                "target": 55,
+                "effective_target": 55,
+                "difficulty": "regular",
+                "bonus": 0,
+                "penalty": 0,
+                "roll": 23,
+                "outcome": "hard_success",
+                "pushed": False,
+                "reason": "检查门厅裂痕",
+            },
+        },
+    )
+    _append_jsonl(
+        campaign_logs / "events.jsonl",
+        {
+            "event_type": "scene_transition",
+            "from_scene_id": "front-door",
+            "to_scene_id": "entrance-hall",
+            "summary": "艾达从门前进入门厅。",
+        },
+    )
+    _append_jsonl(
+        campaign_logs / "events.jsonl",
+        {
+            "event_type": "clue_discovered",
+            "clue_id": "clue-archive-date",
+            "method": "检查墙面",
+        },
+    )
+    _append_jsonl(
+        campaign_logs / "events.jsonl",
+        {
+            "event_type": "storylet_move",
+            "storylet_id": "hall-light-flicker",
+            "cue": "门厅灯光忽明忽暗，强化了宅邸正在回应调查者的感觉",
+            "summary": "门厅灯光忽明忽暗，强化了宅邸正在回应调查者的感觉。",
+        },
+    )
+    module.append_turn(run_dir, _record("player-agent-01", 1))
+    _append_jsonl(toolbox, {"tool": "state.set_flag", "decision_id": "t2-choice"})
+    _append_jsonl(
+        campaign_logs / "events.jsonl",
+        {
+            "event_type": "turn",
+            "turn_number": 2,
+            "player_action": "接受孤注一掷",
+            "summary": "艾达接受风险并继续开锁。",
+        },
+    )
+    module.append_turn(run_dir, _pending_record("player-agent-01", 2))
+
+    manifest = module.finalize_run(run_dir)
+    report = run_dir / "artifacts" / "battle-report.md"
+    completeness_path = run_dir / "artifacts" / "report-completeness.json"
+    assert report.is_file()
+    assert not (run_dir / "artifacts" / "verification-sample.md").exists()
+    report_text = report.read_text(encoding="utf-8")
+    assert "ACTUAL PLAY, EVIDENCE-INELIGIBLE" in report_text
+    assert "NOT_ATTESTED" in report_text
+    assert "我检查墙上的裂痕。" in report_text
+    assert "你接受风险，门锁发出清脆的一声。" in report_text
+    assert "艾达" in report_text
+    assert "clue-archive-date" in report_text or "1878" in report_text
+    assert "hall-light-flicker" in report_text
+    assert "门厅灯光忽明忽暗" in report_text
+    assert "codex-host-roll-001" in report_text
+    assert "report-anchor: rules-and-dice" in report_text
+    completeness = json.loads(completeness_path.read_text(encoding="utf-8"))
+    assert completeness["passed"] is True
+    assert completeness["source_roll_count"] == 1
+    assert completeness["required_public_roll_count"] == 1
+    assert completeness["rendered_public_roll_count"] == 1
+    assert manifest["report_contract_status"] == "INELIGIBLE"
+    assert manifest["report_completeness_passed"] is True
+    playtest = json.loads((run_dir / "playtest.json").read_text(encoding="utf-8"))
+    assert playtest["actual_play_occurred"] is True
+    assert playtest["eligible_as_gameplay_evidence"] is False
+    assert playtest["evidence_grade"] == "NOT_ATTESTED"
+    assert playtest["collaboration_attestation"] == "NOT_ATTESTED"
+    assert playtest["shared_fs_isolation"] == "NOT_ATTESTED"
+    assert module.verify_run(run_dir)["valid"] is True
+
+    # The canonical verifier recomputes from the exported source log. Removing
+    # one rendered roll never gets repaired from narration or toolbox args.
+    report.write_text(
+        "\n".join(
+            line for line in report_text.splitlines() if "[roll-id: codex-host-roll-001]" not in line
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    eval_script = Path("plugins/coc-keeper/scripts/coc_eval.py")
+    failed = subprocess.run(
+        [sys.executable, str(eval_script), "verify", str(run_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    failed_payload = json.loads(failed.stdout)
+    assert failed.returncode != 0
+    assert failed_payload["status"] == "FAIL"
+    assert failed_payload["report_completeness"]["missing_roll_ids"] == ["codex-host-roll-001"]
+
+    regenerated = subprocess.run(
+        [sys.executable, str(eval_script), "report", str(run_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    regenerated_payload = json.loads(regenerated.stdout)
+    assert regenerated_payload["status"] == "INELIGIBLE"
+    exported_roll_log = (
+        run_dir
+        / "sandbox"
+        / ".coc"
+        / "campaigns"
+        / "haunting"
+        / "logs"
+        / "rolls.jsonl"
+    )
+    exported_roll_log.unlink()
+    missing_source = subprocess.run(
+        [sys.executable, str(eval_script), "verify", str(run_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    missing_source_payload = json.loads(missing_source.stdout)
+    assert missing_source.returncode != 0
+    assert missing_source_payload["status"] == "FAIL"
+    assert missing_source_payload["report_completeness"]["source_logs_present"] is False
+
+
+def test_missing_transcript_cannot_preserve_actual_play_report_classification(tmp_path):
+    module, run_dir, toolbox, _state = _new_run(tmp_path)
+    with toolbox.open("a", encoding="utf-8") as handle:
+        handle.write('{"tool":"state.record_clue"}\n')
+    module.append_turn(run_dir, _record("player-agent-01", 1))
+    module.finalize_run(run_dir)
+    (run_dir / "transcript.jsonl").unlink()
+    report_module_path = Path("plugins/coc-keeper/scripts/coc_playtest_report.py")
+    spec = importlib.util.spec_from_file_location("coc_report_missing_transcript", report_module_path)
+    report_module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(report_module)
+    generated = report_module.generate_battle_report(run_dir)
+    assert generated.name == "verification-sample.md"
+    assert not (run_dir / "artifacts" / "battle-report.md").exists()
+
+
+def test_forged_metadata_and_transcript_roles_do_not_self_attest_actual_play(tmp_path):
+    run_dir = tmp_path / "forged-run"
+    run_dir.mkdir()
+    (run_dir / "playtest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "forged-run",
+                "campaign_id": "haunting",
+                "recorder_protocol": "codex_host_manual_playtest_v2",
+                "actual_play_occurred": True,
+                "play_kind": "blind_actual_play",
+                "report_kind": "battle_report",
+                "eligible_as_gameplay_evidence": False,
+                "evidence_grade": "NOT_ATTESTED",
+                "shared_fs_isolation": "NOT_ATTESTED",
+                "play_language": "zh-Hans",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "transcript.jsonl").write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False) + "\n"
+            for row in (
+                {"turn": 1, "role": "player_simulator", "text": "我调查。"},
+                {"turn": 1, "role": "keeper_under_test", "text": "你发现线索。"},
+            )
+        ),
+        encoding="utf-8",
+    )
+    report_module_path = Path("plugins/coc-keeper/scripts/coc_playtest_report.py")
+    spec = importlib.util.spec_from_file_location("coc_report_forged_recorder", report_module_path)
+    report_module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(report_module)
+    generated = report_module.generate_battle_report(run_dir)
+    assert generated.name == "verification-sample.md"
+    assert not (run_dir / "artifacts" / "battle-report.md").exists()
+
+
 def test_hash_chain_and_projection_verification_detect_tampering(tmp_path):
     module, run_dir, toolbox, _ = _new_run(tmp_path)
     with toolbox.open("a", encoding="utf-8") as handle:
@@ -168,12 +478,45 @@ def test_recorder_rejects_old_save_instead_of_migrating(tmp_path):
     run_dir = tmp_path / "old-run"
     run_dir.mkdir()
     (run_dir / module.STATE_NAME).write_text(
-        json.dumps({"schema_version": 0, "turns": []}), encoding="utf-8"
+        json.dumps(
+            {
+                "schema_version": 1,
+                "protocol": "codex_host_manual_playtest_v1",
+                "turns": [],
+            }
+        ),
+        encoding="utf-8",
     )
     (run_dir / module.SOURCE_NAME).write_text("", encoding="utf-8")
     with pytest.raises(module.RecorderError, match="delete the run and restart") as error:
         module.append_turn(run_dir, _record("player-agent-01", 1))
     assert error.value.code == "unsupported_save_schema"
+
+
+def test_finalize_rejects_authoritative_log_bytes_not_bound_to_a_turn(tmp_path):
+    module, run_dir, toolbox, _ = _new_run(tmp_path)
+    with toolbox.open("a", encoding="utf-8") as handle:
+        handle.write('{"tool":"rules.check"}\n')
+    module.append_turn(run_dir, _record("player-agent-01", 1))
+    _append_jsonl(
+        toolbox.parent / "rolls.jsonl",
+        {
+            "event_type": "roll",
+            "actor": "ada",
+            "visibility": "public",
+            "roll_id": "late-unbound-roll",
+            "payload": {
+                "skill": "Spot Hidden",
+                "target": 55,
+                "effective_target": 55,
+                "roll": 44,
+                "outcome": "success",
+            },
+        },
+    )
+    with pytest.raises(module.RecorderError) as error:
+        module.finalize_run(run_dir)
+    assert error.value.code == "uncaptured_source_log_bytes"
 
 
 def test_recorder_checks_protocol_binding_but_does_not_audit_narrative(tmp_path):
@@ -197,8 +540,8 @@ def test_recorder_checks_protocol_binding_but_does_not_audit_narrative(tmp_path)
 def test_cli_supports_init_append_finalize_and_verify(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    toolbox = workspace / "toolbox-calls.jsonl"
-    toolbox.write_text("", encoding="utf-8")
+    _campaign, logs = _prepare_workspace(workspace)
+    toolbox = logs / "toolbox-calls.jsonl"
     run_dir = tmp_path / "cli-run"
     common = [sys.executable, str(SCRIPT)]
     initialized = subprocess.run(
