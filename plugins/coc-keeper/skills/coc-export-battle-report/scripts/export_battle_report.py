@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export one COC playtest as a deterministic report source-bundle pair."""
+"""Build the final player-readable battle report from one real playtest run."""
 
 from __future__ import annotations
 
@@ -7,49 +7,21 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 1
-JSON_OUTPUT = "battle-report-source-bundle.json"
-MARKDOWN_OUTPUT = "battle-report-source-bundle.md"
-CANONICAL_REPORTS = (
-    "battle-report.md",
-    "verification-sample.md",
-    "diagnostic-play-report.md",
-)
+SCHEMA_VERSION = 2
+JSON_OUTPUT = "battle-report-evidence.json"
+MARKDOWN_OUTPUT = "battle-report.md"
+METADATA_CANDIDATES = ("run.json", "playtest.json")
 KEEPER_ROLES = {"keeper", "keeper_under_test", "kp", "narrator"}
 PLAYER_ROLES = {"player", "player_simulator"}
 DIALOGUE_ROLES = KEEPER_ROLES | PLAYER_ROLES
-RUN_JSON = (
-    "playtest.json",
-    "match-result.json",
-    "run-manifest.json",
-    "run-identity.json",
-    "artifacts/report-completeness.json",
-)
-PLAYER_SAFE_RUN_JSONL = (
-    "player-view.jsonl",
-    "player-feedback.jsonl",
-)
-INVESTIGATOR_JSONL = (
-    "history.jsonl",
-    "development.jsonl",
-    "inventory-history.jsonl",
-)
-CAMPAIGN_JSON = (
-    "campaign.json",
-    "party.json",
-    "save/active-scene.json",
-    "save/combat.json",
-    "save/chase.json",
-    "save/flags.json",
-    "save/world-state.json",
-)
+PUBLIC_VISIBILITIES = {"public", "consequence_public"}
 MARKDOWN_HIDDEN_KEYS = {
     "clue_graph",
     "keeper_notes",
@@ -188,89 +160,6 @@ def _campaign_relative(run_dir: Path, metadata: Any) -> str | None:
     return choices[0].relative_to(run_dir).as_posix() if len(choices) == 1 else None
 
 
-def _investigator_ids(run_dir: Path, party: Any) -> tuple[list[str], bool]:
-    party_ids = _party_ids(party)
-    if party_ids:
-        return party_ids, True
-    root = run_dir / "sandbox" / ".coc" / "investigators"
-    if not root.is_dir() or root.is_symlink():
-        return [], False
-    return (
-        sorted(
-            path.name
-            for path in root.iterdir()
-            if path.is_dir() and not path.is_symlink() and not path.name.startswith(".")
-        ),
-        False,
-    )
-
-
-def _receipt_status(receipt: Any) -> str:
-    if not isinstance(receipt, dict):
-        return "MISSING"
-    if receipt.get("passed") is True:
-        return "PASS"
-    if receipt.get("passed") is False:
-        return "FAIL"
-    if receipt.get("valid") is True:
-        return "PASS"
-    if receipt.get("valid") is False:
-        return "FAIL"
-    status = receipt.get("status")
-    if isinstance(status, str):
-        return status
-    return "UNKNOWN"
-
-
-def _canonical_report_binding(run_dir: Path, receipt: Any) -> dict[str, Any]:
-    artifacts = run_dir / "artifacts"
-    report_path = None
-    for name in CANONICAL_REPORTS:
-        candidate = artifacts / name
-        if candidate.is_symlink():
-            return {
-                "binding_status": "CANONICAL_REPORT_UNSAFE",
-                "path": f"artifacts/{name}",
-                "sha256": None,
-            }
-        if candidate.exists() and not candidate.is_file():
-            return {
-                "binding_status": "CANONICAL_REPORT_UNSAFE",
-                "path": f"artifacts/{name}",
-                "sha256": None,
-            }
-        if candidate.is_file():
-            report_path = candidate
-            break
-    if report_path is None:
-        return {
-            "binding_status": "CANONICAL_REPORT_MISSING",
-            "path": None,
-            "sha256": None,
-        }
-    report_hash = _sha256(report_path.read_bytes())
-    expected = None
-    if isinstance(receipt, dict):
-        for key in ("battle_report_sha256", "report_sha256"):
-            if isinstance(receipt.get(key), str):
-                expected = receipt[key]
-                break
-    if not isinstance(receipt, dict):
-        binding_status = "RECEIPT_MISSING"
-    elif expected is None:
-        binding_status = "RECEIPT_PRESENT_NO_REPORT_HASH"
-    elif expected == report_hash:
-        binding_status = "MATCH"
-    else:
-        binding_status = "MISMATCH"
-    return {
-        "binding_status": binding_status,
-        "path": f"artifacts/{report_path.name}",
-        "sha256": report_hash,
-        "receipt_expected_sha256": expected,
-    }
-
-
 def _is_dialogue_row(row: Any) -> bool:
     return (
         isinstance(row, dict)
@@ -294,14 +183,6 @@ def _card_status(value: Any) -> str:
     return "PRESENT"
 
 
-def _speaker_label(row: dict[str, Any]) -> tuple[str, str]:
-    for field in ("speaker_display", "speaker"):
-        value = row.get(field)
-        if isinstance(value, str) and value.strip():
-            return field, value
-    return "role", str(row["role"])
-
-
 def _roll_visibility(row: Any) -> str:
     if not isinstance(row, dict):
         return "unknown"
@@ -313,22 +194,69 @@ def _roll_visibility(row: Any) -> str:
     return "public" if row.get("secret") is not True else "keeper_only"
 
 
+def _roll_id(row: Any) -> str | None:
+    if not isinstance(row, dict):
+        return None
+    payload = row.get("payload")
+    for source in (row, payload if isinstance(payload, dict) else {}):
+        value = source.get("roll_id")
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _has_numeric_roll(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    payload = row.get("payload")
+    for source in (row, payload if isinstance(payload, dict) else {}):
+        for key in ("roll", "rolls", "total", "result", "value"):
+            value = source.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return True
+            if isinstance(value, list) and value and all(
+                isinstance(item, (int, float)) and not isinstance(item, bool)
+                for item in value
+            ):
+                return True
+    return False
+
+
+def _hidden_key(key: Any) -> bool:
+    normalized = str(key).casefold()
+    return (
+        normalized in MARKDOWN_HIDDEN_KEYS
+        or normalized.startswith(("keeper_", "private_", "hidden_", "secret_"))
+        or normalized.endswith("_secret")
+    )
+
+
+def _player_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        if value.get("secret") is True or value.get("visibility") == "keeper_only":
+            return {"redacted": True}
+        return {
+            str(key): _player_safe(child)
+            for key, child in value.items()
+            if not _hidden_key(key)
+        }
+    if isinstance(value, list):
+        return [_player_safe(item) for item in value]
+    return value
+
+
 def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     manifest: dict[str, dict[str, Any]] = {}
-    run_inputs: dict[str, Any] = {}
-    for relative in RUN_JSON:
-        value = _read_source(
-            run_dir,
-            relative,
-            "json",
-            manifest,
-            required=relative == "playtest.json",
-        )
-        if value is not None:
-            run_inputs[relative] = value
-    metadata = run_inputs.get("playtest.json")
-    if not isinstance(metadata, dict):
-        metadata = {}
+    metadata_source = METADATA_CANDIDATES[0]
+    raw_metadata = None
+    for relative in METADATA_CANDIDATES:
+        if _safe_source_path(run_dir, relative).exists():
+            metadata_source = relative
+            raw_metadata = _read_source(run_dir, relative, "json", manifest, required=True)
+            break
+    if raw_metadata is None:
+        raw_metadata = _read_source(run_dir, metadata_source, "json", manifest)
+    metadata = _safe_metadata(raw_metadata)
 
     final_path = run_dir / "transcript.jsonl"
     partial_path = run_dir / "partial-transcript.jsonl"
@@ -345,99 +273,95 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     else:
         transcript_relative = "transcript.jsonl"
         transcript_complete = False
-    transcript = _read_source(run_dir, transcript_relative, "jsonl", manifest) or []
-    run_inputs[transcript_relative] = transcript
+    transcript = _read_source(
+        run_dir, transcript_relative, "jsonl", manifest,
+        required=final_path.exists() or partial_path.exists(),
+    ) or []
+    dialogue = []
+    for source_line, row in enumerate(transcript, start=1):
+        if not _is_dialogue_row(row):
+            continue
+        projected = {"source_line": source_line, "role": row["role"], "text": row["text"]}
+        for key in ("turn", "speaker", "speaker_display", "text_display"):
+            if isinstance(row.get(key), (str, int, float)):
+                projected[key] = row[key]
+        dialogue.append(projected)
 
-    for relative in PLAYER_SAFE_RUN_JSONL:
-        value = _read_source(run_dir, relative, "jsonl", manifest)
-        if value is not None:
-            run_inputs[relative] = value
+    campaign_relative = _campaign_relative(run_dir, raw_metadata)
+    party = _read_source(run_dir, f"{campaign_relative}/party.json", "json", manifest) if campaign_relative else None
+    investigator_ids = _party_ids(party)
+    roots = [run_dir / "sandbox" / ".coc" / "investigators"]
+    if campaign_relative:
+        roots.insert(0, run_dir / campaign_relative / "save" / "investigator-state")
+    for root in roots:
+        if not root.is_dir() or root.is_symlink():
+            continue
+        for path in sorted(root.iterdir()):
+            candidate = path.stem if path.is_file() and path.suffix == ".json" else path.name
+            if (path.is_file() or path.is_dir()) and not path.is_symlink() and candidate not in investigator_ids:
+                investigator_ids.append(candidate)
 
-    campaign_relative = _campaign_relative(run_dir, metadata)
-    campaign_inputs: dict[str, Any] = {}
-    if campaign_relative is not None:
-        for suffix in CAMPAIGN_JSON:
-            value = _read_source(
-                run_dir, f"{campaign_relative}/{suffix}", "json", manifest
-            )
-            if value is not None:
-                campaign_inputs[suffix] = value
-
-    party = campaign_inputs.get("party.json")
-    investigator_ids, party_resolved = _investigator_ids(run_dir, party)
-    if campaign_relative is not None:
-        for investigator_id in investigator_ids:
-            suffix = f"save/investigator-state/{investigator_id}.json"
-            value = _read_source(
-                run_dir, f"{campaign_relative}/{suffix}", "json", manifest
-            )
-            if value is not None:
-                campaign_inputs[suffix] = value
     investigators: list[dict[str, Any]] = []
-    missing_character_ids: list[str] = []
-    missing_creation_ids: list[str] = []
-    invalid_character_ids: list[str] = []
-    invalid_creation_ids: list[str] = []
     for investigator_id in investigator_ids:
         base = f"sandbox/.coc/investigators/{investigator_id}"
         character = _read_source(run_dir, f"{base}/character.json", "json", manifest)
         creation = _read_source(run_dir, f"{base}/creation.json", "json", manifest)
-        supporting: dict[str, Any] = {}
-        for filename in INVESTIGATOR_JSONL:
-            value = _read_source(run_dir, f"{base}/{filename}", "jsonl", manifest)
-            if value is not None:
-                supporting[filename] = value
-        character_status = _card_status(character)
-        creation_status = _card_status(creation)
-        if character_status == "MISSING":
-            missing_character_ids.append(investigator_id)
-        elif character_status == "INVALID":
-            invalid_character_ids.append(investigator_id)
-        if creation_status == "MISSING":
-            missing_creation_ids.append(investigator_id)
-        elif creation_status == "INVALID":
-            invalid_creation_ids.append(investigator_id)
+        state = _read_source(
+            run_dir, f"{campaign_relative}/save/investigator-state/{investigator_id}.json",
+            "json", manifest,
+        ) if campaign_relative else None
         investigators.append(
             {
-                "character": character,
-                "character_status": character_status,
-                "creation": creation,
-                "creation_status": creation_status,
                 "investigator_id": investigator_id,
-                "party_member": investigator_id in _party_ids(party),
-                "source_directory": base,
-                "supporting_records": supporting,
+                "character": _player_safe(character) if isinstance(character, dict) else None,
+                "creation": _player_safe(creation) if isinstance(creation, dict) else None,
+                "state": _player_safe(state) if isinstance(state, dict) else None,
+                "source_status": {
+                    "character": _card_status(character),
+                    "creation": _card_status(creation),
+                    "state": _card_status(state),
+                },
             }
         )
 
-    public_rolls: list[Any] = []
-    if campaign_relative is not None:
+    public_rolls: list[dict[str, Any]] = []
+    all_rolls = None
+    rolls_relative = None
+    malformed_lines: list[int] = []
+    if campaign_relative:
         rolls_relative = f"{campaign_relative}/logs/rolls.jsonl"
-        all_rolls = _read_source(run_dir, rolls_relative, "jsonl", manifest) or []
-        public_rolls = [
-            row
-            for row in all_rolls
-            if _roll_visibility(row) in {"public", "consequence_public"}
-        ]
+        all_rolls = _read_source(run_dir, rolls_relative, "jsonl", manifest)
+        for source_line, row in enumerate(all_rolls or [], start=1):
+            if _roll_visibility(row).casefold() not in PUBLIC_VISIBILITIES:
+                continue
+            if not isinstance(row, dict):
+                malformed_lines.append(source_line)
+                continue
+            if _roll_id(row) is None or not _has_numeric_roll(row):
+                malformed_lines.append(source_line)
+            projected = _player_safe(row)
+            assert isinstance(projected, dict)
+            projected.update(
+                source_line=source_line,
+                source_path=rolls_relative,
+                source_ref=row.get("source_ref") or f"{rolls_relative}#{source_line}",
+            )
+            public_rolls.append(projected)
         manifest[rolls_relative]["included_record_count"] = len(public_rolls)
         manifest[rolls_relative]["projection"] = "public_and_consequence_public_only"
+
+    roll_ids = [_roll_id(row) for row in public_rolls]
+    duplicate_roll_ids = sorted(
+        roll_id for roll_id, count in Counter(roll_ids).items() if roll_id and count > 1
+    )
 
     role_counts = {
         "keeper": sum(_dialogue_side(row) == "keeper" for row in transcript),
         "player": sum(_dialogue_side(row) == "player" for row in transcript),
     }
-    aliases = sorted(
-        row["role"].casefold()
-        for row in transcript
-        if _is_dialogue_row(row) and row["text"].strip()
-    )
-    alias_counts = {alias: aliases.count(alias) for alias in sorted(set(aliases))}
-    receipt = run_inputs.get("artifacts/report-completeness.json")
-    receipt_status = _receipt_status(receipt)
-    report_binding = _canonical_report_binding(run_dir, receipt)
     reasons: list[str] = []
     if not metadata:
-        reasons.append("playtest.json metadata is missing or empty")
+        reasons.append("run.json or playtest.json metadata is missing or empty")
     if not transcript_complete:
         reasons.append(
             "final transcript.jsonl is missing"
@@ -448,67 +372,41 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         reasons.append("no non-empty Keeper/KP dialogue rows were found")
     if role_counts["player"] == 0:
         reasons.append("no non-empty player dialogue rows were found")
+    if campaign_relative is None:
+        reasons.append("campaign directory could not be resolved")
     if not investigator_ids:
-        reasons.append("no investigators discovered through canonical party/run paths")
-    if missing_character_ids:
-        reasons.append("missing character.json for: " + ", ".join(missing_character_ids))
-    if missing_creation_ids:
-        reasons.append("missing creation.json for: " + ", ".join(missing_creation_ids))
-    if invalid_character_ids:
-        reasons.append("empty or non-object character.json for: " + ", ".join(invalid_character_ids))
-    if invalid_creation_ids:
-        reasons.append("empty or non-object creation.json for: " + ", ".join(invalid_creation_ids))
-    if receipt_status != "PASS":
-        reasons.append(f"report-completeness receipt status is {receipt_status}")
-    if report_binding["binding_status"] in {
-        "CANONICAL_REPORT_MISSING",
-        "CANONICAL_REPORT_UNSAFE",
-        "MISMATCH",
-    }:
-        reasons.append(
-            "canonical report binding status is " + report_binding["binding_status"]
-        )
+        reasons.append("no investigator state or character source was discovered")
+    for investigator in investigators:
+        if investigator["source_status"]["state"] != "PRESENT" and investigator["source_status"]["character"] != "PRESENT":
+            reasons.append(f"investigator {investigator['investigator_id']} has neither state nor character data")
+    if all_rolls is None:
+        reasons.append("structured rolls.jsonl is missing; public roll count cannot be proven")
+    if malformed_lines:
+        reasons.append("public roll rows lack roll_id or numerical evidence at source lines: " + ", ".join(map(str, malformed_lines)))
+    if duplicate_roll_ids:
+        reasons.append("duplicate public roll IDs: " + ", ".join(duplicate_roll_ids))
 
-    receipt_manifest = manifest.get("artifacts/report-completeness.json", {})
     return {
-        "campaign": {
-            "resolved_source_directory": campaign_relative,
-            "structured_inputs": campaign_inputs,
-        },
         "completeness": {
             "classification": "COMPLETE" if not reasons else "INCOMPLETE",
-            "dialogue_alias_counts": alias_counts,
             "dialogue_role_counts": role_counts,
-            "dialogue_role_coverage": {
-                "keeper": role_counts["keeper"] > 0,
-                "player": role_counts["player"] > 0,
-                "roles_present": list(alias_counts),
-            },
-            "discovered_investigator_count": len(investigators),
             "final_transcript_present": transcript_complete,
-            "invalid_character_ids": invalid_character_ids,
-            "invalid_creation_ids": invalid_creation_ids,
-            "missing_character_ids": missing_character_ids,
-            "missing_creation_ids": missing_creation_ids,
-            "party_membership_resolved": party_resolved,
             "reasons": reasons,
-            "receipt_binding": {
-                "path": "artifacts/report-completeness.json",
-                "sha256": receipt_manifest.get("sha256"),
-                "status": receipt_status,
-                "verification": "SOURCE_STATUS_ONLY_NOT_RECOMPUTED_BY_EXPORTER",
-            },
-            "report_binding": report_binding,
-            "transcript_record_count": len(transcript),
-            "transcript_source": transcript_relative,
         },
         "investigators": investigators,
         "public_rolls": {
-            "record_count": len(public_rolls),
+            "source_path": rolls_relative,
+            "source_present": all_rolls is not None,
+            "required_count": len(public_rolls),
+            "rendered_count": len(public_rolls),
+            "duplicate_roll_ids": duplicate_roll_ids,
+            "malformed_source_lines": malformed_lines,
             "records": public_rolls,
+            "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines else "FAIL",
         },
         "run_metadata": metadata,
         "source_identity": {
+            "metadata_source": metadata_source,
             "campaign_id": metadata.get("campaign_id"),
             "campaign_source_directory": campaign_relative,
             "run_id": metadata.get("run_id"),
@@ -516,30 +414,12 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "transcript_source": transcript_relative,
         },
         "source_manifest": sorted(manifest.values(), key=lambda item: item["path"]),
-        "structured_run_inputs": run_inputs,
-        "transcript": {"record_count": len(transcript), "records": transcript},
+        "transcript": {
+            "source_record_count": len(transcript),
+            "dialogue_record_count": len(dialogue),
+            "records": dialogue,
+        },
     }
-
-
-def _fence(value: str, language: str = "") -> str:
-    longest = max((len(match.group(0)) for match in re.finditer(r"`+", value)), default=0)
-    marker = "`" * max(3, longest + 1)
-    return f"{marker}{language}\n{value}\n{marker}"
-
-
-def _manifest_markdown(entries: list[dict[str, Any]]) -> list[str]:
-    lines = [
-        "| Source | Status | Records | Included | Bytes | SHA-256 |",
-        "| --- | --- | ---: | ---: | ---: | --- |",
-    ]
-    for entry in entries:
-        path = str(entry["path"]).replace("|", "\\|")
-        lines.append(
-            f"| `{path}` | {entry['status']} | {entry.get('record_count', '—')} | "
-            f"{entry.get('included_record_count', entry.get('record_count', '—'))} | "
-            f"{entry.get('byte_count', '—')} | `{entry.get('sha256', '—')}` |"
-        )
-    return lines
 
 
 def _safe_metadata(metadata: Any) -> dict[str, Any]:
@@ -548,147 +428,103 @@ def _safe_metadata(metadata: Any) -> dict[str, Any]:
     allowed = (
         "run_id",
         "campaign_id",
+        "seed",
         "play_language",
         "run_kind",
         "play_kind",
         "simulation_method",
+        "started_at",
+        "finished_at",
+        "status",
     )
     return {key: metadata[key] for key in allowed if key in metadata}
 
 
-def _player_safe_markdown_value(value: Any) -> Any:
-    """Remove structured hidden fields before rendering player-visible Markdown."""
-    if isinstance(value, dict):
-        if value.get("secret") is True:
-            return {"redacted": True}
-        result: dict[str, Any] = {}
-        for key, child in value.items():
-            normalized = str(key).casefold()
-            if (
-                normalized in MARKDOWN_HIDDEN_KEYS
-                or normalized.startswith("keeper_")
-                or normalized.startswith("private_")
-            ):
-                continue
-            result[str(key)] = _player_safe_markdown_value(child)
-        return result
-    if isinstance(value, list):
-        return [_player_safe_markdown_value(item) for item in value]
-    return value
+def _first(mapping: Any, keys: tuple[str, ...]) -> Any:
+    if not isinstance(mapping, dict):
+        return None
+    for key in keys:
+        if mapping.get(key) not in (None, ""):
+            return mapping[key]
+    return None
+
+
+def _display(value: Any) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if isinstance(value, list) and all(isinstance(item, (str, int, float)) for item in value):
+        return ", ".join(map(str, value))
+    return _pretty_json(value).replace("\n", " ")
 
 
 def _markdown(report: dict[str, Any]) -> str:
+    metadata = report["run_metadata"]
     completeness = report["completeness"]
     lines = [
-        "# COC Battle Report Source Bundle",
-        "",
-        "**Supplementary player-safe evidence. This file is not the canonical battle report and makes no official evaluation claim.**",
-        "",
+        "# COC Actual-Play Battle Report", "",
+        "This is the final player-readable report produced directly from a real playtest run.", "",
         f"- Report ID: `{report['report_id']}`",
-        f"- Completeness: **{completeness['classification']}**",
-        f"- Existing completeness receipt: **{completeness['receipt_binding']['status']}**",
-        f"- Receipt verification: `{completeness['receipt_binding']['verification']}`",
-        f"- Canonical report: `{completeness['report_binding']['path'] or 'MISSING'}`",
-        f"- Canonical report binding: **{completeness['report_binding']['binding_status']}**",
-        "- Official evaluation claim: **none**.",
-        "",
-        "## Run Identity",
-        "",
-        _fence(_pretty_json(_safe_metadata(report["run_metadata"])), "json"),
-        "",
-        "## Completeness Findings",
-        "",
+        f"- Run: `{metadata.get('run_id', 'MISSING')}`",
+        f"- Campaign: `{metadata.get('campaign_id', 'MISSING')}`",
+        f"- Completeness: **{completeness['classification']}**", "",
+        "## Investigators", "",
     ]
-    lines.extend(
-        [f"- {reason}" for reason in completeness["reasons"]]
-        or ["- No required export-source gaps detected."]
-    )
-    lines.extend(["", "## Source Manifest", ""])
-    lines.extend(_manifest_markdown(report["source_manifest"]))
-    lines.extend(["", "## Investigator Character Sources", ""])
     if not report["investigators"]:
-        lines.extend(["**MISSING:** No investigator payloads were discovered.", ""])
-    for index, investigator in enumerate(report["investigators"], start=1):
-        lines.extend([f"### {index}. `{investigator['investigator_id']}`", ""])
-        for label, key, filename in (
-            ("Character payload", "character", "character.json"),
-            ("Creation payload", "creation", "creation.json"),
-        ):
-            lines.extend([f"#### {label} (`{filename}`)", ""])
-            status = investigator[f"{key}_status"]
-            if status == "MISSING":
-                lines.extend(["**MISSING**", ""])
-            else:
-                if status == "INVALID":
-                    lines.extend(["**INVALID:** expected a non-empty JSON object.", ""])
-                lines.extend(
-                    [
-                        _fence(
-                            _pretty_json(_player_safe_markdown_value(investigator[key])),
-                            "json",
-                        ),
-                        "",
-                    ]
-                )
-
-    lines.extend(["## Complete Ordered Player/KP Dialogue", ""])
-    dialogue_index = 0
-    for source_index, row in enumerate(report["transcript"]["records"], start=1):
-        if not _is_dialogue_row(row):
-            continue
-        dialogue_index += 1
-        speaker_source, speaker = _speaker_label(row)
-        lines.extend(
-            [
-                f"### Dialogue {dialogue_index} — source row {source_index}",
-                "",
-                f"- Speaker label source: `{speaker_source}`",
-                f"- Original role: `{row.get('role')}`",
-                f"- Turn: `{row.get('turn', 'MISSING')}`",
-                "",
-                "#### Speaker label",
-                "",
-                _fence(speaker, "text"),
-                "",
-                f"#### Canonical source text ({len(row['text'])} characters)",
-                "",
-                _fence(row["text"], "text"),
-                "",
-            ]
+        lines.extend(["No investigator evidence was found.", ""])
+    for investigator in report["investigators"]:
+        character = investigator.get("character") or {}
+        state = investigator.get("state") or {}
+        name = _first(character, ("name", "display_name")) or _first(state, ("name", "display_name")) or investigator["investigator_id"]
+        lines.extend([f"### {name}", ""])
+        fields = (
+            ("ID", investigator["investigator_id"]),
+            ("Occupation", _first(character, ("occupation", "profession"))),
+            ("Age", _first(character, ("age",))),
+            ("HP", _first(state, ("hp", "hit_points")) or _first(character, ("hp", "hit_points"))),
+            ("SAN", _first(state, ("san", "sanity")) or _first(character, ("san", "sanity"))),
+            ("MP", _first(state, ("mp", "magic_points")) or _first(character, ("mp", "magic_points"))),
+            ("Conditions", _first(state, ("conditions",))),
         )
-        display = row.get("text_display")
-        if isinstance(display, str) and display.strip() and display != row["text"]:
-            lines.extend(
-                [
-                    f"#### Display text ({len(display)} characters)",
-                    "",
-                    _fence(display, "text"),
-                    "",
-                ]
-            )
-    if dialogue_index == 0:
-        lines.extend(["**MISSING:** No structured player/KP dialogue rows were found.", ""])
+        lines.extend(f"- {label}: {_display(value)}" for label, value in fields if value not in (None, "", []))
+        lines.append("")
 
-    lines.extend(["## Public Roll Evidence", ""])
-    lines.extend(
-        [
-            _fence(
-                _pretty_json(
-                    _player_safe_markdown_value(report["public_rolls"]["records"])
-                ),
-                "json",
-            ),
-            "",
-        ]
-    )
-    lines.extend(
-        [
-            "## Excluded Hidden Sources",
-            "",
-            "Keeper-view logs, Keeper-only rolls, scenario/module truth, flags/world state, runner prompts, and hidden event logs are deliberately not included in either bundle artifact.",
-            "",
-        ]
-    )
+    lines.extend(["## Actual Play", ""])
+    for index, row in enumerate(report["transcript"]["records"], start=1):
+        side = "Keeper" if row["role"].casefold() in KEEPER_ROLES else "Player"
+        speaker = row.get("speaker_display") or row.get("speaker") or side
+        lines.extend([f"### Turn {row.get('turn', index)} · {speaker}", "", row["text"].strip(), ""])
+    if not report["transcript"]["records"]:
+        lines.extend(["No player/Keeper dialogue was recorded.", ""])
+
+    rolls = report["public_rolls"]
+    lines.extend(["## Public Rules and Dice", "", f"Public roll count: **{rolls['required_count']}**.", f"Dice completeness: **{rolls['status']}**.", ""])
+    for roll in rolls["records"]:
+        payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else {}
+        lines.extend([f"### `{_roll_id(roll) or 'MISSING'}`", ""])
+        fields = (
+            ("Actor", _first(roll, ("actor", "investigator_id")) or _first(payload, ("actor", "investigator_id"))),
+            ("Check", _first(payload, ("skill", "attribute", "reason", "expression")) or _first(roll, ("skill", "reason", "expression"))),
+            ("Roll", _first(payload, ("roll", "rolls", "total", "result", "value")) or _first(roll, ("roll", "rolls", "total", "result", "value"))),
+            ("Target", _first(payload, ("effective_target", "target")) or _first(roll, ("effective_target", "target"))),
+            ("Difficulty", _first(payload, ("difficulty",)) or _first(roll, ("difficulty",))),
+            ("Outcome", _first(payload, ("outcome", "success_level")) or _first(roll, ("outcome", "success_level"))),
+            ("Visibility", _roll_visibility(roll)),
+            ("Source", roll.get("source_ref")),
+        )
+        lines.extend(f"- {label}: {_display(value)}" for label, value in fields if value not in (None, "", []))
+        lines.append("")
+    if not rolls["records"]:
+        lines.extend(["No public or consequence-public rolls occurred.", ""])
+
+    lines.extend(["## Completeness and Provenance", ""])
+    lines.extend([f"- {reason}" for reason in completeness["reasons"]] or ["- All required final-report sources passed validation."])
+    lines.extend([
+        f"- Dialogue rows rendered: {report['transcript']['dialogue_record_count']}.",
+        f"- Public rolls rendered exactly once: {rolls['rendered_count']}.",
+        "- Keeper-only rolls, scenario truth, hidden logs, runner prompts, and secret fields are excluded.", "",
+    ])
     return "\n".join(lines)
 
 
@@ -742,12 +578,11 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
         "source_manifest": source["source_manifest"],
         "source_payload": source,
     }
-    report_id = "coc-br-source-" + _sha256(_canonical_bytes(identity_material))[:24]
+    report_id = "coc-battle-report-" + _sha256(_canonical_bytes(identity_material))[:24]
     report = {
         "schema_version": SCHEMA_VERSION,
         "report_id": report_id,
-        "report_type": "coc_battle_report_source_bundle",
-        "official_evaluation_claim": False,
+        "report_type": "coc_actual_play_battle_report_evidence",
         "markdown_audience": "player_safe",
         **source,
     }
@@ -760,11 +595,11 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_dir", type=Path, help="canonical COC playtest run directory")
+    parser.add_argument("run_dir", type=Path, help="real COC playtest run directory")
     parser.add_argument(
         "--allow-partial",
         action="store_true",
-        help="export partial-transcript.jsonl as an explicitly INCOMPLETE source bundle",
+        help="render partial-transcript.jsonl as an explicitly INCOMPLETE report",
     )
     args = parser.parse_args(argv)
     try:

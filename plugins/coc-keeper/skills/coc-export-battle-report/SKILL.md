@@ -1,47 +1,48 @@
 ---
 name: coc-export-battle-report
-description: Export a COC Keeper playtest into deterministic lossless source-bundle JSON plus player-safe Markdown without replacing the canonical evaluated battle report.
+description: Produce the single final player-readable battle-report.md and its structured evidence JSON directly from a real COC Keeper playtest run.
 ---
 
-# Export COC Battle Report Source Bundle
+# Export the Final COC Battle Report
 
-Use this skill when a completed playtest needs a deterministic archive of the
-player-visible sources behind its report. This export is supplementary evidence;
-it never creates or replaces the canonical evaluated `battle-report.md`.
+Use this skill after a real Codex-plugin playtest has finished. The player may
+be a Codex subagent. This skill is the only final battle-report writer: it reads
+the run evidence directly without invoking a legacy evaluator, formatter, or
+audit pipeline.
 
-First recompute the canonical report receipt:
-
-```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
-```
-
-Then export from the repository root:
+From the repository root, run:
 
 ```bash
 uv run --frozen python plugins/coc-keeper/skills/coc-export-battle-report/scripts/export_battle_report.py <run-dir>
 ```
 
-Add `--allow-partial` only when `transcript.jsonl` is absent and the run has
-`partial-transcript.jsonl`. A partial export remains visibly `INCOMPLETE`.
+The run directory may use `run.json` or `playtest.json` for identity. It should
+contain:
 
-The exporter writes exactly these supplementary files:
+- `transcript.jsonl` with ordered Keeper and player dialogue;
+- `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl` as the authoritative
+  structured dice log;
+- the campaign's investigator state under `save/investigator-state/`, with
+  optional static character sources under `sandbox/.coc/investigators/`.
 
-- `artifacts/battle-report-source-bundle.json`: evaluator/archive source data
-  for the explicitly bounded inputs, source hashes/counts, public roll
-  evidence, and a hash binding to the current completeness receipt and
-  canonical report. Treat this JSON as evidence, not as a player handout.
-- `artifacts/battle-report-source-bundle.md`: player-safe character context,
-  ordered player/KP dialogue, public rolls, source manifest, and completeness
-  status.
+Use `--allow-partial` only for an interrupted run containing
+`partial-transcript.jsonl`. The report remains visibly `INCOMPLETE`.
 
-The Markdown must never contain Keeper-view logs, Keeper-only rolls, raw
-scenario/module truth, flags/world state, runner prompts, hidden character
-fields, or other hidden material. Keeper-view logs, scenario/module truth, and
-runner prompts are excluded from both outputs; bounded state snapshots are
-kept only in the evaluator JSON and never rendered into Markdown. Inspect both
-outputs before delivery, confirm their `report_id` values match, and state a
-failed, missing, mismatched, or not-recomputed completeness receipt honestly.
+The exporter atomically writes the final pair under `artifacts/`:
 
-This export makes no official evaluation claim. Only the canonical
-`coc_eval.py` named suites may report `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`,
-or `NON_COMPARABLE`.
+- `battle-report.md`: the final readable, player-safe actual-play report;
+- `battle-report-evidence.json`: deterministic structured source hashes,
+  sanitized investigator and dialogue evidence, completeness findings, and
+  public-roll provenance.
+
+Every `public` or `consequence_public` roll must have a unique `roll_id` and
+source-traceable numerical evidence. Each is rendered exactly once. A missing
+roll log, duplicate ID, or malformed required public roll makes the report
+`INCOMPLETE`; a valid empty log reports a public roll count of zero.
+
+Both outputs exclude Keeper-only rolls, Keeper-view logs, module/scenario
+truth, hidden event logs, runner prompts, and structured secret/private fields.
+Never reconstruct missing dice or hidden facts from prose. Before delivery,
+read `battle-report.md` end to end and inspect the evidence JSON's
+`completeness` and `public_rolls` sections. State an `INCOMPLETE` result
+honestly.
