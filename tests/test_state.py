@@ -404,6 +404,13 @@ def test_personal_horror_hooks_add_and_weave(tmp_path):
     """W1-2: structured personal-horror hooks live in investigator-state."""
     coc_state.create_campaign(tmp_path, "case-1", "Case 1")
     campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
+    inv_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "case-1",
+        "investigator_id": "ada",
+        "conditions": [],
+    }), encoding="utf-8")
 
     coc_state.add_personal_horror_hook(
         campaign_dir, "ada",
@@ -437,6 +444,13 @@ def test_add_personal_horror_hook_rejects_unknown_field(tmp_path):
 def test_add_backstory_corruption_records_entry(tmp_path):
     coc_state.create_campaign(tmp_path, "case-1", "Case 1")
     campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
+    inv_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "case-1",
+        "investigator_id": "ada",
+        "conditions": [],
+    }), encoding="utf-8")
 
     coc_state.add_backstory_corruption(
         campaign_dir, "ada",
@@ -459,7 +473,13 @@ def test_apply_luck_spend_updates_investigator_and_pacing(tmp_path):
     campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
     inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
     inv_path.parent.mkdir(parents=True, exist_ok=True)
-    inv_path.write_text(json.dumps({"current_luck": 40, "current_hp": 9}), encoding="utf-8")
+    inv_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "case-1",
+        "investigator_id": "ada",
+        "current_luck": 40,
+        "current_hp": 9,
+    }), encoding="utf-8")
 
     coc_state.apply_luck_spend(campaign_dir, "ada", points=5, luck_remaining=35)
 
@@ -473,10 +493,16 @@ def test_apply_luck_spend_updates_investigator_and_pacing(tmp_path):
 def test_apply_luck_recovery_updates_investigator_state(tmp_path):
     coc_state.create_campaign(tmp_path, "case-1", "Case 1")
     campaign_dir = tmp_path / ".coc" / "campaigns" / "case-1"
+    inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
+    inv_path.write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": "case-1",
+        "investigator_id": "ada",
+        "current_luck": 40,
+    }), encoding="utf-8")
 
     coc_state.apply_luck_recovery(campaign_dir, "ada", luck_after=48)
 
-    inv_path = campaign_dir / "save" / "investigator-state" / "ada.json"
     inv = json.loads(inv_path.read_text(encoding="utf-8"))
     pacing = json.loads((campaign_dir / "save" / "pacing-state.json").read_text(encoding="utf-8"))
     assert inv["current_luck"] == 48

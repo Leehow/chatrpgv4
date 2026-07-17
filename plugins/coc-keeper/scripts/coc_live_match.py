@@ -940,46 +940,6 @@ def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
         os.replace(temp, path)
 
 
-def _resume_tail_from_transcript(
-    rows: list[dict[str, Any]], *, limit: int,
-) -> tuple[list[dict[str, str]], str]:
-    normalized: list[dict[str, str]] = []
-    for row in rows:
-        role = row.get("role")
-        if role == "player_simulator":
-            normalized_role = "player"
-        elif role == "keeper_under_test":
-            normalized_role = "keeper"
-        else:
-            continue
-        text_value = row.get("text")
-        if isinstance(text_value, str) and text_value.strip():
-            normalized.append({"role": normalized_role, "text": text_value.strip()})
-    if not normalized or normalized[-1]["role"] != "keeper":
-        raise ValueError(
-            "resume run transcript must end with a completed keeper turn"
-        )
-    return normalized[-max(1, int(limit)):], normalized[-1]["text"]
-
-
-def _renumber_appended_rows(
-    prior: list[dict[str, Any]], current: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    merged = [deepcopy(row) for row in prior]
-    prior_turns = [
-        int(row["turn"])
-        for row in prior
-        if isinstance(row.get("turn"), int) and not isinstance(row.get("turn"), bool)
-    ]
-    next_turn = max(prior_turns, default=0) + 1
-    for row in current:
-        item = deepcopy(row)
-        item["turn"] = next_turn
-        next_turn += 1
-        merged.append(item)
-    return merged
-
-
 def _structured_event_type(row: dict[str, Any]) -> str | None:
     return coc_event_contract.event_type(row)
 
@@ -1317,6 +1277,10 @@ def _run_live_match_impl(
     callers but no longer drive rules — the keeper agent interprets actions.
     """
     _ = resolve_player_actions  # legacy no-op: keeper agent interprets actions
+    if resume_run_dir is not None:
+        raise ValueError(
+            "historical_playtest_resume_forbidden: published runs are read-only evidence"
+        )
     started_at = _utc_timestamp()
     ws = Path(workspace).absolute()
     camp = _campaign_dir(ws, campaign_id)
@@ -1341,30 +1305,6 @@ def _run_live_match_impl(
         )
     )
     character_card = investigator_snapshot["character"]
-    resume_source: Path | None = None
-    if resume_run_dir is not None:
-        if initial_transcript_tail is not None or initial_narration is not None:
-            raise ValueError(
-                "resume_run_dir cannot be combined with manual initial transcript inputs"
-            )
-        resume_context = coc_playtest_runs.open_published_run(
-            resume_run_dir,
-            purpose="live-match resume",
-            require_metadata=True,
-        )
-        resume_source = resume_context.__enter__()
-        _ACTIVE_RUN_CONTEXTS.append(resume_context)
-        prior_investigator_snapshot = (
-            playtest_driver.read_artifact_investigator_snapshot(
-                resume_source, investigator_id
-            )
-        )
-        if prior_investigator_snapshot != investigator_snapshot:
-            raise ValueError(
-                "current reusable investigator differs from resume artifact snapshot"
-            )
-        investigator_snapshot = prior_investigator_snapshot
-        character_card = investigator_snapshot["character"]
     selected_modes = sum(
         (player_runner is not None, bool(operator_long_play), bool(codex_subagent_player))
     )
@@ -1423,121 +1363,7 @@ def _run_live_match_impl(
         artifact_location_path=published_out,
     )
 
-    prior_run: Path | None = resume_source
-    prior_transcript_rows: list[dict[str, Any]] = []
-    prior_invocation_rows: list[dict[str, Any]] = []
-    prior_subagent_exchange_rows: list[dict[str, Any]] = []
-    prior_metadata: dict[str, Any] = {}
-    prior_run_ids: list[str] = []
-    prior_current_run_id: str | None = None
-    if prior_run is not None:
-        if prior_run == out.resolve():
-            raise ValueError("resume_run_dir and run_dir must be different")
-        prior_transcript_rows = _read_jsonl_rows(prior_run / "transcript.jsonl")
-        if not prior_transcript_rows:
-            raise ValueError("resume run has no completed transcript.jsonl")
-        prior_invocation_rows = _read_jsonl_rows(
-            prior_run / "runner-invocations.jsonl"
-        )
-        if not prior_invocation_rows:
-            raise ValueError("resume run has no runner-invocations.jsonl evidence")
-        prior_metadata_value = _read_json(prior_run / "playtest.json", {})
-        prior_metadata = (
-            prior_metadata_value if isinstance(prior_metadata_value, dict) else {}
-        )
-        if codex_subagent_player:
-            contract = prior_metadata.get("subagent_player_contract")
-            expected_contract = {
-                "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
-                "protocol": CODEX_SUBAGENT_PLAYER_PROTOCOL,
-                "actor": {"kind": "codex_subagent", "id": subagent_player_id},
-                "transport": "stdio_relay",
-                "visibility": "player_safe_request_only",
-                "filesystem_isolation": "not_attested_shared_workspace",
-                "collaboration_receipt": "NOT_ATTESTED",
-                "exchange_ledger": {
-                    "schema_version": CODEX_SUBAGENT_PLAYER_SCHEMA_VERSION,
-                    "path": CODEX_SUBAGENT_EXCHANGE_LEDGER,
-                },
-            }
-            player_rows = [
-                row for row in prior_invocation_rows if row.get("role") == "player"
-            ]
-            if (
-                prior_metadata.get("codex_subagent_player") is not True
-                or prior_metadata.get("operator_long_play") is not False
-                or prior_metadata.get("operator_review_protocol")
-                != CODEX_SUBAGENT_PLAYER_PROTOCOL
-                or contract != expected_contract
-                or not player_rows
-                or any(
-                    row.get("outcome") != "codex_subagent_input"
-                    or row.get("actor_kind") != "codex_subagent"
-                    or row.get("actor_id") != subagent_player_id
-                    or not isinstance(row.get("request_sha256"), str)
-                    or not isinstance(row.get("response_sha256"), str)
-                    or len(row["request_sha256"]) != 64
-                    or len(row["response_sha256"]) != 64
-                    for row in player_rows
-                )
-            ):
-                raise ValueError("unsupported_save_schema")
-            exchange_path = prior_run / CODEX_SUBAGENT_EXCHANGE_LEDGER
-            if not exchange_path.is_file():
-                raise ValueError("unsupported_save_schema")
-            prior_subagent_exchange_rows = _validate_subagent_exchange_rows(
-                _read_jsonl_rows(exchange_path),
-                actor_id=str(subagent_player_id),
-                invocation_rows=prior_invocation_rows,
-            )
-        elif prior_metadata.get("codex_subagent_player") is True:
-            raise ValueError("unsupported_save_schema")
-        prior_identity = coc_run_identity.read_artifact_run_identity(prior_run)
-        prior_metadata_run = prior_metadata.get("run_id")
-        if prior_identity is not None:
-            if prior_identity["campaign_id"] != campaign_id:
-                raise RunIdentityError(
-                    "resume artifact belongs to a different campaign"
-                )
-            if (
-                prior_metadata_run is not None
-                and prior_metadata_run != prior_identity["run_id"]
-            ):
-                raise RunIdentityError(
-                    "resume artifact metadata conflicts with its run identity"
-                )
-            prior_metadata_run = prior_identity["run_id"]
-        prior_current_run_id = coc_run_identity.normalize_run_id(
-            prior_metadata_run
-        )
-        raw_prior_ids = prior_metadata.get("cumulative_run_ids")
-        if raw_prior_ids is None:
-            raw_prior_ids = [prior_current_run_id]
-        if not isinstance(raw_prior_ids, list):
-            raise RunIdentityError(
-                "resume artifact cumulative_run_ids must be a list"
-            )
-        prior_run_ids = [
-            coc_run_identity.normalize_run_id(value) for value in raw_prior_ids
-        ]
-        if (
-            not prior_run_ids
-            or len(set(prior_run_ids)) != len(prior_run_ids)
-            or prior_run_ids[-1] != prior_current_run_id
-        ):
-            raise RunIdentityError(
-                "resume artifact has an invalid cumulative run chain"
-            )
-        initial_transcript_tail, initial_narration = _resume_tail_from_transcript(
-            prior_transcript_rows,
-            limit=transcript_tail_limit,
-        )
-
-    if run_id in prior_run_ids:
-        raise RunIdentityError(
-            "current artifact run_id already appears in the prior cumulative chain"
-        )
-    cumulative_run_ids = [*prior_run_ids, run_id]
+    cumulative_run_ids = [run_id]
 
     partial_transcript_path = out / "partial-transcript.jsonl"
     if partial_transcript_path.is_symlink():
@@ -1552,9 +1378,7 @@ def _run_live_match_impl(
     if codex_subagent_player:
         if subagent_exchange_path.is_symlink():
             subagent_exchange_path.unlink()
-        _write_jsonl_rows_atomic(
-            subagent_exchange_path, prior_subagent_exchange_rows
-        )
+        _write_jsonl_rows_atomic(subagent_exchange_path, [])
     match_id = run_id
 
     def _server_pool(path: Path | None):
@@ -1680,14 +1504,7 @@ def _run_live_match_impl(
             player_result = _codex_subagent_player_turn(
                 request,
                 actor_id=subagent_player_id,
-                turn_number=(
-                    sum(
-                        1 for row in prior_invocation_rows
-                        if row.get("role") == "player"
-                    )
-                    + len(player_turns)
-                    + 1
-                ),
+                turn_number=len(player_turns) + 1,
                 response_provider=subagent_player_provider,
             )
             exchange_row = _subagent_exchange_row(player_result)
@@ -2059,13 +1876,8 @@ def _run_live_match_impl(
         except Exception:
             narrative_adherence = None
 
-    prior_coverage = (
-        prior_metadata.get("module_coverage")
-        if isinstance(prior_metadata.get("module_coverage"), list)
-        else []
-    )
     cumulative_coverage = list(dict.fromkeys(
-        [str(value) for value in [*prior_coverage, *scene_path] if value]
+        [str(value) for value in scene_path if value]
     ))
     metadata_extra: dict[str, Any] = {
         "run_id": run_id,
@@ -2102,10 +1914,8 @@ def _run_live_match_impl(
         "operator_review_status": (
             "pending" if reviewed_stdio_mode else "not_required"
         ),
-        "continuation_of": prior_current_run_id,
-        "transcript_scope": (
-            "campaign_cumulative" if prior_run is not None else "run_local"
-        ),
+        "continuation_of": None,
+        "transcript_scope": "run_local",
         "campaign_log_scope": "campaign_cumulative",
     }
     if rng_seed is not None:
@@ -2241,55 +2051,8 @@ def _run_live_match_impl(
                 "partial transcript row lacks decision or narrator attestation"
             )
     _enrich_transcript_with_player_notes(out, player_turns)
-    if prior_run is not None:
-        current_transcript_rows = _read_jsonl_rows(out / "transcript.jsonl")
-        _write_jsonl_rows_atomic(
-            out / "transcript.jsonl",
-            _renumber_appended_rows(prior_transcript_rows, current_transcript_rows),
-        )
-
-        prior_driver = _read_json(prior_run / "driver-result.json", {})
-        current_driver = _read_json(out / "driver-result.json", {})
-        if isinstance(prior_driver, dict) and isinstance(current_driver, dict):
-            merged_driver = deepcopy(current_driver)
-            merged_driver["turns"] = [
-                *(
-                    deepcopy(prior_driver.get("turns"))
-                    if isinstance(prior_driver.get("turns"), list)
-                    else []
-                ),
-                *(
-                    deepcopy(current_driver.get("turns"))
-                    if isinstance(current_driver.get("turns"), list)
-                    else []
-                ),
-            ]
-            merged_driver["scene_path"] = list(dict.fromkeys(
-                [
-                    str(value)
-                    for value in [
-                        *(
-                            prior_driver.get("scene_path")
-                            if isinstance(prior_driver.get("scene_path"), list)
-                            else []
-                        ),
-                        *(
-                            current_driver.get("scene_path")
-                            if isinstance(current_driver.get("scene_path"), list)
-                            else []
-                        ),
-                    ]
-                    if value
-                ]
-            ))
-            merged_driver["continuation_of"] = prior_current_run_id
-            _write_json_atomic(out / "driver-result.json", merged_driver)
-
     _ = evidence_provenance
-    combined_invocations = [
-        *[deepcopy(row) for row in prior_invocation_rows],
-        *invocation_rows,
-    ]
+    combined_invocations = list(invocation_rows)
     attempts_by_role: dict[str, int] = {}
     for row in combined_invocations:
         role = str(row.get("role") or "")
@@ -2558,14 +2321,6 @@ def _main() -> int:
     )
     ap.add_argument("--character", default=None, help="override character.json path")
     ap.add_argument("--run-dir", default=None, help="output playtest directory")
-    ap.add_argument(
-        "--resume-run",
-        default=None,
-        help=(
-            "prior completed playtest run; seeds the Keeper/player context and "
-            "builds a cumulative transcript/evidence chain"
-        ),
-    )
     ap.add_argument("--intent-class", default=None, help="optional intent_class override")
     ap.add_argument("--timeout", type=float, default=300)
     ap.add_argument(
@@ -2601,7 +2356,6 @@ def _main() -> int:
             live=bool(args.live),
             character_path=args.character,
             run_dir=args.run_dir,
-            resume_run_dir=args.resume_run,
             intent_class=args.intent_class,
             timeout_s=args.timeout,
             keeper_runner=args.keeper_runner,

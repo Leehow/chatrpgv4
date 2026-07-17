@@ -36,7 +36,7 @@ def _seed_campaign(workspace: Path, campaign_id: str = "camp-1") -> Path:
     )
     (save / "world-state.json").write_text(
         json.dumps({
-            "schema_version": 1,
+            "schema_version": 2,
             "campaign_id": campaign_id,
             "active_scene_id": "dock-warehouse",
             "discovered_clue_ids": ["ledger-mark", "wet-footprints"],
@@ -55,6 +55,7 @@ def _seed_campaign(workspace: Path, campaign_id: str = "camp-1") -> Path:
     (inv_dir / "inv-alice.json").write_text(
         json.dumps({
             "schema_version": 1,
+            "campaign_id": campaign_id,
             "investigator_id": "inv-alice",
             "current_hp": 11,
             "current_san": 55,
@@ -258,50 +259,34 @@ def test_build_public_state_brain_reflects_runtime_json(tmp_path):
     assert state["brain"] == "debug"
 
 
-def test_build_public_state_missing_files_use_safe_defaults(tmp_path):
+def test_build_public_state_missing_generation_requires_fresh_start(tmp_path):
     campaign_id = "empty-camp"
     (tmp_path / ".coc" / "campaigns" / campaign_id).mkdir(parents=True)
 
-    state = _load().build_public_state(tmp_path, campaign_id)
-
-    assert state["campaign_id"] == campaign_id
-    assert state["brain"] == "debug"
-    assert state["play_language"] is None or state["play_language"] == ""
-    assert state["active_scene_id"] is None
-    assert state["tension_level"] is None
-    assert state["turn_number"] == 0
-    assert state["discovered_clue_ids"] == []
-    assert state["investigators"] == []
-    assert state["pending_choice"] is None
-    assert state["state_health"]["status"] == "degraded"
-    assert {issue["code"] for issue in state["state_health"]["issues"]} == {"missing"}
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        _load().build_public_state(tmp_path, campaign_id)
 
 
 @pytest.mark.parametrize("payload,code", [
     (b"{not-json", "invalid_json"), (b"\xff\xfe", "invalid_utf8"),
     (b"[]", "non_object"),
 ])
-def test_public_state_corruption_is_backed_up_and_reported_once(tmp_path, payload, code):
+def test_public_state_corruption_requires_fresh_generation_without_mutation(
+    tmp_path, payload, code,
+):
     campaign = _seed_campaign(tmp_path)
     world_path = campaign / "save" / "world-state.json"
     world_path.write_bytes(payload)
 
-    first = _load().build_public_state(tmp_path, "camp-1")
-    second = _load().build_public_state(tmp_path, "camp-1")
-
-    assert first["active_scene_id"] is None
-    assert first["state_health"]["status"] == "error"
-    assert {"state": "world", "code": code} in first["state_health"]["issues"]
-    assert first["state_health"] == second["state_health"]
-    assert "path" not in json.dumps(first["state_health"])
-    assert str(tmp_path) not in json.dumps(first["state_health"])
-    assert len(list(world_path.parent.glob("world-state.json.corrupt-*"))) == 1
-    warnings = list(campaign.rglob("state-warnings.jsonl"))
-    assert len(warnings) == 1
-    assert len(warnings[0].read_text(encoding="utf-8").splitlines()) == 1
+    before = world_path.read_bytes()
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        _load().build_public_state(tmp_path, "camp-1")
+    assert world_path.read_bytes() == before
+    assert list(world_path.parent.glob("world-state.json.corrupt-*")) == []
+    assert list(campaign.rglob("state-warnings.jsonl")) == []
 
 
-def test_public_state_forward_schema_is_an_error_without_corrupt_backup(tmp_path):
+def test_public_state_forward_schema_requires_fresh_generation(tmp_path):
     campaign = _seed_campaign(tmp_path)
     world_path = campaign / "save" / "world-state.json"
     world_path.write_text(
@@ -309,13 +294,9 @@ def test_public_state_forward_schema_is_an_error_without_corrupt_backup(tmp_path
         encoding="utf-8",
     )
 
-    state = _load().build_public_state(tmp_path, "camp-1")
-
-    assert state["active_scene_id"] is None
-    assert state["state_health"]["status"] == "error"
-    assert {"state": "world", "code": "forward_version"} in state["state_health"]["issues"]
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        _load().build_public_state(tmp_path, "camp-1")
     assert list(world_path.parent.glob("world-state.json.corrupt-*")) == []
-    assert "future-private-scene" not in json.dumps(state)
 
 
 @pytest.mark.parametrize("bad_version", [True, False, "1", None, 1.0, "nope"])
@@ -327,18 +308,14 @@ def test_public_state_schema_version_requires_non_bool_integer(tmp_path, bad_ver
         "active_scene_id": "PRIVATE_INVALID_SCHEMA_SCENE",
         "discovered_clue_ids": ["PRIVATE_INVALID_SCHEMA_CLUE"],
     }))
-    state = _load().build_public_state(tmp_path, "camp-1")
-    assert state["active_scene_id"] is None
-    assert state["discovered_clue_ids"] == []
-    assert {"state": "world", "code": "invalid_schema"} in state["state_health"]["issues"]
-    assert "PRIVATE_INVALID_SCHEMA" not in json.dumps(state)
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        _load().build_public_state(tmp_path, "camp-1")
 
 
 def test_specified_missing_investigator_never_falls_back_to_another(tmp_path):
     _seed_campaign(tmp_path)
-    state = _load().build_public_state(tmp_path, "camp-1", "inv-missing")
-    assert state["investigators"] == []
-    assert {"state": "investigator", "code": "missing"} in state["state_health"]["issues"]
+    with pytest.raises(ValueError, match="unsupported_save_schema"):
+        _load().build_public_state(tmp_path, "camp-1", "inv-missing")
 
 
 @pytest.mark.parametrize("filename", [
@@ -359,7 +336,8 @@ def test_public_state_drops_untyped_fields_and_raw_legacy_pending_choice(tmp_pat
     world_path = campaign / "save" / "world-state.json"
     world_path.write_text(
         json.dumps({
-            "schema_version": 1,
+            "schema_version": 2,
+            "campaign_id": "camp-1",
             "active_scene_id": {"private": "not a scene ID"},
             "discovered_clue_ids": ["safe", {"keeper_secret": "no"}],
             "pending_choice": {
@@ -370,11 +348,20 @@ def test_public_state_drops_untyped_fields_and_raw_legacy_pending_choice(tmp_pat
         encoding="utf-8",
     )
     (campaign / "campaign.json").write_text(
-        json.dumps({"schema_version": 1, "play_language": ["not", "a", "string"]}),
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "camp-1",
+            "play_language": ["not", "a", "string"],
+        }),
         encoding="utf-8",
     )
     (campaign / "save" / "pacing-state.json").write_text(
-        json.dumps({"schema_version": 1, "tension_level": {"secret": True}, "turn_number": "7"}),
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "camp-1",
+            "tension_level": {"secret": True},
+            "turn_number": "7",
+        }),
         encoding="utf-8",
     )
 

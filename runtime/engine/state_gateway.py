@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 def _load_module(name: str, path: Path):
@@ -74,97 +74,19 @@ class RuntimeStateGateway:
             return self._paths.contained_path(inv_dir, inv_dir / f"{investigator_id}.json")
         raise ValueError("invalid runtime state kind")
 
-    def _diagnose(self, path: Path, kind: str) -> str:
-        if not path.exists():
-            return "missing"
-        try:
-            text = path.read_bytes().decode("utf-8")
-        except UnicodeDecodeError:
-            return "invalid_utf8"
-        except OSError:
-            return "corrupt"
-        try:
-            raw = json.loads(text)
-        except json.JSONDecodeError:
-            return "invalid_json"
-        if not isinstance(raw, dict):
-            return "non_object"
-        version = raw.get("schema_version", 1)
-        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-            return "invalid_schema"
-        if version > int(self._state.CURRENT_SCHEMA_VERSIONS.get(kind, 1)):
-            return "forward_version"
-        return "ok"
-
-    def _load(
-        self,
-        *,
-        state: str,
-        kind: str,
-        path: Path,
-        fallback: dict[str, Any],
-        loader: Callable[[Path], dict[str, Any]],
-    ) -> dict[str, Any]:
-        diagnosis = self._diagnose(path, kind)
-        if diagnosis != "ok":
-            self._issue(state, diagnosis)
-        if diagnosis in {"forward_version", "invalid_schema"}:
-            return dict(fallback)
-        try:
-            payload = loader(self.campaign_dir)
-        except (OSError, UnicodeDecodeError, ValueError, TypeError):
-            # Forward versions are intentionally not rewritten or backed up;
-            # the caller gets an explicit health failure with no raw error.
-            if diagnosis == "ok":
-                self._issue(state, "invalid_schema")
-            return dict(fallback)
-        return payload if isinstance(payload, dict) else dict(fallback)
-
     def load_campaign(self) -> dict[str, Any]:
-        path = self._state_path("campaign")
-        return self._load(
-            state="campaign",
-            kind="campaign",
-            path=path,
-            fallback={"schema_version": 1, "campaign_id": self.campaign_id},
-            loader=self._state.load_campaign_state,
-        )
+        return self._state.load_campaign_state(self.campaign_dir)
 
     def load_world(self) -> dict[str, Any]:
-        path = self._state_path("world")
-        return self._load(
-            state="world",
-            kind="world",
-            path=path,
-            fallback={
-                "schema_version": 2,
-                "terminal_state": None,
-                "pending_subsystem_choice": None,
-            },
-            loader=self._state.load_world_state,
-        )
+        return self._state.load_world_state(self.campaign_dir)
 
     def load_pacing(self) -> dict[str, Any]:
-        path = self._state_path("pacing")
-        return self._load(
-            state="pacing",
-            kind="pacing",
-            path=path,
-            fallback={"schema_version": 1},
-            loader=self._state.load_pacing_state,
-        )
+        return self._state.load_pacing_state(self.campaign_dir)
 
     def load_investigator(self, investigator_id: str) -> dict[str, Any]:
         investigator_id = self._paths.validate_id(investigator_id, "investigator_id")
-        path = self._state_path("investigator", investigator_id)
-        payload = self._load(
-            state="investigator",
-            kind="investigator",
-            path=path,
-            fallback={"schema_version": 1, "investigator_id": investigator_id},
-            loader=lambda campaign: self._state.load_investigator_state(
-                campaign, investigator_id
-            ),
+        payload = self._state.load_investigator_state(
+            self.campaign_dir, investigator_id
         )
         conditions = payload.get("conditions")
         if not isinstance(conditions, list) or not all(
@@ -224,7 +146,15 @@ class RuntimeStateGateway:
         )
 
     def load(self) -> dict[str, Any]:
-        """Return typed state objects and a sanitized health projection."""
+        """Return exact-current state or raise ``unsupported_save_schema``.
+
+        Health remains useful for non-core optional projections, but core
+        campaign state never degrades into usable-looking defaults.
+        """
+        self._state.validate_campaign_generation(
+            self.campaign_dir,
+            investigator_id=self.investigator_id,
+        )
         state_paths = self.validate_consumed_paths()
         for state_name, expected in (
             ("subsystem_state", 3), ("combat_state", 2),
@@ -243,12 +173,7 @@ class RuntimeStateGateway:
                     or version != expected):
                 self._issue(state_name.removesuffix("_state"), "invalid_schema")
         if self.investigator_id is not None:
-            exact_path = self._state_path("investigator", self.investigator_id)
-            if exact_path.exists():
-                investigators = [self.load_investigator(self.investigator_id)]
-            else:
-                self._issue("investigator", "missing")
-                investigators = []
+            investigators = [self.load_investigator(self.investigator_id)]
         else:
             investigators = self.load_investigators()
         return {

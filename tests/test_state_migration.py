@@ -1,4 +1,4 @@
-"""N6: schema migration hooks + corrupt-save backup (coc_state)."""
+"""Clean-slate persistence contract for central campaign state."""
 from __future__ import annotations
 
 import importlib.util
@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 
+
 SCRIPT = Path(__file__).resolve().parents[1] / "plugins" / "coc-keeper" / "scripts" / "coc_state.py"
 
 
 def _load_state():
-    spec = importlib.util.spec_from_file_location("coc_state_migration", SCRIPT)
+    spec = importlib.util.spec_from_file_location("coc_state_clean_slate", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -23,137 +24,204 @@ def state():
     return _load_state()
 
 
-def test_migrate_state_identity_when_registry_empty(state):
-    data = {"schema_version": 1, "campaign_id": "c1"}
-    out = state.migrate_state(data, "campaign")
-    assert out == data
-    assert out["schema_version"] == 1
+def _seed_current_generation(state, root: Path, campaign_id: str = "case-1") -> Path:
+    state.create_campaign(root, campaign_id, "Current Campaign")
+    return root / ".coc" / "campaigns" / campaign_id
 
 
-def test_migrate_state_chains_registered_migration_and_persists(tmp_path, state, monkeypatch):
-    def bump_1_to_2(payload: dict) -> dict:
-        out = dict(payload)
-        out["schema_version"] = 2
-        out["migrated"] = True
-        return out
+def test_exact_current_generation_loads_without_rewrite(tmp_path, state):
+    campaign = _seed_current_generation(state, tmp_path)
+    world_path = campaign / "save" / "world-state.json"
+    before = world_path.read_bytes()
 
-    monkeypatch.setitem(state.MIGRATIONS, "test_kind", {1: bump_1_to_2})
-    monkeypatch.setitem(state.CURRENT_SCHEMA_VERSIONS, "test_kind", 2)
+    loaded = state.validate_campaign_generation(campaign)
 
-    path = tmp_path / "save" / "test-state.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"schema_version": 1, "x": 1}), encoding="utf-8")
-
-    loaded = state.load_state_object(path, "test_kind", fallback={"schema_version": 2})
-    assert loaded["schema_version"] == 2
-    assert loaded["migrated"] is True
-    assert loaded["x"] == 1
-
-    on_disk = json.loads(path.read_text(encoding="utf-8"))
-    assert on_disk["schema_version"] == 2
-    assert on_disk["migrated"] is True
+    assert loaded["campaign_id"] == "case-1"
+    assert loaded["world"]["schema_version"] == 2
+    assert world_path.read_bytes() == before
 
 
-def test_migrate_state_over_version_raises(state, monkeypatch):
-    monkeypatch.setitem(state.CURRENT_SCHEMA_VERSIONS, "test_kind", 1)
-    with pytest.raises(ValueError, match="schema_version 9 .* exceeds current 1"):
-        state.migrate_state({"schema_version": 9}, "test_kind")
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"schema_version": 1, "campaign_id": "case-1"},
+        {"campaign_id": "case-1"},
+        {"schema_version": 3, "campaign_id": "case-1"},
+        {"schema_version": True, "campaign_id": "case-1"},
+        ["not", "an", "object"],
+    ],
+)
+def test_noncurrent_world_is_rejected_without_mutation(tmp_path, state, payload):
+    campaign = _seed_current_generation(state, tmp_path)
+    path = campaign / "save" / "world-state.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    before = path.read_bytes()
 
+    with pytest.raises(state.UnsupportedSaveSchema) as error:
+        state.validate_campaign_generation(campaign)
 
-def test_world_v1_migrates_to_v2_atomically_and_idempotently(tmp_path, state):
-    path = tmp_path / "campaigns" / "case-1" / "save" / "world-state.json"
-    path.parent.mkdir(parents=True)
-    original = {
-        "schema_version": 1,
-        "campaign_id": "case-1",
-        "status": "active",
-        "active_scene_id": "study",
-        "pending_choice": {"choice_id": "legacy-copy"},
-        "unknown_future_safe_field": {"keep": True},
+    assert error.value.code == "unsupported_save_schema"
+    assert error.value.fresh_generation_required is True
+    assert error.value.to_dict() == {
+        "code": "unsupported_save_schema",
+        "fresh_generation_required": True,
+        "kind": "world",
+        "reason": error.value.reason,
+        "path_name": "world-state.json",
     }
-    path.write_text(json.dumps(original), encoding="utf-8")
-
-    loaded = state.load_world_state(path.parents[1])
-    assert loaded["schema_version"] == 2
-    assert loaded["terminal_state"] is None
-    assert loaded["pending_subsystem_choice"] is None
-    assert "pending_choice" not in loaded
-    assert loaded["unknown_future_safe_field"] == {"keep": True}
-    rewritten = json.loads(path.read_text(encoding="utf-8"))
-    assert rewritten == loaded
-
-    before = path.read_bytes()
-    assert state.load_world_state(path.parents[1]) == loaded
+    assert str(tmp_path) not in json.dumps(error.value.to_dict())
     assert path.read_bytes() == before
+    assert list(path.parent.glob("world-state.json.corrupt-*")) == []
 
 
-def test_world_forward_version_fails_closed_without_rewrite(tmp_path, state):
-    path = tmp_path / "campaigns" / "case-1" / "save" / "world-state.json"
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"schema_version": 3, "sensitive": "preserve"}), encoding="utf-8")
-    before = path.read_bytes()
-
-    with pytest.raises(ValueError, match="exceeds current 2"):
-        state.load_world_state(path.parents[1])
-    assert path.read_bytes() == before
-
-
-@pytest.mark.parametrize(
-    "schema_version",
-    [True, False, "1", None, 1.0, 0, -1, float("nan"), float("inf")],
-)
-def test_world_migration_requires_exact_positive_integer_schema_version(
-    state, schema_version,
-):
-    with pytest.raises(ValueError, match="invalid schema_version"):
-        state.migrate_state({"schema_version": schema_version}, "world")
-
-
-@pytest.mark.parametrize(
-    "terminal_state",
-    [[], {}, ["completed"], {"status": "completed"}, True, 1, 1.5],
-)
-def test_world_migration_normalizes_non_scalar_terminal_state_without_type_error(
-    state, terminal_state,
-):
-    migrated = state.migrate_state(
-        {"schema_version": 1, "terminal_state": terminal_state}, "world"
-    )
-    assert migrated["schema_version"] == 2
-    assert migrated["terminal_state"] is None
-
-
-def test_corrupt_json_backed_up_before_fallback(tmp_path, state):
-    path = tmp_path / "campaigns" / "c1" / "campaign.json"
-    path.parent.mkdir(parents=True)
-    (tmp_path / "campaigns" / "c1" / "logs").mkdir(parents=True)
+def test_malformed_world_is_rejected_without_backup_or_default(tmp_path, state):
+    campaign = _seed_current_generation(state, tmp_path)
+    path = campaign / "save" / "world-state.json"
     path.write_text("{not-json", encoding="utf-8")
 
-    loaded = state.load_state_object(
-        path, "campaign", fallback={"schema_version": 1, "campaign_id": "c1"}
+    with pytest.raises(state.UnsupportedSaveSchema):
+        state.load_world_state(campaign)
+
+    assert path.read_text(encoding="utf-8") == "{not-json"
+    assert list(path.parent.glob("world-state.json.corrupt-*")) == []
+    assert not (campaign / "logs" / "state-warnings.jsonl").exists()
+
+
+def test_missing_core_file_is_not_a_fresh_per_file_default(tmp_path, state):
+    campaign = _seed_current_generation(state, tmp_path)
+    (campaign / "save" / "pacing-state.json").unlink()
+
+    with pytest.raises(state.UnsupportedSaveSchema) as error:
+        state.validate_campaign_generation(campaign)
+
+    assert error.value.reason == "missing_file"
+    assert not (campaign / "save" / "pacing-state.json").exists()
+
+
+@pytest.mark.parametrize(
+    "relative,field,value",
+    [
+        ("campaign.json", "campaign_id", "other"),
+        ("save/world-state.json", "campaign_id", "other"),
+        ("save/pacing-state.json", "campaign_id", "other"),
+    ],
+)
+def test_core_identity_mismatch_rejects_generation(
+    tmp_path, state, relative, field, value,
+):
+    campaign = _seed_current_generation(state, tmp_path)
+    path = campaign / relative
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload[field] = value
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(state.UnsupportedSaveSchema) as error:
+        state.validate_campaign_generation(campaign)
+
+    assert error.value.reason == f"identity_mismatch:{field}"
+
+
+def test_read_only_validation_never_discards_invalid_generation(tmp_path, state):
+    campaign = _seed_current_generation(state, tmp_path)
+    marker = campaign / "save" / "old-marker.txt"
+    marker.write_text("preserve until explicit fresh start", encoding="utf-8")
+    (campaign / "save" / "world-state.json").write_text(
+        json.dumps({"schema_version": 1, "campaign_id": "case-1"}),
+        encoding="utf-8",
     )
-    assert loaded["campaign_id"] == "c1"
 
-    backups = list(path.parent.glob("campaign.json.corrupt-*"))
-    assert len(backups) == 1
-    assert backups[0].read_text(encoding="utf-8") == "{not-json"
+    with pytest.raises(state.UnsupportedSaveSchema):
+        state.validate_campaign_generation(campaign)
 
-    warn_path = tmp_path / "campaigns" / "c1" / "logs" / "state-warnings.jsonl"
-    assert warn_path.exists()
-    warning = json.loads(warn_path.read_text(encoding="utf-8").splitlines()[0])
-    assert warning["event_type"] == "corrupt_save_backup"
-    assert warning["reason"] == "json_decode_error"
-    assert Path(warning["path"]).name == "campaign.json"
-    assert Path(warning["backup_path"]).name.startswith("campaign.json.corrupt-")
+    assert marker.is_file()
 
 
-def test_non_object_json_backed_up_before_fallback(tmp_path, state):
-    path = tmp_path / "save" / "pacing-state.json"
-    path.parent.mkdir(parents=True)
-    path.write_text("[1, 2, 3]", encoding="utf-8")
+def test_discard_requires_explicit_fresh_start_operation(tmp_path, state):
+    campaign = _seed_current_generation(state, tmp_path)
 
-    loaded = state.load_state_object(path, "pacing", fallback={"schema_version": 1})
-    assert loaded == {"schema_version": 1}
+    with pytest.raises(ValueError, match="fresh_start operation required"):
+        state.discard_campaign_generation(tmp_path, "case-1")
 
-    backups = list(path.parent.glob("pacing-state.json.corrupt-*"))
-    assert len(backups) == 1
+    assert campaign.is_dir()
+
+
+def test_fresh_start_discards_whole_campaign_and_owned_runtime_sessions(
+    tmp_path, state,
+):
+    campaign = _seed_current_generation(state, tmp_path)
+    stale = campaign / "save" / "stale-old-id-map.json"
+    stale.write_text("{}", encoding="utf-8")
+    runtime = tmp_path / ".coc" / "runtime" / "sessions.json"
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text(json.dumps({
+        "schema_version": 1,
+        "closed_session_ids": [],
+        "sessions": [
+            {
+                "session_id": "discard",
+                "campaign_id": "case-1",
+                "investigator_id": "ada",
+                "character_relpath": ".coc/investigators/ada/character.json",
+                "resolved_config": {"schema_version": 2},
+                "brain_at_create": "debug",
+            },
+            {
+                "session_id": "keep",
+                "campaign_id": "case-2",
+                "investigator_id": "bert",
+                "character_relpath": ".coc/investigators/bert/character.json",
+                "resolved_config": {"schema_version": 2},
+                "brain_at_create": "debug",
+            },
+        ],
+    }), encoding="utf-8")
+
+    state.create_campaign(
+        tmp_path, "case-1", "Fresh Campaign", fresh_start=True
+    )
+
+    assert not stale.exists()
+    current = state.validate_campaign_generation(campaign)
+    assert current["campaign"]["title"] == "Fresh Campaign"
+    snapshot = json.loads(runtime.read_text(encoding="utf-8"))
+    assert snapshot["sessions"] == [
+        {
+            "session_id": "keep",
+            "campaign_id": "case-2",
+            "investigator_id": "bert",
+            "character_relpath": ".coc/investigators/bert/character.json",
+            "resolved_config": {"schema_version": 2},
+            "brain_at_create": "debug",
+        }
+    ]
+
+
+def test_fresh_start_deletes_invalid_runtime_snapshot_instead_of_adopting_it(
+    tmp_path, state,
+):
+    _seed_current_generation(state, tmp_path)
+    runtime = tmp_path / ".coc" / "runtime" / "sessions.json"
+    runtime.parent.mkdir(parents=True)
+    runtime.write_text(json.dumps({
+        "schema_version": 1,
+        "closed_session_ids": [],
+        "sessions": [{"session_id": "partial", "campaign_id": "case-1"}],
+    }), encoding="utf-8")
+
+    state.create_campaign(tmp_path, "case-1", "Fresh", fresh_start=True)
+
+    assert not runtime.exists()
+    assert state.validate_campaign_generation(
+        tmp_path / ".coc" / "campaigns" / "case-1"
+    )["campaign"]["title"] == "Fresh"
+
+
+def test_create_campaign_never_overlays_existing_generation(tmp_path, state):
+    campaign = _seed_current_generation(state, tmp_path)
+    marker = campaign / "save" / "owned-marker"
+    marker.write_text("old", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        state.create_campaign(tmp_path, "case-1", "Accidental Overlay")
+
+    assert marker.read_text(encoding="utf-8") == "old"

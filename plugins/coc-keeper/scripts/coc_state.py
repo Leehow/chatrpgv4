@@ -7,7 +7,7 @@ import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -21,8 +21,9 @@ from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 import coc_investigator_guard
 
 
-# Per-kind current schema versions. Migrations are registered in MIGRATIONS as
-# {kind: {from_version: fn}} where fn(data) -> data with schema_version bumped.
+# Per-kind current schema versions. Persisted state is accepted only when it
+# matches these versions exactly. This project intentionally has no migration
+# registry or legacy reader.
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
     "campaign": 1,
     "world": 2,
@@ -31,34 +32,37 @@ CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
 }
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-
-def _migrate_world_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
-    """Normalize durable world lifecycle fields without dropping extensions.
-
-    Pending subsystem choice remains canonical in subsystem-state.json.  This
-    world field is deliberately always ``None`` and serves only as a stable
-    lifecycle marker for older world consumers; copying a live choice here
-    would create two competing sources of truth.
-    """
-    out = dict(data)
-    terminal_state = out.get("terminal_state")
-    if terminal_state is not None and (
-        not isinstance(terminal_state, str)
-        or terminal_state not in ("completed", "failed", "abandoned")
-    ):
-        terminal_state = None
-    out["terminal_state"] = terminal_state
-    # v1 world files sometimes carried a convenience copy.  The executor's
-    # subsystem-state remains the single authoritative continuation record.
-    out.pop("pending_choice", None)
-    out["pending_subsystem_choice"] = None
-    out["schema_version"] = 2
-    return out
-
-
-MIGRATIONS: dict[str, dict[int, Callable[[dict[str, Any]], dict[str, Any]]]] = {
-    "world": {1: _migrate_world_v1_to_v2},
+_RUNTIME_SESSION_KEYS = {
+    "session_id",
+    "campaign_id",
+    "investigator_id",
+    "character_relpath",
+    "resolved_config",
+    "brain_at_create",
 }
+
+
+class UnsupportedSaveSchema(ValueError):
+    """Typed clean-slate rejection for a non-current persisted generation."""
+
+    code = "unsupported_save_schema"
+    fresh_generation_required = True
+
+    def __init__(self, *, kind: str, path: Path | None = None, reason: str) -> None:
+        self.kind = kind
+        self.path = Path(path) if path is not None else None
+        self.reason = reason
+        super().__init__(self.code)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a sanitized machine-readable failure without save contents."""
+        return {
+            "code": self.code,
+            "fresh_generation_required": self.fresh_generation_required,
+            "kind": self.kind,
+            "reason": self.reason,
+            "path_name": self.path.name if self.path is not None else None,
+        }
 
 
 TOP_LEVEL_DIRS = (
@@ -202,54 +206,23 @@ def _relative_to_root(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def migrate_state(data: dict[str, Any], kind: str) -> dict[str, Any]:
-    """Apply chained schema migrations for ``kind`` until current version.
-
-    Empty ``MIGRATIONS`` registry → identity when ``schema_version`` already
-    matches ``CURRENT_SCHEMA_VERSIONS[kind]`` (default 1). Over-version raises.
-    """
+def validate_state_schema(data: dict[str, Any], kind: str) -> dict[str, Any]:
+    """Validate and return exact-current state without migration."""
     if not isinstance(data, dict):
-        raise TypeError(f"migrate_state expects dict, got {type(data).__name__}")
+        raise UnsupportedSaveSchema(kind=kind, reason="non_object_json")
     current = int(CURRENT_SCHEMA_VERSIONS.get(kind, 1))
-    raw_version = data.get("schema_version", 1)
+    raw_version = data.get("schema_version")
     if (
         isinstance(raw_version, bool)
         or not isinstance(raw_version, int)
-        or raw_version < 1
     ):
-        raise ValueError(f"invalid schema_version for kind={kind!r}")
-    version = raw_version
-    if version > current:
-        raise ValueError(
-            f"schema_version {version} for kind={kind!r} exceeds current {current}"
+        raise UnsupportedSaveSchema(kind=kind, reason="missing_or_invalid_schema")
+    if raw_version != current:
+        raise UnsupportedSaveSchema(
+            kind=kind,
+            reason=f"schema_version_mismatch:{raw_version}!={current}",
         )
-    out = data
-    while version < current:
-        migrator = MIGRATIONS.get(kind, {}).get(version)
-        if migrator is None:
-            raise ValueError(
-                f"no migration registered for kind={kind!r} from_version={version}"
-            )
-        out = migrator(out)
-        if not isinstance(out, dict):
-            raise TypeError(
-                f"migration {kind}:{version} returned {type(out).__name__}, expected dict"
-            )
-        next_version = out.get("schema_version", version + 1)
-        if (
-            isinstance(next_version, bool)
-            or not isinstance(next_version, int)
-            or next_version < 1
-        ):
-            raise ValueError(
-                f"migration {kind}:{version} produced invalid schema_version"
-            )
-        if next_version <= version:
-            raise ValueError(
-                f"migration {kind}:{version} did not advance schema_version"
-            )
-        version = next_version
-    return out
+    return data
 
 
 def _campaign_logs_dir_for(path: Path) -> Path | None:
@@ -316,47 +289,49 @@ def _backup_corrupt_save(path: Path, *, reason: str) -> Path:
 def load_state_object(
     path: Path,
     kind: str,
-    fallback: dict[str, Any] | None = None,
+    *,
+    expected_identity: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Load a typed state JSON object with corrupt-backup + schema migration.
+    """Load an exact-current typed state object without modifying it.
 
-    On missing file / decode failure / non-object payload: back up when a file
-    exists, emit a structured warning, then return a copy of ``fallback``.
-    When ``schema_version`` is below current for ``kind``, run chained
-    migrations and atomically write the migrated payload back.
+    Missing, malformed, mismatched, or identity-conflicting persisted state is
+    one generation-level failure rather than a per-file default.
     """
     path = Path(path)
-    if fallback is None:
-        fallback = {"schema_version": int(CURRENT_SCHEMA_VERSIONS.get(kind, 1))}
+    if path.is_symlink():
+        raise UnsupportedSaveSchema(kind=kind, path=path, reason="unsafe_symlink")
     if not path.exists():
-        return dict(fallback)
+        raise UnsupportedSaveSchema(kind=kind, path=path, reason="missing_file")
 
     try:
         raw_text = path.read_text(encoding="utf-8")
         payload = json.loads(raw_text)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        _backup_corrupt_save(path, reason="json_decode_error")
-        return dict(fallback)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UnsupportedSaveSchema(
+            kind=kind, path=path, reason="json_decode_error"
+        ) from exc
 
     if not isinstance(payload, dict):
-        _backup_corrupt_save(path, reason="non_object_json")
-        return dict(fallback)
+        raise UnsupportedSaveSchema(kind=kind, path=path, reason="non_object_json")
 
-    before_version = payload.get("schema_version", 1)
-    migrated = migrate_state(payload, kind)
-    if migrated.get("schema_version") != before_version:
-        write_json_atomic(path, migrated)
-    return migrated
+    try:
+        current = validate_state_schema(payload, kind)
+    except UnsupportedSaveSchema as exc:
+        raise UnsupportedSaveSchema(kind=kind, path=path, reason=exc.reason) from exc
+    for field, expected in (expected_identity or {}).items():
+        if current.get(field) != expected:
+            raise UnsupportedSaveSchema(
+                kind=kind,
+                path=path,
+                reason=f"identity_mismatch:{field}",
+            )
+    return current
 
 
 def _read_json_object(
     path: Path,
     fallback: dict[str, Any],
-    *,
-    kind: str | None = None,
 ) -> dict[str, Any]:
-    if kind is not None:
-        return load_state_object(path, kind, fallback=fallback)
     if not path.exists():
         return fallback
     try:
@@ -371,40 +346,178 @@ def _read_json_object(
 
 
 def load_campaign_state(campaign_dir: Path) -> dict[str, Any]:
-    """Load ``campaign.json`` with migration + corrupt-save safety."""
+    """Load exact-current identity-bound ``campaign.json``."""
     campaign_dir = Path(campaign_dir)
     return load_state_object(
         campaign_dir / "campaign.json",
         "campaign",
-        fallback={"schema_version": 1, "campaign_id": campaign_dir.name},
+        expected_identity={"campaign_id": campaign_dir.name},
     )
 
 
 def load_world_state(campaign_dir: Path) -> dict[str, Any]:
-    """Load ``save/world-state.json`` with migration + corrupt-save safety."""
+    """Load exact-current identity-bound world state."""
+    campaign_dir = Path(campaign_dir)
     return load_state_object(
-        Path(campaign_dir) / "save" / "world-state.json",
+        campaign_dir / "save" / "world-state.json",
         "world",
-        fallback={"schema_version": 2, "terminal_state": None, "pending_subsystem_choice": None},
+        expected_identity={"campaign_id": campaign_dir.name},
     )
 
 
 def load_pacing_state(campaign_dir: Path) -> dict[str, Any]:
-    """Load ``save/pacing-state.json`` with migration + corrupt-save safety."""
+    """Load exact-current identity-bound pacing state."""
+    campaign_dir = Path(campaign_dir)
     return load_state_object(
-        Path(campaign_dir) / "save" / "pacing-state.json",
+        campaign_dir / "save" / "pacing-state.json",
         "pacing",
-        fallback={"schema_version": 1},
+        expected_identity={"campaign_id": campaign_dir.name},
     )
 
 
 def load_investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
-    """Load investigator save state with migration + corrupt-save safety."""
+    """Load exact-current campaign/investigator-bound state."""
+    campaign_dir = Path(campaign_dir)
     return load_state_object(
-        Path(campaign_dir) / "save" / "investigator-state" / f"{investigator_id}.json",
+        campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json",
         "investigator",
-        fallback={"schema_version": 1, "investigator_id": investigator_id},
+        expected_identity={
+            "campaign_id": campaign_dir.name,
+            "investigator_id": investigator_id,
+        },
     )
+
+
+def validate_campaign_generation(
+    campaign_dir: Path,
+    *,
+    investigator_id: str | None = None,
+) -> dict[str, Any]:
+    """Read-only preflight for the central campaign generation.
+
+    No file is created, rewritten, backed up, or deleted. A missing member of
+    an existing central generation is the same typed failure as an old,
+    malformed, forward, or identity-conflicting member.
+    """
+    campaign_dir = Path(campaign_dir)
+    if not campaign_dir.is_dir() or campaign_dir.is_symlink():
+        raise UnsupportedSaveSchema(
+            kind="campaign", path=campaign_dir, reason="missing_or_unsafe_generation"
+        )
+    campaign = load_campaign_state(campaign_dir)
+    world = load_world_state(campaign_dir)
+    pacing = load_pacing_state(campaign_dir)
+    inv_dir = campaign_dir / "save" / "investigator-state"
+    if not inv_dir.is_dir() or inv_dir.is_symlink():
+        raise UnsupportedSaveSchema(
+            kind="investigator", path=inv_dir, reason="missing_or_unsafe_store"
+        )
+    if investigator_id is not None:
+        investigator_ids = [investigator_id]
+    else:
+        investigator_ids = [
+            path.stem for path in sorted(inv_dir.glob("*.json")) if path.is_file()
+        ]
+    investigators = {
+        item: load_investigator_state(campaign_dir, item)
+        for item in investigator_ids
+    }
+    return {
+        "schema_version": 1,
+        "campaign_id": campaign_dir.name,
+        "campaign": campaign,
+        "world": world,
+        "pacing": pacing,
+        "investigators": investigators,
+    }
+
+
+def _discard_runtime_sessions_for_campaign(root: Path, campaign_id: str) -> None:
+    """Remove current runtime snapshot entries owned by one discarded campaign.
+
+    A malformed/non-current runtime snapshot is itself unusable runtime state;
+    at an explicit fresh-start boundary it is deleted instead of partially
+    interpreted. Read-only state loading never calls this function.
+    """
+    snapshot = coc_root(root) / "runtime" / "sessions.json"
+    if not snapshot.exists():
+        return
+    try:
+        payload = json.loads(snapshot.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        snapshot.unlink(missing_ok=True)
+        return
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "sessions", "closed_session_ids"}
+        or payload.get("schema_version") != 1
+        or isinstance(payload.get("schema_version"), bool)
+        or not isinstance(payload.get("sessions"), list)
+        or not isinstance(payload.get("closed_session_ids"), list)
+    ):
+        snapshot.unlink(missing_ok=True)
+        return
+    sessions = payload["sessions"]
+    closed = payload["closed_session_ids"]
+    if (
+        not all(isinstance(value, str) and _SAFE_ID.fullmatch(value) for value in closed)
+        or len(set(closed)) != len(closed)
+        or not all(
+            isinstance(row, dict)
+            and set(row) == _RUNTIME_SESSION_KEYS
+            and all(
+                isinstance(row.get(field), str) and bool(row[field])
+                for field in (
+                    "session_id",
+                    "campaign_id",
+                    "investigator_id",
+                    "character_relpath",
+                    "brain_at_create",
+                )
+            )
+            and isinstance(row.get("resolved_config"), dict)
+            and row["resolved_config"].get("schema_version") == 2
+            and not isinstance(row["resolved_config"].get("schema_version"), bool)
+            for row in sessions
+        )
+    ):
+        snapshot.unlink(missing_ok=True)
+        return
+    payload["sessions"] = [
+        row for row in sessions if row.get("campaign_id") != campaign_id
+    ]
+    write_json_atomic(snapshot, payload)
+
+
+def discard_campaign_generation(
+    root: Path,
+    campaign_id: str,
+    *,
+    fresh_start: bool = False,
+) -> None:
+    """Delete one complete owned campaign/runtime generation for fresh start.
+
+    The explicit flag is an authorization boundary, not a convenience default.
+    Validation and ordinary reads never discard state.
+    """
+    if fresh_start is not True:
+        raise ValueError("fresh_start operation required")
+    if not isinstance(campaign_id, str) or _SAFE_ID.fullmatch(campaign_id) is None:
+        raise ValueError("campaign_id must be a stable safe id")
+    base = coc_root(root)
+    campaigns = base / "campaigns"
+    campaign_dir = campaigns / campaign_id
+    try:
+        campaign_dir.resolve(strict=False).relative_to(campaigns.resolve(strict=False))
+    except (OSError, ValueError) as exc:
+        raise ValueError("campaign path is unsafe") from exc
+    if campaign_dir.is_symlink():
+        raise ValueError("campaign path is unsafe")
+    if campaign_dir.exists():
+        if not campaign_dir.is_dir():
+            raise ValueError("campaign path is unsafe")
+        shutil.rmtree(campaign_dir)
+    _discard_runtime_sessions_for_campaign(root, campaign_id)
 
 
 def _merge_current_luck(campaign_dir: Path, investigator_id: str, current_luck: int) -> Path:
@@ -863,9 +976,16 @@ def create_campaign(
     era: str = "1920s",
     play_language: str = DEFAULT_PLAY_LANGUAGE,
     start_clock: dict[str, Any] | None = None,
+    *,
+    fresh_start: bool = False,
 ) -> Path:
     ensure_workspace(root)
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
+    if campaign_dir.exists() or fresh_start:
+        if fresh_start:
+            discard_campaign_generation(root, campaign_id, fresh_start=True)
+        else:
+            raise FileExistsError(f"campaign already exists: {campaign_id}")
     return _create_campaign_at(
         root,
         campaign_dir,
