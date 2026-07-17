@@ -34,6 +34,70 @@ def test_plugin_is_single_track_with_thin_host_entries():
     assert not (ROOT / "plugins" / "coc-keeper-zcode").exists()
 
 
+def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
+    text = _text(ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md")
+    compact = " ".join(text.split()).lower()
+    for phrase in (
+        "coc-keeper-play/skill.md",
+        "coc-story-director/skill.md",
+        "director.advise",
+        "narration.brief",
+        "narration.review",
+        "evidence.record_adoption",
+        "action_uptake",
+        "enact it from the investigator",
+        "log_style_summary",
+        "ai_summary_voice",
+        "always-active player-action uptake",
+        "**not** an acceptable",
+        "codex_only_imagegen",
+    ):
+        assert phrase in compact, phrase
+    agents = _text(PLUGIN_ROOT / "references" / "AGENTS-coc-mode-template.md")
+    agents_compact = " ".join(agents.split()).lower()
+    assert "coc-story-director" in agents_compact
+    assert "director.advise" in agents_compact
+    assert (
+        PLUGIN_ROOT / "skills" / "coc-story-director" / "agents" / "openai.yaml"
+    ).is_file()
+    play = _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md")
+    play_compact = " ".join(play.split()).lower()
+    core_at = play_compact.index("core keeper response contract (always active)")
+    brief_at = play_compact.index("narration.brief")
+    review_at = play_compact.index("narration.review")
+    assert core_at < brief_at < review_at
+    for phrase in (
+        "must make that declaration happen in the fictional world",
+        "whether or not",
+        "always-on prompt-level drafting responsibility",
+        "not a fixed workflow",
+        "never a keyword list",
+        "required craft instruction",
+        "not a mandatory pipeline",
+    ):
+        assert phrase in play_compact, phrase
+    assert "action_uptake" in play_compact
+    assert "not acceptable player-" in play_compact or (
+        "not acceptable player" in play_compact
+    )
+    contract = _text(PLUGIN_ROOT / "scripts" / "coc_narration_contract.py")
+    assert "action_uptake" in contract
+    assert "treat_current_action_uptake_as_semantic_repetition" in contract
+
+    cursor_compact = " ".join(
+        _text(ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md").split()
+    ).lower()
+    assert "always-active player-action uptake" in cursor_compact
+    assert "whether or not `narration.brief`" in cursor_compact
+    assert "player-visible prose pipeline (hard order)" not in cursor_compact
+
+    pi_compact = " ".join(
+        _text(ROOT / "runtime" / "adapters" / "pi" / "README.md").split()
+    ).lower()
+    assert "always-active core keeper response contract" in pi_compact
+    assert "whether or not an optional" in pi_compact
+
+
 def test_canonical_skills_have_matching_frontmatter_names():
     skill_root = PLUGIN_ROOT / "skills"
     skill_dirs = sorted(path for path in skill_root.iterdir() if path.is_dir())

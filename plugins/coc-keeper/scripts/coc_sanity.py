@@ -420,12 +420,17 @@ class SanitySession:
 
         # Determine SAN loss.
         # p.166: fumbled SAN roll = maximum possible SAN loss for this source.
+        loss_rolls: list[int] = []
+        loss_resolution = "constant"
         if res["outcome"] == "fumble":
             lost = self._max_dice(san_loss_fail_expr)
+            loss_resolution = "fumble_maximum"
         elif res["outcome"] == "failure":
-            lost = self._roll_dice(san_loss_fail_expr)
+            lost, loss_rolls = self._roll_dice_detail(san_loss_fail_expr)
+            loss_resolution = "rolled" if loss_rolls else "constant"
         else:
             lost = san_loss_success
+        loss_raw_total = lost
 
         # Mythos-Hardened (p.169): when the investigator's Cthulhu Mythos
         # score exceeds their current SAN, SAN loss is halved (round down).
@@ -464,6 +469,14 @@ class SanitySession:
             "san_delta": -lost,
             "san_after": self.san_current,
             "mythos_hardened": mythos_hardened,
+            "san_loss_expression": (
+                san_loss_fail_expr
+                if res["outcome"] in ("failure", "fumble")
+                else str(san_loss_success)
+            ),
+            "san_loss_rolls": loss_rolls,
+            "san_loss_raw_total": loss_raw_total,
+            "san_loss_resolution": loss_resolution,
             "marker": (f"[san_check]SAN {san_loss_success}/{san_loss_fail_expr}|"
                        f"理智{san_before}:(d100->{res['roll']})->{res['outcome']}|"
                        f"{san_loss_fail_expr}->{lost if res['outcome'] in ('failure','fumble') else lost}"
@@ -1355,16 +1368,22 @@ class SanitySession:
 
     def _roll_dice(self, expr: str) -> int:
         """Roll a dice expression like '1D6', '1D4+1', '2D10+1'."""
+        total, _ = self._roll_dice_detail(expr)
+        return total
+
+    def _roll_dice_detail(self, expr: str) -> tuple[int, list[int]]:
+        """Roll a SAN-loss expression and retain its individual die faces."""
         try:
             parsed = validate_san_loss_expression(expr)
         except ValueError:
-            return 1  # safe fallback
+            return 1, []  # safe fallback
         if parsed["kind"] == "constant":
-            return int(parsed["value"])
+            return int(parsed["value"]), []
         count = int(parsed["count"])
         sides = int(parsed["sides"])
         modifier = int(parsed["modifier"])
-        return sum(self._rng.randint(1, sides) for _ in range(count)) + modifier
+        rolls = [self._rng.randint(1, sides) for _ in range(count)]
+        return sum(rolls) + modifier, rolls
 
     def _max_dice(self, expr: str) -> int:
         """Maximum possible value of a dice expression. Used for fumbled SAN rolls

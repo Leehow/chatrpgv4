@@ -54,6 +54,16 @@ Codex imagegen 时跳过调查员立绘，其余流程不变。
 `plugins/coc-keeper/.cursor-plugin/plugin.json` 都路由到 canonical skills 树。
 Cursor 没有 Codex imagegen 时同样跳过立绘。
 
+本地 checkout 同步到 Cursor local plugin（Cursor 不接受指向仓库外的软链，
+因此脚本会复制树）：
+
+```bash
+bash plugins/coc-keeper/scripts/install-cursor-plugin.sh
+```
+
+然后在 Cursor 里 `Developer: Reload Window`，再打开 Customize → Plugins
+确认 `COC Keeper` 版本与仓库一致。
+
 ## 主要能力 / Features
 
 - 激活、暂停、恢复或退出 COC 模式。

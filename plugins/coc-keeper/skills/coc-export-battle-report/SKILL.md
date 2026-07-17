@@ -24,6 +24,14 @@ contain:
   structured dice log;
 - the campaign's investigator state under `save/investigator-state/`, with
   optional static character sources under `sandbox/.coc/investigators/`.
+- `save/world-state.json` and `save/flags.json` for the visited scene path and
+  explicitly discovered clue receipts;
+- `logs/events.jsonl` plus ending development-settlement receipts for the
+  structured conclusion, visible consequences, and final growth;
+- optional `save/npc-engagement-receipts.json`; only receipt identity
+  (`npc_id`, scene, interaction kind, decision, timestamp) is exported. Its
+  Keeper-only `identity_contract`, agenda, voice, schedule, and source material
+  are never report sources.
 
 Use `--allow-partial` only for an interrupted run containing
 `partial-transcript.jsonl`. The report remains visibly `INCOMPLETE`.
@@ -32,17 +40,35 @@ The exporter atomically writes the final pair under `artifacts/`:
 
 - `battle-report.md`: the final readable, player-safe actual-play report;
 - `battle-report-evidence.json`: deterministic structured source hashes,
-  sanitized investigator and dialogue evidence, completeness findings, and
-  public-roll provenance.
+  explicitly allowlisted player-safe evidence plus a clearly marked
+  `keeper_internal` section containing exact structured toolbox results,
+  advisory adoption receipts, and per-turn capsules for development audit.
+
+The Markdown renders the full initial investigator card, final `current_*`
+state, development deltas, personal-horror weave/payoff receipts, visited path,
+discovered clues only, player-safe NPC interactions, recorded major decisions
+and consequences, the structured ending/recap, exact ordered transcript, and
+the complete public-roll appendix. Static card values are not presented as
+final values, and numeric zero is never treated as missing.
 
 Every `public` or `consequence_public` roll must have a unique `roll_id` and
 source-traceable numerical evidence. Each is rendered exactly once. A missing
 roll log, duplicate ID, or malformed required public roll makes the report
 `INCOMPLETE`; a valid empty log reports a public roll count of zero.
 
-Both outputs exclude Keeper-only rolls, Keeper-view logs, module/scenario
-truth, hidden event logs, runner prompts, and structured secret/private fields.
+The Markdown excludes Keeper-only rolls, Keeper-view logs, module/scenario
+truth, hidden event logs, runner prompts, structured JSON fragments, and
+secret/private fields. The JSON evidence is Keeper-internal and may preserve
+structured tool results (including secret-marked reference data) so developers
+can audit what the KP actually saw and used; never publish it as a player
+artifact.
 Never reconstruct missing dice or hidden facts from prose. Before delivery,
 read `battle-report.md` end to end and inspect the evidence JSON's
 `completeness` and `public_rolls` sections. State an `INCOMPLETE` result
 honestly.
+
+Completeness is split into source identity, exact transcript, dice,
+character/final state, progression, ending/development, and player-safe
+projection dimensions. The compatibility `COMPLETE`/`INCOMPLETE` classification
+means report-source evidence completeness only. It does **not** certify prose
+quality, Director/Storylet use, or whole-product KP quality.

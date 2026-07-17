@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 JSON_OUTPUT = "battle-report-evidence.json"
 MARKDOWN_OUTPUT = "battle-report.md"
 METADATA_CANDIDATES = ("run.json", "playtest.json")
@@ -252,6 +252,149 @@ def _player_safe(value: Any) -> Any:
     return value
 
 
+def _pick(mapping: Any, keys: tuple[str, ...]) -> dict[str, Any]:
+    """Explicit allowlist projection; unlike _player_safe this defines a source contract."""
+    if not isinstance(mapping, dict):
+        return {}
+    return {key: mapping[key] for key in keys if key in mapping}
+
+
+def _character_projection(character: Any, creation: Any) -> dict[str, Any] | None:
+    if not isinstance(character, dict):
+        return None
+    projected = _pick(character, (
+        "id", "name", "display_name", "occupation", "profession", "era", "age",
+        "sex", "residence", "birthplace", "characteristics", "derived", "skills",
+        "weapons", "equipment", "backstory", "credit_rating", "cash",
+        "player_facing_sheet_zh",
+    ))
+    if isinstance(creation, dict):
+        projected["creation"] = _pick(creation, ("method", "status", "age"))
+    sheet = character.get("player_facing_sheet_zh")
+    if isinstance(sheet, dict):
+        projected["nationality"] = sheet.get("nationality")
+        initial_skills = {}
+        skill_rows = []
+        for row in sheet.get("skills", []) if isinstance(sheet.get("skills"), list) else []:
+            if isinstance(row, dict) and isinstance(row.get("key"), str) and _is_numeric(row.get("value")):
+                initial_skills[row["key"]] = row["value"]
+                skill_rows.append(_pick(row, ("key", "label", "value", "half", "fifth")))
+        if initial_skills:
+            projected["initial_skills"] = initial_skills
+            projected["initial_skill_rows"] = skill_rows
+    if "initial_skills" not in projected and isinstance(character.get("skills"), dict):
+        projected["initial_skills"] = character["skills"]
+    if "initial_skills" in projected:
+        projected["skills"] = projected["initial_skills"]
+    return projected
+
+
+def _state_projection(state: Any) -> dict[str, Any] | None:
+    if not isinstance(state, dict):
+        return None
+    projected = _pick(state, (
+        "investigator_id", "name", "display_name", "current_hp", "current_san",
+        "current_mp", "current_luck", "hp", "san", "mp", "luck", "conditions",
+        "indefinite_insane", "temporary_insane", "permanently_insane", "bout_active",
+        "phobia", "mania",
+    ))
+    hooks = state.get("personal_horror_hooks")
+    if isinstance(hooks, list):
+        projected["personal_horror_hooks"] = [
+            _pick(hook, ("hook_id", "backstory_field", "summary", "woven", "payoff", "payoff_summary"))
+            for hook in hooks if isinstance(hook, dict)
+        ]
+    return projected
+
+
+def _progression_projection(world: Any, flags: Any) -> dict[str, Any]:
+    world = world if isinstance(world, dict) else {}
+    flags = flags if isinstance(flags, dict) else {}
+    found = flags.get("clues_found") if isinstance(flags.get("clues_found"), dict) else {}
+    discovered = world.get("discovered_clue_ids") if isinstance(world.get("discovered_clue_ids"), list) else list(found)
+    clues = []
+    for clue_id in discovered:
+        if not isinstance(clue_id, str):
+            continue
+        receipt = found.get(clue_id) if isinstance(found.get(clue_id), dict) else {}
+        clues.append({"clue_id": clue_id, **_pick(receipt, ("method", "ts"))})
+    history = []
+    for row in world.get("scene_history", []) if isinstance(world.get("scene_history"), list) else []:
+        if isinstance(row, dict):
+            history.append(_pick(row, ("scene_id", "decision_id", "entered_at_decision_id", "ts")))
+    visited = [item for item in world.get("visited_scene_ids", []) if isinstance(item, str)] if isinstance(world.get("visited_scene_ids"), list) else []
+    return {
+        "visited_scene_ids": visited,
+        "scene_history": history,
+        "discovered_clues": clues,
+        "major_decisions": [
+            _pick(row, ("decision_id", "scene_id", "summary", "choice", "consequence", "ts"))
+            for row in world.get("major_decisions", [])
+            if isinstance(row, dict)
+        ] if isinstance(world.get("major_decisions"), list) else [],
+    }
+
+
+def _npc_projection(receipts: Any) -> list[dict[str, Any]]:
+    """Never project identity_contract: it is keeper-only even when it contains a name."""
+    source = receipts.get("receipts") if isinstance(receipts, dict) else None
+    if not isinstance(source, dict):
+        return []
+    result = []
+    for receipt in source.values():
+        if not isinstance(receipt, dict):
+            continue
+        event = receipt.get("event") if isinstance(receipt.get("event"), dict) else {}
+        row = _pick(event, ("event_id", "decision_id", "npc_id", "scene_id", "interaction_kind", "ts"))
+        if row:
+            result.append(row)
+    return result
+
+
+def _ending_projection(events: Any) -> dict[str, Any] | None:
+    if not isinstance(events, list):
+        return None
+    endings = [row for row in events if isinstance(row, dict) and row.get("event_type") == "session_ending"]
+    if not endings:
+        return None
+    return _pick(endings[-1], ("ending_id", "scene_id", "kind", "summary", "decision_id", "investigator_ids", "ts", "settlement_capsule_ref"))
+
+
+def _consequence_projection(events: Any, investigator_ids: list[str]) -> list[dict[str, Any]]:
+    if not isinstance(events, list):
+        return []
+    allowed_types = {"hp_change", "sanity_loss", "combat_ended"}
+    result = []
+    for row in events:
+        if not isinstance(row, dict) or row.get("event_type") not in allowed_types:
+            continue
+        investigator_id = row.get("investigator_id")
+        if investigator_id is not None and investigator_id not in investigator_ids:
+            continue
+        result.append(_pick(row, (
+            "event_type", "investigator_id", "kind", "amount", "loss", "hp_before",
+            "hp_after", "combat_id", "outcome", "ended_at_turn", "decision_id", "ts",
+        )))
+    return result
+
+
+def _settlement_projection(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    receipt = value.get("receipt") if isinstance(value.get("receipt"), dict) else {}
+    result = receipt.get("result") if isinstance(receipt.get("result"), dict) else {}
+    return {
+        **_pick(value, ("ending_id", "investigator_id", "settled_at")),
+        "status": receipt.get("status"),
+        "improvement_checks": [
+            _pick(row, ("skill", "check_roll", "gain", "value_before", "value_after", "improved", "applied_delta"))
+            for row in result.get("improvement_checks", []) if isinstance(row, dict)
+        ] if isinstance(result.get("improvement_checks"), list) else [],
+        "luck_recovery": _pick(result.get("luck_recovery"), ("roll", "success", "gained", "luck_before", "luck_after")),
+        "san_reward": _pick(result.get("scenario_san_reward") or result.get("san_reward"), ("expression", "rolls", "total", "san_before", "san_gained", "san_after")),
+    }
+
+
 def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     manifest: dict[str, dict[str, Any]] = {}
     metadata_source = METADATA_CANDIDATES[0]
@@ -320,9 +463,9 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         investigators.append(
             {
                 "investigator_id": investigator_id,
-                "character": _player_safe(character) if isinstance(character, dict) else None,
-                "creation": _player_safe(creation) if isinstance(creation, dict) else None,
-                "state": _player_safe(state) if isinstance(state, dict) else None,
+                "character": _character_projection(character, creation),
+                "creation": _pick(creation, ("method", "status", "age")) if isinstance(creation, dict) else None,
+                "state": _state_projection(state),
                 "source_status": {
                     "character": _card_status(character),
                     "creation": _card_status(creation),
@@ -330,6 +473,43 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 },
             }
         )
+
+    world = flags = npc_receipts = events = None
+    toolbox_calls: list[dict[str, Any]] | None = None
+    advisory_adoptions: list[dict[str, Any]] | None = None
+    progression: dict[str, Any] = {"visited_scene_ids": [], "scene_history": [], "discovered_clues": [], "major_decisions": []}
+    npc_interactions: list[dict[str, Any]] = []
+    ending = None
+    visible_consequences: list[dict[str, Any]] = []
+    settlements: list[dict[str, Any]] = []
+    if campaign_relative:
+        world = _read_source(run_dir, f"{campaign_relative}/save/world-state.json", "json", manifest)
+        flags = _read_source(run_dir, f"{campaign_relative}/save/flags.json", "json", manifest)
+        npc_receipts = _read_source(run_dir, f"{campaign_relative}/save/npc-engagement-receipts.json", "json", manifest)
+        events = _read_source(run_dir, f"{campaign_relative}/logs/events.jsonl", "jsonl", manifest)
+        toolbox_calls = _read_source(
+            run_dir,
+            f"{campaign_relative}/logs/toolbox-calls.jsonl",
+            "jsonl",
+            manifest,
+        )
+        advisory_adoptions = _read_source(
+            run_dir,
+            f"{campaign_relative}/logs/advisory-adoptions.jsonl",
+            "jsonl",
+            manifest,
+        )
+        progression = _progression_projection(world, flags)
+        npc_interactions = _npc_projection(npc_receipts)
+        ending = _ending_projection(events)
+        visible_consequences = _consequence_projection(events, investigator_ids)
+        if ending and isinstance(ending.get("ending_id"), str):
+            for investigator_id in investigator_ids:
+                relative = f"{campaign_relative}/save/development-settlements/endings/{ending['ending_id']}/{investigator_id}.json"
+                settlement = _read_source(run_dir, relative, "json", manifest)
+                projected = _settlement_projection(settlement)
+                if projected:
+                    settlements.append(projected)
 
     public_rolls: list[dict[str, Any]] = []
     all_rolls = None
@@ -366,26 +546,33 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         "keeper": sum(_dialogue_side(row) == "keeper" for row in transcript),
         "player": sum(_dialogue_side(row) == "player" for row in transcript),
     }
-    reasons: list[str] = []
-    if not metadata:
-        reasons.append("run.json or playtest.json metadata is missing or empty")
+    dimensions: dict[str, dict[str, Any]] = {}
+    def dimension(name: str, passed: bool, *findings: str) -> None:
+        dimensions[name] = {"status": "PASS" if passed else "FAIL", "findings": list(findings)}
+
+    dimension("source_identity", bool(metadata) and campaign_relative is not None, "run metadata and campaign directory resolved" if metadata and campaign_relative else "run metadata or campaign directory is missing")
+    transcript_findings = []
     if not transcript_complete:
-        reasons.append(
-            "final transcript.jsonl is missing"
-            if transcript_relative == "transcript.jsonl"
-            else "partial transcript exported by explicit request"
-        )
+        transcript_findings.append("final transcript.jsonl is missing")
     if role_counts["keeper"] == 0:
-        reasons.append("no non-empty Keeper/KP dialogue rows were found")
+        transcript_findings.append("no non-empty Keeper/KP dialogue rows were found")
     if role_counts["player"] == 0:
-        reasons.append("no non-empty player dialogue rows were found")
-    if campaign_relative is None:
-        reasons.append("campaign directory could not be resolved")
-    if not investigator_ids:
-        reasons.append("no investigator state or character source was discovered")
-    for investigator in investigators:
-        if investigator["source_status"]["state"] != "PRESENT" and investigator["source_status"]["character"] != "PRESENT":
-            reasons.append(f"investigator {investigator['investigator_id']} has neither state nor character data")
+        transcript_findings.append("no non-empty player dialogue rows were found")
+    transcript_ok = transcript_complete and not transcript_findings
+    dimension("exact_transcript", transcript_ok, *(transcript_findings or ["final ordered transcript contains both table roles"]))
+    dimension("dice", all_rolls is not None and not malformed_lines and not duplicate_roll_ids, "structured public-roll evidence is traceable exactly once" if all_rolls is not None and not malformed_lines and not duplicate_roll_ids else "structured roll evidence is missing or invalid")
+    character_ok = bool(investigators) and all(i["source_status"]["character"] == "PRESENT" and i["source_status"]["state"] == "PRESENT" for i in investigators)
+    dimension("character_and_final_state", character_ok, "initial card and final dynamic state are present" if character_ok else "an investigator lacks an initial card or final state")
+    progression_ok = isinstance(world, dict) and isinstance(flags, dict) and bool(progression["visited_scene_ids"])
+    dimension("progression", progression_ok, "visited scenes and discovered-clue receipts are projected" if progression_ok else "world progression sources or visited path are missing")
+    ending_ok = ending is not None and len(settlements) == len(investigator_ids) and bool(investigator_ids)
+    dimension("ending_and_development", ending_ok, "structured ending and investigator settlements are present" if ending_ok else "structured ending or development settlement is missing")
+    projection_ok = isinstance(flags, dict) and (npc_receipts is None or isinstance(npc_receipts, dict))
+    dimension("player_safe_projection", projection_ok, "explicit per-source allowlists applied" if projection_ok else "player-safe projection sources are malformed")
+
+    reasons: list[str] = [finding for value in dimensions.values() if value["status"] == "FAIL" for finding in value["findings"]]
+    if not transcript_complete and transcript_relative != "transcript.jsonl":
+        reasons.append("partial transcript exported by explicit request")
     if all_rolls is None:
         reasons.append("structured rolls.jsonl is missing; public roll count cannot be proven")
     if malformed_lines:
@@ -393,14 +580,75 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     if duplicate_roll_ids:
         reasons.append("duplicate public roll IDs: " + ", ".join(duplicate_roll_ids))
 
+    turn_capsules: dict[str, dict[str, Any]] = {}
+    for call in toolbox_calls or []:
+        if not isinstance(call, dict):
+            continue
+        turn_key = str(call.get("turn_number") if call.get("turn_number") is not None else "unassigned")
+        capsule = turn_capsules.setdefault(
+            turn_key,
+            {
+                "schema_version": 1,
+                "turn_number": call.get("turn_number"),
+                "visibility": "keeper_internal",
+                "tool_calls": [],
+                "advisory_adoptions": [],
+            },
+        )
+        capsule["tool_calls"].append(call)
+    for adoption in advisory_adoptions or []:
+        if not isinstance(adoption, dict):
+            continue
+        decision_id = str(adoption.get("decision_id") or "")
+        matched = next(
+            (
+                capsule
+                for capsule in turn_capsules.values()
+                if any(
+                    isinstance(call, dict)
+                    and str((call.get("args") or {}).get("decision_id") or "") == decision_id
+                    for call in capsule["tool_calls"]
+                )
+            ),
+            None,
+        )
+        if matched is None:
+            matched = turn_capsules.setdefault(
+                "unassigned",
+                {
+                    "schema_version": 1,
+                    "turn_number": None,
+                    "visibility": "keeper_internal",
+                    "tool_calls": [],
+                    "advisory_adoptions": [],
+                },
+            )
+        matched["advisory_adoptions"].append(adoption)
+
     return {
         "completeness": {
             "classification": "COMPLETE" if not reasons else "INCOMPLETE",
+            "claim_scope": "report_source_evidence_only",
+            "not_claimed": ["prose_quality", "director_use", "whole_product_kp_quality"],
+            "dimensions": dimensions,
             "dialogue_role_counts": role_counts,
             "final_transcript_present": transcript_complete,
             "reasons": reasons,
         },
         "investigators": investigators,
+        "progression": progression,
+        "npc_interactions": npc_interactions,
+        "ending": ending,
+        "visible_consequences": visible_consequences,
+        "development_settlements": settlements,
+        "keeper_internal": {
+            "schema_version": 1,
+            "audience": "keeper_development_audit_only",
+            "not_player_facing": True,
+            "turn_capsules": list(turn_capsules.values()),
+            "tool_call_count": len(toolbox_calls or []),
+            "advisory_adoption_count": len(advisory_adoptions or []),
+        },
         "public_rolls": {
             "source_path": rolls_relative,
             "source_present": all_rolls is not None,
@@ -498,6 +746,7 @@ def _markdown(report: dict[str, Any]) -> str:
         f"- Run: `{metadata.get('run_id', 'MISSING')}`",
         f"- Campaign: `{metadata.get('campaign_id', 'MISSING')}`",
         f"- Completeness: **{completeness['classification']}**", "",
+        "> Completeness covers report-source evidence only. It does not certify prose quality, Director use, or whole-product KP quality.", "",
         "## Investigators", "",
     ]
     if not report["investigators"]:
@@ -511,31 +760,147 @@ def _markdown(report: dict[str, Any]) -> str:
             ("ID", investigator["investigator_id"]),
             ("Occupation", _first(character, ("occupation", "profession"))),
             ("Age", _first(character, ("age",))),
+            ("Sex", _first(character, ("sex",))),
+            ("Nationality", _first(character, ("nationality",))),
+            ("Era", _first(character, ("era",))),
+            ("Residence", _first(character, ("residence",))),
+            ("Birthplace", _first(character, ("birthplace",))),
+            ("Credit Rating", _first(character, ("credit_rating",))),
+            ("Cash", _first(character, ("cash",))),
             (
-                "HP",
+                "Final HP",
                 _first_not_none(
-                    _first(state, ("hp", "hit_points")),
-                    _first(character, ("hp", "hit_points")),
+                    _first(state, ("current_hp", "hp", "hit_points")),
+                    _first(character.get("derived"), ("HP", "hp")),
                 ),
             ),
             (
-                "SAN",
+                "Final SAN",
                 _first_not_none(
-                    _first(state, ("san", "sanity")),
-                    _first(character, ("san", "sanity")),
+                    _first(state, ("current_san", "san", "sanity")),
+                    _first(character.get("derived"), ("SAN", "san")),
                 ),
             ),
             (
-                "MP",
+                "Final MP",
                 _first_not_none(
-                    _first(state, ("mp", "magic_points")),
-                    _first(character, ("mp", "magic_points")),
+                    _first(state, ("current_mp", "mp", "magic_points")),
+                    _first(character.get("derived"), ("MP", "mp")),
                 ),
             ),
+            ("Final Luck", _first_not_none(_first(state, ("current_luck", "luck")), _first(character.get("characteristics"), ("LUCK", "Luck")))),
             ("Conditions", _first(state, ("conditions",))),
         )
         lines.extend(f"- {label}: {_display(value)}" for label, value in fields if value not in (None, "", []))
         lines.append("")
+        for heading, key in (("Characteristics", "characteristics"), ("Initial Derived Values", "derived")):
+            value = character.get(key)
+            if isinstance(value, dict) and value:
+                lines.extend([f"#### {heading}", "", " | ".join(f"{k}: {_display(v)}" for k, v in value.items()), ""])
+        skill_rows = character.get("initial_skill_rows")
+        if isinstance(skill_rows, list) and skill_rows:
+            lines.extend(["#### Initial Skills", "", "| Skill | Full | Half | Fifth |", "|---|---:|---:|---:|"])
+            for row in skill_rows:
+                label = row.get("label") or row.get("key")
+                key = row.get("key")
+                display_label = f"{label} (`{key}`)" if label != key else str(key)
+                lines.append(f"| {display_label} | {_display(row.get('value'))} | {_display(row.get('half'))} | {_display(row.get('fifth'))} |")
+            lines.append("")
+        elif isinstance(character.get("initial_skills"), dict) and character["initial_skills"]:
+            lines.extend(["#### Initial Skills", "", " | ".join(f"{k}: {_display(v)}" for k, v in character["initial_skills"].items()), ""])
+        for heading, key in (("Weapons", "weapons"), ("Equipment", "equipment")):
+            value = character.get(key)
+            if isinstance(value, list) and value:
+                lines.extend([f"#### {heading}", ""])
+                if key == "weapons":
+                    for item in value:
+                        if isinstance(item, dict):
+                            name = item.get("name") or item.get("weapon_id") or "Weapon"
+                            details = "; ".join(f"{k.replace('_', ' ').title()}: {_display(v)}" for k, v in item.items() if k not in {"name", "weapon_id"})
+                            lines.append(f"- **{name}**{f' — {details}' if details else ''}")
+                        else:
+                            lines.append(f"- {_display(item)}")
+                else:
+                    lines.extend(f"- {_display(item)}" for item in value)
+                lines.append("")
+        backstory = character.get("backstory")
+        if isinstance(backstory, dict) and backstory:
+            lines.extend(["#### Backstory and Traits", ""])
+            for key, value in backstory.items():
+                if key == "scenario_id" or value in (None, "", []):
+                    continue
+                label = key.replace('_', ' ').title()
+                if isinstance(value, dict):
+                    lines.append(f"- **{label}**")
+                    for child_key, child_value in value.items():
+                        if child_value not in (None, "", []):
+                            lines.append(f"  - {child_key.replace('_', ' ').title()}: {_display(child_value)}")
+                else:
+                    lines.append(f"- {label}: {_display(value)}")
+            lines.append("")
+        hooks = state.get("personal_horror_hooks")
+        if isinstance(hooks, list) and hooks:
+            lines.extend(["#### Personal Horror", ""])
+            for hook in hooks:
+                if isinstance(hook, dict):
+                    status = "woven" if hook.get("woven") is True else "not recorded as woven"
+                    payoff = " · payoff recorded" if hook.get("payoff") is True else ""
+                    lines.append(f"- {_display(hook.get('summary') or hook.get('hook_id'))} — {status}{payoff}")
+            lines.append("")
+
+    lines.extend(["## Development and Ending", ""])
+    ending = report.get("ending")
+    if isinstance(ending, dict):
+        lines.extend([f"**Outcome:** {_display(ending.get('kind') or 'conclusion')}", "", _display(ending.get("summary") or "No readable ending summary was recorded."), ""])
+    else:
+        lines.extend(["No structured ending was recorded.", ""])
+    for settlement in report.get("development_settlements", []):
+        investigator_id = settlement.get("investigator_id")
+        display_name = next((
+            _first(item.get("character"), ("name", "display_name")) or _first(item.get("state"), ("name", "display_name"))
+            for item in report.get("investigators", []) if item.get("investigator_id") == investigator_id
+        ), None) or investigator_id or "Investigator"
+        lines.extend([f"### {display_name} Development", ""])
+        for row in settlement.get("improvement_checks", []):
+            lines.append(f"- {row.get('skill')}: {row.get('value_before')} → {row.get('value_after')} (gain {row.get('applied_delta', row.get('gain'))}; check {row.get('check_roll')})")
+        luck = settlement.get("luck_recovery")
+        if luck:
+            lines.append(f"- Luck: {luck.get('luck_before')} → {luck.get('luck_after')} (gain {luck.get('gained')}; check {luck.get('roll')}; {'recovered' if luck.get('success') else 'not recovered'})")
+        san = settlement.get("san_reward")
+        if san:
+            dice = san.get("rolls")
+            roll_text = ", ".join(map(str, dice)) if isinstance(dice, list) else san.get("total")
+            lines.append(f"- SAN reward: {san.get('san_before')} → {san.get('san_after')} (gain {san.get('san_gained')}; {san.get('expression')}: {roll_text})")
+        lines.append("")
+
+    progression = report.get("progression", {})
+    lines.extend(["## Investigation Chronicle", "", "### Scene Progression", ""])
+    visited = progression.get("visited_scene_ids", [])
+    lines.extend([" → ".join(f"`{scene}`" for scene in visited) if visited else "No visited-scene path was recorded.", "", "### Discovered Clues", ""])
+    for clue in progression.get("discovered_clues", []):
+        detail = f" — {clue['method']}" if clue.get("method") else ""
+        lines.append(f"- `{clue['clue_id']}`{detail}")
+    if not progression.get("discovered_clues"):
+        lines.append("No discovered-clue receipts were recorded.")
+    lines.extend(["", "### NPC Interactions", ""])
+    for npc in report.get("npc_interactions", []):
+        lines.append(f"- `{npc.get('npc_id', 'unknown')}` · {npc.get('interaction_kind', 'interaction')} · scene `{npc.get('scene_id', 'unknown')}`")
+    if not report.get("npc_interactions"):
+        lines.append("No player-safe NPC interaction receipts were recorded.")
+    lines.extend(["", "### Recorded Consequences", ""])
+    for event in report.get("visible_consequences", []):
+        event_type = event.get("event_type", "event").replace("_", " ").title()
+        details = "; ".join(f"{key.replace('_', ' ').title()}: {_display(value)}" for key, value in event.items() if key not in {"event_type", "ts"})
+        lines.append(f"- **{event_type}**{f' — {details}' if details else ''}")
+    if not report.get("visible_consequences"):
+        lines.append("No structured player-safe combat, HP, or SAN consequences were recorded.")
+    decisions = progression.get("major_decisions", [])
+    lines.extend(["", "### Major Decisions", ""])
+    for decision in decisions:
+        lines.append(f"- {_display(decision)}")
+    if not decisions:
+        lines.append("No structured major-decision receipts were recorded.")
+    lines.append("")
 
     lines.extend(["## Actual Play", ""])
     for index, row in enumerate(report["transcript"]["records"], start=1):
@@ -605,11 +970,14 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.extend(["No public or consequence-public rolls occurred.", ""])
 
     lines.extend(["## Completeness and Provenance", ""])
+    for name, result in completeness["dimensions"].items():
+        lines.append(f"- {name.replace('_', ' ').title()}: **{result['status']}** — {'; '.join(result['findings'])}")
     lines.extend([f"- {reason}" for reason in completeness["reasons"]] or ["- All required final-report sources passed validation."])
     lines.extend([
         f"- Dialogue rows rendered: {report['transcript']['dialogue_record_count']}.",
         f"- Public rolls rendered exactly once: {rolls['rendered_count']}.",
-        "- Keeper-only rolls, scenario truth, hidden logs, runner prompts, and secret fields are excluded.", "",
+        "- Keeper-only rolls, scenario truth, hidden logs, runner prompts, NPC identity contracts/agendas/voices, and secret fields are excluded.",
+        "- This is evidence/report-source completeness, not a prose-quality, Director-use, or whole-product KP-quality claim.", "",
     ])
     return "\n".join(lines)
 

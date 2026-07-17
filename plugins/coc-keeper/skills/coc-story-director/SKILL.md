@@ -12,14 +12,33 @@ When your read of the table is clear, act on it directly. When you are unsure
 what the story needs, consult the deterministic advisors:
 
 ```bash
-uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py director.advise --root . --campaign <id>
-uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py storylets.suggest --root . --campaign <id> --json '{"max":5}'
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py describe director.advise
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py describe storylets.suggest
 ```
 
-`director.advise` reads pacing signals (tension, stalling, undiscovered clues,
-open exits, threat clocks) and returns suggested beats with reasons.
-`storylets.suggest` scores side-beat candidates against the current scene.
+`director.advise` requires the exact player message plus the Keeper's
+structured semantic `intent_evidence`; it reads pacing, history, personal
+horror, epistemic, NPC, and threat signals and returns a rich
+`candidate_plan` with reasons. `storylets.suggest` runs the existing rich
+scheduler against that candidate plan and the same semantic evidence.
 Both are suggestions with rationale — never obligations.
+
+When you consult advice, call `evidence.record_adoption` after deciding whether
+you adopted, modified, or ignored it. This is Keeper-internal evidence, not a
+gate. If a selected plan has an epistemic contract, apply it only after its
+clues are truly committed, via `state.belief_apply`. Threat clocks advance only
+through `state.threat_tick`; an `on_full` value is still a candidate consequence
+for the Keeper, not auto-narration.
+
+For the final drafting pass, `narration.brief` projects only player-safe fields
+from the adopted/modified plan, including an `action_uptake` projection of the
+current player declaration, and attaches the existing natural Chinese style
+contract. When the declaration is an in-fiction commitment, enact it naturally
+before or alongside its settled outcome; do not turn it into a recap or invent
+extra investigator behavior. The Keeper writes and owns the final prose. Internal JSON fragments
+must never be pasted into player output or the human Markdown battle report.
+This projection reinforces the always-active response contract in
+`coc-keeper-play`; it is never the switch that enables player-action uptake.
 
 ## Beat Vocabulary
 

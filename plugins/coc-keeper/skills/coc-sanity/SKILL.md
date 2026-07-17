@@ -7,12 +7,20 @@ description: Resolve Call of Cthulhu sanity events during COC mode. Use for SAN 
 
 ## Workflow
 
+The canonical host entrypoints are `sanity.context` and `sanity.execute`.
+`sanity.execute` accepts exact `sanity_check`, `bout_tick`, and `bout_end`
+commands and delegates to the existing full `SanitySession` through the shared
+subsystem executor. Do not reproduce SAN arithmetic with generic rolls or
+hand-edit a snapshot.
+
 1. Identify the trigger and player-safe description.
-2. Roll or accept manual SAN result.
-3. Apply loss using rules JSON.
-4. Check temporary insanity and indefinite insanity thresholds.
+2. Read `sanity.context`, then submit the exact `sanity_check` command.
+3. Treat returned rolls, loss, thresholds, involuntary action, and pending
+   choices as authoritative.
+4. Use `bout_tick` / `bout_end` only when the persisted session calls for them.
 5. Separate player-facing symptoms from Keeper-only effects.
-6. Update investigator state, memory, and logs.
+6. Persist an accepted backstory amendment through
+   `state.backstory_corruption_add`, never automatically.
 
 ## Failed SAN Roll Involuntary Action
 

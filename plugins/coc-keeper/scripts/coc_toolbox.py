@@ -73,6 +73,22 @@ coc_async_recorder = _load_sibling(
 coc_time = _load_sibling("coc_time", "coc_time.py")
 coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
+coc_chase = _load_sibling("coc_chase_toolbox", "coc_chase.py")
+coc_story_director = _load_sibling(
+    "coc_story_director_toolbox", "coc_story_director.py"
+)
+coc_npc_persona = _load_sibling("coc_npc_persona_toolbox", "coc_npc_persona.py")
+coc_threat_state = _load_sibling("coc_threat_state_toolbox", "coc_threat_state.py")
+coc_belief_state = _load_sibling("coc_belief_state_toolbox", "coc_belief_state.py")
+coc_epistemic_lifecycle = _load_sibling(
+    "coc_epistemic_lifecycle_toolbox", "coc_epistemic_lifecycle.py"
+)
+coc_narration_style = _load_sibling(
+    "coc_narration_style_toolbox", "coc_narration_style.py"
+)
+coc_narration_contract = _load_sibling(
+    "coc_narration_contract_toolbox", "coc_narration_contract.py"
+)
 coc_development = _load_sibling("coc_development_toolbox", "coc_development.py")
 coc_runtime_ops = _load_sibling("coc_runtime_ops_toolbox", "coc_runtime_ops.py")
 coc_narrative_enrichment = _load_sibling(
@@ -502,10 +518,17 @@ def _log_tool_call(
     if ctx is None or ctx.campaign_dir is None:
         return
     record = {
+        "schema_version": 2,
         "ts": _now_iso(),
         "tool": name,
         "ok": bool(envelope.get("ok")),
         "args": {k: v for k, v in args.items() if k != "seed"},
+        # This is Keeper-internal audit evidence.  It deliberately preserves
+        # structured tool results so a later JSON battle report can prove what
+        # the KP observed before deciding what to use.  It is never a
+        # player-facing narration source.
+        "data": deepcopy(envelope.get("data")),
+        "visibility": "keeper_internal",
         "warnings": envelope.get("warnings") or [],
         "hints": envelope.get("hints") or [],
         "attempt": attempt,
@@ -521,6 +544,11 @@ def _log_tool_call(
         error = envelope.get("error") or {}
         record["error"] = error.get("code")
         record["error_message"] = error.get("message")
+    try:
+        pacing = ctx.pacing()
+        record["turn_number"] = pacing.get("turn_number")
+    except (OSError, ValueError, TypeError):
+        record["turn_number"] = None
     try:
         coc_state.append_jsonl(ctx.campaign_dir / "logs" / "toolbox-calls.jsonl", record)
     except OSError:
@@ -814,7 +842,7 @@ def _clock_reached(ctx: Ctx) -> Callable[[str | None, int], bool]:
         clock = clocks.get(str(clock_id))
         if not isinstance(clock, dict):
             return False
-        return int(clock.get("filled", 0)) >= int(threshold)
+        return int(clock.get("current_segments", 0)) >= int(threshold)
 
     return reached
 
@@ -5384,149 +5412,719 @@ def _tool_actions_list(ctx: Ctx, args: dict[str, Any]):
 
 
 # --------------------------------------------------------------------------- #
-# director.* — advisory only
+# KP orchestration helpers — structured evidence, never prose classification
+# --------------------------------------------------------------------------- #
+
+def _intent_evidence(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ToolError(
+            "invalid_param",
+            "intent_evidence must be the KP's structured semantic result",
+        )
+    primary = value.get("primary_intent")
+    reason = value.get("reason") or value.get("semantic_reason")
+    if not isinstance(primary, str) or not primary.strip():
+        raise ToolError("invalid_param", "intent_evidence.primary_intent is required")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ToolError(
+            "invalid_param",
+            "intent_evidence requires a non-empty semantic reason",
+        )
+    result = deepcopy(value)
+    result["primary_intent"] = primary.strip()
+    result["semantic_reason"] = reason.strip()
+    result.pop("reason", None)
+    return result
+
+
+def _advice_id(tool_name: str, ctx: Ctx, material: Any) -> str:
+    digest = hashlib.sha256(
+        json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:20]
+    turn = ctx.pacing().get("turn_number", 0)
+    return f"{tool_name}:{turn}:{digest}"
+
+
+def _active_scene(ctx: Ctx) -> dict[str, Any]:
+    return _scene_by_id(ctx.story_graph, ctx.world().get("active_scene_id")) or {}
+
+
+def _investigator_character_path(ctx: Ctx, investigator_id: str) -> Path:
+    return ctx.coc_root / "investigators" / investigator_id / "character.json"
+
+
+def _read_optional_json(path: Path, fallback: Any) -> Any:
+    if not path.is_file():
+        return deepcopy(fallback)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ToolError("state_corrupt", f"invalid JSON source: {path}") from exc
+
+
+def _execute_subsystem_command(
+    ctx: Ctx,
+    args: dict[str, Any],
+    *,
+    tool_name: str,
+    allowed_kinds: set[str] | frozenset[str],
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    command = args.get("command")
+    if not isinstance(command, dict):
+        raise ToolError("invalid_param", "command must be an exact subsystem command object")
+    kind = str(command.get("kind") or "")
+    if kind not in allowed_kinds:
+        raise ToolError(
+            "invalid_param",
+            f"{tool_name} does not accept subsystem command kind {kind!r}",
+        )
+    payload = command.get("payload")
+    if not isinstance(payload, dict):
+        raise ToolError("invalid_param", "command.payload must be an object")
+    if str(payload.get("decision_id") or "") != str(args.get("decision_id") or ""):
+        raise ToolError(
+            "invalid_param",
+            "command.payload.decision_id must equal the toolbox decision_id",
+        )
+    investigator_id = _resolve_investigator(ctx, args)
+    results = coc_subsystem_executor.execute_commands(
+        ctx.campaign_dir,
+        _investigator_character_path(ctx, investigator_id),
+        investigator_id,
+        [command],
+        rng=_rng(args),
+        append_jsonl=coc_state.append_jsonl,
+        character_snapshot=ctx.sheet(investigator_id),
+    )
+    data = {
+        "schema_version": 1,
+        "authority": "deterministic_subsystem",
+        "investigator_id": investigator_id,
+        "results": results,
+    }
+    ctx.ledger_record(args.get("decision_id"), tool_name, data)
+    return data, [], [
+        "the subsystem result is authoritative; the KP chooses the surrounding fiction but must not alter its numbers or state"
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# director.* — rich existing Director implementation, advisory only
 # --------------------------------------------------------------------------- #
 
 @tool(
     "director.advise",
-    "Deterministic pacing read: tension, stalling, undiscovered clues, threat clocks — with suggested beats. Advice only.",
-    {},
+    "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration.",
+    {
+        "player_text": {"type": "string", "required": True, "desc": "exact current player message; retained as evidence, never keyword-classified"},
+        "intent_evidence": {"type": "object", "required": True, "desc": "KP semantic result with primary_intent and reason"},
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "decision_id": {"type": "string", "desc": "stable turn decision id"},
+        "seed": {"type": "integer", "desc": "deterministic advisory seed"},
+    },
 )
 def _tool_director_advise(ctx: Ctx, args: dict[str, Any]):
-    world = ctx.world()
-    pacing = ctx.pacing()
-    sg = ctx.story_graph
-    active_id = world.get("active_scene_id")
-    scene = _scene_by_id(sg, active_id)
-    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
-    scene_clues = [str(c) for c in (scene or {}).get("available_clues") or []]
-    undiscovered_here = [c for c in scene_clues if c not in discovered]
-    candidates = coc_scene_graph.transition_candidates(active_id, sg, dict(world))
-
-    threat_path = ctx.campaign_dir / "save" / "threat-state.json"
-    clocks: dict[str, Any] = {}
-    if threat_path.is_file():
-        try:
-            clocks = (json.loads(threat_path.read_text(encoding="utf-8")) or {}).get("clocks") or {}
-        except (json.JSONDecodeError, OSError):
-            clocks = {}
-
-    tension = str(pacing.get("tension_level") or "low")
-    recent = [str(i) for i in (pacing.get("recent_intent_classes") or [])]
-    stalled = len(recent) >= 3 and all(i in ("stuck", "ambiguous", "meta") for i in recent[-3:])
-
-    suggestions: list[dict[str, str]] = []
-    if undiscovered_here:
-        suggestions.append({
-            "beat": "REVEAL",
-            "reason": f"{len(undiscovered_here)} authored clue(s) remain in this scene — give the player a hook toward one",
-        })
-    if stalled:
-        suggestions.append({
-            "beat": "RECOVER",
-            "reason": "recent turns look stalled — offer an Idea-roll style nudge or an NPC/event that reopens motion",
-        })
-    if tension == "low" and not undiscovered_here:
-        suggestions.append({
-            "beat": "PRESSURE",
-            "reason": "scene is drained and tension is low — introduce cost, pursuit, or a pressure move from the scene design",
-        })
-    if candidates and not undiscovered_here:
-        suggestions.append({
-            "beat": "CUT",
-            "reason": f"open exits: {', '.join(candidates)} — a transition may serve better than lingering",
-        })
-    hot_clocks = [cid for cid, c in clocks.items() if isinstance(c, dict) and int(c.get("filled", 0)) >= max(1, int(c.get("segments", 6)) - 1)]
-    if hot_clocks:
-        suggestions.append({
-            "beat": "THREAT",
-            "reason": f"threat clock(s) near full: {', '.join(hot_clocks)} — let the front act onscreen",
-        })
-    if not suggestions:
-        suggestions.append({"beat": "DEEPEN", "reason": "no pressure signals — deepen character, mood, or an existing thread"})
-
+    player_text = str(args.get("player_text") or "").strip()
+    if not player_text:
+        raise ToolError("invalid_param", "player_text is required")
+    intent = _intent_evidence(args.get("intent_evidence"))
+    investigator_id = _resolve_investigator(ctx, args)
+    sheet = ctx.sheet(investigator_id)
+    decision_id = str(args.get("decision_id") or _advice_id(
+        "director", ctx, {"player_text": player_text, "intent": intent}
+    ))
+    director_ctx = coc_story_director.build_director_context(
+        ctx.campaign_dir,
+        _investigator_character_path(ctx, investigator_id),
+        investigator_id,
+        player_text,
+        str(intent["primary_intent"]),
+        rng=_rng(args),
+        player_intent_rich=intent,
+        character_snapshot=sheet,
+    )
+    plan = coc_story_director.generate_director_plan(director_ctx, decision_id)
+    advice_id = _advice_id("director", ctx, plan)
     data = {
-        "tension_level": tension,
-        "turn_number": pacing.get("turn_number"),
-        "recent_intent_classes": recent,
-        "stalled": stalled,
-        "undiscovered_clues_in_scene": undiscovered_here,
-        "open_exits": candidates,
-        "threat_clocks": clocks,
-        "pressure_moves": (scene or {}).get("pressure_moves"),
-        "suggestions": suggestions,
+        "schema_version": 1,
+        "advice_id": advice_id,
+        "authority": "advisory",
+        "intent_evidence": intent,
+        "candidate_plan": plan,
+        "context_summary": {
+            "active_scene_id": director_ctx.get("active_scene_id"),
+            "turn_number": director_ctx.get("turn_number"),
+            "story_need": director_ctx.get("story_need"),
+            "personal_horror_hooks": director_ctx.get("personal_horror_hooks") or [],
+            "threat_fronts": director_ctx.get("threat_fronts") or {},
+        },
     }
-    return data, [], ["suggestions are advisory — your read of the table wins"]
+    return data, [], [
+        "this is a candidate orchestration plan, not a turn pipeline or state mutation",
+        "adopt, modify, or ignore any part; resolve dice and state only through authoritative tools",
+    ]
 
 
 @tool(
     "storylets.suggest",
-    "Scored storylet candidates for the current scene with fit reasons. Never suppresses — low fit is just labeled.",
+    "Run the existing rich storylet scheduler against a Director candidate plan. Advisory only; selection never applies itself.",
     {
-        "max": {"type": "integer", "desc": "max candidates (default 5)"},
-        "conflict_level": {"type": "string", "desc": "low | medium | high | climax (default from tension)"},
+        "candidate_plan": {"type": "object", "required": True, "desc": "candidate_plan returned by director.advise"},
+        "player_text": {"type": "string", "required": True, "desc": "exact player message used for the Director context"},
+        "intent_evidence": {"type": "object", "required": True, "desc": "KP semantic intent result"},
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "max": {"type": "integer", "desc": "max suggestions (default 1)"},
+        "seed": {"type": "integer", "desc": "deterministic advisory seed"},
     },
 )
 def _tool_storylets_suggest(ctx: Ctx, args: dict[str, Any]):
-    world = ctx.world()
-    pacing = ctx.pacing()
-    scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id")) or {}
-    library = coc_storylets.load_storylet_library()
+    plan = args.get("candidate_plan")
+    if not isinstance(plan, dict):
+        raise ToolError("invalid_param", "candidate_plan must be an object")
+    player_text = str(args.get("player_text") or "").strip()
+    if not player_text:
+        raise ToolError("invalid_param", "player_text is required")
+    intent = _intent_evidence(args.get("intent_evidence"))
+    investigator_id = _resolve_investigator(ctx, args)
+    director_ctx = coc_story_director.build_director_context(
+        ctx.campaign_dir,
+        _investigator_character_path(ctx, investigator_id),
+        investigator_id,
+        player_text,
+        str(intent["primary_intent"]),
+        rng=_rng(args),
+        player_intent_rich=intent,
+        character_snapshot=ctx.sheet(investigator_id),
+    )
     ledger_path = ctx.campaign_dir / "save" / "storylet-ledger.json"
-    used: dict[str, int] = {}
-    if ledger_path.is_file():
-        try:
-            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
-            for entry in ledger.get("used_storylets") or []:
-                sid = str(entry.get("storylet_id") if isinstance(entry, dict) else entry)
-                used[sid] = used.get(sid, 0) + 1
-        except (json.JSONDecodeError, OSError):
-            pass
+    ledger = _read_optional_json(ledger_path, {})
+    limit = max(1, min(5, int(args.get("max") or 1)))
+    moves = coc_storylets.select_storylet_moves(
+        plan,
+        director_ctx,
+        library=coc_storylets.load_storylet_library(),
+        ledger=ledger,
+        seed=args.get("seed"),
+        max_storylets=limit,
+    )
+    return {
+        "schema_version": 1,
+        "advice_id": _advice_id("storylets", ctx, moves),
+        "authority": "advisory",
+        "candidates": moves,
+    }, [], [
+        "storylets change presentation and cost only; they never rewrite module truth",
+        "persist ledger use only after the KP actually adopts and delivers a candidate",
+    ]
 
-    tension_map = {"low": "low", "medium": "medium", "high": "high", "climax": "climax"}
-    level = str(args.get("conflict_level") or tension_map.get(str(pacing.get("tension_level") or "low"), "low"))
-    scene_type = str(scene.get("scene_type") or "any")
-    scene_tags = {str(t).lower() for t in (scene.get("storylet_tags") or [])}
 
-    scored: list[dict[str, Any]] = []
-    for st in library.get("storylets") or []:
-        if not isinstance(st, dict):
-            continue
-        reasons: list[str] = []
-        score = float(st.get("base_weight") or 1.0)
-        st_level = str(st.get("conflict_level") or "low")
-        if st_level == level:
-            score += 2.0
-            reasons.append(f"conflict level matches ({level})")
-        eligible_types = {str(t) for t in (st.get("eligible_scene_types") or [])}
-        if scene_type in eligible_types or "any" in eligible_types:
-            score += 1.0
-            reasons.append(f"fits scene type ({scene_type})")
-        st_tags = {str(t).lower() for t in (st.get("scene_tags") or [])}
-        overlap = scene_tags & st_tags
-        if overlap:
-            score += 2.0 * len(overlap)
-            reasons.append(f"scene tag overlap: {', '.join(sorted(overlap))}")
-        repeats = used.get(str(st.get("storylet_id")), 0)
-        if repeats:
-            score -= 2.0 * repeats
-            reasons.append(f"already used {repeats}x (repetition penalty)")
-        scored.append({
-            "storylet_id": st.get("storylet_id"),
-            "title": st.get("title"),
-            "conflict_level": st_level,
-            "cue": st.get("cue"),
-            "beat": st.get("beat"),
-            "narration_directive": st.get("narration_directive"),
-            "fit_score": round(score, 2),
-            "fit": "high" if score >= 3 else ("medium" if score >= 1.5 else "low"),
-            "fit_reasons": reasons,
-        })
-    scored.sort(key=lambda s: (-s["fit_score"], str(s["storylet_id"])))
-    limit = int(args.get("max") or 5)
-    data = {"conflict_level": level, "candidates": scored[:limit]}
-    hints = ["storylets change presentation and cost only — never rewrite module truth"]
-    return data, [], hints
+@tool(
+    "npc.advise",
+    "Build existing persona cards and optional NPC agency moves for NPCs in the active scene. Advice only.",
+    {
+        "intent_evidence": {"type": "object", "required": True, "desc": "KP semantic intent result"},
+        "seed": {"type": "integer", "desc": "deterministic advisory seed"},
+    },
+)
+def _tool_npc_advise(ctx: Ctx, args: dict[str, Any]):
+    intent = _intent_evidence(args.get("intent_evidence"))
+    scene = _active_scene(ctx)
+    npc_state = _read_optional_json(
+        ctx.campaign_dir / "save" / "npc-persona-state.json", {"npcs": {}}
+    )
+    result = coc_npc_persona.build_scene_npc_agency(
+        scene,
+        ctx.npc_agendas,
+        npc_state,
+        seed_parts=[ctx.campaign_id, scene.get("scene_id"), args.get("seed", 0)],
+        player_intent_rich=intent,
+    )
+    return {
+        "schema_version": 1,
+        "advice_id": _advice_id("npc", ctx, result),
+        "authority": "advisory",
+        "intent_evidence": intent,
+        "candidate_agency": result,
+    }, [], [
+        "choose, modify, or ignore these moves according to the actual conversation",
+        "npc_state_writes are proposals; no persona or psych state was persisted",
+    ]
+
+
+@tool(
+    "personal_horror.query",
+    "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose.",
+    {"investigator": {"type": "string", "desc": "investigator id"}},
+)
+def _tool_personal_horror_query(ctx: Ctx, args: dict[str, Any]):
+    investigator_id = _resolve_investigator(ctx, args)
+    state = coc_state.load_investigator_state(ctx.campaign_dir, investigator_id)
+    return {
+        "investigator_id": investigator_id,
+        "personal_horror_hooks": deepcopy(state.get("personal_horror_hooks") or []),
+        "backstory_corruptions": deepcopy(state.get("backstory_corruptions") or []),
+    }, [], ["these are structured KP references; weave them only when naturally relevant"]
+
+
+@tool(
+    "state.personal_horror_add",
+    "Persist one structured personal-horror hook after the KP has accepted it.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "hook_id": {"type": "string", "required": True, "desc": "stable hook id"},
+        "backstory_field": {"type": "string", "required": True, "desc": "structured character-sheet backstory field"},
+        "summary": {"type": "string", "required": True, "desc": "concise keeper summary"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_personal_horror_add(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.personal_horror_add", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    investigator_id = _resolve_investigator(ctx, args)
+    state = coc_state.load_investigator_state(ctx.campaign_dir, investigator_id)
+    hook_id = str(args["hook_id"])
+    if any(str(row.get("hook_id")) == hook_id for row in state.get("personal_horror_hooks") or [] if isinstance(row, dict)):
+        raise ToolError("invalid_param", f"personal horror hook already exists: {hook_id}")
+    coc_state.add_personal_horror_hook(
+        ctx.campaign_dir,
+        investigator_id,
+        hook_id=hook_id,
+        backstory_field=str(args["backstory_field"]),
+        summary=str(args["summary"]),
+    )
+    data = {"investigator_id": investigator_id, "hook_id": hook_id, "woven": False}
+    ctx.ledger_record(args["decision_id"], "state.personal_horror_add", data)
+    return data, [], ["the hook is available to the Director but never mandatory"]
+
+
+@tool(
+    "state.personal_horror_mark_woven",
+    "Mark a structured personal-horror hook as actually woven after it appears in delivered play.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "hook_id": {"type": "string", "required": True, "desc": "existing hook id"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_personal_horror_mark_woven(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.personal_horror_mark_woven", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    investigator_id = _resolve_investigator(ctx, args)
+    hook_id = str(args["hook_id"])
+    state = coc_state.load_investigator_state(ctx.campaign_dir, investigator_id)
+    matches = [row for row in state.get("personal_horror_hooks") or [] if isinstance(row, dict) and str(row.get("hook_id")) == hook_id]
+    if len(matches) != 1:
+        raise ToolError("invalid_param", f"personal horror hook not found exactly once: {hook_id}")
+    coc_state.mark_hook_woven(ctx.campaign_dir, investigator_id, hook_id)
+    data = {"investigator_id": investigator_id, "hook_id": hook_id, "woven": True}
+    ctx.ledger_record(args["decision_id"], "state.personal_horror_mark_woven", data)
+    return data, [], []
+
+
+@tool(
+    "state.backstory_corruption_add",
+    "Persist an accepted SanitySession backstory amendment using structured fields only.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "mode": {"type": "string", "required": True, "desc": "corrupt_existing | add_irrational"},
+        "backstory_field": {"type": "string", "required": True, "desc": "structured backstory field"},
+        "keeper_note": {"type": "string", "required": True, "desc": "accepted amendment note"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_backstory_corruption_add(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.backstory_corruption_add", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    investigator_id = _resolve_investigator(ctx, args)
+    coc_state.add_backstory_corruption(
+        ctx.campaign_dir,
+        investigator_id,
+        mode=str(args["mode"]),
+        backstory_field=str(args["backstory_field"]),
+        keeper_note=str(args["keeper_note"]),
+    )
+    data = {
+        "investigator_id": investigator_id,
+        "mode": str(args["mode"]),
+        "backstory_field": str(args["backstory_field"]),
+    }
+    ctx.ledger_record(args["decision_id"], "state.backstory_corruption_add", data)
+    return data, [], ["this records an accepted consequence; it does not author one automatically"]
+
+
+@tool(
+    "threat.query",
+    "Read authored threat fronts with verified live current_segments projected onto them.",
+    {},
+)
+def _tool_threat_query(ctx: Ctx, args: dict[str, Any]):
+    definitions = ctx.scenario("threat-fronts.json") or {"fronts": []}
+    persisted = coc_threat_state.load_threat_state(ctx.campaign_dir / "save")
+    return {
+        "schema_version": 1,
+        "authority": "structured_state",
+        "threat_fronts": coc_threat_state.merge_threat_fronts(definitions, persisted),
+    }, [], ["threat pressure is context; it does not force a scene transition or narration beat"]
+
+
+@tool(
+    "state.threat_tick",
+    "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated.",
+    {
+        "clock_id": {"type": "string", "required": True, "desc": "authored clock id"},
+        "decision_id": {"type": "string", "desc": "idempotency key and stable source id"},
+    },
+)
+def _tool_state_threat_tick(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.threat_tick", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    clock_id = str(args["clock_id"])
+    definitions = ctx.scenario("threat-fronts.json") or {"fronts": []}
+    clock = next(
+        (
+            row
+            for front in definitions.get("fronts") or []
+            if isinstance(front, dict)
+            for row in front.get("clocks") or []
+            if isinstance(row, dict) and str(row.get("clock_id")) == clock_id
+        ),
+        None,
+    )
+    if clock is None:
+        raise ToolError("invalid_param", f"unknown authored threat clock: {clock_id}")
+    segments = int(clock.get("segments") or 6)
+    became_full = coc_threat_state.tick_clock(
+        ctx.campaign_dir / "save",
+        clock_id,
+        segments,
+        source_id=str(args["decision_id"]),
+    )
+    current = coc_threat_state.get_clock_segments(ctx.campaign_dir / "save", clock_id)
+    data = {
+        "clock_id": clock_id,
+        "current_segments": current,
+        "segments": segments,
+        "full": current >= segments,
+        "became_full": became_full,
+        "candidate_on_full": deepcopy(clock.get("on_full")) if became_full else None,
+    }
+    ctx.ledger_record(args["decision_id"], "state.threat_tick", data)
+    return data, [], ["candidate_on_full is advice for the KP; apply any real state change through its authoritative tool"]
+
+
+@tool(
+    "epistemic.query",
+    "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence.",
+    {},
+)
+def _tool_epistemic_query(ctx: Ctx, args: dict[str, Any]):
+    graph = ctx.scenario("epistemic-graph.json")
+    state = coc_belief_state.read_belief_state(ctx.campaign_dir)
+    world = ctx.world()
+    transitions = coc_epistemic_lifecycle.evaluate_question_transitions(
+        graph,
+        state,
+        world,
+        list(world.get("discovered_clue_ids") or []),
+        flags_set=_flags_set(ctx),
+        visited_scene_ids=world.get("visited_scene_ids") or [],
+    )
+    return {
+        "schema_version": 1,
+        "authority": "advisory",
+        "questions": deepcopy(graph.get("questions") or []),
+        "belief_state": state,
+        "candidate_transitions": transitions,
+    }, [], ["candidate transitions are structured advice until an adopted plan is committed"]
+
+
+@tool(
+    "state.belief_apply",
+    "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "candidate_plan": {"type": "object", "required": True, "desc": "adopted or KP-modified Director plan"},
+        "committed_clue_ids": {"type": "array", "desc": "clue ids already committed by state.record_clue"},
+        "decision_id": {"type": "string", "desc": "idempotency key; must match plan decision_id when present"},
+    },
+)
+def _tool_state_belief_apply(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.belief_apply", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous receipt"], []
+    plan = args.get("candidate_plan")
+    if not isinstance(plan, dict):
+        raise ToolError("invalid_param", "candidate_plan must be an object")
+    plan_decision = plan.get("decision_id")
+    if plan_decision is not None and str(plan_decision) != str(args.get("decision_id")):
+        raise ToolError("invalid_param", "candidate_plan.decision_id must match decision_id")
+    clues = args.get("committed_clue_ids") or []
+    if not isinstance(clues, list) or any(not isinstance(value, str) for value in clues):
+        raise ToolError("invalid_param", "committed_clue_ids must be an array of strings")
+    world_clues = {str(value) for value in ctx.world().get("discovered_clue_ids") or []}
+    if not set(clues).issubset(world_clues):
+        raise ToolError("invalid_param", "committed_clue_ids must already exist in world state")
+    investigator_id = _resolve_investigator(ctx, args)
+    events = coc_belief_state.apply_belief_turn(
+        ctx.campaign_dir,
+        plan,
+        clues,
+        investigator_id,
+        _now_iso(),
+    )
+    data = {"investigator_id": investigator_id, "events": events}
+    ctx.ledger_record(args["decision_id"], "state.belief_apply", data)
+    return data, [], ["belief state now reflects only the adopted plan and already-committed evidence"]
+
+
+@tool(
+    "narration.brief",
+    "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract.",
+    {
+        "candidate_plan": {"type": "object", "required": True, "desc": "KP-adopted or modified Director plan"},
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "applied_events": {"type": "array", "desc": "authoritative state/rules receipts already applied this turn"},
+    },
+)
+def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
+    plan = args.get("candidate_plan")
+    if not isinstance(plan, dict):
+        raise ToolError("invalid_param", "candidate_plan must be an object")
+    investigator_id = _resolve_investigator(ctx, args)
+    sheet = ctx.sheet(investigator_id)
+    events = args.get("applied_events") or []
+    if not isinstance(events, list) or any(not isinstance(row, dict) for row in events):
+        raise ToolError("invalid_param", "applied_events must be an array of objects")
+    envelope = coc_narration_contract.build_narration_envelope(
+        plan,
+        clue_graph=ctx.clue_graph,
+        epistemic_graph=ctx.scenario("epistemic-graph.json"),
+        active_scene=_active_scene(ctx),
+        investigator_display_name=str(
+            sheet.get("name") or sheet.get("display_name") or investigator_id
+        ),
+        applied_events=events,
+        route_completion_receipts=ctx.world().get("route_completion_receipts") or [],
+    )
+    return {
+        "schema_version": 1,
+        "authority": "drafting_brief",
+        "narration_envelope": envelope,
+        "style_contract": coc_narration_style.player_facing_style_contract("zh-Hans"),
+    }, [], [
+        "when action_uptake contains a committed in-fiction action, naturally enact it before or alongside the settled outcome; do not merely echo the player",
+        "write fresh player-facing prose from this envelope; never paste internal labels or raw JSON",
+        "the KP owns the final narration and must preserve authoritative numerical results exactly",
+    ]
+
+
+@tool(
+    "narration.review",
+    "Record an LLM semantic review of drafted narration. Advice only; no keyword matcher and no blocking prose gate.",
+    {
+        "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
+        "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
+        "findings": {"type": "array", "desc": "semantic findings with rule_id and reason; empty when the draft is sound"},
+    },
+)
+def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("narration.review", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previous review"], []
+    draft = str(args.get("draft_text") or "")
+    if not draft.strip():
+        raise ToolError("invalid_param", "draft_text is required")
+    raw_findings = args.get("findings") or []
+    if not isinstance(raw_findings, list):
+        raise ToolError("invalid_param", "findings must be an array")
+    findings: list[dict[str, str]] = []
+    for index, finding in enumerate(raw_findings):
+        if not isinstance(finding, dict):
+            raise ToolError("invalid_param", f"findings[{index}] must be an object")
+        rule_id = str(finding.get("rule_id") or "").strip()
+        reason = str(finding.get("reason") or "").strip()
+        if not rule_id or not reason:
+            raise ToolError(
+                "invalid_param",
+                f"findings[{index}] requires rule_id and semantic reason",
+            )
+        findings.append({"rule_id": rule_id, "reason": reason})
+    data = {
+        "schema_version": 1,
+        "visibility": "keeper_internal",
+        "authority": "advisory",
+        "hard_gate": False,
+        "decision_id": str(args["decision_id"]),
+        "draft_sha256": hashlib.sha256(draft.encode("utf-8")).hexdigest(),
+        "findings": findings,
+        "recommendation": "consider_revision" if findings else "no_revision_suggested",
+    }
+    ctx.ledger_record(args["decision_id"], "narration.review", data)
+    coc_state.append_jsonl(
+        ctx.campaign_dir / "logs" / "narration-reviews.jsonl",
+        {**data, "ts": _now_iso()},
+    )
+    return data, [], ["the KP decides whether and how to revise; this review never blocks delivery"]
+
+
+@tool(
+    "evidence.record_adoption",
+    "Record which advisory candidates the KP adopted, modified, or ignored. Keeper-internal audit evidence only.",
+    {
+        "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
+        "advice_id": {"type": "string", "required": True, "desc": "id returned by an advisory tool"},
+        "disposition": {"type": "string", "required": True, "desc": "adopted | modified | ignored"},
+        "reason": {"type": "string", "required": True, "desc": "concise semantic reason, not hidden chain-of-thought"},
+        "adopted_fields": {"type": "array", "desc": "structured field paths actually used"},
+    },
+)
+def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
+    disposition = str(args.get("disposition") or "")
+    if disposition not in {"adopted", "modified", "ignored"}:
+        raise ToolError("invalid_param", "disposition must be adopted, modified, or ignored")
+    reason = str(args.get("reason") or "").strip()
+    if not reason:
+        raise ToolError("invalid_param", "reason is required")
+    fields = args.get("adopted_fields") or []
+    if not isinstance(fields, list) or any(not isinstance(value, str) for value in fields):
+        raise ToolError("invalid_param", "adopted_fields must be an array of strings")
+    data = {
+        "schema_version": 1,
+        "visibility": "keeper_internal",
+        "decision_id": str(args["decision_id"]),
+        "advice_id": str(args["advice_id"]),
+        "disposition": disposition,
+        "reason": reason,
+        "adopted_fields": fields,
+    }
+    ctx.ledger_record(args["decision_id"], "evidence.record_adoption", data)
+    coc_state.append_jsonl(
+        ctx.campaign_dir / "logs" / "advisory-adoptions.jsonl",
+        {**data, "ts": _now_iso()},
+    )
+    return data, [], ["this receipt proves use or rejection; it does not constrain the next turn"]
+
+
+@tool(
+    "chase.context",
+    "Read the current canonical ChaseSession snapshot and unresolved subsystem choices.",
+    {},
+)
+def _tool_chase_context(ctx: Ctx, args: dict[str, Any]):
+    snapshot = _read_optional_json(ctx.campaign_dir / "save" / "chase.json", None)
+    choices = coc_subsystem_executor.get_current_pending_choices(ctx.campaign_dir)
+    return {
+        "active": isinstance(snapshot, dict) and snapshot.get("status") == "active",
+        "snapshot": snapshot,
+        "pending_choices": choices,
+    }, [], ["use chase.execute only when the fiction naturally enters or continues a chase"]
+
+
+@tool(
+    "chase.execute",
+    "Execute one exact command through the existing full ChaseSession subsystem. No fixed chase workflow is imposed by the toolbox.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "command": {"type": "object", "required": True, "desc": "exact chase_start/move/hazard/barrier/conflict/end command"},
+        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
+        "decision_id": {"type": "string", "desc": "idempotency key; must match command.payload.decision_id"},
+    },
+)
+def _tool_chase_execute(ctx: Ctx, args: dict[str, Any]):
+    return _execute_subsystem_command(
+        ctx,
+        args,
+        tool_name="chase.execute",
+        allowed_kinds=coc_subsystem_executor.CHASE_COMMAND_KINDS,
+    )
+
+
+@tool(
+    "sanity.context",
+    "Read the full persisted SanitySession snapshot and unresolved subsystem choices.",
+    {"investigator": {"type": "string", "desc": "investigator id"}},
+)
+def _tool_sanity_context(ctx: Ctx, args: dict[str, Any]):
+    investigator_id = _resolve_investigator(ctx, args)
+    snapshot = _read_optional_json(
+        ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json", None
+    )
+    choices = coc_subsystem_executor.get_current_pending_choices(ctx.campaign_dir)
+    return {
+        "investigator_id": investigator_id,
+        "active": isinstance(snapshot, dict),
+        "snapshot": snapshot,
+        "pending_choices": choices,
+    }, [], ["use sanity.execute for full checks, bouts, and their persisted consequences"]
+
+
+@tool(
+    "sanity.execute",
+    "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "command": {"type": "object", "required": True, "desc": "exact sanity_check, bout_tick, or bout_end command"},
+        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
+        "decision_id": {"type": "string", "desc": "idempotency key; must match command.payload.decision_id"},
+    },
+)
+def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
+    normalized_args = deepcopy(args)
+    command = normalized_args.get("command")
+    payload = command.get("payload") if isinstance(command, dict) else None
+    trigger_id = ""
+    if isinstance(payload, dict):
+        trigger_id = str(
+            payload.get("trigger_id") or payload.get("san_trigger_id") or ""
+        ).strip()
+        if trigger_id:
+            payload["san_trigger_id"] = trigger_id
+
+    data, warnings, hints = _execute_subsystem_command(
+        ctx,
+        normalized_args,
+        tool_name="sanity.execute",
+        allowed_kinds=frozenset({"sanity_check", "bout_tick", "bout_end"}),
+    )
+    if trigger_id:
+        active_scene = _active_scene(ctx)
+        authored_ids = {
+            str(trigger.get("trigger_id"))
+            for trigger in ((active_scene.get("on_enter") or {}).get(
+                "san_triggers", []
+            ))
+            if isinstance(trigger, dict) and trigger.get("trigger_id")
+        }
+        if trigger_id not in authored_ids:
+            warnings.append(
+                f"SAN trigger '{trigger_id}' is not authored for the active scene — "
+                "the check remains valid but the trigger was recorded as improvised"
+            )
+        world = ctx.world()
+        fired = [str(value) for value in (world.get("san_triggers_fired") or [])]
+        if trigger_id not in fired:
+            fired.append(trigger_id)
+            world["san_triggers_fired"] = fired
+            ctx.save_world(world)
+        # Preserve the canonical authored identity in the returned/ledgered
+        # subsystem evidence, including idempotent replay of pre-fix results.
+        for result in data.get("results") or []:
+            if not isinstance(result, dict) or result.get("kind") != "sanity_check":
+                continue
+            for event in result.get("events") or []:
+                if isinstance(event, dict) and event.get("kind") == "sanity_check":
+                    event["san_trigger_id"] = trigger_id
+        ctx.ledger_record(args.get("decision_id"), "sanity.execute", data)
+    return data, warnings, hints
 
 
 @tool(
@@ -6901,7 +7499,16 @@ _MUTATING_TOOLS = frozenset({
     "rules.dying_check",
     "combat.resolve",
     "combat.end",
+    "chase.execute",
+    "sanity.execute",
     "development.settle",
+    "evidence.record_adoption",
+    "narration.review",
+    "state.personal_horror_add",
+    "state.personal_horror_mark_woven",
+    "state.backstory_corruption_add",
+    "state.threat_tick",
+    "state.belief_apply",
     "state.record_clue",
     "state.move_scene",
     "state.set_flag",

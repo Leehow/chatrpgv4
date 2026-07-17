@@ -531,7 +531,31 @@ def _project_rule_results(
     if not isinstance(raw, list):
         raw = plan.get("rule_results")
     if not isinstance(raw, list):
-        return []
+        raw = []
+
+    # A Keeper may consult the Director before deciding that the player's
+    # concrete method needs a roll.  In that natural order the candidate plan
+    # cannot already contain the later toolbox result, so narration.brief's
+    # documented ``applied_events`` input is the authoritative handoff.  Merge
+    # direct settled roll receipts without asking the Keeper to mutate the
+    # advisory plan or recompute an outcome.  Other state/event receipts are
+    # ignored here and handled by their own projections below.
+    settled_results = list(raw)
+    seen_roll_ids = {
+        str(result.get("roll_id"))
+        for result in settled_results
+        if isinstance(result, dict) and str(result.get("roll_id") or "").strip()
+    }
+    for event in applied_events or []:
+        if not isinstance(event, dict):
+            continue
+        roll_id = str(event.get("roll_id") or "").strip()
+        if not roll_id or roll_id in seen_roll_ids or event.get("outcome") is None:
+            continue
+        if event.get("roll") is None and event.get("unmodified_roll") is None:
+            continue
+        settled_results.append(event)
+        seen_roll_ids.add(roll_id)
 
     resolved = plan.get("resolved_clue_policy") or {}
     if not isinstance(resolved, dict):
@@ -561,7 +585,17 @@ def _project_rule_results(
     }
 
     projected: list[dict[str, Any]] = []
-    for result in raw:
+    successful_outcomes = {
+        "critical",
+        "extreme",
+        "extreme_success",
+        "hard",
+        "hard_success",
+        "regular",
+        "regular_success",
+        "success",
+    }
+    for result in settled_results:
         if not isinstance(result, dict) or result.get("skipped"):
             continue
         if "outcome" not in result and "success" not in result and "roll" not in result:
@@ -572,12 +606,21 @@ def _project_rule_results(
             or result.get("kind")
             or ""
         )
+        explicit_success = result.get("success")
+        success = (
+            explicit_success
+            if isinstance(explicit_success, bool)
+            else str(result.get("outcome") or "").strip().lower()
+            in successful_outcomes
+        )
         entry: dict[str, Any] = {
             "skill": skill,
             "investigator_display_name": inv_name,
             "outcome": result.get("outcome"),
-            "success": bool(result.get("success")),
+            "success": success,
         }
+        if result.get("roll_id"):
+            entry["roll_id"] = str(result["roll_id"])
         contract = result.get("roll_contract")
         if isinstance(contract, dict):
             goal = contract.get("goal")
@@ -1531,19 +1574,57 @@ def build_narration_envelope(
         event for event in (applied_events or [])
         if isinstance(event, dict) and event.get("event_type") == "scene_transition"
     ]
-    scene_after_id = scene_before_id
+    canonical_scene_id = str(scene.get("scene_id") or "")
+    receipt_scene_id = ""
     if transition_events:
-        scene_after_id = str(
+        receipt_scene_id = str(
             transition_events[-1].get("to_scene")
             or transition_events[-1].get("scene_id")
-            or scene_before_id
+            or ""
         )
+    # Current transactional world state is the location authority.  A receipt
+    # supplies trace evidence (and a fallback for direct library use), but a
+    # stale or incorrectly assembled receipt must not override canonical state.
+    scene_after_id = canonical_scene_id or receipt_scene_id or scene_before_id
+    canonical_scene_changed = bool(
+        canonical_scene_id and canonical_scene_id != scene_before_id
+    )
+    scene_transition_committed = bool(transition_events) or canonical_scene_changed
     grounded_pressure_moves, pressure_grounding = _project_grounded_pressure_moves(
         plan,
         active_scene_id=scene_after_id,
     )
     turn_input = plan.get("turn_input") if isinstance(plan.get("turn_input"), dict) else {}
     turn_rich = turn_input.get("player_intent_rich") if isinstance(turn_input.get("player_intent_rich"), dict) else {}
+    player_text = str(turn_input.get("player_intent") or "").strip()
+    primary_intent = str(
+        turn_rich.get("primary_intent")
+        or turn_input.get("player_intent_class")
+        or ""
+    ).strip()
+    action_uptake = None
+    if player_text:
+        action_uptake = {
+            "player_text": player_text,
+            "primary_intent": primary_intent,
+            "authority": "player_message",
+            "render_policy": {
+                "when": "the player commits to an in-fiction action or speech",
+                "instruction": (
+                    "Naturally enact the player's declared action from the "
+                    "investigator's in-world viewpoint before or while revealing "
+                    "its settled outcome. Preserve the player's method, target, "
+                    "stated precautions, constraints, and meaningful spoken words."
+                ),
+                "do_not": [
+                    "quote_or_paraphrase_the_whole_message_as_a_summary",
+                    "invent_additional_investigator_actions",
+                    "force_meta_questions_planning_or_hypotheticals_into_fiction",
+                    "treat_current_action_uptake_as_semantic_repetition",
+                ],
+                "hard_gate": False,
+            },
+        }
     action_resolution = turn_rich.get("action_resolution") if isinstance(turn_rich.get("action_resolution"), dict) else {}
     keeper_proposal = (
         action_resolution.get("keeper_proposal")
@@ -1554,7 +1635,7 @@ def build_narration_envelope(
         "authored", "improvised", "subsystem",
     }
     recovery_required = bool(
-        not transition_events
+        not scene_transition_committed
         and action_resolution
         and (
             (
@@ -1600,6 +1681,7 @@ def build_narration_envelope(
     ))
     envelope: dict[str, Any] = {
         "decision_id": plan.get("decision_id"),
+        "action_uptake": action_uptake,
         "scene_action": plan.get("scene_action"),
         "dramatic_question": plan.get("dramatic_question"),
         "handoff": plan.get("handoff"),
@@ -1647,7 +1729,7 @@ def build_narration_envelope(
         "state_grounding": {
             "active_scene_before_id": scene_before_id,
             "active_scene_after_id": scene_after_id,
-            "scene_transition_committed": bool(transition_events),
+            "scene_transition_committed": scene_transition_committed,
             "recovery_required": recovery_required,
             "present_npc_names": present_npc_names,
             "present_npc_ids": present_npc_ids,
@@ -1875,7 +1957,10 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
         final_output_pass_ok = (
             isinstance(final_output_pass, dict)
             and final_output_pass.get("required") is True
-            and final_output_pass.get("function") == "guard_player_visible_text"
+            and final_output_pass.get("reviewer") == "keeper_llm_semantic_review"
+            and final_output_pass.get("tool") == "narration.review"
+            and final_output_pass.get("authority") == "advisory"
+            and final_output_pass.get("hard_gate") is False
             and final_output_pass.get("applies_to") == "player_visible_narration_only"
             and final_output_pass.get("not_for") == [
                 "scene_routing",

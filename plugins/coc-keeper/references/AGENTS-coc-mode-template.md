@@ -27,12 +27,24 @@ When COC mode activates:
 
 1. Load `coc-main`.
 2. Load `mode-protocol.md`.
-3. Use `coc-campaign-state` for `.coc/` workspace, campaign, save, memory, log, and index operations.
-4. Use `coc-character` for reusable investigator creation, import, validation, development, and cross-campaign history.
-5. Use `coc-scenario-import` for rulebook or external module scenario binding.
-6. Use `coc-keeper-play` for immersive in-game play.
-7. Use `coc-meta` for rules questions, system questions, parameter inspection, or ruling challenges.
-8. Use `coc-combat`, `coc-chase`, and `coc-sanity` for their subsystems.
+3. Before the first in-game play turn, load the full `coc-keeper-play` and
+   `coc-story-director` skills (not summaries). AI-coding hosts and Codex share
+   the same KP craft path: director / storylet / narration advisory layers are
+   part of ordinary play discovery, not a Codex-only extra.
+4. Use `coc-campaign-state` for `.coc/` workspace, campaign, save, memory, log, and index operations.
+5. Use `coc-character` for reusable investigator creation, import, validation, development, and cross-campaign history.
+6. Use `coc-scenario-import` for rulebook or external module scenario binding.
+7. Use `coc-keeper-play` for immersive in-game play. On scene entry, stalls, or
+   complex beats, consult `director.advise` / `storylets.suggest` /
+   `narration.brief` as that skill describes, and record dispositions with
+   `evidence.record_adoption`. A rules/state-only wrapper is not acceptable KP
+   play on any host. Its Core Keeper Response Contract is always active:
+   committed player actions must enter the fictional world before or alongside
+   their outcomes whether or not any optional narration tool is called.
+8. Use `coc-meta` for rules questions, system questions, parameter inspection, or ruling challenges.
+9. Use `coc-combat`, `coc-chase`, `coc-sanity`, and `coc-magic` for their subsystems.
+10. After a structured ending, use `coc-development`. Export readable battle
+    reports only through `coc-export-battle-report`.
 
 ## Language
 

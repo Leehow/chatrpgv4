@@ -250,28 +250,47 @@ def build_horror_profile(
 
 def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, Any]:
     """Return explicit rules for guarding player-visible narration style."""
+    action_uptake_review = {
+        "authority": "advisory",
+        "hard_gate": False,
+        "required_when": "player_commits_to_in_fiction_action_or_speech",
+        "instruction": (
+            "Check semantically whether the draft naturally enacts the current "
+            "player action in the fiction before or alongside its outcome. "
+            "Preserve the declared method, target, precautions, constraints, and "
+            "meaningful spoken words without echoing the whole player message or "
+            "inventing extra investigator actions. Do not require uptake for meta "
+            "questions, planning, hypotheticals, or actions not yet committed."
+        ),
+    }
     final_output_pass = {
         "required": True,
-        "module": "coc_narration_style",
-        "function": "guard_player_visible_text",
+        "reviewer": "keeper_llm_semantic_review",
+        "tool": "narration.review",
         "applies_to": "player_visible_narration_only",
         "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],
         "instruction": (
-            "Run this pass after director/enrichment/rules text has been drafted "
-            "and before any player-visible narration is sent. Rewrite findings "
-            "instead of exposing raw director, log, or blocking prose."
+            "Review the drafted narration semantically against the narration "
+            "envelope, its action_uptake, and the style contract. Record each "
+            "finding with a concrete "
+            "reason through narration.review, then decide whether to rewrite. "
+            "Do not classify prose by fixed phrases or keyword hits."
         ),
+        "authority": "advisory",
+        "hard_gate": False,
     }
     return {
         "language": language,
         "required_rules": [
             "observable_before_interpretation",
+            "player_action_uptake",
             "rewrite_abstract_explanation_to_action",
             "skill_interpretation_after_visible_evidence",
             "crisis_scene_clarity",
             "final_prose_guard_before_output",
         ],
         "final_output_pass": final_output_pass,
+        "action_uptake_review": action_uptake_review,
         "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],
         "instruction": (
             "Show observable behavior before interpretation. Replace abstract "
@@ -280,7 +299,9 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
             "interpretation, place it after visible evidence. For urgent "
             "physical scenes, draft a crisis_scene_render frame first so "
             "space, force, worsening risk, visible handles, and the player "
-            "entry are clear before prose is sent."
+            "entry are clear before prose is sent. When the player has committed "
+            "to an in-fiction action, make that action part of the narrated world "
+            "before or alongside the settled consequence."
         ),
     }
 
@@ -289,6 +310,7 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
     """Return narrator-facing style constraints for player-visible prose."""
     repetition_policy = {
         "established_fact_mode": "compress",
+        "current_player_action_uptake": "not_repetition",
         "repeat_foreign_dialogue": "summarize_unless_new_information",
         "expand_only_when": [
             "new_information",
@@ -297,8 +319,10 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
             "dramatic_escalation",
         ],
         "instruction": (
-            "Do not restate the same semantic fact, quote, clue, or NPC fear in full. "
-            "After it is established, summarize ongoing repetition in one short sentence."
+            "Do not restate an already established semantic fact, clue, quotation, "
+            "or NPC fear in full. After it is established, summarize ongoing "
+            "repetition in one short sentence. This does not apply to naturally "
+            "enacting the current player action in the fictional world."
         ),
     }
     guard = player_visible_style_guard_contract(language)

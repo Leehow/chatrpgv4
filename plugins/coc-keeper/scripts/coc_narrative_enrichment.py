@@ -1177,6 +1177,11 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
 
     if current_actor == investigator_id:
         attack_id = f"{decision_id}-{route_id}-attack-{revision}"
+        resolution_hint = (
+            "firearm_attack"
+            if investigator.get("has_ready_firearm")
+            else str(operation.get("resolution_hint") or "opposed_melee")
+        )
         attack = {
             "kind": "combat_attack",
             "command_id": attack_id,
@@ -1184,11 +1189,7 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             "actor_id": investigator_id,
             "target_actor_id": opponent_id,
             "declared_intent": "structured investigator attack",
-            "resolution_hint": (
-                "firearm_attack"
-                if investigator.get("has_ready_firearm")
-                else str(operation.get("resolution_hint") or "opposed_melee")
-            ),
+            "resolution_hint": resolution_hint,
             "weapon_id": weapon_id,
             "route_resolution": {"matched_route_ids": [route_id]},
         }
@@ -1198,13 +1199,21 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
             attack["on_success"] = deepcopy(operation["on_success"])
         if isinstance(operation.get("victory_outcome"), str):
             attack["victory_outcome"] = operation["victory_outcome"]
+        opponent_defense = str(operation.get("opponent_defense") or "dodge")
+        if resolution_hint == "firearm_attack" and opponent_defense not in {
+            "dive_for_cover", "none"
+        }:
+            # Firearms are not opposed by Dodge/Fight Back. An authored melee
+            # default must not make a structured firearm route transactionally
+            # impossible; only an explicit dive_for_cover remains a defense.
+            opponent_defense = "none"
         requests.extend([attack, {
             "kind": "combat_defend",
             "command_id": f"{attack_id}-defense",
             "revision": revision + 1,
             "actor_id": opponent_id,
             "attack_command_id": attack_id,
-            "defense_kind": str(operation.get("opponent_defense") or "dodge"),
+            "defense_kind": opponent_defense,
             "route_resolution": {"matched_route_ids": [route_id]},
         }])
     elif current_actor == opponent_id:

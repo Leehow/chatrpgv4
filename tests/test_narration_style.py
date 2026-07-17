@@ -23,14 +23,30 @@ def test_style_guard_contract_requires_observable_behavior_before_interpretation
     guard = coc_narration_style.player_visible_style_guard_contract("zh-Hans")
 
     assert "observable_before_interpretation" in guard["required_rules"]
+    assert "player_action_uptake" in guard["required_rules"]
     assert "rewrite_abstract_explanation_to_action" in guard["required_rules"]
     assert "crisis_scene_clarity" in guard["required_rules"]
     assert "final_prose_guard_before_output" in guard["required_rules"]
     final_pass = guard["final_output_pass"]
     assert final_pass["required"] is True
-    assert final_pass["function"] == "guard_player_visible_text"
+    assert final_pass["reviewer"] == "keeper_llm_semantic_review"
+    assert final_pass["tool"] == "narration.review"
+    assert final_pass["authority"] == "advisory"
+    assert final_pass["hard_gate"] is False
     assert final_pass["applies_to"] == "player_visible_narration_only"
     assert guard["not_for"] == ["scene_routing", "storylet_selection", "rules_adjudication"]
+    uptake = guard["action_uptake_review"]
+    assert uptake["authority"] == "advisory"
+    assert uptake["hard_gate"] is False
+    assert "method, target, precautions, constraints" in uptake["instruction"]
+
+
+def test_repetition_policy_does_not_suppress_current_player_action_uptake():
+    contract = coc_narration_style.player_facing_style_contract("zh-Hans")
+
+    repetition = contract["repetition_policy"]
+    assert repetition["current_player_action_uptake"] == "not_repetition"
+    assert "current player action" in repetition["instruction"]
 
 
 def test_crisis_render_contract_keeps_blocking_internal_and_natural_rendering():

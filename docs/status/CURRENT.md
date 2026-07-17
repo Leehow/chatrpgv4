@@ -13,8 +13,10 @@
 
 ## Release posture
 
-- `plugins/coc-keeper/` is the only canonical plugin. Codex, Claude Code, and
-  Cursor use thin host metadata over the same skills and runtime tools.
+- `plugins/coc-keeper/` is the only canonical plugin. AI-coding hosts and the
+  Pi/headless Keeper use the same skill tree, toolbox registry, rules, state,
+  advisory, narration, and evidence contracts. A capability available on only
+  one of those surfaces is not a completed product capability.
 - The White War and The Haunting are packaged as play-ready starters. The
   Haunting distribution basis and plugin-image provenance remain `UNVERIFIED`;
   see `CONTENT_LICENSES.md`.
@@ -78,11 +80,33 @@ and deterministically reformats that evidence. Binding persists
   `coc_toolbox.py` registry.
 - Deterministic tools enforce only rules arithmetic, transactional state, and
   read-only/secret module truth. Narrative advice remains warnings and hints.
-- `runtime/` exposes the open headless Event SDK and debug/Pi adapters without
-  forking keeper skills or rules.
-- Optional epistemic sidecars can carry source provenance, semantic compilation,
-  belief updates, question lifecycle, cognitive Storylets, least-privilege
-  narrator projection, and replayable metrics.
+- `runtime/` exposes the open headless Event SDK. Its canonical Pi/headless turn
+  path is the same skills-enabled Keeper agent and `coc_toolbox.py` registry;
+  the narrow `runtime/adapters/pi/` narrator bridge is a compatibility
+  component, not a second or reduced Keeper product.
+- The canonical toolbox now exposes rich optional Director plans, the existing
+  Storylet scheduler, NPC agency, personal-horror hooks, threat clocks,
+  epistemic questions/belief application, full ChaseSession/SanitySession
+  commands, player-safe narration briefs, semantic narration review, and
+  advisory-adoption evidence. Advice remains optional and never becomes a
+  fixed turn pipeline or narrative gate.
+- Narration briefs preserve the current player declaration as player-safe
+  `action_uptake` evidence and merge already-settled direct roll receipts. The
+  Keeper enacts committed methods, precautions, constraints, and meaningful
+  speech in the fictional world before or alongside their outcome; semantic
+  review remains advisory and never forces meta or hypothetical text into play.
+- Player-action uptake is an always-active canonical Keeper prompt contract,
+  not a feature switched on by `narration.brief` or `narration.review`. It
+  applies with or without dice and on both AI-coding and Pi/headless hosts;
+  optional narration tools may reinforce it but never own it.
+- Narration grounding reconciles an adopted plan with the current canonical
+  active scene. A host that omits a settled `state.move_scene` receipt from the
+  optional `applied_events` list can no longer produce an envelope whose scene
+  anchor names the new location while its grounding incorrectly orders the
+  Keeper to narrate the old one.
+- `battle-report.md` is the player-readable report and contains no intermediate
+  JSON. `battle-report-evidence.json` is Keeper-internal development evidence;
+  it preserves structured per-turn tool results and adoption receipts.
 
 ## Known release risks
 
@@ -90,6 +114,10 @@ and deterministically reformats that evidence. Binding persists
   `UNVERIFIED`.
 - A release candidate is not accepted until a fresh real plugin/subagent run
   reaches terminal evidence and its final report completeness receipt passes.
+- Focused real-host probes now show action uptake and deterministic roll
+  projection on both Codex and Pi. They do not replace a fresh natural-need
+  session reaching terminal report evidence on both surfaces, so 0.4.0a does
+  not yet claim full cross-host experience parity.
 - Context-free subagent isolation is not filesystem isolation; player-safe
   relay discipline remains part of the acceptance procedure.
 

@@ -4,7 +4,8 @@
 # so this copies the plugin tree instead.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# scripts/ -> coc-keeper/ -> plugins/ -> repo root
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SRC="$ROOT/plugins/coc-keeper"
 DEST="${HOME}/.cursor/plugins/local/coc-keeper"
 

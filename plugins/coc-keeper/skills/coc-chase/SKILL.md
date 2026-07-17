@@ -7,6 +7,13 @@ description: Resolve Call of Cthulhu chase scenes during COC mode using the full
 
 A chase is not a single speed contest. Per Keeper Rulebook Chapter 7 (p.130-145), play runs through five parts: establish whether a chase is needed, cut to the exciting range, resolve movement through hazards and barriers, handle same-location conflict, then optionally embellish with Part 5 rules. Every chase scene drives a `ChaseSession` (`../../scripts/coc_chase.py`) that owns positions and the location chain, and persists `save/chase.json`.
 
+**Canonical entrypoint:** inspect `chase.context`, then submit one exact
+`chase_start`, `chase_move`, `chase_hazard`, `chase_barrier`,
+`chase_conflict`, or `chase_end` command through `chase.execute`. Use
+`coc_toolbox.py describe chase.execute` for the envelope. The toolbox delegates
+to the existing subsystem executor and `ChaseSession`; do not instantiate or
+save a parallel session from the host.
+
 **Boundary:** chase owns positions / movement economy / location chain. Same-location melee delegates to `CombatSession` (`../../scripts/coc_combat.py`) — combat owns the exchange. Do not invent a second combat resolver inside chase.
 
 ## Part 1 — Establishing the Chase (p.132)
@@ -163,13 +170,13 @@ Luck success → caller places a Regular hazard; failure → the other side plac
 
 Aliases: `motorcycle` → light; `truck` → 6-ton. Data lives in `references/rules-json/chase.json`.
 
-## Workflow checklist
+## Keeper checklist (not a fixed turn pipeline)
 
-1. Create/load `ChaseSession` → `save/chase.json`.
-2. Add participants (and passengers); `establish()`.
-3. If chase proceeds: `cut_to_the_chase(gap=2, ...)`.
-4. Each round: `begin_round` → DEX order → `move_participant` / conflict / optional Part 5 APIs.
-5. `check_outcome()` / `conclude(...)` when quarry escapes or is captured.
+1. Read `chase.context`; start only when the fiction is truly a pursuit.
+2. Submit the exact structured `chase_start` command through `chase.execute`.
+3. Continue only the action chosen in fiction, with the current persisted revision.
+4. Resolve pending choices and same-location combat through their owning subsystem.
+5. Submit `chase_end` when the quarry escapes, is captured, or the pursuit concludes.
 6. Return to immersive play; keep mechanical truth in the JSON snapshot.
 
 Use `[meta]` for detailed rule explanation when the player asks. Keep this skill host-neutral — no Codex-only or Cursor-only gates.

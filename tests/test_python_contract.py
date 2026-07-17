@@ -192,6 +192,9 @@ def test_production_subprocesses_do_not_select_python_from_path():
         REPO / "plugins/coc-keeper/scripts/install-cursor-plugin.sh"
     ).read_text(encoding="utf-8")
     assert 'uv run --project "$ROOT" --frozen python - "$DEST"' in cursor_installer
+    # Script lives at plugins/coc-keeper/scripts/; three levels up is repo root.
+    assert 'ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"' in cursor_installer
+    assert 'SRC="$ROOT/plugins/coc-keeper"' in cursor_installer
 
 
 def test_python_shebangs_are_non_authoritative_only():

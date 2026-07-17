@@ -44,6 +44,8 @@ coc_director_apply = _load(
 EXPECTED_NAMESPACES = {
     "rules",
     "combat",
+    "chase",
+    "sanity",
     "development",
     "scene",
     "clues",
@@ -51,6 +53,11 @@ EXPECTED_NAMESPACES = {
     "actions",
     "director",
     "storylets",
+    "personal_horror",
+    "threat",
+    "epistemic",
+    "narration",
+    "evidence",
     "secrets",
     "state",
 }
@@ -302,7 +309,13 @@ def test_describe_cli_unknown_tool_exits_nonzero():
 
 
 def test_successful_call_returns_unified_envelope(campaign_ws):
-    envelope = _run(campaign_ws, "director.advise", {})
+    envelope = _run(campaign_ws, "director.advise", {
+        "player_text": "我检查房间里刚才异响的来源。",
+        "intent_evidence": {
+            "primary_intent": "investigate_scene",
+            "reason": "玩家明确要寻找当前场景中异响的来源。",
+        },
+    })
     assert envelope["ok"] is True
     assert envelope["tool"] == "director.advise"
     assert "data" in envelope
@@ -4935,16 +4948,275 @@ def test_bonus_die_only_combat_success_preserves_06_66_evidence_without_tick(
 
 
 def test_director_advise_is_advisory_not_blocking(campaign_ws):
-    envelope = _run(campaign_ws, "director.advise", {})
+    envelope = _run(campaign_ws, "director.advise", {
+        "player_text": "我检查房间里刚才异响的来源。",
+        "intent_evidence": {
+            "primary_intent": "investigate_scene",
+            "reason": "玩家明确要寻找当前场景中异响的来源。",
+        },
+    })
     assert envelope["ok"] is True
     data = envelope["data"]
-    assert "suggestions" in data
-    assert isinstance(data["suggestions"], list)
-    assert data["suggestions"]
-    assert "beat" in data["suggestions"][0]
+    assert data["authority"] == "advisory"
+    assert data["advice_id"].startswith("director:")
+    assert isinstance(data["candidate_plan"], dict)
+    assert data["intent_evidence"]["primary_intent"] == "investigate_scene"
     # Advisory channel: hints/warnings, never a hard failure for normal play.
     assert isinstance(envelope["warnings"], list)
-    assert any("advisory" in h for h in envelope["hints"])
+    assert any("candidate" in h for h in envelope["hints"])
+
+
+def test_rich_advice_storylets_and_narration_are_canonically_reachable(campaign_ws):
+    intent = {
+        "primary_intent": "investigate_scene",
+        "reason": "The player explicitly searches the active room for the source of a sound.",
+    }
+    player_text = "我检查房间里刚才异响的来源。"
+    advised = _run(campaign_ws, "director.advise", {
+        "player_text": player_text,
+        "intent_evidence": intent,
+        "seed": 7,
+    })
+    assert advised["ok"] is True
+    plan = advised["data"]["candidate_plan"]
+
+    storylets = _run(campaign_ws, "storylets.suggest", {
+        "candidate_plan": plan,
+        "player_text": player_text,
+        "intent_evidence": intent,
+        "seed": 7,
+    })
+    assert storylets["ok"] is True
+    assert storylets["data"]["authority"] == "advisory"
+
+    npc = _run(campaign_ws, "npc.advise", {"intent_evidence": intent, "seed": 7})
+    assert npc["ok"] is True
+    assert npc["data"]["authority"] == "advisory"
+
+    narration = _run(campaign_ws, "narration.brief", {
+        "candidate_plan": plan,
+        "applied_events": [],
+    })
+    assert narration["ok"] is True
+    assert narration["data"]["authority"] == "drafting_brief"
+    assert narration["data"]["style_contract"]["register"] == "natural_tabletop_narration"
+    uptake = narration["data"]["narration_envelope"]["action_uptake"]
+    assert uptake["player_text"] == player_text
+    assert uptake["primary_intent"] == "investigate_scene"
+    assert uptake["authority"] == "player_message"
+    assert uptake["render_policy"]["hard_gate"] is False
+    assert "treat_current_action_uptake_as_semantic_repetition" in uptake["render_policy"]["do_not"]
+    assert any("naturally enact" in hint for hint in narration["hints"])
+
+    # The natural agent order may decide on a roll after consulting the
+    # Director.  narration.brief must consume that settled toolbox receipt;
+    # callers must not edit the advisory plan just to make the text layer see it.
+    settled_roll = _run(campaign_ws, "rules.roll", {
+        "skill": "Spot Hidden",
+        "reason": "check the active room for the source of the sound",
+        "seed": 29,
+        "decision_id": "narration-applied-roll-1",
+    })
+    assert settled_roll["ok"] is True
+    narration_after_roll = _run(campaign_ws, "narration.brief", {
+        "candidate_plan": plan,
+        "applied_events": [settled_roll["data"]],
+    })
+    projected_rolls = narration_after_roll["data"]["narration_envelope"]["rule_results"]
+    assert len(projected_rolls) == 1
+    assert projected_rolls[0]["roll_id"] == settled_roll["data"]["roll_id"]
+    assert projected_rolls[0]["outcome"] == settled_roll["data"]["outcome"]
+    assert projected_rolls[0]["success"] is (
+        settled_roll["data"]["outcome"]
+        in {"critical", "extreme", "hard", "regular", "success"}
+    )
+
+    # The canonical state remains authoritative even when a host omits the
+    # state.move_scene receipt from applied_events.  The active scene anchor
+    # and state grounding must never disagree about the investigator's
+    # location merely because the agent assembled an incomplete receipt list.
+    moved = _run(campaign_ws, "state.move_scene", {
+        "scene_id": "central-library",
+        "reason": "continue research at the public library",
+        "decision_id": "narration-canonical-scene-1",
+    })
+    assert moved["ok"] is True
+    narration_after_move = _run(campaign_ws, "narration.brief", {
+        "candidate_plan": plan,
+        "applied_events": [],
+    })
+    moved_envelope = narration_after_move["data"]["narration_envelope"]
+    assert moved_envelope["scene_anchor"]["scene_id"] == "central-library"
+    grounding = moved_envelope["state_grounding"]
+    assert grounding["active_scene_before_id"] == plan["turn_input"]["active_scene_id"]
+    assert grounding["active_scene_after_id"] == "central-library"
+    assert grounding["scene_transition_committed"] is True
+    assert grounding["recovery_required"] is False
+
+    narration_with_stale_receipt = _run(campaign_ws, "narration.brief", {
+        "candidate_plan": plan,
+        "applied_events": [{
+            "event_type": "scene_transition",
+            "to_scene": plan["turn_input"]["active_scene_id"],
+        }],
+    })
+    stale_grounding = (
+        narration_with_stale_receipt["data"]["narration_envelope"]["state_grounding"]
+    )
+    assert stale_grounding["active_scene_after_id"] == "central-library"
+    review = _run(campaign_ws, "narration.review", {
+        "decision_id": "semantic-review-1",
+        "draft_text": "店员已经彻底被恐惧支配，无法理性思考。",
+        "findings": [{
+            "rule_id": "observable_before_interpretation",
+            "reason": "The draft asserts an NPC's hidden mental state without observable behavior or established evidence.",
+        }],
+    })
+    assert review["ok"] is True
+    assert review["data"]["hard_gate"] is False
+    assert review["data"]["findings"][0]["reason"].startswith("The draft")
+
+
+def test_personal_horror_and_adoption_receipts_prove_actual_use(campaign_ws):
+    added = _run(campaign_ws, "state.personal_horror_add", {
+        "hook_id": "hook-editor",
+        "backstory_field": "significant_people",
+        "summary": "The editor who buried the investigator's first story.",
+        "decision_id": "hook-add-1",
+    })
+    assert added["ok"] is True
+    queried = _run(campaign_ws, "personal_horror.query")
+    assert queried["ok"] is True
+    assert queried["data"]["personal_horror_hooks"][0]["woven"] is False
+
+    woven = _run(campaign_ws, "state.personal_horror_mark_woven", {
+        "hook_id": "hook-editor",
+        "decision_id": "hook-woven-1",
+    })
+    assert woven["ok"] is True
+    adoption = _run(campaign_ws, "evidence.record_adoption", {
+        "decision_id": "turn-adoption-1",
+        "advice_id": "director:1:example",
+        "disposition": "modified",
+        "reason": "The pressure fit, but the NPC move contradicted the live conversation.",
+        "adopted_fields": ["candidate_plan.beat", "candidate_plan.tone"],
+    })
+    assert adoption["ok"] is True
+    rows = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "advisory-adoptions.jsonl")
+    assert rows[-1]["visibility"] == "keeper_internal"
+    assert rows[-1]["disposition"] == "modified"
+
+
+def test_full_sanity_session_is_reachable_through_shared_executor(campaign_ws):
+    decision_id = "full-san-check-1"
+    command = {
+        "command_id": decision_id,
+        "kind": "sanity_check",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": decision_id,
+            "roll_id": decision_id,
+            "skill": "SAN",
+            "difficulty": "regular",
+            "san_loss_success": 0,
+            "san_loss_fail_expr": "1",
+            "source": "A structured unnatural encounter",
+        },
+    }
+    resolved = _run(campaign_ws, "sanity.execute", {
+        "decision_id": decision_id,
+        "command": command,
+        "seed": 9,
+    })
+    assert resolved["ok"] is True
+    assert resolved["data"]["authority"] == "deterministic_subsystem"
+    context = _run(campaign_ws, "sanity.context")
+    assert context["ok"] is True
+    assert context["data"]["active"] is True
+
+
+def test_full_sanity_session_consumes_authored_scene_trigger(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "upper-floor-bedroom", "decision_id": "full-san-move-bedroom"},
+    )
+    assert moved["ok"] is True
+    trigger = _run(campaign_ws, "scene.context")["data"]["pending_san_triggers"][0]
+    decision_id = "full-san-authored-trigger"
+    command = {
+        "command_id": decision_id,
+        "kind": "sanity_check",
+        "phase": "resolve",
+        "payload": {
+            "decision_id": decision_id,
+            "roll_id": decision_id,
+            "skill": "SAN",
+            "difficulty": "regular",
+            "san_loss_success": trigger["san_loss_success"],
+            "san_loss_fail_expr": trigger["san_loss_fail_expr"],
+            "source": trigger["source"],
+            "trigger_id": trigger["trigger_id"],
+        },
+    }
+
+    resolved = _run(
+        campaign_ws,
+        "sanity.execute",
+        {"decision_id": decision_id, "command": command, "seed": 9},
+    )
+
+    assert resolved["ok"] is True
+    check = resolved["data"]["results"][0]["events"][0]
+    assert check["san_trigger_id"] == trigger["trigger_id"]
+    assert _run(campaign_ws, "scene.context")["data"]["pending_san_triggers"] == []
+
+
+def test_full_chase_session_is_reachable_through_shared_executor(campaign_ws):
+    investigator_id = campaign_ws["investigator_id"]
+    state = coc_state.load_investigator_state(campaign_ws["campaign_dir"], investigator_id)
+    decision_id = "full-chase-start-1"
+    participant = {
+        "actor_id": investigator_id,
+        "side": "quarry",
+        "mov": 8,
+        "dex": 60,
+        "con": 50,
+        "hp": int(state["current_hp"]),
+        "fight": 50,
+        "dodge": 30,
+        "build": 0,
+        "current_position": 1,
+        "conditions": list(state.get("conditions") or []),
+    }
+    command = {
+        "command_id": decision_id,
+        "kind": "chase_start",
+        "phase": "start",
+        "payload": {
+            "decision_id": decision_id,
+            "chase_id": "chase-alley",
+            "participants": [
+                participant,
+                {**participant, "actor_id": "pursuer-1", "side": "pursuer", "dex": 45, "current_position": 0},
+            ],
+            "locations": [
+                {"label": "alley-mouth", "hazard": None, "barrier": None},
+                {"label": "wet-stairs", "hazard": None, "barrier": None},
+                {"label": "market", "hazard": None, "barrier": None},
+            ],
+        },
+    }
+    started = _run(campaign_ws, "chase.execute", {
+        "decision_id": decision_id,
+        "command": command,
+        "seed": 4,
+    })
+    assert started["ok"] is True
+    context = _run(campaign_ws, "chase.context")
+    assert context["ok"] is True
+    assert context["data"]["active"] is True
+    assert context["data"]["snapshot"]["chase_id"] == "chase-alley"
 
 
 def test_clues_query_returns_discovery_state_without_blocking(campaign_ws):
@@ -6068,6 +6340,39 @@ def test_combat_tool_persists_reloadable_session_and_public_rolls(campaign_ws):
     all_roll_ids = [row["roll_id"] for row in all_rolls]
     assert len(all_roll_ids) == len(set(all_roll_ids))
     assert any(row["roll_id"] not in prior_roll_ids for row in all_rolls)
+
+
+def test_combat_tool_routes_owned_firearm_without_illegal_melee_defense(campaign_ws):
+    moved = _run(
+        campaign_ws,
+        "state.move_scene",
+        {"scene_id": "corbitt-confrontation", "decision_id": "move-firearm-combat"},
+    )
+    assert moved["ok"] is True
+
+    resolved = _run(
+        campaign_ws,
+        "combat.resolve",
+        {
+            "affordance_id": "conventional-assault",
+            "investigator": campaign_ws["investigator_id"],
+            "weapon_id": "revolver_38",
+            "decision_id": "combat-firearm-beat",
+            "seed": 7,
+        },
+    )
+
+    assert resolved["ok"] is True, resolved
+    attack_events = [
+        event
+        for event in resolved["data"]["events"]
+        if event.get("event_type") == "combat_turn_resolved"
+        and (event.get("turn") or {}).get("actor_id")
+        == campaign_ws["investigator_id"]
+    ]
+    assert attack_events
+    assert attack_events[0]["turn"]["resolution_hint"] == "firearm_attack"
+    assert attack_events[0]["turn"]["defense_kind"] == "none"
 
 
 def test_combat_resolve_uses_one_guarded_character_snapshot_for_all_consumers(

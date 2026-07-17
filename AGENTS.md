@@ -88,6 +88,151 @@ clue-reveal gates, storylet eligibility suppression, narration output audits)
 into the turn path. Narrative legality belongs in tool warnings, not in
 exceptions.
 
+## COC Keeper Product Constitution
+
+These clauses define the product identity of COC Keeper and are
+non-negotiable for repository work. They constrain agents, implementations,
+documentation, and validation. They do not create a fixed runtime workflow or
+additional narrative gates. Change them only in response to explicit user
+direction; do not reinterpret a nearby request as permission to weaken them.
+
+### The KP Is The Product
+
+- The canonical KP is an agent that understands the player and runs the table.
+  Its primary responsibilities include player intent, world causality, scene
+  framing, NPC agency and portrayal, clue presentation, pacing, personal
+  horror, consequences, and final narration.
+- Tools and methods support the KP. A path that mainly operates rules/state
+  tools and wraps their output in prose is not an acceptable COC KP product.
+- The KP chooses which relevant methods and tools to call from the canonical
+  skills and registry. Do not replace that judgment with a fixed turn pipeline,
+  mandatory call sequence, or hardcoded workflow.
+
+### AI-Coding And Pi Experience Parity
+
+- AI-coding hosts and the Pi/headless runtime are two surfaces of the same COC
+  Keeper product. They must consume the same canonical skills, unified tool
+  registry, deterministic rules, transactional state, advisory capabilities,
+  narration contracts, and evidence contracts. Do not maintain a rich path on
+  one surface and a reduced facade, alternate orchestration engine, or separate
+  behavior track on the other.
+- A capability is not product-complete when it is discoverable or consumed by
+  only one of these surfaces. Its applicability, authority boundaries,
+  player-visible behavior, state effects, and audit evidence must remain
+  equivalent across both, and relevant real-host validation must cover both
+  surfaces before parity is claimed.
+- Host-specific differences are permitted only when the underlying platform
+  genuinely lacks the capability and the difference is explicitly gated and
+  documented under the single-track law. A host limitation must never silently
+  select a weaker KP, skip an integrated method, or fork product semantics.
+
+### Semantic Decisions, Advisory Methods, And Authority
+
+- Meaning-bearing decisions must use semantic reasoning. Never implement
+  player-intent, NPC-hostility, clue-relevance, storylet-fit, report-coverage,
+  or prose-quality decisions with keyword hits, exact text fragments, regular
+  expressions over free prose, or fixed phrase lists. Structured enums, IDs,
+  tags, booleans, rules data, and recorded LLM/semantic-router results are valid
+  inputs.
+- Narrative, director, enrichment, Storylet, NPC, pacing, and language methods
+  return structured facts or suggestions with reasons. They advise the KP; they
+  must not allow, deny, force, suppress, reorder, or replace the KP's semantic
+  judgment or the player's action.
+- The KP may adopt, modify, or ignore advisory output. Integration never means
+  that a method must be called every turn, a fixed number of times, or in a
+  fixed order. Absence of an advisory call must never block play.
+- The KP owns interpretation, fictional causality, pacing choices, and final
+  player-facing prose. Raw tool output, internal labels, state summaries, and
+  log language are data, not narration, and must not be presented as if they
+  were finished table prose.
+- Deterministic rules tools own dice, HP/SAN/MP, skill arithmetic, and other
+  mechanical results. State tools own persistent mutations. Module truth and
+  secrets remain read-only. The KP must not recompute, adjust, or contradict
+  those authoritative results.
+
+### Feature Integration Is Part Of Implementation
+
+A feature is implemented only when all of the following are true:
+
+1. The user/KP problem and the canonical consumer are named.
+2. The capability is exposed through the canonical skill tree, toolbox
+   registry, or shared typed-operation gateway used by normal plugin play.
+3. The KP can discover what the capability does and when it may be useful,
+   without relying on a separate test harness or hidden source-code knowledge.
+4. Its result reaches the intended consumer: KP judgment, canonical state, or
+   player-visible output. A function that is never consumed is unfinished.
+5. At least one relevant real plugin-native session has successfully exercised
+   the capability through the normal KP-agent path. A source file, isolated
+   demo, unit test, fixture, or alternate harness is not integration evidence.
+6. Player-visible effects and authoritative state changes are preserved in the
+   normal evidence sources needed to inspect what actually happened.
+
+Code that does not satisfy this definition must be labeled
+`experimental` or `unintegrated`. It must not be advertised as supported,
+counted as completed, or used to justify a release claim. A single run that
+does not happen to call an advisory method is not itself a product failure, but
+zero-call evidence also cannot prove that the method is integrated.
+
+### No Speculative Production Features
+
+- Before designing or implementing a capability, inspect the canonical skill
+  tree, unified tool registry, shared runtime, existing scripts, tests,
+  documentation, and relevant repository history for the same or adjacent
+  implementation. Record what already exists and whether the new work will
+  reuse, extend, compose, repair, or reconnect it. A capability being dormant,
+  undiscoverable, or unintegrated is not evidence that it does not exist.
+- Prefer completing or adapting an existing implementation over creating a
+  parallel one. Do not introduce a second engine, facade, helper, workflow, or
+  source of truth merely because the existing capability is inconvenient to
+  reach. If replacement is genuinely necessary, first document why the
+  existing implementation cannot satisfy the product requirement and how the
+  duplicate path will be retired without product regression.
+- Before implementing a production feature, identify its user-visible or
+  KP-visible value, canonical caller, applicability/trigger, inputs, outputs,
+  integration point, and real-plugin validation method.
+- If those items are unknown, keep the work in discussion or design. Do not add
+  production code first and postpone integration until later.
+- Feature work must update its canonical registry/operation exposure, skill
+  guidance, consumers, and evidence path as one coherent change. Do not create
+  functionality that exists only for tests, evaluation, or an alternate
+  runtime. A host-specific capability must be explicitly platform-gated under
+  the COC Plugin Single-Track Law and still integrate through the canonical
+  plugin skill tree rather than a second product track.
+- Component tests prove component contracts only. They never prove that the
+  canonical KP can discover or use the component.
+
+### Validation And Evidence
+
+- Whole-product validation uses the real Codex plugin as KP and a real Agent
+  player through the plugin-native acceptance contract below. Do not replace
+  either role with a scripted player, automated match driver, fixed profile,
+  synthetic transcript, or parallel KP implementation for convenience.
+- Automated tests remain appropriate for deterministic arithmetic, schemas,
+  transactions, path safety, secret/public projections, and tool contracts.
+  They must not infer prose meaning with keyword or exact-phrase assertions or
+  claim to measure the whole KP experience.
+- Preserve the exact player-facing KP text and exact player reply delivered at
+  the table. Summaries are separate derived evidence and must never overwrite
+  or masquerade as the actual transcript.
+- Scope every completeness claim precisely. Dice/source completeness does not
+  imply character, story, narration, director, or whole-product completeness.
+  Missing evidence never becomes a pass.
+
+### Requirement And Discussion Discipline
+
+- Separate user-stated requirements, observed facts, inferences, and proposals.
+  Never present an inference as the user's intent or as established product
+  policy.
+- Before a product-direction or architecture change, restate the explicit user
+  constraints it relies on. Ask before proceeding when an unresolved ambiguity
+  would materially change behavior or scope.
+- Do not broaden a prohibition into deletion, disabling, optionalization, or
+  weakening of adjacent capabilities. In particular, "no hard narrative gate"
+  does not mean "no advisory capability", "no integration", or "no KP craft
+  support".
+- Test convenience, cleanup, architectural neatness, or implementation effort
+  must not substitute for the user's stated product goal.
+
 ## Plugin-Native Acceptance Contract
 
 Whole-product COC Keeper acceptance uses the real Codex plugin, not a scripted
