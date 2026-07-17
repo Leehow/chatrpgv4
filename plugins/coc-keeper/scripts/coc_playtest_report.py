@@ -833,10 +833,13 @@ def _format_state_change_summary(
             omitted[event_type or "unknown"] += 1
     if omitted:
         omitted_count = sum(omitted.values())
+        types = ", ".join(
+            f"{event_type}×{count}" for event_type, count in sorted(omitted.items())
+        )
         selected.append(
-            (f"- 其余 {omitted_count} 条事件收据已在对应章节呈现，此处不再重复。")
+            (f"- 另有 {omitted_count} 条非状态事件收据未在本节展开（{types}）。")
             if play_language == "zh-Hans"
-            else f"- {omitted_count} other event receipts are rendered in their dedicated sections and are not repeated here."
+            else f"- {omitted_count} non-state event receipts are not expanded in this section ({types})."
         )
     return selected
 
@@ -1446,6 +1449,55 @@ def _format_decision(
     return f"- {summary}"
 
 
+def _format_recorder_decisions(
+    rows: list[dict[str, Any]],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> list[str]:
+    """Project exact recorder choices without classifying free-form prose."""
+    lines: list[str] = []
+    for row in rows:
+        request_record = row.get("player_safe_request")
+        response_record = row.get("subagent_response")
+        envelope = request_record.get("envelope") if isinstance(request_record, dict) else None
+        request = envelope.get("request") if isinstance(envelope, dict) else None
+        response = response_record.get("payload") if isinstance(response_record, dict) else None
+        pending = request.get("pending_choice") if isinstance(request, dict) else None
+        answer = response.get("pending_choice_response") if isinstance(response, dict) else None
+        if not isinstance(pending, dict) or not isinstance(answer, dict):
+            continue
+        if any(
+            answer.get(key) != pending.get(key)
+            for key in ("choice_id", "responder", "revision")
+        ):
+            continue
+        action = answer.get("action")
+        option = next(
+            (
+                item
+                for item in pending.get("options", [])
+                if isinstance(item, dict) and item.get("action") == action
+            ),
+            None,
+        )
+        if not isinstance(option, dict):
+            continue
+        label = _localize_text(option.get("label") or action or "choice", localized_terms)
+        intent = str(response.get("intent_class") or "not recorded")
+        turn = row.get("turn_number")
+        if play_language == "zh-Hans":
+            lines.append(
+                f"- 第 {turn} 轮：{label}；结构化意图：{intent} "
+                f"{_html_anchor('decision-action', action)}"
+            )
+        else:
+            lines.append(
+                f"- Turn {turn}: {label}; structured intent: {intent} "
+                f"{_html_anchor('decision-action', action)}"
+            )
+    return lines
+
+
 def _format_clue(
     event: dict[str, Any],
     localized_terms: dict[str, str] | None = None,
@@ -1983,10 +2035,12 @@ def _format_key_values(
 BACKSTORY_FIELDS = [
     ("description", "Description"),
     ("ideology_beliefs", "Ideology/Beliefs"),
+    ("ideology", "Ideology/Beliefs"),
     ("significant_people", "Significant People"),
     ("meaningful_locations", "Meaningful Locations"),
     ("treasured_possessions", "Treasured Possessions"),
     ("traits", "Traits"),
+    ("traits_detail", "Traits Detail"),
     ("injuries_scars", "Injuries & Scars"),
     ("phobias_manias", "Phobias & Manias"),
 ]
@@ -2661,6 +2715,22 @@ def _format_development_entry(
     play_language: str,
     language_profile: dict[str, Any] | None = None,
 ) -> list[str]:
+    if (
+        record.get("schema_version") == 2
+        and record.get("event_type") == "development_check_earned"
+    ):
+        skill = _display_skill_name(record.get("skill") or "unknown", localized_terms)
+        title = _chronicle_label(language_profile, "Development Check Earned")
+        lines = [f"    - {title}: {skill}"]
+        for key, label in (("roll", "Roll"), ("source_kind", "Source Kind"), ("source_event_id", "Source Event")):
+            value = record.get(key)
+            if value not in (None, "", [], {}):
+                lines.append(f"      - {_chronicle_label(language_profile, label)}: {value}")
+        lines.append(
+            f"      - {_chronicle_label(language_profile, 'Status')}: "
+            f"{_chronicle_label(language_profile, 'earned')}"
+        )
+        return lines
     title = _format_record_type(record.get("type"), "Development Entry", language_profile)
     lines = [f"    - {title}"]
     for key, label in [
@@ -3420,7 +3490,7 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
     if play_language == "zh-Hans":
         heading = "## 实玩证据 <!-- report-anchor: Gameplay Evidence -->"
         status = "符合" if eligible else "不符合"
-        labels = ("资格", "外部模型回合", "降级回合")
+        labels = ("资格", "可计入官方证据的外部模型回合", "降级回合")
     elif play_language == "ja-JP":
         heading = "## 実プレイ証拠 <!-- report-anchor: Gameplay Evidence -->"
         status = "適格" if eligible else "不適格"
@@ -3428,8 +3498,8 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
     else:
         heading = "## Gameplay Evidence"
         status = "eligible" if eligible else "not eligible"
-        labels = ("Eligibility", "External Model Turns", "Fallback Turns")
-    return [
+        labels = ("Eligibility", "Official Evidence External Model Turns", "Fallback Turns")
+    lines = [
         heading,
         f"<!-- evidence-eligibility: {status_anchor} -->",
         f"<!-- evidence-reasons: {','.join(reason_codes) or 'none'} -->",
@@ -3437,6 +3507,13 @@ def _evidence_report_lines(receipt: dict[str, Any], play_language: str) -> list[
         f"- {labels[1]}: {receipt.get('external_model_turns', 0)}",
         f"- {labels[2]}: {receipt.get('fallback_turns', 'unknown')}",
     ]
+    if isinstance(receipt.get("recorded_player_turns"), int):
+        label = "已验证录制玩家回合" if play_language == "zh-Hans" else "Verified Recorded Player Turns"
+        lines.append(f"- {label}: {receipt['recorded_player_turns']}")
+    if reason_codes:
+        label = "未证明边界" if play_language == "zh-Hans" else "Unattested Boundaries"
+        lines.append(f"- {label}: {', '.join(reason_codes)}")
+    return lines
 
 
 def _evidence_sensitive_metadata(
@@ -3477,26 +3554,94 @@ def _evidence_sensitive_metadata(
     return values
 
 
+def _format_final_recorded_state(
+    campaign_dir: Path | None,
+    characters: list[dict[str, Any]],
+    localized_terms: dict[str, str],
+    play_language: str,
+) -> list[str]:
+    if campaign_dir is None:
+        return []
+    time_state = _read_json(campaign_dir / "save" / "time-state.json", {})
+    active_scene = _read_json(campaign_dir / "save" / "active-scene.json", {})
+    time_events = _read_jsonl(campaign_dir / "logs" / "time.jsonl")
+    clock = time_state.get("clock") if isinstance(time_state, dict) else None
+    latest_time = (
+        time_events[-1].get("current_time")
+        if time_events and isinstance(time_events[-1], dict)
+        else None
+    )
+    lines: list[str] = []
+    if isinstance(clock, dict):
+        display = str(clock.get("display") or clock.get("local_datetime") or "unknown")
+        elapsed = clock.get("elapsed_minutes")
+        day_phase = latest_time.get("day_phase") if isinstance(latest_time, dict) else None
+        if play_language == "zh-Hans":
+            phase = {
+                "morning": "上午",
+                "afternoon": "下午",
+                "evening": "傍晚",
+                "night": "夜间",
+            }.get(str(day_phase), str(day_phase or "未记录"))
+            lines.append(f"- 最终时间：{display}；累计 {elapsed} 分钟；时段：{phase}。")
+        else:
+            lines.append(f"- Final time: {display}; elapsed {elapsed} minutes; phase: {day_phase or 'not recorded'}.")
+    if isinstance(active_scene, dict) and active_scene.get("scene_id"):
+        scene_id = str(active_scene["scene_id"])
+        scene_display = _localize_text(scene_id, localized_terms)
+        if play_language == "zh-Hans":
+            lines.append(f"- 当前场景：{scene_display} {_html_anchor('scene-id', scene_id)}")
+        else:
+            lines.append(f"- Active scene: {scene_display} {_html_anchor('scene-id', scene_id)}")
+    for character in characters:
+        investigator_id = str(character.get("investigator_id") or character.get("id") or "")
+        if not investigator_id:
+            continue
+        state = _read_json(
+            campaign_dir / "save" / "investigator-state" / f"{investigator_id}.json",
+            {},
+        )
+        if not isinstance(state, dict) or not state:
+            continue
+        name = _localize_text(character.get("name") or investigator_id, localized_terms)
+        luck_label = "幸运" if play_language == "zh-Hans" else "Luck"
+        values = [
+            f"HP {state.get('current_hp', 'unknown')}",
+            f"SAN {state.get('current_san', 'unknown')}",
+            f"MP {state.get('current_mp', 'unknown')}",
+            f"{luck_label} {state.get('current_luck', 'unknown')}",
+        ]
+        conditions = state.get("conditions")
+        condition_text = ", ".join(str(item) for item in conditions) if isinstance(conditions, list) and conditions else (
+            "无" if play_language == "zh-Hans" else "none"
+        )
+        if play_language == "zh-Hans":
+            lines.append(f"- {name}：{', '.join(values)}；状态：{condition_text}。")
+        else:
+            lines.append(f"- {name}: {', '.join(values)}; conditions: {condition_text}.")
+    return lines
+
+
 def _verified_codex_host_recorder_actual_play(
     run_dir: Path, metadata: dict[str, Any]
-) -> bool:
+) -> dict[str, Any] | None:
     """Recompute current-recorder provenance without trusting playtest metadata."""
     if metadata.get("recorder_protocol") != "codex_host_manual_playtest_v2":
-        return False
+        return None
     path = Path(__file__).resolve().with_name("coc_codex_host_playtest.py")
     spec = importlib.util.spec_from_file_location(
         "coc_playtest_report_codex_host_recorder", path
     )
     if spec is None or spec.loader is None:
-        return False
+        return None
     module = importlib.util.module_from_spec(spec)
     try:
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
         receipt = module.verify_actual_play_source(run_dir)
     except Exception:
-        return False
-    return bool(
+        return None
+    valid = bool(
         receipt.get("protocol") == "codex_host_manual_playtest_v2"
         and receipt.get("recorder_schema_version") == 2
         and receipt.get("run_id") == metadata.get("run_id")
@@ -3505,6 +3650,7 @@ def _verified_codex_host_recorder_actual_play(
         and receipt.get("evidence_grade") == "NOT_ATTESTED"
         and receipt.get("shared_fs_isolation") == "NOT_ATTESTED"
     )
+    return receipt if valid else None
 
 
 @published_run_consumer(require_metadata=True)
@@ -3526,15 +3672,26 @@ def generate_battle_report(run_dir: Path) -> Path:
     structured_actual_play_transcript = {
         "player_simulator", "keeper_under_test"
     }.issubset(transcript_roles)
-    recorder_actual_play = _verified_codex_host_recorder_actual_play(
+    recorder_receipt = _verified_codex_host_recorder_actual_play(
         run_dir, metadata
     )
+    recorder_actual_play = recorder_receipt is not None
     actual_play_occurred = (
         run_kind == "blind_actual_play"
         and eligible
         and structured_actual_play_transcript
     ) or recorder_actual_play
     identity_ineligible_actual_play = actual_play_occurred and not eligible
+    evidence_display_receipt = dict(evidence_receipt)
+    if recorder_receipt is not None:
+        evidence_display_receipt.update(
+            {
+                "eligible_as_gameplay_evidence": False,
+                "external_model_turns": evidence_receipt.get("external_model_turns", 0),
+                "recorded_player_turns": recorder_receipt.get("recorded_player_turns", 0),
+                "evidence_reasons": recorder_receipt.get("evidence_reasons", []),
+            }
+        )
     if run_kind == "diagnostic_spoiler_run":
         report_basename = "diagnostic-play-report.md"
         non_gameplay_sample = True
@@ -3707,6 +3864,8 @@ def generate_battle_report(run_dir: Path) -> Path:
         scenario.get("module_source"),
         scenario.get("source_pdf"),
         metadata.get("module_source"),
+        scenario.get("attribution"),
+        scenario.get("author"),
     )
     if module_source not in (None, "unknown"):
         raw_source = str(module_source)
@@ -3826,6 +3985,14 @@ def generate_battle_report(run_dir: Path) -> Path:
         for event in state_events
         if event.get("type") == "decision"
     ]
+    if recorder_receipt is not None:
+        decision_lines.extend(
+            _format_recorder_decisions(
+                _read_jsonl(run_dir / "turns.jsonl"),
+                localized_terms,
+                str(play_language),
+            )
+        )
     clue_lines = [
         _format_clue(event, localized_terms, str(play_language), clue_lookup)
         for event in state_events
@@ -3957,6 +4124,12 @@ def generate_battle_report(run_dir: Path) -> Path:
         str(play_language),
         language_profile,
     )
+    final_state_lines = _format_final_recorded_state(
+        context["campaign_dir"],
+        characters,
+        localized_terms,
+        str(play_language),
+    )
 
     body = [
         (
@@ -4025,7 +4198,7 @@ def generate_battle_report(run_dir: Path) -> Path:
             language_profile,
         ),
         "",
-        *_evidence_report_lines(evidence_receipt, str(play_language)),
+        *_evidence_report_lines(evidence_display_receipt, str(play_language)),
         "",
         *operator_review_lines,
         *( [""] if operator_review_lines else [] ),
@@ -4049,6 +4222,9 @@ def generate_battle_report(run_dir: Path) -> Path:
         "",
         _report_heading(2, "Character Dossier", language_profile),
         *_list_lines(character_lines, "- No character sheets recorded."),
+        "",
+        _report_heading(2, "Final Recorded State", language_profile),
+        *_list_lines(final_state_lines, "- No final recorded state available."),
         "",
         _report_heading(2, "Investigator Chronicle", language_profile),
         *_list_lines(chronicle_lines, "- No investigator chronicle recorded."),

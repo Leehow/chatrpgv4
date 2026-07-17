@@ -71,12 +71,15 @@ def _record(actor_id, turn, *, narration="墙上的裂痕在烛光下像一条�
 def _prepare_workspace(workspace, *, campaign_id="haunting", investigator_id="ada"):
     campaign = workspace / ".coc" / "campaigns" / campaign_id
     logs = campaign / "logs"
+    save = campaign / "save"
     scenario = campaign / "scenario"
     logs.mkdir(parents=True)
+    (save / "investigator-state").mkdir(parents=True)
     scenario.mkdir()
     (logs / "toolbox-calls.jsonl").write_text('{"before":"run"}\n', encoding="utf-8")
     (logs / "rolls.jsonl").write_text("", encoding="utf-8")
     (logs / "events.jsonl").write_text("", encoding="utf-8")
+    (logs / "time.jsonl").write_text("", encoding="utf-8")
     (campaign / "campaign.json").write_text(
         json.dumps({"schema_version": 1, "campaign_id": campaign_id, "title": "鬼屋"}),
         encoding="utf-8",
@@ -86,11 +89,68 @@ def _prepare_workspace(workspace, *, campaign_id="haunting", investigator_id="ad
         encoding="utf-8",
     )
     (scenario / "module-meta.json").write_text(
-        json.dumps({"schema_version": 1, "scenario_id": "the-haunting", "title": "鬼屋"}),
+        json.dumps({
+            "schema_version": 1,
+            "scenario_id": "the-haunting",
+            "title": "鬼屋",
+            "source_pdf": None,
+            "author": "Fixture Authors",
+        }),
         encoding="utf-8",
     )
     (scenario / "clue-graph.json").write_text(
         json.dumps({"schema_version": 1, "clues": [], "conclusions": []}),
+        encoding="utf-8",
+    )
+    current_states = {
+        "time-state.json": {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "clock": {
+                "elapsed_minutes": 0,
+                "local_datetime": "1920-10-12T10:00:00",
+                "display": "1920-10-12 10:00",
+            },
+        },
+        "active-scene.json": {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "scenario_id": "the-haunting",
+            "scene_id": "entrance-hall",
+        },
+        "world-state.json": {
+            "schema_version": 2,
+            "campaign_id": campaign_id,
+            "scenario_id": "the-haunting",
+            "active_scene_id": "entrance-hall",
+        },
+        "flags.json": {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "clues_found": {},
+            "decisions": [],
+            "flags": {},
+        },
+        "pacing-state.json": {
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "turn_number": 0,
+        },
+    }
+    for name, value in current_states.items():
+        (save / name).write_text(json.dumps(value), encoding="utf-8")
+    (save / "investigator-state" / f"{investigator_id}.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": campaign_id,
+            "investigator_id": investigator_id,
+            "current_hp": 10,
+            "current_san": 60,
+            "current_mp": 12,
+            "current_luck": 50,
+            "conditions": [],
+            "skill_checks_earned": [],
+        }),
         encoding="utf-8",
     )
     investigator = workspace / ".coc" / "investigators" / investigator_id
@@ -104,12 +164,17 @@ def _prepare_workspace(workspace, *, campaign_id="haunting", investigator_id="ad
                 "occupation": "记者",
                 "characteristics": {"POW": 60},
                 "derived": {"HP": 10, "SAN": 60},
-                "skills": {"Spot Hidden": 55},
+                "skills": {"Spot Hidden": 55, "Track": 30},
+                "backstory": {
+                    "ideology": "事实先于猜测。",
+                    "traits_detail": "先观察，再行动。",
+                },
             },
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
+    (investigator / "development.jsonl").write_text("", encoding="utf-8")
     return campaign, logs
 
 
@@ -301,6 +366,14 @@ def test_current_recorder_renders_ineligible_actual_play_battle_report_with_comp
             "summary": "门厅灯光忽明忽暗，强化了宅邸正在回应调查者的感觉。",
         },
     )
+    _append_jsonl(
+        campaign_logs / "events.jsonl",
+        {
+            "event_type": "npc_engagement",
+            "npc_id": "archive-clerk",
+            "interaction_count": 1,
+        },
+    )
     module.append_turn(run_dir, _record("player-agent-01", 1))
     _append_jsonl(toolbox, {"tool": "state.set_flag", "decision_id": "t2-choice"})
     _append_jsonl(
@@ -312,7 +385,83 @@ def test_current_recorder_renders_ineligible_actual_play_battle_report_with_comp
             "summary": "艾达接受风险并继续开锁。",
         },
     )
-    module.append_turn(run_dir, _pending_record("player-agent-01", 2))
+    pending_record = _pending_record("player-agent-01", 2)
+    pending_record["subagent_response"]["player_text"] = "自由文本里故意写放弃，但结构化动作仍是 push。"
+    module.append_turn(run_dir, pending_record)
+
+    campaign = campaign_logs.parent
+    (campaign_logs / "time.jsonl").write_text(
+        json.dumps({
+            "event_type": "time_advance",
+            "seq": 1,
+            "current_time": {
+                "elapsed_minutes": 110,
+                "display": "1920-10-12 11:50",
+                "local_datetime": "1920-10-12T11:50:00",
+                "day_phase": "morning",
+            },
+        }) + "\n",
+        encoding="utf-8",
+    )
+    (campaign / "save" / "time-state.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "haunting",
+            "clock": {
+                "elapsed_minutes": 110,
+                "display": "1920-10-12 11:50",
+                "local_datetime": "1920-10-12T11:50:00",
+            },
+        }),
+        encoding="utf-8",
+    )
+    (campaign / "save" / "active-scene.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "haunting",
+            "scenario_id": "the-haunting",
+            "scene_id": "hall-of-records",
+        }),
+        encoding="utf-8",
+    )
+    (campaign / "save" / "world-state.json").write_text(
+        json.dumps({
+            "schema_version": 2,
+            "campaign_id": "haunting",
+            "scenario_id": "the-haunting",
+            "active_scene_id": "hall-of-records",
+        }),
+        encoding="utf-8",
+    )
+    (campaign / "save" / "investigator-state" / "ada.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "campaign_id": "haunting",
+            "investigator_id": "ada",
+            "current_hp": 9,
+            "current_san": 57,
+            "current_mp": 11,
+            "current_luck": 49,
+            "conditions": [],
+            "skill_checks_earned": ["Spot Hidden"],
+        }),
+        encoding="utf-8",
+    )
+    development = tmp_path / "workspace" / ".coc" / "investigators" / "ada" / "development.jsonl"
+    _append_jsonl(
+        development,
+        {
+            "schema_version": 2,
+            "event_type": "development_check_earned",
+            "investigator_id": "ada",
+            "campaign_id": "haunting",
+            "session_id": "haunting:session:1",
+            "source_kind": "rules.roll",
+            "source_event_id": "rules.roll:t1-roll",
+            "skill": "Spot Hidden",
+            "roll": 23,
+        },
+    )
 
     manifest = module.finalize_run(run_dir)
     report = run_dir / "artifacts" / "battle-report.md"
@@ -329,6 +478,35 @@ def test_current_recorder_renders_ineligible_actual_play_battle_report_with_comp
     assert "hall-light-flicker" in report_text
     assert "门厅灯光忽明忽暗" in report_text
     assert "codex-host-roll-001" in report_text
+    assert "第 2 轮：孤注一掷" in report_text
+    assert "decision-action: push" in report_text
+    decision_section = report_text.split("report-anchor: Major Player Decisions", 1)[1].split(
+        "report-anchor: Rules & Rolls Recap", 1
+    )[0]
+    assert "decision-action: decline" not in decision_section
+    assert "自由文本里故意写放弃" not in decision_section
+    assert "结构化意图：investigate" in report_text
+    assert "已获得成长标记: 侦查" in report_text
+    assert "骰值: 23" in report_text
+    assert "来源事件: rules.roll:t1-roll" in report_text
+    assert "最终记录状态" in report_text
+    assert "1920-10-12 11:50" in report_text
+    assert "hall-of-records" in report_text
+    assert "HP 9, SAN 57, MP 11, 幸运 49" in report_text
+    assert "时段：上午" in report_text
+    assert "可计入官方证据的外部模型回合: 0" in report_text
+    assert "已验证录制玩家回合: 2" in report_text
+    assert "Official evidence external model turns: 0" in report_text
+    assert "Verified recorded player turns: 2" in report_text
+    assert "manual_orchestrator_attestation_only" in report_text
+    assert "evidence_receipt_missing" not in report_text
+    assert "Fixture Authors" in report_text
+    assert "追踪: 30" in report_text
+    assert "信念/理念: 事实先于猜测。" in report_text
+    assert "特质详情: 先观察，再行动。" in report_text
+    assert "npc_engagement×1" in report_text
+    assert "未在本节展开" in report_text
+    assert "已在对应章节呈现" not in report_text
     assert "report-anchor: rules-and-dice" in report_text
     completeness = json.loads(completeness_path.read_text(encoding="utf-8"))
     assert completeness["passed"] is True
@@ -344,6 +522,21 @@ def test_current_recorder_renders_ineligible_actual_play_battle_report_with_comp
     assert playtest["collaboration_attestation"] == "NOT_ATTESTED"
     assert playtest["shared_fs_isolation"] == "NOT_ATTESTED"
     assert module.verify_run(run_dir)["valid"] is True
+
+    source_manifest = json.loads((run_dir / "report-source-manifest.json").read_text())
+    assert set(source_manifest["authoritative_logs"]) == {"rolls", "events", "toolbox", "time"}
+    for relative in (
+        "logs/time.jsonl",
+        "save/time-state.json",
+        "save/active-scene.json",
+        "save/world-state.json",
+        "save/flags.json",
+        "save/pacing-state.json",
+        "save/investigator-state/ada.json",
+    ):
+        exported = f"sandbox/.coc/campaigns/haunting/{relative}"
+        assert exported in source_manifest["artifacts"]
+        assert exported in manifest["artifacts"]
 
     # The canonical verifier recomputes from the exported source log. Removing
     # one rendered roll never gets repaired from narration or toolbox args.
@@ -517,6 +710,35 @@ def test_finalize_rejects_authoritative_log_bytes_not_bound_to_a_turn(tmp_path):
     with pytest.raises(module.RecorderError) as error:
         module.finalize_run(run_dir)
     assert error.value.code == "uncaptured_source_log_bytes"
+
+
+def test_finalize_rejects_noncurrent_report_state_schema(tmp_path):
+    module, run_dir, toolbox, _ = _new_run(tmp_path)
+    with toolbox.open("a", encoding="utf-8") as handle:
+        handle.write('{"tool":"state.set_flag"}\n')
+    module.append_turn(run_dir, _record("player-agent-01", 1))
+    world_state = toolbox.parent.parent / "save" / "world-state.json"
+    payload = json.loads(world_state.read_text(encoding="utf-8"))
+    payload["schema_version"] = 1
+    world_state.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(module.RecorderError) as error:
+        module.finalize_run(run_dir)
+    assert error.value.code == "unsupported_report_context_schema"
+
+
+def test_verify_rejects_tampered_current_state_snapshot(tmp_path):
+    module, run_dir, toolbox, _ = _new_run(tmp_path)
+    with toolbox.open("a", encoding="utf-8") as handle:
+        handle.write('{"tool":"state.set_flag"}\n')
+    module.append_turn(run_dir, _record("player-agent-01", 1))
+    module.finalize_run(run_dir)
+    snapshot = run_dir / "sandbox/.coc/campaigns/haunting/save/time-state.json"
+    payload = json.loads(snapshot.read_text(encoding="utf-8"))
+    payload["clock"]["display"] = "tampered"
+    snapshot.write_text(json.dumps(payload), encoding="utf-8")
+    receipt = module.verify_run(run_dir)
+    assert receipt["valid"] is False
+    assert any(finding.startswith("report_snapshot_mismatch:") for finding in receipt["findings"])
 
 
 def test_recorder_checks_protocol_binding_but_does_not_audit_narrative(tmp_path):

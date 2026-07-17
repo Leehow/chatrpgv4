@@ -819,8 +819,7 @@ def render_run_identity_section(
         heading = "## 运行身份与证据 <!-- report-anchor: run-identity-and-evidence -->"
     else:
         heading = "## Run Identity & Evidence <!-- report-anchor: run-identity-and-evidence -->"
-    return "\n".join(
-        [
+    lines = [
             heading,
             "",
             f"- Run ID: {run_id}",
@@ -833,9 +832,16 @@ def render_run_identity_section(
             f"- Player model: {player_model}",
             f"- Evidence eligibility: {'eligible' if eligible else 'ineligible'}",
             f"- Evidence reasons: {reason_text}",
-            "",
-        ]
-    )
+    ]
+    if isinstance(receipt.get("recorded_player_turns"), int):
+        lines.extend(
+            [
+                f"- Official evidence external model turns: {receipt.get('external_model_turns', 0)}",
+                f"- Verified recorded player turns: {receipt['recorded_player_turns']}",
+            ]
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def inject_report_schema_v2(report_text: str, section: str) -> str:
@@ -1070,6 +1076,37 @@ def _evidence_status(run_dir: Path) -> dict[str, Any]:
             "reasons": [f"evidence_validation_error:{type(exc).__name__}"],
             "receipt": {},
         }
+    if (
+        receipt.get("eligible_as_gameplay_evidence") is not True
+        and receipt.get("evidence_reasons") == ["evidence_receipt_missing"]
+    ):
+        metadata = _read_json(run_dir / "playtest.json", {})
+        if metadata.get("recorder_protocol") == "codex_host_manual_playtest_v2":
+            try:
+                recorder = _load_sibling(
+                    "coc_codex_host_playtest_eval_contract",
+                    "coc_codex_host_playtest.py",
+                )
+                recorder_receipt = recorder.verify_actual_play_source(run_dir)
+            except Exception:
+                recorder_receipt = {}
+            if (
+                recorder_receipt.get("protocol") == "codex_host_manual_playtest_v2"
+                and recorder_receipt.get("recorder_schema_version") == 2
+                and recorder_receipt.get("actual_play_occurred") is True
+                and recorder_receipt.get("eligible_as_gameplay_evidence") is False
+                and recorder_receipt.get("evidence_grade") == "NOT_ATTESTED"
+                and recorder_receipt.get("shared_fs_isolation") == "NOT_ATTESTED"
+            ):
+                receipt = {
+                    **receipt,
+                    "eligible_as_gameplay_evidence": False,
+                    "external_model_turns": 0,
+                    "recorded_player_turns": recorder_receipt.get(
+                        "recorded_player_turns", 0
+                    ),
+                    "evidence_reasons": recorder_receipt.get("evidence_reasons", []),
+                }
     reasons = receipt.get("evidence_reasons")
     return {
         "eligible": receipt.get("eligible_as_gameplay_evidence") is True,

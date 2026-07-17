@@ -1173,7 +1173,8 @@ def test_battle_report_renders_storylet_moves_as_readable_scene_beats(tmp_path):
     assert "空气里有一丝金属、海盐或冷灰的味道。" in scene_replay
     assert "档案员看见警卫后停顿了一瞬。" in scene_replay
     assert "场景推进。" in scene_replay
-    assert "其余 3 条事件收据已在对应章节呈现，此处不再重复。" in state_changes
+    assert "另有 3 条非状态事件收据未在本节展开" in state_changes
+    assert "已在对应章节呈现" not in state_changes
     assert "线索已记录：登记簿边缘的灰尘断痕。" not in state_changes
     assert "场景推进。" not in state_changes
     assert "线索：登记簿边缘的灰尘断痕。" in clues_found

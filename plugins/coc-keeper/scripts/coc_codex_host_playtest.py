@@ -152,6 +152,13 @@ REPORT_CONTEXT_INVESTIGATOR_FILES = (
     "development.jsonl",
     "inventory-history.jsonl",
 )
+CURRENT_CAMPAIGN_SNAPSHOT_SCHEMAS = {
+    "save/time-state.json": 1,
+    "save/active-scene.json": 1,
+    "save/world-state.json": 2,
+    "save/flags.json": 1,
+    "save/pacing-state.json": 1,
+}
 
 
 class RecorderError(ValueError):
@@ -1088,6 +1095,8 @@ def verify_actual_play_source(run_dir: Path | str) -> dict[str, Any]:
             findings.append("recorder_not_finalized")
         if not rows:
             findings.append("recorder_turns_missing")
+        if state["status"] == "finalized":
+            findings.extend(_report_snapshot_findings(destination, state))
         expected_transcript = _projections(state, rows)["transcript.jsonl"]
         transcript_path = destination / "transcript.jsonl"
         if (
@@ -1101,10 +1110,16 @@ def verify_actual_play_source(run_dir: Path | str) -> dict[str, Any]:
             "recorder_schema_version": SCHEMA_VERSION,
             "protocol": PROTOCOL,
             "run_id": state["run_id"],
+            "recorded_player_turns": len(rows),
             "actual_play_occurred": not findings,
             "evidence_grade": "NOT_ATTESTED",
             "eligible_as_gameplay_evidence": False,
             "shared_fs_isolation": "NOT_ATTESTED",
+            "evidence_reasons": [
+                "manual_orchestrator_attestation_only",
+                "shared_fs_isolation_not_attested",
+                "independent_review_not_recorded",
+            ],
             "findings": findings,
         }
     except RecorderError as exc:
@@ -1113,9 +1128,15 @@ def verify_actual_play_source(run_dir: Path | str) -> dict[str, Any]:
             "recorder_schema_version": SCHEMA_VERSION,
             "protocol": PROTOCOL,
             "actual_play_occurred": False,
+            "recorded_player_turns": 0,
             "evidence_grade": "NOT_ATTESTED",
             "eligible_as_gameplay_evidence": False,
             "shared_fs_isolation": "NOT_ATTESTED",
+            "evidence_reasons": [
+                "manual_orchestrator_attestation_only",
+                "shared_fs_isolation_not_attested",
+                "independent_review_not_recorded",
+            ],
             "findings": [exc.code],
         }
 
@@ -1146,6 +1167,180 @@ def _concatenated_slices(run_dir: Path, rows: list[dict[str, Any]], source_key: 
         path = run_dir / source_record["snapshot_path"]
         chunks.append(_read_stable_file(path, f"{source_key} turn slice"))
     return b"".join(chunks)
+
+
+def _current_json_snapshot(
+    path: Path,
+    *,
+    label: str,
+    schema_version: int,
+    campaign_id: str,
+    investigator_id: str | None = None,
+) -> bytes:
+    payload = _read_stable_file(path, label)
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RecorderError("report_context_malformed", f"{label} is malformed") from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != schema_version
+        or value.get("campaign_id") != campaign_id
+        or (
+            investigator_id is not None
+            and value.get("investigator_id") != investigator_id
+        )
+    ):
+        raise RecorderError(
+            "unsupported_report_context_schema",
+            f"{label} is not the exact current schema; delete the run and restart",
+        )
+    if label.endswith("save/time-state.json"):
+        clock = value.get("clock")
+        usable = (
+            isinstance(clock, dict)
+            and not isinstance(clock.get("elapsed_minutes"), bool)
+            and isinstance(clock.get("elapsed_minutes"), int)
+            and isinstance(clock.get("display"), str)
+            and isinstance(clock.get("local_datetime"), str)
+        )
+    elif label.endswith("save/active-scene.json"):
+        usable = isinstance(value.get("scenario_id"), str) and isinstance(
+            value.get("scene_id"), str
+        )
+    elif label.endswith("save/world-state.json"):
+        usable = isinstance(value.get("scenario_id"), str) and isinstance(
+            value.get("active_scene_id"), str
+        )
+    elif label.endswith("save/flags.json"):
+        usable = (
+            isinstance(value.get("clues_found"), dict)
+            and isinstance(value.get("decisions"), list)
+            and isinstance(value.get("flags"), dict)
+        )
+    elif label.endswith("save/pacing-state.json"):
+        usable = (
+            not isinstance(value.get("turn_number"), bool)
+            and isinstance(value.get("turn_number"), int)
+        )
+    elif investigator_id is not None:
+        usable = (
+            all(
+                not isinstance(value.get(key), bool)
+                and isinstance(value.get(key), int)
+                for key in ("current_hp", "current_san", "current_mp", "current_luck")
+            )
+            and isinstance(value.get("conditions"), list)
+            and isinstance(value.get("skill_checks_earned"), list)
+        )
+    else:
+        usable = True
+    if not usable:
+        raise RecorderError(
+            "unsupported_report_context_schema",
+            f"{label} is missing current-schema fields; delete the run and restart",
+        )
+    return payload
+
+
+def _current_time_log_snapshot(path: Path) -> bytes:
+    payload = _read_stable_file(path, "campaign time log")
+    try:
+        lines = payload.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise RecorderError("report_context_malformed", "campaign time log is not UTF-8") from exc
+    for number, raw in enumerate(lines, start=1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RecorderError(
+                "report_context_malformed", f"campaign time log line {number} is malformed"
+            ) from exc
+        current_time = row.get("current_time") if isinstance(row, dict) else None
+        if (
+            not isinstance(row, dict)
+            or row.get("event_type") != "time_advance"
+            or isinstance(row.get("seq"), bool)
+            or not isinstance(row.get("seq"), int)
+            or not isinstance(current_time, dict)
+            or not isinstance(current_time.get("elapsed_minutes"), int)
+            or not isinstance(current_time.get("display"), str)
+            or not isinstance(current_time.get("local_datetime"), str)
+            or not isinstance(current_time.get("day_phase"), str)
+        ):
+            raise RecorderError(
+                "unsupported_report_context_schema",
+                f"campaign time log line {number} is not the exact current schema; delete the run and restart",
+            )
+    return payload
+
+
+def _report_snapshot_findings(run_dir: Path, state: dict[str, Any]) -> list[str]:
+    campaign_id = state["campaign_id"]
+    investigator_id = state["investigator_id"]
+    campaign_prefix = Path("sandbox/.coc/campaigns") / campaign_id
+    required = {
+        str(campaign_prefix / "logs/time.jsonl"),
+        *(str(campaign_prefix / relative) for relative in CURRENT_CAMPAIGN_SNAPSHOT_SCHEMAS),
+        str(campaign_prefix / f"save/investigator-state/{investigator_id}.json"),
+    }
+    try:
+        manifest = _read_json(run_dir / "report-source-manifest.json", "report source manifest")
+    except RecorderError as exc:
+        return [exc.code]
+    if not isinstance(manifest, dict):
+        return ["report_source_manifest_mismatch"]
+    artifacts = manifest.get("artifacts")
+    expected_logs = {
+        "rolls": str(campaign_prefix / "logs/rolls.jsonl"),
+        "events": str(campaign_prefix / "logs/events.jsonl"),
+        "toolbox": str(campaign_prefix / "logs/toolbox-calls.jsonl"),
+        "time": str(campaign_prefix / "logs/time.jsonl"),
+    }
+    findings: list[str] = []
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("recorder_schema_version") != SCHEMA_VERSION
+        or manifest.get("protocol") != PROTOCOL
+        or manifest.get("authoritative_logs") != expected_logs
+        or not isinstance(artifacts, dict)
+    ):
+        return ["report_source_manifest_mismatch"]
+    for relative in sorted(required):
+        receipt = artifacts.get(relative)
+        path = run_dir / relative
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != {"sha256", "byte_length"}
+            or not path.is_file()
+            or path.is_symlink()
+            or _sha256_path(path) != receipt.get("sha256")
+            or path.stat().st_size != receipt.get("byte_length")
+        ):
+            findings.append(f"report_snapshot_mismatch:{relative}")
+    if findings:
+        return findings
+    try:
+        _current_time_log_snapshot(run_dir / campaign_prefix / "logs/time.jsonl")
+        for relative, schema_version in CURRENT_CAMPAIGN_SNAPSHOT_SCHEMAS.items():
+            _current_json_snapshot(
+                run_dir / campaign_prefix / relative,
+                label=f"exported campaign report context {relative}",
+                schema_version=schema_version,
+                campaign_id=campaign_id,
+            )
+        _current_json_snapshot(
+            run_dir / campaign_prefix / f"save/investigator-state/{investigator_id}.json",
+            label="exported investigator runtime state",
+            schema_version=1,
+            campaign_id=campaign_id,
+            investigator_id=investigator_id,
+        )
+    except RecorderError as exc:
+        findings.append(exc.code)
+    return findings
 
 
 def _assert_all_source_bytes_captured(state: dict[str, Any]) -> None:
@@ -1180,7 +1375,25 @@ def _report_source_projections(
         str(campaign_output / "logs/events.jsonl"): _concatenated_slices(
             run_dir, rows, "event_log"
         ),
+        str(campaign_output / "logs/time.jsonl"): _current_time_log_snapshot(
+            campaign_source / "logs/time.jsonl"
+        ),
     }
+    for relative, schema_version in CURRENT_CAMPAIGN_SNAPSHOT_SCHEMAS.items():
+        projections[str(campaign_output / relative)] = _current_json_snapshot(
+            campaign_source / relative,
+            label=f"campaign report context {relative}",
+            schema_version=schema_version,
+            campaign_id=campaign_id,
+        )
+    investigator_state_relative = f"save/investigator-state/{investigator_id}.json"
+    projections[str(campaign_output / investigator_state_relative)] = _current_json_snapshot(
+        campaign_source / investigator_state_relative,
+        label=f"campaign report context {investigator_state_relative}",
+        schema_version=1,
+        campaign_id=campaign_id,
+        investigator_id=investigator_id,
+    )
     for relative in REPORT_CONTEXT_CAMPAIGN_FILES:
         source = campaign_source / relative
         if not source.exists():
@@ -1250,6 +1463,7 @@ def _report_source_projections(
             "rolls": str(campaign_output / "logs/rolls.jsonl"),
             "events": str(campaign_output / "logs/events.jsonl"),
             "toolbox": str(campaign_output / "logs/toolbox-calls.jsonl"),
+            "time": str(campaign_output / "logs/time.jsonl"),
         },
         "artifacts": {
             name: {"sha256": _sha256_bytes(payload), "byte_length": len(payload)}
@@ -1373,6 +1587,8 @@ def verify_run(run_dir: Path | str) -> dict[str, Any]:
         state = _load_state(destination)
         rows = _read_jsonl(destination / SOURCE_NAME, "turn source")
         findings = _source_findings(destination, state, rows)
+        if state["status"] == "finalized":
+            findings.extend(_report_snapshot_findings(destination, state))
         if state["status"] == "finalized" and not findings:
             expected = _projections(state, rows)
             for name, payload in expected.items():
@@ -1409,6 +1625,13 @@ def verify_run(run_dir: Path | str) -> dict[str, Any]:
                         "artifacts/report-completeness.json",
                         f"sandbox/.coc/campaigns/{state['campaign_id']}/logs/rolls.jsonl",
                         f"sandbox/.coc/campaigns/{state['campaign_id']}/logs/events.jsonl",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/logs/time.jsonl",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/save/time-state.json",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/save/active-scene.json",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/save/world-state.json",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/save/flags.json",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/save/pacing-state.json",
+                        f"sandbox/.coc/campaigns/{state['campaign_id']}/save/investigator-state/{state['investigator_id']}.json",
                     }
                     if not required_artifacts.issubset(manifest["artifacts"]):
                         findings.append("artifact_manifest_required_entries_missing")
