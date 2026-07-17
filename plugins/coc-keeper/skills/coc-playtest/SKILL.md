@@ -115,11 +115,13 @@ Playtests write to `.coc/playtests/<run-id>/` and must not mutate real `.coc/cam
 
 A current playtest artifact is bound to its canonical resolved directory by a
 SHA-256 location witness in `run-identity.json`. Do not copy or move a current
-artifact and then continue it in place: start a new output directory and pass
-the completed source as `resume_run_dir` only when it matches the exact current
-schema. Version-mismatched or legacy artifacts are never resumed or migrated;
-delete their runtime state and start fresh. Historical battle reports may be
-retained read-only as evidence, but are not runtime resume sources.
+artifact and then continue it in place. A completed or published run is
+immutable evidence even when its schema matches the current version; never pass
+it back as runtime input. Start the next test in a new output directory with a
+fresh isolated workspace generation. Version-mismatched or legacy runtime
+artifacts are never resumed or migrated; delete their runtime state and start
+fresh. Historical battle reports may be retained for read-only `report`,
+`verify`, and comparison workflows, but are never runtime resume sources.
 
 ## Roles
 
@@ -321,8 +323,11 @@ For long-lived production-path white-box play (Masks Peru/America and similar),
 use `../../scripts/coc_interactive_playtest.py` rather than the Haunting
 simulated-player harness profiles below. The interactive driver speaks JSONL
 over stdin/stdout,
-calls only `runtime.sdk.api.send`, checkpoints every accepted turn, and resumes from
-validated checkpoints into a fresh workspace generation.
+calls only `runtime.sdk.api.send` and checkpoints every accepted turn. During
+one not-yet-published run, an exact-current checkpoint may be restored into a
+fresh workspace generation solely for same-run crash recovery. Once the run is
+completed or published, its checkpoints are historical read-only evidence and
+must not seed another run.
 
 ```bash
 uv run --frozen python ../../scripts/coc_interactive_playtest.py start \

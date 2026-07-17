@@ -929,3 +929,24 @@ def test_coc_playtest_skill_documents_manual_codex_host_recorder():
     ]
     for term in required_terms:
         assert term in skill_text
+
+
+def test_active_skills_require_fresh_state_instead_of_historical_resume():
+    playtest = (PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md").read_text()
+    main = (PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md").read_text()
+    playtest_compact = " ".join(playtest.split())
+    main_compact = " ".join(main.split())
+
+    assert "resume_run_dir" not in playtest
+    assert "Continue old campaigns" not in main
+    assert "completed or published run is" in playtest_compact
+    assert "immutable evidence even when its schema matches" in playtest_compact
+    assert (
+        "read-only `report`, `verify`, and comparison workflows"
+        in playtest_compact
+    )
+    assert "solely for same-run crash recovery" in playtest_compact
+    assert (
+        "Never resume or import a legacy or mismatched campaign save"
+        in main_compact
+    )

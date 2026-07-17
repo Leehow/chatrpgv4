@@ -57,7 +57,12 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    and `investigator.render_card` for player-facing artifacts. Pi calls these
    setup operations through
    `runtime.sdk.api.setup_workspace(...)`.
-   Never skip this prompt for a new empty campaign, and never wait for the user to ask. This is how new players discover they can play without owning a PDF. Continue old campaigns or campaigns that already have a bound scenario without prompting.
+   Never skip this prompt for a new empty campaign, and never wait for the user
+   to ask. This is how new players discover they can play without owning a PDF.
+   Skip the starter prompt only when the current exact-schema campaign
+   generation already has a bound scenario. Never resume or import a legacy or
+   mismatched campaign save; discard its runtime state and start a fresh
+   campaign generation.
 6. Bind or import a scenario with `coc-scenario-import` (for user-provided scenarios), extending `localized_terms` for the campaign language when names, places, handouts, scenario titles, or special terms need customary local rendering.
 7. Select, create, or link investigators with `coc-character`.
 8. Route ordinary play to `coc-keeper-play`.
