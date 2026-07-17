@@ -19,7 +19,7 @@ the OCR is clearly garbled the script still flags a mismatch so a human can
 review.
 
 Usage:
-    python3 scripts/verify_phobias_manias_ocr.py
+    uv run --frozen python scripts/verify_phobias_manias_ocr.py
 """
 from __future__ import annotations
 

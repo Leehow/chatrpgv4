@@ -10,11 +10,21 @@ import re
 import selectors
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_python_contract import require_python_contract
+
+
+require_python_contract()
 
 
 EVAL_SPEC = "eval-spec-v1"
@@ -24,6 +34,7 @@ VALID_KINDS = frozenset({"pytest_node", "python_command", "artifact_verification
 VALID_GATES = frozenset({"hard", "soft", "diagnostic"})
 VALID_SUITES = frozenset({"smoke", "pr", "nightly", "release", "diagnostic"})
 CASE_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+PYTHON_COMMAND_TOKEN = "{python}"
 
 
 def _utc_now() -> str:
@@ -97,6 +108,10 @@ def _command_repository_paths(command: list[str]) -> Iterable[str]:
 
 def _validate_command(root: Path, case: dict[str, Any]) -> None:
     command = _require_string_list(case.get("command"), field="command", nonempty=True)
+    if command[0] in {"python", "python3"}:
+        raise ValueError(
+            f"case command must use {PYTHON_COMMAND_TOKEN}: {case.get('case_id')}"
+        )
     for token in command:
         path_token = token.split("::", 1)[0]
         parsed = Path(path_token)
@@ -114,6 +129,14 @@ def _validate_command(root: Path, case: dict[str, Any]) -> None:
             raise ValueError(
                 f"case command path missing: {case.get('case_id')} -> {relative}"
             )
+
+
+def resolve_case_command(case: dict[str, Any]) -> list[str]:
+    """Resolve the versioned registry token without consulting process PATH."""
+    command = _require_string_list(case.get("command"), field="command", nonempty=True)
+    if command[0] == PYTHON_COMMAND_TOKEN:
+        return [sys.executable, *command[1:]]
+    return command
 
 
 def validate_case_registry(root: Path | str, payload: Any) -> dict[str, Any]:
@@ -394,6 +417,7 @@ def run_case(
     }
     missing = sorted(required - set(implemented_capabilities))
     started_at = _utc_now()
+    command = resolve_case_command(case)
     common: dict[str, Any] = {
         "schema_version": 1,
         "eval_spec": EVAL_SPEC,
@@ -401,7 +425,7 @@ def run_case(
         "kind": case.get("kind"),
         "gate": case.get("gate"),
         "started_at": started_at,
-        "command": list(case.get("command") or []),
+        "command": command,
         "evidence_requirements": list(case.get("evidence_requirements") or []),
     }
     if missing:
@@ -462,7 +486,7 @@ def run_case(
             stderr_temporary = Path(stderr_sink.name)
             try:
                 process = subprocess.Popen(
-                    list(case.get("command") or []),
+                    command,
                     cwd=repo,
                     env=process_env,
                     text=False,

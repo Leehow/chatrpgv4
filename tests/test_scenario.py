@@ -1,8 +1,7 @@
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
-
-from pypdf import PdfWriter
 
 
 def load_module(name: str, relative_path: str):
@@ -17,27 +16,35 @@ def load_module(name: str, relative_path: str):
 coc_scenario = load_module("coc_scenario", "plugins/coc-keeper/scripts/coc_scenario.py")
 
 
-def write_blank_pdf(path: Path, pages: int = 2):
-    writer = PdfWriter()
-    for _ in range(pages):
-        writer.add_blank_page(width=72, height=72)
-    with path.open("wb") as handle:
-        writer.write(handle)
+def test_catalog_source_bundles_reports_declared_page_counts(tmp_path):
+    root = tmp_path / "bundle"
+    root.mkdir()
+    pdf = tmp_path / "module.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    markdown = b"# page\n"
+    (root / "page.md").write_bytes(markdown)
+    (root / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:module", "title": "Module", "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(), "page_count": 3,
+        },
+        "pages": [{
+            "pdf_index": 2, "markdown_path": "page.md",
+            "text_sha256": hashlib.sha256(markdown).hexdigest(),
+            "review_state": "manual_accepted", "parse_confidence": 0.93,
+            "grep_anchors": [],
+        }],
+    }), encoding="utf-8")
 
-
-def test_catalog_pdfs_reports_page_counts(tmp_path):
-    pdf_dir = tmp_path / "pdf"
-    pdf_dir.mkdir()
-    write_blank_pdf(pdf_dir / "module.pdf", pages=3)
-
-    catalog = coc_scenario.catalog_pdfs(pdf_dir)
+    catalog = coc_scenario.catalog_source_bundles(tmp_path)
 
     assert len(catalog) == 1
     assert catalog[0]["source_id"] == "pdf:module"
-    assert catalog[0]["filename"] == "module.pdf"
-    assert catalog[0]["path"] == str(pdf_dir / "module.pdf")
     assert catalog[0]["page_count"] == 3
-    assert catalog[0]["title"] is None
+    assert catalog[0]["selected_pdf_indices"] == [2]
+    assert catalog[0]["title"] == "Module"
     assert len(catalog[0]["file_sha256"]) == 64
 
 

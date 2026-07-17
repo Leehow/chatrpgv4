@@ -1,5 +1,47 @@
 # Project Rules
 
+## Python Interpreter Contract
+
+The repository has exactly one authoritative interpreter and environment:
+CPython 3.14.6, declared by `.python-version` and the exact
+`project.requires-python` value in `pyproject.toml`. Dependencies are resolved
+only by the committed `uv.lock`.
+
+- Install and use exactly uv 0.11.16, then bootstrap or refresh the environment
+  with `uv sync --frozen --dev`.
+- Run every repository Python command as `uv run --frozen python ...` from the
+  repository root. From another working directory, add
+  `--project <repo-root>` before `--frozen`.
+- Python child processes must use `sys.executable`. Versioned JSON command
+  registries use `{python}`, which the owning runtime resolves to
+  `sys.executable`; never use PATH-selected `python` or `python3` there.
+- `#!/usr/bin/env python3` shebangs are portability metadata for executable
+  source files, not an authoritative launch path. Repository instructions,
+  automation, CI, and subprocesses must not invoke those files directly.
+- A Python or dependency upgrade is one atomic contract change: update
+  `.python-version`, `pyproject.toml`, `uv.lock`, CI, active docs, and contract
+  tests together. Do not broaden the exact version constraint.
+
+## PDF Source Bundle Contract
+
+The repository does not parse PDFs. Codex's `pdf` skill owns rendering, OCR,
+layout recognition, text extraction, and asset extraction. Repository code may
+only validate and deterministically reformat the resulting versioned source
+bundle through `plugins/coc-keeper/scripts/coc_pdf_bundle.py`.
+
+- A bundle uses `schema_version: 1`, `producer: codex-pdf-skill`, an original
+  PDF path/hash, and explicit zero-based `pdf_index` entries with Markdown
+  paths and hashes. Every page also carries host-declared accepted
+  `review_state`, `parse_confidence`, and `grep_anchors`; the repository must
+  pass that evidence through and never invent quality or acceptance. Never
+  guess printed-page offsets.
+- Binding persists a canonical `bundle_sha256`. Hydration must reject any
+  later source identity, page content, review-evidence, or asset drift.
+- Repository code may check the original PDF's existence, suffix, and SHA-256;
+  it must not open the PDF to read page count, metadata, layout, images, or text.
+- Other hosts must provide the same source-bundle contract. Do not add a local
+  parser, OCR fallback, or PDF parsing dependency.
+
 ## COC Plugin Single-Track Law
 
 This repository maintains one plugin track:
@@ -17,7 +59,7 @@ hosts should skip that capability rather than invent a second plugin tree.
 Before finishing plugin work, run at minimum:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
 ## Keeper Toolbox Architecture
@@ -27,8 +69,8 @@ host agent (Codex, Claude Code, Cursor, or Pi) reads the canonical skills and
 calls tools from the single registry:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_toolbox.py list
-python3 plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py list
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
 ```
 
 Exactly three hard rules are enforced inside tools; everything else is
@@ -52,7 +94,7 @@ Codex, ZCode, Cursor, CI, and local agents must use the same versioned evaluatio
 entry point for official COC Keeper validation:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
 ```
 
 Additional official commands on the same CLI: `report`, `verify`, `compare`,
@@ -69,8 +111,8 @@ commands and still call the result an official evaluation. `nightly` or
 For an existing playtest run, generate or verify its report contract with:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
 ```
 
 The exact status vocabulary is `PASS`, `FAIL`, `INELIGIBLE`, `NOT_RUN`, and

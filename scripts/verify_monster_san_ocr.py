@@ -4,7 +4,7 @@
 Extracts "Sanity Loss: X/Y" from OCR markdown (which preserves 2-column
 reading order) and compares to monsters.json san_loss field.
 
-Usage: python3 scripts/verify_monster_san_ocr.py
+Usage: uv run --frozen python scripts/verify_monster_san_ocr.py
 """
 from __future__ import annotations
 import json, re, sys

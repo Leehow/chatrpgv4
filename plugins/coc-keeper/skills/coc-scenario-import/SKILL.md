@@ -7,28 +7,30 @@ description: Import and index authored Call of Cthulhu scenarios for COC mode. U
 
 ## Import Model
 
-Use a hybrid import strategy:
+Use a two-stage import strategy:
 
-1. Preparse scenario structure into JSON skeletons.
-2. Record source PDF paths and page ranges in indexes.
-3. During play, look up detailed PDF material only when needed.
+1. Codex's `pdf` skill extracts selected pages and assets into a versioned host
+   source bundle. Other hosts must supply the same bundle contract.
+2. The repository validates/reformats the bundle and compiles scenario JSON.
+   It never parses or performs OCR on the original PDF.
 
 ## Scripts
 
 Use `../../scripts/coc_scenario.py` for:
 
-- PDF cataloging
-- page counts and metadata
+- host source-bundle cataloging
 - scenario skeleton files
 - `index/source-map.json`
 - `index/handout-assets.json` plus `assets/handouts/` for future PDF
   illustrations, maps, newspaper clippings, portraits, and player-safe
   handout images
 
-For a live campaign, bind a local PDF with the canonical
+For a live campaign, first use `trpg-pdf-ingest` to create and validate a
+Codex pdf-skill source bundle, then bind it with the canonical
 `scenario.bind_pdf` pre-session operation in `coc_runtime_ops.py --setup`.
-Supply explicit zero-based `pdf_index_start` / `pdf_index_end`; never guess a
-printed-page offset. The gateway creates the source skeleton, can run the same
+Supply `source_bundle_path`; each selected page already carries an explicit
+zero-based `pdf_index`, and printed-page offsets are never guessed. The gateway
+creates the source skeleton, can run the same
 cold compiler used by Pi, and generates the player-safe character creation
 briefing. Direct `coc_scenario.py` calls are reserved for
 isolated import diagnostics and library maintenance, not host-specific play
@@ -75,7 +77,8 @@ summary, and source page instead.
    `scripts/coc_module_registry.py lookup --identity '<json>'` 查
    `.coc/module-library/`：**命中则 `install` 到战役并 STOP**（不重解析 PDF）；
    未命中再全文编译。身份匹配只走结构化 id / 规范化 alias（title + rules_edition），禁止模糊标题扫描。
-1. 读模组 PDF（用 read/grep；中文模组直接读；巨章只抽本章页）。
+1. 用 Codex `pdf` skill 读取模组 PDF，产出逐页 Markdown/资源和 manifest；
+   仓库 formatter 校验后只读取该 bundle（巨章只抽本章页）。
 2. 判定 structure_type（参考 references/compile-protocol.md 的 7 种原型判定）。
 3. 按顺序产出 7 个 JSON 到 campaigns/<id>/scenario/（schema 见 references/story-graph-schema.md）：
    module-meta（含 `module_identity`）/ story-graph / clue-graph / npc-agendas / threat-fronts / pacing-map / improvisation-boundaries
@@ -112,13 +115,13 @@ sidecars through an artifact exchange. Deterministic code must not infer module
 meaning itself.
 
 ```bash
-python plugins/coc-keeper/scripts/coc_epistemic_compile.py request \
+uv run --frozen python plugins/coc-keeper/scripts/coc_epistemic_compile.py request \
   <campaign>/scenario --artifacts-dir <artifacts>
 
 # An LLM semantic evaluator reads epistemic-compile-request.json and writes
 # epistemic-compile-result.json with the exact request SHA-256.
 
-python plugins/coc-keeper/scripts/coc_epistemic_compile.py install \
+uv run --frozen python plugins/coc-keeper/scripts/coc_epistemic_compile.py install \
   <campaign>/scenario \
   <artifacts>/epistemic-compile-request.json \
   <artifacts>/epistemic-compile-result.json
@@ -143,8 +146,8 @@ compile-confidence.json
 For migration:
 
 ```bash
-python plugins/coc-keeper/scripts/coc_epistemic_compile.py scan <campaign-root>
-python plugins/coc-keeper/scripts/coc_epistemic_compile.py request-all \
+uv run --frozen python plugins/coc-keeper/scripts/coc_epistemic_compile.py scan <campaign-root>
+uv run --frozen python plugins/coc-keeper/scripts/coc_epistemic_compile.py request-all \
   <campaign-root> <artifact-root>
 ```
 

@@ -12,7 +12,7 @@ This script extracts each ``Name (NN%)`` entry, matches it to our skills.json
 key, and compares the base_chance integer.
 
 Usage:
-    python3 scripts/verify_skills_ocr.py
+    uv run --frozen python scripts/verify_skills_ocr.py
 Exit 0 = all matched skills agree; 1 = mismatches found.
 """
 from __future__ import annotations

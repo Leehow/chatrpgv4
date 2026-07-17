@@ -121,24 +121,12 @@ def test_content_inventory_covers_all_declared_python_dependencies():
     test_row = _inventory_row(inventory, "Python test dependency")
     assert all(term in test_row for term in ("`pytest`", ".github/workflows/tests.yml"))
 
-    runtime_row = _inventory_row(inventory, "Python runtime PDF dependency")
-    assert all(
-        term in runtime_row
-        for term in ("`pypdf`", "plugins/coc-keeper/scripts/coc_scenario.py", "UNVERIFIED")
-    )
-
-    parser_row = _inventory_row(inventory, "PDF-ingest parser dependency")
-    assert all(
-        term in parser_row
-        for term in ("`pymupdf4llm`", "PyMuPDF", "`fitz`", "pdf_cache.py", "probe_pdf.py", "UNVERIFIED")
-    )
-
-    overlay_row = _inventory_row(inventory, "Optional PDF-ingest overlay dependency")
-    assert all(
-        term in overlay_row
-        for term in ("`pdfplumber`", "render_overlay.py", "score_parse_quality.py", "UNVERIFIED")
-    )
-    assert "PyPI packages `pytest` and `pypdf`" not in inventory
+    for removed in (
+        "Python runtime PDF dependency",
+        "PDF-ingest parser dependency",
+        "Optional PDF-ingest overlay dependency",
+    ):
+        assert removed not in inventory
 
 
 def test_extreme_cold_reveal_resolution_is_consistent_across_status_sources():

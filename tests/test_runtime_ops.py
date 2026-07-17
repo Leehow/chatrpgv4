@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 import random
@@ -10,7 +11,6 @@ import time
 from pathlib import Path
 
 import pytest
-from pypdf import PdfWriter
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -2145,10 +2145,30 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     assert (tmp_path / card["result"]["markdown_path"]).is_file()
 
     pdf = tmp_path / "module.pdf"
-    writer = PdfWriter()
-    writer.add_blank_page(width=200, height=200)
-    with pdf.open("wb") as handle:
-        writer.write(handle)
+    pdf.write_bytes(b"%PDF host-owned fixture")
+    source_bundle = tmp_path / "module-source"
+    source_bundle.mkdir()
+    markdown = b"# Custom Module\n\nKeeper-only extracted source.\n"
+    (source_bundle / "page-0000.md").write_bytes(markdown)
+    (source_bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:custom-module",
+            "title": "Custom Module",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 1,
+        },
+        "pages": [{
+            "pdf_index": 0,
+            "markdown_path": "page-0000.md",
+            "text_sha256": hashlib.sha256(markdown).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93,
+            "grep_anchors": ["Keeper-only extracted source."],
+        }],
+    }), encoding="utf-8")
     bound = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "scenario.bind_pdf",
@@ -2156,9 +2176,7 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
             "campaign_id": "custom",
             "scenario_id": "custom-module",
             "title": "Custom Module",
-            "pdf_path": str(pdf),
-            "pdf_index_start": 0,
-            "pdf_index_end": 0,
+            "source_bundle_path": str(source_bundle),
             "compile_now": False,
         },
     })
@@ -2168,6 +2186,8 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
         .read_text(encoding="utf-8")
     )
     assert scenario["resolution_policy"] == "source_first"
+    assert len(scenario["source"]["bundle_sha256"]) == 64
+    assert scenario["source"]["source_bundle_path"] == str(source_bundle)
     metadata = json.loads(
         (tmp_path / ".coc" / "campaigns" / "custom" / "campaign.json")
         .read_text(encoding="utf-8")

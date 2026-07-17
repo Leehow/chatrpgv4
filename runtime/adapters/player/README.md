@@ -45,7 +45,7 @@ cd runtime/adapters/player && npm install
 # 2) Ensure Pi auth is configured (same as KP pi adapter)
 
 # 3) Run a match — --live records only the user's live-play claim
-python3 plugins/coc-keeper/scripts/coc_live_match.py \
+uv run --frozen python plugins/coc-keeper/scripts/coc_live_match.py \
   --workspace /path/to/workspace \
   --campaign <campaign_id> \
   --investigator inv1 \

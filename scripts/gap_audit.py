@@ -10,7 +10,7 @@ Exit code 0 = no gaps; non-zero = gaps remain (used by the loop to know
 whether to keep iterating).
 
 Run:
-    python3 scripts/gap_audit.py [--plugin-root plugins/coc-keeper]
+    uv run --frozen python scripts/gap_audit.py [--plugin-root plugins/coc-keeper]
 """
 from __future__ import annotations
 

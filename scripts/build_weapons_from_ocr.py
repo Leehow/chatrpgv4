@@ -7,8 +7,8 @@ new weapons are added with snake_case keys derived from their display
 name. Field mapping converts OCR columns to our schema.
 
 Usage:
-    python3 scripts/build_weapons_from_ocr.py    # dry-run, prints stats
-    python3 scripts/build_weapons_from_ocr.py --apply  # writes both plugins
+    uv run --frozen python scripts/build_weapons_from_ocr.py    # dry-run, prints stats
+    uv run --frozen python scripts/build_weapons_from_ocr.py --apply  # writes both plugins
 """
 from __future__ import annotations
 

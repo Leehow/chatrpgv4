@@ -53,6 +53,7 @@ coc_investigator_guard = _load_sibling(
 coc_hazards = _load_sibling("coc_hazards_runtime_ops", "coc_hazards.py")
 coc_magic = _load_sibling("coc_magic_runtime_ops", "coc_magic.py")
 coc_mythos = _load_sibling("coc_mythos_runtime_ops", "coc_mythos.py")
+coc_pdf_bundle = _load_sibling("coc_pdf_bundle_runtime_ops", "coc_pdf_bundle.py")
 coc_roll = _load_sibling("coc_roll_runtime_ops", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules_runtime_ops", "coc_rules.py")
 coc_sanity = _load_sibling("coc_sanity_runtime_ops", "coc_sanity.py")
@@ -3572,42 +3573,29 @@ def execute_setup_operation(
             ],
         }
 
-    allowed = {
-        "campaign_id", "scenario_id", "title", "pdf_path",
-        "pdf_index_start", "pdf_index_end", "source_id", "compile_now",
-    }
-    required = {
-        "campaign_id", "scenario_id", "title", "pdf_path",
-        "pdf_index_start", "pdf_index_end",
-    }
+    allowed = {"campaign_id", "scenario_id", "title", "source_bundle_path", "compile_now"}
+    required = {"campaign_id", "scenario_id", "title", "source_bundle_path"}
     if set(payload) - allowed or not required <= set(payload):
         raise RuntimeOperationError("scenario.bind_pdf has unsupported or missing fields")
     campaign_id = _id(payload.get("campaign_id"), "campaign_id")
     scenario_id = _id(payload.get("scenario_id"), "scenario_id")
     title = payload.get("title")
-    pdf_path = Path(str(payload.get("pdf_path") or "")).expanduser().resolve()
-    start = payload.get("pdf_index_start")
-    end = payload.get("pdf_index_end")
     if not isinstance(title, str) or not title.strip():
         raise RuntimeOperationError("scenario.bind_pdf title must be non-empty")
-    if not pdf_path.is_file() or pdf_path.suffix.lower() != ".pdf":
-        raise RuntimeOperationError("scenario.bind_pdf requires a readable PDF")
-    if (
-        isinstance(start, bool) or not isinstance(start, int) or start < 0
-        or isinstance(end, bool) or not isinstance(end, int) or end < start
-    ):
-        raise RuntimeOperationError("scenario.bind_pdf requires an exact PDF index range")
+    source_bundle_path = Path(str(payload.get("source_bundle_path") or "")).expanduser().resolve()
+    try:
+        host_bundle = coc_pdf_bundle.load_host_bundle(source_bundle_path)
+    except coc_pdf_bundle.PdfSourceBundleError as exc:
+        raise RuntimeOperationError(
+            f"scenario.bind_pdf requires a valid Codex pdf-skill source bundle: {exc}"
+        ) from exc
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     if not campaign_dir.is_dir():
         raise FileNotFoundError(f"unknown campaign: {campaign_id}")
     source = {
-        "path": str(pdf_path),
-        "pdf_index_start": start,
-        "pdf_index_end": end,
-        "title": title.strip(),
+        **host_bundle["source"],
+        "source_bundle_path": str(source_bundle_path),
     }
-    if payload.get("source_id") is not None:
-        source["source_id"] = _id(payload["source_id"], "source_id")
     coc_scenario.create_scenario_skeleton(
         campaign_dir, scenario_id, title.strip(), source
     )

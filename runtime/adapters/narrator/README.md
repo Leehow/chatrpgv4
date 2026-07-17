@@ -74,7 +74,7 @@ categories and a count; it is not classified as a provider failure.
 ```bash
 cd runtime/adapters/narrator && npm install
 
-python3 plugins/coc-keeper/scripts/coc_live_match.py \
+uv run --frozen python plugins/coc-keeper/scripts/coc_live_match.py \
   --workspace /path/to/workspace \
   --campaign <campaign_id> \
   --investigator inv1 \

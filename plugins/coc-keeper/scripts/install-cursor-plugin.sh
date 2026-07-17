@@ -25,7 +25,7 @@ rsync -a --delete \
 
 # Cursor resolves relative logo paths to raw.githubusercontent.com. For a local
 # install that is not published yet, rewrite to a file:// URL so the icon shows.
-python3 - "$DEST" <<'PY'
+uv run --project "$ROOT" --frozen python - "$DEST" <<'PY'
 import json, sys
 from pathlib import Path
 dest = Path(sys.argv[1])

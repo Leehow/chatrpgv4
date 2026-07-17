@@ -8,7 +8,7 @@ RNG seeding, session aggregation, and battle-report packaging. It does NOT call
 an LLM for narration and must not reimplement pipeline stages.
 
 Usage:
-    python3 coc_playtest_driver.py <campaign_dir> <character_path> <investigator_id> --choices <choices.json>
+    uv run --frozen python coc_playtest_driver.py <campaign_dir> <character_path> <investigator_id> --choices <choices.json>
 """
 from __future__ import annotations
 

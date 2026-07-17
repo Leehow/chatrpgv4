@@ -5,7 +5,7 @@ Resolution order is explicit and evidence-bearing:
 
 1. validated campaign IR (warm hit);
 2. exact compiled module-library or built-in starter hit;
-3. Keeper-only PDF extraction + semantic compiler + validation + persistence.
+3. validated host-produced source bundle + semantic compiler + persistence.
 
 Raw source pages never cross the player or narrator boundary. Compiler output is
 staged and rejected unless the canonical validators accept it.
@@ -23,8 +23,6 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-
-from pypdf import PdfReader
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[2]
@@ -51,6 +49,7 @@ def _load_path(name: str, path: Path):
 
 
 coc_fileio = _load_sibling("coc_fileio_scenario_hydration", "coc_fileio.py")
+coc_pdf_bundle = _load_sibling("coc_pdf_bundle_scenario_hydration", "coc_pdf_bundle.py")
 coc_pdf_source = _load_sibling("coc_pdf_source_scenario_hydration", "coc_pdf_source.py")
 coc_scenario_compile = _load_sibling(
     "coc_scenario_compile_scenario_hydration", "coc_scenario_compile.py"
@@ -403,76 +402,40 @@ def _try_compiled_cache(campaign_dir: Path, seed: dict[str, Any]) -> dict[str, A
     }
 
 
-def _source_page_bounds(source: dict[str, Any], page_count: int) -> tuple[int, int]:
-    if isinstance(source.get("pdf_indices"), list) and source["pdf_indices"]:
-        indices = source["pdf_indices"]
-        if not all(isinstance(value, int) for value in indices):
-            raise ScenarioHydrationError("source.pdf_indices must contain integers")
-        start, end = min(indices), max(indices)
-        if sorted(set(indices)) != list(range(start, end + 1)):
-            raise ScenarioHydrationError("source.pdf_indices must be one contiguous range")
-    elif isinstance(source.get("pdf_index_start"), int):
-        start = source["pdf_index_start"]
-        end = source.get("pdf_index_end", start)
-    elif source.get("page_kind") == "pdf_index" and isinstance(source.get("page_start"), int):
-        start = source["page_start"]
-        end = source.get("page_end", start)
-    else:
-        raise ScenarioHydrationError(
-            "source requires explicit zero-based pdf_index_start/pdf_index_end; "
-            "printed-page offsets are never guessed"
-        )
-    if not isinstance(end, int) or start < 0 or end < start or end >= page_count:
-        raise ScenarioHydrationError(
-            f"source PDF range {start}..{end} is outside 0..{page_count - 1}"
-        )
-    if end - start + 1 > MAX_SOURCE_PAGES:
-        raise ScenarioHydrationError(
-            f"source range exceeds {MAX_SOURCE_PAGES}-page compiler boundary"
-        )
-    return start, end
-
-
 def _extract_source(seed: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     source = dict(seed.get("source") or {})
-    path_text = str(source.get("path") or "").strip()
-    if not path_text:
-        raise ScenarioHydrationError("no compiled cache and no source.path configured")
-    path = Path(path_text).expanduser().resolve()
-    if not path.is_file() or path.suffix.lower() != ".pdf":
-        raise ScenarioHydrationError(f"module source is not a readable PDF: {path}")
-    actual_hash = coc_pdf_source.sha256_file(path)
-    declared_hash = str(source.get("file_sha256") or "").strip()
-    if declared_hash and declared_hash != actual_hash:
-        raise ScenarioHydrationError("module PDF hash differs from configured source hash")
-    reader = PdfReader(str(path))
-    start, end = _source_page_bounds(source, len(reader.pages))
-    pages: list[dict[str, Any]] = []
-    total = 0
-    for index in range(start, end + 1):
-        text = (reader.pages[index].extract_text() or "").strip()
-        if not text:
-            raise ScenarioHydrationError(f"PDF page index {index} has no extractable text")
-        total += len(text)
-        if total > MAX_SOURCE_CHARACTERS:
+    bundle_path = str(source.get("source_bundle_path") or "").strip()
+    if not bundle_path:
+        raise ScenarioHydrationError(
+            "cold compilation requires a host source bundle; use the Codex pdf skill "
+            "to create manifest.json and page Markdown before binding the scenario"
+        )
+    try:
+        bundle = coc_pdf_bundle.load_host_bundle(bundle_path)
+    except coc_pdf_bundle.PdfSourceBundleError as exc:
+        raise ScenarioHydrationError(f"invalid host source bundle: {exc}") from exc
+    expected_digest = str(source.get("bundle_sha256") or "").strip()
+    if not expected_digest:
+        raise ScenarioHydrationError(
+            "bound scenario source is missing bundle_sha256; bind the validated "
+            "host source bundle again"
+        )
+    if expected_digest != bundle["bundle_sha256"]:
+        raise ScenarioHydrationError(
+            "host source bundle differs from the content bound to this scenario"
+        )
+    current_source = bundle["source"]
+    for key in ("source_id", "file_sha256", "page_count", "producer"):
+        if source.get(key) != current_source.get(key):
             raise ScenarioHydrationError(
-                f"source extraction exceeds {MAX_SOURCE_CHARACTERS} characters"
+                f"host source bundle {key} differs from the bound source identity"
             )
-        pages.append({
-            "pdf_index": index,
-            "text": text,
-            "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        })
-    normalized = {
-        "source_id": str(source.get("source_id") or coc_pdf_source.default_source_id(path)),
-        "path": str(path),
-        "title": str(source.get("title") or path.stem),
-        "file_sha256": actual_hash,
-        "page_count": len(reader.pages),
-        "pdf_index_start": start,
-        "pdf_index_end": end,
+    compiler_source = {
+        key: value
+        for key, value in current_source.items()
+        if key != "source_bundle_path"
     }
-    return normalized, pages
+    return compiler_source, bundle["pages"]
 
 
 def _compile_request(
@@ -912,17 +875,32 @@ def _persist_source_bundle(
     pages: list[dict[str, Any]],
 ) -> None:
     source_id = source["source_id"]
+    review_states = [page["review_state"] for page in pages]
+    range_review_state = (
+        "manual_accepted"
+        if all(state == "manual_accepted" for state in review_states)
+        else "auto_accepted"
+    )
+    range_confidence = min(page["parse_confidence"] for page in pages)
     page_map = {
         "schema_version": 1,
         "scenario_id": seed["scenario_id"],
         "sources": [{
-            **{key: value for key, value in source.items() if key != "path"},
+            **{
+                key: value
+                for key, value in source.items()
+                if key not in {"path", "source_bundle_path"}
+            },
             # Local PDFs may live outside the campaign root. Persist the bound
             # hash and locators, but not an unsafe path that later validators
             # could resolve relative to a different workspace.
             "path": "",
             "pages": [
-                {"pdf_index": page["pdf_index"]}
+                {
+                    key: page[key]
+                    for key in ("pdf_index", "printed_page", "printed_label")
+                    if key in page
+                }
                 for page in pages
             ],
         }],
@@ -934,10 +912,16 @@ def _persist_source_bundle(
         "ranges": [{
             "source_id": source_id,
             "pdf_indices": [page["pdf_index"] for page in pages],
-            "extractor": "pypdf",
-            "review_state": "auto_accepted",
-            "quality": {"overall": 1.0, "review_state": "auto_accepted"},
+            "extractor": "codex-pdf-skill",
+            "review_state": range_review_state,
+            "quality": {
+                "overall": range_confidence,
+                "review_state": range_review_state,
+            },
             "file_sha256": source["file_sha256"],
+            "text_sha256": hashlib.sha256(
+                "".join(page["text_sha256"] for page in pages).encode("ascii")
+            ).hexdigest(),
         }],
     }
     segments = [{
@@ -946,9 +930,10 @@ def _persist_source_bundle(
         "locator": {"pdf_index": page["pdf_index"]},
         "text": page["text"],
         "text_sha256": hashlib.sha256(page["text"].encode("utf-8")).hexdigest(),
-        "parse_confidence": 1.0,
-        "review_state": "auto_accepted",
-        "grep_anchors": [],
+        "producer_text_sha256": page.get("producer_text_sha256"),
+        "parse_confidence": page["parse_confidence"],
+        "review_state": page["review_state"],
+        "grep_anchors": list(page["grep_anchors"]),
     } for page in pages]
     coc_pdf_source.write_source_bundle(campaign_dir, page_map, parse_manifest, segments)
 

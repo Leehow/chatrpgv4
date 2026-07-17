@@ -6,13 +6,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from pypdf import PdfReader
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
+import coc_pdf_bundle
 import coc_pdf_source
 
 
@@ -53,22 +52,23 @@ def load_handout_assets(campaign_dir: Path) -> dict[str, dict[str, Any]]:
     return result
 
 
-def catalog_pdfs(pdf_dir: Path) -> list[dict[str, Any]]:
-    if not pdf_dir.exists():
+def catalog_source_bundles(bundle_dir: Path) -> list[dict[str, Any]]:
+    """Catalog host-produced bundles without opening their source PDFs."""
+    if not bundle_dir.exists():
         return []
 
     catalog: list[dict[str, Any]] = []
-    for path in sorted(pdf_dir.rglob("*.pdf")):
-        reader = PdfReader(str(path))
-        metadata = reader.metadata or {}
+    for path in sorted(bundle_dir.rglob(coc_pdf_bundle.MANIFEST_NAME)):
+        bundle = coc_pdf_bundle.load_host_bundle(path.parent)
+        source = bundle["source"]
         catalog.append(
             {
-                "source_id": coc_pdf_source.default_source_id(path),
-                "filename": path.name,
-                "path": str(path),
-                "page_count": len(reader.pages),
-                "title": metadata.get("/Title"),
-                "file_sha256": coc_pdf_source.sha256_file(path),
+                "source_id": source["source_id"],
+                "bundle_path": str(path.parent.resolve()),
+                "page_count": source["page_count"],
+                "selected_pdf_indices": [page["pdf_index"] for page in bundle["pages"]],
+                "title": source["title"],
+                "file_sha256": source["file_sha256"],
             }
         )
     return catalog

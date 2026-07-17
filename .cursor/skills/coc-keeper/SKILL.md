@@ -54,14 +54,14 @@ section). Invoke the shared CLI only — do not create a parallel `coc-eval`
 skill under `.cursor/skills/` or `plugins/coc-keeper/skills/`:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
-python3 plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
-python3 plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
-python3 plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
-python3 plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
-python3 plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root .
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
 ```
 
 Do not replace a named suite with Cursor-specific commands. Status vocabulary

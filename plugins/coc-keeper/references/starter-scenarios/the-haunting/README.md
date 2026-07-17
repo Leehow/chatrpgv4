@@ -15,7 +15,7 @@ referenced from `../../rules-json/monsters.json`.
 ### One-line quick start (N7)
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_starter.py quick-start \
+uv run --frozen python plugins/coc-keeper/scripts/coc_starter.py quick-start \
   --scenario the-haunting --pregen thomas-hayes
 # or: --pregen eleanor-reed
 ```
@@ -35,7 +35,7 @@ Pregens:
 ### Install only (create your own investigator)
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_starter.py install \
+uv run --frozen python plugins/coc-keeper/scripts/coc_starter.py install \
   --campaign <campaign-id> --scenario the-haunting
 ```
 

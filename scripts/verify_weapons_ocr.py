@@ -20,7 +20,7 @@ so the close-range / point- damage die is compared against our damage_die,
 and the remainder is expected to live in our `special` field.
 
 Usage:
-    python3 scripts/verify_weapons_ocr.py
+    uv run --frozen python scripts/verify_weapons_ocr.py
 Exit 0 = all matched fields agree; 1 = mismatches found.
 """
 from __future__ import annotations

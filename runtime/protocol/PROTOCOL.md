@@ -84,7 +84,10 @@ Pre-session kinds are `onboarding.inspect`, `rules.inspect`, `campaign.create`,
 `investigator.create`, `investigator.render_card`, and
 `campaign.link_investigator`. They are implemented by the same plugin gateway,
 not by host-specific onboarding code. `scenario.bind_pdf` also generates the
-player-safe character-creation briefing. Character cards default to Markdown
+player-safe character-creation briefing. It requires a validated
+`source_bundle_path` produced by Codex's `pdf` skill (or an equivalent host
+producer satisfying the same manifest); runtime code never parses the PDF.
+Character cards default to Markdown
 only so host capability detection cannot change the canonical result; callers
 may explicitly request `html_mode: auto|always`.
 

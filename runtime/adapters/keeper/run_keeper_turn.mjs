@@ -91,6 +91,8 @@ export function resolveRequestedModel({ agentDir, provider, modelId }) {
 }
 
 function keeperSystemPrompt(request) {
+  const projectRoot = path.resolve(path.dirname(request.toolbox_path), "../../..");
+  const pythonCommand = `uv run --project ${JSON.stringify(projectRoot)} --frozen python`;
   const continuationPolicy = request.run_policy === "continue_until_scenario_terminal"
     ? [
         "This is a continuous operator long-play run. Do not create an optional",
@@ -108,14 +110,14 @@ function keeperSystemPrompt(request) {
     "",
     "Canonical behavior contract: the coc-keeper-play skill (already loaded).",
     "Your toolbox is the CLI at:",
-    `  python3 ${request.toolbox_path} <tool> --root . --campaign ${request.campaign_id} --json '<args>'`,
+    `  ${pythonCommand} ${request.toolbox_path} <tool> --root . --campaign ${request.campaign_id} --json '<args>'`,
     ...(request.run_id
       ? [
           `The current play/report segment run_id is ${request.run_id}.`,
           "The host exports it to toolbox subprocesses; preserve it when a tool exposes run_id.",
         ]
       : []),
-    `Run \`python3 ${request.toolbox_path} list\` to see all tools;`,
+    `Run \`${pythonCommand} ${request.toolbox_path} list\` to see all tools;`,
     "`describe <tool>` shows parameters.",
     "",
     "Three hard rules (everything else is your judgment):",

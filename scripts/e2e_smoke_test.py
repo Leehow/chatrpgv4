@@ -7,7 +7,7 @@ trigger recovery → MP spend/regen → healing → bout resolution →
 combat malfunction → mythos gain.
 
 Usage:
-    python3 scripts/e2e_smoke_test.py
+    uv run --frozen python scripts/e2e_smoke_test.py
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # COC Keeper Current Status
 
-**Last updated:** 2026-07-13
+**Last updated:** 2026-07-17
 **Current manifest version:** `0.16.0-alpha.1`
 **Release tag:** none for this manifest version
 
@@ -21,9 +21,14 @@
   review; see `CONTENT_LICENSES.md`.
 - Local rulebook extraction outputs under `checks/ocr-cached/` and
   `checks/py4llm-cached/` are ignored and are not tracked in current HEAD.
+- PDF extraction is host-owned: Codex uses its `pdf` skill to produce a
+  versioned source bundle; the repository only validates hashes/locators and
+  deterministically reformats Markdown through `coc_pdf_bundle.py`. No PDF
+  parser or OCR package is a project dependency.
 - CI has independently diagnosable `python`, `plugin-metadata`,
-  `evaluation-contract`, `node-adapters`, and `product-smoke` jobs. The Python
-  matrix covers 3.11, 3.12, and 3.13 and installs both `pytest` and `pypdf`.
+  `evaluation-contract`, `node-adapters`, and `product-smoke` jobs. Every job
+  uses the exact CPython 3.14.6 pin and frozen `uv.lock`; there is no version
+  matrix or job-local dependency installation path.
 - Evaluation contract on `design/eval-contract-v1` is executable through
   `coc_eval.py`: completion audit and suite aggregation consume
   `evaluation/spec/v1` case/persona/seed requirements; holdout examples are
@@ -127,12 +132,12 @@ five-minute cold-exposure trigger pending.
 ## Verification entry points
 
 ```bash
-export PATH="/tmp/coc-eval-venv/bin:$PATH"   # local lab: Python 3.11
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_release_consistency.py tests/test_plugin_metadata.py tests/test_starter_scenarios.py tests/test_runtime_sdk_debug.py -q -p no:cacheprovider
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_product_smoke.py -q -p no:cacheprovider
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests -q -p no:cacheprovider
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
+uv sync --frozen --dev                       # uv 0.11.16 + exact CPython 3.14.6 + uv.lock
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_release_consistency.py tests/test_plugin_metadata.py tests/test_starter_scenarios.py tests/test_runtime_sdk_debug.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_product_smoke.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests -q -p no:cacheprovider
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
 git ls-files 'checks/ocr-cached/**' 'checks/py4llm-cached/**'
 ```
 

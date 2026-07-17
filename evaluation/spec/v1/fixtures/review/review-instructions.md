@@ -11,13 +11,13 @@ After completing blinded reviews with the template below, validate and score
 agreement only through the canonical CLI:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json> --root .
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json> --root .
 ```
 
 Release aggregation consumes the same reviews file via:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite release --root . \
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite release --root . \
   --chapter-run <run-dir> \
   --holdout-bundle <bundle-dir> \
   --calibration-reviews <reviews.json>

@@ -12,10 +12,6 @@ def _load(name, rel):
     return module
 
 
-pdf_cache = _load(
-    "pdf_cache_source_v2",
-    "plugins/coc-keeper/skills/trpg-pdf-ingest/scripts/pdf_cache.py",
-)
 coc_pdf_source = _load(
     "coc_pdf_source_tests",
     "plugins/coc-keeper/scripts/coc_pdf_source.py",
@@ -32,79 +28,6 @@ coc_source_resolution = _load(
     "coc_source_resolution_tests",
     "plugins/coc-keeper/scripts/coc_source_resolution.py",
 )
-
-
-def test_pdf_cache_meta_v2_records_file_text_and_pipeline_hashes(tmp_path, monkeypatch):
-    pdf = tmp_path / "book.pdf"
-    pdf.write_bytes(b"first-pdf")
-    monkeypatch.setattr(pdf_cache, "_parse_with_pymupdf4llm", lambda *a, **k: "# text")
-
-    result = pdf_cache.extract_markdown(
-        pdf, [0], use_ocr=False, cache_root=tmp_path / "cache"
-    )
-
-    meta = json.loads(Path(result["cache_path"]).with_suffix(".meta.json").read_text())
-    assert meta["schema_version"] == 2
-    assert len(meta["file_sha256"]) == 64
-    assert len(meta["text_sha256"]) == 64
-    assert meta["pipeline_version"] == 2
-    assert result["meta"]["text_sha256"] == meta["text_sha256"]
-
-
-def test_changed_pdf_hash_forces_reparse(tmp_path, monkeypatch):
-    pdf = tmp_path / "book.pdf"
-    pdf.write_bytes(b"first")
-    calls = {"n": 0}
-
-    def fake_parse(*args, **kwargs):
-        calls["n"] += 1
-        return f"parse-{calls['n']}"
-
-    monkeypatch.setattr(pdf_cache, "_parse_with_pymupdf4llm", fake_parse)
-    pdf_cache.extract_markdown(pdf, [0], use_ocr=False, cache_root=tmp_path / "cache")
-    pdf.write_bytes(b"second")
-
-    result = pdf_cache.extract_markdown(
-        pdf, [0], use_ocr=False, cache_root=tmp_path / "cache"
-    )
-
-    assert result["cached"] is False
-    assert result["markdown"] == "parse-2"
-    assert calls["n"] == 2
-
-
-def test_pipeline_version_change_forces_reparse(tmp_path, monkeypatch):
-    pdf = tmp_path / "book.pdf"
-    pdf.write_bytes(b"stable")
-    calls = {"n": 0}
-
-    def fake_parse(*args, **kwargs):
-        calls["n"] += 1
-        return f"parse-{calls['n']}"
-
-    monkeypatch.setattr(pdf_cache, "_parse_with_pymupdf4llm", fake_parse)
-    pdf_cache.extract_markdown(
-        pdf, [0], use_ocr=False, cache_root=tmp_path / "cache", pipeline_version=2
-    )
-    result = pdf_cache.extract_markdown(
-        pdf, [0], use_ocr=False, cache_root=tmp_path / "cache", pipeline_version=3
-    )
-
-    assert result["cached"] is False
-    assert calls["n"] == 2
-
-
-def test_missing_synthetic_pdf_keeps_legacy_cache_hit(tmp_path):
-    path = pdf_cache.cache_path("pdf/missing.pdf", [1], cache_root=tmp_path)
-    path.parent.mkdir(parents=True)
-    path.write_text("legacy cached text")
-
-    result = pdf_cache.extract_markdown(
-        "pdf/missing.pdf", [1], cache_root=tmp_path
-    )
-
-    assert result["cached"] is True
-    assert result["markdown"] == "legacy cached text"
 
 
 def test_initialize_source_indexes_writes_three_files(tmp_path):

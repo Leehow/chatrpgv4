@@ -29,7 +29,7 @@ Caveat (OCR gaps):
 Does NOT modify any JSON data.
 
 Usage:
-    python3 scripts/verify_occupations_ocr.py
+    uv run --frozen python scripts/verify_occupations_ocr.py
 """
 from __future__ import annotations
 

@@ -22,7 +22,7 @@ We compare EVERY entry (10 + 10 = 20) on:
 Does NOT modify any JSON data.
 
 Usage:
-    python3 scripts/verify_bout_tables_ocr.py
+    uv run --frozen python scripts/verify_bout_tables_ocr.py
 """
 from __future__ import annotations
 

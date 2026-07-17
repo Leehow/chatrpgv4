@@ -12,8 +12,8 @@ When your read of the table is clear, act on it directly. When you are unsure
 what the story needs, consult the deterministic advisors:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_toolbox.py director.advise --root . --campaign <id>
-python3 plugins/coc-keeper/scripts/coc_toolbox.py storylets.suggest --root . --campaign <id> --json '{"max":5}'
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py director.advise --root . --campaign <id>
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py storylets.suggest --root . --campaign <id> --json '{"max":5}'
 ```
 
 `director.advise` reads pacing signals (tension, stalling, undiscovered clues,

@@ -43,14 +43,17 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    > One-line quick start (pregen investigators, The Haunting) through the
    > canonical setup gateway:
    > ```bash
-   > python3 ../../scripts/coc_runtime_ops.py --setup --workspace . \
+   > uv run --frozen python ../../scripts/coc_runtime_ops.py --setup --workspace . \
    >   --operation-json '{"schema_version":1,"kind":"campaign.quick_start","payload":{"scenario_id":"the-haunting","pregen_id":"thomas-hayes"}}'
    > ```
 
    For the one-step starter path use the shared `campaign.quick_start` setup
    operation. For a custom table, use `campaign.create`, then
    `investigator.create`, `campaign.link_investigator`, and
-   `scenario.bind_pdf`. The same gateway exposes `campaign.render_briefing`
+   `scenario.bind_pdf`. Custom PDFs must first be extracted by Codex's `pdf`
+   skill into the `trpg-pdf-ingest` source-bundle contract; bind using
+   `source_bundle_path`. The repository has no PDF parser fallback. The same
+   gateway exposes `campaign.render_briefing`
    and `investigator.render_card` for player-facing artifacts. Pi calls these
    setup operations through
    `runtime.sdk.api.setup_workspace(...)`.

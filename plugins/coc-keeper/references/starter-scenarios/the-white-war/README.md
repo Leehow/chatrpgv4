@@ -48,7 +48,7 @@ This scenario is installed via the COC onboarding prompt when a new campaign
 is created, or by:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_starter.py install \
+uv run --frozen python plugins/coc-keeper/scripts/coc_starter.py install \
   --campaign <campaign-id> --scenario the-white-war
 ```
 

@@ -1149,7 +1149,7 @@ def _rules_json_validation_findings(root: Path) -> list[dict[str, Any]]:
         "rules_json_validation_failed",
         "system_gap",
         "rules-json validation errors: " + "; ".join(errors[:10]),
-        "Repair plugins/coc-keeper/references/rules-json, then run python plugins/coc-keeper/scripts/coc_validate.py rules plugins/coc-keeper.",
+        "Repair plugins/coc-keeper/references/rules-json, then run uv run --frozen python plugins/coc-keeper/scripts/coc_validate.py rules plugins/coc-keeper.",
         incomplete_files=["plugins/coc-keeper/references/rules-json"],
         missing_evidence=errors,
     )]

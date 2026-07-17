@@ -19,7 +19,7 @@ It prints a per-field correct/wrong tally, every mismatch, unmatched OCR
 titles, unmatched our-tomes, and exits 1 if anything is wrong.
 
 Usage:
-    python3 scripts/verify_tomes_ocr.py
+    uv run --frozen python scripts/verify_tomes_ocr.py
 """
 from __future__ import annotations
 

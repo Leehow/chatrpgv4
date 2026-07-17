@@ -158,19 +158,42 @@ codex plugin marketplace upgrade
 唯一实时状态来源是 [docs/status/CURRENT.md](docs/status/CURRENT.md)；历史 plan
 和 audit 只保留设计与审计上下文，不代表当前执行状态。
 
-需要 Python 3.11+（`coc_completion_audit.py` 使用标准库 `tomllib`）。
+唯一支持的解释器是 **CPython 3.14.6**。`.python-version`、
+`pyproject.toml` 和 `uv.lock` 共同构成解释器与依赖契约；不要使用系统
+`python`、Conda 环境或临时 venv 代替它。
 
-安装测试依赖：
-
-```bash
-pip install pytest pypdf
-```
-
-运行完整测试：
+安装并使用精确版本 [uv 0.11.16](https://docs.astral.sh/uv/) 后，同步已锁定的运行时与开发依赖：
 
 ```bash
-pytest tests/ -q
+uv sync --frozen --dev
 ```
+
+仓库不安装 PDF 解析依赖。导入 PDF 时先由 Codex 的 `pdf` skill 完成
+OCR、布局识别、文本与图片提取，再把版本化 source bundle 交给
+`plugins/coc-keeper/scripts/coc_pdf_bundle.py` 做确定性校验和重排。其他
+宿主必须提供同一 bundle，不能回退到仓库内置 parser。
+Codex 必须先完成逐页视觉核对，再在 manifest 中记录每页的 accepted
+`review_state`、现实的 `parse_confidence`（不要默认写 1.0）和
+`grep_anchors`。绑定时保存 canonical `bundle_sha256`，之后资料包发生
+内容或证据漂移会被 hydration 硬拒绝。
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_pdf_bundle.py \
+  /absolute/path/to/source-bundle --output /absolute/path/to/normalized-source.json
+```
+
+bundle 的完整 `manifest.json` 契约和 `scenario.bind_pdf` 交接方式见
+`plugins/coc-keeper/skills/trpg-pdf-ingest/SKILL.md`。
+
+所有仓库 Python 命令都从仓库根目录通过同一入口运行：
+
+```bash
+uv run --frozen python -m pytest tests/ -q -p no:cacheprovider
+```
+
+从其他工作目录调用时使用
+`uv run --project <repo-root> --frozen python ...`。Python 子进程必须继承
+`sys.executable`；不要重新从 `PATH` 查找解释器。
 
 ### Official evaluation contract
 
@@ -178,15 +201,15 @@ All hosts use the same CLI. Do not replace a named suite with an ad-hoc command
 list and still call it official evaluation:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
-python3 plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
-python3 plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
-python3 plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
-python3 plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
-python3 plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite smoke --root .
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite pr --root .
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py report <run-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <run-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py compare --baseline <a> --candidate <b>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py matrix --suite nightly --root . --plan-only
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py calibrate --reviews <reviews.json>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py holdouts --bundle <holdout-dir>
 ```
 
 Model-backed lanes (local / explicitly configured runners with credentials — not
@@ -199,19 +222,19 @@ ordinary GitHub-hosted CI):
 Capture-then-compare nightly (exact commands):
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run \
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run \
   --suite nightly --root . --output <baseline-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py run \
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run \
   --suite nightly --root . --baseline <baseline-dir> --output <candidate-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py report <candidate-dir>
-python3 plugins/coc-keeper/scripts/coc_eval.py verify <candidate-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py report <candidate-dir>
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py verify <candidate-dir>
 ```
 
 Release with external inputs (chapter evidence, bound holdouts, genuine human
 calibration). Without them the suite stays honest `NOT_RUN`:
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_eval.py run --suite release --root . \
+uv run --frozen python plugins/coc-keeper/scripts/coc_eval.py run --suite release --root . \
   --chapter-run <run-dir> \
   --holdout-bundle <bundle-dir> \
   --calibration-reviews <reviews.json> \
@@ -227,14 +250,14 @@ secrets or attested artifacts. See `plugins/coc-keeper/skills/coc-playtest/SKILL
 运行 playtest profile：
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_playtest_harness.py --profile haunting-module --root . --run-id my-run
-python3 plugins/coc-keeper/scripts/coc_playtest_audit.py .coc/playtests/my-run
+uv run --frozen python plugins/coc-keeper/scripts/coc_playtest_harness.py --profile haunting-module --root . --run-id my-run
+uv run --frozen python plugins/coc-keeper/scripts/coc_playtest_audit.py .coc/playtests/my-run
 ```
 
 运行规则合规检查：
 
 ```bash
-python3 checks/exhaustive_rulebook_validator.py .coc/playtests <run-id>
+uv run --frozen python checks/exhaustive_rulebook_validator.py .coc/playtests <run-id>
 ```
 
 ## 插件维护规则 / Plugin Maintenance
@@ -243,7 +266,7 @@ python3 checks/exhaustive_rulebook_validator.py .coc/playtests <run-id>
 Cursor 只允许薄 manifest 或入口文件指向该树。提交插件相关改动前，至少运行：
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
 调查员立绘生成是 Codex-only 能力，保留在

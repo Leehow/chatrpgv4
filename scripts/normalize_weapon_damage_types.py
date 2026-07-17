@@ -16,7 +16,7 @@ Damage type is inferred from the weapon's tags + name, per rulebook p97/p406:
   - normal: bludgeons, shotguns (cannot impale per p97)
 
 Usage:
-    python3 scripts/normalize_weapon_damage_types.py --apply
+    uv run --frozen python scripts/normalize_weapon_damage_types.py --apply
 """
 from __future__ import annotations
 

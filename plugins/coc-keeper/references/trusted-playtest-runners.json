@@ -17,7 +17,7 @@
       "kind": "external_model_bridge",
       "identity": "coc-runtime-keeper-agent@0.79.9",
       "path": "runtime/adapters/keeper/run_keeper_turn.mjs",
-      "sha256": "b1a723d1172bb04b7a072453f09a850ded23bd25c153c893caedcc4c0fa02d4f",
+      "sha256": "1408058bd9702651127ddea87049c85c9b95dbe04d4bd36ccd24719fa7ddf640",
       "package_identity": {
         "name": "@earendil-works/pi-coding-agent",
         "version": "0.79.9"

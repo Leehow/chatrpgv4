@@ -26,7 +26,7 @@ This script:
   5. Reports only genuine mismatches and exits 1 if any are found.
 
 Usage:
-    python3 scripts/verify_spells_ocr.py
+    uv run --frozen python scripts/verify_spells_ocr.py
 """
 from __future__ import annotations
 

@@ -2011,7 +2011,7 @@ def is_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> bool:
 
 
 # =============================================================================
-# CLI: python3 coc_narration_contract.py <plan.json> <scenario_dir>
+# CLI: uv run --frozen python coc_narration_contract.py <plan.json> <scenario_dir>
 # =============================================================================
 def _main(argv: list[str]) -> int:
     if len(argv) != 3:

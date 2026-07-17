@@ -3,7 +3,7 @@
 tomes.json. Handles multi-version tomes by appending a version suffix.
 
 Usage:
-    python3 scripts/build_tomes_from_ocr.py --apply
+    uv run --frozen python scripts/build_tomes_from_ocr.py --apply
 """
 from __future__ import annotations
 

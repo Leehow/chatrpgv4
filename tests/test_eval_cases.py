@@ -53,7 +53,7 @@ def _case(**overrides):
         "gate": "hard",
         "required_capabilities": ["canonical_cli"],
         "command": [
-            "python3",
+            "{python}",
             "-m",
             "pytest",
             "tests/test_fixture.py::test_fixture",
@@ -161,7 +161,7 @@ def test_registry_rejects_paths_outside_repository(tmp_path: Path):
             [
                 _case(
                     command=[
-                        "python3",
+                        "{python}",
                         "-m",
                         "pytest",
                         "../outside/test_bad.py::test_bad",
@@ -173,6 +173,28 @@ def test_registry_rejects_paths_outside_repository(tmp_path: Path):
 
     with pytest.raises(ValueError, match="outside repository"):
         cases.load_case_registry(tmp_path, path=path)
+
+
+def test_registry_rejects_path_selected_python_interpreter(tmp_path: Path):
+    cases = cases_module()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert True\n", encoding="utf-8"
+    )
+    for executable in ("python", "python3"):
+        path = _write(
+            tmp_path / "evaluation" / "spec" / "v1" / "case-registry.json",
+            _registry([_case(command=[executable, "-m", "pytest"])]),
+        )
+        with pytest.raises(ValueError, match=r"must use \{python\}"):
+            cases.load_case_registry(tmp_path, path=path)
+
+
+def test_registry_python_token_resolves_to_running_interpreter():
+    cases = cases_module()
+    assert cases.resolve_case_command(
+        _case(command=["{python}", "-c", "print('ok')"])
+    ) == [sys.executable, "-c", "print('ok')"]
 
 
 def test_run_case_writes_bound_logs_and_pass_status(tmp_path: Path):
@@ -494,7 +516,7 @@ def test_cli_run_suite_uses_registry_and_writes_case_results(
             [
                 _case(
                     kind="python_command",
-                    command=["python3", "-c", "print('registry-case-ok')"],
+                    command=["{python}", "-c", "print('registry-case-ok')"],
                     required_capabilities=["canonical_cli"],
                 )
             ]

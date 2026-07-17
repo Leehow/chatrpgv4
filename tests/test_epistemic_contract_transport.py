@@ -59,7 +59,14 @@ def _source(monkeypatch):
         "title": "Keeper Rulebook", "file_sha256": "a" * 64,
         "page_count": 465, "pdf_index_start": 446, "pdf_index_end": 446,
     }
-    pages = [{"pdf_index": 446, "text": "KEEPER_SENTINEL_SECRET_PROSE", "text_sha256": "b" * 64}]
+    pages = [{
+        "pdf_index": 446,
+        "text": "KEEPER_SENTINEL_SECRET_PROSE",
+        "text_sha256": "b" * 64,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.93,
+        "grep_anchors": [],
+    }]
     monkeypatch.setattr(hydration, "_extract_source", lambda _seed: (source, pages))
 
 

@@ -20,7 +20,7 @@
         "benchmark_packs"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_eval_contract.py",
@@ -52,7 +52,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_plugin_metadata.py",
@@ -80,7 +80,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_director_apply.py::test_apply_plan_flags_set_unlocks_and_cuts",
@@ -107,7 +107,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_scene_graph.py::test_location_tag_separator_folding_intersects",
@@ -134,7 +134,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_state.py::test_link_party_does_not_overwrite_existing_investigator_state",
@@ -161,7 +161,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_chapter_switch.py::test_switch_preserves_target_epistemic_sidecars",
@@ -188,7 +188,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_story_director.py",
@@ -219,7 +219,7 @@
         "roll_completeness"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_eval_contract.py::test_deleting_rendered_public_roll_makes_verification_fail",
@@ -246,7 +246,7 @@
         "report_contract"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_playtest_report.py",
@@ -274,7 +274,7 @@
         "report_contract"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_playtest_completion_audit.py",
@@ -301,7 +301,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_eval_replay.py::test_host_parity_normalized_hash_matches_across_five_hosts",
@@ -329,7 +329,7 @@
         "canonical_cli"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_eval_replay.py::test_fixed_replay_detects_first_structural_divergence",
@@ -358,7 +358,7 @@
         "benchmark_packs"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_roll.py",
@@ -388,7 +388,7 @@
         "benchmark_packs"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_state_migration.py",
@@ -420,7 +420,7 @@
         "benchmark_packs"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_chase_session.py",
@@ -449,7 +449,7 @@
         "benchmark_packs"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_narrative_enrichment.py::test_stop_actionability_contract_uses_structured_handles_after_costly_failure",
@@ -482,7 +482,7 @@
         "benchmark_packs"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_narration_style.py",
@@ -510,7 +510,7 @@
         "case_registry"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_eval_longrun.py::test_validate_continuity_missing_run_is_not_run",
@@ -545,7 +545,7 @@
         "case_registry"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_eval_longrun.py::test_validate_chapter_transition_missing_evidence_is_not_run",
@@ -578,7 +578,7 @@
         "module_hydration"
       ],
       "command": [
-        "python3",
+        "{python}",
         "-m",
         "pytest",
         "tests/test_scenario_hydration.py",

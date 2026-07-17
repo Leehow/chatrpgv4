@@ -12,7 +12,7 @@ For official readiness claims (`smoke` / `pr` / `nightly` / `release`), use
 command list:
 
 ```bash
-python3 ../../scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root <repo-root>
+uv run --frozen python ../../scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root <repo-root>
 ```
 
 Also available: `report`, `verify`, `compare`, `baseline`, `matrix`,
@@ -31,16 +31,16 @@ but cannot alone satisfy release-required eval-contract cells.
 ## Official evaluation commands
 
 ```bash
-python3 ../../scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root <repo-root>
-python3 ../../scripts/coc_eval.py report <run-dir>
-python3 ../../scripts/coc_eval.py verify <run-dir>
-python3 ../../scripts/coc_eval.py compare --baseline <a> --candidate <b>
-python3 ../../scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
-python3 ../../scripts/coc_eval.py matrix --suite nightly --root <repo-root> --plan-only
-python3 ../../scripts/coc_eval.py calibrate --reviews <reviews.json>
-python3 ../../scripts/coc_eval.py holdouts --bundle <holdout-dir>
-python3 ../../scripts/coc_eval.py replay --case <case.json> --output <dir> --root <repo-root>
-python3 ../../scripts/coc_eval.py route-compare --run-a <run-a> --run-b <run-b> --semantic-result <result.json> --output <dir>
+uv run --frozen python ../../scripts/coc_eval.py run --suite <smoke|pr|nightly|release|diagnostic> --root <repo-root>
+uv run --frozen python ../../scripts/coc_eval.py report <run-dir>
+uv run --frozen python ../../scripts/coc_eval.py verify <run-dir>
+uv run --frozen python ../../scripts/coc_eval.py compare --baseline <a> --candidate <b>
+uv run --frozen python ../../scripts/coc_eval.py baseline --source <run-manifest> --output <baseline.json>
+uv run --frozen python ../../scripts/coc_eval.py matrix --suite nightly --root <repo-root> --plan-only
+uv run --frozen python ../../scripts/coc_eval.py calibrate --reviews <reviews.json>
+uv run --frozen python ../../scripts/coc_eval.py holdouts --bundle <holdout-dir>
+uv run --frozen python ../../scripts/coc_eval.py replay --case <case.json> --output <dir> --root <repo-root>
+uv run --frozen python ../../scripts/coc_eval.py route-compare --run-a <run-a> --run-b <run-b> --semantic-result <result.json> --output <dir>
 ```
 
 `route-compare` reads `artifacts/route-ledger.json` from two actual-play run
@@ -60,13 +60,13 @@ Ordinary GitHub-hosted CI does not run credentialed nightly. Capture a baseline,
 then compare a candidate against it with `--baseline`:
 
 ```bash
-python3 ../../scripts/coc_eval.py run \
+uv run --frozen python ../../scripts/coc_eval.py run \
   --suite nightly --root <repo-root> --output <baseline-dir>
-python3 ../../scripts/coc_eval.py run \
+uv run --frozen python ../../scripts/coc_eval.py run \
   --suite nightly --root <repo-root> \
   --baseline <baseline-dir> --output <candidate-dir>
-python3 ../../scripts/coc_eval.py report <candidate-dir>
-python3 ../../scripts/coc_eval.py verify <candidate-dir>
+uv run --frozen python ../../scripts/coc_eval.py report <candidate-dir>
+uv run --frozen python ../../scripts/coc_eval.py verify <candidate-dir>
 ```
 
 The first run is an intentional baseline capture. Because no comparison source
@@ -98,7 +98,7 @@ Release stays `NOT_RUN` until chapter evidence, a bound holdout bundle, and
 genuine human calibration reviews are supplied:
 
 ```bash
-python3 ../../scripts/coc_eval.py run --suite release --root <repo-root> \
+uv run --frozen python ../../scripts/coc_eval.py run --suite release --root <repo-root> \
   --chapter-run <run-dir> \
   --holdout-bundle <bundle-dir> \
   --calibration-reviews <reviews.json> \
@@ -140,7 +140,7 @@ response; it never exposes the narration envelope, Director plan, world state,
 clue graph, or Keeper secrets.
 
 ```bash
-python3 ../../scripts/coc_live_match.py \
+uv run --frozen python ../../scripts/coc_live_match.py \
   --workspace <isolated-workspace> --campaign <campaign> \
   --investigator <investigator> --operator-long-play \
   --narrator-runner <repo-root>/runtime/adapters/narrator/run_narration.mjs \
@@ -191,7 +191,7 @@ Example first transition-quality finding:
 ```
 
 ```bash
-python3 ../../scripts/coc_operator_review.py record-issue \
+uv run --frozen python ../../scripts/coc_operator_review.py record-issue \
   --run-dir <run-dir> --input <issue.json>
 ```
 
@@ -212,9 +212,9 @@ required dimensions—`rules`, `facts`, `progression`, and `style`—and records
 evidence with:
 
 ```bash
-python3 ../../scripts/coc_operator_review.py record \
+uv run --frozen python ../../scripts/coc_operator_review.py record \
   --run-dir <run-dir> --input <review.json>
-python3 ../../scripts/coc_operator_review.py verify --run-dir <run-dir>
+uv run --frozen python ../../scripts/coc_operator_review.py verify --run-dir <run-dir>
 ```
 
 The review input uses `protocol: operator_codex_black_box_v2`, binds the exact
@@ -237,7 +237,7 @@ transport. Do not route those responses through `operator_codex_black_box_v2`,
 which means that the same main Codex is both player and reviewer.
 
 ```bash
-python3 ../../scripts/coc_live_match.py \
+uv run --frozen python ../../scripts/coc_live_match.py \
   --workspace <isolated-workspace> --campaign <campaign> \
   --investigator <investigator> --codex-subagent-player \
   --subagent-player-id <stable-collaboration-task-id> \
@@ -275,7 +275,7 @@ skills, do not describe `coc_live_match.py`'s keeper runner as that topology.
 Use the manual post-turn recorder instead:
 
 ```bash
-python3 ../../scripts/coc_codex_host_playtest.py init \
+uv run --frozen python ../../scripts/coc_codex_host_playtest.py init \
   --run-dir <new-empty-run-dir> --workspace <workspace> \
   --campaign <campaign> --investigator <investigator> \
   --player-actor-id <stable-actor-id> \
@@ -283,11 +283,11 @@ python3 ../../scripts/coc_codex_host_playtest.py init \
   --orchestrator-id <main-codex-id> \
   --toolbox-log <workspace>/.coc/campaigns/<campaign>/logs/toolbox-calls.jsonl
 
-python3 ../../scripts/coc_codex_host_playtest.py append-turn \
+uv run --frozen python ../../scripts/coc_codex_host_playtest.py append-turn \
   --run-dir <run-dir> --record-json <turn-record.json>
 
-python3 ../../scripts/coc_codex_host_playtest.py finalize --run-dir <run-dir>
-python3 ../../scripts/coc_codex_host_playtest.py verify --run-dir <run-dir>
+uv run --frozen python ../../scripts/coc_codex_host_playtest.py finalize --run-dir <run-dir>
+uv run --frozen python ../../scripts/coc_codex_host_playtest.py verify --run-dir <run-dir>
 ```
 
 The `append-turn` JSON is an exact schema-version-1 object containing
@@ -314,7 +314,7 @@ calls only `runtime.sdk.api.send`, checkpoints every accepted turn, and resumes 
 validated checkpoints into a fresh workspace generation.
 
 ```bash
-python3 ../../scripts/coc_interactive_playtest.py start \
+uv run --frozen python ../../scripts/coc_interactive_playtest.py start \
   --workspace <workspace> --campaign <campaign> --investigator <investigator> \
   --run-dir <run-dir> --run-kind diagnostic_spoiler_run|blind_actual_play \
   --rng-seed <seed> --max-turns <1..500>

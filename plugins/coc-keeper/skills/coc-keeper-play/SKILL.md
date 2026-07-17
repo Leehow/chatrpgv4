@@ -13,9 +13,9 @@ pipeline: the toolbox at `scripts/coc_toolbox.py` gives you queries, dice, and
 state writes; which ones a turn needs is your judgment.
 
 ```bash
-python3 plugins/coc-keeper/scripts/coc_toolbox.py list            # tool catalog
-python3 plugins/coc-keeper/scripts/coc_toolbox.py describe <tool> # parameters
-python3 plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py list            # tool catalog
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py describe <tool> # parameters
+uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
 ```
 
 Every tool returns `{ok, data, warnings, hints}`. `warnings` flag departures

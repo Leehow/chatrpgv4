@@ -66,6 +66,9 @@ def _source_fixture():
         "pdf_index": 446,
         "text": "Keeper-only source text for a local module.",
         "text_sha256": "b" * 64,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.93,
+        "grep_anchors": [],
     }])
 
 
@@ -161,6 +164,9 @@ def test_source_first_compiles_keeper_pages_validates_and_warms(tmp_path, monkey
         "text_sha256": hashlib.sha256(
             b"Keeper-only source text for a local module."
         ).hexdigest(),
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.93,
+        "grep_anchors": [],
     }]
     monkeypatch.setattr(hydration, "_extract_source", lambda _seed: (source, pages))
     calls = []
@@ -210,6 +216,9 @@ def test_cold_source_compile_installs_epistemic_sidecars_in_same_publish(tmp_pat
         "pdf_index": 446,
         "text": "Keeper-only source text that must not enter the sidecar request.",
         "text_sha256": "b" * 64,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.93,
+        "grep_anchors": [],
     }]
     monkeypatch.setattr(hydration, "_extract_source", lambda _seed: (source, pages))
     seen = {}
@@ -264,7 +273,14 @@ def test_invalid_compiler_bundle_is_rejected_without_partial_install(tmp_path, m
             "title": "Unknown", "file_sha256": "a" * 64, "page_count": 1,
             "pdf_index_start": 0, "pdf_index_end": 0,
         },
-        [{"pdf_index": 0, "text": "source", "text_sha256": "b" * 64}],
+        [{
+            "pdf_index": 0,
+            "text": "source",
+            "text_sha256": "b" * 64,
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.93,
+            "grep_anchors": [],
+        }],
     ))
     bad = _haunting_bundle()
     bad.pop("story-graph.json")
@@ -280,8 +296,10 @@ def test_invalid_compiler_bundle_is_rejected_without_partial_install(tmp_path, m
 
 
 def test_printed_page_range_is_not_guessed():
-    with pytest.raises(hydration.ScenarioHydrationError, match="never guessed"):
-        hydration._source_page_bounds({"page_start": 435, "page_end": 450}, 465)
+    with pytest.raises(hydration.ScenarioHydrationError, match="host source bundle"):
+        hydration._extract_source({
+            "source": {"page_start": 435, "page_end": 450}
+        })
 
 
 def test_compiler_global_clue_aliases_normalize_without_prose_matching():

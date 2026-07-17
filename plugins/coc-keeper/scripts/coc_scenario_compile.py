@@ -19,6 +19,14 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from coc_python_contract import REQUIRED_PYTHON, require_python_contract
+
+require_python_contract()
+
+
 def _load_sibling(name: str, filename: str):
     import importlib.util
     spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
@@ -32,8 +40,6 @@ coc_npc_state = _load_sibling("coc_npc_state_scenario_compile", "coc_npc_state.p
 coc_director_strategies = _load_sibling(
     "coc_director_strategies_scenario_compile", "coc_director_strategies.py"
 )
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_pdf_source
 import coc_epistemic_lifecycle
@@ -69,7 +75,6 @@ DOCTOR_RULES_JSON_FILES = (
     "structure-weights.json",
     "rule-index.json",
 )
-MIN_PYTHON = (3, 11)
 SCENE_FUNCTION_KEYS = (
     "scene_function", "goals", "required_reveals", "failure_modes",
     "exit_options", "mode_affinity",
@@ -1803,7 +1808,7 @@ def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
     Returns structured results with ``check``, ``ok``, ``severity``, ``message``.
     """
     results: list[dict[str, Any]] = []
-    py_ok = sys.version_info[:2] >= MIN_PYTHON
+    py_ok = tuple(sys.version_info[:3]) == REQUIRED_PYTHON
     results.append(
         {
             "check": "python_version",
@@ -1812,7 +1817,7 @@ def doctor(*, rules_dir: Path | None = None) -> list[dict[str, Any]]:
             "severity": "error" if not py_ok else "info",
             "message": (
                 f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}; "
-                f"require >={MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
+                f"require CPython {'.'.join(str(part) for part in REQUIRED_PYTHON)}"
             ),
         }
     )

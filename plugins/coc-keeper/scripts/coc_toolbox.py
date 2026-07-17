@@ -20,9 +20,9 @@ reference. Tools live in four namespaces:
 Envelope: every tool returns ``{ok, tool, data, warnings, hints}``.
 
 CLI:
-    python3 coc_toolbox.py list [--json]
-    python3 coc_toolbox.py describe <tool>
-    python3 coc_toolbox.py <tool> --root . --campaign <id> [--json '<args>']
+    uv run --frozen python coc_toolbox.py list [--json]
+    uv run --frozen python coc_toolbox.py describe <tool>
+    uv run --frozen python coc_toolbox.py <tool> --root . --campaign <id> [--json '<args>']
 """
 from __future__ import annotations
 
