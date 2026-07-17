@@ -1,0 +1,4 @@
+interface:
+  display_name: "Export COC Report Source Bundle"
+  short_description: "Export deterministic player-safe report evidence"
+  default_prompt: "Use $coc-export-battle-report to export this playtest as a deterministic source-bundle JSON and player-safe Markdown pair without replacing the canonical battle report."

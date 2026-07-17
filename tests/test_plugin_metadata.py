@@ -356,6 +356,7 @@ def test_all_v1_skills_have_valid_frontmatter():
         "coc-rules-engine",
         "coc-character",
         "coc-development",
+        "coc-export-battle-report",
         "coc-scenario-import",
         "coc-keeper-play",
         "coc-meta",
