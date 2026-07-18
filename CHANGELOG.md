@@ -87,6 +87,26 @@
   `describe_parameter_signals` 补 APP 显著档提示（p.37 阶梯，平均值保持静默）；
   `coc-keeper-play` 第一印象条款改为明说自动骰只发生在 director.advise 内，
   并要求 KP 把第一印象演进初次照面的描写。
+- `evidence.record_adoption` 新增可选 `emotional_tone_adoption` 字段：按 NPC
+  结构化记录导演计划中 p.191 第一印象语气（`npc_moves[].emotional_tone`）的
+  采纳/改写/忽略状态，让"tone 有没有被演进台面文"成为可度量证据；未提供时
+  receipt 形状不变，完全向后兼容；`coc-story-director` 指引同步要求上报。
+- 规则数据全量对账（Table XVII 武器表）：按原书渲染页（pp.401-405）逐行核对
+  全部 104 行武器参数，修复 MinerU 手枪块行名滞后导致的 8 个条目数值错配
+  （Beretta M9 / Glock 17 / Model P08 Luger 等串行），补入 6 件缺失武器
+  （.22 Short Automatic、.32/7.65mm Automatic、12-gauge Pump / semi-auto /
+  sawed-off、Taser contact），修正 Sword light 的 (i) impale 标记与多处 era 值；
+  删除伪造典籍条目 `necronomicon_en_philips`，补入 Al Azif、Necronomicon
+  三个正典版本（Greek / Latin / Dee）、Necrolatry 和 Massa di Requiem per
+  Shuggay；Find Gate 等 3 个法术的 `sanity_cost` 字段归一为 `cost_sanity`。
+- 验证层修复：`checks/rulebook-weapons-ref.json` 扩为按原书页转写的 104 行
+  全量基准，`gap_audit.py` 据此覆盖全部武器参数并经
+  `tests/test_rulebook_data_audit.py` 接入 pytest（离线 JSON 审计，无需 OCR
+  缓存）；`checks/exhaustive_rulebook_validator.py` 修复"战役 id == run id"
+  假设导致的空转通过——现按 sandbox 实际战役目录发现日志，并在零记录时
+  拒绝通过（exit 2），新增 fixture 合同测试；10 个 `verify_*_ocr.py` 全部
+  恢复可运行（`cache_all_ocr.sh` 补 monsters-ch14 正确页段 idx 320-355，
+  分三段避免 MinerU 长任务断连）。
 ### Known Issues
 
 - The Haunting 的分发依据和插件图片来源仍为 `UNVERIFIED`；稳定发布前需要外部

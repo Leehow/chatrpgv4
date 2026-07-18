@@ -6496,6 +6496,7 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "disposition": {"type": "string", "required": True, "desc": "adopted | modified | ignored"},
         "reason": {"type": "string", "required": True, "desc": "concise semantic reason, not hidden chain-of-thought"},
         "adopted_fields": {"type": "array", "desc": "structured field paths actually used"},
+        "emotional_tone_adoption": {"type": "array", "desc": "per-NPC first-impression follow-through for each npc_moves[].emotional_tone in the referenced plan: {npc_id, emotional_tone, adoption: adopted|modified|ignored}"},
     },
 )
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
@@ -6508,6 +6509,31 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
     fields = args.get("adopted_fields") or []
     if not isinstance(fields, list) or any(not isinstance(value, str) for value in fields):
         raise ToolError("invalid_param", "adopted_fields must be an array of strings")
+    tone_adoption = args.get("emotional_tone_adoption") or []
+    if not isinstance(tone_adoption, list):
+        raise ToolError("invalid_param", "emotional_tone_adoption must be an array")
+    normalized_tones: list[dict[str, str]] = []
+    for entry in tone_adoption:
+        if not isinstance(entry, dict):
+            raise ToolError("invalid_param", "emotional_tone_adoption entries must be objects")
+        tone_npc_id = str(entry.get("npc_id") or "").strip()
+        tone_value = str(entry.get("emotional_tone") or "").strip()
+        tone_status = str(entry.get("adoption") or "").strip()
+        if not tone_npc_id or not tone_value:
+            raise ToolError(
+                "invalid_param",
+                "emotional_tone_adoption entries require npc_id and emotional_tone",
+            )
+        if tone_status not in {"adopted", "modified", "ignored"}:
+            raise ToolError(
+                "invalid_param",
+                "emotional_tone_adoption adoption must be adopted, modified, or ignored",
+            )
+        normalized_tones.append({
+            "npc_id": tone_npc_id,
+            "emotional_tone": tone_value,
+            "adoption": tone_status,
+        })
     data = {
         "schema_version": 1,
         "visibility": "keeper_internal",
@@ -6517,6 +6543,8 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
         "reason": reason,
         "adopted_fields": fields,
     }
+    if normalized_tones:
+        data["emotional_tone_adoption"] = normalized_tones
     ctx.ledger_record(args["decision_id"], "evidence.record_adoption", data)
     coc_state.append_jsonl(
         ctx.campaign_dir / "logs" / "advisory-adoptions.jsonl",

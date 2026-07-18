@@ -29,8 +29,12 @@ epistemic contract — is documented in `../../references/director-protocol.md`.
 
 When you consult advice, call `evidence.record_adoption` after deciding whether
 you adopted, modified, or ignored it. This is Keeper-internal evidence, not a
-gate. If a selected plan has an epistemic contract, apply it only after its
-clues are truly committed, via `state.belief_apply`. Threat clocks advance only
+gate. When the referenced plan carries `npc_moves[].emotional_tone` (the p.191
+first-impression signal), report the per-NPC follow-through via
+`emotional_tone_adoption` — adopted, modified, or honestly ignored — so tone
+landing becomes measurable evidence instead of table impression. If a selected
+plan has an epistemic contract, apply it only after its clues are truly
+committed, via `state.belief_apply`. Threat clocks advance only
 through `state.threat_tick`; an `on_full` value is still a candidate consequence
 for the Keeper, not auto-narration.
 

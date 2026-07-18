@@ -5154,6 +5154,59 @@ def test_personal_horror_and_adoption_receipts_prove_actual_use(campaign_ws):
     assert rows[-1]["disposition"] == "modified"
 
 
+def test_adoption_receipt_records_emotional_tone_follow_through(campaign_ws):
+    adoption = _run(campaign_ws, "evidence.record_adoption", {
+        "decision_id": "turn-adoption-tone-1",
+        "advice_id": "director:2:toneexample",
+        "disposition": "modified",
+        "reason": "Played Knott cold per the reaction roll; softened Arty's refusal.",
+        "emotional_tone_adoption": [
+            {"npc_id": "npc-steven-knott", "emotional_tone": "cold and suspicious", "adoption": "adopted"},
+            {"npc_id": "npc-arty-wilmot", "emotional_tone": "guarded but civil", "adoption": "modified"},
+        ],
+    })
+    assert adoption["ok"] is True
+    tones = adoption["data"]["emotional_tone_adoption"]
+    assert tones == [
+        {"npc_id": "npc-steven-knott", "emotional_tone": "cold and suspicious", "adoption": "adopted"},
+        {"npc_id": "npc-arty-wilmot", "emotional_tone": "guarded but civil", "adoption": "modified"},
+    ]
+    rows = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "advisory-adoptions.jsonl")
+    assert rows[-1]["emotional_tone_adoption"] == tones
+
+    # Absent param keeps the receipt shape unchanged (backward compatible).
+    plain = _run(campaign_ws, "evidence.record_adoption", {
+        "decision_id": "turn-adoption-tone-2",
+        "advice_id": "director:2:plain",
+        "disposition": "ignored",
+        "reason": "No plan elements fit the live conversation.",
+    })
+    assert plain["ok"] is True
+    assert "emotional_tone_adoption" not in plain["data"]
+
+    bad_status = _run(campaign_ws, "evidence.record_adoption", {
+        "decision_id": "turn-adoption-tone-3",
+        "advice_id": "director:2:bad",
+        "disposition": "adopted",
+        "reason": "test",
+        "emotional_tone_adoption": [
+            {"npc_id": "npc-x", "emotional_tone": "warm", "adoption": "played"},
+        ],
+    })
+    assert bad_status["ok"] is False
+    assert bad_status["error"]["code"] == "invalid_param"
+
+    missing_fields = _run(campaign_ws, "evidence.record_adoption", {
+        "decision_id": "turn-adoption-tone-4",
+        "advice_id": "director:2:missing",
+        "disposition": "adopted",
+        "reason": "test",
+        "emotional_tone_adoption": [{"npc_id": "npc-x"}],
+    })
+    assert missing_fields["ok"] is False
+    assert missing_fields["error"]["code"] == "invalid_param"
+
+
 def test_full_sanity_session_is_reachable_through_shared_executor(campaign_ws):
     decision_id = "full-san-check-1"
     command = {
@@ -6403,7 +6456,7 @@ def test_combat_tool_routes_owned_firearm_without_illegal_melee_defense(campaign
         {
             "affordance_id": "conventional-assault",
             "investigator": campaign_ws["investigator_id"],
-            "weapon_id": "revolver_38",
+            "weapon_id": "revolver_38_or_9mm",
             "decision_id": "combat-firearm-beat",
             "seed": 7,
         },
