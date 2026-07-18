@@ -4067,6 +4067,43 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "rules.build_scale",
+    "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads.",
+    {
+        "build": {"type": "integer", "desc": "single build value to look up scale examples for"},
+        "actor_build": {"type": "integer", "desc": "acting being's build; with target_build, returns the lift/throw and maneuver verdict"},
+        "target_build": {"type": "integer", "desc": "target being/object's build"},
+    },
+    needs_campaign=False,
+)
+def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
+    def _optional_int(name: str) -> int | None:
+        value = args.get(name)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ToolError("invalid_param", f"{name} must be an integer")
+        return value
+
+    build = _optional_int("build")
+    actor_build = _optional_int("actor_build")
+    target_build = _optional_int("target_build")
+    if (actor_build is None) != (target_build is None):
+        raise ToolError("invalid_param", "actor_build and target_build must be given together")
+    if build is None and actor_build is None:
+        raise ToolError("invalid_param", "provide build, or actor_build and target_build")
+    data: dict[str, Any] = {}
+    if build is not None:
+        data["scale"] = coc_rules.build_scale_row(build)
+    if actor_build is not None:
+        data["comparison"] = coc_rules.compare_builds(actor_build, target_build)
+    return data, [], [
+        "build derives from STR+SIZ via the damage-bonus-build table (p.33); this lookup never rolls",
+        "a fighting maneuver against a target 3+ builds larger is physically impossible — narrate the impossibility instead of rolling (p.105)",
+    ]
+
+
+@tool(
     "rules.roll",
     "Percentile skill/characteristic check for an investigator. Deterministic dice; result is authoritative.",
     {

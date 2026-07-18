@@ -554,6 +554,66 @@ def cash_and_assets(credit_rating: int, period: str = "1920s") -> dict[str, Any]
     raise ValueError(f"credit rating out of cash-assets table range: {credit_rating}")
 
 
+def build_scale_row(build: int) -> dict[str, Any]:
+    """Table XV Comparative Builds row for one build value (p.279).
+
+    Returns the listed row for tabulated builds; for unlisted values the
+    nearest listed rows below and above, so scale can be interpolated.
+    """
+    table = load_rule_table("build-scale")
+    rows = [
+        row
+        for row in table.get("comparative_builds", [])
+        if isinstance(row, dict) and isinstance(row.get("build"), int)
+    ]
+    rows.sort(key=lambda row: row["build"])
+    for row in rows:
+        if row["build"] == build:
+            return {"listed": True, **row}
+    result: dict[str, Any] = {"build": build, "listed": False}
+    lower = [row for row in rows if row["build"] < build]
+    upper = [row for row in rows if row["build"] > build]
+    if lower:
+        result["nearest_below"] = lower[-1]
+    if upper:
+        result["nearest_above"] = upper[0]
+    return result
+
+
+def compare_builds(actor_build: int, target_build: int) -> dict[str, Any]:
+    """Lift/throw capability and maneuver modifier between two builds.
+
+    Lift/throw bands come from the p.279 'Builds' quick-reference; maneuver
+    penalty/impossibility comes from combat.json (p.105). ``relative_build``
+    is target minus actor: positive means the target is larger.
+    """
+    table = load_rule_table("build-scale")
+    bands = {
+        int(band["relative_build"]): band
+        for band in table.get("lift_throw_bands", [])
+        if isinstance(band, dict)
+    }
+    maneuver = combat_rule()["maneuver"]
+    impossible_at = maneuver["build_difference_impossible_at"]
+    per_difference = maneuver["penalty_die_per_build_difference"]
+    relative = target_build - actor_build
+    band = bands[max(-2, min(2, relative))]
+    return {
+        "actor_build": actor_build,
+        "target_build": target_build,
+        "relative_build": relative,
+        "lift_throw": {
+            "verdict": str(band["verdict"]),
+            "note": str(band["note"]),
+        },
+        "maneuver": {
+            "penalty_dice": max(0, relative) * per_difference if relative < impossible_at else 0,
+            "impossible": relative >= impossible_at,
+        },
+        "rule_ref": "keeper-rulebook p.279 (Table XV), p.105",
+    }
+
+
 def _is_fumble(roll: int, target: int) -> bool:
     table = load_rule_table("success-levels")["fumble"]
     threshold = int(table["target_threshold"])

@@ -378,6 +378,47 @@ def _npc_projection(receipts: Any) -> list[dict[str, Any]]:
     return result
 
 
+# Player-facing social skills (Psychology is a Keeper-concealed roll and is
+# never listed). The view is a focused subset of the public-roll appendix.
+SOCIAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
+
+
+def _social_roll_projection(public_rolls: Any) -> list[dict[str, Any]]:
+    """Focused player-safe view of public social-skill rolls, in log order."""
+    if not isinstance(public_rolls, list):
+        return []
+    result = []
+    for row in public_rolls:
+        if not isinstance(row, dict):
+            continue
+        skill = _roll_skill(row)
+        if skill not in SOCIAL_SKILLS:
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        result.append({
+            "roll_id": _roll_id(row),
+            "skill": skill,
+            "actor": _first_not_none(
+                _first(row, ("actor", "investigator_id")),
+                _first(payload, ("actor", "investigator_id")),
+            ),
+            "target": _first_not_none(
+                _first(payload, ("effective_target", "target")),
+                _first(row, ("effective_target", "target")),
+            ),
+            "roll": _first_not_none(
+                _first(payload, ("roll", "total", "result", "value")),
+                _first(row, ("roll", "total", "result", "value")),
+            ),
+            "outcome": _first_not_none(
+                _first(payload, ("outcome", "success_level")),
+                _first(row, ("outcome", "success_level")),
+            ),
+            "ts": row.get("ts"),
+        })
+    return result
+
+
 def _ending_projection(events: Any) -> dict[str, Any] | None:
     if not isinstance(events, list):
         return None
@@ -572,6 +613,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     duplicate_roll_ids = sorted(
         roll_id for roll_id, count in Counter(roll_ids).items() if roll_id and count > 1
     )
+    social_rolls = _social_roll_projection(public_rolls)
 
     role_counts = {
         "keeper": sum(_dialogue_side(row) == "keeper" for row in transcript),
@@ -680,6 +722,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         "play_conduct_signals": play_conduct_signals,
         "progression": progression,
         "npc_interactions": npc_interactions,
+        "social_rolls": social_rolls,
         "ending": ending,
         "visible_consequences": visible_consequences,
         "development_settlements": settlements,
@@ -1081,6 +1124,19 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.append(f"- `{npc.get('npc_id', 'unknown')}` · {npc.get('interaction_kind', 'interaction')} · scene `{npc.get('scene_id', 'unknown')}`")
     if not report.get("npc_interactions"):
         lines.append("No player-safe NPC interaction receipts were recorded.")
+    lines.extend(["", "### Social Skill Rolls", ""])
+    for entry in report.get("social_rolls", []):
+        parts = [f"`{entry.get('roll_id') or 'MISSING'}`", str(entry.get("skill"))]
+        if _is_numeric(entry.get("roll")):
+            roll_text = f"roll {_display(entry['roll'])}"
+            if _is_numeric(entry.get("target")):
+                roll_text += f" vs {_display(entry['target'])}"
+            parts.append(roll_text)
+        if entry.get("outcome"):
+            parts.append(str(entry["outcome"]))
+        lines.append("- " + " · ".join(parts))
+    if not report.get("social_rolls"):
+        lines.append("No public social-skill rolls (Charm, Fast Talk, Intimidate, Persuade) were recorded.")
     lines.extend(["", "### Recorded Consequences", ""])
     for event in report.get("visible_consequences", []):
         event_type = event.get("event_type", "event").replace("_", " ").title()

@@ -350,10 +350,12 @@ none of this is a hard gate or a mandatory call sequence.
   Belongings matching the investigator's station are simply owned — no
   purchase roll, no bookkeeping until spending exceeds the daily level.
   Visible means (or their absence) are also social evidence to gatekeepers.
-- **Build and scale (p.33, p.105).** SIZ/Build tell everyone who is in the
-  room — whether they can see over a wall, be lifted, or be thrown. A
+- **Build and scale (p.33, p.105, p.279).** SIZ/Build tell everyone who is in
+  the room — whether they can see over a wall, be lifted, or be thrown. A
   maneuver against a target 3+ Build larger is physically impossible, not
-  merely hard: narrate the impossibility instead of rolling.
+  merely hard: narrate the impossibility instead of rolling. Call
+  `rules.build_scale` for Table XV scale examples (child to blue whale) and
+  the lift/carry/throw verdict between two builds.
 - **Occupation (p.97, p.195).** Routine professional tasks simply succeed —
   do not roll an expert for their daily craft. Occupational skills also open
   Contacts: the right profession reaches local resources, and home ground or

@@ -545,6 +545,63 @@ def test_rule_index_exposes_stable_ids_for_playtest_traceability():
         assert rule_id in ids
 
 
+def test_build_scale_table_structure():
+    """build-scale.json records the p.279 Builds quick-reference and Table XV."""
+    table = coc_rules.load_rule_table("build-scale")
+    bands = {band["relative_build"]: band["verdict"] for band in table["lift_throw_bands"]}
+    assert bands == {
+        -2: "thrown",
+        -1: "lifted_with_ease",
+        0: "carried_briefly",
+        1: "barely_lifted",
+        2: "cannot_lift_unbalance_or_disarm",
+    }
+    rows = table["comparative_builds"]
+    assert rows[0]["build"] == -2
+    assert rows[-1]["build"] == 65
+    by_build = {row["build"]: row for row in rows}
+    assert by_build[0]["natural_world"] == ["average human adult", "wolf"]
+    assert by_build[5]["mythos"] == ["dark young"]
+    assert by_build[6]["inanimate"] == ["pickup truck"]
+    assert by_build[22]["natural_world"] == ["blue whale"]
+    assert "Great Cthulhu" in by_build[22]["mythos"]
+
+
+def test_build_scale_row_and_compare_builds():
+    exact = coc_rules.build_scale_row(9)
+    assert exact["listed"] is True
+    assert exact["mythos"] == ["shoggoth"]
+
+    unlisted = coc_rules.build_scale_row(8)
+    assert unlisted["listed"] is False
+    assert unlisted["nearest_below"]["build"] == 7
+    assert unlisted["nearest_above"]["build"] == 9
+
+    thrown = coc_rules.compare_builds(0, -2)
+    assert thrown["relative_build"] == -2
+    assert thrown["lift_throw"]["verdict"] == "thrown"
+    assert thrown["maneuver"] == {"penalty_dice": 0, "impossible": False}
+
+    carried = coc_rules.compare_builds(0, 0)
+    assert carried["lift_throw"]["verdict"] == "carried_briefly"
+
+    barely = coc_rules.compare_builds(0, 1)
+    assert barely["lift_throw"]["verdict"] == "barely_lifted"
+    assert barely["maneuver"]["penalty_dice"] == 1
+    assert barely["maneuver"]["impossible"] is False
+
+    cannot = coc_rules.compare_builds(0, 2)
+    assert cannot["lift_throw"]["verdict"] == "cannot_lift_unbalance_or_disarm"
+    assert cannot["maneuver"]["penalty_dice"] == 2
+    assert cannot["maneuver"]["impossible"] is False
+
+    impossible = coc_rules.compare_builds(0, 3)
+    assert impossible["lift_throw"]["verdict"] == "cannot_lift_unbalance_or_disarm"
+    assert impossible["maneuver"] == {"penalty_dice": 0, "impossible": True}
+
+    assert "core.monsters.build_scale" in coc_rules.rule_ids()
+
+
 def test_occupations_table_structure():
     """occupations_table returns the Chapter 3 Sample Occupations."""
     table = coc_rules.occupations_table()

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "source_note": "Keeper Rulebook Chapter 14 'Builds' quick-reference and Table XV Comparative Builds (p.279). Build is an at-a-glance guide to scale: the average human has Build 0 and the human range extends from -2 (children and small persons) to 2 (heavyweight boxers). The build scale is not linear.",
+  "human_range": {
+    "min": -2,
+    "max": 2,
+    "average": 0
+  },
+  "scale_nonlinear": true,
+  "lift_throw_bands": [
+    {
+      "relative_build": -2,
+      "verdict": "thrown",
+      "note": "a target 2 builds smaller can be thrown"
+    },
+    {
+      "relative_build": -1,
+      "verdict": "lifted_with_ease",
+      "note": "a target 1 build smaller can be lifted with ease"
+    },
+    {
+      "relative_build": 0,
+      "verdict": "carried_briefly",
+      "note": "a target of equal build can be lifted off the floor and carried for a short time"
+    },
+    {
+      "relative_build": 1,
+      "verdict": "barely_lifted",
+      "note": "a target 1 build larger can barely be lifted, with a strain"
+    },
+    {
+      "relative_build": 2,
+      "verdict": "cannot_lift_unbalance_or_disarm",
+      "note": "a target 2 builds larger cannot be lifted, but might be unbalanced or disarmed"
+    }
+  ],
+  "comparative_builds": [
+    {"build": -2, "natural_world": ["child", "fruit bat"], "mythos": ["fire vampire"], "inanimate": []},
+    {"build": -1, "natural_world": ["large dog"], "mythos": ["servant of Gla'aki"], "inanimate": []},
+    {"build": 0, "natural_world": ["average human adult", "wolf"], "mythos": [], "inanimate": []},
+    {"build": 1, "natural_world": [], "mythos": ["deep one"], "inanimate": ["light motorcycle"]},
+    {"build": 2, "natural_world": ["large human", "lion"], "mythos": ["byakhee"], "inanimate": []},
+    {"build": 3, "natural_world": ["black bear", "gorilla"], "mythos": ["formless spawn"], "inanimate": ["heavy motorcycle"]},
+    {"build": 4, "natural_world": ["cape buffalo", "horse"], "mythos": ["elder thing"], "inanimate": ["economy car"]},
+    {"build": 5, "natural_world": [], "mythos": ["dark young"], "inanimate": ["standard car"]},
+    {"build": 6, "natural_world": [], "mythos": ["adult chthonian"], "inanimate": ["pickup truck"]},
+    {"build": 7, "natural_world": ["African elephant"], "mythos": ["Dagon"], "inanimate": ["6 ton truck"]},
+    {"build": 9, "natural_world": [], "mythos": ["shoggoth"], "inanimate": ["18-wheeler truck"]},
+    {"build": 11, "natural_world": [], "mythos": ["star-spawn of Cthulhu"], "inanimate": []},
+    {"build": 22, "natural_world": ["blue whale"], "mythos": ["Great Cthulhu"], "inanimate": []},
+    {"build": 65, "natural_world": [], "mythos": ["dhole"], "inanimate": ["battleship"]}
+  ]
+}

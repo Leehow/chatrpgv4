@@ -74,6 +74,13 @@
   完整 epistemic 链的确定性合同测试。该证据不是实际跑团，也不冒充战报。
 - 新增 `docs/status/DIAGNOSIS-LEDGER.md`，逐项说明两份原始审查中真实缺陷、
   live wiring/test gap、过期文档和误导性元数据的根因与当前证据。
+- 新增只读工具 `rules.build_scale` 与规则数据 `build-scale.json`：收录规则书
+  p.279 Builds 速查与 Table XV 比较体格表（Build −2 儿童/果蝠至 65 巨噬蠕虫/
+  战列舰），按 actor/target 体格差给出举/扛/掷判定，并复用 combat.json 的机动
+  罚骰与 3 档不可能阈值；`coc-keeper-play` 的 Build and scale 条款已指向该工具。
+- 战报导出新增玩家安全的 "Social Skill Rolls" 聚焦视图：仅收录公开社交技能骰
+  （Charm / Fast Talk / Intimidate / Persuade；Psychology 属 KP 暗骰不列入），
+  零记录时显式说明，证据 JSON 同步携带 `social_rolls`。
 ### Known Issues
 
 - The Haunting 的分发依据和插件图片来源仍为 `UNVERIFIED`；稳定发布前需要外部

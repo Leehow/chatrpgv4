@@ -486,3 +486,44 @@ def test_play_conduct_signals_report_unavailable_sources_honestly(tmp_path):
     assert "keeper-internal toolbox log unavailable" in markdown
     assert "skill-check delivery evidence unavailable" in markdown
     assert "no structured receipts were recorded" in markdown
+
+
+def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(campaign / "logs" / "rolls.jsonl", [
+        {"roll_id": "social-1", "actor": "ada", "visibility": "public", "payload": {"roll_id": "social-1", "skill": "Persuade", "roll": 39, "effective_target": 45, "outcome": "regular"}},
+        {"roll_id": "other-1", "actor": "ada", "visibility": "public", "payload": {"roll_id": "other-1", "skill": "Spot Hidden", "roll": 42, "effective_target": 60, "outcome": "success"}},
+        {"roll_id": "keeper-1", "visibility": "keeper_only", "payload": {"roll": 99, "skill": "Charm", "secret_text": "KEEPER_ROLL_SECRET"}},
+    ])
+
+    report = module.export_battle_report(run)
+
+    assert [row["roll_id"] for row in report["social_rolls"]] == ["social-1"]
+    entry = report["social_rolls"][0]
+    assert entry["skill"] == "Persuade"
+    assert entry["roll"] == 39
+    assert entry["target"] == 45
+    assert entry["outcome"] == "regular"
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "### Social Skill Rolls" in markdown
+    assert "`social-1` · Persuade · roll 39 vs 45 · regular" in markdown
+    assert "other-1 · Spot Hidden" not in markdown  # non-social rolls stay in the appendix only
+    assert "KEEPER_ROLL_SECRET" not in markdown
+    evidence = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
+    assert [row["roll_id"] for row in evidence["social_rolls"]] == ["social-1"]
+
+
+def test_social_skill_rolls_zero_is_explicit(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)  # fixture rolls contain no social-skill rows
+
+    report = module.export_battle_report(run)
+
+    assert report["social_rolls"] == []
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "### Social Skill Rolls" in markdown
+    assert "No public social-skill rolls (Charm, Fast Talk, Intimidate, Persuade) were recorded." in markdown

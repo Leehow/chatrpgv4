@@ -46,7 +46,9 @@ The exporter atomically writes the final pair under `artifacts/`:
 
 The Markdown renders the full initial investigator card, final `current_*`
 state, development deltas, personal-horror weave/payoff receipts, visited path,
-discovered clues only, player-safe NPC interactions, recorded major decisions
+discovered clues only, player-safe NPC interactions, a focused public
+social-skill roll view (Charm / Fast Talk / Intimidate / Persuade only;
+Psychology is Keeper-concealed and never listed), recorded major decisions
 and consequences, the structured ending/recap, exact ordered transcript, and
 the complete public-roll appendix. Static card values are not presented as
 final values, and numeric zero is never treated as missing.

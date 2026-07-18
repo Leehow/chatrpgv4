@@ -7185,3 +7185,51 @@ def test_scene_context_exposes_party_investigator_briefs(campaign_ws):
         "bout_active", "temporary_insane", "indefinite_insane", "delusion_active",
     }
     assert brief["madness"]["bout_active"] is False
+
+
+def test_rules_build_scale_lookup_and_comparison(tmp_path):
+    described = coc_toolbox._describe("rules.build_scale")
+    assert described["needs_campaign"] is False
+
+    scale = coc_toolbox.run_tool("rules.build_scale", tmp_path, None, {"build": 5})
+    assert scale["ok"] is True
+    assert scale["data"]["scale"]["listed"] is True
+    assert scale["data"]["scale"]["mythos"] == ["dark young"]
+    assert scale["data"]["scale"]["inanimate"] == ["standard car"]
+
+    unlisted = coc_toolbox.run_tool("rules.build_scale", tmp_path, None, {"build": 8})
+    assert unlisted["ok"] is True
+    assert unlisted["data"]["scale"]["listed"] is False
+    assert unlisted["data"]["scale"]["nearest_below"]["build"] == 7
+    assert unlisted["data"]["scale"]["nearest_above"]["build"] == 9
+
+    comparison = coc_toolbox.run_tool(
+        "rules.build_scale", tmp_path, None, {"actor_build": 0, "target_build": 1}
+    )
+    assert comparison["ok"] is True
+    verdict = comparison["data"]["comparison"]
+    assert verdict["lift_throw"]["verdict"] == "barely_lifted"
+    assert verdict["maneuver"]["penalty_dice"] == 1
+    assert verdict["maneuver"]["impossible"] is False
+
+    impossible = coc_toolbox.run_tool(
+        "rules.build_scale", tmp_path, None, {"actor_build": 0, "target_build": 3}
+    )
+    assert impossible["ok"] is True
+    assert impossible["data"]["comparison"]["maneuver"]["impossible"] is True
+
+    missing = coc_toolbox.run_tool("rules.build_scale", tmp_path, None, {})
+    assert missing["ok"] is False
+    assert missing["error"]["code"] == "invalid_param"
+
+    half_pair = coc_toolbox.run_tool(
+        "rules.build_scale", tmp_path, None, {"actor_build": 0}
+    )
+    assert half_pair["ok"] is False
+    assert half_pair["error"]["code"] == "invalid_param"
+
+    bad_type = coc_toolbox.run_tool(
+        "rules.build_scale", tmp_path, None, {"build": True}
+    )
+    assert bad_type["ok"] is False
+    assert bad_type["error"]["code"] == "invalid_param"

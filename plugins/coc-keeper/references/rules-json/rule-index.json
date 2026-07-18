@@ -660,6 +660,19 @@
       }
     },
     {
+      "id": "core.monsters.build_scale",
+      "category": "monsters",
+      "source_table": "build-scale.json",
+      "source_note": "Keeper Rulebook Ch.14 'Builds' quick-reference and Table XV Comparative Builds (p.279). Build is an at-a-glance scale guide (average human 0, human range -2 to 2); lift/throw bands compare actor and target build. Fighting-maneuver penalty/impossibility thresholds live in combat.json.",
+      "numeric": {
+        "average_human_build": 0,
+        "human_build_min": -2,
+        "human_build_max": 2,
+        "lift_throw_band_count": 5,
+        "comparative_build_rows": 14
+      }
+    },
+    {
       "id": "core.sanity.max_formula",
       "category": "sanity",
       "source_table": "sanity.json",
