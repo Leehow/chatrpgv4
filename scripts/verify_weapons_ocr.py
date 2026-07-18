@@ -113,8 +113,9 @@ def norm_name(s: str) -> str:
     s = s.replace("&#x27;", "").replace("'", "")
     # split digits-from-letters (OCR often runs ".303Lee" together)
     s = re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])", " ", s)
-    # collapse gauge calibers and punctuation
-    s = re.sub(r"[\s\-\.,/()]+", " ", s).strip()
+    # collapse gauge calibers and punctuation (& acts as a separator too,
+    # e.g. OCR "Heckler& Koch" vs our "Heckler & Koch")
+    s = re.sub(r"[\s\-\.,/()&]+", " ", s).strip()
     s = re.sub(r"\b(the|a|an)\b", "", s).strip()
     s = re.sub(r"\s+", " ", s)
     return s
@@ -126,6 +127,25 @@ NAME_OVERRIDES = {
     # our_key matches these OCR (display) names
 }
 
+# MinerU's extraction of the handgun table (printed p.402) lagged Name cells
+# by one row: each OCR row below carries the VALUES of the previous book row
+# (verified against the rendered page). Map each lagged OCR row name to the
+# weapons.json key whose values it actually carries. The book's '.41 Revolver'
+# row was dropped by the OCR entirely, so luger_41_revolver has no OCR row.
+OCR_ROW_VALUE_KEY = {
+    "Flintlock .22 Short": "flintlock_22_short",
+    "Automatic .25 Derringer": "22_short_automatic",
+    "(1B) .32 or 7.65mm": "automatic_25_derringer",
+    "Revolver .32 or 7.65mm": "revolver_32_or_7_65mm",
+    "Automatic .357 Magnum": "automatic_32_or_7_65mm",
+    "Revolver .38 or 9mm": "automatic_357_magnum",
+    "Revolver .38 Automatic": "revolver_38_or_9mm",
+    "Beretta M9": "revolver_38",
+    "Glock 17": "beretta_m9",
+    "9mm Auto Model P08": "glock_17",
+    "Luger .41 Revolver": "9mm_auto_model_p08",
+}
+
 
 def match_weapon(pdf_row: dict, our_weapons: dict) -> str | None:
     """Match an OCR weapon row to a weapons.json key. First exact, then
@@ -135,6 +155,9 @@ def match_weapon(pdf_row: dict, our_weapons: dict) -> str | None:
     (dart)"), require the OCR name to include that variant token — this
     prevents "Taser (dart)" from matching the OCR "Taser (contact)" row.
     """
+    # Row-lagged OCR rows (see OCR_ROW_VALUE_KEY) match by value identity.
+    if pdf_row["name"] in OCR_ROW_VALUE_KEY:
+        return OCR_ROW_VALUE_KEY[pdf_row["name"]]
     target = norm_name(pdf_row["name"])
     # exact
     for k, v in our_weapons.items():
@@ -523,6 +546,10 @@ def main() -> int:
 
         # --- damage_type (informational cross-check) ---
         odt = classify_damage_type(row, ours)
+        # The OCR lost the '(i)' on the sword-light name cell (it leaked onto
+        # the taser row below it); the printed page marks Sword, light as (i).
+        if key == "sword_light":
+            odt = "impale"
         our_dt = ours.get("damage_type")
         field_cmp["dtype"] += 1
         if odt is None or our_dt is None:
@@ -558,6 +585,9 @@ def main() -> int:
 
 def _mag_equal(pdf_mag, our_mag) -> bool:
     if pdf_mag is None and our_mag is None:
+        return True
+    # Rulebook 'Varies' means no fixed capacity -> we store null.
+    if pdf_mag == "varies" and our_mag is None:
         return True
     if pdf_mag is None or our_mag is None:
         # "1" vs None: treat our missing as mismatch unless OCR truly empty

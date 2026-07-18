@@ -383,16 +383,44 @@ def check_run_cross(run: str, rolls: list[dict], events: list[dict],
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
-def validate_run(run_dir: Path, V: Violations) -> None:
-    run_id = run_dir.name
-    campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / run_id
-    rolls = _load_jsonl(campaign_dir / "logs" / "rolls.jsonl")
-    events = _load_jsonl(campaign_dir / "logs" / "events.jsonl")
-    for roll in rolls:
-        check_roll(run_id, roll, V)
-    for event in events:
-        check_event(run_id, event, V)
-    check_run_cross(run_id, rolls, events, V)
+def _find_campaign_log_dirs(run_dir: Path) -> list[Path]:
+    """Campaign dirs under a run's sandbox that actually hold log files.
+
+    Campaign ids are chosen at campaign-creation time and do NOT match the
+    playtest run id (e.g. run '0.4.0a-kimi-closure-...' contains campaign
+    'the-haunting-qs'), so discovery must scan instead of assuming equality.
+    """
+    campaigns = run_dir / "sandbox" / ".coc" / "campaigns"
+    if not campaigns.is_dir():
+        return []
+    out = []
+    for d in sorted(campaigns.iterdir()):
+        if not d.is_dir():
+            continue
+        logs = d / "logs"
+        if (logs / "rolls.jsonl").exists() or (logs / "events.jsonl").exists():
+            out.append(d)
+    return out
+
+
+def validate_run(run_dir: Path, V: Violations) -> tuple[int, int]:
+    """Validate every campaign log found under a run's sandbox.
+
+    Returns (rolls_swept, events_swept).
+    """
+    total_rolls = total_events = 0
+    for campaign_dir in _find_campaign_log_dirs(run_dir):
+        label = f"{run_dir.name}/{campaign_dir.name}"
+        rolls = _load_jsonl(campaign_dir / "logs" / "rolls.jsonl")
+        events = _load_jsonl(campaign_dir / "logs" / "events.jsonl")
+        total_rolls += len(rolls)
+        total_events += len(events)
+        for roll in rolls:
+            check_roll(label, roll, V)
+        for event in events:
+            check_event(label, event, V)
+        check_run_cross(label, rolls, events, V)
+    return total_rolls, total_events
 
 
 def main(argv: list[str]) -> int:
@@ -406,22 +434,26 @@ def main(argv: list[str]) -> int:
         run_ids = sorted(d.name for d in root.iterdir() if d.is_dir())
     V = Violations()
     total_rolls = total_events = 0
+    empty_runs: list[str] = []
     for rid in run_ids:
         run_dir = root / rid
         if not run_dir.exists():
             print(f"(skip {rid}: not found)", file=sys.stderr)
             continue
-        campaign_dir = run_dir / "sandbox" / ".coc" / "campaigns" / rid
-        rolls = _load_jsonl(campaign_dir / "logs" / "rolls.jsonl")
-        events = _load_jsonl(campaign_dir / "logs" / "events.jsonl")
-        total_rolls += len(rolls)
-        total_events += len(events)
-        for roll in rolls:
-            check_roll(rid, roll, V)
-        for event in events:
-            check_event(rid, event, V)
-        check_run_cross(rid, rolls, events, V)
+        r, e = validate_run(run_dir, V)
+        if r + e == 0:
+            empty_runs.append(rid)
+        total_rolls += r
+        total_events += e
     print(f"Swept {len(run_ids)} runs, {total_rolls} rolls, {total_events} events.")
+    for rid in empty_runs:
+        print(f"WARNING: run '{rid}' swept 0 records (no campaign logs found "
+              f"under its sandbox)", file=sys.stderr)
+    if total_rolls + total_events == 0:
+        # A pass over zero records is not a pass; refuse to report one.
+        print("ERROR: no playtest records found — nothing was validated "
+              "(refusing a vacuous pass)", file=sys.stderr)
+        return 2
     print(V.report())
     return 0 if not V.items else 1
 

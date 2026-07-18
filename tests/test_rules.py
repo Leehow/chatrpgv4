@@ -331,13 +331,17 @@ def test_weapons_table_structure_and_schema():
     assert knife["damage_die"] == "1D4+2"
     assert knife["adds_damage_bonus"] is True
     assert knife["impales"] is True
-    revolver = weapons["revolver_38"]
+    revolver = weapons["revolver_38_or_9mm"]
     assert revolver["skill"] == "Firearms (Handgun)"
     assert revolver["damage_die"] == "1D10"
     assert revolver["adds_damage_bonus"] is False
     assert revolver["impales"] is True
     assert revolver["magazine"] == 6
     assert revolver["malfunction"] == 100
+    auto38 = weapons["revolver_38"]
+    assert auto38["display_name"] == ".38 Automatic"
+    assert auto38["magazine"] == 8
+    assert auto38["malfunction"] == 99
     p08 = weapons["9mm_auto_model_p08"]
     assert p08["skill"] == "Firearms (Handgun)"
     assert p08["damage_die"] == "1D10"

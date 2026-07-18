@@ -62,6 +62,19 @@ Before finishing plugin work, run at minimum:
 PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
+Changes to rule tables (`references/rules-json/`) must additionally pass the
+offline rulebook audit (JSON-vs-JSON against the committed
+`checks/rulebook-*-ref.json` snapshots; no OCR cache needed):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_rulebook_data_audit.py -q -p no:cacheprovider
+```
+
+The `scripts/verify_*_ocr.py` tools are extraction-time checks that need the
+MinerU cache from `scripts/cache_all_ocr.sh`; they are not part of pytest.
+`checks/exhaustive_rulebook_validator.py <playtests-root>` sweeps playtest
+logs for rule violations and refuses a vacuous pass (exit 2 on zero records).
+
 ## Keeper Toolbox Architecture
 
 The keeper LLM drives every play turn. There is no fixed turn pipeline: the
@@ -273,6 +286,81 @@ zero.
 
 Never reconstruct missing dice from memory or report prose. Never remove a
 failed completeness finding when delivering a report.
+
+## Playtest Experience Constitution
+
+Acceptance and “测完 / 玩家体验等价” claims must simulate the experience of a
+real player loading the canonical plugin and playing at the table. This clause
+binds Codex, Cursor, Pi/headless, and any agent operating the plugin as Keeper
+for whole-product or playtest evidence. It does not add a fixed turn pipeline
+or make advisory tools into hard narrative gates.
+
+### Experience parity with a player-loaded plugin
+
+- The Keeper must load the same skill path a normal session uses:
+  `coc-main` → mode protocol → `coc-keeper-play` → `coc-story-director`, then
+  other skills as needed. Call the unified toolbox the player-facing product
+  exposes. Do not invent a test-only Keeper, thinner skill subset, or parallel
+  orchestration path “because this is just a test.”
+- Host topology still follows the single-track law: on Cursor the main session
+  is the Keeper; a subagent may be the player only. On Codex the main agent is
+  the Keeper with a `fork_turns: "none"` player subagent. Pi/headless remains
+  the same product surface, not a reduced facade.
+
+### No schedule-driven thinning
+
+- Do not omit KP craft to finish more modules, hit a coverage checklist, meet a
+  turn budget, or ship overnight. Coverage plans and multi-module queues are
+  post-run evidence or scheduling notes only; they must never authorize a
+  thinner Keeper path.
+- “Battle report COMPLETE,” “two scenarios done tonight,” or “visited every
+  scene id” is not permission to skip director, narration, storylets, uptake,
+  or table prose quality.
+
+### No rules/state shell as acceptance play
+
+- A path that mainly calls `rules.*` / `state.*` / `scene.move` (and similar)
+  and wraps results in short log-style prose is not an acceptable acceptance
+  session, on any host.
+- Director, narration, storylets, and related advisory tools are part of the
+  normal KP craft surface. In a session that claims whole-product acceptance
+  or player-experience parity, those layers must be discoverable and actually
+  used along the run. A single turn that happens not to need an advisory call
+  is fine and must not block play. **Systematic zero-call evidence for the
+  whole run cannot prove experience parity** and cannot justify an acceptance
+  “测完” claim.
+- When advisory output is consulted, record disposition with
+  `evidence.record_adoption` so audits can distinguish availability from use.
+
+### Table text is player-facing
+
+- Transcripts must preserve the exact player-facing Keeper prose delivered at
+  the table, in the session play language, with action uptake and readable
+  public-roll wording. Do not paste tool envelopes, clue-id dumps, or raw
+  toolbox English enums (`failure`, `regular`, `hard`, `extreme`) into
+  player-visible narration as if they were table results.
+- Compound-action decomposition is internal craft. Do not put chain-settlement
+  audit voice on the table (`【串联】`, “本回合不结算”, “执行备选”,
+  atom/deferred labels, or CRPG option dumps of the unplayed remainder).
+  Threshold discipline must appear as fiction and dice, not as a test worksheet.
+  When a mid-chain gate stops later steps, the table prose should still nod to
+  why those later steps did not happen yet (light wit welcome) and soft-cue
+  alternate approaches when fiction allows — without auto-settling them.
+  The same affectionate table wit is welcome on fumbles and hard-fought
+  failures when tone allows; it is craft, not a mandatory gag every miss.
+- Public dice remain authoritative from structured logs; prose must quote them
+  faithfully in table language, not as internal outcome tokens.
+
+### Layered completion labels
+
+- `battle-report` completeness (`COMPLETE` / `INCOMPLETE`) means report-source
+  evidence only. It does **not** certify prose quality, director/narration use,
+  or player-experience parity.
+- To claim “测完,” “整品验收,” or “等同玩家加载插件后的体验,” the run must
+  satisfy this constitution **and** the Plugin-Native Acceptance Contract. If
+  the run was a smoke check, coverage harness, or rules/state-only probe, label
+  it explicitly (`smoke`, `coverage-harness`, `rules-state-only`, etc.) and do
+  not present it as player-experience acceptance.
 
 ## Playtest Battle Report Evidence Standard
 

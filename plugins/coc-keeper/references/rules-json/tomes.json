@@ -748,14 +748,71 @@
       "display_name": "Ghorl Nigral (German 1847, Mulder)",
       "note": "Edition variant from Mythos Tomes table"
     },
-    "necronomicon_en_philips": {
-      "full_study_weeks": 8,
+    "al_azif_ar_730": {
+      "full_study_weeks": 68,
+      "sanity_cost": "2D10",
+      "cthulhu_mythos_initial": 6,
+      "cthulhu_mythos_full": 12,
+      "mythos_rating": 54,
+      "display_name": "Al Azif",
+      "language": "Arabic",
+      "date": "c.730",
+      "author": "Abdul al-Hazrad"
+    },
+    "necronomicon_gr_950": {
+      "full_study_weeks": 68,
+      "sanity_cost": "2D10",
+      "cthulhu_mythos_initial": 5,
+      "cthulhu_mythos_full": 12,
+      "mythos_rating": 51,
+      "display_name": "Necronomicon (Greek, Theodoras Philetas c.950)",
+      "language": "Greek",
+      "date": "c.950",
+      "author": "Theodoras Philetas"
+    },
+    "necronomicon_la_1228": {
+      "full_study_weeks": 66,
+      "sanity_cost": "2D10",
+      "cthulhu_mythos_initial": 5,
+      "cthulhu_mythos_full": 11,
+      "mythos_rating": 48,
+      "display_name": "Necronomicon (Latin, Olaus Wormius 1228)",
+      "language": "Latin",
+      "date": "1228",
+      "author": "Olaus Wormius"
+    },
+    "necronomicon_en_1586": {
+      "full_study_weeks": 50,
+      "sanity_cost": "2D10",
+      "cthulhu_mythos_initial": 5,
+      "cthulhu_mythos_full": 10,
+      "mythos_rating": 45,
+      "display_name": "Necronomicon (English, John Dee 1586)",
+      "language": "English",
+      "date": "1586",
+      "author": "John Dee"
+    },
+    "necrolatry_de_1702": {
+      "full_study_weeks": 20,
+      "sanity_cost": "2D6",
+      "cthulhu_mythos_initial": 4,
+      "cthulhu_mythos_full": 8,
+      "mythos_rating": 36,
+      "display_name": "Necrolatry (German 1702)",
+      "language": "German",
+      "date": "1702",
+      "author": "Ivor Gorstadt"
+    },
+    "massa_di_requiem_per_shuggay_it_1768": {
+      "full_study_weeks": 2,
       "sanity_cost": "1D6",
       "cthulhu_mythos_initial": 1,
       "cthulhu_mythos_full": 3,
       "mythos_rating": 12,
-      "display_name": "Necronomicon (English, Ward Philips 1788)",
-      "note": "Edition variant from Mythos Tomes table"
+      "display_name": "Massa di Requiem per Shuggay (Italian 1768)",
+      "language": "Italian",
+      "date": "1768",
+      "author": "B. Chieti Brodighera"
     },
     "brendall_manuscript_1907": {
       "full_study_weeks": 10,

@@ -212,14 +212,14 @@
       "uses_per_round": "1",
       "magazine": null,
       "malfunction": null,
-      "impales": false,
+      "impales": true,
       "adds_damage_bonus": true,
       "special": null,
       "eras": [
         "1920s",
         "modern"
       ],
-      "damage_type": "normal"
+      "damage_type": "impale"
     },
     "sword_medium": {
       "display_name": "Sword, medium (rapier, heavy epee)",
@@ -307,13 +307,13 @@
       "damage_type": "impale"
     },
     "revolver_38": {
-      "display_name": "Revolver .38 Automatic",
+      "display_name": ".38 Automatic",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
       "uses_per_round": "1 (3)",
-      "magazine": 6,
-      "malfunction": 100,
+      "magazine": 8,
+      "malfunction": 99,
       "impales": true,
       "adds_damage_bonus": false,
       "special": null,
@@ -392,12 +392,12 @@
       "damage_type": "impale"
     },
     "shotgun_12g": {
-      "display_name": "12-gauge Shotgun",
+      "display_name": "12-gauge Shotgun (2B)",
       "skill": "Firearms (Rifle/shotgun)",
       "damage_die": "4D6",
       "base_range_yards": 10,
-      "uses_per_round": "1",
-      "magazine": 5,
+      "uses_per_round": "1 or 2",
+      "magazine": 2,
       "malfunction": 100,
       "impales": false,
       "adds_damage_bonus": false,
@@ -513,7 +513,7 @@
       "malfunction": null,
       "impales": false,
       "adds_damage_bonus": false,
-      "special": null,
+      "special": "Stun only; reach 6 feet (stored as 2 yards)",
       "eras": [
         "1920s",
         "modern"
@@ -584,6 +584,7 @@
       "adds_damage_bonus": true,
       "special": "+half DB",
       "eras": [
+        "1920s",
         "modern"
       ],
       "damage_type": "impale"
@@ -598,7 +599,7 @@
       "malfunction": 95,
       "impales": false,
       "adds_damage_bonus": false,
-      "special": null,
+      "special": "dart stun gun; range 15 feet (stored as 5 yards)",
       "eras": [
         "modern"
       ],
@@ -615,8 +616,9 @@
       "malfunction": null,
       "impales": false,
       "adds_damage_bonus": true,
-      "special": "uses half DB (not full)",
+      "special": "uses half DB (not full); rulebook era 'Rare' (rare in both eras)",
       "eras": [
+        "1920s",
         "modern"
       ],
       "damage_type": "normal"
@@ -633,12 +635,13 @@
       "adds_damage_bonus": true,
       "special": null,
       "eras": [
-        "1920s"
+        "1920s",
+        "modern"
       ],
       "damage_type": "impale"
     },
     "flintlock_22_short": {
-      "display_name": "Flintlock .22 Short",
+      "display_name": "Flintlock",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D6+1",
       "base_range_yards": 10,
@@ -647,35 +650,35 @@
       "malfunction": 95,
       "impales": true,
       "adds_damage_bonus": false,
-      "special": null,
-      "eras": [
-        "modern"
-      ],
-      "damage_type": "impale"
-    },
-    "automatic_25_derringer": {
-      "display_name": "Automatic .25 Derringer",
-      "skill": "Firearms (Handgun)",
-      "damage_die": "1D6",
-      "base_range_yards": 10,
-      "uses_per_round": "1(3)",
-      "magazine": 6,
-      "malfunction": 100,
-      "impales": true,
-      "adds_damage_bonus": false,
-      "special": null,
+      "special": "rulebook era 'Rare' (rare in both eras)",
       "eras": [
         "1920s",
         "modern"
       ],
       "damage_type": "impale"
     },
+    "automatic_25_derringer": {
+      "display_name": ".25 Derringer (1B)",
+      "skill": "Firearms (Handgun)",
+      "damage_die": "1D6",
+      "base_range_yards": 3,
+      "uses_per_round": "1",
+      "magazine": 1,
+      "malfunction": 100,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s"
+      ],
+      "damage_type": "impale"
+    },
     "revolver_32_or_7_65mm": {
-      "display_name": "Revolver .32 or 7.65mm",
+      "display_name": ".32 or 7.65mm Revolver",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D8",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
       "magazine": 6,
       "malfunction": 100,
       "impales": true,
@@ -688,28 +691,11 @@
       "damage_type": "impale"
     },
     "automatic_357_magnum": {
-      "display_name": "Automatic .357 Magnum",
-      "skill": "Firearms (Handgun)",
-      "damage_die": "1D8",
-      "base_range_yards": 15,
-      "uses_per_round": "1(3)",
-      "magazine": 8,
-      "malfunction": 99,
-      "impales": true,
-      "adds_damage_bonus": false,
-      "special": null,
-      "eras": [
-        "1920s",
-        "modern"
-      ],
-      "damage_type": "impale"
-    },
-    "revolver_38_or_9mm": {
-      "display_name": "Revolver .38 or 9mm",
+      "display_name": ".357 Magnum Revolver",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D8+1D4",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
       "magazine": 6,
       "malfunction": 100,
       "impales": true,
@@ -720,14 +706,14 @@
       ],
       "damage_type": "impale"
     },
-    "beretta_m9": {
-      "display_name": "Beretta M9",
+    "revolver_38_or_9mm": {
+      "display_name": ".38 or 9mm Revolver",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
-      "magazine": 8,
-      "malfunction": 99,
+      "uses_per_round": "1 (3)",
+      "magazine": 6,
+      "malfunction": 100,
       "impales": true,
       "adds_damage_bonus": false,
       "special": null,
@@ -737,12 +723,12 @@
       ],
       "damage_type": "impale"
     },
-    "glock_17": {
-      "display_name": "Glock 17",
+    "beretta_m9": {
+      "display_name": "Beretta M9",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
       "magazine": 15,
       "malfunction": 98,
       "impales": true,
@@ -753,12 +739,28 @@
       ],
       "damage_type": "impale"
     },
-    "9mm_auto_model_p08": {
-      "display_name": "9mm Auto Model P08",
+    "glock_17": {
+      "display_name": "Glock 17",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
+      "magazine": 17,
+      "malfunction": 98,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "9mm_auto_model_p08": {
+      "display_name": "Model P08 Luger",
+      "skill": "Firearms (Handgun)",
+      "damage_die": "1D10",
+      "base_range_yards": 15,
+      "uses_per_round": "1 (3)",
       "magazine": 8,
       "malfunction": 99,
       "impales": true,
@@ -771,19 +773,18 @@
       "damage_type": "impale"
     },
     "luger_41_revolver": {
-      "display_name": "Luger .41 Revolver",
+      "display_name": ".41 Revolver",
       "skill": "Firearms (Handgun)",
       "damage_die": "1D10",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
       "magazine": 8,
-      "malfunction": 99,
+      "malfunction": 100,
       "impales": true,
       "adds_damage_bonus": false,
       "special": null,
       "eras": [
-        "1920s",
-        "modern"
+        "1920s"
       ],
       "damage_type": "impale"
     },
@@ -792,7 +793,7 @@
       "skill": "Firearms (Handgun)",
       "damage_die": "1D10+1D6+3",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
       "magazine": 7,
       "malfunction": 94,
       "impales": true,
@@ -804,7 +805,7 @@
       "damage_type": "impale"
     },
     "col_moranx27s_air_rifle": {
-      "display_name": "Col. Moran&#x27;s Air Rifle",
+      "display_name": "Col. Moran's Air Rifle",
       "skill": "Firearms (Rifle)",
       "damage_die": "2D6+1",
       "base_range_yards": 20,
@@ -1093,7 +1094,7 @@
       "damage_type": "impale"
     },
     "heckleramp_koch_mp5": {
-      "display_name": "Heckler&amp; Koch MP5",
+      "display_name": "Heckler & Koch MP5",
       "skill": "Firearms (Submachine Gun)",
       "damage_die": "1D10",
       "base_range_yards": 20,
@@ -1253,7 +1254,7 @@
       "damage_type": "impale"
     },
     "fn_minimi_5_56mm": {
-      "display_name": "FN Minimi, 5.56mm,",
+      "display_name": "FN Minimi, 5.56mm",
       "skill": "Firearms (Machine Gun)",
       "damage_die": "2D6",
       "base_range_yards": 110,
@@ -1486,7 +1487,7 @@
       "damage_type": "normal"
     },
     "anti_personnel_mine": {
-      "display_name": "Anti- Personnel Mine",
+      "display_name": "Anti-Personnel Mine",
       "skill": "Demolitions",
       "damage_die": "4D10",
       "base_range_yards": null,
@@ -1557,7 +1558,7 @@
       "skill": "Firearms (handgun)",
       "damage_die": "1D10+1D4+2",
       "base_range_yards": 15,
-      "uses_per_round": "1(3)",
+      "uses_per_round": "1 (3)",
       "magazine": 6,
       "malfunction": 100,
       "impales": true,
@@ -1578,14 +1579,15 @@
       "malfunction": 95,
       "impales": true,
       "adds_damage_bonus": false,
-      "special": null,
+      "special": "rulebook era 'Rare' (rare in both eras)",
       "eras": [
+        "1920s",
         "modern"
       ],
       "damage_type": "impale"
     },
     "30_lever_action_carbine": {
-      "display_name": ".30 Lever- Action Carbine",
+      "display_name": ".30 Lever-Action Carbine",
       "skill": "Firearms (rifle)",
       "damage_die": "2D6",
       "base_range_yards": 50,
@@ -1602,7 +1604,7 @@
       "damage_type": "impale"
     },
     "45_martini_henry_rifle": {
-      "display_name": ".45 Martini- Henry Rifle",
+      "display_name": ".45 Martini-Henry Rifle",
       "skill": "Firearms (rifle)",
       "damage_die": "1D8+1D6+3",
       "base_range_yards": 80,
@@ -1618,7 +1620,7 @@
       "damage_type": "impale"
     },
     "30_06_bolt_action_rifle": {
-      "display_name": ".30-06 Bolt- Action Rifle",
+      "display_name": ".30-06 Bolt-Action Rifle",
       "skill": "Firearms (rifle)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
@@ -1635,7 +1637,7 @@
       "damage_type": "impale"
     },
     "30_06_semi_automatic_rifle": {
-      "display_name": ".30-06 Semi- Automatic Rifle",
+      "display_name": ".30-06 Semi-Automatic Rifle",
       "skill": "Firearms (rifle)",
       "damage_die": "2D6+4",
       "base_range_yards": 110,
@@ -1681,6 +1683,120 @@
         "1920s"
       ],
       "damage_type": "impale"
+    },
+    "22_short_automatic": {
+      "display_name": ".22 Short Automatic",
+      "skill": "Firearms (Handgun)",
+      "damage_die": "1D6",
+      "base_range_yards": 10,
+      "uses_per_round": "1 (3)",
+      "magazine": 6,
+      "malfunction": 100,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s",
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "automatic_32_or_7_65mm": {
+      "display_name": ".32 or 7.65mm Automatic",
+      "skill": "Firearms (Handgun)",
+      "damage_die": "1D8",
+      "base_range_yards": 15,
+      "uses_per_round": "1 (3)",
+      "magazine": 8,
+      "malfunction": 99,
+      "impales": true,
+      "adds_damage_bonus": false,
+      "special": null,
+      "eras": [
+        "1920s",
+        "modern"
+      ],
+      "damage_type": "impale"
+    },
+    "shotgun_12g_pump": {
+      "display_name": "12-gauge Shotgun (Pump)",
+      "skill": "Firearms (Rifle/shotgun)",
+      "damage_die": "4D6",
+      "base_range_yards": 10,
+      "uses_per_round": "1",
+      "magazine": 5,
+      "malfunction": 100,
+      "impales": false,
+      "adds_damage_bonus": false,
+      "special": "damage bands by range; slugs (1D10+6) may impale",
+      "eras": [
+        "modern"
+      ],
+      "range_banded_damage": {
+        "point_blank": "4D6",
+        "half": "2D6",
+        "max": "1D6"
+      },
+      "damage_type": "normal"
+    },
+    "shotgun_12g_semi_auto": {
+      "display_name": "12-gauge Shotgun (semi-auto)",
+      "skill": "Firearms (Rifle/shotgun)",
+      "damage_die": "4D6",
+      "base_range_yards": 10,
+      "uses_per_round": "1 (2)",
+      "magazine": 5,
+      "malfunction": 100,
+      "impales": false,
+      "adds_damage_bonus": false,
+      "special": "damage bands by range; slugs (1D10+6) may impale",
+      "eras": [
+        "modern"
+      ],
+      "range_banded_damage": {
+        "point_blank": "4D6",
+        "half": "2D6",
+        "max": "1D6"
+      },
+      "damage_type": "normal"
+    },
+    "shotgun_12g_sawed_off": {
+      "display_name": "12-gauge Shotgun (2B, sawed-off)",
+      "skill": "Firearms (Rifle/shotgun)",
+      "damage_die": "4D6",
+      "base_range_yards": 5,
+      "uses_per_round": "1 or 2",
+      "magazine": 2,
+      "malfunction": 100,
+      "impales": false,
+      "adds_damage_bonus": false,
+      "special": "sawed-off double-barrel; damage bands 4D6/1D6 at 5/10 yards",
+      "eras": [
+        "1920s"
+      ],
+      "range_banded_damage": {
+        "point_blank": "4D6",
+        "half": "1D6",
+        "max": "1D6"
+      },
+      "damage_type": "normal"
+    },
+    "taser_contact": {
+      "display_name": "Taser (contact)",
+      "skill": "Fighting (Brawl)",
+      "damage_die": "1D3",
+      "base_range_yards": null,
+      "uses_per_round": "1",
+      "magazine": null,
+      "malfunction": 97,
+      "impales": false,
+      "adds_damage_bonus": false,
+      "special": "contact stun gun; damage 1D3+stun; magazine 'Varies' per rulebook",
+      "eras": [
+        "modern"
+      ],
+      "status_effect": "stun",
+      "damage_type": "stun"
     }
   },
   "rule_refs": {

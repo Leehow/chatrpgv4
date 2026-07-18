@@ -1,188 +1,118 @@
 {
-  "source_note": "Authoritative weapon data from Keeper Rulebook Table XVII: Weapons (printed pages 401-405, PDF idx 412-416). Our weapons.json stores damage_die WITHOUT the +DB suffix (DB is handled by adds_damage_bonus). This ref stores the dice portion only, matching our convention. base_range_yards in yards (Touch=null). For 'half DB' weapons our data uses adds_damage_bonus=true with a special note.",
+  "source_note": "Authoritative weapon data from Keeper Rulebook Table XVII: Weapons (printed pages 401-405, PDF idx 412-416), transcribed from the rendered table pages. Covers every Table XVII row (104 weapons). Our weapons.json additionally carries two non-Table entries (unarmed, claws) which are intentionally absent here. Our weapons.json stores damage_die WITHOUT the +DB suffix (DB is handled by adds_damage_bonus). This ref stores the dice portion only, matching our convention. base_range_yards in yards (Touch=null). For 'half DB' weapons our data uses adds_damage_bonus=true with a special note.",
   "convention": {
-    "damage_die": "dice portion only, DB suffix stripped (e.g. rulebook '1D8+DB' -> '1D8'); special dice like 'Stun' kept as-is",
-    "base_range_yards": "integer yards, or null for Touch/melee",
-    "malfunction": "integer (>=94) or null for melee",
-    "magazine": "integer rounds or null",
-    "uses_per_round": "verbatim string"
+    "damage_die": "dice portion only, DB suffix stripped (e.g. rulebook '1D8+DB' -> '1D8'); range-banded shotguns/explosives store the close-range band only ('4D6/2D6/1D6' -> '4D6'); 'Stun'-only cells store an empty string (our damage_die stays empty, damage_type=stun)",
+    "base_range_yards": "integer yards, or null for Touch/melee; feet ranges (10 feet bullwhip, 15 feet taser, 6 feet mace) are null here with a note (our data stores the yard conversion); 'STR/5 yards' formula ranges store the literal string 'STR/5' (our data stores placeholder 5)",
+    "malfunction": "integer (>=93) or null for melee",
+    "magazine": "integer rounds or null; multi-value cells ('20/30/32') store the primary (first) value; 'One use' -> 1; 'Separate'/'Varies' -> null",
+    "uses_per_round": "verbatim rulebook string",
+    "eras": "rulebook era column mapped to ['1920s','modern'] subsets; 'Rare' (rare in all eras) -> ['1920s','modern'] with a note; 'WWII, Later' -> ['modern']",
+    "note": "optional transcription note; not compared"
   },
   "weapons": {
-    "unarmed": {
-      "damage_die": "1D3",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "brass_knuckles": {
-      "damage_die": "1D3+1",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "bullwhip": {
-      "damage_die": "1D3",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1",
-      "note": "Rulebook range '10 feet' (reach), not a yard range; damage 1D3+half DB"
-    },
-    "chainsaw": {
-      "damage_die": "2D8",
-      "base_range_yards": null,
-      "malfunction": 95,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "club_small": {
-      "damage_die": "1D6",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "club_large": {
-      "damage_die": "1D8",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "garrote": {
-      "damage_die": "1D6",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "hatchet": {
-      "damage_die": "1D6+1",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "knife_small": {
-      "damage_die": "1D4",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "knife_medium": {
-      "damage_die": "1D4+2",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "knife_large": {
-      "damage_die": "1D8",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "sword_light": {
-      "damage_die": "1D6",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "sword_medium": {
-      "damage_die": "1D6+1",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "sword_heavy": {
-      "damage_die": "1D8+1",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "spear": {
-      "damage_die": "1D8+1",
-      "base_range_yards": null,
-      "malfunction": null,
-      "magazine": null,
-      "uses_per_round": "1"
-    },
-    "bow": {
-      "damage_die": "1D6",
-      "base_range_yards": 30,
-      "malfunction": 97,
-      "magazine": 1,
-      "uses_per_round": "1"
-    },
-    "crossbow": {
-      "damage_die": "1D8+2",
-      "base_range_yards": 50,
-      "malfunction": 96,
-      "magazine": 1,
-      "uses_per_round": "1/2"
-    },
-    "revolver_38": {
-      "damage_die": "1D10",
-      "base_range_yards": 15,
-      "malfunction": 100,
-      "magazine": 6,
-      "uses_per_round": "1 (3)"
-    },
-    "revolver_45": {
-      "damage_die": "1D10+2",
-      "base_range_yards": 15,
-      "malfunction": 100,
-      "magazine": 6,
-      "uses_per_round": "1 (3)"
-    },
-    "automatic_45": {
-      "damage_die": "1D10+2",
-      "base_range_yards": 15,
-      "malfunction": 100,
-      "magazine": 7,
-      "uses_per_round": "1 (3)"
-    },
-    "rifle_22": {
-      "damage_die": "1D6+1",
-      "base_range_yards": 30,
-      "malfunction": 99,
-      "magazine": 6,
-      "uses_per_round": "1"
-    },
-    "rifle_303_enfield": {
-      "damage_die": "2D6+4",
-      "base_range_yards": 110,
-      "malfunction": 100,
-      "magazine": 10,
-      "uses_per_round": "1"
-    },
-    "shotgun_12g": {
-      "damage_die": "4D6",
-      "base_range_yards": 10,
-      "malfunction": 100,
-      "magazine": 5,
-      "uses_per_round": "1"
-    },
-    "shotgun_10g": {
-      "damage_die": "4D6+2",
-      "base_range_yards": 10,
-      "malfunction": 100,
-      "magazine": 2,
-      "uses_per_round": "1 or 2"
-    },
-    "thompson": {
-      "damage_die": "1D10+2",
-      "base_range_yards": 20,
-      "malfunction": 96,
-      "magazine": 20,
-      "uses_per_round": "1 or full auto"
-    }
+    "bow": {"damage_die": "1D6", "base_range_yards": 30, "uses_per_round": "1", "magazine": 1, "malfunction": 97, "eras": ["1920s", "modern"], "note": "1D6+half DB in book"},
+    "brass_knuckles": {"damage_die": "1D3+1", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "bullwhip": {"damage_die": "1D3", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s"], "note": "Rulebook range '10 feet' (reach), not a yard range; damage 1D3+half DB"},
+    "burning_torch": {"damage_die": "1D6", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"], "note": "1D6+burn in book"},
+    "chainsaw": {"damage_die": "2D8", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": 95, "eras": ["modern"]},
+    "blackjack": {"damage_die": "1D8", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "club_large": {"damage_die": "1D8", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "club_small": {"damage_die": "1D6", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "crossbow": {"damage_die": "1D8+2", "base_range_yards": 50, "uses_per_round": "1/2", "magazine": 1, "malfunction": 96, "eras": ["1920s", "modern"]},
+    "garrote": {"damage_die": "1D6", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "hatchet": {"damage_die": "1D6+1", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "knife_large": {"damage_die": "1D8", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "knife_medium": {"damage_die": "1D4+2", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "knife_small": {"damage_die": "1D4", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "live_wire_220_volt_charge": {"damage_die": "2D8", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": 95, "eras": ["modern"], "note": "2D8+Stun in book"},
+    "mace_spray": {"damage_die": "", "base_range_yards": null, "uses_per_round": "1", "magazine": 25, "malfunction": null, "eras": ["1920s", "modern"], "note": "Book damage is 'Stun' (no dice); range '6 feet'; magazine '25 Squirts'"},
+    "nunchaku": {"damage_die": "1D8", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "rock_thrown": {"damage_die": "1D4", "base_range_yards": "STR/5", "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"], "note": "1D4+half DB in book"},
+    "shuriken": {"damage_die": "1D3", "base_range_yards": "STR/5", "uses_per_round": "2", "magazine": 1, "malfunction": 100, "eras": ["1920s", "modern"], "note": "1D3+half DB in book; magazine 'One Use'"},
+    "spear": {"damage_die": "1D8+1", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "spear_thrown": {"damage_die": "1D8", "base_range_yards": "STR/5", "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"], "note": "1D8+half DB in book; rulebook era 'Rare'"},
+    "sword_heavy": {"damage_die": "1D8+1", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "sword_medium": {"damage_die": "1D6+1", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "sword_light": {"damage_die": "1D6", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"], "note": "Printed name cell ends with '(i)': can impale"},
+    "taser_contact": {"damage_die": "1D3", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": 97, "eras": ["modern"], "note": "1D3+stun in book; magazine 'Varies'"},
+    "taser": {"damage_die": "1D3", "base_range_yards": null, "uses_per_round": "1", "magazine": 3, "malfunction": 95, "eras": ["modern"], "note": "Taser (dart): 1D3+stun; range '15 feet'"},
+    "war_boomerang": {"damage_die": "1D8", "base_range_yards": "STR/5", "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"], "note": "1D8+1/2 DB in book; rulebook era 'Rare'"},
+    "wood_axe": {"damage_die": "1D8+2", "base_range_yards": null, "uses_per_round": "1", "magazine": null, "malfunction": null, "eras": ["1920s", "modern"]},
+    "flintlock_22_short": {"damage_die": "1D6+1", "base_range_yards": 10, "uses_per_round": "1/4", "magazine": 1, "malfunction": 95, "eras": ["1920s", "modern"], "note": "Book row is 'Flintlock'; rulebook era 'Rare'"},
+    "22_short_automatic": {"damage_die": "1D6", "base_range_yards": 10, "uses_per_round": "1 (3)", "magazine": 6, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "automatic_25_derringer": {"damage_die": "1D6", "base_range_yards": 3, "uses_per_round": "1", "magazine": 1, "malfunction": 100, "eras": ["1920s"], "note": ".25 Derringer (1B)"},
+    "revolver_32_or_7_65mm": {"damage_die": "1D8", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 6, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "automatic_32_or_7_65mm": {"damage_die": "1D8", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 8, "malfunction": 99, "eras": ["1920s", "modern"]},
+    "automatic_357_magnum": {"damage_die": "1D8+1D4", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 6, "malfunction": 100, "eras": ["modern"], "note": "Book row is '.357 Magnum Revolver'"},
+    "revolver_38_or_9mm": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 6, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "revolver_38": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 8, "malfunction": 99, "eras": ["1920s", "modern"], "note": "Book row is '.38 Automatic'"},
+    "beretta_m9": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 15, "malfunction": 98, "eras": ["modern"]},
+    "glock_17": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 17, "malfunction": 98, "eras": ["modern"], "note": "Book name 'Glock 17 9mm Auto'"},
+    "9mm_auto_model_p08": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 8, "malfunction": 99, "eras": ["1920s", "modern"], "note": "Book name 'Model P08 Luger'"},
+    "luger_41_revolver": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 8, "malfunction": 100, "eras": ["1920s"], "note": "Book row is '.41 Revolver'; rulebook era '1920s, Rare'"},
+    "44_magnum_revolver": {"damage_die": "1D10+1D4+2", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 6, "malfunction": 100, "eras": ["modern"]},
+    "revolver_45": {"damage_die": "1D10+2", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 6, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "automatic_45": {"damage_die": "1D10+2", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 7, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "imi_desert_eagle": {"damage_die": "1D10+1D6+3", "base_range_yards": 15, "uses_per_round": "1 (3)", "magazine": 7, "malfunction": 94, "eras": ["modern"]},
+    "signal_handgun": {"damage_die": "1D10+1D3", "base_range_yards": 10, "uses_per_round": "1/2", "magazine": 1, "malfunction": 100, "eras": ["1920s", "modern"], "note": "Flare gun; burn"},
+    "58_springfield_rifle_musket": {"damage_die": "1D10+4", "base_range_yards": 60, "uses_per_round": "1/4", "magazine": 1, "malfunction": 95, "eras": ["1920s", "modern"], "note": "Rulebook era 'Rare'"},
+    "rifle_22": {"damage_die": "1D6+1", "base_range_yards": 30, "uses_per_round": "1", "magazine": 6, "malfunction": 99, "eras": ["1920s", "modern"]},
+    "30_lever_action_carbine": {"damage_die": "2D6", "base_range_yards": 50, "uses_per_round": "1", "magazine": 6, "malfunction": 98, "eras": ["1920s", "modern"]},
+    "45_martini_henry_rifle": {"damage_die": "1D8+1D6+3", "base_range_yards": 80, "uses_per_round": "1/3", "magazine": 1, "malfunction": 100, "eras": ["1920s"]},
+    "col_moranx27s_air_rifle": {"damage_die": "2D6+1", "base_range_yards": 20, "uses_per_round": "1/3", "magazine": 1, "malfunction": 88, "eras": ["1920s"]},
+    "garand_m1_m2_rifle": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "1", "magazine": 8, "malfunction": 100, "eras": ["modern"], "note": "Rulebook era 'WWII, Later'"},
+    "sks_carbine": {"damage_die": "2D6+1", "base_range_yards": 90, "uses_per_round": "1 (2)", "magazine": 10, "malfunction": 97, "eras": ["modern"]},
+    "rifle_303_enfield": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "1", "magazine": 10, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "30_06_bolt_action_rifle": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "1", "magazine": 5, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "30_06_semi_automatic_rifle": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "1", "magazine": 5, "malfunction": 100, "eras": ["modern"]},
+    "444_marlin_rifle": {"damage_die": "2D8+4", "base_range_yards": 110, "uses_per_round": "1", "magazine": 5, "malfunction": 98, "eras": ["modern"]},
+    "elephant_gun": {"damage_die": "3D6+4", "base_range_yards": 100, "uses_per_round": "1 or 2", "magazine": 2, "malfunction": 100, "eras": ["1920s", "modern"]},
+    "20_gauge_shotgun": {"damage_die": "2D6", "base_range_yards": 10, "uses_per_round": "1 or 2", "magazine": 2, "malfunction": 100, "eras": ["1920s"], "note": "Bands 2D6/1D6/1D3 at 10/20/50 yards"},
+    "16_gauge_shotgun": {"damage_die": "2D6+2", "base_range_yards": 10, "uses_per_round": "1 or 2", "magazine": 2, "malfunction": 100, "eras": ["1920s"], "note": "Bands 2D6+2/1D6+1/1D4"},
+    "shotgun_12g": {"damage_die": "4D6", "base_range_yards": 10, "uses_per_round": "1 or 2", "magazine": 2, "malfunction": 100, "eras": ["1920s", "modern"], "note": "12-gauge (2B); bands 4D6/2D6/1D6"},
+    "shotgun_12g_pump": {"damage_die": "4D6", "base_range_yards": 10, "uses_per_round": "1", "magazine": 5, "malfunction": 100, "eras": ["modern"]},
+    "shotgun_12g_semi_auto": {"damage_die": "4D6", "base_range_yards": 10, "uses_per_round": "1 (2)", "magazine": 5, "malfunction": 100, "eras": ["modern"]},
+    "shotgun_12g_sawed_off": {"damage_die": "4D6", "base_range_yards": 5, "uses_per_round": "1 or 2", "magazine": 2, "malfunction": 100, "eras": ["1920s"], "note": "2B sawed-off; bands 4D6/1D6 at 5/10 yards"},
+    "shotgun_10g": {"damage_die": "4D6+2", "base_range_yards": 10, "uses_per_round": "1 or 2", "magazine": 2, "malfunction": 100, "eras": ["1920s"], "note": "Bands 4D6+2/2D6+1/1D4; rulebook era '1920s Rare'"},
+    "12_gauge_benelli_m3": {"damage_die": "4D6", "base_range_yards": 10, "uses_per_round": "1 (2)", "magazine": 7, "malfunction": 100, "eras": ["modern"]},
+    "12_gauge_spas": {"damage_die": "4D6", "base_range_yards": 10, "uses_per_round": "1", "magazine": 8, "malfunction": 98, "eras": ["modern"]},
+    "ak_47_or_akm": {"damage_die": "2D6+1", "base_range_yards": 100, "uses_per_round": "1 (2) or full auto", "magazine": 30, "malfunction": 100, "eras": ["modern"]},
+    "ak_74": {"damage_die": "2D6", "base_range_yards": 110, "uses_per_round": "1 (2) or full auto", "magazine": 30, "malfunction": 97, "eras": ["modern"]},
+    "barrett_model_82": {"damage_die": "2D10+1D8+6", "base_range_yards": 250, "uses_per_round": "1", "magazine": 11, "malfunction": 96, "eras": ["modern"]},
+    "fn_fal_light_automatic": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "1 (2) or burst 3", "magazine": 20, "malfunction": 97, "eras": ["modern"]},
+    "galil_assault_rifle": {"damage_die": "2D6", "base_range_yards": 110, "uses_per_round": "1 or full auto", "magazine": 20, "malfunction": 98, "eras": ["modern"]},
+    "m16a2": {"damage_die": "2D6", "base_range_yards": 110, "uses_per_round": "1 (2) or burst 3", "magazine": 30, "malfunction": 97, "eras": ["modern"]},
+    "m4": {"damage_die": "2D6", "base_range_yards": 90, "uses_per_round": "1 or burst 3", "magazine": 30, "malfunction": 97, "eras": ["modern"]},
+    "steyr_aug": {"damage_die": "2D6", "base_range_yards": 110, "uses_per_round": "1 (2) or full auto", "magazine": 30, "malfunction": 99, "eras": ["modern"]},
+    "beretta_m7090": {"damage_die": "2D6", "base_range_yards": 110, "uses_per_round": "1 or full auto", "magazine": 30, "malfunction": 99, "eras": ["modern"]},
+    "bergmann_mp181_mp2811": {"damage_die": "1D10", "base_range_yards": 20, "uses_per_round": "1 (2) or full auto", "magazine": 20, "malfunction": 96, "eras": ["1920s"], "note": "Magazine '20/30/32' -> primary 20"},
+    "heckleramp_koch_mp5": {"damage_die": "1D10", "base_range_yards": 20, "uses_per_round": "1 (2) or full auto", "magazine": 15, "malfunction": 97, "eras": ["modern"], "note": "Magazine '15/30' -> primary 15"},
+    "ingram_mac_11": {"damage_die": "1D10", "base_range_yards": 15, "uses_per_round": "1 (3) or full auto", "magazine": 32, "malfunction": 96, "eras": ["modern"]},
+    "skorpion_smg": {"damage_die": "1D8", "base_range_yards": 15, "uses_per_round": "1 (3) or full auto", "magazine": 20, "malfunction": 96, "eras": ["modern"]},
+    "thompson": {"damage_die": "1D10+2", "base_range_yards": 20, "uses_per_round": "1 or full auto", "magazine": 20, "malfunction": 96, "eras": ["1920s"], "note": "Magazine '20/30/50' -> primary 20"},
+    "uzi_smg": {"damage_die": "1D10", "base_range_yards": 20, "uses_per_round": "1 (2) or full auto", "magazine": 32, "malfunction": 98, "eras": ["modern"]},
+    "model_1882_gatling_gun": {"damage_die": "2D6+4", "base_range_yards": 100, "uses_per_round": "Full auto", "magazine": 200, "malfunction": 96, "eras": ["1920s"], "note": "Rulebook era '1920s, Rare'"},
+    "browning_auto_rifle_m1918": {"damage_die": "2D6+4", "base_range_yards": 90, "uses_per_round": "1 (2) or full auto", "magazine": 20, "malfunction": 100, "eras": ["1920s"]},
+    "30_browning_m1917a1": {"damage_die": "2D6+4", "base_range_yards": 150, "uses_per_round": "Full auto", "magazine": 250, "malfunction": 96, "eras": ["1920s"]},
+    "bren_gun": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "1 or full auto", "magazine": 30, "malfunction": 96, "eras": ["1920s"], "note": "Magazine '30/100' -> primary 30"},
+    "mark_i_lewis_gun": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "Full auto", "magazine": 47, "malfunction": 96, "eras": ["1920s"], "note": "Magazine '47/97' -> primary 47"},
+    "minigun": {"damage_die": "2D6+4", "base_range_yards": 200, "uses_per_round": "Full auto", "magazine": 4000, "malfunction": 98, "eras": ["modern"]},
+    "fn_minimi_5_56mm": {"damage_die": "2D6", "base_range_yards": 110, "uses_per_round": "Full auto", "magazine": 30, "malfunction": 99, "eras": ["modern"], "note": "Magazine '30/200' -> primary 30"},
+    "vickers_303_machine_gun": {"damage_die": "2D6+4", "base_range_yards": 110, "uses_per_round": "Full auto", "magazine": 250, "malfunction": 99, "eras": ["1920s"]},
+    "molotov_cocktail": {"damage_die": "2D6", "base_range_yards": "STR/5", "uses_per_round": "1/2", "magazine": 1, "malfunction": 95, "eras": ["1920s", "modern"], "note": "2D6+burn in book"},
+    "m79_grenade_launcher": {"damage_die": "3D10", "base_range_yards": 20, "uses_per_round": "1/3", "magazine": 1, "malfunction": 99, "eras": ["modern"], "note": "3D10/2 yards burn"},
+    "dynamite_stick": {"damage_die": "4D10", "base_range_yards": "STR/5", "uses_per_round": "1/2", "magazine": 1, "malfunction": 99, "eras": ["1920s", "modern"], "note": "4D10/3 yards"},
+    "blasting_cap": {"damage_die": "2D10", "base_range_yards": null, "uses_per_round": "N/A", "magazine": 1, "malfunction": 100, "eras": ["1920s", "modern"], "note": "2D10/1 yard"},
+    "pipe_bomb": {"damage_die": "1D10", "base_range_yards": null, "uses_per_round": "One use", "magazine": 1, "malfunction": 95, "eras": ["1920s", "modern"], "note": "1D10/3 yards"},
+    "plastique_4_oz": {"damage_die": "6D10", "base_range_yards": null, "uses_per_round": "One use", "magazine": 1, "malfunction": 99, "eras": ["modern"], "note": "6D10/3 yards"},
+    "hand_grenade": {"damage_die": "4D10", "base_range_yards": "STR/5", "uses_per_round": "1/2", "magazine": 1, "malfunction": 99, "eras": ["1920s", "modern"], "note": "4D10/3 yards"},
+    "81mm_mortar": {"damage_die": "6D10", "base_range_yards": 500, "uses_per_round": "1", "magazine": null, "malfunction": 100, "eras": ["modern"], "note": "6D10/6 yards; magazine 'Separate'"},
+    "75mm_field_gun": {"damage_die": "10D10", "base_range_yards": 500, "uses_per_round": "1/4", "magazine": null, "malfunction": 99, "eras": ["1920s", "modern"], "note": "10D10/2 yards; magazine 'Separate'"},
+    "120mm_tank_gun": {"damage_die": "15D10", "base_range_yards": 2000, "uses_per_round": "1", "magazine": null, "malfunction": 100, "eras": ["modern"], "note": "15D10/4 yards; magazine 'Separate'"},
+    "ship_mounted_5_inch_rifle_stabilized": {"damage_die": "12D10", "base_range_yards": 3000, "uses_per_round": "1", "magazine": null, "malfunction": 98, "eras": ["modern"], "note": "12D10/4 yards; 'Auto-magazine'"},
+    "anti_personnel_mine": {"damage_die": "4D10", "base_range_yards": null, "uses_per_round": "In place", "magazine": 1, "malfunction": 99, "eras": ["1920s", "modern"], "note": "4D10/5 yards"},
+    "claymore_mine": {"damage_die": "6D6", "base_range_yards": null, "uses_per_round": "In place", "magazine": 1, "malfunction": 99, "eras": ["modern"], "note": "6D6/20 yards"},
+    "flamethrower": {"damage_die": "2D6", "base_range_yards": 25, "uses_per_round": "1", "magazine": 10, "malfunction": 93, "eras": ["1920s", "modern"], "note": "2D6+burn in book; magazine 'At least 10'"},
+    "law": {"damage_die": "8D10", "base_range_yards": 150, "uses_per_round": "1", "magazine": 1, "malfunction": 98, "eras": ["modern"], "note": "8D10/1 yard"}
   }
 }

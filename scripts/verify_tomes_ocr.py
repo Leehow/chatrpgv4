@@ -336,6 +336,14 @@ def main() -> int:
     print(f"OCR 数据行: {len(ocr_rows)}")
     print(f"我们 tomes.json: {len(tomes)} 条\n")
 
+    # OCR rows known to be corrupt merged rows (two tomes' name cells fused,
+    # stats belonging to only one of them). Verified against the printed
+    # Table XI pages (pp.237-239). Excluded from assignment and comparison.
+    CORRUPT_OCR_ROW_SEGMENTS = (
+        "Necrolatry Necronomicon",   # stats are Necrolatry's (p.238)
+        "Mum-Rath Papyri",           # stats are Monstres and their Kynde's
+    )
+
     # ---- Best-fit assignment of OCR rows to our-tomes ----
     # Each OCR row may match several our-keys (by name) and each our-key may
     # match several OCR rows. Score every (ocr_idx, our_key) pair by field
@@ -344,6 +352,8 @@ def main() -> int:
     candidates: list[tuple[int, str]] = []  # (ocr_idx, our_key) name-compatible
     for i, row in enumerate(ocr_rows):
         if not row["title"]:
+            continue
+        if any(seg in row["title"] for seg in CORRUPT_OCR_ROW_SEGMENTS):
             continue
         for key in _candidate_keys(row, index):
             candidates.append((i, key))
@@ -410,6 +420,9 @@ def main() -> int:
         "Mum-Rath Papyri",  # OCR row "Monstres and their Kynde Mum-Rath
                             # Papyri" merged; stats (36/1D8/+2/+6/24) belong to
                             # Monstres and their Kynde. Not in prose chapter.
+        "Necrolatry Necronomicon",  # Name cells merged across two rows; the
+                            # stats (20/2D6/+4/+8/36) belong to Necrolatry
+                            # (verified against printed Table XI p.238).
     }
 
     # --- Secondary pass: verify each still-unmatched our-tome against every

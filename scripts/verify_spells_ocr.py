@@ -296,6 +296,8 @@ def cost_signature(s: str) -> str:
     s = str(s).strip().lower()
     if s in ("", "0", "none", "n/a"):
         return ""
+    # Classic OCR confusion: a leading 1 read as I/l in dice ("ID3" -> "1d3").
+    s = re.sub(r"\b[il](?=d\d)", "1", s)
     # Only consider the first clause: a "+ variable additional" tail or a second
     # clause is not stored on our side.
     s = s.split(";")[0].strip()

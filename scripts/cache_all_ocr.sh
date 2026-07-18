@@ -19,6 +19,11 @@ CHAPTERS=(
   "tomes-ch11:233:247"
   "tomes-table:248:252"
   "spells-grimoire:257:286"
+  # Monsters chapter (printed pp.309-344, idx 320-355). Split into three
+  # chunks: a single 36-page run makes the MinerU server drop the connection.
+  "monsters-ch14-a:320:334"
+  "monsters-ch14-b:335:345"
+  "monsters-ch14-c:346:355"
 )
 
 for entry in "${CHAPTERS[@]}"; do
@@ -42,6 +47,14 @@ for entry in "${CHAPTERS[@]}"; do
     echo "[FAIL] $name: OCR output not found"
   fi
 done
+
+# Concatenate the three monsters-chapter chunks into the single cache file
+# the verify scripts read (only when all chunks are present and fresh).
+MA="$CACHE/monsters-ch14-a.md"; MB="$CACHE/monsters-ch14-b.md"; MC="$CACHE/monsters-ch14-c.md"
+if [[ -f "$MA" && -f "$MB" && -f "$MC" ]]; then
+  cat "$MA" "$MB" "$MC" > "$CACHE/monsters-ch14.md"
+  echo "[ok] monsters-ch14.md concatenated ($(wc -l < "$CACHE/monsters-ch14.md") lines)"
+fi
 
 echo ""
 echo "=== Cache complete ==="

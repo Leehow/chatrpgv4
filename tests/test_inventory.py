@@ -602,7 +602,7 @@ def test_item_tools_grant_list_remove_roundtrip(campaign_ws):
     listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
     assert listed["ok"] is True
     weapon_ids = [row["weapon_id"] for row in listed["data"]["weapons"]]
-    assert "revolver_38" in weapon_ids  # sheet weapon survives
+    assert "revolver_38_or_9mm" in weapon_ids  # sheet weapon survives
     assert "revolver_45" in weapon_ids  # granted weapon is selectable
     assert {row["item_id"] for row in listed["data"]["items"]} == {
         "revolver_45",
@@ -620,7 +620,7 @@ def test_item_tools_grant_list_remove_roundtrip(campaign_ws):
 
     removed_sheet = _run(campaign_ws, "state.item_remove", {
         "investigator": inv,
-        "item_id": "revolver_38",
+        "item_id": "revolver_38_or_9mm",
         "reason": "handed to the police",
         "decision_id": "remove-38",
     })
@@ -630,9 +630,9 @@ def test_item_tools_grant_list_remove_roundtrip(campaign_ws):
 
     listed = _run(campaign_ws, "state.inventory_list", {"investigator": inv})
     weapon_ids = [row["weapon_id"] for row in listed["data"]["weapons"]]
-    assert "revolver_38" not in weapon_ids
+    assert "revolver_38_or_9mm" not in weapon_ids
     assert "revolver_45" in weapon_ids
-    assert listed["data"]["lost_weapon_ids"] == ["revolver_38"]
+    assert listed["data"]["lost_weapon_ids"] == ["revolver_38_or_9mm"]
 
     missing = _run(campaign_ws, "state.item_remove", {
         "investigator": inv,

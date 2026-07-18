@@ -25,7 +25,7 @@ from pathlib import Path
 # values derived from the coverage audit; the rulebook often has a few more.
 # ---------------------------------------------------------------------------
 EXPECTED_MIN_COUNTS = {
-    "weapons": (25, "weapons"),
+    "weapons": (104, "weapons"),       # Table XVII = exactly 104 rows; +2 house entries
     "skills": (78, "skills"),          # ~80 incl specializations
     "characteristic-dice": (9, "characteristics"),
     "occupations": (28, "occupations"),
@@ -175,10 +175,21 @@ def audit_weapon_content(root: Path, project: Path) -> list[str]:
                 continue
             ours = m.get(field)
             if field == "uses_per_round":
-                if str(ours).strip() != str(rbv).strip():
+                # whitespace-insensitive: '1 (3)' == '1(3)'
+                if "".join(str(ours).split()) != "".join(str(rbv).split()):
                     gaps.append(f"[D] weapons {name}.uses_per_round: ours={ours!r} rulebook={rbv!r}")
                 continue
+            if field == "eras":
+                if sorted(str(x) for x in (ours or [])) != sorted(str(x) for x in rbv):
+                    gaps.append(f"[D] weapons {name}.eras: ours={ours!r} rulebook={rbv!r}")
+                continue
             if field == "base_range_yards":
+                # 'STR/5' is the rulebook's formula range; our data stores the
+                # placeholder int 5 for those weapons.
+                if rbv == "STR/5":
+                    if not isinstance(ours, int) or ours <= 0:
+                        gaps.append(f"[D] weapons {name}.base_range_yards: ours={ours!r} rulebook='STR/5'")
+                    continue
                 # null range in rulebook == melee/Touch. Our null is fine. A non-null
                 # value is acceptable only if special mentions feet/reach (reach weapon).
                 if rbv is None:
@@ -505,12 +516,14 @@ def audit_weapon_db_flags(root: Path) -> list[str]:
 #   "Rifles and handguns can impale, however shotguns cannot"
 #   "(i) marks a weapon which can impale"
 # Firearms impale by category (except shotguns); specific melee weapons
-# are marked (i) in Table XVII. Per OCR of Table XVII, the (i)-marked
-# melee/thrown weapons are: chainsaw, garrote, hatchet/sickle, knife (all),
-# shuriken, spear (cavalry lance), spear thrown, sword medium, wood axe,
-# crossbow. Sword heavy and Sword light are NOT marked (do not impale).
+# are marked (i) in Table XVII. Per the printed Table XVII pages (visually
+# verified), the (i)-marked melee/thrown weapons are: chainsaw, garrote,
+# hatchet/sickle, knife (all), shuriken, spear (cavalry lance), spear thrown,
+# sword medium, sword light, wood axe, crossbow. Sword heavy is NOT marked
+# (does not impale); nor are the tasers (the '(i)' near them belongs to the
+# sword rows above).
 _IMPALE_MELEE_NAMES = {
-    "knife", "sword, medium", "rapier", "epee",
+    "knife", "sword, medium", "sword, light", "rapier", "epee",
     "spear", "dagger", "hatchet", "sickle", "axe", "shuriken",
     "crossbow", "garrote", "chainsaw", "switchblade", "machete",
     "cavalry lance", "wood axe",

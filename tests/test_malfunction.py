@@ -101,7 +101,7 @@ def _find_high_roll_seed(skill_value, difficulty, target_roll):
 
 def test_malfunction_fires_in_resolve_attack_on_high_roll():
     """When a firearm attack roll >= malfunction, the turn records a jam."""
-    # revolver_38 malfunction is 96 (from Table XVII).
+    # revolver_38 (.38 Automatic) malfunction comes from the catalog (Table XVII).
     catalog = coc_combat.resolve_module_weapons(None)
     malf = catalog["revolver_38"]["malfunction"]
     seed = _find_high_roll_seed(skill_value=60, difficulty="regular",

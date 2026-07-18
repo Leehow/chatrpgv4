@@ -15,6 +15,7 @@ def _load(name, rel):
 
 
 coc_combat = _load("coc_combat", "plugins/coc-keeper/scripts/coc_combat.py")
+coc_rules = _load("coc_rules", "plugins/coc-keeper/scripts/coc_rules.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -1639,7 +1640,8 @@ def test_reload_costs_rounds_and_restores_ammo():
     assert reload_t["outcome"] in ("reload_complete", "reload_in_progress")
     # revolver_38 reload_rounds defaults to 1 → complete same declaration.
     if reload_t["outcome"] == "reload_complete":
-        assert s.get_ammo("hero", "revolver_38") == 6  # magazine
+        magazine = coc_rules.weapons_table()["revolver_38"]["magazine"]
+        assert s.get_ammo("hero", "revolver_38") == magazine
 
 
 def test_load_and_fire_same_round_adds_penalty():
