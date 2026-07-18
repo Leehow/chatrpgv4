@@ -72,3 +72,19 @@ character/final state, progression, ending/development, and player-safe
 projection dimensions. The compatibility `COMPLETE`/`INCOMPLETE` classification
 means report-source evidence completeness only. It does **not** certify prose
 quality, Director/Storylet use, or whole-product KP quality.
+
+Both outputs also carry an observational **Play Conduct Signals** section
+(`play_conduct_signals` in the evidence JSON). It restates structured facts
+only: dialogue turn count, public roll count, per-turn toolbox-call counts
+(when the keeper-internal log is present), how many recorded clues had
+module-authored `delivery_kind=skill_check` without any roll of the authored
+skill in `rolls.jsonl`, and how many NPC engagement receipts were improvised
+(no authored `identity_contract`). The exporter reads
+`scenario/clue-graph.json` for these counts only — clue content is never
+projected. The section makes no pass/fail judgment and never changes the seven
+completeness dimensions or the `COMPLETE`/`INCOMPLETE` classification; it is
+listed in `completeness.not_claimed` as no quality judgment. Use it in human
+review to spot unconstrained-play red flags — for example the combination of
+many dialogue turns, zero public rolls, and skill-check clues without roll
+evidence greater than zero suggests checks were narrated away instead of
+rolled.

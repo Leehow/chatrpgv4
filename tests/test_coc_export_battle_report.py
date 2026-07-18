@@ -91,7 +91,7 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     assert payload["report_type"] == "coc_actual_play_battle_report_evidence"
     assert payload["run_metadata"] == expected["metadata"]
     assert payload["completeness"]["classification"] == "COMPLETE"
-    assert payload["schema_version"] == 4
+    assert payload["schema_version"] == 5
     assert payload["keeper_internal"]["tool_call_count"] == 1
     assert payload["keeper_internal"]["advisory_adoption_count"] == 1
     assert payload["keeper_internal"]["turn_capsules"][0]["tool_calls"][0]["data"]["keeper_secret"] == "INTERNAL_ONLY"
@@ -351,3 +351,138 @@ def test_unrelated_artifact_is_preserved_and_output_symlink_is_rejected(tmp_path
     with pytest.raises(module.ExportError, match="output symlink"):
         module.export_battle_report(run)
     assert outside.read_text(encoding="utf-8") == "outside"
+
+
+def _write_clue_graph(run: Path, clues):
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(
+        campaign / "scenario" / "clue-graph.json",
+        {"conclusions": [{"conclusion_id": "con-1", "clues": clues}]},
+    )
+
+
+def _discover_clues(run: Path, clue_ids):
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(
+        campaign / "save" / "world-state.json",
+        {"visited_scene_ids": ["office", "archive"], "discovered_clue_ids": clue_ids},
+    )
+    _write_json(
+        campaign / "save" / "flags.json",
+        {"clues_found": {clue_id: {"method": "narrated"} for clue_id in clue_ids}},
+    )
+
+
+def _write_npc_receipts(run: Path, events):
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(
+        campaign / "save" / "npc-engagement-receipts.json",
+        {"receipts": {f"r{index}": {"event": event} for index, event in enumerate(events, start=1)}},
+    )
+
+
+def test_play_conduct_signals_restate_structured_facts_without_changing_completeness(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(
+        run / "transcript.jsonl",
+        [
+            {
+                "turn": turn,
+                "role": "keeper_under_test" if turn % 2 else "player_simulator",
+                "text": f"turn {turn} dialogue",
+            }
+            for turn in range(1, 13)
+        ],
+    )
+    _write_jsonl(campaign / "logs" / "rolls.jsonl", [])
+    _write_clue_graph(run, [
+        {"clue_id": "clue-ledger", "delivery_kind": "skill_check", "skill": "Library Use", "player_safe_summary": "LEDGER_CONTENT"},
+        {"clue_id": "clue-runes", "delivery_kind": "skill_check", "skill": "Spot Hidden", "player_safe_summary": "RUNES_CONTENT"},
+        {"clue_id": "clue-free", "delivery_kind": "automatic", "player_safe_summary": "FREE_CONTENT"},
+    ])
+    _discover_clues(run, ["clue-ledger", "clue-runes", "clue-free"])
+    _write_npc_receipts(run, [
+        {"event_id": "e1", "npc_id": "npc-clerk", "scene_id": "archive", "interaction_kind": "dialogue", "identity_contract": {"npc_id": "npc-clerk"}, "identity_binding": {"status": "authored_bound"}},
+        {"event_id": "e2", "npc_id": "npc-stranger", "scene_id": "office", "interaction_kind": "dialogue", "identity_contract": None, "identity_binding": {"status": "improvised"}},
+    ])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "COMPLETE"
+    assert all(dimension["status"] == "PASS" for dimension in report["completeness"]["dimensions"].values())
+    assert report["public_rolls"]["status"] == "PASS"
+    assert "play_conduct_quality_judgment" in report["completeness"]["not_claimed"]
+    signals = report["play_conduct_signals"]
+    assert signals["nature"] == "observational_structured_facts_only"
+    assert signals["turn_count"] == 12
+    assert signals["public_roll_count"] == 0
+    assert signals["tool_call_counts_per_turn"]["available"] is True
+    assert signals["tool_call_counts_per_turn"]["counts"] == {"1": 1}
+    clue_signal = signals["skill_check_clue_delivery"]
+    assert clue_signal["available"] is True
+    assert clue_signal["discovered_clue_count"] == 3
+    assert clue_signal["skill_check_delivery_count"] == 2
+    assert clue_signal["without_roll_evidence_count"] == 2
+    assert clue_signal["without_roll_evidence_clue_ids"] == ["clue-ledger", "clue-runes"]
+    assert signals["npc_engagements"] == {"available": True, "total_count": 2, "improvised_count": 1}
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "## Play Conduct Signals" in markdown
+    assert "Dialogue turns: **12**" in markdown
+    assert "Public rolls: **0**" in markdown
+    assert "without a matching authored-skill roll in the roll log: **2**" in markdown
+    assert "improvised (no authored NPC identity): **1**" in markdown
+    combined = markdown + (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    for clue_content in ("LEDGER_CONTENT", "RUNES_CONTENT", "FREE_CONTENT"):
+        assert clue_content not in combined
+
+
+def test_play_conduct_signals_count_matching_authored_skill_rolls_as_evidence(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    _write_clue_graph(run, [
+        {"clue_id": "clue-spot", "delivery_kind": "skill_check", "skill": "Spot Hidden"},
+        {"clue_id": "clue-library", "delivery_kind": "skill_check", "skill": "Library Use"},
+    ])
+    _discover_clues(run, ["clue-spot", "clue-library"])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "COMPLETE"
+    clue_signal = report["play_conduct_signals"]["skill_check_clue_delivery"]
+    assert clue_signal["available"] is True
+    assert clue_signal["skill_check_delivery_count"] == 2
+    assert clue_signal["without_roll_evidence_count"] == 1
+    assert clue_signal["without_roll_evidence_clue_ids"] == ["clue-library"]
+
+
+def test_play_conduct_signals_report_unavailable_sources_honestly(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    (campaign / "logs" / "toolbox-calls.jsonl").unlink()
+    (campaign / "logs" / "advisory-adoptions.jsonl").unlink()
+    (campaign / "save" / "npc-engagement-receipts.json").unlink()
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "COMPLETE"
+    signals = report["play_conduct_signals"]
+    assert signals["turn_count"] == 2
+    assert signals["public_roll_count"] == 1
+    assert signals["tool_call_counts_per_turn"] == {"available": False, "counts": {}, "total_tool_calls": 0}
+    clue_signal = signals["skill_check_clue_delivery"]
+    assert clue_signal["available"] is False
+    assert clue_signal["discovered_clue_count"] == 1
+    assert clue_signal["skill_check_delivery_count"] is None
+    assert clue_signal["without_roll_evidence_count"] is None
+    assert clue_signal["without_roll_evidence_clue_ids"] is None
+    assert signals["npc_engagements"] == {"available": False, "total_count": 0, "improvised_count": 0}
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "keeper-internal toolbox log unavailable" in markdown
+    assert "skill-check delivery evidence unavailable" in markdown
+    assert "no structured receipts were recorded" in markdown

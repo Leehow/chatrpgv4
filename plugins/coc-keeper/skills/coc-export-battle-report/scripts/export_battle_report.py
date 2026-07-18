@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 JSON_OUTPUT = "battle-report-evidence.json"
 MARKDOWN_OUTPUT = "battle-report.md"
 METADATA_CANDIDATES = ("run.json", "playtest.json")
@@ -203,6 +203,33 @@ def _roll_id(row: Any) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _roll_skill(row: Any) -> str | None:
+    if not isinstance(row, dict):
+        return None
+    payload = row.get("payload")
+    for source in (row, payload if isinstance(payload, dict) else {}):
+        value = source.get("skill")
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _clue_graph_rows(clue_graph: Any) -> list[dict[str, Any]]:
+    """Structured clue rows only; clue content is never projected into outputs."""
+    if not isinstance(clue_graph, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    conclusions = clue_graph.get("conclusions")
+    for conclusion in conclusions if isinstance(conclusions, list) else []:
+        if not isinstance(conclusion, dict):
+            continue
+        clues = conclusion.get("clues")
+        for clue in clues if isinstance(clues, list) else []:
+            if isinstance(clue, dict) and isinstance(clue.get("clue_id"), str):
+                rows.append(clue)
+    return rows
 
 
 def _is_numeric(value: Any) -> bool:
@@ -474,7 +501,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             }
         )
 
-    world = flags = npc_receipts = events = None
+    world = flags = npc_receipts = events = clue_graph = None
     toolbox_calls: list[dict[str, Any]] | None = None
     advisory_adoptions: list[dict[str, Any]] | None = None
     progression: dict[str, Any] = {"visited_scene_ids": [], "scene_history": [], "discovered_clues": [], "major_decisions": []}
@@ -487,6 +514,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         flags = _read_source(run_dir, f"{campaign_relative}/save/flags.json", "json", manifest)
         npc_receipts = _read_source(run_dir, f"{campaign_relative}/save/npc-engagement-receipts.json", "json", manifest)
         events = _read_source(run_dir, f"{campaign_relative}/logs/events.jsonl", "jsonl", manifest)
+        clue_graph_relative = f"{campaign_relative}/scenario/clue-graph.json"
+        clue_graph = _read_source(run_dir, clue_graph_relative, "json", manifest)
+        if clue_graph is not None:
+            manifest[clue_graph_relative]["projection"] = "structured_delivery_kind_counts_only_no_clue_content"
         toolbox_calls = _read_source(
             run_dir,
             f"{campaign_relative}/logs/toolbox-calls.jsonl",
@@ -625,17 +656,28 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             )
         matched["advisory_adoptions"].append(adoption)
 
+    play_conduct_signals = _play_conduct_signals(
+        dialogue=dialogue,
+        public_roll_count=len(public_rolls),
+        toolbox_calls=toolbox_calls,
+        clue_graph=clue_graph,
+        all_rolls=all_rolls,
+        progression=progression,
+        npc_receipts=npc_receipts,
+    )
+
     return {
         "completeness": {
             "classification": "COMPLETE" if not reasons else "INCOMPLETE",
             "claim_scope": "report_source_evidence_only",
-            "not_claimed": ["prose_quality", "director_use", "whole_product_kp_quality"],
+            "not_claimed": ["prose_quality", "director_use", "whole_product_kp_quality", "play_conduct_quality_judgment"],
             "dimensions": dimensions,
             "dialogue_role_counts": role_counts,
             "final_transcript_present": transcript_complete,
             "reasons": reasons,
         },
         "investigators": investigators,
+        "play_conduct_signals": play_conduct_signals,
         "progression": progression,
         "npc_interactions": npc_interactions,
         "ending": ending,
@@ -673,6 +715,109 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "source_record_count": len(transcript),
             "dialogue_record_count": len(dialogue),
             "records": dialogue,
+        },
+    }
+
+
+def _turn_sort_key(key: str) -> tuple[int, Any]:
+    if key == "unassigned":
+        return (2, 0)
+    if key.isdigit():
+        return (0, int(key))
+    return (1, key)
+
+
+def _play_conduct_signals(
+    *,
+    dialogue: list[dict[str, Any]],
+    public_roll_count: int,
+    toolbox_calls: list[dict[str, Any]] | None,
+    clue_graph: Any,
+    all_rolls: list[Any] | None,
+    progression: dict[str, Any],
+    npc_receipts: Any,
+) -> dict[str, Any]:
+    """Observational structured facts about table conduct (e.g. zero-roll sessions).
+
+    These signals only restate structured source evidence (turn numbers, roll
+    log rows, module-authored delivery_kind, NPC identity contracts). They make
+    no pass/fail judgment and never feed the completeness classification.
+    """
+    turn_count = len({row["turn"] for row in dialogue if _is_numeric(row.get("turn"))})
+
+    tool_call_counts: dict[str, int] = {}
+    for call in toolbox_calls or []:
+        if not isinstance(call, dict):
+            continue
+        turn = call.get("turn_number")
+        key = str(turn) if turn is not None else "unassigned"
+        tool_call_counts[key] = tool_call_counts.get(key, 0) + 1
+
+    discovered_clue_ids = [
+        clue["clue_id"]
+        for clue in progression.get("discovered_clues", [])
+        if isinstance(clue, dict) and isinstance(clue.get("clue_id"), str)
+    ]
+    skill_check_clues: list[dict[str, Any]] | None = None
+    without_roll_evidence: list[dict[str, Any]] | None = None
+    if clue_graph is not None:
+        discovered_set = set(discovered_clue_ids)
+        skill_check_clues = [
+            clue
+            for clue in _clue_graph_rows(clue_graph)
+            if clue["clue_id"] in discovered_set
+            and clue.get("delivery_kind") == "skill_check"
+        ]
+        if all_rolls is not None:
+            rolled_skills = {
+                skill.strip().casefold()
+                for row in all_rolls
+                if (skill := _roll_skill(row)) is not None
+            }
+            without_roll_evidence = [
+                clue
+                for clue in skill_check_clues
+                if not isinstance(clue.get("skill"), str)
+                or clue["skill"].strip().casefold() not in rolled_skills
+            ]
+
+    receipts_source = npc_receipts.get("receipts") if isinstance(npc_receipts, dict) else None
+    npc_total = 0
+    npc_improvised = 0
+    for receipt in receipts_source.values() if isinstance(receipts_source, dict) else []:
+        event = receipt.get("event") if isinstance(receipt, dict) else None
+        if not isinstance(event, dict):
+            continue
+        npc_total += 1
+        if event.get("identity_contract") is None:
+            npc_improvised += 1
+
+    return {
+        "schema_version": 1,
+        "nature": "observational_structured_facts_only",
+        "quality_judgment": "none: these signals never affect the completeness classification",
+        "turn_count": turn_count,
+        "public_roll_count": public_roll_count,
+        "tool_call_counts_per_turn": {
+            "available": toolbox_calls is not None,
+            "counts": dict(sorted(tool_call_counts.items(), key=lambda item: _turn_sort_key(item[0]))),
+            "total_tool_calls": len(toolbox_calls or []),
+        },
+        "skill_check_clue_delivery": {
+            "available": clue_graph is not None and all_rolls is not None,
+            "discovered_clue_count": len(discovered_clue_ids),
+            "skill_check_delivery_count": len(skill_check_clues) if skill_check_clues is not None else None,
+            "without_roll_evidence_count": len(without_roll_evidence) if without_roll_evidence is not None else None,
+            "without_roll_evidence_clue_ids": (
+                [clue["clue_id"] for clue in without_roll_evidence]
+                if without_roll_evidence is not None
+                else None
+            ),
+        },
+        "npc_engagements": {
+            "available": isinstance(npc_receipts, dict),
+            "total_count": npc_total,
+            "improvised_count": npc_improvised,
         },
     }
 
@@ -734,6 +879,55 @@ def _display(value: Any) -> str:
     if isinstance(value, list) and all(isinstance(item, (str, int, float)) for item in value):
         return ", ".join(map(str, value))
     return _pretty_json(value).replace("\n", " ")
+
+
+def _play_conduct_markdown(signals: dict[str, Any]) -> list[str]:
+    """Player-safe observational counts; no clue content or keeper-only detail."""
+    lines = [
+        "## Play Conduct Signals",
+        "",
+        "Observational structured facts for human review. They are not pass/fail "
+        "judgments and do not change the completeness classification.",
+        "",
+        f"- Dialogue turns: **{signals['turn_count']}**",
+        f"- Public rolls: **{signals['public_roll_count']}**",
+    ]
+    tool_counts = signals["tool_call_counts_per_turn"]
+    if tool_counts["available"]:
+        if tool_counts["counts"]:
+            per_turn = "; ".join(
+                f"turn {turn}: {count}" for turn, count in tool_counts["counts"].items()
+            )
+            lines.append(f"- Tool calls per turn (from the keeper-internal toolbox log): {per_turn}")
+        else:
+            lines.append("- Tool calls per turn (from the keeper-internal toolbox log): no toolbox calls were logged")
+    else:
+        lines.append("- Tool calls per turn: keeper-internal toolbox log unavailable")
+    clue_signal = signals["skill_check_clue_delivery"]
+    if clue_signal["available"]:
+        lines.append(
+            f"- Discovered clues: {clue_signal['discovered_clue_count']}; "
+            f"module-designed skill-check delivery: {clue_signal['skill_check_delivery_count']}; "
+            f"without a matching authored-skill roll in the roll log: **{clue_signal['without_roll_evidence_count']}**"
+        )
+        clue_ids = clue_signal.get("without_roll_evidence_clue_ids") or []
+        if clue_ids:
+            lines.append("  - Without roll evidence: " + ", ".join(f"`{clue_id}`" for clue_id in clue_ids))
+    else:
+        lines.append(
+            f"- Discovered clues: {clue_signal['discovered_clue_count']}; "
+            "skill-check delivery evidence unavailable (clue graph or roll log missing)"
+        )
+    npc_signal = signals["npc_engagements"]
+    if npc_signal["available"]:
+        lines.append(
+            f"- NPC engagements recorded: {npc_signal['total_count']}; "
+            f"improvised (no authored NPC identity): **{npc_signal['improvised_count']}**"
+        )
+    else:
+        lines.append("- NPC engagements: no structured receipts were recorded")
+    lines.append("")
+    return lines
 
 
 def _markdown(report: dict[str, Any]) -> str:
@@ -968,6 +1162,8 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.append("")
     if not rolls["records"]:
         lines.extend(["No public or consequence-public rolls occurred.", ""])
+
+    lines.extend(_play_conduct_markdown(report["play_conduct_signals"]))
 
     lines.extend(["## Completeness and Provenance", ""])
     for name, result in completeness["dimensions"].items():
