@@ -160,6 +160,14 @@ contract above still applies. This is the natural rhythm:
    Dice, resources, critical state, journal, ending, and development
    settlement are never background work; only append-only audit or mirror
    flushing may be deferred.
+   Item changes are state too: when the fiction grants, removes, or moves a
+   possession (found gear, a purchase, a seized weapon, a spent ledger),
+   call `state.item_grant` / `state.item_remove`, and use
+   `state.inventory_list` to check current holdings (an investigator's or an
+   NPC's). A granted weapon is a legal combat `weapon_id` at once; a weapon
+   taken by a successful disarm maneuver commits automatically when the
+   combat ends. Looting a downed or surrendered opponent is explicit:
+   `state.item_grant` to the looter plus `state.item_remove` from the NPC.
 
 If a tool reports a transient transaction or lock failure, retry the same
 call with the same `decision_id` within the toolbox's bounded retry policy.

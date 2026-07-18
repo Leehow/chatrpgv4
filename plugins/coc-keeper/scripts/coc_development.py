@@ -24,6 +24,7 @@ import random
 import re
 import time
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 coc_investigator_guard = _load_sibling(
     "coc_investigator_guard_development", "coc_investigator_guard.py"
 )
+coc_inventory = _load_sibling("coc_inventory_development", "coc_inventory.py")
 
 
 def _investigators_root(campaign_dir: Path) -> Path:
@@ -1776,6 +1778,136 @@ def _apply_frozen_awfulness_decay(
     return dict(sess.awfulness_caps), merged
 
 
+def _apply_inventory_settlement(
+    campaign_dir: Path,
+    investigator_id: str,
+    sheet: dict[str, Any],
+    *,
+    ending_id: str,
+) -> dict[str, Any] | None:
+    """Merge the campaign-local runtime inventory into the library sheet.
+
+    Net-diff semantics: runtime weapon entries become sheet weapons, sheet
+    weapons recorded under ``lost_weapon_ids`` are removed, and gear entry
+    labels append to ``equipment`` (exact-string dedupe).  Each net change
+    appends one ``inventory_settled`` event to the investigator's
+    ``inventory-history.jsonl``; event ids embed the ending id so a replayed
+    settlement is a no-op.  Returns a summary, or None when nothing changed.
+    """
+    inv_state_path = (
+        Path(campaign_dir) / "save" / "investigator-state" / f"{investigator_id}.json"
+    )
+    try:
+        inv_state = (
+            json.loads(inv_state_path.read_text(encoding="utf-8"))
+            if inv_state_path.exists() else {}
+        )
+    except (OSError, json.JSONDecodeError):
+        inv_state = {}
+    inventory = coc_inventory.normalize_inventory(
+        inv_state if isinstance(inv_state, dict) else {}
+    )
+    lost = set(inventory["lost_weapon_ids"])
+    entries = inventory["entries"]
+    if not lost and not entries:
+        return None
+
+    weapons = sheet.get("weapons")
+    if not isinstance(weapons, list):
+        weapons = []
+        sheet["weapons"] = weapons
+    equipment = sheet.get("equipment")
+    if not isinstance(equipment, list):
+        equipment = []
+        sheet["equipment"] = equipment
+
+    removed_weapons: list[str] = []
+    kept: list[Any] = []
+    for row in weapons:
+        wid = coc_inventory.weapon_ref_id(row)
+        if wid is not None and wid in lost:
+            removed_weapons.append(wid)
+            continue
+        kept.append(row)
+    sheet["weapons"] = weapons = kept
+
+    present = {
+        wid
+        for wid in (coc_inventory.weapon_ref_id(row) for row in weapons)
+        if wid is not None
+    }
+    added_weapons: list[str] = []
+    for entry in entries:
+        if entry["kind"] != "weapon":
+            continue
+        spec = deepcopy(entry["weapon"])
+        wid = coc_inventory.weapon_ref_id(spec)
+        if wid is None or wid in present:
+            continue
+        weapons.append(spec)
+        present.add(wid)
+        added_weapons.append(wid)
+
+    have_labels = {str(value) for value in equipment if isinstance(value, str)}
+    added_gear: list[str] = []
+    for entry in entries:
+        if entry["kind"] != "gear":
+            continue
+        label = str(entry["label"]).strip()
+        if label and label not in have_labels:
+            equipment.append(label)
+            have_labels.add(label)
+            added_gear.append(label)
+
+    if not (added_weapons or removed_weapons or added_gear):
+        return None
+    _write_character(campaign_dir, investigator_id, sheet)
+
+    history_path = _investigator_dir(campaign_dir, investigator_id) / "inventory-history.jsonl"
+    existing_ids: set[str] = set()
+    if history_path.exists():
+        try:
+            lines = history_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and isinstance(row.get("event_id"), str):
+                existing_ids.add(row["event_id"])
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    campaign_id = str(inv_state.get("campaign_id") or "")
+    changes = (
+        [("add", "weapon", wid) for wid in added_weapons]
+        + [("remove", "weapon", wid) for wid in removed_weapons]
+        + [("add", "gear", label) for label in added_gear]
+    )
+    for change, kind, item_id in changes:
+        event_id = f"{ending_id}:{change}-{kind}:{item_id}"
+        if event_id in existing_ids:
+            continue
+        coc_state.append_jsonl(history_path, {
+            "schema_version": 1,
+            "event_type": "inventory_settled",
+            "event_id": event_id,
+            "campaign_id": campaign_id,
+            "investigator_id": investigator_id,
+            "change": change,
+            "kind": kind,
+            "item_id": item_id,
+            "ts": ts,
+        })
+        existing_ids.add(event_id)
+    return {
+        "added_weapons": added_weapons,
+        "removed_weapons": removed_weapons,
+        "added_gear": added_gear,
+        "merge_policy": "inventory_net_diff_v1",
+    }
+
+
 def run_development_phase(
     campaign_dir: Path,
     investigator_id: str,
@@ -1827,6 +1959,17 @@ def run_development_phase(
     if skills_improved:
         _write_character(campaign_dir, investigator_id, sheet)
 
+    inventory_settlement = _apply_inventory_settlement(
+        campaign_dir,
+        investigator_id,
+        sheet,
+        ending_id=str(
+            ending_evidence.get("event_id")
+            or ending_evidence.get("decision_id")
+            or "ending"
+        ),
+    )
+
     luck_plan = dict(plan["luck_recovery"])
     current_luck = _current_luck(campaign_dir, investigator_id, sheet)
     planned_gain = int(luck_plan.get("gained", 0) or 0)
@@ -1876,6 +2019,7 @@ def run_development_phase(
         "luck_recovery": luck_recovery,
         "awfulness_decay": awfulness_decay,
         "awfulness_merge": awfulness_merge,
+        "inventory_settlement": inventory_settlement,
         "mechanical_baseline": baseline,
         "settlement_plan_sha256": plan["plan_sha256"],
         "merge_policy": "frozen_plan_additive_monotonic_v1",

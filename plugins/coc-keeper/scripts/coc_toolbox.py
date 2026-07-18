@@ -97,6 +97,7 @@ coc_narrative_enrichment = _load_sibling(
 coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_toolbox", "coc_subsystem_executor.py"
 )
+coc_inventory = _load_sibling("coc_inventory", "coc_inventory.py")
 
 SCENARIO_FILES = (
     "story-graph.json",
@@ -3371,13 +3372,8 @@ def _investigator_combat_profile(
         int(characteristics.get("STR", 50)),
         int(characteristics.get("SIZ", 50)),
     )
-    weapons = [
-        deepcopy(item)
-        for item in (sheet.get("weapons") or [])
-        if isinstance(item, dict)
-        and isinstance(item.get("weapon_id"), str)
-        and item["weapon_id"].strip()
-    ]
+    inventory = coc_inventory.normalize_inventory(state)
+    weapons = coc_inventory.effective_weapons(sheet.get("weapons"), inventory)
     if not any(item.get("weapon_id") == "unarmed" for item in weapons):
         weapons.append({"weapon_id": "unarmed"})
     return {
@@ -6515,6 +6511,292 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "state.inventory_list",
+    "Show an investigator's effective items and weapons (character sheet minus recorded losses plus runtime gains), or an NPC's runtime items.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "npc_id": {"type": "string", "desc": "NPC actor id (query instead of an investigator)"},
+    },
+)
+def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
+    npc_id = str(args.get("npc_id") or "").strip()
+    if npc_id:
+        document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+        row = coc_inventory.npc_items(document, npc_id)
+        authored = coc_inventory.authored_weapons_for_npc(ctx.story_graph, npc_id)
+        effective = coc_inventory.effective_npc_weapons(document, npc_id, authored)
+        return {
+            "npc_id": npc_id,
+            "weapons": effective or [],
+            "gear": row["gear"],
+            "override_recorded": row["current_weapons"] is not None,
+            "authored_weapons": authored,
+        }, [], []
+    investigator_id = _resolve_investigator(ctx, args)
+    state = ctx.inv_state(investigator_id)
+    sheet = ctx.sheet(investigator_id)
+    inventory = coc_inventory.normalize_inventory(state)
+    weapons = coc_inventory.effective_weapons(sheet.get("weapons"), inventory)
+    return {
+        "investigator_id": investigator_id,
+        "items": deepcopy(inventory["entries"]),
+        "weapons": weapons,
+        "lost_weapon_ids": list(inventory["lost_weapon_ids"]),
+    }, [], []
+
+
+@tool(
+    "state.item_grant",
+    "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "npc_id": {"type": "string", "desc": "NPC actor id (exactly one of investigator/npc_id)"},
+        "kind": {"type": "string", "required": True, "desc": "gear | weapon"},
+        "label": {"type": "string", "required": True, "desc": "short display label"},
+        "item_id": {"type": "string", "desc": "stable item id (defaults to weapon_id for weapons)"},
+        "weapon_id": {"type": "string", "desc": "catalog/module weapon id (kind=weapon)"},
+        "weapon": {"type": "object", "desc": "full custom weapon spec with weapon_id (kind=weapon)"},
+        "note": {"type": "string", "desc": "where/how the item was obtained"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.item_grant"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    kind = str(args["kind"]).strip()
+    if kind not in coc_inventory.ENTRY_KINDS:
+        raise ToolError(
+            "invalid_param", f"kind must be one of {list(coc_inventory.ENTRY_KINDS)}"
+        )
+    label = str(args["label"]).strip()
+    if not label:
+        raise ToolError("invalid_param", "label must be non-empty")
+    note = str(args.get("note") or "").strip() or None
+    weapon_spec: dict[str, Any] | None = None
+    if kind == "weapon":
+        raw_weapon = args.get("weapon")
+        if raw_weapon is not None:
+            if not isinstance(raw_weapon, dict):
+                raise ToolError("invalid_param", "weapon must be an object")
+            weapon_spec = deepcopy(raw_weapon)
+            if coc_inventory.weapon_ref_id(weapon_spec) is None:
+                raise ToolError(
+                    "invalid_param", "weapon.weapon_id must be a non-empty string"
+                )
+        else:
+            weapon_id = str(args.get("weapon_id") or "").strip()
+            if not weapon_id:
+                raise ToolError(
+                    "invalid_param", "kind=weapon requires weapon_id or weapon"
+                )
+            weapon_spec = {"weapon_id": weapon_id}
+        item_id = (
+            str(args.get("item_id") or "").strip()
+            or coc_inventory.weapon_ref_id(weapon_spec)
+        )
+    else:
+        if args.get("weapon") is not None or str(args.get("weapon_id") or "").strip():
+            raise ToolError(
+                "invalid_param", "kind=gear must not carry weapon_id/weapon"
+            )
+        item_id = str(args.get("item_id") or "").strip() or label
+
+    npc_id = str(args.get("npc_id") or "").strip()
+    if npc_id:
+        document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+        if kind == "weapon":
+            authored = coc_inventory.authored_weapons_for_npc(
+                ctx.story_graph, npc_id
+            )
+            changed = coc_inventory.npc_add_weapon(
+                document, npc_id, weapon_spec, authored
+            )
+        else:
+            changed = coc_inventory.npc_add_gear(document, npc_id, label)
+        if changed:
+            coc_npc_state.save_npc_state(ctx.campaign_dir, document)
+            ctx.log_event({
+                "event_type": "item_granted",
+                "owner_kind": "npc",
+                "npc_id": npc_id,
+                "kind": kind,
+                "item_id": item_id,
+                "weapon_id": coc_inventory.weapon_ref_id(weapon_spec),
+                "label": label,
+                "note": note,
+            })
+        data = {
+            "npc_id": npc_id,
+            "kind": kind,
+            "item_id": item_id,
+            "label": label,
+            "changed": changed,
+        }
+        if kind == "weapon":
+            data["weapon"] = deepcopy(weapon_spec)
+        ctx.ledger_record(decision_id, tool_name, data)
+        warnings = [] if changed else [f"item '{item_id}' already present"]
+        return data, warnings, []
+
+    investigator_id = _resolve_investigator(ctx, args)
+    state = ctx.inv_state(investigator_id)
+    inventory = coc_inventory.normalize_inventory(state)
+    entry: dict[str, Any] = {"item_id": item_id, "kind": kind, "label": label}
+    if weapon_spec is not None:
+        entry["weapon"] = weapon_spec
+    if note:
+        entry["note"] = note
+    entry["acquired"] = {
+        "tool": tool_name,
+        "decision_id": decision_id,
+        "ts": _now_iso(),
+    }
+    inventory, changed = coc_inventory.grant_entry(inventory, entry)
+    if changed:
+        state["inventory"] = inventory
+        ctx.save_inv_state(investigator_id, state)
+        ctx.log_event({
+            "event_type": "item_granted",
+            "owner_kind": "investigator",
+            "investigator_id": investigator_id,
+            "kind": kind,
+            "item_id": item_id,
+            "weapon_id": coc_inventory.weapon_ref_id(weapon_spec),
+            "label": label,
+            "note": note,
+        })
+    data = {
+        "investigator_id": investigator_id,
+        "kind": kind,
+        "item_id": item_id,
+        "label": label,
+        "changed": changed,
+        "items": deepcopy(inventory["entries"]),
+    }
+    if kind == "weapon":
+        data["weapon"] = deepcopy(weapon_spec)
+    ctx.ledger_record(decision_id, tool_name, data)
+    warnings = [] if changed else [f"item '{item_id}' already present"]
+    hints = (
+        [f"weapon '{item_id}' is now a legal combat weapon_id for this investigator"]
+        if kind == "weapon" and changed else []
+    )
+    return data, warnings, hints
+
+
+@tool(
+    "state.item_remove",
+    "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing a character-sheet weapon records a loss; removing an NPC weapon updates its runtime override.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "npc_id": {"type": "string", "desc": "NPC actor id (exactly one of investigator/npc_id)"},
+        "item_id": {
+            "type": "string",
+            "required": True,
+            "desc": "item id or weapon id to remove",
+        },
+        "reason": {"type": "string", "desc": "what happened to the item"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.item_remove"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    item_id = str(args["item_id"]).strip()
+    if not item_id:
+        raise ToolError("invalid_param", "item_id must be non-empty")
+    reason = str(args.get("reason") or "").strip() or None
+
+    npc_id = str(args.get("npc_id") or "").strip()
+    if npc_id:
+        document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+        authored = coc_inventory.authored_weapons_for_npc(ctx.story_graph, npc_id)
+        outcome = coc_inventory.npc_remove_weapon(
+            document, npc_id, item_id, authored
+        )
+        removed_kind = "weapon"
+        if outcome == "not_found":
+            outcome = coc_inventory.npc_remove_gear(document, npc_id, item_id)
+            removed_kind = "gear"
+        changed = outcome != "not_found"
+        if changed:
+            coc_npc_state.save_npc_state(ctx.campaign_dir, document)
+            ctx.log_event({
+                "event_type": "item_removed",
+                "owner_kind": "npc",
+                "npc_id": npc_id,
+                "kind": removed_kind,
+                "item_id": item_id,
+                "reason": reason,
+            })
+        data = {
+            "npc_id": npc_id,
+            "item_id": item_id,
+            "outcome": outcome,
+            "changed": changed,
+        }
+        ctx.ledger_record(decision_id, tool_name, data)
+        warnings = [] if changed else [f"item '{item_id}' not found for npc '{npc_id}'"]
+        return data, warnings, []
+
+    investigator_id = _resolve_investigator(ctx, args)
+    state = ctx.inv_state(investigator_id)
+    sheet = ctx.sheet(investigator_id)
+    sheet_weapon_ids = {
+        wid
+        for wid in (
+            coc_inventory.weapon_ref_id(row) for row in (sheet.get("weapons") or [])
+        )
+        if wid is not None
+    }
+    inventory = coc_inventory.normalize_inventory(state)
+    inventory, outcome = coc_inventory.remove_item(
+        inventory, item_id, sheet_weapon_ids
+    )
+    changed = outcome in {"removed_entry", "marked_lost"}
+    if changed:
+        state["inventory"] = inventory
+        ctx.save_inv_state(investigator_id, state)
+        ctx.log_event({
+            "event_type": "item_removed",
+            "owner_kind": "investigator",
+            "investigator_id": investigator_id,
+            "item_id": item_id,
+            "outcome": outcome,
+            "reason": reason,
+        })
+    data = {
+        "investigator_id": investigator_id,
+        "item_id": item_id,
+        "outcome": outcome,
+        "changed": changed,
+        "items": deepcopy(inventory["entries"]),
+        "lost_weapon_ids": list(inventory["lost_weapon_ids"]),
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    warnings = []
+    if not changed:
+        warnings.append(f"item '{item_id}' not found for investigator '{investigator_id}'")
+    hints = []
+    if outcome == "marked_lost":
+        hints.append(
+            f"'{item_id}' was a character-sheet weapon: the loss is recorded in "
+            "campaign state and reaches the investigator library at development settlement"
+        )
+    return data, warnings, hints
+
+
+@tool(
     "state.record_npc_engagement",
     "Record that an NPC materially participated in the current scene, even when no psych-state value changed.",
     {
@@ -7513,6 +7795,8 @@ _MUTATING_TOOLS = frozenset({
     "state.move_scene",
     "state.set_flag",
     "state.clear_transient_condition",
+    "state.item_grant",
+    "state.item_remove",
     "state.record_npc_engagement",
     "state.npc_update",
     "state.time_marker",

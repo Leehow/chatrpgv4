@@ -51,6 +51,7 @@ coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_poli
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 coc_rules = _load_sibling("coc_story_director_rules", "coc_rules.py")
 coc_keeper_planner = _load_sibling("coc_keeper_planner", "coc_keeper_planner.py")
+coc_inventory = _load_sibling("coc_inventory", "coc_inventory.py")
 
 coc_time = None
 try:
@@ -695,13 +696,10 @@ def build_director_context(
     damage_profile = coc_rules.damage_bonus_build(
         int(char_chars.get("STR", 50)), int(char_chars.get("SIZ", 50))
     )
-    authored_weapons = [
-        deepcopy(weapon)
-        for weapon in character.get("weapons", []) or []
-        if isinstance(weapon, dict)
-        and isinstance(weapon.get("weapon_id"), str)
-        and weapon["weapon_id"].strip()
-    ]
+    authored_weapons = coc_inventory.effective_weapons(
+        character.get("weapons", []) or [],
+        coc_inventory.normalize_inventory(inv_state),
+    )
     if not any(weapon.get("weapon_id") == "unarmed" for weapon in authored_weapons):
         authored_weapons.append({"weapon_id": "unarmed"})
     investigator_combat_profile = {

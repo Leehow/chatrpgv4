@@ -15,6 +15,12 @@ Runtime state lives in the current project under `.coc/`:
 - `.coc/campaigns/` stores campaign-specific save state, memory, logs, scenario data, indexes, and snapshots.
 - `.coc/playtests/` stores disposable test runs.
 
+Runtime item truth is campaign-local: investigator items live in
+`save/investigator-state/<id>.json["inventory"]` (gained `entries`,
+`lost_weapon_ids`), NPC item overrides live in `save/npc-state.json["items"]`.
+They reach the reusable library sheet only through development settlement
+(see `coc-development`), which also appends to `inventory-history.jsonl`.
+
 ## Operations
 
 Use `../../scripts/coc_state.py` for deterministic state operations:

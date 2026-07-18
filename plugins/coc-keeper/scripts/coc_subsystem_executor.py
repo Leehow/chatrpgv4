@@ -216,6 +216,8 @@ coc_time = _load_sibling("coc_time_subsystem_executor", "coc_time.py")
 coc_investigator_guard = _load_sibling(
     "coc_investigator_guard_subsystem_executor", "coc_investigator_guard.py"
 )
+coc_npc_state = _load_sibling("coc_npc_state_subsystem_executor", "coc_npc_state.py")
+coc_inventory = _load_sibling("coc_inventory_subsystem_executor", "coc_inventory.py")
 
 
 class SubsystemExecutorError(ValueError):
@@ -5774,6 +5776,165 @@ def _sync_investigator_from_combat(
         raise _error("combat_mirror_failed", path.as_posix(), "combat/investigator mirror diverged")
 
 
+def _commit_combat_inventory_changes(
+    campaign_dir: Path,
+    session: Any,
+) -> list[dict[str, Any]]:
+    """Persist disarm weapon transfers from a concluded combat session.
+
+    Replays ``effect_applied.effect == "disarmed"`` records in round order.
+    Investigator sides are updated per event: the loser's inventory entry is
+    removed (or a character-sheet weapon is recorded under
+    ``lost_weapon_ids``) and the winner gains a weapon entry carrying the
+    full spec.  For NPC sides the session's final participant weapon list is
+    the engine truth, so each disarm-involved NPC's ``current_weapons``
+    override is set to exactly that list.  Every mutation is set-semantics
+    derived from the same recorded evidence, so repeating this commit for the
+    same session is a no-op — the auto-conclude path and the explicit
+    combat_end path may both call it.
+
+    Returns one summary row per transfer that changed state this call.
+    """
+    participants = session.participants or {}
+    npc_doc: dict[str, Any] | None = None
+    npc_dirty = False
+    inv_states: dict[str, dict[str, Any]] = {}
+    inv_dirty: set[str] = set()
+    sheet_ids_cache: dict[str, set[str]] = {}
+    records: list[tuple[str, str, str, Any, bool]] = []
+    npc_involved: list[str] = []
+
+    def _sheet_weapon_ids(actor_id: str) -> set[str]:
+        if actor_id not in sheet_ids_cache:
+            sheet_path = (
+                campaign_dir.parent.parent
+                / "investigators" / actor_id / "character.json"
+            )
+            ids: set[str] = set()
+            try:
+                sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                sheet = {}
+            rows = sheet.get("weapons") if isinstance(sheet, dict) else None
+            for row in rows or []:
+                wid = coc_inventory.weapon_ref_id(row)
+                if wid is not None:
+                    ids.add(wid)
+            sheet_ids_cache[actor_id] = ids
+        return sheet_ids_cache[actor_id]
+
+    def _inv_state(actor_id: str) -> dict[str, Any]:
+        if actor_id not in inv_states:
+            inv_states[actor_id] = _investigator_state(campaign_dir, actor_id)
+        return inv_states[actor_id]
+
+    def _is_investigator(actor_id: str) -> bool:
+        return str(participants[actor_id].get("side")) == "investigator"
+
+    for round_row in session.rounds or []:
+        for turn in round_row.get("turns") or []:
+            if not isinstance(turn, dict):
+                continue
+            effect = turn.get("effect_applied")
+            if not isinstance(effect, dict) or effect.get("effect") != "disarmed":
+                continue
+            weapon = effect.get("weapon")
+            if not isinstance(weapon, dict):
+                weapon = None
+            wid = coc_inventory.weapon_ref_id(weapon) or coc_inventory.weapon_ref_id(
+                effect.get("weapon_id")
+            )
+            if wid is None or wid == "unarmed":
+                continue
+            loser_id = str(effect.get("target_actor_id") or "")
+            winner_id = str(effect.get("transferred_to") or "")
+            if (
+                not loser_id
+                or not winner_id
+                or loser_id not in participants
+                or winner_id not in participants
+            ):
+                continue
+            spec = dict(weapon) if weapon is not None else {"weapon_id": wid}
+            label = str(spec.get("name") or spec.get("display_name") or wid)
+            inv_changed = False
+
+            for actor_id in (loser_id, winner_id):
+                if not _is_investigator(actor_id) and actor_id not in npc_involved:
+                    npc_involved.append(actor_id)
+
+            if _is_investigator(loser_id):
+                state = _inv_state(loser_id)
+                inventory = coc_inventory.normalize_inventory(state)
+                inventory, outcome = coc_inventory.lose_weapon(
+                    inventory, wid, _sheet_weapon_ids(loser_id)
+                )
+                if outcome in {"removed_entry", "marked_lost"}:
+                    state["inventory"] = inventory
+                    inv_dirty.add(loser_id)
+                    inv_changed = True
+
+            if _is_investigator(winner_id):
+                state = _inv_state(winner_id)
+                inventory = coc_inventory.normalize_inventory(state)
+                inventory, winner_changed = coc_inventory.grant_entry(
+                    inventory,
+                    {
+                        "item_id": wid,
+                        "kind": "weapon",
+                        "label": label,
+                        "weapon": spec,
+                        "note": f"disarmed from {loser_id} in combat {session.combat_id}",
+                        "acquired": {
+                            "tool": "combat.disarm",
+                            "combat_id": str(session.combat_id),
+                            "turn_id": turn.get("turn_id"),
+                        },
+                    },
+                )
+                if winner_changed:
+                    state["inventory"] = inventory
+                    inv_dirty.add(winner_id)
+                    inv_changed = True
+
+            records.append((wid, loser_id, winner_id, turn.get("turn_id"), inv_changed))
+
+    npc_changed: set[str] = set()
+    for npc_id in npc_involved:
+        if npc_doc is None:
+            npc_doc = coc_npc_state.load_npc_state(campaign_dir)
+        before = coc_inventory.npc_items(npc_doc, npc_id).get("current_weapons")
+        final = participants[npc_id].get("weapons") or []
+        coc_inventory.npc_set_current_weapons(npc_doc, npc_id, final)
+        after = coc_inventory.npc_items(npc_doc, npc_id)["current_weapons"]
+        if before != after:
+            npc_changed.add(npc_id)
+            npc_dirty = True
+
+    transfers = [
+        {
+            "weapon_id": wid,
+            "from_actor_id": loser_id,
+            "to_actor_id": winner_id,
+            "turn_id": turn_id,
+        }
+        for (wid, loser_id, winner_id, turn_id, inv_changed) in records
+        if inv_changed or loser_id in npc_changed or winner_id in npc_changed
+    ]
+
+    for actor_id in sorted(inv_dirty):
+        path = (
+            campaign_dir / "save" / "investigator-state" / f"{actor_id}.json"
+        )
+        coc_fileio.write_json_atomic(
+            path, inv_states[actor_id],
+            indent=2, ensure_ascii=False, trailing_newline=True,
+        )
+    if npc_dirty and npc_doc is not None:
+        coc_npc_state.save_npc_state(campaign_dir, npc_doc)
+    return transfers
+
+
 def _clear_inactive_combat_conditions(
     campaign_dir: Path,
     investigator_id: str,
@@ -6667,7 +6828,37 @@ def _dispatch_combat(
             str(payload["combat_id"]), str(payload["scene_ref"]),
             int(payload.get("turn_number", 0)), rng=rng,
         )
+        npc_state_doc: dict[str, Any] | None = None
+        npc_state_dirty = False
+        participant_specs: list[dict[str, Any]] = []
         for spec in payload["participants"]:
+            if (
+                str(spec.get("side")) == "investigator"
+                or spec["actor_id"] == investigator_id
+            ):
+                participant_specs.append(spec)
+                continue
+            # Runtime NPC item truth beats authored module weapons: a
+            # recorded override (disarm/loot/grant) replaces the spec;
+            # otherwise the first combat seeds the override from the
+            # authored loadout so later mutations have a baseline.
+            if npc_state_doc is None:
+                npc_state_doc = coc_npc_state.load_npc_state(campaign_dir)
+            npc_actor_id = str(spec["actor_id"])
+            override = coc_inventory.effective_npc_weapons(
+                npc_state_doc, npc_actor_id
+            )
+            if override is not None:
+                spec = dict(spec, weapons=override)
+            else:
+                coc_inventory.npc_set_current_weapons(
+                    npc_state_doc, npc_actor_id, spec.get("weapons") or []
+                )
+                npc_state_dirty = True
+            participant_specs.append(spec)
+        if npc_state_dirty and npc_state_doc is not None:
+            coc_npc_state.save_npc_state(campaign_dir, npc_state_doc)
+        for spec in participant_specs:
             session.add_participant(
                 spec["actor_id"], spec["side"], spec["dex"],
                 spec["combat_skill"], spec["build"], spec["hp_max"],
@@ -6970,6 +7161,16 @@ def _dispatch_combat(
                 "ended_at_turn": session.ended_at_turn,
                 "source_command_id": command_id,
             })
+            inventory_transfers = _commit_combat_inventory_changes(
+                campaign_dir, session
+            )
+            if inventory_transfers:
+                additional_events.append({
+                    "event_type": "combat_inventory_committed",
+                    "combat_id": session.combat_id,
+                    "transfers": _json_copy(inventory_transfers),
+                    "source_command_id": command_id,
+                })
         damage_payloads = {
             row["payload"]["roll_id"]: row["payload"]
             for row in session.damage_evidence_rows(
@@ -7189,6 +7390,9 @@ def _dispatch_combat(
         cleared = _clear_inactive_combat_conditions(
             campaign_dir, investigator_id
         )
+        inventory_transfers = _commit_combat_inventory_changes(
+            campaign_dir, session
+        )
         event = {
             "event_type": "combat_ended", "combat_id": session.combat_id,
             "revision": session.revision, "outcome": session.outcome,
@@ -7196,6 +7400,13 @@ def _dispatch_combat(
             "source_command_id": command_id,
             "cleared_transient_conditions": cleared,
         }
+        if inventory_transfers:
+            additional_events.append({
+                "event_type": "combat_inventory_committed",
+                "combat_id": session.combat_id,
+                "transfers": _json_copy(inventory_transfers),
+                "source_command_id": command_id,
+            })
     refs = [f"save/investigator-state/{investigator_id}.json#current_hp"]
     if kind == "combat_defend" and luck_events:
         refs.append(

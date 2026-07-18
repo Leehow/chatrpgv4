@@ -46,7 +46,7 @@ Investigators are reusable assets:
 └── inventory-history.jsonl
 ```
 
-`creation.json` preserves the original rulebook creation workflow and finance/skill allocation evidence. `character.json` is the reusable long-term sheet. Permanent changes are written to the investigator library only during explicit development, recovery, import, or campaign-ending workflows.
+`creation.json` preserves the original rulebook creation workflow and finance/skill allocation evidence. `character.json` is the reusable long-term sheet. Permanent changes are written to the investigator library only during explicit development, recovery, import, or campaign-ending workflows. `inventory-history.jsonl` is the append-only ledger of settled item changes: each development settlement appends one `inventory_settled` event per net weapon/gear delta (event ids embed the ending id, so replayed settlements do not duplicate entries).
 
 ## Campaigns
 
@@ -79,6 +79,9 @@ Campaigns store temporary and scenario-specific state:
 │   ├── chase.json                  # chase session state (only during chases)
 │   ├── character-creation-draft.json  # in-progress creation workflow state
 │   └── investigator-state/         # per-investigator campaign-local HP/SAN/conditions
+│                                   # + optional "inventory": runtime item truth —
+│                                   #   entries[] (kind gear|weapon) gained in play,
+│                                   #   lost_weapon_ids[] for sheet weapons lost
 ├── scenario/                       # compiled story-graph, clue-graph, npc-agendas,
 │                                   # threat-fronts, pacing-map, improvisation-boundaries
 ├── artifacts/                      # DirectorPlan JSON per decision_id
@@ -132,6 +135,22 @@ normalization is not a repository-wide migration. Ordinary live turns may
 change this state only through structured `npc_interactions` and typed
 `npc_effects`. Free prose, skill names, agendas, and clue summaries are never
 scanned to infer a tactic, target, or disclosure decision.
+
+`save/npc-state.json["items"][npc_id]` is the runtime NPC item override:
+`current_weapons` (a list, possibly empty) replaces the authored module
+loadout at combat start, and `gear` lists narrative possessions. The first
+combat seeds `current_weapons` from the authored opponent spec; disarm
+transfers at combat end, `state.item_grant`, and `state.item_remove` mutate
+it afterwards. An absent/`null` `current_weapons` means "no runtime override
+recorded" and authored module weapons apply.
+
+Inventory during play is campaign-local. An investigator's effective weapon
+set is (character-sheet weapons minus `inventory.lost_weapon_ids`) merged
+with `kind: "weapon"` inventory entries; combat projections read this merged
+set, so a disarmed or granted weapon is a legal combat selection. When a
+combat concludes, recorded disarm transfers are committed to both sides'
+runtime truth (idempotent replay). Permanent library write-back happens only
+at development settlement (see `inventory-history.jsonl` above).
 
 Social disclosure uses this exact order: NPC availability, fact knowledge,
 fact revealability, active reaction, willingness (trust or authored leverage),

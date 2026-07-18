@@ -179,7 +179,7 @@ A maneuver is a Fighting attack whose goal is something other than raw damage. P
 
 | goal (canonical) | Effect on success | Legacy aliases |
 |---|---|---|
-| `disarm` | Target's `target_weapon_id` transfers to the attacker. | — |
+| `disarm` | Target's `target_weapon_id` transfers to the attacker (full weapon spec moves with it). | — |
 | `ongoing_disadvantage` | Target gains a `restrained` effect (physical hold / knockdown disadvantage). Held until attacker releases, is incapacitated, or takes a major wound. | `grapple`, `restrain` |
 | `escape` | Break free of a `restrained` hold on yourself. | `break_free` |
 | `push` | Target is pushed/thrown/knocked down (`prone`). Falling damage is a separate `damage_only` turn. | `other`, `knockdown` |
@@ -195,6 +195,8 @@ Recorded on the turn as `maneuver_build_difference` and `maneuver_penalty_dice`.
 **Defender maneuver counter (p.117)**: the target may respond with `defense_kind="maneuver"` and `defender_goal=<goal>`. Resolve as fighting back (Fighting vs Fighting); if the defender achieves a higher success level, apply the defender's goal instead of dealing fight-back damage.
 
 A successful `ongoing_disadvantage` (grapple/restrain) is a powerful tactical option: a restrained spellcaster cannot gesture to cast, a restrained gunman can be disarmed next round, and the hold persists across rounds until broken with `goal="escape"`.
+
+**Disarm persistence**: when a combat concludes (either auto-conclusion or `combat.end`), every recorded disarm transfer is committed to campaign state — the winner keeps the weapon in their runtime inventory (`save/investigator-state/<id>.json["inventory"]` for investigators; `save/npc-state.json["items"][npc_id].current_weapons` for NPCs), and the loser sheds it (a lost character-sheet weapon is recorded under `lost_weapon_ids`). A weapon taken this way is a legal `weapon_id` for later `combat.resolve` calls, and a disarmed enemy stays disarmed in later encounters. Looting a downed or surrendered opponent outside combat is the Keeper's explicit call: `state.item_grant` to the looter plus `state.item_remove` from the NPC (see `state.inventory_list` for current holdings). Investigator gains are written back to the reusable library sheet at development settlement.
 
 ## Thrown Weapons (p.108)
 

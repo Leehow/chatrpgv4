@@ -33,7 +33,12 @@ available to replay a structured pending settlement.
    same decision/ending identity. The operation must synchronously consume all
    earned skill checks, roll improvements, recover Luck, apply any structured
    scenario SAN reward, update the reusable `character.json`, clear consumed
-   campaign ticks, and return a settlement receipt.
+   campaign ticks, and return a settlement receipt. The same write-back also
+   settles the campaign-local runtime inventory into the library sheet:
+   gained weapons join `weapons[]`, sheet weapons recorded under
+   `lost_weapon_ids` are removed, gear labels append to `equipment[]`, and
+   each net change appends an idempotent `inventory_settled` event to the
+   investigator's `inventory-history.jsonl`.
 3. Present the completed settlement: skills checked, permanent increases, SAN
    gained, Luck before/after, and state/evidence references.
 4. Retry only through the same idempotent settlement identity. Never settle a

@@ -2132,13 +2132,25 @@ class CombatSession:
                  else target["weapons"][0])
                 if target.get("weapons") else None)
             if wid:
-                target["weapons"] = [
-                    w for w in target["weapons"]
-                    if (w.get("weapon_id") if isinstance(w, dict) else w) != wid]
-                attacker["weapons"].append(wid if isinstance(wid, str) else wid)
+                # Transfer the target's full weapon entry (not a bare id) so
+                # module-weapon fields survive the hand-off and the combat-end
+                # inventory commit can persist the complete spec.
+                taken: dict[str, Any] | None = None
+                remaining: list[Any] = []
+                for w in target["weapons"]:
+                    w_id = w.get("weapon_id") if isinstance(w, dict) else w
+                    if w_id == wid and taken is None:
+                        taken = dict(w) if isinstance(w, dict) else {"weapon_id": str(w)}
+                    else:
+                        remaining.append(w)
+                target["weapons"] = remaining
+                if taken is None:
+                    taken = {"weapon_id": str(wid)}
+                attacker["weapons"].append(taken)
                 turn["effect_applied"] = {
                     "effect": "disarmed", "target_actor_id": target_id,
-                    "weapon_id": wid, "transferred_to": actor_id,
+                    "weapon_id": wid, "weapon": dict(taken),
+                    "transferred_to": actor_id,
                     "counter": as_counter,
                 }
                 turn["outcome"] = f"{prefix}disarm_success"
