@@ -290,3 +290,21 @@ def test_describe_parameter_signals_combines_and_tolerates_bad_input():
     assert [n["signal"] for n in notes] == ["credit_tier", "luck_level"]
     assert coc_rule_signals.describe_parameter_signals(None) == []
     assert coc_rule_signals.describe_parameter_signals({}) == []
+
+
+def test_describe_parameter_signals_app_bands():
+    low = coc_rule_signals.describe_parameter_signals({"app": 20})
+    assert [n["signal"] for n in low] == ["app"]
+    assert low[0]["value"] == "20"
+    assert low[0]["rule_ref"]
+    high = coc_rule_signals.describe_parameter_signals({"app": 85})
+    assert [n["signal"] for n in high] == ["app"]
+    # Unremarkable APP stays quiet, matching the notable-values-only policy.
+    assert coc_rule_signals.describe_parameter_signals({"app": 50}) == []
+    assert coc_rule_signals.describe_parameter_signals({"app": 21}) == []
+    assert coc_rule_signals.describe_parameter_signals({"app": 79}) == []
+    assert coc_rule_signals.describe_parameter_signals({"app": True}) == []
+    combined = coc_rule_signals.describe_parameter_signals(
+        {"app": 15, "credit_tier": "poor"}
+    )
+    assert [n["signal"] for n in combined] == ["credit_tier", "app"]

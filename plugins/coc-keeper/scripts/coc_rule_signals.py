@@ -162,9 +162,10 @@ def describe_parameter_signals(rule_signals: dict[str, Any]) -> list[dict[str, A
     """Render notable rule_signals values as advisory notes for the Keeper.
 
     Advisory only, never a gate: fixed copy rendered from the structured
-    ``credit_tier`` / ``luck_level`` enum values the director already computes.
-    Average credit and moderate/high luck produce no notes, so the list stays
-    empty unless there is something worth Keeper attention.
+    ``credit_tier`` / ``luck_level`` enum values the director already computes,
+    plus notable APP values from the p.37 ladder. Average credit, moderate/high
+    luck, and unremarkable APP produce no notes, so the list stays empty unless
+    there is something worth Keeper attention.
 
     Returns a list of ``{signal, value, note, rule_ref}`` dicts.
     """
@@ -186,6 +187,30 @@ def describe_parameter_signals(rule_signals: dict[str, Any]) -> list[dict[str, A
             "value": luck_level,
             "note": _LUCK_LEVEL_NOTES[luck_level],
             "rule_ref": "keeper-rulebook p.99",
+        })
+    app_raw = rule_signals.get("app")
+    app: int | None = None
+    if isinstance(app_raw, (int, float)) and not isinstance(app_raw, bool):
+        app = int(app_raw)
+    if app is not None and app <= 20:
+        notes.append({
+            "signal": "app",
+            "value": str(app),
+            "note": (
+                f"APP {app}: strikingly unattractive — first meetings start "
+                "uphill; expect stares, pity, or revulsion before a word is spoken"
+            ),
+            "rule_ref": "keeper-rulebook p.31, p.37",
+        })
+    elif app is not None and app >= 80:
+        notes.append({
+            "signal": "app",
+            "value": str(app),
+            "note": (
+                f"APP {app}: remarkable presence — strangers notice and remember "
+                "this face; first meetings begin with the advantage"
+            ),
+            "rule_ref": "keeper-rulebook p.31, p.37",
         })
     return notes
 

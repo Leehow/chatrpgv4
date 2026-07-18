@@ -81,6 +81,12 @@
 - 战报导出新增玩家安全的 "Social Skill Rolls" 聚焦视图：仅收录公开社交技能骰
   （Charm / Fast Talk / Intimidate / Persuade；Psychology 属 KP 暗骰不列入），
   零记录时显式说明，证据 JSON 同步携带 `social_rolls`。
+- 修复调查员参数"可发现但少被消费"的断链：`npc.query` 与
+  `state.record_npc_engagement` 在中立 NPC 尚无累积 psych 信号时追加 p.191
+  第一印象 advisory hint（附调查员 APP/CR，指向 `npc.reaction`）；
+  `describe_parameter_signals` 补 APP 显著档提示（p.37 阶梯，平均值保持静默）；
+  `coc-keeper-play` 第一印象条款改为明说自动骰只发生在 director.advise 内，
+  并要求 KP 把第一印象演进初次照面的描写。
 ### Known Issues
 
 - The Haunting 的分发依据和插件图片来源仍为 `UNVERIFIED`；稳定发布前需要外部

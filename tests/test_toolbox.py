@@ -7233,3 +7233,51 @@ def test_rules_build_scale_lookup_and_comparison(tmp_path):
     )
     assert bad_type["ok"] is False
     assert bad_type["error"]["code"] == "invalid_param"
+
+
+def _first_neutral_npc_id(campaign_dir: Path) -> str:
+    agendas = json.loads(
+        (campaign_dir / "scenario" / "npc-agendas.json").read_text(encoding="utf-8")
+    )
+    for npc in agendas.get("npcs") or []:
+        if (
+            isinstance(npc, dict)
+            and npc.get("npc_id")
+            and not coc_toolbox.coc_story_director._npc_is_forced_adversary(npc)
+        ):
+            return str(npc["npc_id"])
+    raise AssertionError("starter npc-agendas has no neutral npc_id")
+
+
+def test_first_impression_hint_on_npc_query_and_engagement(campaign_ws):
+    npc_id = _first_neutral_npc_id(campaign_ws["campaign_dir"])
+
+    queried = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
+    assert queried["ok"] is True
+    assert any(
+        "first impression" in hint and "npc.reaction" in hint
+        for hint in queried["hints"]
+    )
+
+    recorded = _run(campaign_ws, "state.record_npc_engagement", {
+        "npc_id": npc_id,
+        "interaction_kind": "dialogue",
+        "decision_id": "first-impression-hint-1",
+    })
+    assert recorded["ok"] is True
+    assert any(
+        "first impression" in hint and "npc.reaction" in hint
+        for hint in recorded["hints"]
+    )
+
+    # Accumulated psych state suppresses the hint: a p.191 first impression no
+    # longer applies once the relationship has a track record.
+    updated = _run(campaign_ws, "state.npc_update", {
+        "npc_id": npc_id,
+        "trust_delta": 2,
+        "decision_id": "first-impression-hint-2",
+    })
+    assert updated["ok"] is True
+    queried_after = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
+    assert queried_after["ok"] is True
+    assert not any("first impression" in hint for hint in queried_after["hints"])

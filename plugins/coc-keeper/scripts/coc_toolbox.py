@@ -937,6 +937,51 @@ def _npc_engagement_advisory_hints(
     return []
 
 
+def _first_impression_hint(
+    ctx: Ctx, npc_id: str, authored_npc: dict[str, Any] | None
+) -> str | None:
+    """Advisory p.191 pointer for the KP's real path.
+
+    A neutral NPC without accumulated psych state can still take a concealed
+    first-impression roll; once psych state exists it outranks any first
+    impression, so the hint stays silent then. Advisory only — never a gate.
+    """
+    if authored_npc is not None and coc_story_director._npc_is_forced_adversary(
+        authored_npc
+    ):
+        return None
+    npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
+    psych_entry = (npc_state.get("psych") or {}).get(npc_id)
+    if coc_npc_state.has_signal(psych_entry):
+        return None
+    stats: tuple[str, int, int] | None = None
+    try:
+        investigator_id = _resolve_investigator(ctx, {})
+        sheet = ctx.sheet(investigator_id)
+        chars = sheet.get("characteristics") or {}
+        skills = sheet.get("skills") or {}
+        app_raw = chars.get("APP", 50)
+        cr_raw = skills.get("Credit Rating", 0)
+        stats = (
+            investigator_id,
+            int(app_raw) if app_raw is not None else 50,
+            int(cr_raw) if cr_raw is not None else 0,
+        )
+    except ToolError:
+        stats = None
+    if stats is None:
+        return (
+            f"first impression: '{npc_id}' has no accumulated psych state — an "
+            "npc.reaction roll (p.191, concealed) can still set their initial manner"
+        )
+    investigator_id, app, credit_rating = stats
+    return (
+        f"first impression: '{npc_id}' has no accumulated psych state — consider "
+        f"npc.reaction (p.191, concealed) for their initial manner "
+        f"({investigator_id} APP {app} / CR {credit_rating})"
+    )
+
+
 def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
     """Return an authored rulebook base chance for a known skill when numeric."""
     global _SKILL_BASES_CACHE
@@ -5712,6 +5757,12 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             f"resolved NPC alias '{requested_id}' to authored id '{canonical_requested_id}'"
         )
+    if requested_npc is not None:
+        first_impression = _first_impression_hint(
+            ctx, canonical_requested_id, requested_npc
+        )
+        if first_impression:
+            hints.append(first_impression)
     return {"npcs": out}, [], hints
 
 
@@ -7441,6 +7492,9 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     _save_npc_receipt_document(ctx, document)
     _ensure_npc_receipt_event(ctx, receipt)
     hints = _npc_engagement_advisory_hints(authored_npc, npc_id)
+    first_impression = _first_impression_hint(ctx, npc_id, authored_npc)
+    if first_impression:
+        hints.append(first_impression)
     data = deepcopy(event)
     ctx.ledger_record(decision_id, tool_name, data)
     return data, warnings, hints
