@@ -12,3 +12,4 @@ checks/py4llm-cached/
 
 # Local scratch / playtest workspaces — do not commit
 tmp/
+.scratch/

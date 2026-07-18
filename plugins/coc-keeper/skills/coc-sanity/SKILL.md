@@ -56,6 +56,23 @@ After a bout of madness is rolled (Tables VII / VIII):
 - When the bout ends, return control to the player and note the fragile underlying state (any further SAN loss retriggers a bout).
 - During the underlying phase, everyday behavior can look completely normal (p.158). Do **not** roleplay constant madness between bouts.
 
-## V1 Scope
+## Scope
 
-Support SAN roll, loss, threshold checks, bouts of madness (real-time and summary), delusions and reality check, and bout playout guidance. Long-term recovery paths (private care / asylum monthly tables, self-help keyed to backstory), phobia/mania structured exposure tags, and development-phase SAN awards remain for later waves.
+Covers SAN roll, loss, threshold checks, bouts of madness (real-time and
+summary), delusions and reality check, and bout playout guidance.
+
+Beyond that core, already wired:
+
+- **Weekly Psychoanalysis treatment** for indefinite insanity resolves as a
+  time trigger (handler `apply_psychoanalysis_treatment`, p.164) scheduled
+  through `state.time_marker`; it writes recovered SAN back and clears
+  `indefinite_insane` once fully restored.
+- **Phobia/mania exposure** surfaces through `director.advise` as the
+  structured `phobia_exposure` rule signal when scene threat tags intersect
+  the investigator's stored tags.
+- **Development-phase SAN rewards** settle through `development.settle`
+  (`development_san_reward` / `scenario_san_reward`).
+
+The asylum / private-care monthly tables and key-connection self-help exist
+in `scripts/coc_healing.py` (`PsychotherapySession`) but are not yet exposed
+as toolbox operations.
