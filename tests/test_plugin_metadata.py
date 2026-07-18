@@ -81,6 +81,7 @@ def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
         "log_style_summary",
         "ai_summary_voice",
         "always-active player-action uptake",
+        "rules.skill_describe",
         "**not** an acceptable",
         "codex_only_imagegen",
     ):

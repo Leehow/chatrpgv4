@@ -26,6 +26,7 @@ REQUIRED_RULE_FILES = [
     "reward.json",
     "roll-modifiers.json",
     "skills.json",
+    "skill-descriptions.json",
     "occupations.json",
     "spells.json",
     "tomes.json",

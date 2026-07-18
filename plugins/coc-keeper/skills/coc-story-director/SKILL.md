@@ -23,6 +23,10 @@ horror, epistemic, NPC, and threat signals and returns a rich
 scheduler against that candidate plan and the same semantic evidence.
 Both are suggestions with rationale — never obligations.
 
+The emitted plan's field vocabulary — `rule_signals`, the APP/CR
+`npc_reaction_roll` behind `npc_moves[].emotional_tone` (p.191), clue policy,
+epistemic contract — is documented in `../../references/director-protocol.md`.
+
 When you consult advice, call `evidence.record_adoption` after deciding whether
 you adopted, modified, or ignored it. This is Keeper-internal evidence, not a
 gate. If a selected plan has an epistemic contract, apply it only after its

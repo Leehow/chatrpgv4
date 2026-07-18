@@ -57,6 +57,47 @@ campaign-state helpers and note `luck_spent_last` for the director.
 At session end run `coc_roll.recover_luck(current_luck)` per investigator
 (1D100 > current Luck gains 1D10, capped at 99).
 
+## When to Call for a Check
+
+The rules tools own arithmetic only — target values, bonus/penalty dice,
+success levels, HP/SAN changes. **When** a roll happens is Keeper
+discretion, not tool authority. Discretion still has a recognizable grammar;
+the situations below are the standard triggers, not an exhaustive menu:
+
+- **Module-declared check gates.** Compiled module truth may attach
+  `delivery_kind: skill_check` to a clue or a route constraint in an NPC's
+  `keeper_note`. Those structured fields mean the authored design expects a
+  roll there; resolve the gate with `rules.roll` (or the canonical subsystem
+  tool) before the clue or contact lands, rather than handing it over on a
+  player's declaration.
+- **Library Use / research.** Finding what a collection holds, digging out
+  an obscure reference, skimming a tome for its secrets. Time is part of the
+  cost — pair with `state.advance_time` when the fiction says hours pass.
+- **The four social skills.** Charm, Fast Talk, Intimidate, Persuade —
+  whenever the investigator tries to change an NPC's stance, open a guarded
+  door, or extract a confidence, and failure would close or sour that
+  approach. Casual small talk with no stakes needs no roll.
+- **Spot Hidden / Listen and other perception.** Finding what is hidden,
+  noticing what is easy to miss, hearing what was not meant to be heard. A
+  failed Spot Hidden is "you find nothing yet", never "nothing is there."
+- **SAN triggers.** Authored `pending_san_triggers` surfaced by
+  `scene.context`, Mythos encounters, gore, and personal-horror breaks
+  resolve through `sanity.execute`, never through narration alone.
+- **Combat, Dodge, and opposed action.** Attacks, dodges, fighting back,
+  chases, and contests use the canonical `combat.*` / `chase.*` / opposed
+  tools; dice settle who prevails, not prose momentum.
+- **Risky physical action with interesting failure.** Climbing, jumping,
+  forcing, sneaking, sleight of hand — when failure would change the
+  fiction, roll it; when failure is trivial, narrate it.
+
+The common test: call for a roll when the action is risky, failure is
+interesting, or module truth has declared a gate. A long stretch of play
+with no checks is a pacing signal to examine — especially when players are
+declaring discoveries, contacts, or shortcuts the module priced in checks —
+not proof that everything went smoothly. Whatever the timing decision, once
+you call for a roll the `rules.*` result is authoritative: quote it
+faithfully and never adjust the numbers.
+
 ## Output
 
 For in-game narration, keep mechanical details short. For `[meta]` answers, show:

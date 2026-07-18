@@ -141,6 +141,55 @@ def read_luck_signal(current_luck: int, luck_spent_last: int) -> tuple[str, bool
     return (level, luck_spent_last > 0)
 
 
+# Advisory copy rendered from structured enum values only (Semantic Matcher
+# Constitution: no prose scanning). Emitted only for tiers worth Keeper
+# attention so average/moderate values never produce noise.
+_CREDIT_TIER_NOTES: dict[str, str] = {
+    "penniless": "CR 0: penniless — no dependable cash or lodging; wealth-conscious NPCs will dismiss them, and any purchase needs fiction first",
+    "poor": "CR 1-9: poor — cheap lodging only, almost no disposable cash; wealth-conscious NPCs will look down on them",
+    "wealthy": "CR 50-89: wealthy — good hotels and first-class travel are simply owned; money opens doors without a purchase roll",
+    "rich": "CR 90-98: rich — top-tier hotels, servants, and major assets at hand; wealth-based social access is credible",
+    "super_rich": "CR 99+: super rich — money is effectively no obstacle; the lifestyle itself impresses or intimidates",
+}
+
+_LUCK_LEVEL_NOTES: dict[str, str] = {
+    "low": "Luck is low — a legitimate target when the Keeper needs someone for misfortune to strike (group-Luck rule)",
+    "depleted": "Luck is depleted — the fates have abandoned them; prefer them when circumstance needs a victim",
+}
+
+
+def describe_parameter_signals(rule_signals: dict[str, Any]) -> list[dict[str, Any]]:
+    """Render notable rule_signals values as advisory notes for the Keeper.
+
+    Advisory only, never a gate: fixed copy rendered from the structured
+    ``credit_tier`` / ``luck_level`` enum values the director already computes.
+    Average credit and moderate/high luck produce no notes, so the list stays
+    empty unless there is something worth Keeper attention.
+
+    Returns a list of ``{signal, value, note, rule_ref}`` dicts.
+    """
+    notes: list[dict[str, Any]] = []
+    if not isinstance(rule_signals, dict):
+        return notes
+    credit_tier = str(rule_signals.get("credit_tier") or "")
+    if credit_tier in _CREDIT_TIER_NOTES:
+        notes.append({
+            "signal": "credit_tier",
+            "value": credit_tier,
+            "note": _CREDIT_TIER_NOTES[credit_tier],
+            "rule_ref": "keeper-rulebook p.45-47",
+        })
+    luck_level = str(rule_signals.get("luck_level") or "")
+    if luck_level in _LUCK_LEVEL_NOTES:
+        notes.append({
+            "signal": "luck_level",
+            "value": luck_level,
+            "note": _LUCK_LEVEL_NOTES[luck_level],
+            "rule_ref": "keeper-rulebook p.99",
+        })
+    return notes
+
+
 def read_critical_fumble(last_roll_outcome: str | None) -> tuple[bool, bool]:
     """Detect critical (01) / fumble (96-100) from last roll outcome string.
 

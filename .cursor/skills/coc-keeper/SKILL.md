@@ -54,6 +54,23 @@ Runtime scripts and rules JSON also stay under `plugins/coc-keeper/`
 it must stay byte-synced with the repo via
 `plugins/coc-keeper/scripts/install-cursor-plugin.sh`.
 
+## Host topology (Cursor play)
+
+On Cursor, **this main chat session is the Keeper**. Load the canonical skills
+above and call `coc_toolbox.py` directly from this session.
+
+Do **not** nest another Keeper for ordinary play:
+
+- Do not drive turns through `runtime.sdk.api.send` / a cold-start Pi keeper.
+- Do not spawn a subagent (or second host) to act as KP while this session
+  only relays.
+- A collaboration / Task subagent may act as the **player only** (player-safe
+  narration in, player action out). It must not receive module secrets or tool
+  envelopes.
+
+Pi/headless remains a separate host surface for the same plugin; it is not the
+turn engine underneath Cursor KP.
+
 ## Cursor / Codex KP craft parity
 
 Cursor is not a rules-engine facade. A path that mainly calls `scene.*` /
@@ -88,6 +105,14 @@ call because the fiction already has clear momentum is fine. Skipping the
 entire director/narration layer for convenience is not.
 
 ### Always-active player-action uptake
+
+**One-line rule (every ordinary reply):** 先用叙事演完玩家刚承诺的那一步（方法 /
+对象 / 谨慎 / 关键台词），再给骰点、线索或目的地；直接跳结果 = 不合格回复。
+
+**检定流程：** KP 先从玩家言行（及 `actions.list`）判定候选技能 → 调用
+`rules.skill_describe` 拉取描述（Ch.4 全技能已入库）→ 再选定并 `rules.roll`。
+玩家不点名技能。威胁 → 恐吓；示好/勾引 → 魅力；长时间讲理 → 说服；快速哄骗
+→ 话术。`【明骰】` 后先写清桌上变化，再给线索——禁止「参数过了就发奖励」。
 
 Follow the Core Keeper Response Contract in canonical
 `coc-keeper-play/SKILL.md` on every ordinary in-game reply. When the player

@@ -379,6 +379,19 @@
       }
     },
     {
+      "id": "core.skills.descriptions",
+      "category": "skills",
+      "source_table": "skill-descriptions.json",
+      "source_note": "Keeper Rulebook Chapter 4 skill prose (PDF pages 69-90) for KP adjudication via rules.skill_describe. Covers every skills.json key; retains interpersonal disambiguation selection_policy for Charm/Fast Talk/Intimidate/Persuade.",
+      "numeric": {
+        "described_skill_count": 79,
+        "charm_base": 15,
+        "fast_talk_base": 5,
+        "intimidate_base": 15,
+        "persuade_base": 10
+      }
+    },
+    {
       "id": "core.combat.maneuver.disarm",
       "category": "combat",
       "source_table": "combat.json",

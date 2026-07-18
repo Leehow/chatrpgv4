@@ -4028,6 +4028,11 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
         "tension_target": tension_target,
         "tension_delta": tension_delta,
         "rule_signals": ctx["rule_signals"],
+        # Advisory rendering of notable parameter signals (credit tier, low
+        # luck). Fixed copy from structured enums; the KP may adopt or ignore.
+        "rule_signal_notes": coc_rule_signals.describe_parameter_signals(
+            ctx["rule_signals"]
+        ),
         "time_signals": ctx.get("time_signals", {}),
         "time_advance": time_advance,
         "validation_warnings": list(ctx.get("validation_warnings") or []),

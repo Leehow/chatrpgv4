@@ -3681,3 +3681,17 @@ def test_move_intent_commits_flag_gated_destination(tmp_path):
     assert plan["scene_action"] == "CUT"
     assert plan.get("transition_to") == "travel-to-puno"
     assert plan.get("flags_set") == ["expedition_departs_lima"]
+
+
+def test_plan_carries_rule_signal_notes_for_notable_credit_tier(tmp_path):
+    camp, character = _make_minimal_campaign(tmp_path)
+    ctx = coc_story_director.build_director_context(
+        camp, character, "inv1", "wait", "idle", rng=random.Random(1)
+    )
+    plan = coc_story_director.generate_director_plan(ctx, "signal-notes-1")
+    notes = plan["rule_signal_notes"]
+    # Sheet fixture: Credit Rating 50 -> wealthy (p.45-47); LUCK 55 -> moderate.
+    assert [n["signal"] for n in notes] == ["credit_tier"]
+    assert notes[0]["value"] == "wealthy"
+    assert notes[0]["note"]
+    assert notes[0]["rule_ref"]

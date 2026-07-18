@@ -61,6 +61,7 @@ coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 coc_flag_state = _load_sibling("coc_flag_state_toolbox", "coc_flag_state.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
 coc_npc_identity = _load_sibling("coc_npc_identity_toolbox", "coc_npc_identity.py")
@@ -98,6 +99,12 @@ coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_toolbox", "coc_subsystem_executor.py"
 )
 coc_inventory = _load_sibling("coc_inventory", "coc_inventory.py")
+coc_action_resolver = _load_sibling(
+    "coc_action_resolver_toolbox", "coc_action_resolver.py"
+)
+coc_keeper_planner = _load_sibling(
+    "coc_keeper_planner_toolbox", "coc_keeper_planner.py"
+)
 
 SCENARIO_FILES = (
     "story-graph.json",
@@ -779,6 +786,155 @@ def _npc_identity_contract(
     active_scene_id: str | None,
 ) -> dict[str, Any]:
     return coc_npc_identity.identity_contract(npc, active_scene_id)
+
+
+# --------------------------------------------------------------------------- #
+# Adjudication advisory evidence (warnings/hints only — never blocking)
+# --------------------------------------------------------------------------- #
+
+# Structured delivery markers that make a clue roll-gated by module design.
+# Free text (clue prose, roll reasons, narration) is never inspected.
+_ROLL_GATED_DELIVERY_KINDS = frozenset({"skill_check", "characteristic_check"})
+
+
+def _clue_roll_gate_skills(clue: dict[str, Any]) -> list[str]:
+    """Structured skill labels the module binds to a roll-gated clue."""
+    skills: list[str] = []
+    primary = clue.get("skill")
+    if isinstance(primary, str) and primary.strip():
+        skills.append(primary.strip())
+    affordance = clue.get("affordance")
+    if isinstance(affordance, dict):
+        for value in affordance.get("skills") or []:
+            if isinstance(value, str) and value.strip():
+                label = value.strip()
+                if label.casefold() not in {skill.casefold() for skill in skills}:
+                    skills.append(label)
+    return skills
+
+
+def _logged_roll_skills(ctx: Ctx) -> set[str] | None:
+    """Casefolded skill labels present in logs/rolls.jsonl, or None when the
+    log exists but cannot be read (advisory evidence must never accuse the KP
+    on the basis of an I/O failure).  Only the structured ``skill`` field of a
+    roll row (flat or inside its payload) is consulted; free-text fields such
+    as ``reason`` are deliberately ignored."""
+    path = ctx.campaign_dir / "logs" / "rolls.jsonl"
+    if not path.is_file():
+        return set()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    skills: set[str] = set()
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        for container in (row, row.get("payload")):
+            if not isinstance(container, dict):
+                continue
+            label = container.get("skill")
+            if isinstance(label, str) and label.strip():
+                skills.add(label.strip().casefold())
+    return skills
+
+
+def _skill_check_clues_missing_roll_evidence(
+    ctx: Ctx, clue_ids: list[str]
+) -> list[dict[str, Any]] | None:
+    """Roll-gated authored clues among clue_ids with no matching skill roll.
+
+    Evidence is structural only: a clue counts as covered when the roll log
+    holds at least one roll whose skill label matches one of the clue's
+    authored gate skills.  Returns None when roll evidence is unreadable.
+    """
+    logged = _logged_roll_skills(ctx)
+    if logged is None:
+        return None
+    missing: list[dict[str, Any]] = []
+    for clue_id in clue_ids:
+        clue = _clue_by_id(ctx.clue_graph, str(clue_id))
+        if (
+            clue is None
+            or str(clue.get("delivery_kind") or "") not in _ROLL_GATED_DELIVERY_KINDS
+        ):
+            continue
+        gate_skills = _clue_roll_gate_skills(clue)
+        if any(skill.casefold() in logged for skill in gate_skills):
+            continue
+        missing.append({
+            "clue_id": str(clue.get("clue_id")),
+            "delivery_kind": clue.get("delivery_kind"),
+            "gate_skills": gate_skills,
+        })
+    return missing
+
+
+def _improvised_npc_engagement_count(ctx: Ctx) -> int | None:
+    """Recorded state.record_npc_engagement receipts without an authored
+    identity contract (structured improvised-NPC evidence).  None when the
+    receipt source is unreadable."""
+    try:
+        document = coc_npc_event_chain.load_receipt_document(ctx.campaign_dir)
+    except ValueError:
+        return None
+    count = 0
+    for receipt in (document.get("receipts") or {}).values():
+        if not isinstance(receipt, dict):
+            continue
+        if receipt.get("producer") != "state.record_npc_engagement":
+            continue
+        event = receipt.get("event")
+        if isinstance(event, dict) and event.get("identity_contract") is None:
+            count += 1
+    return count
+
+
+def _adjudication_gap_hints(ctx: Ctx) -> list[str]:
+    """Session-level 'expected rolls that never happened' advisory counters."""
+    world = ctx.world()
+    discovered = [str(c) for c in (world.get("discovered_clue_ids") or [])]
+    hints: list[str] = []
+    missing = _skill_check_clues_missing_roll_evidence(ctx, discovered)
+    if missing is not None:
+        detail = f": {', '.join(row['clue_id'] for row in missing)}" if missing else ""
+        hints.append(
+            f"adjudication diagnostic: {len(missing)} recorded skill_check clue(s) "
+            f"lack roll evidence{detail} — review whether each reveal was earned "
+            "by a check or was a conscious free reveal"
+        )
+    improvised = _improvised_npc_engagement_count(ctx)
+    if improvised is not None:
+        hints.append(
+            f"adjudication diagnostic: {improvised} improvised NPC engagement(s) "
+            "recorded — the KP adjudicated each one's plausibility against "
+            "module truth and established fiction"
+        )
+    return hints
+
+
+def _npc_engagement_advisory_hints(
+    authored_npc: dict[str, Any] | None, npc_id: str
+) -> list[str]:
+    """Project authored contact-route constraints and improvisation advice."""
+    if authored_npc is None:
+        return [
+            f"improvised npc '{npc_id}' — the KP adjudicates whether this "
+            "person's existence is plausible against module truth and "
+            "established fiction"
+        ]
+    keeper_note = authored_npc.get("keeper_note")
+    if isinstance(keeper_note, str) and keeper_note.strip():
+        return [
+            f"authored npc '{npc_id}' keeper_note: {keeper_note.strip()} — "
+            "treat it as binding module advice; a deliberate bypass needs an "
+            "earned in-fiction reason"
+        ]
+    return []
 
 
 def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
@@ -3790,6 +3946,127 @@ def _roll_common(
 # --------------------------------------------------------------------------- #
 
 @tool(
+    "rules.skill_describe",
+    "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll.",
+    {
+        "skill": {
+            "type": "string",
+            "desc": "optional canonical skill name (e.g. 'Persuade'); omit with include_selection_policy to list known entries",
+        },
+        "skills": {
+            "type": "array",
+            "desc": "optional list of candidate skill names to fetch together (e.g. interpersonal shortlist)",
+        },
+        "include_selection_policy": {
+            "type": "boolean",
+            "desc": "when true, include the interpersonal disambiguation policy (default true when fetching Charm/Fast Talk/Intimidate/Persuade)",
+        },
+    },
+    needs_campaign=False,
+)
+def _tool_rules_skill_describe(ctx: Ctx, args: dict[str, Any]):
+    path = _HERE.parent / "references" / "rules-json" / "skill-descriptions.json"
+    try:
+        catalog = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ToolError("state_corrupt", f"skill-descriptions.json unreadable: {exc}") from exc
+    if not isinstance(catalog, dict):
+        raise ToolError("state_corrupt", "skill-descriptions.json must be an object")
+    entries = catalog.get("skills")
+    if not isinstance(entries, dict):
+        raise ToolError("state_corrupt", "skill-descriptions.json missing skills object")
+
+    requested: list[str] = []
+    single = args.get("skill")
+    if single is not None:
+        if not isinstance(single, str) or not single.strip():
+            raise ToolError("invalid_param", "skill must be a non-empty string")
+        requested.append(single.strip())
+    many = args.get("skills")
+    if many is not None:
+        if not isinstance(many, list) or not many:
+            raise ToolError("invalid_param", "skills must be a non-empty array of strings")
+        for item in many:
+            if not isinstance(item, str) or not item.strip():
+                raise ToolError("invalid_param", "skills entries must be non-empty strings")
+            label = item.strip()
+            if label not in requested:
+                requested.append(label)
+
+    include_policy = args.get("include_selection_policy")
+    interpersonal = {"Charm", "Fast Talk", "Intimidate", "Persuade"}
+    if include_policy is None:
+        include_policy = (not requested) or any(name in interpersonal for name in requested)
+    elif not isinstance(include_policy, bool):
+        raise ToolError("invalid_param", "include_selection_policy must be a boolean")
+
+    if not requested:
+        requested = sorted(entries)
+
+    found: dict[str, Any] = {}
+    missing: list[str] = []
+    by_case = {str(key).casefold(): key for key in entries}
+    for name in requested:
+        canonical = by_case.get(name.casefold())
+        if canonical is None:
+            missing.append(name)
+            continue
+        payload = entries[canonical]
+        if not isinstance(payload, dict):
+            raise ToolError("state_corrupt", f"skill description for {canonical!r} is invalid")
+        found[canonical] = payload
+
+    data: dict[str, Any] = {
+        "schema_version": catalog.get("schema_version"),
+        "source_note": catalog.get("source_note"),
+        "requested": requested,
+        "skills": found,
+        "missing": missing,
+        "catalog_skill_ids": sorted(entries),
+    }
+    if include_policy:
+        policy = catalog.get("selection_policy")
+        if isinstance(policy, dict):
+            data["selection_policy"] = policy
+    hints: list[str] = []
+    if missing:
+        hints.append(
+            "missing entries are not yet compiled into skill-descriptions.json; "
+            "adjudicate from the rulebook / authored affordance, or expand the catalog"
+        )
+    if found:
+        hints.append(
+            "KP flow: decide candidate skill(s) from player fiction → call this tool → "
+            "choose the matching skill → then rules.roll; narrate what success/failure changes before clue dumps"
+        )
+    return data, [], hints
+
+
+@tool(
+    "rules.cash_assets",
+    "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter.",
+    {
+        "credit_rating": {"type": "integer", "required": True, "desc": "the investigator's Credit Rating skill value"},
+        "period": {"type": "string", "desc": "finance period from cash-assets.json (default '1920s')"},
+    },
+    needs_campaign=False,
+)
+def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
+    credit_rating = args.get("credit_rating")
+    if isinstance(credit_rating, bool) or not isinstance(credit_rating, int):
+        raise ToolError("invalid_param", "credit_rating must be an integer")
+    period = str(args.get("period") or "1920s").strip() or "1920s"
+    try:
+        data = coc_rules.cash_and_assets(credit_rating, period=period)
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    return data, [], [
+        "living standard is descriptive, not a ledger: items matching the investigator's station are simply owned; only spending beyond the daily level touches cash (p.45-47, p.95-97)",
+        "wealth-based first impressions use the npc.reaction tool (concealed roll, p.191); this lookup never rolls",
+    ]
+
+
+@tool(
     "rules.roll",
     "Percentile skill/characteristic check for an investigator. Deterministic dice; result is authoritative.",
     {
@@ -5106,6 +5383,57 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
 
     flag_continuity = _world_flag_continuity(ctx)
     active_time_markers = _active_time_markers(ctx)
+    # Compact keeper-facing narrative brief per party member (structured sheet
+    # fields + sanity engine state only; no prose scanning). Lets the default
+    # turn path see APP/CR/build/occupation/age and active madness without a
+    # director.advise call.
+    party_investigators = []
+    for member_id in ctx.party_ids():
+        try:
+            member_sheet = ctx.sheet(member_id)
+        except ToolError:
+            warnings.append(
+                f"party member '{member_id}' has no readable character sheet; "
+                "skipped in party_investigators"
+            )
+            continue
+        member_chars = member_sheet.get("characteristics") or {}
+        member_derived = member_sheet.get("derived") or {}
+        member_skills = member_sheet.get("skills") or {}
+        member_cr_raw = member_skills.get("Credit Rating", 0)
+        member_cr = int(member_cr_raw) if member_cr_raw is not None else 0
+        san_signal = coc_rule_signals.read_sanity_engine_state(
+            ctx.campaign_dir, member_id
+        )
+        madness = {
+            "bout_active": bool(san_signal.get("bout_active")),
+            "temporary_insane": bool(san_signal.get("temporary_insane")),
+            "indefinite_insane": bool(san_signal.get("indefinite_insane")),
+            "delusion_active": bool(san_signal.get("delusion_active")),
+        }
+        if san_signal.get("phobia"):
+            madness["phobia"] = san_signal["phobia"]
+        if san_signal.get("mania"):
+            madness["mania"] = san_signal["mania"]
+        party_investigators.append({
+            "investigator_id": member_id,
+            "name": member_sheet.get("name"),
+            "occupation": member_sheet.get("occupation"),
+            "age": member_sheet.get("age"),
+            "app": member_chars.get("APP"),
+            "credit_rating": member_cr,
+            "credit_tier": coc_rule_signals.read_credit_tier(member_cr),
+            "build": member_derived.get("BUILD"),
+            "mov": member_derived.get("MOV"),
+            "luck": member_derived.get("Luck", member_chars.get("LUCK")),
+            "san": {
+                "current": san_signal.get("current_san"),
+                "max": san_signal.get("max_san"),
+            },
+            "cthulhu_mythos": san_signal.get("cm_value"),
+            "madness": madness,
+            "conditions": san_signal.get("conditions") or [],
+        })
     data = {
         "campaign_id": ctx.campaign_id,
         "active_scene_id": active_id,
@@ -5122,6 +5450,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "clues_here": clues,
         "exits": exits,
         "party": ctx.party_ids(),
+        "party_investigators": party_investigators,
         "tension_level": pacing.get("tension_level"),
         "turn_number": pacing.get("turn_number"),
         "time": coc_time.current_stamp(ctx.campaign_dir),
@@ -5350,6 +5679,58 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "npc.reaction",
+    "Concealed APP/Credit-Rating first-impression roll for one investigator toward an NPC (p.191). Advisory; keeper-only — never quote the number to players.",
+    {
+        "npc_id": {"type": "string", "desc": "NPC id or short name (optional; binds the reaction evidence to an authored NPC)"},
+        "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
+        "seed": {"type": "integer", "desc": "deterministic advisory seed"},
+    },
+)
+def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
+    investigator_id = _resolve_investigator(ctx, args)
+    sheet = ctx.sheet(investigator_id)
+    characteristics = sheet.get("characteristics") or {}
+    skills = sheet.get("skills") or {}
+    # APP 0 is a legitimate value (p.31); never truthiness-fallback.
+    _app_raw = characteristics.get("APP", 50)
+    app = int(_app_raw) if _app_raw is not None else 50
+    _cr_raw = skills.get("Credit Rating", 0)
+    credit_rating = int(_cr_raw) if _cr_raw is not None else 0
+    warnings: list[str] = []
+    npc_id = str(args.get("npc_id") or "").strip()
+    if npc_id:
+        agenda = _npc_by_id(ctx.npc_agendas, npc_id)
+        if agenda is None:
+            raise ToolError(
+                "unknown_npc",
+                f"npc not found or short name is ambiguous: {npc_id}",
+            )
+        npc_id = str(agenda.get("npc_id"))
+        if coc_story_director._npc_is_forced_adversary(agenda):
+            warnings.append(
+                f"{npc_id} is a forced adversary by authored structure; the p.191 reaction roll targets neutral NPCs — hostility is already decided"
+            )
+    reaction = coc_rule_signals.roll_npc_reaction(app, credit_rating, rng=_rng(args))
+    data = {
+        "investigator_id": investigator_id,
+        "npc_id": npc_id or None,
+        "app": app,
+        "credit_rating": credit_rating,
+        **reaction,
+        "suggested_emotional_tone": coc_story_director._disposition_to_tone(
+            reaction["disposition"]
+        ),
+        "concealed": True,
+        "rule_ref": "keeper-rulebook p.191",
+    }
+    return data, warnings, [
+        "concealed keeper roll: never quote the number; only the disposition may color the NPC's portrayed manner",
+        "advisory only — accumulated NPC psych state (npc.query) outranks a fresh first-impression roll",
+    ]
+
+
+@tool(
     "actions.list",
     "Authored affordances of the current scene with roll gates and precondition status (informational, not blocking).",
     {},
@@ -5405,6 +5786,52 @@ def _tool_actions_list(ctx: Ctx, args: dict[str, Any]):
         "keeper_only operation fields are execution data, never player-facing narration",
     ]
     return {"scene_id": world.get("active_scene_id"), "affordances": out}, [], hints
+
+
+@tool(
+    "actions.advise",
+    "Authored roll-gate rule advice for the current scene's legal affordances — the same advisory surface the headless runtime planner consumes. Read-only; never applies state or forces a roll.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
+    },
+)
+def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
+    world = ctx.world()
+    active_id = world.get("active_scene_id")
+    scene = _scene_by_id(ctx.story_graph, active_id)
+    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
+    scene_key = str(active_id or "")
+    completed = coc_action_resolver._route_receipt_ids(world, scene_key, "consumed")
+    blocked = coc_action_resolver._route_receipt_ids(world, scene_key, "blocked")
+    try:
+        affordances = (
+            coc_action_resolver._open_affordances(scene, discovered, completed, blocked)
+            if isinstance(scene, dict)
+            else []
+        )
+    except RuntimeError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    investigator_id = _resolve_investigator(ctx, args)
+    advice = coc_keeper_planner.build_rule_advice(
+        affordances, ctx.sheet(investigator_id)
+    )
+    gated = [
+        row for row in advice
+        if isinstance(row, dict) and row.get("classification") == "authored_rule_advice"
+    ]
+    data = {
+        "schema_version": 1,
+        "authority": "advisory",
+        "scene_id": active_id,
+        "investigator_id": investigator_id,
+        "authored_roll_gate_count": len(gated),
+        "rule_advice": advice,
+    }
+    hints = [
+        "authored roll gates are cited rule advice, not a mandatory pipeline — accept, override with a reason, or ignore",
+        "a player-declared fact never satisfies a roll gate by itself; resolve the check with rules.roll before recording its clue",
+    ]
+    return data, [], hints
 
 
 # --------------------------------------------------------------------------- #
@@ -6193,6 +6620,20 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         here = {str(c) for c in scene.get("available_clues") or []}
         if clue_id not in here:
             warnings.append(f"clue '{clue_id}' is not authored for scene '{active}' — fine if you moved it deliberately")
+    if (
+        clue is not None
+        and str(clue.get("delivery_kind") or "") in _ROLL_GATED_DELIVERY_KINDS
+    ):
+        missing = _skill_check_clues_missing_roll_evidence(ctx, [clue_id])
+        if missing:
+            gate = missing[0]
+            skills = "/".join(gate["gate_skills"]) or "the authored gate skill"
+            warnings.append(
+                f"clue '{clue_id}' is authored with delivery_kind={gate['delivery_kind']} "
+                f"({skills}) but no matching skill roll is logged — if the player "
+                "simply declared this fact, run rules.roll before confirming it, "
+                "or consciously rule a free reveal"
+            )
 
     already = clue_id in discovered
     if not already:
@@ -6305,7 +6746,10 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
         } if scene else None,
     }
     ctx.ledger_record(args.get("decision_id"), "state.move_scene", data)
-    return data, warnings, ["call scene.context after moving to see the new scene's full material"]
+    return data, warnings, [
+        "call scene.context after moving to see the new scene's full material",
+        *_adjudication_gap_hints(ctx),
+    ]
 
 
 @tool(
@@ -6959,9 +7403,10 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     # mutating tool, even if the host chooses a different decision id.
     _save_npc_receipt_document(ctx, document)
     _ensure_npc_receipt_event(ctx, receipt)
+    hints = _npc_engagement_advisory_hints(authored_npc, npc_id)
     data = deepcopy(event)
     ctx.ledger_record(decision_id, tool_name, data)
-    return data, warnings, []
+    return data, warnings, hints
 
 
 @tool(
@@ -7011,9 +7456,10 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
         warnings.append(
             f"resolved NPC alias '{requested_npc_id}' to authored id '{npc_id}'"
         )
+    hints = _npc_engagement_advisory_hints(authored_npc, npc_id)
     data = {"npc_id": npc_id, "applied": applied, "psych": entry}
     ctx.ledger_record(args.get("decision_id"), "state.npc_update", data)
-    return data, warnings, []
+    return data, warnings, hints
 
 
 @tool(
@@ -7743,6 +8189,7 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
     if target_conflict is not None:
         data["retry_target_conflict"] = target_conflict
     ctx.ledger_record(args.get("decision_id"), "state.end_session", data)
+    gap_hints = _adjudication_gap_hints(ctx)
     if development.get("status") != "PASS":
         _record_settlement_pending(ctx, development)
         warnings = [
@@ -7753,14 +8200,18 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
                 "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
             )
         return data, warnings, [
-            "retry state.end_session or development.settle with the same decision identity; do not reopen narration"
+            "retry state.end_session or development.settle with the same decision identity; do not reopen narration",
+            *gap_hints,
         ]
     warnings = []
     if target_conflict is not None:
         warnings.append(
             "SETTLEMENT_TARGET_CONFLICT: retry target set differed; the persisted ending targets were preserved"
         )
-    return data, warnings, ["development settlement completed synchronously"]
+    return data, warnings, [
+        "development settlement completed synchronously",
+        *gap_hints,
+    ]
 
 
 # --------------------------------------------------------------------------- #

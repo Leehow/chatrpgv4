@@ -31,6 +31,7 @@ Frequent COC calculations use structured JSON and Python scripts as runtime auth
 - `reward.json`
 - `roll-modifiers.json`
 - `skills.json`
+- `skill-descriptions.json` (Keeper-facing Chapter 4 skill prose for all `skills.json` keys; includes interpersonal disambiguation `selection_policy`)
 - `spells.json`
 - `tomes.json`
 - `sanity.json`

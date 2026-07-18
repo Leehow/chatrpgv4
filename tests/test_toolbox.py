@@ -281,6 +281,53 @@ def test_describe_known_tool_returns_parameter_schema():
     assert described["params"]["expression"]["type"] == "string"
 
 
+def test_rules_skill_describe_returns_interpersonal_catalog_and_selection_policy(tmp_path):
+    described = coc_toolbox._describe("rules.skill_describe")
+    assert described["name"] == "rules.skill_describe"
+    assert described["needs_campaign"] is False
+
+    result = coc_toolbox.run_tool(
+        "rules.skill_describe",
+        tmp_path,
+        None,
+        {
+            "skills": ["Charm", "Persuade", "Fast Talk", "Intimidate"],
+            "include_selection_policy": True,
+        },
+    )
+    assert result["ok"] is True
+    data = result["data"]
+    assert set(data["skills"]) == {"Charm", "Persuade", "Fast Talk", "Intimidate"}
+    assert "befriend or seduce" in json.dumps(data["selection_policy"]).lower() or any(
+        rule.get("skill") == "Charm" for rule in data["selection_policy"]["rules"]
+    )
+    assert "warmth of personality" in data["skills"]["Charm"]["description"]
+    assert data["skills"]["Persuade"]["time_note"]
+    assert data["missing"] == []
+
+    library = coc_toolbox.run_tool(
+        "rules.skill_describe",
+        tmp_path,
+        None,
+        {"skill": "Library Use", "include_selection_policy": False},
+    )
+    assert library["ok"] is True
+    assert library["data"]["missing"] == []
+    assert "Library Use" in library["data"]["skills"]
+    assert "library" in library["data"]["skills"]["Library Use"]["description"].lower()
+
+    catalog = coc_toolbox.run_tool(
+        "rules.skill_describe",
+        tmp_path,
+        None,
+        {"include_selection_policy": False},
+    )
+    assert catalog["ok"] is True
+    assert catalog["data"]["missing"] == []
+    assert len(catalog["data"]["catalog_skill_ids"]) == 79
+    assert set(catalog["data"]["skills"]) == set(catalog["data"]["catalog_skill_ids"])
+
+
 def test_run_tool_unknown_name_returns_error_envelope():
     envelope = coc_toolbox.run_tool("no.such.tool", Path("."), None, {})
     assert envelope["ok"] is False
@@ -7046,3 +7093,95 @@ def test_toolbox_npc_engagement_producer_emits_exact_current_event_schema(
     )
     receipt = receipt_doc["receipts"][result["data"]["event_id"]]
     assert coc_toolbox.coc_npc_event_chain.valid_receipt(receipt)
+
+
+# --------------------------------------------------------------------------- #
+# rules.cash_assets / npc.reaction / scene.context party_investigators
+# --------------------------------------------------------------------------- #
+
+
+def test_rules_cash_assets_lookup_and_validation(tmp_path):
+    described = coc_toolbox._describe("rules.cash_assets")
+    assert described["needs_campaign"] is False
+    assert described["params"]["credit_rating"]["required"] is True
+
+    result = coc_toolbox.run_tool(
+        "rules.cash_assets", tmp_path, None, {"credit_rating": 41}
+    )
+    assert result["ok"] is True
+    data = result["data"]
+    assert data["living_standard"] == "Average"
+    assert data["cash"]["amount"] == 82  # CR x 2 (Table II, p.45-47)
+    assert data["assets"]["amount"] == 2050  # CR x 50
+    assert data["period"] == "1920s"
+
+    penniless = coc_toolbox.run_tool(
+        "rules.cash_assets", tmp_path, None, {"credit_rating": 0}
+    )
+    assert penniless["ok"] is True
+    assert penniless["data"]["living_standard"] == "Penniless"
+
+    bad_period = coc_toolbox.run_tool(
+        "rules.cash_assets",
+        tmp_path,
+        None,
+        {"credit_rating": 41, "period": "1870s"},
+    )
+    assert bad_period["ok"] is False
+    assert bad_period["error"]["code"] == "invalid_param"
+
+
+def test_npc_reaction_deterministic_concealed_and_npc_bound(campaign_ws):
+    args = {"seed": 7}
+    first = _run(campaign_ws, "npc.reaction", args)
+    second = _run(campaign_ws, "npc.reaction", args)
+    assert first["ok"] is True
+    assert first["data"] == second["data"]  # seeded determinism
+    data = first["data"]
+    assert data["concealed"] is True
+    assert data["rule_ref"] == "keeper-rulebook p.191"
+    assert data["used"] in ("app", "credit_rating")
+    assert data["target"] == max(data["app"], data["credit_rating"])
+    roll, target = data["roll"], data["target"]
+    expected = (
+        "helpful"
+        if roll <= target // 2
+        else "neutral"
+        if roll <= target
+        else "hostile"
+    )
+    assert data["disposition"] == expected
+    assert data["suggested_emotional_tone"]
+    # Concealed keeper roll: no public roll evidence was written.
+    rolls_log = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    if rolls_log.is_file():
+        assert "npc.reaction" not in rolls_log.read_text(encoding="utf-8")
+
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    bound = _run(campaign_ws, "npc.reaction", {"seed": 7, "npc_id": npc_id})
+    assert bound["ok"] is True
+    assert bound["data"]["npc_id"] == npc_id
+
+
+def test_scene_context_exposes_party_investigator_briefs(campaign_ws):
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is True
+    data = context["data"]
+    assert data["party"] == [campaign_ws["investigator_id"]]
+    briefs = data["party_investigators"]
+    assert len(briefs) == 1
+    brief = briefs[0]
+    assert brief["investigator_id"] == campaign_ws["investigator_id"]
+    assert brief["occupation"]
+    assert isinstance(brief["age"], int)
+    assert isinstance(brief["app"], int)
+    assert isinstance(brief["credit_rating"], int)
+    assert brief["credit_tier"] in {
+        "penniless", "poor", "average", "wealthy", "rich", "super_rich",
+    }
+    assert "build" in brief
+    assert "mov" in brief
+    assert set(brief["madness"]) >= {
+        "bout_active", "temporary_insane", "indefinite_insane", "delusion_active",
+    }
+    assert brief["madness"]["bout_active"] is False

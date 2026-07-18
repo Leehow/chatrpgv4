@@ -253,3 +253,40 @@ def test_sanity_signal_prefers_identity_snapshot_and_rejects_other_legacy_owner(
     missing = coc_rule_signals.read_sanity_engine_state(tmp_path, "inv3")
     assert missing["has_state"] is False
     assert missing["current_san"] is None
+
+
+# --------------------------------------------------------------------------- #
+# describe_parameter_signals: advisory notes from structured signal enums
+# --------------------------------------------------------------------------- #
+def test_describe_parameter_signals_quiet_for_average_and_moderate():
+    assert coc_rule_signals.describe_parameter_signals(
+        {"credit_tier": "average", "luck_level": "moderate"}
+    ) == []
+    assert coc_rule_signals.describe_parameter_signals(
+        {"credit_tier": "average", "luck_level": "high"}
+    ) == []
+
+
+def test_describe_parameter_signals_credit_tiers():
+    for tier in ("penniless", "poor", "wealthy", "rich", "super_rich"):
+        notes = coc_rule_signals.describe_parameter_signals({"credit_tier": tier})
+        assert len(notes) == 1
+        assert notes[0]["signal"] == "credit_tier"
+        assert notes[0]["value"] == tier
+        assert notes[0]["note"]
+        assert notes[0]["rule_ref"]
+
+
+def test_describe_parameter_signals_luck_levels():
+    for level in ("low", "depleted"):
+        notes = coc_rule_signals.describe_parameter_signals({"luck_level": level})
+        assert [n["signal"] for n in notes] == ["luck_level"]
+
+
+def test_describe_parameter_signals_combines_and_tolerates_bad_input():
+    notes = coc_rule_signals.describe_parameter_signals(
+        {"credit_tier": "rich", "luck_level": "depleted"}
+    )
+    assert [n["signal"] for n in notes] == ["credit_tier", "luck_level"]
+    assert coc_rule_signals.describe_parameter_signals(None) == []
+    assert coc_rule_signals.describe_parameter_signals({}) == []

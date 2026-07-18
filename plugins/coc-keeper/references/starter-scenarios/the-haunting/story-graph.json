@@ -306,13 +306,70 @@
         },
         {
           "id": "befriend-ruth",
-          "cue": "与档案员 Ruth Blake 套近乎，打听剪报库的年代上限。",
+          "cue": "与档案员 Ruth Blake 套近乎或讲清来意，打听剪报库的年代上限与旧档缺口。",
           "clue_id": "clue-globe-fire-cutoff",
-          "requires_completed_route_ids": [
-            "persuade-arty"
-          ],
+          "player_visible_outcome": "Ruth 判断你可以信任后，告诉你环球报旧档在一八七八年火灾后截断——更早的科比特宅记载得另寻图书馆或市政档案。",
           "target_entities": [
             "Ruth Blake"
+          ],
+          "verbs": [
+            "charm",
+            "persuade",
+            "fast-talk"
+          ],
+          "skills": [
+            "Charm",
+            "Persuade",
+            "Fast Talk"
+          ],
+          "roll_gate": {
+            "kind": "skill_check",
+            "difficulty": "regular",
+            "stakes": "Ruth's willingness to share the fire-cutoff fact and/or risk helping with the morgue",
+            "ordinary_failure": {
+              "mode": "no_progress",
+              "summary": "Ruth stays polite but noncommittal; she will not risk her job today. The investigator may try another approach, another person, or return later.",
+              "localized_summaries": {
+                "zh-Hans": "露丝仍客气，但不肯冒险；今天不会帮你。可以换说法、换人或改天再试。"
+              }
+            },
+            "fumble_consequence": {
+              "summary": "Ruth takes fright or offence and alerts Arty; further help from her is closed for this visit.",
+              "localized_summaries": {
+                "zh-Hans": "露丝被吓到或生气，去知会阿蒂；本次拜访里她不会再帮你。"
+              },
+              "effect": {
+                "kind": "route_closed",
+                "route_id": "befriend-ruth"
+              }
+            },
+            "push_failure_consequence": {
+              "summary": "After a failed pushed attempt Ruth withdraws entirely and tells Arty; her help is closed for the rest of the investigation.",
+              "localized_summaries": {
+                "zh-Hans": "孤注一掷失败后，露丝彻底退缩并知会了阿蒂；此后的调查里她不会再帮忙。"
+              },
+              "effect": {
+                "kind": "route_closed",
+                "route_id": "befriend-ruth"
+              }
+            },
+            "approaches": [
+              {
+                "verb": "charm",
+                "skill": "Charm"
+              },
+              {
+                "verb": "persuade",
+                "skill": "Persuade"
+              },
+              {
+                "verb": "fast-talk",
+                "skill": "Fast Talk"
+              }
+            ]
+          },
+          "requires_completed_route_ids": [
+            "persuade-arty"
           ],
           "npc_interaction": {
             "npc_id": "npc-ruth-blake",
