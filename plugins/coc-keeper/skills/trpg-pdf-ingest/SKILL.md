@@ -1,19 +1,108 @@
 ---
 name: trpg-pdf-ingest
-description: Prepare TRPG PDF source evidence by using Codex's pdf skill, then validate and deterministically reformat the host-produced bundle for the COC scenario compiler.
+description: Prepare TRPG PDF source evidence with an external host PDF skill, then validate and deterministically reformat the host-produced bundle for the COC scenario compiler.
 ---
 
 # TRPG PDF source handoff
 
 This repository does not parse PDFs. It has no OCR, layout, table, rendering,
-or PDF text-extraction backend. Use the Codex `pdf` skill to inspect and extract
-the source, then hand its output to the repository formatter. A non-Codex host
-must supply the same bundle contract; it must not fall back to a local parser.
+or PDF text-extraction backend. An **external PDF skill** on the host inspects
+and extracts the source, then hands a versioned source bundle to the repository
+formatter. Never add a local repository parser fallback.
+
+## Progressive parse note (Tier 0–2 host workflow)
+
+For large or multi-location modules, do **not** extract the whole PDF before
+play. Follow `docs/active-plans/coc-on-demand-module-skeleton.md`.
+
+### Tier 0 — Identity
+
+Host PDF skill: cover + title page only. Record `module_identity` +
+`file_sha256` + `page_count`.
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
+  --workspace . init \
+  --asset-root-id <canonical_or_pdf-hash16> \
+  --file-sha256 <sha256> \
+  --identity-json '<module_identity json>'
+```
+
+### Tier 1 — Skeleton (TOC / front matter window)
+
+Host extracts **selected** TOC + keeper-background headings + dramatis personae
+titles + resolution/timeline titles (still ≤32 pages per source-bundle window).
+Validate with `coc_pdf_bundle.py` if using a formal handoff window, then emit
+structured `skeleton.json` (locations, provisional edges, npc_roster names,
+handout index, threat stubs, start_candidates). **No full handout bodies.**
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
+  --workspace . put-skeleton \
+  --asset-root-id <id> --skeleton-json /path/to/skeleton.json
+
+# Project topology into an existing campaign (sparse IR, not full green compile)
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
+  --workspace . skeleton --campaign <campaign-id> --asset-root-id <id>
+```
+
+### Tier 2 — Opening deep
+
+Host deep-extracts **start location pages only**, builds a deep location pack
+(`parse_state: deep` with clues/NPCs/affordances), stores it, projects:
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
+  --workspace . put-page --asset-root-id <id> --pdf-index N --text-file page.md
+# host writes entities/location-<start>.json via put_entity API / CLI later
+
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
+  --workspace . opening-deep --campaign <campaign-id> --asset-root-id <id> \
+  --pack-json /path/to/opening-deep-pack.json
+```
+
+Table delivery still uses campaign `play_language`. Source-language page text
+stays in the asset store as evidence.
+
+This skill still owns only the **per-window source-bundle** contract for host
+extracts (`MAX_PAGES` per window).
+
+## Host PDF skill priority
+
+What matters is the **source-bundle contract** below, not which brand of PDF
+tool produced it. Choose the producer in this order:
+
+1. **Prefer the current host's existing PDF capability** when it can fulfill
+   the contract — for example Claude Code's document `pdf` skill, Codex's
+   built-in `pdf` skill, or any other host-native render/extract/review path
+   the user already uses successfully.
+2. **If the host has no suitable PDF skill**, recommend the open-source Codex
+   workflow published as
+   [`openai/skills` → `skills/.curated/pdf`](https://github.com/openai/skills/tree/main/skills/.curated/pdf)
+   (render with Poppler/`pdftoppm`, multimodal visual review, optional
+   text-layer extract with `pdfplumber`/`pypdf`). Install or mirror that skill
+   on the host and use it.
+3. A user-supplied third-party PDF pipeline is fine **only when** it still
+   emits the same bundle schema, review evidence, and hashes. Do not invent a
+   second in-repo parser to paper over a missing host skill.
+
+`manifest.producer` stays the contract identity `codex-pdf-skill` even when a
+non-Codex host or Claude/Grok-side install of that workflow produced the
+bundle. It names the **handoff contract**, not a hard requirement that the
+session must run inside Codex.
+
+Preferred host workflow (any producer that reaches the same quality):
+
+- Prefer page rendering + visual verification over whole-document OCR.
+- Use text-layer extraction when exact strings, anchors, or tables are needed.
+- Multimodal page review is the default understanding path; OCR is optional
+  and only for scans or hosts without adequate page vision.
 
 ## Two-stage workflow
 
-1. Invoke the Codex `pdf` skill. It owns PDF rendering, OCR, reading order,
-   tables, images, and visual verification.
+1. Invoke the chosen host PDF skill (priority above). It owns page rendering,
+   visual verification, reading order, tables/images as needed, and optional
+   text-layer extraction.
 2. Visually verify every selected page against the rendered PDF. Write one
    UTF-8 Markdown file per page plus `manifest.json`. For each page, record the
    host's accepted review state, a realistic confidence (never manufacture
@@ -97,7 +186,7 @@ the meaning of source prose.
 
 ## Boundary
 
-The original PDF may be opened only by the host `pdf` skill. Repository code
-may check that the declared source exists, has a `.pdf` suffix, and matches its
-SHA-256 digest. Repository code must not inspect its page tree, metadata,
-layout, images, or text.
+The original PDF may be opened only by the external host PDF skill. Repository
+code may check that the declared source exists, has a `.pdf` suffix, and
+matches its SHA-256 digest. Repository code must not inspect its page tree,
+metadata, layout, images, or text.

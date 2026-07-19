@@ -1,7 +1,7 @@
 {
   "name": "coc-keeper",
   "displayName": "COC Keeper",
-  "description": "Call of Cthulhu Keeper mode plugin with structured rules and persistent campaign state. Portrait generation is Codex-only; Cursor skips that capability.",
+  "description": "Call of Cthulhu Keeper mode plugin with structured rules and persistent campaign state. Portraits use host-native image tools; Cursor has none and skips them.",
   "version": "0.4.0-alpha.0",
   "author": {
     "name": "Leehow"

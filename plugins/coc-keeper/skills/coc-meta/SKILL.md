@@ -24,4 +24,9 @@ If a meta answer would reveal Keeper-only material, emit `[spoiler_warning]` and
 
 ## Corrections
 
-If a prior ruling was wrong, explain the mistake, offer a correction, update state only after the user accepts, and append an audit event.
+If a prior ruling was wrong, explain the mistake, offer a correction, update
+state only after the user accepts, and append an audit event. When erroneous
+public dice or HP were already written, call `state.supersede_settlement` with
+the voided `roll_ids` (and optional `restore_hp_to`) so final player output and
+the battle-report mechanics block hide the old settlement while the audit log
+keeps it.

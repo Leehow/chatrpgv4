@@ -3,14 +3,17 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 COC Keeper 是一个《克苏鲁的呼唤》第 7 版守秘人插件。Codex、Claude Code、
-Cursor 和 Kimi 共用唯一实现 `plugins/coc-keeper/`；各宿主只保留薄 manifest
-或入口。
+Cursor、Grok Build、Kimi、ZCode 和 Pi 共用唯一实现 `plugins/coc-keeper/`。可玩宿主
+必须安装**完整** skill 树（与 Codex 同构）；薄 manifest / 路由入口只用于发现
+与包装，不能替代完整 plugin。
 它提供规则工具、持久化战役状态、调查员管理、剧本导入、战斗、追逐、理智与
 实际跑团支持。
 
 English: COC Keeper is a local Call of Cthulhu 7th edition Keeper plugin. Codex,
-Claude Code, Cursor, and Kimi share the single canonical implementation under
-`plugins/coc-keeper/`; host integrations are thin adapters only.
+Claude Code, Cursor, Grok Build, Kimi, ZCode, and Pi share the single canonical
+implementation under `plugins/coc-keeper/`. Playable hosts must install the
+full skill tree (Codex-parity); thin manifests or routing entries are packaging
+only and are not a substitute for the full plugin.
 
 当前版本是 **`0.4.0-alpha.0`**（发布名 **0.4.0a**，Python 包版本
 `0.4.0a0`）。当前发布状态和已知限制见 [当前状态](docs/status/CURRENT.md)。
@@ -46,17 +49,40 @@ codex plugin marketplace add "$(pwd)"
 claude plugin marketplace add "$(pwd)"
 ```
 
-安装 `coc-keeper` 后重开会话并说 `Activate COC mode.`。Claude Code 没有
-Codex imagegen 时跳过调查员立绘，其余流程不变。
+安装 `coc-keeper` 后重开会话并说 `Activate COC mode.`。Claude Code 无内置
+生图工具时跳过调查员立绘，其余流程不变。
+
+### Grok Build
+
+Grok 可玩路径是**完整 plugin**（与 Codex 同构的 `skills/` 树），不是单独的
+薄路由 skill。
+
+```bash
+bash plugins/coc-keeper/scripts/install-grok-plugin.sh
+# 等价: grok plugin install "$(pwd)/plugins/coc-keeper" --trust
+```
+
+然后在本仓库开 Grok 会话，用 `grok inspect` 确认 `plugin: coc-keeper` 下能
+看到 `coc-main`、`coc-keeper-play` 等 skill，再说：
+
+```text
+进入 COC 模式。
+```
+
+激活后必须按 `coc-main` → `mode-protocol` → `coc-keeper-play` →
+`coc-story-director` 加载完整 craft，调用同一 `coc_toolbox.py`。立绘使用
+Grok 内置 `image_gen` / Imagine（`HOST_NATIVE_IMAGEGEN`），不要绕去 Codex
+imagegen。整品验收权威路径仍是 Codex plugin-native；Grok 跑团记为 host
+smoke / experience-probe，除非政策另行变更。
 
 ### Cursor
 
 项目内入口 `.cursor/skills/coc-keeper/SKILL.md` 和插件 manifest
 `plugins/coc-keeper/.cursor-plugin/plugin.json` 都路由到 canonical skills 树。
-Cursor 没有 Codex imagegen 时同样跳过立绘。
+Cursor 无内置生图工具时跳过立绘。
 
 本地 checkout 同步到 Cursor local plugin（Cursor 不接受指向仓库外的软链，
-因此脚本会复制树）：
+因此脚本会复制**整棵** plugin 树）：
 
 ```bash
 bash plugins/coc-keeper/scripts/install-cursor-plugin.sh
@@ -67,23 +93,37 @@ bash plugins/coc-keeper/scripts/install-cursor-plugin.sh
 
 ### Kimi
 
-仓库内入口 `.kimi/skills/coc-keeper/SKILL.md` 和插件 manifest
-`plugins/coc-keeper/.kimi-plugin/kimi.plugin.json` 都路由到 canonical skills
-树。Kimi 没有 Codex imagegen 时同样跳过立绘。
-
-把薄入口安装到 Kimi Work 的用户技能目录（只复制路由入口，不复制 canonical
-树）：
+Kimi 使用完整 plugin，不再依赖只复制薄入口的旧安装方式。当前 manifest 是
+`plugins/coc-keeper/.kimi-plugin/plugin.json`，同时声明完整 skills 和共享 MCP
+gateway。Kimi 无内置生图工具时跳过立绘。
 
 ```bash
-bash plugins/coc-keeper/scripts/install-kimi-plugin.sh
+kimi
+# 在 Kimi 会话中执行：
+/plugins install "$(pwd)/plugins/coc-keeper"
+/plugins enable coc-keeper
+/reload
 ```
 
-脚本幂等，可反复运行以同步最新入口。安装后在本仓库工作区**新开 Kimi 会话**
-（Kimi 的技能索引在会话启动时注入），然后说：
+安装后新开 Kimi 会话，然后说：
 
 ```text
 进入 COC 模式。
 ```
+
+### ZCode
+
+ZCode 使用同一个完整 plugin。`plugins/coc-keeper/.zcode-plugin/plugin.json`
+注册 canonical skills 和共享 MCP gateway；本地 checkout 可以在 Settings →
+Plugins → Marketplace → `+` 添加仓库路径，或添加 GitHub 仓库后安装
+`coc-keeper`。启用插件并重载 Agent 后说：
+
+```text
+进入 COC 模式。
+```
+
+Cursor、Kimi、ZCode 的 MCP gateway 都只转发到现有
+`plugins/coc-keeper/scripts/coc_toolbox.py`，不维护第二套规则、状态或叙事实现。
 
 ## 主要能力 / Features
 
@@ -119,9 +159,14 @@ The White War 包含 OGL 与 Section 15 声明。The Haunting 的分发依据仍
 ## PDF 边界 / PDF Boundary
 
 仓库没有 PDF parser、OCR 或布局识别回退，也不安装 PDF 解析依赖。PDF 必须先由
-宿主提供的外部 PDF skill（Codex 通常自带 `pdf` skill）完成逐页渲染、OCR、布局、
-文本与资源提取，再产出 `schema_version: 1`、`producer: codex-pdf-skill` 的版本化
-source bundle。
+**外部宿主 PDF skill** 完成逐页渲染、视觉验收、文本与资源提取，再产出
+`schema_version: 1`、`producer: codex-pdf-skill` 的版本化 source bundle。
+
+优先顺序：宿主自带 PDF 能力（如 Claude Code document `pdf`、Codex 内置
+`pdf`）能满足契约时直接用；没有则推荐开源
+[openai/skills curated `pdf`](https://github.com/openai/skills/tree/main/skills/.curated/pdf)
+工作流。`producer: codex-pdf-skill` 是交接契约身份，不要求会话必须跑在
+Codex 内。
 
 仓库只通过 `plugins/coc-keeper/scripts/coc_pdf_bundle.py` 校验原始 PDF/hash、
 逐页 Markdown/hash、人工接受状态、置信度与 grep anchors，并做确定性重排：
@@ -190,7 +235,11 @@ plugins/coc-keeper/              # 唯一 canonical 插件
   .codex-plugin/                 # Codex manifest
   .claude-plugin/                # Claude Code manifest
   .cursor-plugin/                # Cursor manifest
+  .grok-plugin/                  # Grok Build manifest
   .kimi-plugin/                  # Kimi manifest
+  .zcode-plugin/                 # ZCode manifest
+  mcp.json                       # Cursor plugin MCP registration
+  mcp/                           # shared stdio MCP gateway
   references/                    # 结构化规则和内置剧本
   scripts/                       # 生产工具与确定性辅助程序
   skills/                        # 全宿主共用 skills
@@ -198,9 +247,11 @@ runtime/                         # 开放 headless Event SDK / adapters
 tests/                           # 确定性合同测试
 ```
 
-调查员立绘是 Codex-only 能力，必须保留在
-`plugins/coc-keeper/skills/coc-character/SKILL.md` 的
-`CODEX_ONLY_IMAGEGEN` 标记内。其他宿主跳过该能力，不得维护第二套插件树。
+调查员立绘走**当前宿主自带的生图工具**（Codex `imagegen`/`image_gen`，
+Grok Build `image_gen`/Imagine）。无内置生图的宿主跳过立绘并继续创角。
+门控保留在 `plugins/coc-keeper/skills/coc-character/SKILL.md` 的
+`HOST_NATIVE_IMAGEGEN` 标记内；不得为立绘维护第二套插件树，也不得在非
+Codex 宿主上强行调用 Codex imagegen。
 
 ## 版权 / Copyright
 

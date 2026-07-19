@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Validate and normalize host-produced PDF source bundles.
 
-The repository never opens a PDF for extraction.  A host (normally Codex's
-``pdf`` skill) produces UTF-8 Markdown plus a manifest.  This module verifies
-the declared source/file hashes and performs only deterministic formatting.
+The repository never opens a PDF for extraction.  An external host PDF skill
+(prefer the host's existing tool; otherwise the open-source openai/skills
+curated ``pdf`` workflow — contract identity ``codex-pdf-skill``) produces
+UTF-8 Markdown plus a manifest.  This module verifies the declared
+source/file hashes and performs only deterministic formatting.
 """
 from __future__ import annotations
 
@@ -290,7 +292,10 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate and deterministically format a Codex pdf-skill source bundle"
+        description=(
+            "Validate and deterministically format a host PDF source bundle "
+            "(contract producer codex-pdf-skill)"
+        )
     )
     parser.add_argument("bundle", help="directory containing manifest.json")
     parser.add_argument("--output", required=True, help="normalized JSON output path")

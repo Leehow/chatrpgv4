@@ -1020,7 +1020,17 @@ def install_to_campaign(
     installed_paths = {fname: str(scenario_dir / fname) for fname in SCENARIO_FILES}
     for fname in sidecars:
         installed_paths[fname] = str(scenario_dir / fname)
-    return {
+
+    progressive_stamp = None
+    try:
+        coc_module_reuse = _load_reuse_helper()
+        progressive_stamp = coc_module_reuse.stamp_install_progressive(
+            campaign_dir, Path(entry["path"]),
+        )
+    except Exception:
+        progressive_stamp = None
+
+    result = {
         "canonical_module_id": canonical_module_id,
         "campaign_id": campaign_id,
         "scenario_id": scenario_id,
@@ -1030,6 +1040,25 @@ def install_to_campaign(
         "source_evidence_paths": source_evidence_paths,
         "has_epistemic_sidecars": bool(sidecars),
     }
+    if progressive_stamp:
+        result["progressive"] = progressive_stamp
+    return result
+
+
+def _load_reuse_helper():
+    """Lazy load progressive reuse helper (optional dependency)."""
+    name = "coc_module_reuse_registry"
+    path = SCRIPT_DIR / "coc_module_reuse.py"
+    if name in sys.modules:
+        return sys.modules[name]
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def main(argv: list[str] | None = None) -> int:

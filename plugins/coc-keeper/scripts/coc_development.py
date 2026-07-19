@@ -227,7 +227,43 @@ def _tick_excluded(skill: str, roll_result: dict[str, Any]) -> bool:
     if kind in {"sanity_check", "sanity", "luck", "damage", "characteristic_check",
                 "characteristic", "idea_roll", "idea"}:
         return True
+    # Remote device / environment attacks: the living designer is not the skill
+    # owner.  Only the structured skill owner may earn a development tick.
+    executor_kind = str(
+        roll_result.get("executor_kind")
+        or roll_result.get("attack_executor_kind")
+        or "living"
+    ).casefold()
+    if executor_kind in {
+        "device", "remote_device", "environment", "trap", "apparatus", "poltergeist",
+    }:
+        return True
+    if roll_result.get("device_attack") is True or roll_result.get("remote_attack") is True:
+        return True
     return False
+
+
+def skill_owner_for_roll(roll_result: dict[str, Any]) -> str | None:
+    """Return the investigator/NPC id that owns mechanical skill credit.
+
+    Distinguishes action designer, device executor, and skill ownership:
+    - ``skill_owner_id``: who may earn development ticks (authoritative;
+      explicit null means no living owner)
+    - ``executor_id`` / ``actor_id``: who physically performed the roll
+    - ``action_designer_id``: who set up the action (may differ from owner)
+    """
+    if not isinstance(roll_result, dict):
+        return None
+    if "skill_owner_id" in roll_result:
+        value = roll_result.get("skill_owner_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+    for key in ("skill_owner", "executor_id", "actor_id", "actor"):
+        value = roll_result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def skill_tick_eligible(skill: str, roll_result: dict[str, Any]) -> bool:

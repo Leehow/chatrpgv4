@@ -648,7 +648,13 @@ def apply_time_advance_from_plan(
 # --------------------------------------------------------------------------- #
 # Safe rest / sanity day reset
 # --------------------------------------------------------------------------- #
-def mark_safe_rest(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
+def mark_safe_rest(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    decision_id: str | None = None,
+    rest_kind: str = "safe_rest",
+) -> dict[str, Any]:
     """Mark that the investigator has rested in a safe place.
 
     Updates anchors.last_rest_elapsed and last_safe_place_elapsed,
@@ -675,12 +681,21 @@ def mark_safe_rest(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
     state["sanity_periods"] = periods
 
     _write_json(path, state)
-    _append_jsonl(_time_log_path(campaign_dir), {
+    log_record = {
         "event_type": "safe_rest",
         "investigator_id": investigator_id,
         "at_elapsed": now,
-    })
-    return {"at_elapsed": now, "sanity_day_reset": key in periods}
+        "rest_kind": rest_kind,
+    }
+    if decision_id is not None:
+        log_record["decision_id"] = decision_id
+    _append_jsonl(_time_log_path(campaign_dir), log_record)
+    return {
+        "investigator_id": investigator_id,
+        "at_elapsed": now,
+        "rest_kind": rest_kind,
+        "sanity_day_reset": key in periods,
+    }
 
 
 def set_unsafe(campaign_dir: Path) -> None:

@@ -83,9 +83,12 @@ the situations below are the standard triggers, not an exhaustive menu:
 - **SAN triggers.** Authored `pending_san_triggers` surfaced by
   `scene.context`, Mythos encounters, gore, and personal-horror breaks
   resolve through `sanity.execute`, never through narration alone.
-- **Combat, Dodge, and opposed action.** Attacks, dodges, fighting back,
-  chases, and contests use the canonical `combat.*` / `chase.*` / opposed
-  tools; dice settle who prevails, not prose momentum.
+- **Combat, Dodge, and opposed action.** Attacks, dodges, and fighting back
+  use canonical `combat.resolve` with a structured `defense_kind`; a
+  same-level Dodge favors the defender and a same-level Fight Back favors the
+  attacker. Chases use `chase.*`. Only a noncombat contest uses
+  `rules.opposed(contest_kind="noncombat")`, where the higher underlying value
+  breaks a same-level tie. Dice settle who prevails, not prose momentum.
 - **Risky physical action with interesting failure.** Climbing, jumping,
   forcing, sneaking, sleight of hand — when failure would change the
   fiction, roll it; when failure is trivial, narrate it.

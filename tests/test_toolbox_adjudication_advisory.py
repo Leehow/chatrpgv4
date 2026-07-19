@@ -87,12 +87,50 @@ def campaign_ws(tmp_path: Path):
 
 
 def _run(ws, tool: str, args: dict | None = None) -> dict:
+    args = dict(args or {})
+    if tool == "rules.roll":
+        args.setdefault("difficulty", "regular")
+        args.setdefault("goal", "test the authored clue approach")
+        args.setdefault(
+            "stakes",
+            {
+                "on_success": "the clue approach succeeds",
+                "on_failure": "the clue approach does not succeed",
+            },
+        )
+        args.setdefault("difficulty_basis", "authored_gate")
     return coc_toolbox.run_tool(
         tool,
         ws["workspace"],
         ws["campaign_id"],
-        args or {},
+        args,
     )
+
+
+def _first_contact_binding(ws: dict, npc_id: str, *, key: str) -> dict:
+    reaction = _run(ws, "npc.reaction", {
+        "npc_id": npc_id,
+        "npc_display_name": f"测试 NPC {key}",
+        "investigator": ws["investigator_id"],
+        "context": {
+            "player_conduct": "调查员清楚说明来意并尊重现场边界",
+            "scene_constraints": "场景中现有的职责和安全边界仍然有效",
+            "authored_or_relationship_boundary": "初次见面不会改写 NPC 的身份与权限",
+            "semantic_reason": "外表与信用只影响起初接纳方式",
+        },
+        "seed": 7,
+        "decision_id": f"{key}-reaction",
+    })
+    assert reaction["ok"] is True, reaction
+    return {
+        "first_impression_ref": reaction["data"]["first_impression_ref"],
+        "first_impression_realization": {
+            "observable_manner": "对方先打量调查员，再决定如何回应",
+            "causal_explanation": "调查员的外表与社会身份影响了起初判断",
+            "boundary_preserved": "NPC 仍然保留原有职责、立场和权限",
+            "opportunity_or_friction": "这份起初判断会影响接下来的语气与耐心",
+        },
+    }
 
 
 def _clue_id_by_delivery_kind(campaign_dir: Path, delivery_kind: str) -> str:
@@ -232,6 +270,11 @@ def test_record_npc_engagement_projects_keeper_note_constraint(campaign_ws):
             "npc_id": str(npc["npc_id"]),
             "interaction_kind": "dialogue",
             "decision_id": "adj-npc-1",
+            **_first_contact_binding(
+                campaign_ws,
+                str(npc["npc_id"]),
+                key="adj-npc-1",
+            ),
         },
     )
     assert envelope["ok"] is True
@@ -252,6 +295,11 @@ def test_record_npc_engagement_improvised_npc_adjudication_hint(campaign_ws):
             "npc_id": "npc-invented-clerk",
             "interaction_kind": "dialogue",
             "decision_id": "adj-npc-2",
+            **_first_contact_binding(
+                campaign_ws,
+                "npc-invented-clerk",
+                key="adj-npc-2",
+            ),
         },
     )
     assert envelope["ok"] is True
@@ -324,6 +372,11 @@ def test_end_session_reports_adjudication_gap_counts(campaign_ws):
             "npc_id": "npc-invented-clerk",
             "interaction_kind": "dialogue",
             "decision_id": "adj-gap-npc-end",
+            **_first_contact_binding(
+                campaign_ws,
+                "npc-invented-clerk",
+                key="adj-gap-npc-end",
+            ),
         },
     )
     assert engagement["ok"] is True

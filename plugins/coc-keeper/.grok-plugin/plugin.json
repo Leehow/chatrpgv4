@@ -1,0 +1,21 @@
+{
+  "name": "coc-keeper",
+  "version": "0.4.0-alpha.0",
+  "description": "Call of Cthulhu Keeper mode plugin with structured rules and persistent campaign state. Full single-track skills under ./skills/ (Codex/Claude/Cursor/Grok/Kimi/Pi). Investigator portraits use Grok Build image_gen when available.",
+  "author": {
+    "name": "Leehow"
+  },
+  "homepage": "https://github.com/Leehow/chatrpgv4",
+  "repository": "https://github.com/Leehow/chatrpgv4",
+  "license": "Apache-2.0",
+  "keywords": [
+    "call-of-cthulhu",
+    "coc",
+    "trpg",
+    "keeper",
+    "skills",
+    "grok"
+  ],
+  "logo": "assets/logo.png",
+  "skills": "./skills/"
+}

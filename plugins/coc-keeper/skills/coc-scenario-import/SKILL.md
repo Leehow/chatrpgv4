@@ -9,10 +9,119 @@ description: Import and index authored Call of Cthulhu scenarios for COC mode. U
 
 Use a two-stage import strategy:
 
-1. Codex's `pdf` skill extracts selected pages and assets into a versioned host
-   source bundle. Other hosts must supply the same bundle contract.
+1. An **external host PDF skill** extracts selected pages and assets into a
+   versioned host source bundle. Prefer the host's existing PDF capability
+   (Claude Code document `pdf`, Codex built-in `pdf`, etc.) when it can meet
+   the contract; if none is available, recommend the open-source
+   [`openai/skills` curated `pdf`](https://github.com/openai/skills/tree/main/skills/.curated/pdf)
+   workflow. See `trpg-pdf-ingest` for priority and schema.
 2. The repository validates/reformats the bundle and compiles scenario JSON.
-   It never parses or performs OCR on the original PDF.
+   It never parses the original PDF and has no local OCR fallback.
+
+### Progressive / on-demand track
+
+Player PDFs should prefer **skeleton-first + on-demand deep parse** rather than
+one-shot full-module cold compile when the book is large or multi-location.
+
+**Implemented now (slices 1–3):**
+
+| Step | Tool |
+|------|------|
+| Init durable root | `coc_module_assets.py init` |
+| Store skeleton | `coc_module_assets.py put-skeleton` |
+| Project topology → campaign sparse IR | `coc_module_project.py skeleton` |
+| Store pages / stubs / queue | `put-page`, `ensure-stub`, `enqueue` |
+| Opening deep → campaign IR | `coc_module_project.py opening-deep` |
+| Enter scene hot-ring | automatic via `state.move_scene`, or `coc_module_project.py on-enter` |
+| Map depth | `scene.map` → `parse_state` / `evidence_gap` per scene |
+
+```bash
+# After campaign.create + host Tier 0–1 extract + skeleton.json:
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
+  --workspace . skeleton --campaign <id> --asset-root-id <asset>
+# After host builds opening deep pack JSON:
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
+  --workspace . opening-deep --campaign <id> --asset-root-id <asset> \
+  --pack-json /path/to/opening-deep.json
+# After host puts a deep pack for a new location, re-enter or:
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
+  --workspace . on-enter --campaign <id> --scene-id <location-id>
+```
+
+During play, `state.move_scene` on a progressive campaign:
+
+1. Enqueues `deepen_location` for the destination (priority 100)
+2. Merges the deep pack if already in module-assets
+3. Stubs + enqueues depth-1 neighbors and structured `mentions[]`
+4. Adds `host_hints` when deep extract is still needed (never fabricates handouts)
+
+**Player dig (not only scene enter):** when the investigator materially pursues
+a place/NPC/clue that is only named or stubbed (ask about it, insist, head there
+in fiction) **without** a scene move yet, call:
+
+| Tool | When |
+|------|------|
+| `progressive.request_deepen` | KP dig path: structured `{kind, target_id}` only |
+| `progressive.follow_mentions` | Batch structured `[{kind,ref_id,raw_label?}]` |
+| `progressive.status` | Queue + detached worker status + entity parse_state |
+
+`state.record_clue` also follows **structured** `mentions[]` on that clue row
+(if present) and enqueues deepen jobs. Never keyword-scan free prose for
+mentions. Until the host puts a deep pack, play continues with
+`evidence_gap` / `dig_pending` — do **not** fabricate handout or secret bodies.
+
+**Background parallel queue (does not block play):**
+
+- Enqueue paths **kick** a detached worker (`coc_module_queue_worker.py`).
+- Worker claims `pending` → `in_flight` in a **thread pool**, merges ready deep
+  packs into bound campaigns, and writes `module-assets/<root>/host-work/*.json`
+  for missing packs (host PDF skill fulfills; no in-repo PDF parse).
+- After `put_entity` deep, merge is re-enqueued at priority 100 and the worker
+  is kicked again.
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
+  --workspace . request-deepen --campaign <id> \
+  --kind location --target-id <id> --title '…' --reason player_dig
+
+# Optional explicit controls:
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
+  --workspace . worker-kick --parallel 4
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
+  --workspace . worker-status
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
+  --workspace . process-queue --campaign <id> --parallel 4
+# foreground-only tests: COC_DISABLE_QUEUE_WORKER=1
+```
+
+`scene.map` shows KP-only `parse_state` (`toc_only` / `deep` / …). Progressive IR
+is marked `progressive: true` and may not pass full
+`coc_scenario_compile --validate` until more packs fill multi-route clues.
+
+### Cross-campaign reuse (no re-extract)
+
+```bash
+# Link library entry ↔ durable asset root (optional)
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
+  --workspace . link-library \
+  --canonical-module-id <id> --asset-root-id <asset> --file-sha256 <sha>
+
+# New campaign: reuse skeleton + all deep packs by PDF hash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
+  --workspace . reuse --campaign <new-id> --file-sha256 <sha>
+
+# Drain ready deepen jobs (after host put_entity deep packs)
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_reuse.py \
+  --workspace . process-queue --campaign <id>
+```
+
+`module-library install` stamps `progressive_asset_root_id` when a
+`progressive-link.json` exists on the library entry.
+
+Contract: `docs/active-plans/coc-on-demand-module-skeleton.md`.
+
+The **full seven-file cold compile** and `module-library` install paths below
+remain the supported path for starters and complete chapter packages.
 
 ## Clean-Slate Version Boundary
 
@@ -44,8 +153,9 @@ Use `../../scripts/coc_scenario.py` for:
   handout images
 
 For a live campaign, first use `trpg-pdf-ingest` to create and validate a
-Codex pdf-skill source bundle, then bind it with the canonical
-`scenario.bind_pdf` pre-session operation in `coc_runtime_ops.py --setup`.
+host source bundle (`producer: codex-pdf-skill` contract), then bind it with
+the canonical `scenario.bind_pdf` pre-session operation in
+`coc_runtime_ops.py --setup`.
 Supply `source_bundle_path`; each selected page already carries an explicit
 zero-based `pdf_index`, and printed-page offsets are never guessed. The gateway
 creates the source skeleton, can run the same
@@ -95,7 +205,8 @@ summary, and source page instead.
    `scripts/coc_module_registry.py lookup --identity '<json>'` 查
    `.coc/module-library/`：**命中则 `install` 到战役并 STOP**（不重解析 PDF）；
    未命中再全文编译。身份匹配只走结构化 id / 规范化 alias（title + rules_edition），禁止模糊标题扫描。
-1. 用 Codex `pdf` skill 读取模组 PDF，产出逐页 Markdown/资源和 manifest；
+1. 用宿主 PDF skill 读取模组 PDF（优先宿主自带；没有则推荐 openai/skills
+   开源 `pdf` 工作流），产出逐页 Markdown/资源和 manifest；
    仓库 formatter 校验后只读取该 bundle（巨章只抽本章页）。
 2. 判定 structure_type（参考 references/compile-protocol.md 的 7 种原型判定）。
 3. 按顺序产出 7 个 JSON 到 campaigns/<id>/scenario/（schema 见 references/story-graph-schema.md）：

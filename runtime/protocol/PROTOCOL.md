@@ -85,8 +85,10 @@ Pre-session kinds are `onboarding.inspect`, `rules.inspect`, `campaign.create`,
 `campaign.link_investigator`. They are implemented by the same plugin gateway,
 not by host-specific onboarding code. `scenario.bind_pdf` also generates the
 player-safe character-creation briefing. It requires a validated
-`source_bundle_path` produced by Codex's `pdf` skill (or an equivalent host
-producer satisfying the same manifest); runtime code never parses the PDF.
+`source_bundle_path` produced by an external host PDF skill that satisfies the
+`trpg-pdf-ingest` / `codex-pdf-skill` source-bundle contract (prefer the host's
+existing PDF tool; otherwise the open-source `openai/skills` curated `pdf`
+workflow); runtime code never parses the PDF.
 Character cards default to Markdown
 only so host capability detection cannot change the canonical result; callers
 may explicitly request `html_mode: auto|always`.

@@ -33,6 +33,12 @@ structured check source. For example, Corbitt's floating knife inherits the
 medium-knife damage profile but rolls `POW` against Dodge; report the emitted
 skill label and target exactly rather than relabeling it as Fighting.
 
+Remote/device/environment weapons must set structured ownership so development
+ticks do not land on the wrong living sheet: mark `remote` / `device` /
+`executor_kind`, and optionally `action_designer_id` + `skill_owner_id`.
+Designer ≠ executor ≠ skill owner. A poltergeist bed or trap designed by an NPC
+does not grant the investigator a Fighting improvement check.
+
 `coc_combat.py` remains the internal engine API for subsystem tests and new
 typed integrations; a Keeper host should not hand-assemble participants or
 write the snapshot directly.
@@ -118,6 +124,11 @@ For melee attacks, the target chooses **fight back** (Fighting) or **dodge** (Do
 - **Tie when fighting back**: the **attacker** wins (lands the blow).
 - **Tie when dodging**: the **defender** wins (evades).
 - Both fail: no damage.
+
+This distinction belongs to the structured `combat.resolve` reaction, not to
+generic `rules.opposed`. Never settle an attack-versus-Dodge or
+attack-versus-Fight-Back exchange with `rules.opposed`: its noncombat tie rule
+uses the higher underlying value and cannot represent these two combat rules.
 
 `turns[].opposed_outcome` records `attacker_higher` / `defender_higher` / `tie_attacker_wins` / `tie_defender_wins` / `both_fail` / `unopposed`.
 

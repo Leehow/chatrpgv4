@@ -64,6 +64,9 @@ coc_scenario_hydration = _load_sibling(
 coc_starter = _load_sibling("coc_starter_runtime_ops", "coc_starter.py")
 coc_state = _load_sibling("coc_state_runtime_ops", "coc_state.py")
 coc_tomes = _load_sibling("coc_tomes_runtime_ops", "coc_tomes.py")
+coc_turn_finalization = _load_sibling(
+    "coc_turn_finalization_runtime_ops", "coc_turn_finalization.py"
+)
 
 
 SESSION_OPERATION_KINDS = frozenset({
@@ -385,25 +388,38 @@ def _write_public_roll(
     difficulty: str | None = None,
     outcome: str,
     extra: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any]:
+    faces = [int(value) for value in die_rolls]
+    total = int(roll)
     payload: dict[str, Any] = {
         "roll_id": command_id,
         "actor_id": actor_id,
         "kind": kind,
         "skill": skill,
-        "roll": int(roll),
+        "roll": total,
         "die": die,
-        "die_rolls": [int(value) for value in die_rolls],
+        "die_expression": die,
+        "expression": die,
+        "die_rolls": faces,
+        "rolls": faces,
+        "individual_faces": faces,
+        "dice": {
+            "expression": die,
+            "raw": faces,
+            "total": total,
+        },
         "outcome": outcome,
         "visibility": "public",
     }
     if target is not None:
         payload["target"] = int(target)
+        payload["effective_target"] = int(target)
+        payload["base_target"] = int(target)
     if difficulty is not None:
         payload["difficulty"] = difficulty
     if extra:
         payload.update(extra)
-    _append_jsonl(campaign_dir / "logs" / "rolls.jsonl", {
+    row = {
         "event_type": "roll",
         "type": "roll",
         "roll_id": command_id,
@@ -414,7 +430,69 @@ def _write_public_roll(
         "command_id": command_id,
         "payload": payload,
         "ts": _now(),
-    })
+    }
+    _append_jsonl(campaign_dir / "logs" / "rolls.jsonl", row)
+    return row
+
+
+def _compose_development_player_facing(
+    *,
+    investigator_id: str,
+    operation_id: str,
+    result: dict[str, Any],
+    public_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Hard-constrain development public checks into final player output.
+
+    Every improvement check, gain die, Luck recovery, and SAN reward written
+    during settlement must appear once in the player-facing mechanics block.
+    SAN reward alone is not enough.
+    """
+    expected_ids: list[str] = []
+    for index, check in enumerate(result.get("improvement_checks") or []):
+        if not isinstance(check, dict):
+            continue
+        expected_ids.append(f"{operation_id}:check:{index}")
+        if check.get("improved") and isinstance(check.get("gain"), int):
+            expected_ids.append(f"{operation_id}:gain:{index}")
+    luck = result.get("luck_recovery") or {}
+    if isinstance(luck.get("roll"), int):
+        expected_ids.append(f"{operation_id}:luck-recovery")
+    # Result fields may exist on replay without a new write; only require the
+    # rolls that this settlement actually emitted into public_rows.
+    written_ids = [
+        str(row.get("roll_id") or "")
+        for row in public_rows
+        if isinstance(row, dict) and row.get("roll_id")
+    ]
+    required_ids = list(dict.fromkeys([*expected_ids, *written_ids]))
+    by_id = {
+        str(row.get("roll_id") or ""): row
+        for row in public_rows
+        if isinstance(row, dict) and row.get("roll_id")
+    }
+    lines: list[str] = []
+    missing: list[str] = []
+    for roll_id in required_ids:
+        row = by_id.get(roll_id)
+        if row is None:
+            missing.append(roll_id)
+            continue
+        flat = dict(row.get("payload") or {})
+        for key, value in row.items():
+            if key != "payload":
+                flat[key] = value
+        lines.append(coc_turn_finalization._render_public_roll(flat))
+    return {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "operation_id": operation_id,
+        "required_roll_ids": required_ids,
+        "rendered_lines": lines,
+        "rendered_text": "\n".join(lines),
+        "complete": not missing and bool(required_ids or not expected_ids),
+        "missing_roll_ids": missing,
+    }
 
 
 def _write_sanity_reward_event(
@@ -863,6 +941,12 @@ def _development_transaction_paths(
     logs = {
         "events": campaign_dir / "logs" / "events.jsonl",
         "rolls": campaign_dir / "logs" / "rolls.jsonl",
+        # Item grants settle into the shared investigator library sheet and
+        # append inventory_settled receipts here; treat as append-only like
+        # other development logs so the planner may change it.
+        "inventory_history": (
+            coc_root / "investigators" / investigator_id / "inventory-history.jsonl"
+        ),
     }
     return files, logs
 
@@ -2555,8 +2639,9 @@ def _development_operation_body(
         development_input["deterministic_plan"]["plan_sha256"]
     )[:12]
     operation_id = f"op-development-settle-{identity}-{plan_digest}"
+    public_rows: list[dict[str, Any]] = []
     for index, check in enumerate(result.get("improvement_checks") or []):
-        _write_public_roll(
+        public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=f"{operation_id}:check:{index}",
             actor_id=investigator_id,
@@ -2568,9 +2653,9 @@ def _development_operation_body(
             target=int(check["value_before"]),
             difficulty="improvement",
             outcome="improved" if check.get("improved") else "no_improvement",
-        )
+        ))
         if check.get("improved") and isinstance(check.get("gain"), int):
-            _write_public_roll(
+            public_rows.append(_write_public_roll(
                 campaign_dir,
                 command_id=f"{operation_id}:gain:{index}",
                 actor_id=investigator_id,
@@ -2580,10 +2665,10 @@ def _development_operation_body(
                 die="1D10",
                 die_rolls=[int(check["gain"])],
                 outcome="skill_increased",
-            )
+            ))
     luck = result.get("luck_recovery") or {}
     if isinstance(luck.get("roll"), int):
-        _write_public_roll(
+        public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=f"{operation_id}:luck-recovery",
             actor_id=investigator_id,
@@ -2600,7 +2685,7 @@ def _development_operation_body(
                 "luck_gained": int(luck.get("gained", 0)),
                 "luck_after": int(luck.get("luck_after", 0)),
             },
-        )
+        ))
     reward_expr = result.get("san_reward_expr")
     if isinstance(reward_expr, str) and reward_expr:
         frozen_reward = result.get("san_reward_roll")
@@ -2636,7 +2721,7 @@ def _development_operation_body(
             "san_max": int(sanity.san_max),
         }
         reward_roll_id = f"{operation_id}:san-reward"
-        _write_public_roll(
+        public_rows.append(_write_public_roll(
             campaign_dir,
             command_id=reward_roll_id,
             actor_id=investigator_id,
@@ -2656,7 +2741,7 @@ def _development_operation_body(
                 "san_after": san_after,
                 "san_max": int(sanity.san_max),
             },
-        )
+        ))
         _write_sanity_reward_event(
             campaign_dir,
             actor_id=investigator_id,
@@ -2754,7 +2839,7 @@ def _development_operation_body(
             result["scenario_san_reward"] = reward_result
             result["scenario_san_reward_applied"] = True
             scenario_reward_roll_id = f"{operation_id}:scenario-san-reward"
-            _write_public_roll(
+            public_rows.append(_write_public_roll(
                 campaign_dir,
                 command_id=scenario_reward_roll_id,
                 actor_id=investigator_id,
@@ -2777,7 +2862,7 @@ def _development_operation_body(
                     "san_after": san_after,
                     "san_max": int(sanity.san_max),
                 },
-            )
+            ))
             _write_sanity_reward_event(
                 campaign_dir,
                 actor_id=investigator_id,
@@ -2815,6 +2900,18 @@ def _development_operation_body(
                 "original_ending_id": ending["ending_id"],
                 "roll_id": scenario_reward_roll_id,
             }
+    player_facing = _compose_development_player_facing(
+        investigator_id=investigator_id,
+        operation_id=operation_id,
+        result=result,
+        public_rows=public_rows,
+    )
+    if not player_facing["complete"]:
+        raise RuntimeOperationError(
+            "development public checks missing from final player output: "
+            + ", ".join(player_facing["missing_roll_ids"])
+        )
+    result["player_facing_mechanics"] = player_facing
     _append_jsonl(campaign_dir / "logs" / "events.jsonl", {
         "type": "development",
         "actor": investigator_id,
@@ -2828,6 +2925,7 @@ def _development_operation_body(
         "kind": "development.settle",
         "operation_id": operation_id,
         "result": result,
+        "player_facing_mechanics": player_facing,
         "state_refs": [
             f"save/investigator-state/{investigator_id}.json",
             (

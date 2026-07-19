@@ -50,8 +50,10 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    For the one-step starter path use the shared `campaign.quick_start` setup
    operation. For a custom table, use `campaign.create`, then
    `investigator.create`, `campaign.link_investigator`, and
-   `scenario.bind_pdf`. Custom PDFs must first be extracted by Codex's `pdf`
-   skill into the `trpg-pdf-ingest` source-bundle contract; bind using
+   `scenario.bind_pdf`. Custom PDFs must first be extracted by an external
+   host PDF skill into the `trpg-pdf-ingest` source-bundle contract (prefer
+   the host's existing PDF tool; if none, recommend the open-source
+   `openai/skills` curated `pdf` workflow); bind using
    `source_bundle_path`. The repository has no PDF parser fallback. The same
    gateway exposes `campaign.render_briefing`
    and `investigator.render_card` for player-facing artifacts. Pi calls these
@@ -81,5 +83,10 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
 - Use ASCII system markers only.
 - Use `[spoiler_warning]` before revealing Keeper-only information.
 - Treat rules JSON as the runtime authority for common calculations.
-- Render player-visible dialogue, skill display names, and visible Mechanical Log summaries in `play_language`; keep machine markers, JSON keys, canonical skill keys, rule enum values, and hidden Mechanical Log audit anchors stable.
+- **Player-visible language constitution:** every player-facing KP string
+  (narration, NPC dialogue, handouts as delivered, public rolls, visible
+  mechanics, prompts, recaps) uses campaign `play_language` (default
+  `zh-Hans`). Source-PDF English is evidence for the KP, not table dump text.
+  Keep machine markers, JSON keys, canonical skill keys, rule enum values, and
+  hidden Mechanical Log audit anchors stable.
 - **For any newly created campaign with no bound scenario, you MUST proactively offer the scenario onboarding choice (built-in vs imported) before proceeding — never skip it, never wait for the user to ask.** New players do not know built-in scenarios exist; this prompt is the only way they find out. Phrase it in plain, beginner-friendly language and name every available built-in scenario with a one-line pitch.

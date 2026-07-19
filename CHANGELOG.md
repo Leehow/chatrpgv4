@@ -11,6 +11,28 @@
 
 ### Changed for 0.4.0a
 
+- **Player Knowledge Boundary（KP 负责拦截）：** 玩家可以猜、可以诱导剧透；
+  KP 不得把未赚取的断言当成桌上已知事实，也不得因「猜对了」就跳过发现或
+  倾倒模块真相。蒙对也仍是猜测。拦截优先用戏内推回，语气允许时可用
+  Table Wit。见 `AGENTS.md` 与 `coc-keeper-play` Declaration Adjudication。
+
+- Cursor、Kimi、ZCode 接入同一个 canonical plugin MCP gateway。新增
+  `.zcode-plugin/plugin.json`，将 Kimi manifest 迁移到当前支持的
+  `.kimi-plugin/plugin.json`，并为三宿主暴露同一 toolbox registry、host
+  capability 声明和 `turn.finalize` transport；不恢复任何
+  `coc-keeper-zcode` 平行插件树。
+
+- Grok Build becomes a first-class full-plugin host:
+  `plugins/coc-keeper/.grok-plugin/plugin.json` points at the same
+  `./skills/` tree; `scripts/install-grok-plugin.sh` runs
+  `grok plugin install … --trust`. Play requires the full skill surface
+  (Codex parity), not a thin routing entry alone.
+- Investigator portraits are **host-native**, not Codex-only. Codex uses
+  `imagegen`/`image_gen`; Grok Build uses `image_gen`/Imagine; hosts without a
+  built-in image tool skip portraits. Gate markers renamed to
+  `HOST_NATIVE_IMAGEGEN` in `coc-character`. Do not call another host's image
+  stack from the current host.
+
 - 删除旧的固定 profile、脚本玩家、评测矩阵和多套报告流程。全局验收改为主
   Codex 打开 canonical 插件担任 KP，并用 `fork_turns: "none"` 的 collaboration
   subagent 当玩家；只允许转发玩家可见信息，每次从全新当前 schema workspace

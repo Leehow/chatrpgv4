@@ -3,13 +3,16 @@
 Pi runs the same architecture as Codex/Claude Code/Cursor hosts: the keeper
 LLM reads the canonical ``plugins/coc-keeper/skills`` tree and drives the
 turn by calling ``coc_toolbox.py`` over shell. This adapter is a thin host
-shell — no narration envelope, no secret audit, no template fallback.
+shell — no alternate narration envelope or template fallback. It validates
+the canonical settled-turn finalization before returning exact player text.
 Failures raise; the caller decides whether to retry (network/timeout level
 only).
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,263 @@ KEEPER_REQUEST_KEYS = (
     "player_input",
     "play_language",
 )
+FINALIZATION_FIELDS = frozenset({
+    "schema_version", "finalization_id", "decision_id", "journal_decision_id",
+    "journal_call_index", "source_start_index", "source_end_index",
+    "source_digest", "source_roll_ids", "obligation_ids", "coverage_ids",
+    "draft_sha256", "coverage_sha256", "bundle_sha256", "rendered_sha256",
+    "bundle", "coverage", "segments", "rendered_text", "integrity_digest",
+})
+FINALIZATION_PROJECTION_FIELDS = frozenset({
+    "finalization_id", "journal_decision_id", "rendered_sha256",
+    "integrity_digest", "segments",
+})
+FINALIZATION_SEGMENT_ORDER = {
+    "fiction": 0,
+    "public_check": 1,
+    "state_delta": 2,
+    "exceptional_effect": 3,
+    "context_effect": 4,
+}
+_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+class KeeperAdapterError(RuntimeError):
+    """A keeper process/transport failure that may be safe to retry."""
+
+    kind = "keeper_adapter_failed"
+    turn_committed = False
+
+
+class KeeperFinalizationError(KeeperAdapterError):
+    """The agent may have settled state, but exact output was blocked."""
+
+    kind = "keeper_finalization_blocked"
+    turn_committed = True
+
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        self.reason = reason
+        super().__init__(message)
+
+
+def _canonical_digest(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _valid_digest(value: Any) -> bool:
+    return isinstance(value, str) and _DIGEST_RE.fullmatch(value) is not None
+
+
+def _validate_segments(
+    segments: Any, *, rendered_text: str, draft_sha256: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(segments, list) or not segments:
+        raise KeeperFinalizationError("finalization segments are missing", reason="malformed")
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    previous_order = -1
+    for segment in segments:
+        if not isinstance(segment, dict) or set(segment) != {
+            "segment_type", "text", "source_ids",
+        }:
+            raise KeeperFinalizationError(
+                "finalization segment has an invalid shape", reason="malformed"
+            )
+        segment_type = segment.get("segment_type")
+        order = FINALIZATION_SEGMENT_ORDER.get(segment_type)
+        if order is None or segment_type in seen or order <= previous_order:
+            raise KeeperFinalizationError(
+                "finalization segment order is invalid", reason="malformed"
+            )
+        text = segment.get("text")
+        source_ids = segment.get("source_ids")
+        if not isinstance(text, str) or not text.strip():
+            raise KeeperFinalizationError(
+                "finalization segment text is empty", reason="malformed"
+            )
+        if not isinstance(source_ids, list) or not all(
+            isinstance(value, str) and value for value in source_ids
+        ):
+            raise KeeperFinalizationError(
+                "finalization segment source ids are invalid", reason="malformed"
+            )
+        if segment_type == "fiction" and source_ids:
+            raise KeeperFinalizationError(
+                "fiction segment must not expose source ids", reason="malformed"
+            )
+        normalized.append({
+            "segment_type": segment_type,
+            "text": text,
+            "source_ids": list(source_ids),
+        })
+        seen.add(segment_type)
+        previous_order = order
+    if normalized[0]["segment_type"] != "fiction":
+        raise KeeperFinalizationError(
+            "finalization must begin with fiction", reason="malformed"
+        )
+    if "\n\n".join(row["text"] for row in normalized) != rendered_text:
+        raise KeeperFinalizationError(
+            "finalization segments do not compose rendered_text",
+            reason="rendered_mismatch",
+        )
+    if _canonical_digest(normalized[0]["text"]) != draft_sha256:
+        raise KeeperFinalizationError(
+            "finalization fiction hash mismatch", reason="digest_mismatch"
+        )
+    return normalized
+
+
+def validate_finalization_receipt(receipt: Any) -> dict[str, Any]:
+    """Strictly validate one canonical full turn-finalization receipt."""
+    if (
+        not isinstance(receipt, dict)
+        or set(receipt) != FINALIZATION_FIELDS
+        or receipt.get("schema_version") != 1
+    ):
+        raise KeeperFinalizationError(
+            "turn finalization receipt has an invalid shape", reason="malformed"
+        )
+    for key in (
+        "finalization_id", "decision_id", "journal_decision_id", "rendered_text",
+    ):
+        if not isinstance(receipt.get(key), str) or not receipt[key]:
+            raise KeeperFinalizationError(
+                f"turn finalization {key} is invalid", reason="malformed"
+            )
+    for key in (
+        "source_digest", "draft_sha256", "coverage_sha256", "bundle_sha256",
+        "rendered_sha256", "integrity_digest",
+    ):
+        if not _valid_digest(receipt.get(key)):
+            raise KeeperFinalizationError(
+                f"turn finalization {key} is invalid", reason="malformed"
+            )
+    for key in ("journal_call_index", "source_start_index", "source_end_index"):
+        value = receipt.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise KeeperFinalizationError(
+                f"turn finalization {key} is invalid", reason="malformed"
+            )
+    if (
+        receipt["source_start_index"] > receipt["source_end_index"]
+        or receipt["source_end_index"] != receipt["journal_call_index"]
+    ):
+        raise KeeperFinalizationError(
+            "turn finalization source window is invalid", reason="malformed"
+        )
+    for key in ("source_roll_ids", "obligation_ids", "coverage_ids"):
+        values = receipt.get(key)
+        if (
+            not isinstance(values, list)
+            or not all(isinstance(value, str) and value for value in values)
+            or len(values) != len(set(values))
+        ):
+            raise KeeperFinalizationError(
+                f"turn finalization {key} is invalid", reason="malformed"
+            )
+    if receipt["obligation_ids"] != receipt["coverage_ids"]:
+        raise KeeperFinalizationError(
+            "turn finalization coverage identity is incomplete", reason="malformed"
+        )
+    if not isinstance(receipt.get("bundle"), dict) or not isinstance(
+        receipt.get("coverage"), list
+    ):
+        raise KeeperFinalizationError(
+            "turn finalization bundle/coverage is invalid", reason="malformed"
+        )
+    _validate_segments(
+        receipt["segments"],
+        rendered_text=receipt["rendered_text"],
+        draft_sha256=receipt["draft_sha256"],
+    )
+    for value, digest, label in (
+        (receipt["coverage"], receipt["coverage_sha256"], "coverage"),
+        (receipt["bundle"], receipt["bundle_sha256"], "bundle"),
+        (receipt["rendered_text"], receipt["rendered_sha256"], "rendered"),
+    ):
+        if _canonical_digest(value) != digest:
+            raise KeeperFinalizationError(
+                f"turn finalization {label} hash mismatch", reason="digest_mismatch"
+            )
+    body = {key: value for key, value in receipt.items() if key != "integrity_digest"}
+    if _canonical_digest(body) != receipt["integrity_digest"]:
+        raise KeeperFinalizationError(
+            "turn finalization integrity digest mismatch", reason="digest_mismatch"
+        )
+    return receipt
+
+
+def finalization_projection(receipt: dict[str, Any]) -> dict[str, Any]:
+    validate_finalization_receipt(receipt)
+    return {
+        "finalization_id": receipt["finalization_id"],
+        "journal_decision_id": receipt["journal_decision_id"],
+        "rendered_sha256": receipt["rendered_sha256"],
+        "integrity_digest": receipt["integrity_digest"],
+        "segments": [
+            {
+                "segment_type": segment["segment_type"],
+                "text": segment["text"],
+                "source_ids": list(segment["source_ids"]),
+            }
+            for segment in receipt["segments"]
+        ],
+    }
+
+
+def load_new_finalization_receipt(path: Path, offset: int) -> dict[str, Any]:
+    """Load exactly one valid receipt appended after a pre-turn byte offset."""
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        raise KeeperFinalizationError("finalization offset is invalid", reason="offset_mismatch")
+    try:
+        with Path(path).open("rb") as handle:
+            size = handle.seek(0, 2)
+            if offset > size:
+                raise KeeperFinalizationError(
+                    "finalization offset exceeds log size", reason="offset_mismatch"
+                )
+            if offset:
+                handle.seek(offset - 1)
+                if handle.read(1) != b"\n":
+                    raise KeeperFinalizationError(
+                        "finalization offset is not a row boundary",
+                        reason="offset_mismatch",
+                    )
+            handle.seek(offset)
+            payload = handle.read()
+    except FileNotFoundError as exc:
+        raise KeeperFinalizationError(
+            "keeper turn produced no finalization receipt", reason="missing"
+        ) from exc
+    except OSError as exc:
+        raise KeeperFinalizationError(
+            "keeper turn finalization log is unreadable", reason="unreadable"
+        ) from exc
+    try:
+        lines = [line for line in payload.decode("utf-8").splitlines() if line.strip()]
+    except UnicodeDecodeError as exc:
+        raise KeeperFinalizationError(
+            "new turn finalization bytes are not UTF-8", reason="malformed"
+        ) from exc
+    if len(lines) != 1:
+        reason = "missing" if not lines else "ambiguous"
+        raise KeeperFinalizationError(
+            "keeper turn produced no finalization receipt"
+            if not lines else "keeper turn produced multiple finalization receipts",
+            reason=reason,
+        )
+    try:
+        receipt = json.loads(lines[0])
+    except json.JSONDecodeError as exc:
+        raise KeeperFinalizationError(
+            "new turn finalization receipt is malformed JSON", reason="malformed"
+        ) from exc
+    return validate_finalization_receipt(receipt)
 
 
 def _keeper_dir() -> Path:
@@ -57,6 +317,13 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     prepared = dict(request)
     prepared["workspace"] = str(Path(prepared["workspace"]).resolve())
     prepared["campaign_id"] = str(prepared["campaign_id"])
+    finalization_offset = prepared.get("finalization_offset")
+    if (
+        isinstance(finalization_offset, bool)
+        or not isinstance(finalization_offset, int)
+        or finalization_offset < 0
+    ):
+        raise ValueError("finalization_offset must be a non-negative integer")
     if "run_id" in prepared:
         prepared["run_id"] = str(prepared["run_id"]).strip()
         if not prepared["run_id"]:
@@ -89,15 +356,70 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     return prepared
 
 
+def _raise_runner_error(raw: dict[str, Any]) -> None:
+    message = str(raw.get("error") or "keeper runner returned ok=false")
+    if raw.get("error_code") == KeeperFinalizationError.kind:
+        reason = raw.get("error_reason")
+        raise KeeperFinalizationError(
+            message,
+            reason=reason if isinstance(reason, str) and reason else None,
+        )
+    raise KeeperAdapterError(message)
+
+
+def _parse_finalization_projection(raw: Any, narration: str) -> dict[str, Any]:
+    if not isinstance(raw, dict) or set(raw) != FINALIZATION_PROJECTION_FIELDS:
+        raise KeeperFinalizationError(
+            "keeper runner finalization projection is invalid", reason="malformed"
+        )
+    for key in ("finalization_id", "journal_decision_id"):
+        if not isinstance(raw.get(key), str) or not raw[key]:
+            raise KeeperFinalizationError(
+                f"keeper runner finalization {key} is invalid", reason="malformed"
+            )
+    for key in ("rendered_sha256", "integrity_digest"):
+        if not _valid_digest(raw.get(key)):
+            raise KeeperFinalizationError(
+                f"keeper runner finalization {key} is invalid", reason="malformed"
+            )
+    segments = _validate_segments(
+        raw.get("segments"),
+        rendered_text=narration,
+        draft_sha256=_canonical_digest(raw["segments"][0]["text"])
+        if isinstance(raw.get("segments"), list) and raw["segments"]
+        and isinstance(raw["segments"][0], dict)
+        and isinstance(raw["segments"][0].get("text"), str)
+        else "",
+    )
+    if _canonical_digest(narration) != raw["rendered_sha256"]:
+        raise KeeperFinalizationError(
+            "keeper runner rendered hash mismatch", reason="digest_mismatch"
+        )
+    return {
+        "finalization_id": raw["finalization_id"],
+        "journal_decision_id": raw["journal_decision_id"],
+        "rendered_sha256": raw["rendered_sha256"],
+        "integrity_digest": raw["integrity_digest"],
+        "segments": segments,
+    }
+
+
 def parse_runner_response(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        raise RuntimeError("keeper runner response must be a JSON object")
+        raise KeeperAdapterError("keeper runner response must be a JSON object")
     if raw.get("ok") is not True:
-        raise RuntimeError(str(raw.get("error") or "keeper runner returned ok=false"))
+        _raise_runner_error(raw)
     narration = raw.get("narration")
     if not isinstance(narration, str) or not narration.strip():
-        raise RuntimeError("keeper runner response missing non-empty narration")
-    result: dict[str, Any] = {"ok": True, "narration": narration.strip()}
+        raise KeeperFinalizationError(
+            "keeper runner response missing non-empty narration", reason="missing"
+        )
+    finalization = _parse_finalization_projection(raw.get("finalization"), narration)
+    result: dict[str, Any] = {
+        "ok": True,
+        "narration": narration,
+        "finalization": finalization,
+    }
     identity = raw.get("model_identity")
     if identity is not None:
         if not (
@@ -107,7 +429,7 @@ def parse_runner_response(raw: Any) -> dict[str, Any]:
             and isinstance(identity.get("id"), str)
             and identity["id"].strip()
         ):
-            raise RuntimeError("model_identity must contain non-empty provider and id")
+            raise KeeperAdapterError("model_identity must contain non-empty provider and id")
         result["model_identity"] = {
             "provider": identity["provider"].strip(),
             "id": identity["id"].strip(),
@@ -115,12 +437,12 @@ def parse_runner_response(raw: Any) -> dict[str, Any]:
     usage = raw.get("usage")
     if usage is not None:
         if not isinstance(usage, dict):
-            raise RuntimeError("usage must be an object")
+            raise KeeperAdapterError("usage must be an object")
         clean: dict[str, int | None] = {}
         for name in ("input_tokens", "output_tokens"):
             count = usage.get(name)
             if count is not None and (isinstance(count, bool) or not isinstance(count, int) or count < 0):
-                raise RuntimeError(f"usage {name} must be a non-negative integer or null")
+                raise KeeperAdapterError(f"usage {name} must be a non-negative integer or null")
             clean[name] = count
         result["usage"] = clean
     return result
@@ -136,7 +458,7 @@ def keeper_send_turn(
     prepared = prepare_keeper_request(request)
     runner = Path(runner_path).resolve() if runner_path is not None else _default_runner()
     if not runner.exists():
-        raise RuntimeError(f"keeper runner not found: {runner}")
+        raise KeeperAdapterError(f"keeper runner not found: {runner}")
 
     cmd = _runner_cmd(runner)
     payload = json.dumps(prepared, ensure_ascii=False)
@@ -150,26 +472,36 @@ def keeper_send_turn(
             cwd=prepared["workspace"],
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"keeper runner timed out after {timeout_s}s") from exc
+        raise KeeperAdapterError(f"keeper runner timed out after {timeout_s}s") from exc
     except FileNotFoundError as exc:
-        raise RuntimeError(f"failed to start keeper runner: {cmd[0]}") from exc
+        raise KeeperAdapterError(f"failed to start keeper runner: {cmd[0]}") from exc
 
     stdout = (proc.stdout or "").strip()
     stderr = (proc.stderr or "").strip()
     if proc.returncode != 0:
         detail = stderr or stdout or f"exit {proc.returncode}"
+        parsed: dict[str, Any] | None = None
         if stdout:
             try:
-                parsed = json.loads(stdout.splitlines()[-1])
+                candidate = json.loads(stdout.splitlines()[-1])
+                parsed = candidate if isinstance(candidate, dict) else None
                 if isinstance(parsed, dict) and parsed.get("error"):
                     detail = str(parsed["error"])
             except json.JSONDecodeError:
                 pass
-        raise RuntimeError(f"keeper runner failed: {detail}")
+        if parsed is not None and parsed.get("error_code") == KeeperFinalizationError.kind:
+            reason = parsed.get("error_reason")
+            raise KeeperFinalizationError(
+                f"keeper runner failed: {detail}",
+                reason=reason if isinstance(reason, str) and reason else None,
+            )
+        raise KeeperAdapterError(f"keeper runner failed: {detail}")
     if not stdout:
-        raise RuntimeError("keeper runner produced empty stdout")
+        raise KeeperAdapterError("keeper runner produced empty stdout")
     try:
         raw = json.loads(stdout.splitlines()[-1])
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"keeper runner stdout is not JSON: {stdout[:200]!r}") from exc
+        raise KeeperAdapterError(
+            f"keeper runner stdout is not JSON: {stdout[:200]!r}"
+        ) from exc
     return parse_runner_response(raw)

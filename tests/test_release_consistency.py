@@ -26,6 +26,8 @@ def manifest_versions():
         _read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".cursor-plugin" / "plugin.json")["version"],
+        _read_json(PLUGIN_ROOT / ".zcode-plugin" / "plugin.json")["version"],
+        _read_json(PLUGIN_ROOT / ".kimi-plugin" / "plugin.json")["version"],
         _read_json(PLUGIN_ROOT / ".kimi-plugin" / "kimi.plugin.json")["version"],
         marketplace["plugins"][0]["version"],
     ]
@@ -69,7 +71,7 @@ def tracked_extract_paths():
 
 
 def test_release_versions_are_consistent():
-    assert manifest_versions() == [RELEASE_VERSION] * 5
+    assert manifest_versions() == [RELEASE_VERSION] * 7
     project = tomllib.loads(_text(ROOT / "pyproject.toml"))["project"]
     assert project["version"] == PYTHON_RELEASE_VERSION
 

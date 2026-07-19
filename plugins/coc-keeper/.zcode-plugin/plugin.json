@@ -1,0 +1,20 @@
+{
+  "name": "coc-keeper",
+  "version": "0.4.0-alpha.0",
+  "description": "Call of Cthulhu Keeper mode with canonical skills, deterministic rules, transactional campaign state, and auditable play evidence.",
+  "author": {
+    "name": "Leehow"
+  },
+  "license": "Apache-2.0",
+  "skills": "./skills/",
+  "mcpServers": {
+    "coc-keeper": {
+      "command": "${ZCODE_PLUGIN_ROOT}/mcp/launch",
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "env": {
+        "COC_HOST": "zcode",
+        "COC_PROJECT_ROOT": "${ZCODE_PROJECT_DIR}"
+      }
+    }
+  }
+}

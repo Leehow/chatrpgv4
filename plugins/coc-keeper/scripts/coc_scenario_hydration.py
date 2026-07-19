@@ -25,10 +25,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parents[2]
-COMPILER_ADAPTER_PATH = REPO_ROOT / "runtime" / "adapters" / "compiler" / "adapter.py"
+RUNTIME_ROOT = Path(
+    os.environ.get("COC_RUNTIME_ROOT")
+    or (SCRIPT_DIR.parents[2] / "runtime")
+).expanduser().resolve()
+COMPILER_ADAPTER_PATH = RUNTIME_ROOT / "adapters" / "compiler" / "adapter.py"
 EPISTEMIC_ADAPTER_PATH = (
-    REPO_ROOT / "runtime" / "adapters" / "compiler" / "epistemic_adapter.py"
+    RUNTIME_ROOT / "adapters" / "compiler" / "epistemic_adapter.py"
 )
 
 
@@ -407,8 +410,9 @@ def _extract_source(seed: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str
     bundle_path = str(source.get("source_bundle_path") or "").strip()
     if not bundle_path:
         raise ScenarioHydrationError(
-            "cold compilation requires a host source bundle; use the Codex pdf skill "
-            "to create manifest.json and page Markdown before binding the scenario"
+            "cold compilation requires a host source bundle; use an external host "
+            "PDF skill (prefer the host's existing tool; else openai/skills curated "
+            "pdf) to create manifest.json and page Markdown before binding"
         )
     try:
         bundle = coc_pdf_bundle.load_host_bundle(bundle_path)

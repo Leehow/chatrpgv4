@@ -62,11 +62,10 @@ def test_combat_bonus_metadata_materializes_00_before_candidate_selection(
 
     def percentile_check(*_args, **_kwargs):
         return {
-            "target": 50,
-            "effective_target": 50,
+            **coc_combat.coc_roll.resolve_percentile_roll(
+                40, 50, "regular"
+            ),
             "roll": 40,
-            "outcome": "regular",
-            "difficulty": "regular",
             "bonus": 1,
             "penalty": 0,
             "tens_values": [0, 4],
@@ -85,6 +84,145 @@ def test_combat_bonus_metadata_materializes_00_before_candidate_selection(
     assert record["unmodified_roll"] == 100
     assert record["bonus_die_only_success"] is True
     assert record["excluded_outcome"] == "bonus_die_only_success"
+    assert record["base_target"] == 50
+    assert record["required_level"] == "regular"
+    assert record["required_target"] == 50
+    assert record["achieved_level"] == "regular"
+    assert record["passed"] is True
+    assert record["surplus_levels"] == 0
+
+
+@pytest.mark.parametrize(
+    ("roll", "required_level", "achieved_level", "passed", "outcome"),
+    [
+        (18, "hard", "hard", True, "hard"),
+        (31, "hard", "regular", False, "failure"),
+        (8, "extreme", "extreme", True, "extreme"),
+        (18, "extreme", "hard", False, "failure"),
+    ],
+)
+def test_combat_percentile_preserves_contextual_settlement(
+    monkeypatch, roll, required_level, achieved_level, passed, outcome
+):
+    session = _make_session()
+
+    def percentile_check(target, difficulty="regular", **_kwargs):
+        return {
+            **coc_combat.coc_roll.resolve_percentile_roll(
+                roll, target, difficulty
+            ),
+            "roll": roll,
+            "bonus": 0,
+            "penalty": 0,
+            "tens_values": [],
+            "units": None,
+        }
+
+    monkeypatch.setattr(
+        coc_combat.coc_roll, "percentile_check", percentile_check
+    )
+    compact, record = session._percentile(
+        "hero", "Firearms", 60, "contextual shot", difficulty=required_level
+    )
+
+    assert compact == outcome
+    assert record["roll_role"] == "percentile_check"
+    assert record["base_target"] == 60
+    assert record["required_level"] == required_level
+    assert record["required_target"] == (30 if required_level == "hard" else 12)
+    assert record["achieved_level"] == achieved_level
+    assert record["passed"] is passed
+    assert record["success"] is passed
+    assert record["outcome"] == outcome
+
+
+def test_combat_luck_updates_the_canonical_settlement_and_preserves_raw_die(
+    monkeypatch,
+):
+    session = _make_session()
+
+    def percentile_check(target, difficulty="regular", **_kwargs):
+        return {
+            **coc_combat.coc_roll.resolve_percentile_roll(
+                76, target, difficulty
+            ),
+            "roll": 76,
+            "bonus": 0,
+            "penalty": 0,
+            "tens_values": [],
+            "units": None,
+        }
+
+    monkeypatch.setattr(
+        coc_combat.coc_roll, "percentile_check", percentile_check
+    )
+    _, record = session._percentile(
+        "hero", "Dodge", 60, "avoid the blow"
+    )
+
+    outcome, event = session._apply_luck_to_roll(
+        record, points=16, current_luck=40
+    )
+
+    assert outcome == "regular"
+    assert record["original_roll"] == 76
+    assert record["roll"] == record["adjusted_roll"] == 60
+    assert record["base_target"] == 60
+    assert record["required_level"] == "regular"
+    assert record["required_target"] == 60
+    assert record["achieved_level"] == "regular"
+    assert record["passed"] is True
+    assert record["success"] is True
+    assert record["surplus_levels"] == 0
+    assert record["luck_before"] == 40
+    assert record["luck_after"] == record["luck_remaining"] == 24
+    assert event["original_roll"] == 76
+    assert event["adjusted_roll"] == 60
+    assert event["passed"] is True
+
+
+@pytest.mark.parametrize(
+    ("required_level", "original_roll", "points", "required_target"),
+    [("hard", 35, 5, 30), ("extreme", 17, 5, 12)],
+)
+def test_combat_luck_buys_exact_contextual_threshold(
+    monkeypatch, required_level, original_roll, points, required_target,
+):
+    session = _make_session()
+
+    def percentile_check(target, difficulty="regular", **_kwargs):
+        return {
+            **coc_combat.coc_roll.resolve_percentile_roll(
+                original_roll, target, difficulty
+            ),
+            "roll": original_roll,
+            "bonus": 0,
+            "penalty": 0,
+            "tens_values": [],
+            "units": None,
+        }
+
+    monkeypatch.setattr(coc_combat.coc_roll, "percentile_check", percentile_check)
+    _, record = session._percentile(
+        "hero", "Dodge", 60, "meet the contextual gate",
+        difficulty=required_level,
+    )
+    assert record["passed"] is False
+
+    outcome, event = session._apply_luck_to_roll(
+        record, points=points, current_luck=20
+    )
+
+    assert record["roll"] == record["adjusted_roll"] == required_target
+    assert record["required_level"] == required_level
+    assert record["required_target"] == required_target
+    assert record["achieved_level"] == required_level
+    assert record["passed"] is True
+    assert record["surplus_levels"] == 0
+    assert outcome == required_level
+    assert event["source_roll_id"] == record["roll_id"]
+    assert event["luck_before"] == 20
+    assert event["luck_after"] == 20 - points
 
 
 def test_combat_session_attack_with_fight_back_pairs_opposed_roll():
@@ -101,6 +239,24 @@ def test_combat_session_attack_with_fight_back_pairs_opposed_roll():
     assert turn["opposed_outcome"] in (
         "attacker_higher", "defender_higher",
         "tie_attacker_wins", "tie_defender_wins", "both_fail")
+
+
+@pytest.mark.parametrize(
+    ("defense_kind", "expected"),
+    [
+        ("dodge", "tie_defender_wins"),
+        ("fight_back", "tie_attacker_wins"),
+    ],
+)
+def test_equal_success_level_uses_structured_combat_reaction_tie_rule(
+    defense_kind, expected,
+):
+    assert (
+        coc_combat.CombatSession._resolve_opposed(
+            "regular", "regular", defense_kind
+        )
+        == expected
+    )
 
 
 def test_combat_session_damage_chain_balances_hp_and_armor():
@@ -1306,7 +1462,10 @@ def test_combat_load_rejects_recomputed_internal_damage_receipt_without_external
     target["conditions"] = list(forged["damage_chain"][-1]["status_after"]["conditions"])
     _refresh_damage_receipt(forged, damage)
     path.write_text(json.dumps(forged), encoding="utf-8")
-    with pytest.raises(ValueError, match="external damage evidence"):
+    with pytest.raises(
+        ValueError,
+        match="external damage evidence|damage chain roll evidence",
+    ):
         coc_combat.CombatSession.load(
             tmp_path, rng=random.Random(999), damage_evidence=evidence,
             damage_evidence_actor="inv",

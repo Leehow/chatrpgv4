@@ -22,6 +22,9 @@ def test_all_host_manifests_share_the_040a_version():
         _json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")["version"],
         _json(PLUGIN_ROOT / ".claude-plugin" / "plugin.json")["version"],
         _json(PLUGIN_ROOT / ".cursor-plugin" / "plugin.json")["version"],
+        _json(PLUGIN_ROOT / ".grok-plugin" / "plugin.json")["version"],
+        _json(PLUGIN_ROOT / ".zcode-plugin" / "plugin.json")["version"],
+        _json(PLUGIN_ROOT / ".kimi-plugin" / "plugin.json")["version"],
         _json(PLUGIN_ROOT / ".kimi-plugin" / "kimi.plugin.json")["version"],
         marketplace["plugins"][0]["version"],
     }
@@ -35,6 +38,7 @@ def test_plugin_is_single_track_with_thin_host_entries():
     assert (ROOT / ".kimi" / "skills" / "coc-keeper" / "SKILL.md").is_file()
     assert not (ROOT / ".kimi" / "skills" / "coc-main").exists()
     assert not (ROOT / "plugins" / "coc-keeper-zcode").exists()
+    assert not (ROOT / "plugins" / "coc-keeper-grok").exists()
 
 
 def test_kimi_adapter_is_thin_and_points_at_canonical_tree():
@@ -56,7 +60,7 @@ def test_kimi_adapter_is_thin_and_points_at_canonical_tree():
         "coc-main/skill.md",
         "coc-keeper-play/skill.md",
         "coc-story-director/skill.md",
-        "codex_only_imagegen",
+        "host_native_imagegen",
         "skip portrait generation",
         "install-kimi-plugin.sh",
         "evidence.record_adoption",
@@ -65,6 +69,44 @@ def test_kimi_adapter_is_thin_and_points_at_canonical_tree():
     # The thin entry must not embed canonical skill bodies.
     assert "core keeper response contract (always active)" not in compact
 
+
+def test_grok_plugin_is_full_canonical_skill_tree():
+    """Grok Build play requires full plugin install, not a thin-only path.
+
+    Grok resolves plugin.json path fields relative to the plugin root
+    (plugins/coc-keeper/), not the .grok-plugin/ subdirectory.
+    """
+    manifest = _json(PLUGIN_ROOT / ".grok-plugin" / "plugin.json")
+    assert manifest["name"] == "coc-keeper"
+    assert manifest["version"] == EXPECTED_PLUGIN_VERSION
+    skills_ref = manifest["skills"]
+    assert skills_ref in {"./skills/", "skills/", "skills"}
+    resolved = (PLUGIN_ROOT / "skills").resolve()
+    assert resolved.is_dir()
+    required = {
+        "coc-main",
+        "coc-keeper-play",
+        "coc-story-director",
+        "coc-character",
+        "coc-playtest",
+        "coc-export-battle-report",
+    }
+    present = {
+        path.name for path in resolved.iterdir() if path.is_dir()
+    }
+    assert required <= present
+    install = _text(PLUGIN_ROOT / "scripts" / "install-grok-plugin.sh")
+    compact = " ".join(install.split()).lower()
+    for phrase in (
+        "full",
+        "plugin install",
+        "coc-main",
+        "coc-keeper-play",
+        "host_native_imagegen",
+        "image_gen",
+    ):
+        assert phrase in compact, phrase
+    assert "thin entry alone" in compact or "not a thin entry" in compact
 
 def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
     text = _text(ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md")
@@ -83,7 +125,7 @@ def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
         "always-active player-action uptake",
         "rules.skill_describe",
         "**not** an acceptable",
-        "codex_only_imagegen",
+        "host_native_imagegen",
     ):
         assert phrase in compact, phrase
     agents = _text(PLUGIN_ROOT / "references" / "AGENTS-coc-mode-template.md")
@@ -107,12 +149,38 @@ def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
         "never a keyword list",
         "required craft instruction",
         "not a mandatory pipeline",
+        "compound player declarations",
+        "diegetic delivery only",
+        "settlement is **internal kp craft**",
+        "acknowledge the unplayed remainder",
+        "tease like a real table kp",
+        "table wit (failures players feel)",
+        "fumbles / 大失败",
+        "【串联】",
+        "player knowledge boundary",
+        "kp owns the intercept",
+        "lucky guesses stay guesses",
+        "overconfident unearned knowledge",
     ):
         assert phrase in play_compact, phrase
+    agents = _text(ROOT / "AGENTS.md")
+    agents_compact = " ".join(agents.split()).lower()
+    for phrase in (
+        "player knowledge boundary",
+        "kp owns the intercept",
+        "lucky correct guess",
+        "do not ban players from guessing",
+    ):
+        assert phrase in agents_compact, phrase
     assert "action_uptake" in play_compact
     assert "not acceptable player-" in play_compact or (
         "not acceptable player" in play_compact
     )
+    cursor_chain = " ".join(
+        _text(ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md").split()
+    ).lower()
+    assert "chain-settlement" in cursor_chain or "【串联】" in cursor_chain
+    assert "narration.review" in cursor_chain
     contract = _text(PLUGIN_ROOT / "scripts" / "coc_narration_contract.py")
     assert "action_uptake" in contract
     assert "treat_current_action_uptake_as_semantic_repetition" in contract
@@ -161,13 +229,28 @@ def test_required_canonical_skills_are_present():
     } <= names
 
 
-def test_codex_only_image_generation_stays_explicitly_gated():
+def test_host_native_image_generation_is_explicitly_gated():
     character = _text(PLUGIN_ROOT / "skills" / "coc-character" / "SKILL.md")
-    assert "CODEX_ONLY_IMAGEGEN_BEGIN" in character
-    assert "CODEX_ONLY_IMAGEGEN_END" in character
-    assert character.index("CODEX_ONLY_IMAGEGEN_BEGIN") < character.index(
-        "CODEX_ONLY_IMAGEGEN_END"
+    assert "HOST_NATIVE_IMAGEGEN_BEGIN" in character
+    assert "HOST_NATIVE_IMAGEGEN_END" in character
+    assert character.index("HOST_NATIVE_IMAGEGEN_BEGIN") < character.index(
+        "HOST_NATIVE_IMAGEGEN_END"
     )
+    compact = " ".join(character.split()).lower()
+    for phrase in (
+        "current host's built-in image tool",
+        "do not call another host's image stack",
+        "grok build",
+        "image_gen",
+        "imagine",
+        "skip portrait generation",
+    ):
+        assert phrase in compact, phrase
+    # Legacy Codex-only gate must not reappear.
+    assert "CODEX_ONLY_IMAGEGEN" not in character
+    agents = _text(ROOT / "AGENTS.md")
+    assert "HOST_NATIVE_IMAGEGEN" in agents
+    assert "Codex-only and must remain" not in agents
 
 
 def test_playtest_skill_defines_real_plugin_context_free_player_acceptance():

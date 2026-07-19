@@ -100,6 +100,27 @@ ERA_CLOCKS = {
         "timezone": "America/New_York",
         "display": "1925-01-15 20:00",
     },
+    # Spanish Golden Age / Inquisition-era one-shots (e.g. 人间乐土, 1597 summer).
+    "1590s": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1597-07-15T10:00:00",
+        "timezone": "Europe/Madrid",
+        "display": "1597-07-15 10:00",
+    },
+    # Gaslight / late Victorian default (London).
+    "1890s": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1890-09-15T18:00:00",
+        "timezone": "Europe/London",
+        "display": "1890-09-15 18:00",
+    },
+    # Stalin-era / Great Purge one-shots (e.g. Cold Harvest, Oct 1937).
+    "1930s": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1937-10-12T10:00:00",
+        "timezone": "Europe/Moscow",
+        "display": "1937-10-12 10:00",
+    },
     "modern": {
         "calendar_mode": "gregorian",
         "local_datetime": "2025-01-15T20:00:00",
@@ -112,6 +133,24 @@ ERA_CLOCKS = {
         "timezone": None,
         "display": "",
     },
+}
+
+# Freeform campaign/module era strings map to a canonical ERA_CLOCKS key.
+ERA_ALIASES = {
+    "classic": "1920s",
+    "cthulhu_classic": "1920s",
+    "gaslight": "1890s",
+    "victorian": "1890s",
+    "contemporary": "modern",
+    "present": "modern",
+    "dark_ages": "roman",
+    "dark-ages": "roman",
+    "world_war_i": "ww1",
+    "world_war_1": "ww1",
+    "great_war": "ww1",
+    "great_purge": "1930s",
+    "stalin": "1930s",
+    "soviet": "1930s",
 }
 
 
@@ -139,8 +178,40 @@ def write_json_atomic(path: Path, payload: dict[str, Any] | list[Any]) -> None:
     )
 
 
+def normalize_era(era: str | None, *, default: str = "1920s") -> str:
+    """Map freeform era labels to a canonical ``ERA_CLOCKS`` key.
+
+    Unknown values fall back to ``default`` (usually ``1920s``). Decade forms
+    such as ``1590s`` and year-leading strings such as ``1597 Spain`` resolve
+    when that decade is registered.
+    """
+    raw = str(era or "").strip()
+    if not raw:
+        return default if default in ERA_CLOCKS else "1920s"
+    if raw in ERA_CLOCKS:
+        return raw
+    key = raw.lower().replace(" ", "_").replace("/", "_")
+    if key in ERA_CLOCKS:
+        return key
+    if key in ERA_ALIASES:
+        mapped = ERA_ALIASES[key]
+        return mapped if mapped in ERA_CLOCKS else default
+    # Exact decade token: 1590s / 1890s
+    if re.fullmatch(r"\d{3,4}s", key) and key in ERA_CLOCKS:
+        return key
+    # Leading year: "1597 Spain", "1597-spain", "year-1597"
+    year_match = re.search(r"(?<!\d)(\d{4})(?!\d)", key)
+    if year_match:
+        year = int(year_match.group(1))
+        decade = f"{(year // 10) * 10}s"
+        if decade in ERA_CLOCKS:
+            return decade
+    return default if default in ERA_CLOCKS else "1920s"
+
+
 def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None = None) -> dict[str, Any]:
-    era_clock = ERA_CLOCKS.get(era, ERA_CLOCKS["1920s"])
+    era_key = normalize_era(era)
+    era_clock = ERA_CLOCKS[era_key]
     if start_clock:
         return {
             "elapsed_minutes": 0,
@@ -160,6 +231,68 @@ def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None
         "location_id": None,
         "display": era_clock["display"],
     }
+
+
+def reseed_campaign_clock_for_era(
+    campaign_dir: Path,
+    campaign_id: str,
+    era: str,
+    *,
+    preserve_elapsed: bool = True,
+) -> dict[str, Any]:
+    """Rewrite ``save/time-state.json`` clock fields for ``era``.
+
+    When ``preserve_elapsed`` is true, keep ``elapsed_minutes`` and advance the
+    new epoch by that amount so mid-session era repairs do not rewind travel.
+    """
+    from datetime import timedelta
+
+    era_key = normalize_era(era)
+    campaign_dir = Path(campaign_dir)
+    time_state_path = campaign_dir / "save" / "time-state.json"
+    elapsed = 0
+    existing: dict[str, Any] = {}
+    if time_state_path.is_file():
+        try:
+            existing = json.loads(time_state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+        if preserve_elapsed and isinstance(existing.get("clock"), dict):
+            try:
+                elapsed = int(existing["clock"].get("elapsed_minutes") or 0)
+            except (TypeError, ValueError):
+                elapsed = 0
+    clock = initial_clock_for_era(era_key)
+    clock["elapsed_minutes"] = max(0, elapsed)
+    base_raw = clock.get("local_datetime")
+    if base_raw and elapsed:
+        try:
+            base = datetime.fromisoformat(str(base_raw))
+            advanced = base + timedelta(minutes=elapsed)
+            clock["local_datetime"] = advanced.isoformat(timespec="seconds")
+            clock["display"] = advanced.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    payload = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "timeline_id": existing.get("timeline_id") or "tl-main",
+        "branch_id": existing.get("branch_id") or "main",
+        "forked_from": existing.get("forked_from"),
+        "sequence": int(existing.get("sequence") or 1),
+        "clock": clock,
+        "anchors": existing.get("anchors")
+        or {
+            "campaign_start_elapsed": 0,
+            "last_rest_elapsed": 0,
+            "last_safe_place_elapsed": 0,
+            "last_scene_change_elapsed": 0,
+        },
+        "sanity_periods": existing.get("sanity_periods") or {},
+        "safe_place": bool(existing.get("safe_place", False)),
+    }
+    write_json_atomic(time_state_path, payload)
+    return clock
 
 
 def reset_campaign_time_state(
@@ -941,6 +1074,7 @@ def _create_campaign_at(
 ) -> Path:
     """Build a complete campaign generation at an explicit directory."""
     campaign_dir = Path(campaign_dir)
+    era_key = normalize_era(era)
     for directory in CAMPAIGN_DIRS:
         (campaign_dir / directory).mkdir(parents=True, exist_ok=True)
     created_at = now_iso()
@@ -950,7 +1084,7 @@ def _create_campaign_at(
         "title": title,
         "mode": "keeper",
         "status": "setup",
-        "era": era,
+        "era": era_key,
         "active_scenario_id": None,
         "active_scene_id": None,
         "dice_mode": "codex",
@@ -964,7 +1098,9 @@ def _create_campaign_at(
     }
     campaign_path = campaign_dir / "campaign.json"
     write_json_atomic(campaign_path, campaign)
-    _initialize_campaign_runtime_files(campaign_dir, campaign_id, era=era, start_clock=start_clock)
+    _initialize_campaign_runtime_files(
+        campaign_dir, campaign_id, era=era_key, start_clock=start_clock
+    )
     if update_index:
         _upsert_campaign_index(root, campaign_id)
     return campaign_path
@@ -992,7 +1128,7 @@ def create_campaign(
         campaign_dir,
         campaign_id,
         title,
-        era=era,
+        era=normalize_era(era),
         play_language=play_language,
         start_clock=start_clock,
         update_index=True,

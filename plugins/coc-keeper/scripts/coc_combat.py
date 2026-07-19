@@ -192,6 +192,20 @@ def _derive_reload_fields(entry: dict[str, Any]) -> None:
 # Success-level ordering (rulebook p.91). Higher = better.
 LVL = {"fumble": 0, "failure": 1, "regular": 2, "hard": 3, "extreme": 4, "critical": 5}
 
+PERCENTILE_SETTLEMENT_FIELDS = (
+    "base_target",
+    "target",
+    "required_level",
+    "difficulty",
+    "required_target",
+    "effective_target",
+    "achieved_level",
+    "passed",
+    "success",
+    "surplus_levels",
+    "outcome",
+)
+
 # Valid enums for schema validation.
 VALID_SIDES = {"investigator", "monster", "npc"}
 VALID_ACTIONS = {"attack", "maneuver", "flee", "cast", "other", "surprise_attack"}
@@ -670,8 +684,9 @@ class CombatSession:
             "weapon_id": damage.get("weapon_id"),
             "die": damage.get("die"),
             "die_rolls": list(damage.get("die_rolls") or []),
+            "rolled_total": damage.get("rolled_total"),
             "raw_damage": damage.get("raw_damage"),
-            "total": damage.get("raw_damage"),
+            "total": damage.get("rolled_total"),
             "hp_before": damage.get("hp_before"),
             "hp_delta": damage.get("hp_delta"),
             "hp_after": damage.get("hp_after"),
@@ -720,16 +735,21 @@ class CombatSession:
                 "payload": {
                     "event_type": "combat_roll",
                     "roll_id": roll_id,
+                    "roll_role": "amount",
                     "visibility": visibility,
                     "actor_id": damage["source_actor_id"],
                     "skill": "HP Damage",
                     "source_command_id": receipt["command_id"],
-                    "target": damage["target_actor_id"],
-                    "raw_roll": damage["raw_damage"],
+                    "target_actor_id": damage["target_actor_id"],
+                    "rolled_total": damage.get(
+                        "rolled_total", damage["raw_damage"]
+                    ),
                     "dice": {
                         "expression": damage["die"],
                         "raw": list(damage["die_rolls"]),
-                        "total": damage["raw_damage"],
+                        "total": damage.get(
+                            "rolled_total", damage["raw_damage"]
+                        ),
                     },
                     "combat_damage_receipt": receipt,
                 },
@@ -831,8 +851,13 @@ class CombatSession:
             unmodified = tens_values[0] * 10 + units_i
             if unmodified == 0:
                 unmodified = 100
-            bonus_die_only_success = (
-                selected <= int(res["effective_target"]) < unmodified
+            unmodified_settlement = coc_roll.resolve_percentile_roll(
+                unmodified,
+                int(res["base_target"]),
+                str(res["required_level"]),
+            )
+            bonus_die_only_success = bool(
+                res["passed"] and not unmodified_settlement["passed"]
             )
             unmodified_roll = unmodified
         elif tens_values and units is not None:
@@ -841,14 +866,15 @@ class CombatSession:
                 unmodified_roll = 100
         record = {
             "roll_id": roll_id,
+            "roll_role": "percentile_check",
             "actor_id": actor_id,
             "skill": skill,
             "goal": goal,
-            "target": target,
-            "effective_target": res["effective_target"],
+            **{
+                field: res[field]
+                for field in PERCENTILE_SETTLEMENT_FIELDS
+            },
             "roll": res["roll"],
-            "outcome": res["outcome"],
-            "difficulty": difficulty,
             "bonus": bonus,
             "penalty": penalty,
             "effective_modifier": {
@@ -866,8 +892,55 @@ class CombatSession:
             "ranged": ranged,
             "marker": f"[roll]{actor_id} {skill}{target}{mod_str}:(d100->{res['roll']})->{res['outcome']}[/roll]",
         }
+        self._stamp_skill_ownership(record, actor_id=actor_id, weapon=None)
         self.pending_rolls.append(record)
         return res["outcome"], record
+
+    @staticmethod
+    def _stamp_skill_ownership(
+        record: dict[str, Any],
+        *,
+        actor_id: str,
+        weapon: dict[str, Any] | None,
+    ) -> None:
+        """Bind designer / executor / skill-owner for development credit.
+
+        Living skill use: skill_owner defaults to the rolling actor.
+        Remote device / environment attacks: designer may be a living NPC, but
+        skill credit does not transfer to an investigator who only set the
+        apparatus in motion or is merely its target.
+        """
+        weapon = weapon if isinstance(weapon, dict) else {}
+        executor_kind = weapon.get("executor_kind")
+        if weapon.get("remote") or weapon.get("device") or weapon.get("poltergeist"):
+            executor_kind = executor_kind or "remote_device"
+        if weapon.get("environment") or weapon.get("hazard"):
+            executor_kind = executor_kind or "environment"
+        record["executor_id"] = actor_id
+        if isinstance(weapon.get("action_designer_id"), str) and weapon["action_designer_id"]:
+            record["action_designer_id"] = weapon["action_designer_id"]
+        if executor_kind:
+            record["executor_kind"] = str(executor_kind)
+            kind = str(executor_kind).casefold()
+            if kind in {
+                "device", "remote_device", "environment", "trap",
+                "apparatus", "poltergeist", "hazard",
+            }:
+                owner = weapon.get("skill_owner_id")
+                if isinstance(owner, str) and owner.strip():
+                    record["skill_owner_id"] = owner.strip()
+                else:
+                    # Explicit null ownership: no living development tick.
+                    record["skill_owner_id"] = None
+                    record["improvement_tick_eligible"] = False
+                if "action_designer_id" not in record:
+                    designer = weapon.get("action_designer_id") or actor_id
+                    if isinstance(designer, str) and designer:
+                        record["action_designer_id"] = designer
+                return
+        owner = weapon.get("skill_owner_id") or actor_id
+        if isinstance(owner, str) and owner.strip():
+            record["skill_owner_id"] = owner.strip()
 
     def _apply_luck_to_roll(
         self,
@@ -876,26 +949,34 @@ class CombatSession:
         points: int,
         current_luck: int,
     ) -> tuple[str, dict[str, Any]]:
-        """Apply a pre-authorized Luck spend without rewriting the raw die."""
+        """Apply Luck while retaining the physical die as ``original_roll``.
+
+        The canonical ``roll`` and settlement fields become the Luck-adjusted
+        value; deterministic dice evidence continues to expose the untouched
+        physical die through ``original_roll``.
+        """
         original_roll = int(record["roll"])
         adjusted = coc_roll.spend_luck(
             {
                 "roll": original_roll,
-                "outcome": record["outcome"],
-                "target": record["target"],
-                "effective_target": record.get(
-                    "effective_target", record["target"]
-                ),
+                **{
+                    field: record[field]
+                    for field in PERCENTILE_SETTLEMENT_FIELDS
+                },
             },
             points,
             current_luck,
             roll_kind="skill",
         )
         record["original_roll"] = original_roll
+        record["roll"] = int(adjusted["roll"])
         record["adjusted_roll"] = int(adjusted["roll"])
         record["luck_spent"] = int(adjusted["luck_spent"])
+        record["luck_before"] = int(current_luck)
+        record["luck_after"] = int(adjusted["luck_remaining"])
         record["luck_remaining"] = int(adjusted["luck_remaining"])
-        record["outcome"] = str(adjusted["outcome"])
+        for field in PERCENTILE_SETTLEMENT_FIELDS:
+            record[field] = adjusted[field]
         record["improvement_tick_eligible"] = False
         record["rule_ref"] = "core.optional.spending_luck"
         record["marker"] = (
@@ -913,6 +994,11 @@ class CombatSession:
             "luck_before": current_luck,
             "luck_after": adjusted["luck_remaining"],
             "outcome": record["outcome"],
+            "required_level": record["required_level"],
+            "required_target": record["required_target"],
+            "achieved_level": record["achieved_level"],
+            "passed": record["passed"],
+            "surplus_levels": record["surplus_levels"],
             "rule_ref": "core.optional.spending_luck",
         }
         self.pending_events.append(event)
@@ -963,14 +1049,14 @@ class CombatSession:
         cap = min(int(luck_precommit.get("max_points", 0)), current_luck)
         original_roll = int(record["roll"])
         max_points = min(cap, original_roll - 2)
-        effective_target = int(
-            record.get("effective_target", record.get("target", 0))
-        )
         chosen: tuple[int, str, str] | None = None
         for points in range(1, max_points + 1):
-            candidate = coc_rules.success_level(
-                original_roll - points, effective_target
+            candidate_settlement = coc_roll.resolve_percentile_roll(
+                original_roll - points,
+                int(record["base_target"]),
+                str(record["required_level"]),
             )
+            candidate = str(candidate_settlement["outcome"])
             candidate_attack = candidate if actor_is_attacker else attack_outcome
             candidate_defense = candidate if not actor_is_attacker else defense_outcome
             candidate_opposed = self._resolve_opposed(
@@ -1143,6 +1229,7 @@ class CombatSession:
             "weapon_id": weapon_id,
             "die": full_expr,
             "die_rolls": die_rolls,
+            "rolled_total": raw,
             "raw_damage": raw,
             "hp_before": hp_before,
             "hp_delta": hp_delta,
@@ -1158,12 +1245,18 @@ class CombatSession:
         self.damage_chain.append(record)
         self.pending_rolls.append({
             "roll_id": roll_id,
+            "roll_role": "amount",
             "actor_id": source_actor_id,
             "skill": "HP Damage",
             "goal": f"damage {target_actor_id} with {weapon_id}",
-            "die": die_expr,
-            "roll": raw,
-            "die_rolls": die_rolls,
+            "target_actor_id": target_actor_id,
+            "die": full_expr,
+            "rolled_total": raw,
+            "dice": {
+                "expression": full_expr,
+                "raw": list(die_rolls),
+                "total": raw,
+            },
             "outcome": "damage_applied",
             "marker": record["marker"],
         })
@@ -1687,6 +1780,7 @@ class CombatSession:
             f"attack {target_id}", difficulty=difficulty,
             bonus=atk_bonus, penalty=atk_penalty,
             ranged=is_firearm or is_thrown)
+        self._stamp_skill_ownership(atk_rec, actor_id=actor_id, weapon=weapon)
         turn["roll_id"] = atk_rec["roll_id"]
         mods["bonus"] = atk_bonus
         mods["penalty"] = atk_penalty
@@ -1710,7 +1804,7 @@ class CombatSession:
         if defense_kind in (None, "none"):
             turn["defense_kind"] = "none"
             turn["opposed_outcome"] = "unopposed"
-            if LVL[atk_oc] >= LVL["regular"]:
+            if atk_rec["passed"]:
                 turn["outcome"] = "hit"
                 bypass = rulebook_exception is not None
                 _, dmg_id, _ = self._damage_roll(
@@ -1730,7 +1824,7 @@ class CombatSession:
             def_oc, def_rec = self._percentile(target_id, "Dodge", dodge_target,
                                                f"dive for cover vs {actor_id}")
             turn["opposed_roll_id"] = def_rec["roll_id"]
-            if LVL[def_oc] >= LVL["regular"]:
+            if def_rec["passed"]:
                 turn["opposed_outcome"] = "dived_for_cover"
                 atk_oc2, atk_rec2 = self._percentile(
                     actor_id, weapon["skill"], skill_value,
@@ -1739,7 +1833,7 @@ class CombatSession:
                     penalty=atk_penalty + 1, ranged=True)
                 turn["cover_reroll_roll_id"] = atk_rec2["roll_id"]
                 self._mark_dived_for_cover(target_id)
-                if LVL[atk_oc2] >= LVL["regular"]:
+                if atk_rec2["passed"]:
                     turn["outcome"] = "hit_after_cover"
                     bypass = rulebook_exception is not None
                     _, dmg_id, _ = self._damage_roll(
@@ -1751,7 +1845,7 @@ class CombatSession:
                     turn["outcome"] = "miss_cover"
             else:
                 turn["opposed_outcome"] = "dive_failed"
-                if LVL[atk_oc] >= LVL["regular"]:
+                if atk_rec["passed"]:
                     turn["outcome"] = "hit"
                     bypass = rulebook_exception is not None
                     _, dmg_id, _ = self._damage_roll(
@@ -1805,7 +1899,10 @@ class CombatSession:
                 weapon["damage"], actor_id, target_id, wid, turn["turn_id"],
                 bypass_armor=bypass, rulebook_exception=rulebook_exception,
                 db_expr=self._weapon_db_expr(attacker, weapon))
-            if LVL[atk_oc] >= LVL["extreme"]:
+            if (
+                atk_rec["passed"]
+                and LVL[atk_rec["achieved_level"]] >= LVL["extreme"]
+            ):
                 self._apply_extreme_damage(dmg_rec, weapon, attacker)
             turn["damage_roll_id"] = dmg_id
         elif defense_kind == "maneuver" and opp in ("defender_higher", "tie_defender_wins"):
@@ -1893,7 +1990,7 @@ class CombatSession:
             }
             if malf:
                 shot["malfunction"] = malf
-            if LVL[atk_oc] >= LVL["regular"]:
+            if atk_rec["passed"]:
                 shot["outcome"] = "hit"
                 hits += 1
                 bypass = rulebook_exception is not None
@@ -1998,9 +2095,12 @@ class CombatSession:
             }
             if malf:
                 volley["malfunction"] = malf
-            if LVL[atk_oc] >= LVL["regular"]:
+            if atk_rec["passed"]:
                 # Half of shots hit (round down, min 1); Extreme → all hit, first half impale.
-                if LVL[atk_oc] >= LVL["extreme"] and difficulty != "extreme":
+                if (
+                    LVL[atk_rec["achieved_level"]] >= LVL["extreme"]
+                    and difficulty != "extreme"
+                ):
                     hits = bullets
                     impales = max(1, bullets // 2)
                 else:
@@ -2055,7 +2155,7 @@ class CombatSession:
             dodge_target = target.get("dodge_skill") or target["combat_skill"]
             def_oc, def_rec = self._percentile(
                 tid, "Dodge", dodge_target, f"dive for cover under suppression")
-            if LVL[def_oc] >= LVL["regular"]:
+            if def_rec["passed"]:
                 dived.append(tid)
                 self._mark_dived_for_cover(tid)
                 turn.setdefault("dive_rolls", {})[tid] = def_rec["roll_id"]
@@ -2095,7 +2195,7 @@ class CombatSession:
                 "dived": tid in dived,
                 "outcome_level": atk_oc,
             }
-            if LVL[atk_oc] >= LVL["regular"]:
+            if atk_rec["passed"]:
                 hits = max(1, bullets // 2)
                 entry["outcome"] = "hit"
                 entry["hits"] = hits
@@ -2274,7 +2374,7 @@ class CombatSession:
         turn["roll_id"] = atk_rec["roll_id"]
         turn["defense_kind"] = "none"
         turn["opposed_outcome"] = "unopposed"
-        if LVL[atk_oc] >= LVL["regular"]:
+        if atk_rec["passed"]:
             turn["outcome"] = "hit"
             _, dmg_id, _ = self._damage_roll(
                 weapon["damage"], actor_id, target_id, weapon_id, turn["turn_id"],
@@ -2375,7 +2475,7 @@ class CombatSession:
             # Unopposed maneuver (surprised / non-resisting target).
             turn["defense_kind"] = "none"
             turn["opposed_outcome"] = "unopposed"
-            if LVL[atk_oc] >= LVL["regular"]:
+            if atk_rec["passed"]:
                 self._apply_maneuver_goal(
                     turn, actor_id=actor_id, target_id=target_id,
                     goal=goal, target_weapon_id=target_weapon_id, as_counter=False)
@@ -2550,7 +2650,7 @@ class CombatSession:
                 int(p.get("con", 50)),
                 "remain conscious after a major wound",
             )
-            if con_outcome in ("failure", "fumble"):
+            if not con_record["passed"]:
                 if "unconscious" not in p["conditions"]:
                     p["conditions"].append("unconscious")
             # Keep complete stable roll evidence without polluting the damage
@@ -2654,12 +2754,12 @@ class CombatSession:
                 or payload.get("actor_id") != damage["source_actor_id"]
                 or payload.get("skill") != "HP Damage"
                 or payload.get("source_command_id") != command_id
-                or payload.get("target") != damage["target_actor_id"]
-                or payload.get("raw_roll") != damage["raw_damage"]
+                or payload.get("target_actor_id") != damage["target_actor_id"]
+                or payload.get("rolled_total") != damage["rolled_total"]
                 or payload.get("dice") != {
                     "expression": damage["die"],
                     "raw": damage["die_rolls"],
-                    "total": damage["raw_damage"],
+                    "total": damage["rolled_total"],
                 }
                 or payload.get("combat_damage_receipt") != expected
             ):
@@ -2918,7 +3018,7 @@ class CombatSession:
         damage_required_keys = {
             "damage_roll_id", "source_turn_id", "source_actor_id",
             "target_actor_id", "weapon_id", "die", "die_rolls",
-            "raw_damage", "hp_before", "hp_delta", "hp_after",
+            "rolled_total", "raw_damage", "hp_before", "hp_delta", "hp_after",
             "armor_absorbed", "armor_before", "armor_after",
             "rulebook_exception", "bypass_armor", "half_damage_bonus",
             "marker", "status_after", "provenance",
@@ -2977,7 +3077,7 @@ class CombatSession:
             ):
                 raise ValueError("combat damage provenance diverges from its turn")
             integer_fields = (
-                "raw_damage", "hp_before", "hp_delta", "hp_after",
+                "rolled_total", "raw_damage", "hp_before", "hp_delta", "hp_after",
                 "armor_absorbed", "armor_before", "armor_after",
             )
             if any(
@@ -2990,11 +3090,15 @@ class CombatSession:
             hp_before = damage["hp_before"]
             hp_after = damage["hp_after"]
             absorbed = damage["armor_absorbed"]
-            if not damage.get("extreme_damage") and (
+            if (
                 cls._reconstruct_damage_roll(damage.get("die"), damage.get("die_rolls"))
-                != raw_damage
+                != damage["rolled_total"]
             ):
                 raise ValueError("combat damage chain roll evidence diverges from total")
+            if not damage.get("extreme_damage") and damage["rolled_total"] != raw_damage:
+                raise ValueError(
+                    "combat damage chain roll evidence diverges from its rolled total"
+                )
             if (
                 raw_damage < 0 or hp_before < 0 or hp_after < 0
                 or absorbed < 0 or absorbed > raw_damage

@@ -24,10 +24,26 @@ only by the committed `uv.lock`.
 
 ## PDF Source Bundle Contract
 
-The repository does not parse PDFs. Codex's `pdf` skill owns rendering, OCR,
-layout recognition, text extraction, and asset extraction. Repository code may
+The repository does not parse PDFs. An external host PDF skill owns rendering,
+visual review, text/asset extraction, and page evidence. Repository code may
 only validate and deterministically reformat the resulting versioned source
 bundle through `plugins/coc-keeper/scripts/coc_pdf_bundle.py`.
+
+Host selection (outcome over brand):
+
+1. Prefer the current host's existing PDF capability when it can fulfill the
+   source-bundle contract (e.g. Claude Code document `pdf`, Codex built-in
+   `pdf`, or another host-native path the user already trusts).
+2. If the host has no suitable PDF skill, recommend the open-source Codex
+   workflow at
+   `https://github.com/openai/skills/tree/main/skills/.curated/pdf`
+   (render + multimodal visual QA + optional text-layer extract).
+3. Any third-party pipeline is acceptable only when it still emits the same
+   bundle contract. Do not add a local repository parser, OCR fallback, or PDF
+   parsing dependency.
+
+`producer: codex-pdf-skill` is the **handoff contract identity**, not a
+requirement that the session must run inside Codex.
 
 - A bundle uses `schema_version: 1`, `producer: codex-pdf-skill`, an original
   PDF path/hash, and explicit zero-based `pdf_index` entries with Markdown
@@ -39,22 +55,24 @@ bundle through `plugins/coc-keeper/scripts/coc_pdf_bundle.py`.
   later source identity, page content, review-evidence, or asset drift.
 - Repository code may check the original PDF's existence, suffix, and SHA-256;
   it must not open the PDF to read page count, metadata, layout, images, or text.
-- Other hosts must provide the same source-bundle contract. Do not add a local
-  parser, OCR fallback, or PDF parsing dependency.
 
 ## COC Plugin Single-Track Law
 
 This repository maintains one plugin track:
 
-- `plugins/coc-keeper/` is the canonical Codex plugin.
+- `plugins/coc-keeper/` is the canonical plugin for every host.
 
 Do not recreate a parallel host-specific plugin copy. Shared runtime behavior
 lives only in `plugins/coc-keeper/`.
 
-Platform-specific capabilities must stay explicitly gated in the Codex plugin.
-In particular, investigator portrait generation is Codex-only and must remain
-inside `CODEX_ONLY_IMAGEGEN` markers in `skills/coc-character/SKILL.md`. Other
-hosts should skip that capability rather than invent a second plugin tree.
+Platform-specific capabilities must stay explicitly gated inside that single
+tree. Investigator portrait generation uses the **current host's built-in
+image tool** when one exists (Codex `imagegen` / `image_gen`, Grok Build
+`image_gen` / Imagine, and any future host-native equivalent). Hosts without a
+built-in image tool skip portraits and continue character creation. Do not
+route a non-Codex host through Codex imagegen, and do not invent a second
+plugin tree for portraits. The gate lives in `HOST_NATIVE_IMAGEGEN` markers in
+`skills/coc-character/SKILL.md`.
 
 Before finishing plugin work, run at minimum:
 
@@ -78,15 +96,15 @@ logs for rule violations and refuses a vacuous pass (exit 2 on zero records).
 ## Keeper Toolbox Architecture
 
 The keeper LLM drives every play turn. There is no fixed turn pipeline: the
-host agent (Codex, Claude Code, Cursor, Kimi, or Pi) reads the canonical skills and
-calls tools from the single registry:
+host agent (Codex, Claude Code, Cursor, Grok Build, Kimi, or Pi) reads the
+canonical skills and calls tools from the single registry:
 
 ```bash
 uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py list
 uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
 ```
 
-Exactly three hard rules are enforced inside tools; everything else is
+Exactly four hard rules are enforced inside tools; everything else is
 advisory (`warnings` / `hints` in the tool envelope):
 
 1. Dice and HP/SAN/skill arithmetic are deterministic (`rules.*`); the keeper
@@ -95,17 +113,27 @@ advisory (`warnings` / `hints` in the tool envelope):
    `decision_id`); saves are never hand-edited mid-play.
 3. Module truth is read-only; tools mark keeper-only material as
    `secret: true` and the keeper reveals it only through play.
+4. After a played turn settles one or more checks, the final player output is
+   released only from one hash-bound finalization receipt created after all
+   rule and state writes. That receipt closes every settled check with causal
+   fictional realization or an explicit secrecy-preserving concealed
+   disposition, and renders every required public roll and player-visible
+   mechanical change exactly once from authoritative sources.
 
-Do not reintroduce blocking narrative gates (scene-transition state machines,
-clue-reveal gates, storylet eligibility suppression, narration output audits)
-into the turn path. Narrative legality belongs in tool warnings, not in
-exceptions.
+The fourth rule is a settled-output completeness boundary, not a fixed Keeper
+workflow or a prose-style judge. It must not require Director, Storylet, NPC,
+or narration methods; allow, deny, reorder, or suppress player actions, scenes,
+or clues; rerun settled mechanics; or disclose concealed evidence. Do not
+introduce any other blocking narrative gate (including scene-transition state
+machines, clue-reveal gates, Storylet eligibility suppression, or general
+prose-quality audits). Those remain advisory warnings rather than exceptions.
 
 ## COC Keeper Product Constitution
 
 These clauses define the product identity of COC Keeper and are
 non-negotiable for repository work. They constrain agents, implementations,
-documentation, and validation. They do not create a fixed runtime workflow or
+documentation, and validation. Apart from the narrow settled-output
+completeness boundary above, they do not create a fixed runtime workflow or
 additional narrative gates. Change them only in response to explicit user
 direction; do not reinterpret a nearby request as permission to weaken them.
 
@@ -120,6 +148,31 @@ direction; do not reinterpret a nearby request as permission to weaken them.
 - The KP chooses which relevant methods and tools to call from the canonical
   skills and registry. Do not replace that judgment with a fixed turn pipeline,
   mandatory call sequence, or hardcoded workflow.
+
+### Player-Visible Language (KP Output Uses Play Language)
+
+- Every player-visible string the Keeper emits at the table uses the campaign's
+  active `play_language` (default `zh-Hans`): narration, NPC dialogue, handouts
+  as delivered, public-roll wording, visible mechanics summaries, choices,
+  prompts, and recaps. This is not optional craft; it is a product constitution.
+- Source modules, PDF source bundles, and machine IR may store English or other
+  source-language text. That is evidence and index material for the KP, not a
+  license to dump foreign-language manuscript blocks onto the table when
+  `play_language` differs.
+- Prefer `localized_text[play_language]` and `localized_terms[play_language]`
+  when present. When absent, the KP renders a faithful table-language
+  presentation of the same facts (including full handout substance, not a
+  one-line plot digest) without requiring the player to read the source
+  language. Do not append source English in player-visible parentheses unless
+  the player explicitly asks.
+- Machine-facing fields stay canonical: JSON keys, IDs, rule enums, skill keys,
+  tool envelopes, and hidden audit anchors. They must never be presented as if
+  they were finished table prose.
+- **Exception (diegetic foreign speech only):** when fiction itself uses a
+  language the investigator may not know (Latin tomes, foreign NPC speech),
+  follow the Foreign-Language Dialogue rules in `coc-keeper-play` and the
+  investigator's Language skills. That exception never applies to ordinary KP
+  narration or to “the module PDF was English so handouts stay English.”
 
 ### AI-Coding And Pi Experience Parity
 
@@ -159,9 +212,68 @@ direction; do not reinterpret a nearby request as permission to weaken them.
   log language are data, not narration, and must not be presented as if they
   were finished table prose.
 - Deterministic rules tools own dice, HP/SAN/MP, skill arithmetic, and other
-  mechanical results. State tools own persistent mutations. Module truth and
-  secrets remain read-only. The KP must not recompute, adjust, or contradict
-  those authoritative results.
+  mechanical results. State tools own persistent mutations. The KP must not
+  recompute, adjust, or covertly contradict those authoritative values. A
+  character or document may report them incorrectly in fiction, but the
+  underlying result/state remains unchanged. Module source and secrets remain
+  read-only; conflicting fiction is handled as continuity evidence under the
+  clause below, never by editing source truth.
+
+### Controlled Improvisation Becomes Campaign Canon
+
+- The rulebook and module are a structural backbone, not a cage. Their source
+  files remain read-only, but the KP may semantically invent or make concrete
+  campaign-local NPC/item identities, histories, motives, events, clue
+  interpretations, future hooks, and ambiguous hints for dramatic purpose.
+  This authority is not limited to source blanks: an improvisation may appear
+  to conflict, or actually conflict, with module narrative truth or a
+  previously delivered narrative fact.
+- Such a conflict is material for play, not an error that a runtime, skill, or
+  reviewer may immediately forbid, roll back, or silently overwrite. Preserve
+  both assertions/observations and their provenance as a structured
+  `continuity contradiction` / `narrative debt`, using the best-fitting
+  campaign-local flag, clue, item, NPC fact/identity/engagement, event, marker,
+  and journal records. What becomes canon immediately is that each sourced
+  statement or observation occurred—not that either side has already been
+  proven the final objective explanation.
+- The KP must later carry that debt into causality and resolve or deepen it
+  through a logically fitting in-world explanation chosen semantically from
+  the campaign. Do not map contradiction types to a fixed list of excuses or
+  keywords. A later reveal may establish that one source, memory, document,
+  identity, or perception was unreliable, but its original delivered
+  provenance remains part of campaign history. No silent retcon, deletion, or
+  unexplained replacement is allowed.
+- Deterministic dice and authoritative numeric/state values remain the hard
+  boundary: narration may portray a false report of them but must never mutate
+  the underlying receipt or state without the proper rules/state operation.
+  Module secrets also remain protected from gratuitous direct disclosure; a
+  narrative contradiction is not blanket permission to dump hidden truth. A
+  player's guess may inspire the KP, but never becomes canon by itself.
+
+### Player Knowledge Boundary (KP Owns The Intercept)
+
+Players may guess, speculate, bait, or try to induce a spoiler. That is legal
+table behavior, not a product defect. The **Keeper** is responsible for what
+becomes true at the table.
+
+- The investigator knows only what play has already established in
+  player-visible fiction (plus their sheet and public rolls). The KP must track
+  that epistemic boundary semantically—from scene, journals, discovered clues,
+  and what was actually shown—not by keyword lists.
+- When a player declaration asserts room contents, NPC secrets, module layout,
+  unrevealed clues, or other facts the investigator could not know yet, the KP
+  **must not** enact those facts as true just because the player said them.
+  Separate attempt from claimed fact; revise or reject the fact; settle only
+  actions the investigator can actually attempt now.
+- A lucky correct guess is still only a guess. Do not reward metagame
+  anticipation by skipping discovery, auto-opening the right cupboard, or
+  confirming module truth in KP voice. If the world later matches the guess,
+  that match must still be earned through play.
+- Intercept clearly, preferably in play voice: the investigator does not yet
+  know what is inside; they can go look. Light Table Wit is welcome when tone
+  allows (“你还没进门，圣坛和日记就已经在脑内排好了？”), not an OOC scold.
+- Do not ban players from guessing. Ban the KP from treating an unearned guess
+  as established knowledge or as permission to dump secrets.
 
 ### Feature Integration Is Part Of Implementation
 
@@ -214,6 +326,34 @@ zero-call evidence also cannot prove that the method is integrated.
 - Component tests prove component contracts only. They never prove that the
   canonical KP can discover or use the component.
 
+### System Gap Before Instance Patch (修/补/fix 先看全局)
+
+When the user asks to **fix, patch, fill, deepen, or “补”** something observed
+in play, diagnostics, or a missing beat, agents must **not** jump straight to
+hand-authoring one concrete instance (one module location, one NPC pack, one
+clue row, one campaign save edit) as if that closed the request.
+
+Default order:
+
+1. **Name the class of failure** at product/runtime level (missing tool path,
+   missing trigger, undocument discovery, wrong authority boundary, unintegrated
+   capability, silent fallback, no dig/enqueue path, etc.).
+2. **Inspect the existing system** for the same class: skill tree, toolbox,
+   progressive/module-assets pipeline, state contracts, tests, and plans. Prefer
+   reuse, repair, or extension of that path over a one-off content dump.
+3. **Propose or implement the systemic fix** so the next similar dig/case is
+   handled without another hand patch (e.g. dig enqueue + host_hints +
+   evidence_gap, not “write gypsy-camp.json for this PDF only”).
+4. **Instance content** (one deep pack, one stub body, one campaign seed) is
+   allowed only when the user explicitly wants that content, or as a thin
+   vertical sample **after** the system path exists—and must be labeled if it is
+   not product-complete.
+
+Do not treat “player dug X and X was thin” as permission to only flesh out X.
+Ask whether the intent is system-gap repair when ambiguous; when the user has
+already said they want the system gap, do not re-offer a content-only patch as
+the main deliverable.
+
 ### Validation And Evidence
 
 - Whole-product validation uses the real Codex plugin as KP and a real Agent
@@ -231,6 +371,136 @@ zero-call evidence also cannot prove that the method is integrated.
   imply character, story, narration, director, or whole-product completeness.
   Missing evidence never becomes a pass.
 
+### Exceptional Results Must Change Play
+
+- A critical success, fumble, or failed pushed roll is not closed by vivid
+  prose alone. It must create at least one source-bound, auditable effect that
+  materially changes play: an authoritative HP/SAN/MP/Luck or resource delta,
+  a real bonus or penalty on a scoped later check, a condition or access
+  restriction with an explicit end boundary, a relationship/threat-clock
+  change, or a temporary opportunity, danger, or scene event that alters what
+  can happen next.
+- The KP chooses that effect semantically from the declared method, stakes,
+  current scene, investigator portrayal, and settled result. Never map skill
+  names, player prose keywords, or success labels to canned rewards and
+  punishments. The exceptional event must have a visible causal connection to
+  the action that produced it; an unrelated surprise or decorative “twist” is
+  not fulfillment.
+- Critical success grants a concrete windfall, advantage, durable quality, or
+  bounded new opportunity appropriate to the authorized goal. A fumble or
+  failed pushed roll applies the announced or causally escalated cost and may
+  open a new danger. Hard/extreme surplus below a critical still improves the
+  same goal's finesse, speed, discretion, durability, or quality rather than
+  silently authorizing an unrelated objective.
+- Elapsed time by itself is not automatically a substantive consequence. It
+  counts only when it actually fires or advances a deadline, closes access,
+  worsens a threat, consumes a meaningful resource window, or otherwise has a
+  recorded downstream effect. A generic flag likewise does not count unless
+  its player-visible restriction or opportunity and duration are explicit and
+  enforced by the normal play path.
+- Exceptional effects are settled through canonical deterministic rules/state
+  tools before final output and are rendered once in the player-visible
+  mechanics block. `turn.finalize` must fail closed when a qualifying roll has
+  no applied effect bound to that exact roll, and the battle report must retain
+  the binding and exact delivered fictional event.
+
+### First Contact Uses A Variable Public Impression Roll
+
+- The first material meeting between each investigator and stable NPC uses one
+  public D100 first-impression check with a target equal to the higher of that
+  investigator's APP or Credit Rating. Record which characteristic supplied
+  the target, freeze the source-bound receipt for that pair, and never permit a
+  later meeting or alternate caller to shop for another roll.
+- The result level changes the NPC's immediate manner, friction, and available
+  opportunity in that specific encounter. Authored agenda, established
+  relationship, scene causality, professional duty, and safety boundaries
+  still constrain what the reaction can mean: a critical does not turn a
+  committed enemy into an ally, and a good impression does not erase a reason
+  the NPC cannot comply. The KP must render the concrete behavior and its
+  character-specific reason rather than substitute an attitude label.
+- A critical first impression grants a concrete, causally fitting benefit or
+  bounded opportunity. A fumbled first impression creates a concrete cost such
+  as hostility, refusal, scrutiny, a relationship loss, or an access
+  restriction. These outcomes use the same source-bound exceptional-effect
+  contract as other criticals and fumbles; a warmer or colder adjective alone
+  is insufficient.
+- The player-visible first-contact block appears exactly once and shows APP,
+  Credit Rating, the governing higher value, the D100 result, and achieved
+  level. The roll belongs in canonical public roll evidence and the battle
+  report. It is not concealed, and NPC or scene disposition must not secretly
+  alter its target or dice; those facts shape the semantic realization after
+  the roll.
+
+### Scenes Are Not Single-NPC Turns
+
+- A scene or narrated turn may contain zero, one, or many materially acting
+  NPCs. No toolbox, finalizer, runtime adapter, prompt, or report projection may
+  assume a single NPC speaker, keep only the first or last engagement, or
+  collapse several NPCs into one collective reaction.
+- Every investigator/NPC pair first encountered in the same turn owns its own
+  `npc.reaction` receipt, NPC identity, engagement binding, observable causal
+  realization, and one-time player-visible first-impression block. Multiple
+  criticals or fumbles likewise keep separate source-bound exceptional effects
+  and must all survive finalization and report export.
+- Final narration may interleave the investigator with several NPCs and may
+  portray NPC-to-NPC speech, interruption, disagreement, concealment,
+  cooperation, and independent action. Each voice and decision must remain
+  grounded in that NPC's persona, knowledge, agenda, relationship state, and
+  the current scene rather than becoming interchangeable exposition.
+- This is a capacity, not a quota. The KP introduces and activates only the
+  NPCs the fiction supports; no turn pipeline may require a crowd or a fixed
+  number of speakers.
+
+### Relationships Grow After First Contact
+
+- A frozen first-impression receipt is only the starting point. Later actions
+  may change the live investigator/NPC relationship when the KP determines,
+  from that NPC's persona, agenda, needs, and the action's actual result, that
+  the investigator materially helped, pleased, protected, understood,
+  disappointed, exploited, or harmed them.
+- Reuse canonical NPC psych state and scoped effect machinery rather than
+  inventing a disconnected affection score. Meaningful positive progress may
+  grant a source-bound impression reward such as a one-shot bonus die on a
+  relevant later interaction with that NPC, a favor owed, concrete assistance,
+  or bounded access/opportunity; negative progress may create the corresponding
+  friction or restriction.
+- Every relationship change or impression reward identifies the investigator,
+  exact NPC, source action or event, causal reason, applicability, and
+  consumption or end boundary. It must reach later KP judgment or mechanics and
+  remain visible in final output and battle-report evidence; a decorative
+  number or inert flag is not a reward.
+- Never infer relationship progress from free-prose keywords such as gifts,
+  flattery, or help, and never award it on a per-turn quota. The initial receipt
+  remains immutable while live relationship state and unconsumed rewards govern
+  subsequent interactions.
+
+### Battle-Report-First Experience Development
+
+- For player-visible KP craft—narration, causal check realization, NPC
+  portrayal, Director uptake, pacing, first impressions, critical/fumble
+  events, and readable mechanics—build the smallest safe vertical path and run
+  it through a real plugin-native Keeper plus Agent player as early as
+  practical. Do not postpone real play until an exhaustive component matrix is
+  green.
+- Early automated tests are deliberately thin. They protect deterministic
+  arithmetic, exact schemas, idempotency/transactions, source identity, path
+  safety, and secret/public projection. Repeated reviews or overlapping suites
+  of the same already-proven boundary are not product progress and should not
+  be required without a concrete high-risk hypothesis or an observed failure.
+- The exact delivered transcript and generated battle report are the primary
+  evidence for whether an experience feature actually works. Judge persona
+  fit, fictional causality, NPC belief and response, success-tier quality,
+  critical/fumble interest, immersion, and presentation from play evidence;
+  component test counts cannot answer those questions.
+- Once the minimum safe vertical slice runs, prioritize revisions that address
+  specific defects visible in the transcript or battle report. Do not keep
+  polishing speculative component contracts while the normal player path has
+  not exercised the feature.
+- An early nonterminal or deliberately narrow run must be labeled
+  `experience-probe`, not a completed battle report or whole-product
+  acceptance. Final “测完 / 整品验收 / 玩家体验等价” claims still require the
+  full Plugin-Native Acceptance Contract and Playtest Experience Constitution.
+
 ### Requirement And Discussion Discipline
 
 - Separate user-stated requirements, observed facts, inferences, and proposals.
@@ -245,6 +515,9 @@ zero-call evidence also cannot prove that the method is integrated.
   support".
 - Test convenience, cleanup, architectural neatness, or implementation effort
   must not substitute for the user's stated product goal.
+- For 修/补/fix/patch requests, follow **System Gap Before Instance Patch**
+  above: diagnose the product-wide gap first; do not default to one-off module
+  content.
 
 ## Plugin-Native Acceptance Contract
 
@@ -335,10 +608,12 @@ or make advisory tools into hard narrative gates.
 ### Table text is player-facing
 
 - Transcripts must preserve the exact player-facing Keeper prose delivered at
-  the table, in the session play language, with action uptake and readable
-  public-roll wording. Do not paste tool envelopes, clue-id dumps, or raw
-  toolbox English enums (`failure`, `regular`, `hard`, `extreme`) into
-  player-visible narration as if they were table results.
+  the table, in the session `play_language`, with action uptake and readable
+  public-roll wording. All KP-visible table text follows the Player-Visible
+  Language constitution (including handouts as delivered). Do not paste tool
+  envelopes, clue-id dumps, source-PDF English blocks when `play_language` is
+  not English, or raw toolbox English enums (`failure`, `regular`, `hard`,
+  `extreme`) into player-visible narration as if they were table results.
 - Compound-action decomposition is internal craft. Do not put chain-settlement
   audit voice on the table (`【串联】`, “本回合不结算”, “执行备选”,
   atom/deferred labels, or CRPG option dumps of the unplayed remainder).

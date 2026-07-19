@@ -67,32 +67,35 @@ player-visible background prose and detail blocks in `player_facing_sheet_zh`
 (`backstory_summary` and optional `backstory_details`) before rendering. Raw
 English/canonical backstory is audit data unless explicitly localized.
 
-<!-- CODEX_ONLY_IMAGEGEN_BEGIN -->
-## Codex-Only Portrait Generation
+<!-- HOST_NATIVE_IMAGEGEN_BEGIN -->
+## Host-Native Portrait Generation
 
-Portrait generation is available only in Codex. If this skill is running outside
-Codex, skip portrait generation and continue with the rest of character
-creation.
+Portrait generation uses the **current host's built-in image tool** when one
+exists. Prefer that host tool; do not call another host's image stack (for
+example, do not invoke Codex `imagegen` while running on Grok Build).
 
-In Codex, when the user asks for an investigator portrait, use the system
-`imagegen` skill and the built-in `image_gen` tool by default. This does not
-require an `OPENAI_API_KEY`.
+| Host | Built-in image path | Portrait behavior |
+|------|---------------------|-------------------|
+| **Codex** | system `imagegen` skill + built-in `image_gen` (no `OPENAI_API_KEY`) | generate when the user asks |
+| **Grok Build** | built-in `image_gen` / Imagine | generate when the user asks |
+| **Claude Code / Cursor / Kimi / hosts without image tools** | none | skip portrait generation; continue character creation |
 
-Use the investigator's confirmed identity, age, nationality, era, occupation,
-backstory, equipment, and campaign tone to build a concise historical portrait
-prompt. Avoid spoilers, Mythos reveals, modern clothing, modern weapons, and
-action poses unless the user explicitly requests them.
+When generating:
 
-Generated portraits intended for the project must be copied from Codex's default
-generated image location into the workspace. Prefer
-`.coc/investigators/<investigator-id>/portraits/` after the reusable
-investigator exists. During campaign setup before a final investigator id exists,
-use `.coc/campaigns/<campaign-id>/assets/portraits/`.
-
-Record the final asset path, prompt summary, generation tool, and status in the
-creation draft or investigator sheet under a `portrait` field. Do not leave a
-project-referenced portrait only under `$CODEX_HOME/generated_images`.
-<!-- CODEX_ONLY_IMAGEGEN_END -->
+1. Use the investigator's confirmed identity, age, nationality, era,
+   occupation, backstory, equipment, and campaign tone for a concise historical
+   portrait prompt.
+2. Avoid spoilers, Mythos reveals, modern clothing, modern weapons, and action
+   poses unless the user explicitly requests them.
+3. Copy every project-referenced portrait into the workspace. Prefer
+   `.coc/investigators/<investigator-id>/portraits/` after the reusable
+   investigator exists. During campaign setup before a final investigator id
+   exists, use `.coc/campaigns/<campaign-id>/assets/portraits/`.
+4. Record the final asset path, prompt summary, generation tool/host, and
+   status in the creation draft or investigator sheet under a `portrait` field.
+   Do not leave a project-referenced portrait only under a host cache such as
+   `$CODEX_HOME/generated_images` or a Grok session image temp path.
+<!-- HOST_NATIVE_IMAGEGEN_END -->
 
 ## Scripts
 

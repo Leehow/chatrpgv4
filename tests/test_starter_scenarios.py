@@ -334,6 +334,42 @@ def test_ww1_era_registered_in_state_clocks():
         assert ts["clock"]["local_datetime"].startswith("1916-12"), f"ww1 era 时钟未指向 1916-12: {ts['clock']['local_datetime']}"
 
 
+def test_1590s_era_clock_and_freeform_normalize():
+    """Historical eras must not silently fall back to 1925 when labeled 1590s."""
+    import importlib.util
+    import tempfile
+
+    spec = importlib.util.spec_from_file_location(
+        "coc_state", PLUGIN_ROOT / "scripts" / "coc_state.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert mod.normalize_era("1590s") == "1590s"
+    assert mod.normalize_era("1597 Spain") == "1590s"
+    assert mod.normalize_era("gaslight") == "1890s"
+    assert mod.normalize_era("unknown-era-xyz") == "1920s"
+
+    clock = mod.initial_clock_for_era("1597 Spain")
+    assert str(clock["local_datetime"]).startswith("1597-07"), clock
+    assert clock["timezone"] == "Europe/Madrid"
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / ".coc"
+        mod.ensure_workspace(root)
+        mod.create_campaign(root, "spain-era", "España", era="1597 Spain")
+        camp = json.loads(
+            (root / "campaigns" / "spain-era" / "campaign.json").read_text("utf-8")
+        )
+        ts = json.loads(
+            (root / "campaigns" / "spain-era" / "save" / "time-state.json").read_text(
+                "utf-8"
+            )
+        )
+        assert camp["era"] == "1590s"
+        assert ts["clock"]["local_datetime"].startswith("1597-07"), ts["clock"]
+
+
 # ---------------------------------------------------------------------------
 # N2: the-haunting starter
 # ---------------------------------------------------------------------------

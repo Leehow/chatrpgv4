@@ -1,0 +1,28 @@
+{
+  "name": "coc-keeper",
+  "version": "0.4.0-alpha.0",
+  "description": "Call of Cthulhu Keeper mode with canonical skills, deterministic rules, transactional campaign state, and auditable play evidence.",
+  "keywords": [
+    "call-of-cthulhu",
+    "coc",
+    "trpg",
+    "keeper"
+  ],
+  "author": "Leehow",
+  "homepage": "https://github.com/Leehow/chatrpgv4",
+  "repository": "https://github.com/Leehow/chatrpgv4",
+  "license": "Apache-2.0",
+  "skills": "./skills/",
+  "sessionStart": {
+    "skill": "coc-host-bootstrap"
+  },
+  "mcpServers": {
+    "coc-keeper": {
+      "command": "./mcp/launch",
+      "env": {
+        "COC_HOST": "kimi"
+      }
+    }
+  },
+  "skillInstructions": "This plugin is the canonical COC Keeper product. On explicit COC activation, load coc-main, coc-keeper-play, and coc-story-director from this plugin's skills tree. Do not use a thin user-skill copy or recreate rules/state/narration logic. Kimi has no verified native image-generation capability, so skip investigator portraits and continue character creation."
+}

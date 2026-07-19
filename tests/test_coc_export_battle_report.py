@@ -49,6 +49,25 @@ def _fixture(run: Path, *, metadata_name="run.json"):
     _write_json(campaign / "save" / "world-state.json", {"visited_scene_ids": ["office", "archive"], "scene_history": [{"scene_id": "archive", "decision_id": "d1"}], "discovered_clue_ids": ["clue-public"], "major_decisions": [{"decision_id": "d1", "summary": "Entered the archive"}]})
     _write_json(campaign / "save" / "flags.json", {"clues_found": {"clue-public": {"method": "read the public ledger"}}, "keeper_secret": "FLAG_SECRET"})
     _write_json(campaign / "save" / "npc-engagement-receipts.json", {"receipts": {"r1": {"event": {"event_id": "e1", "npc_id": "npc-clerk", "scene_id": "archive", "interaction_kind": "dialogue", "identity_contract": {"keeper_only": True, "name": "Secret Clerk Name", "agenda": "NPC_AGENDA_SECRET", "voice": "NPC_VOICE_SECRET"}}}}})
+    _write_json(campaign / "save" / "exceptional-effects.json", {
+        "schema_version": 1,
+        "effects": {
+            "effect-1": {
+                "effect_id": "effect-1",
+                "direction": "cost",
+                "effect_kind": "restriction",
+                "player_visible_impact": "今晚不能再调阅档案原件",
+                "causal_link": "孤注一掷耗尽了闭馆前的调卷时间",
+                "boundary": {"kind": "until_condition", "description": "档案厅次日重新开放"},
+                "mechanics": {"subject_id": "ada", "restriction_id": "archive-closed", "scope": "original files", "scene_id": "archive"},
+                "visibility": "player_visible",
+                "status": "active",
+                "created_at": "2026-07-18T00:00:00+00:00",
+                "source_roll": {"roll_id": "KEEPER_SOURCE_ROLL"},
+            }
+        },
+        "operations": {},
+    })
     ending_id = "ending-1"
     _write_jsonl(campaign / "logs" / "events.jsonl", [{"event_type": "session_ending", "ending_id": ending_id, "scene_id": "archive", "kind": "conclusion", "summary": "Ada published the evidence.", "settlement_capsule_ref": f"save/development-settlements/endings/{ending_id}/capsule.json"}])
     _write_json(campaign / "save" / "development-settlements" / "endings" / ending_id / "ada.json", {"ending_id": ending_id, "investigator_id": "ada", "receipt": {"status": "PASS", "result": {"improvement_checks": [{"skill": "Library Use", "check_roll": 90, "gain": 3, "value_before": 70, "value_after": 73, "applied_delta": 3, "improved": True}], "luck_recovery": {"luck_before": 50, "luck_after": 55, "gained": 5}}}})
@@ -94,9 +113,13 @@ def test_writes_the_single_final_report_pair_deterministically(tmp_path):
     assert payload["schema_version"] == 5
     assert payload["keeper_internal"]["tool_call_count"] == 1
     assert payload["keeper_internal"]["advisory_adoption_count"] == 1
+    assert payload["exceptional_effects"][0]["effect_id"] == "effect-1"
+    assert "source_roll" not in payload["exceptional_effects"][0]
     assert payload["keeper_internal"]["turn_capsules"][0]["tool_calls"][0]["data"]["keeper_secret"] == "INTERNAL_ONLY"
     assert "INTERNAL_ONLY" not in markdown_before.decode()
     assert "Kept the pressure" not in markdown_before.decode()
+    assert "今晚不能再调阅档案原件" in markdown_before.decode()
+    assert "KEEPER_SOURCE_ROLL" not in markdown_before.decode()
     assert markdown_before.decode().startswith("# COC Actual-Play Battle Report\n")
 
 
@@ -493,6 +516,17 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
     run = tmp_path / "run"
     _fixture(run)
     campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
+    metadata = json.loads((run / "run.json").read_text(encoding="utf-8"))
+    metadata["play_language"] = "zh-Hans"
+    _write_json(run / "run.json", metadata)
+    character = json.loads(
+        (investigator / "character.json").read_text(encoding="utf-8")
+    )
+    character["player_facing_sheet_zh"]["skills"].append({
+        "key": "Persuade", "label": "说服", "value": 45, "half": 22, "fifth": 9,
+    })
+    _write_json(investigator / "character.json", character)
     _write_jsonl(campaign / "logs" / "rolls.jsonl", [
         {"roll_id": "social-1", "actor": "ada", "visibility": "public", "payload": {"roll_id": "social-1", "skill": "Persuade", "roll": 39, "effective_target": 45, "outcome": "regular"}},
         {"roll_id": "other-1", "actor": "ada", "visibility": "public", "payload": {"roll_id": "other-1", "skill": "Spot Hidden", "roll": 42, "effective_target": 60, "outcome": "success"}},
@@ -509,11 +543,14 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
     assert entry["outcome"] == "regular"
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "### Social Skill Rolls" in markdown
-    assert "`social-1` · Persuade · roll 39 vs 45 · regular" in markdown
+    assert "`social-1` · 说服 · roll 39 vs 45 · regular" in markdown
+    assert "- Check: 说服" in markdown
+    assert "- Check: Persuade" not in markdown
     assert "other-1 · Spot Hidden" not in markdown  # non-social rolls stay in the appendix only
     assert "KEEPER_ROLL_SECRET" not in markdown
     evidence = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
     assert [row["roll_id"] for row in evidence["social_rolls"]] == ["social-1"]
+    assert evidence["social_rolls"][0]["skill"] == "Persuade"
 
 
 def test_social_skill_rolls_zero_is_explicit(tmp_path):

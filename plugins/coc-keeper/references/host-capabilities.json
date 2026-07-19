@@ -1,0 +1,32 @@
+{
+  "default": {
+    "plugin_skills": true,
+    "plugin_mcp": false,
+    "native_imagegen": false,
+    "isolated_player_agent": false
+  },
+  "codex": {
+    "plugin_skills": true,
+    "plugin_mcp": true,
+    "native_imagegen": true,
+    "isolated_player_agent": true
+  },
+  "cursor": {
+    "plugin_skills": true,
+    "plugin_mcp": true,
+    "native_imagegen": false,
+    "isolated_player_agent": true
+  },
+  "kimi": {
+    "plugin_skills": true,
+    "plugin_mcp": true,
+    "native_imagegen": false,
+    "isolated_player_agent": true
+  },
+  "zcode": {
+    "plugin_skills": true,
+    "plugin_mcp": true,
+    "native_imagegen": false,
+    "isolated_player_agent": true
+  }
+}

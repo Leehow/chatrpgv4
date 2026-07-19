@@ -60,6 +60,8 @@ EXPECTED_NAMESPACES = {
     "evidence",
     "secrets",
     "state",
+    "progressive",
+    "turn",
 }
 
 
@@ -113,12 +115,94 @@ def campaign_ws(tmp_path: Path):
 
 
 def _run(ws, tool: str, args: dict | None = None) -> dict:
+    args = dict(args or {})
+    if tool == "rules.roll":
+        # Most tests in this module exercise receipt/transaction behavior, not
+        # contextual adjudication.  Supply an explicit neutral contract so the
+        # production API itself never falls back to an implicit Regular check.
+        args.setdefault("difficulty", "regular")
+        args.setdefault("goal", "settle the focused toolbox test action")
+        args.setdefault(
+            "stakes",
+            {
+                "on_success": "the focused test action succeeds",
+                "on_failure": "the focused test action does not succeed",
+            },
+        )
+        args.setdefault("difficulty_basis", "keeper_judgment")
     return coc_toolbox.run_tool(
         tool,
         ws["workspace"],
         ws["campaign_id"],
-        args or {},
+        args,
     )
+
+
+def _first_contact_binding(
+    ws: dict,
+    npc_id: str,
+    *,
+    key: str,
+    run_id: str | None = None,
+) -> dict:
+    """Settle the mandatory public first impression for one test NPC pair."""
+    reaction_args = {
+        "npc_id": npc_id,
+        "npc_display_name": f"测试 NPC {key}",
+        "investigator": ws["investigator_id"],
+        "context": {
+            "player_conduct": "调查员清楚说明来意并尊重对方的工作边界",
+            "scene_constraints": "当前场景的职责与安全边界仍然有效",
+            "authored_or_relationship_boundary": "初次见面不会改写 NPC 的身份、立场或权限",
+            "semantic_reason": "外表与信用只影响对方起初的接纳方式",
+        },
+        "seed": 7,
+        "decision_id": f"{key}-reaction",
+    }
+    if run_id is not None:
+        reaction_args["run_id"] = run_id
+    reaction = _run(ws, "npc.reaction", reaction_args)
+    assert reaction["ok"] is True, reaction
+    binding = {
+        "first_impression_ref": reaction["data"]["first_impression_ref"],
+        "first_impression_realization": {
+            "observable_manner": "对方先打量调查员，再稍微放松姿势",
+            "causal_explanation": "调查员的外表与社会身份影响了这次起初判断",
+            "boundary_preserved": "NPC 仍保留原有职责、立场和安全边界",
+            "opportunity_or_friction": "这份起初判断会影响接下来的语气与耐心",
+        },
+    }
+    if run_id is not None:
+        binding["run_id"] = run_id
+    return binding
+
+
+def _failed_roll_for_push(
+    ws: dict,
+    decision_id: str,
+    *,
+    skill: str = "Library Use",
+) -> dict:
+    result = _run(
+        ws,
+        "rules.roll",
+        {
+            "investigator": ws["investigator_id"],
+            "skill": skill,
+            "target": 1,
+            "goal": "complete the original approach",
+            "stakes": {
+                "on_success": "the original approach succeeds",
+                "on_failure": "the original approach fails and may be pushed",
+            },
+            "difficulty_basis": "keeper_judgment",
+            "decision_id": decision_id,
+            "seed": 2,
+        },
+    )
+    assert result["ok"] is True, result
+    assert result["data"]["success"] is False, result
+    return result
 
 
 def _add_eleanor_to_party(ws: dict) -> str:
@@ -281,6 +365,26 @@ def test_describe_known_tool_returns_parameter_schema():
     assert described["params"]["expression"]["type"] == "string"
 
 
+def test_describe_rules_roll_exposes_context_and_push_binding_contract():
+    roll = coc_toolbox._describe("rules.roll")
+    push = coc_toolbox._describe("rules.push")
+
+    for field in ("difficulty", "goal", "stakes", "difficulty_basis"):
+        assert roll["params"][field]["required"] is True
+    assert "default regular" not in roll["params"]["difficulty"]["desc"]
+    assert push["params"]["original_check_decision_id"]["required"] is True
+    for inherited in (
+        "investigator",
+        "skill",
+        "target",
+        "difficulty",
+        "goal",
+        "stakes",
+        "difficulty_basis",
+    ):
+        assert inherited not in push["params"]
+
+
 def test_rules_skill_describe_returns_interpersonal_catalog_and_selection_policy(tmp_path):
     described = coc_toolbox._describe("rules.skill_describe")
     assert described["name"] == "rules.skill_describe"
@@ -371,6 +475,79 @@ def test_successful_call_returns_unified_envelope(campaign_ws):
     assert "error" not in envelope
 
 
+def test_structured_full_sleep_updates_director_rest_continuity(campaign_ws):
+    advanced = _run(campaign_ws, "state.advance_time", {
+        "minutes": 600,
+        "reason": "structured time passage before a completed sleep",
+        "decision_id": "advance-before-full-sleep",
+    })
+    assert advanced["ok"] is True, advanced
+    before = _run(campaign_ws, "director.advise", {
+        "player_text": "我整理接下来要查的材料。",
+        "intent_evidence": {
+            "primary_intent": "prepare",
+            "reason": "玩家准备下一步调查。",
+        },
+        "decision_id": "advise-before-full-sleep",
+    })
+    assert before["data"]["context_summary"]["time_signals"][
+        "hours_since_last_rest"
+    ] == 10.0
+
+    rested = _run(campaign_ws, "state.mark_safe_rest", {
+        "investigator": campaign_ws["investigator_id"],
+        "rest_kind": "full_sleep",
+        "decision_id": "record-completed-full-sleep",
+    })
+    assert rested["ok"] is True, rested
+    assert rested["data"]["time_signals"]["hours_since_last_rest"] == 0.0
+    assert rested["data"]["at_elapsed"] == 600
+
+    after = _run(campaign_ws, "director.advise", {
+        "player_text": "我整理接下来要查的材料。",
+        "intent_evidence": {
+            "primary_intent": "prepare",
+            "reason": "玩家睡醒后准备下一步调查。",
+        },
+        "decision_id": "advise-after-full-sleep",
+    })
+    assert after["data"]["context_summary"]["time_signals"][
+        "hours_since_last_rest"
+    ] == 0.0
+    time_state = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "time-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert time_state["anchors"]["last_rest_elapsed"] == 600
+    safe_rest_rows = [
+        row for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "time.jsonl"
+        )
+        if row.get("event_type") == "safe_rest"
+    ]
+    assert safe_rest_rows == [{
+        "event_type": "safe_rest",
+        "investigator_id": campaign_ws["investigator_id"],
+        "at_elapsed": 600,
+        "rest_kind": "full_sleep",
+        "decision_id": "record-completed-full-sleep",
+    }]
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "调查员在安全地点完成整夜睡眠。",
+        "player_action": "完整休息过夜",
+        "intent_class": "rest",
+        "decision_id": "journal-completed-full-sleep",
+    })
+    assert journaled["ok"] is True, journaled
+    output = _run(campaign_ws, "turn.output_context")
+    assert output["ok"] is True, output
+    assert [
+        row["effect_kind"]
+        for row in output["data"]["mechanics_bundle"]["state_delta"]
+    ] == ["time", "rest"]
+
+
 def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
     envelope = _run(campaign_ws, "rules.roll_dice", {})
     assert envelope["ok"] is False
@@ -384,7 +561,7 @@ def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
     [
         (
             "rules.luck_spend",
-            {"points": 1, "roll": 51, "target": 50, "outcome": "failure"},
+            {"points": 1, "source_roll_id": "missing-decision-source"},
         ),
         ("rules.first_aid", {"skill_value": 50}),
         ("rules.medicine", {"skill_value": 50}),
@@ -466,6 +643,47 @@ def test_rules_roll_dice_same_seed_is_deterministic(campaign_ws):
     assert matching[0]["payload"]["roll_id"] == data["roll_id"]
 
 
+def test_rules_opposed_requires_explicit_noncombat_domain_and_keeps_generic_tie(
+    campaign_ws,
+):
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    before = _read_jsonl(rolls_path)
+    common = {
+        "investigator": campaign_ws["investigator_id"],
+        "target": 30,
+        "opponent_value": 90,
+        "opponent_label": "auction rival",
+        "reason": "compete for the higher bid",
+        "decision_id": "noncombat-opposed-tie",
+        "seed": 1,
+    }
+
+    omitted = _run(campaign_ws, "rules.opposed", common)
+    melee = _run(
+        campaign_ws,
+        "rules.opposed",
+        {**common, "contest_kind": "melee"},
+    )
+
+    assert omitted["ok"] is False
+    assert omitted["error"]["code"] == "missing_param"
+    assert melee["ok"] is False
+    assert melee["error"]["code"] == "invalid_param"
+    assert _read_jsonl(rolls_path) == before
+
+    settled = _run(
+        campaign_ws,
+        "rules.opposed",
+        {**common, "contest_kind": "noncombat"},
+    )
+
+    assert settled["ok"] is True, settled
+    assert settled["data"]["investigator_roll"]["outcome"] == "regular"
+    assert settled["data"]["opponent_roll"]["outcome"] == "regular"
+    assert settled["data"]["winner"] == "opponent"
+    assert "NON-COMBAT" in coc_toolbox.TOOLS["rules.opposed"]["summary"]
+
+
 def test_rules_roll_skill_check_returns_success_level_fields(campaign_ws):
     envelope = _run(
         campaign_ws,
@@ -493,7 +711,108 @@ def test_rules_roll_skill_check_returns_success_level_fields(campaign_ws):
         "fumble",
     }
     assert "effective_target" in data
+    assert data["base_target"] == data["target"]
+    assert data["required_target"] == data["effective_target"]
+    assert data["required_level"] == data["difficulty"]
+    assert data["passed"] is data["success"]
+    assert isinstance(data["surplus_levels"], int)
+    assert data["goal"] == "settle the focused toolbox test action"
+    assert data["difficulty_basis"] == "keeper_judgment"
     assert data["pushed"] is False
+
+
+@pytest.mark.parametrize(
+    ("omitted", "expected_parameter"),
+    [
+        ("difficulty", "difficulty"),
+        ("goal", "goal"),
+        ("stakes", "stakes"),
+        ("difficulty_basis", "difficulty_basis"),
+    ],
+)
+def test_rules_roll_rejects_omitted_contextual_contract(
+    campaign_ws, omitted, expected_parameter
+):
+    args = {
+        "skill": "Library Use",
+        "difficulty": "regular",
+        "goal": "find the indexed case file",
+        "stakes": {
+            "on_success": "the file is located",
+            "on_failure": "the search consumes time without finding it",
+        },
+        "difficulty_basis": "environment",
+        "decision_id": f"missing-check-contract-{omitted}",
+        "seed": 7,
+    }
+    del args[omitted]
+
+    result = coc_toolbox.run_tool(
+        "rules.roll",
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        args,
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["code"] == "missing_param"
+    assert expected_parameter in result["error"]["message"]
+
+
+def test_rules_roll_reports_required_achieved_and_surplus_levels(campaign_ws):
+    result = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "target": 45,
+            "difficulty": "hard",
+            "goal": "persuade the clerk to open the archive",
+            "stakes": {
+                "on_success": "the clerk opens the archive",
+                "on_failure": "the clerk refuses access",
+            },
+            "difficulty_basis": "opponent_skill",
+            "decision_id": "hard-check-extreme-achievement",
+            "seed": 43,
+        },
+    )
+
+    assert result["ok"] is True, result
+    data = result["data"]
+    assert data["roll"] == 5
+    assert data["base_target"] == 45
+    assert data["required_level"] == "hard"
+    assert data["required_target"] == 22
+    assert data["achieved_level"] == "extreme"
+    assert data["passed"] is True
+    assert data["surplus_levels"] == 1
+
+
+def test_rules_roll_reports_achieved_regular_but_failed_hard_gate(campaign_ws):
+    result = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "target": 45,
+            "difficulty": "hard",
+            "goal": "force the corroded lock",
+            "stakes": {
+                "on_success": "the lock opens",
+                "on_failure": "the lock remains closed",
+            },
+            "difficulty_basis": "environment",
+            "decision_id": "hard-check-regular-achievement",
+            "seed": 8,
+        },
+    )
+
+    assert result["ok"] is True, result
+    data = result["data"]
+    assert data["roll"] == 30
+    assert data["achieved_level"] == "regular"
+    assert data["passed"] is False
+    assert data["success"] is False
+    assert data["outcome"] == "failure"
 
 
 def test_rules_roll_logs_canonical_traceable_numeric_payload(campaign_ws):
@@ -610,7 +929,6 @@ def test_rules_roll_dice_logs_non_percentile_faces_and_total(campaign_ws):
         (
             "rules.push",
             {
-                "skill": "Library Use",
                 "method_changed": "cross-check the archive by docket number",
                 "failure_consequence": "the archive closes before copying finishes",
             },
@@ -636,6 +954,11 @@ def test_roll_source_receipt_recovers_every_crash_window_exactly_once(
     }
     if tool_name == "rules.roll_dice":
         args.pop("investigator")
+    elif tool_name == "rules.push":
+        args.pop("investigator")
+        original_decision_id = f"{decision_id}-original"
+        _failed_roll_for_push(campaign_ws, original_decision_id)
+        args["original_check_decision_id"] = original_decision_id
     real_ensure = coc_toolbox._ensure_roll_receipt_row
     real_ledger_record = coc_toolbox.Ctx.ledger_record
 
@@ -912,17 +1235,14 @@ def test_malformed_or_decision_only_ledger_is_never_overwritten(campaign_ws):
         (
             "rules.push",
             {
-                "skill": "Library Use",
                 "method_changed": "use the court docket",
                 "failure_consequence": "the archive closes",
-                "reason": "semantic push",
             },
             {"failure_consequence": "the clerk calls the police"},
         ),
         (
             "rules.push",
             {
-                "skill": "Library Use",
                 "method_changed": "use the court docket",
                 "failure_consequence": "the archive closes",
             },
@@ -935,8 +1255,12 @@ def test_roll_receipt_rejects_semantic_decision_reuse(
 ):
     decision_id = f"semantic-conflict-{tool_name}-{abs(hash(json.dumps(changed, sort_keys=True)))}"
     args = {**base, "decision_id": decision_id, "seed": 7}
-    if tool_name != "rules.roll_dice":
+    if tool_name == "rules.roll":
         args["investigator"] = campaign_ws["investigator_id"]
+    elif tool_name == "rules.push":
+        original_decision_id = f"{decision_id}-original"
+        _failed_roll_for_push(campaign_ws, original_decision_id)
+        args["original_check_decision_id"] = original_decision_id
     first = _run(campaign_ws, tool_name, args)
     assert first["ok"] is True
     rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
@@ -1185,20 +1509,27 @@ def test_roll_receipt_replays_after_luck_target_changes(campaign_ws):
     assert receipt["operation"]["explicit_target"] is None
     assert "resolved_target" not in receipt["operation"]
     assert receipt["resolution"]["resolved_target"] == first["data"]["target"]
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "mutable-luck-spend-source",
+        "seed": 88,
+    })
+    assert source["ok"] is True
+    assert source["data"]["roll"] == 51
+    assert source["data"]["passed"] is False
     spent = _run(
         campaign_ws,
         "rules.luck_spend",
         {
             "investigator": campaign_ws["investigator_id"],
             "points": 1,
-            "roll": 51,
-            "target": 50,
-            "outcome": "failure",
-            "roll_kind": "skill",
+            "source_roll_id": source["data"]["roll_id"],
             "decision_id": "mutable-luck-spend",
         },
     )
-    assert spent["ok"] is True
+    assert spent["ok"] is True, spent
 
     replay = _run(campaign_ws, "rules.roll", {**args, "seed": 999})
 
@@ -1297,7 +1628,7 @@ def test_roll_receipt_replays_after_character_file_is_removed(campaign_ws):
         ("rules.roll", {"target": 50}),
         ("rules.roll", {"skill": "Spot Hidden"}),
         ("rules.roll", {"characteristic": "DEX"}),
-        ("rules.push", {"reason": "changed pushed reason"}),
+        ("rules.push", {"fumble_consequence": "the shelves collapse"}),
         ("rules.push", {"method_changed": "a third search method"}),
         ("rules.push", {"failure_consequence": "the records burn"}),
     ],
@@ -1309,18 +1640,24 @@ def test_owned_decision_conflicts_without_reading_mutable_character_state(
         f"frozen-conflict-{mutable_environment}-{tool_name}-"
         f"{next(iter(changed))}"
     )
-    args = {
-        "investigator": campaign_ws["investigator_id"],
-        "skill": "Library Use",
-        "reason": "original frozen reason",
-        "decision_id": decision_id,
-        "seed": 7,
-    }
     if tool_name == "rules.push":
-        args.update({
+        original_decision_id = f"{decision_id}-original"
+        _failed_roll_for_push(campaign_ws, original_decision_id)
+        args = {
+            "original_check_decision_id": original_decision_id,
             "method_changed": "search a different archive",
             "failure_consequence": "the archive closes",
-        })
+            "decision_id": decision_id,
+            "seed": 7,
+        }
+    else:
+        args = {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Library Use",
+            "reason": "original frozen reason",
+            "decision_id": decision_id,
+            "seed": 7,
+        }
     first = _run(campaign_ws, tool_name, args)
     assert first["ok"] is True
     character_path = (
@@ -1702,7 +2039,7 @@ def test_current_dice_reason_tamper_fails_global_preflight_without_mutation(
 @pytest.mark.parametrize(
     ("tool_name", "operation_field", "tampered_value"),
     [
-        ("rules.roll", "difficulty", "extreme"),
+        ("rules.roll", "required_level", "extreme"),
         ("rules.roll", "bonus", 99),
         ("rules.roll", "bonus", True),
         ("rules.roll", "reason", {"bad": "type"}),
@@ -1719,21 +2056,28 @@ def test_current_percentile_invocation_tamper_fails_before_mutation(
         f"current-percentile-{tool_name}-{operation_field}-"
         f"{type(tampered_value).__name__}"
     )
-    args = {
-        "investigator": campaign_ws["investigator_id"],
-        "skill": "Library Use",
-        "difficulty": "hard",
-        "bonus": 1,
-        "reason": "original percentile reason",
-        "fumble_consequence": "original fumble consequence",
-        "decision_id": decision_id,
-        "seed": 4,
-    }
     if tool_name == "rules.push":
-        args.update({
+        original_decision_id = f"{decision_id}-original"
+        _failed_roll_for_push(campaign_ws, original_decision_id)
+        args = {
+            "original_check_decision_id": original_decision_id,
             "method_changed": "search a different archive",
             "failure_consequence": "the archive closes",
-        })
+            "fumble_consequence": "the archive shelves collapse",
+            "decision_id": decision_id,
+            "seed": 4,
+        }
+    else:
+        args = {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Library Use",
+            "difficulty": "hard",
+            "bonus": 1,
+            "reason": "original percentile reason",
+            "fumble_consequence": "original fumble consequence",
+            "decision_id": decision_id,
+            "seed": 4,
+        }
     assert _run(campaign_ws, tool_name, args)["ok"] is True
     receipt_path = (
         campaign_ws["campaign_dir"] / "save" / "roll-operation-receipts.json"
@@ -1786,6 +2130,7 @@ def test_roll_receipt_preflight_indexes_301_rows_without_ledger_rewrites(
         "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "receipts": {},
         "pending_side_effects": {},
+        "luck_spends": {},
     }
     raw = b""
     for ordinal in range(301):
@@ -1888,22 +2233,28 @@ def test_settled_skill_receipts_do_not_replay_development_side_effects(
         "schema_version": coc_toolbox._ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
         "receipts": {},
         "pending_side_effects": {},
+        "luck_spends": {},
     }
     raw = b""
     for ordinal in range(receipt_count):
         decision_id = f"settled-skill-{receipt_count}-{ordinal:03d}"
         data = {
+            **coc_toolbox.coc_roll.resolve_percentile_roll(
+                1, 60, "regular"
+            ),
             "roll": 1,
-            "target": 60,
-            "effective_target": 60,
-            "difficulty": "regular",
             "bonus": 0,
             "penalty": 0,
-            "outcome": "critical",
             "investigator_id": campaign_ws["investigator_id"],
             "skill": "Spot Hidden",
             "target_source": "sheet",
             "pushed": False,
+            "goal": "notice the focused test detail",
+            "stakes": {
+                "on_success": "the detail is noticed",
+                "on_failure": "the detail is not noticed",
+            },
+            "difficulty_basis": "keeper_judgment",
         }
         record = ctx.prepare_roll({
             "event_type": "roll",
@@ -1923,20 +2274,28 @@ def test_settled_skill_receipts_do_not_replay_development_side_effects(
                 "skill": "Spot Hidden",
                 "characteristic": None,
                 "explicit_target": None,
-                "difficulty": "regular",
+                "required_level": "regular",
                 "bonus": 0,
                 "penalty": 0,
+                "goal": "notice the focused test detail",
+                "stakes": {
+                    "on_success": "the detail is noticed",
+                    "on_failure": "the detail is not noticed",
+                },
+                "difficulty_basis": "keeper_judgment",
                 "reason": None,
                 "fumble_consequence": None,
                 "pushed": False,
                 "method_changed": None,
                 "failure_consequence": None,
+                "original_check_decision_id": None,
             },
             resolution={
                 "investigator_id": campaign_ws["investigator_id"],
                 "resolved_label": "Spot Hidden",
                 "resolved_target": 60,
                 "target_source": "sheet",
+                "original_check_ref": None,
             },
             roll_record=record,
             data=data,
@@ -2017,16 +2376,23 @@ def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws)
         / "investigator-state"
         / f"{campaign_ws['investigator_id']}.json"
     )
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "luck-source",
+        "seed": 88,
+    })
+    assert source["ok"] is True
+    assert source["data"]["roll"] == 51
+    assert source["data"]["passed"] is False
     before_luck = json.loads(state_path.read_text(encoding="utf-8"))["current_luck"]
     roll_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
     before_rolls = len(_read_jsonl(roll_path))
     args = {
         "investigator": campaign_ws["investigator_id"],
         "points": 1,
-        "roll": 51,
-        "target": 50,
-        "outcome": "failure",
-        "roll_kind": "skill",
+        "source_roll_id": source["data"]["roll_id"],
         "decision_id": "luck-once",
     }
     first = _run(campaign_ws, "rules.luck_spend", args)
@@ -2034,6 +2400,11 @@ def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws)
     assert first["ok"] and second["ok"]
     assert second["data"] == first["data"]
     assert any("duplicate decision_id" in warning for warning in second["warnings"])
+    assert first["data"]["source_roll_id"] == source["data"]["roll_id"]
+    assert first["data"]["source_receipt"]["decision_id"] == "luck-source"
+    assert first["data"]["original_roll"] == 51
+    assert first["data"]["roll"] == first["data"]["adjusted_roll"] == 50
+    assert first["data"]["passed"] is True
     after_luck = json.loads(state_path.read_text(encoding="utf-8"))["current_luck"]
     assert after_luck == before_luck - 1
     assert len(_read_jsonl(roll_path)) == before_rolls
@@ -2043,6 +2414,282 @@ def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws)
         if row.get("event_type") == "luck_spent"
     ]
     assert len(luck_events) == 1
+
+
+@pytest.mark.parametrize("receipt_state", ["crash_window", "completed"])
+@pytest.mark.parametrize("source_tamper", ["delete", "alter"])
+def test_rules_luck_spend_existing_receipt_revalidates_public_source_before_writes(
+    campaign_ws,
+    receipt_state,
+    source_tamper,
+):
+    investigator_id = campaign_ws["investigator_id"]
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": investigator_id,
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": f"luck-replay-source-{receipt_state}-{source_tamper}",
+        "seed": 88,
+    })
+    assert source["ok"] is True
+    assert source["data"]["roll"] == 51
+    assert source["data"]["passed"] is False
+    source_roll_id = source["data"]["roll_id"]
+    decision_id = f"luck-replay-{receipt_state}-{source_tamper}"
+    args = {
+        "investigator": investigator_id,
+        "source_roll_id": source_roll_id,
+        "points": 1,
+        "decision_id": decision_id,
+    }
+    ctx = coc_toolbox.Ctx(
+        campaign_ws["workspace"], campaign_ws["campaign_id"]
+    )
+
+    if receipt_state == "completed":
+        settled = _run(campaign_ws, "rules.luck_spend", args)
+        assert settled["ok"] is True, settled
+    else:
+        document = coc_toolbox._load_roll_receipt_document(ctx)
+        source_receipt = coc_toolbox._luck_source_receipt_by_roll_id(
+            ctx, document, source_roll_id
+        )
+        luck_before = ctx.inv_state(investigator_id)["current_luck"]
+        operation = {
+            "investigator_id": investigator_id,
+            "source_roll_id": source_roll_id,
+            "points": 1,
+        }
+        data = coc_toolbox._luck_spend_data(
+            source_receipt,
+            points=1,
+            luck_before=luck_before,
+        )
+        receipt = coc_toolbox._new_luck_spend_receipt(
+            decision_id=decision_id,
+            operation=operation,
+            source_receipt=source_receipt,
+            data=data,
+        )
+        document["luck_spends"][decision_id] = receipt
+        coc_toolbox._validated_roll_document_collection(document)
+        coc_toolbox._save_roll_receipt_document(ctx, document)
+
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rows = _read_jsonl(rolls_path)
+    source_rows = [row for row in rows if row.get("roll_id") == source_roll_id]
+    assert len(source_rows) == 1
+    if source_tamper == "delete":
+        rows = [row for row in rows if row.get("roll_id") != source_roll_id]
+    else:
+        source_row = next(row for row in rows if row.get("roll_id") == source_roll_id)
+        source_row["payload"]["roll"] = 52
+    rolls_path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+            for row in rows
+        ),
+        encoding="utf-8",
+    )
+
+    tracked_paths = (
+        ctx.inv_state_path(investigator_id),
+        campaign_ws["campaign_dir"] / "logs" / "events.jsonl",
+        ctx._ledger_path(),
+        coc_toolbox._roll_receipt_path(ctx),
+        rolls_path,
+    )
+    before = {
+        path: path.read_bytes() if path.is_file() else None
+        for path in tracked_paths
+    }
+
+    replay = _run(campaign_ws, "rules.luck_spend", args)
+
+    assert replay["ok"] is False, replay
+    assert replay["error"]["code"] == "state_corrupt"
+    assert {
+        path: path.read_bytes() if path.is_file() else None
+        for path in tracked_paths
+    } == before
+
+
+@pytest.mark.parametrize(
+    ("difficulty", "seed", "original_roll", "adjusted_roll", "achieved"),
+    [
+        ("regular", 12, 61, 60, "regular"),
+        ("hard", 3, 31, 30, "hard"),
+        ("extreme", 164, 13, 12, "extreme"),
+    ],
+)
+def test_rules_luck_spend_uses_bound_contextual_source_facts(
+    campaign_ws, difficulty, seed, original_roll, adjusted_roll, achieved,
+):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 60,
+        "difficulty": difficulty,
+        "decision_id": f"luck-{difficulty}-source",
+        "seed": seed,
+    })
+    assert source["ok"] is True
+    assert source["data"]["roll"] == original_roll
+    assert source["data"]["passed"] is False
+
+    spent = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": source["data"]["roll_id"],
+        "points": 1,
+        "decision_id": f"luck-{difficulty}-spend",
+    })
+
+    assert spent["ok"] is True, spent
+    assert spent["data"]["original_roll"] == original_roll
+    assert spent["data"]["roll"] == spent["data"]["adjusted_roll"] == adjusted_roll
+    assert spent["data"]["required_level"] == difficulty
+    assert spent["data"]["achieved_level"] == achieved
+    assert spent["data"]["passed"] is True
+    assert spent["data"]["surplus_levels"] == 0
+
+
+def test_rules_luck_spend_rejects_old_arguments_without_gameplay_writes(campaign_ws):
+    ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    tracked = [
+        ctx.inv_state_path(campaign_ws["investigator_id"]),
+        coc_toolbox._roll_receipt_path(ctx),
+        campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl",
+        campaign_ws["campaign_dir"] / "logs" / "events.jsonl",
+        ctx._ledger_path(),
+    ]
+    before = {path: path.read_bytes() if path.is_file() else None for path in tracked}
+
+    with pytest.raises(coc_toolbox.ToolError, match="requires only source_roll_id"):
+        coc_toolbox._tool_rules_luck_spend(ctx, {
+            "investigator": campaign_ws["investigator_id"],
+            "points": 1,
+            "roll": 51,
+            "target": 50,
+            "outcome": "failure",
+            "decision_id": "old-luck-shape",
+        })
+
+    assert {
+        path: path.read_bytes() if path.is_file() else None for path in tracked
+    } == before
+
+
+def test_rules_luck_spend_rejects_already_adjusted_source_without_second_spend(
+    campaign_ws,
+):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use", "target": 50,
+        "decision_id": "luck-single-owner-source", "seed": 88,
+    })
+    source_roll_id = source["data"]["roll_id"]
+    first = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": source_roll_id, "points": 1,
+        "decision_id": "luck-single-owner-first",
+    })
+    assert first["ok"] is True
+    state_path = (
+        campaign_ws["campaign_dir"] / "save" / "investigator-state"
+        / f"{campaign_ws['investigator_id']}.json"
+    )
+    luck_after_first = json.loads(state_path.read_text())["current_luck"]
+    roll_count = len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"))
+
+    second = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": source_roll_id, "points": 1,
+        "decision_id": "luck-single-owner-second",
+    })
+
+    assert second["ok"] is False
+    assert "already adjusted" in second["error"]["message"]
+    assert json.loads(state_path.read_text())["current_luck"] == luck_after_first
+    assert len(_read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")) == roll_count
+
+
+def test_rules_luck_spend_rejects_foreign_ineligible_and_stale_sources(campaign_ws):
+    foreign_id = _add_eleanor_to_party(campaign_ws)
+    foreign = _run(campaign_ws, "rules.roll", {
+        "investigator": foreign_id,
+        "skill": "Library Use", "target": 50,
+        "decision_id": "foreign-luck-source", "seed": 88,
+    })
+    rejected_foreign = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": foreign["data"]["roll_id"], "points": 1,
+        "decision_id": "foreign-luck-spend",
+    })
+    assert rejected_foreign["ok"] is False
+    assert "another investigator" in rejected_foreign["error"]["message"]
+
+    successful = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use", "target": 99,
+        "decision_id": "successful-luck-source", "seed": 1,
+    })
+    assert successful["data"]["passed"] is True
+    rejected_success = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": successful["data"]["roll_id"], "points": 1,
+        "decision_id": "successful-luck-spend",
+    })
+    assert rejected_success["ok"] is False
+    assert "failed_roll" in rejected_success["error"]["message"]
+
+    stale = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use", "target": 50,
+        "decision_id": "stale-luck-source", "seed": 88,
+    })
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rows = _read_jsonl(rolls_path)
+    rows = [row for row in rows if row.get("roll_id") != stale["data"]["roll_id"]]
+    rolls_path.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    rejected_stale = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": stale["data"]["roll_id"], "points": 1,
+        "decision_id": "stale-luck-spend",
+    })
+    assert rejected_stale["ok"] is False
+    assert rejected_stale["error"]["code"] == "state_corrupt"
+
+
+def test_rules_luck_spend_rejects_hidden_or_tampered_source_receipt(campaign_ws):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use", "target": 50,
+        "decision_id": "hidden-luck-source", "seed": 88,
+    })
+    assert source["ok"] is True
+    ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    receipt_path = coc_toolbox._roll_receipt_path(ctx)
+    document = json.loads(receipt_path.read_text())
+    receipt = document["receipts"]["rules.roll"]["hidden-luck-source"]
+    receipt["roll_record"]["visibility"] = "keeper_only"
+    receipt[coc_toolbox._SOURCE_RECEIPT_INTEGRITY_KEY] = (
+        coc_toolbox._source_receipt_integrity(receipt)
+    )
+    receipt_path.write_text(json.dumps(document), encoding="utf-8")
+    state_path = ctx.inv_state_path(campaign_ws["investigator_id"])
+    state_before = state_path.read_bytes()
+
+    rejected = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": source["data"]["roll_id"], "points": 1,
+        "decision_id": "hidden-luck-spend",
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "state_corrupt"
+    assert state_path.read_bytes() == state_before
 
 
 # --------------------------------------------------------------------------- #
@@ -2263,6 +2910,103 @@ def test_state_flag_and_npc_updates_are_idempotent(campaign_ws):
         if row.get("event_type") == "npc_update" and row.get("npc_id") == npc_id
     ]
     assert len(npc_events) == 1
+
+
+def test_npc_update_invalid_availability_has_no_partial_state_mutation(campaign_ws):
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    decision_id = "npc-atomic-invalid-then-valid"
+    before = coc_toolbox.coc_npc_state.get_npc_entry(
+        campaign_ws["campaign_dir"], npc_id
+    )
+
+    invalid = _run(campaign_ws, "state.npc_update", {
+        "npc_id": npc_id,
+        "trust_delta": -1,
+        "suspicion_delta": 2,
+        "availability": "permission_required",
+        "decision_id": decision_id,
+    })
+
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "invalid_request"
+    assert coc_toolbox.coc_npc_state.get_npc_entry(
+        campaign_ws["campaign_dir"], npc_id
+    ) == before
+
+    valid_args = {
+        "npc_id": npc_id,
+        "trust_delta": -1,
+        "suspicion_delta": 2,
+        "availability": "unavailable",
+        "decision_id": decision_id,
+    }
+    first = _run(campaign_ws, "state.npc_update", valid_args)
+    duplicate = _run(campaign_ws, "state.npc_update", valid_args)
+
+    assert first["ok"] is True
+    assert duplicate["ok"] is True
+    assert duplicate["data"] == first["data"]
+    assert first["data"]["psych"]["trust"] == before["trust"] - 1
+    assert first["data"]["psych"]["suspicion"] == before["suspicion"] + 2
+    assert first["data"]["psych"]["availability"] == {"status": "unavailable"}
+    assert coc_toolbox.coc_npc_state.get_npc_entry(
+        campaign_ws["campaign_dir"], npc_id
+    ) == first["data"]["psych"]
+
+
+def test_npc_update_persists_pair_impression_and_npc_query_projects_it(campaign_ws):
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    investigator_id = campaign_ws["investigator_id"]
+    args = {
+        "npc_id": npc_id,
+        "investigator": investigator_id,
+        "impression_update": {
+            "summary": "他认为托马斯谨慎且值得继续合作。",
+            "expectations": ["下次会先说明证据责任。"],
+            "reservations": ["仍担心他会独自承担危险。"],
+            "memory": {
+                "memory_id": "meaningful-action-1",
+                "event": "托马斯在证据不足时承认不知道。",
+                "interpretation": "他不会为了推进案件编造确定性。",
+                "reason": "observed_behavior",
+            },
+            "reason": "npc_changed_its_view",
+        },
+        "decision_id": "npc-impression-once",
+    }
+    first = _run(campaign_ws, "state.npc_update", args)
+    duplicate = _run(campaign_ws, "state.npc_update", args)
+    assert first["ok"] and duplicate["ok"]
+    assert duplicate["data"] == first["data"]
+    projected = _run(campaign_ws, "npc.query", {
+        "npc_id": npc_id,
+        "investigator": investigator_id,
+    })
+    assert projected["ok"]
+    row = projected["data"]["npcs"][0]
+    assert row["psych"]["impression"]["summary"].startswith("他认为托马斯")
+    assert len(row["psych"]["impression"]["memories"]) == 1
+
+
+def test_scene_context_projects_pair_impression_for_single_party_member(campaign_ws):
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    investigator_id = campaign_ws["investigator_id"]
+    updated = _run(campaign_ws, "state.npc_update", {
+        "npc_id": npc_id,
+        "investigator": investigator_id,
+        "impression_update": {
+            "expectations": ["下次先说明证据责任。"],
+            "reason": "observed_behavior",
+        },
+        "decision_id": "scene-context-impression",
+    })
+    assert updated["ok"]
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"]
+    row = next(item for item in context["data"]["npcs_present"] if item["npc_id"] == npc_id)
+    assert row["impression"]["expectations"] == ["下次先说明证据责任。"]
+    explicit = _run(campaign_ws, "scene.context", {"investigator": investigator_id})
+    assert explicit["data"]["npcs_present"]
 
 
 def test_scene_context_projects_live_flag_truth_over_stale_authored_description(
@@ -5376,7 +6120,7 @@ def test_actions_list_gives_noncombat_choices_equal_structured_semantics(campaig
     assert any("must not be replaced" in hint for hint in envelope["hints"])
 
 
-def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws):
+def test_record_npc_engagement_is_idempotent_with_first_impression_state(campaign_ws):
     moved = _run(
         campaign_ws,
         "state.move_scene",
@@ -5394,12 +6138,20 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
         "identity_ref": identity_ref,
         "run_id": "toolbox-live-segment",
         "decision_id": "kim-engagement-once",
+        **_first_contact_binding(
+            campaign_ws,
+            "npc-kim-debrun",
+            key="kim-engagement",
+            run_id="toolbox-live-segment",
+        ),
     }
     state_path = campaign_ws["campaign_dir"] / "save" / "npc-state.json"
     before = state_path.read_bytes() if state_path.is_file() else None
 
     first = _run(campaign_ws, "state.record_npc_engagement", args)
+    after_first = state_path.read_bytes()
     replay = _run(campaign_ws, "state.record_npc_engagement", args)
+    after_replay = state_path.read_bytes()
     cross_run = _run(
         campaign_ws,
         "state.record_npc_engagement",
@@ -5416,8 +6168,8 @@ def test_record_npc_engagement_is_idempotent_without_psych_mutation(campaign_ws)
     assert first["data"]["identity_binding"]["status"] == "authored_bound"
     assert first["data"]["identity_binding"]["authored_identity_attested"] is True
     assert first["data"]["identity_binding"]["coverage_eligible"] is True
-    after = state_path.read_bytes() if state_path.is_file() else None
-    assert after == before
+    assert after_first != before
+    assert after_replay == after_first
     matching = [
         row
         for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "events.jsonl")
@@ -5435,6 +6187,11 @@ def test_npc_engagement_receipt_recovers_before_a_different_next_decision(
         "npc_id": "npc-crash-window",
         "interaction_kind": "witness",
         "decision_id": f"npc-crash-{crash_stage}",
+        **_first_contact_binding(
+            campaign_ws,
+            "npc-crash-window",
+            key=f"npc-crash-{crash_stage}",
+        ),
     }
     real_log_event = coc_toolbox.Ctx.log_event
     real_ledger_record = coc_toolbox.Ctx.ledger_record
@@ -5753,6 +6510,15 @@ def test_director_preflight_repairs_interrupted_toolbox_source(
     campaign_ws, monkeypatch, source_kind
 ):
     decision_id = f"toolbox-before-director-{source_kind}"
+    npc_binding = (
+        _first_contact_binding(
+            campaign_ws,
+            "npc-before-director",
+            key="npc-before-director",
+        )
+        if source_kind == "npc"
+        else {}
+    )
     real_log_event = coc_toolbox.Ctx.log_event
 
     def crash_before_event(self, record):
@@ -5785,6 +6551,7 @@ def test_director_preflight_repairs_interrupted_toolbox_source(
                         "npc_id": "npc-before-director",
                         "interaction_kind": "witness",
                         "decision_id": decision_id,
+                        **npc_binding,
                     },
                 )
 
@@ -5830,6 +6597,11 @@ def test_npc_engagement_identity_binding_degrades_to_warnings_not_a_gate(
             "npc_id": "npc-dooley",
             "interaction_kind": "dialogue",
             "decision_id": "dooley-unverified",
+            **_first_contact_binding(
+                campaign_ws,
+                "npc-dooley",
+                key="dooley-first-contact",
+            ),
         },
     )
     mismatched = _run(
@@ -5850,6 +6622,11 @@ def test_npc_engagement_identity_binding_degrades_to_warnings_not_a_gate(
             "interaction_kind": "dialogue",
             "identity_ref": dooley_ref,
             "decision_id": "neighbor-improvised",
+            **_first_contact_binding(
+                campaign_ws,
+                "npc-neighbor-white-hair",
+                key="neighbor-first-contact",
+            ),
         },
     )
     bound = _run(
@@ -5901,6 +6678,11 @@ def test_npc_short_name_and_open_interaction_label_degrade_without_blocking(camp
             "npc_id": "knott",
             "interaction_kind": "request_access",
             "decision_id": "knott-access-soft-label",
+            **_first_contact_binding(
+                campaign_ws,
+                "knott",
+                key="knott-first-contact",
+            ),
         },
     )
     assert engagement["ok"] is True
@@ -5993,9 +6775,10 @@ def test_sanity_fumble_records_the_structured_authored_loss_consequence(campaign
 
 
 def test_rules_push_records_announced_failure_consequence(campaign_ws):
+    original_decision_id = "push-with-consequence-original"
+    original = _failed_roll_for_push(campaign_ws, original_decision_id)
     args = {
-        "investigator": campaign_ws["investigator_id"],
-        "skill": "Library Use",
+        "original_check_decision_id": original_decision_id,
         "method_changed": "cross-check the index against the court docket",
         "failure_consequence": "the archive closes before the trail is copied",
         "decision_id": "push-with-consequence",
@@ -6007,6 +6790,21 @@ def test_rules_push_records_announced_failure_consequence(campaign_ws):
         args,
     )
     assert result["ok"] is True
+    assert result["data"]["original_check"] == {
+        "tool": "rules.roll",
+        "decision_id": original_decision_id,
+        "roll_id": original["data"]["roll_id"],
+        "integrity_digest": result["data"]["original_check"][
+            "integrity_digest"
+        ],
+    }
+    assert result["data"]["goal"] == original["data"]["goal"]
+    assert result["data"]["required_level"] == original["data"][
+        "required_level"
+    ]
+    assert result["data"]["required_target"] == original["data"][
+        "required_target"
+    ]
     assert result["data"]["failure_consequence"]["summary"].startswith(
         "the archive closes"
     )
@@ -6021,6 +6819,214 @@ def test_rules_push_records_announced_failure_consequence(campaign_ws):
     assert roll["payload"]["roll_id"] == result["data"]["roll_id"]
     assert roll["payload"]["announced_consequence"] == result["data"][
         "failure_consequence"
+    ]
+
+
+def test_rules_push_requires_and_inherits_original_check_contract(campaign_ws):
+    missing = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "method_changed": "try the docket index",
+            "failure_consequence": "the archive closes",
+            "decision_id": "push-missing-original",
+        },
+    )
+    assert missing["ok"] is False
+    assert missing["error"]["code"] == "missing_param"
+
+    original_decision_id = "push-inherits-original"
+    original = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "target": 45,
+            "difficulty": "hard",
+            "goal": "convince the clerk to open the restricted archive",
+            "stakes": {
+                "on_success": "the clerk opens the archive",
+                "on_failure": "the clerk refuses access",
+            },
+            "difficulty_basis": "opponent_skill",
+            "decision_id": original_decision_id,
+            "seed": 8,
+        },
+    )
+    assert original["data"]["success"] is False
+
+    pushed = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "original_check_decision_id": original_decision_id,
+            "method_changed": "show the clerk the matching court docket",
+            "failure_consequence": "the clerk calls security",
+            "decision_id": "push-inherits-original-attempt",
+            "seed": 43,
+        },
+    )
+    assert pushed["ok"] is True, pushed
+    for field in (
+        "base_target",
+        "required_level",
+        "required_target",
+        "goal",
+        "stakes",
+        "difficulty_basis",
+    ):
+        assert pushed["data"][field] == original["data"][field]
+
+    override_original_id = "push-attempted-override-original"
+    _failed_roll_for_push(campaign_ws, override_original_id)
+    attempted_override = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "original_check_decision_id": override_original_id,
+            "difficulty": "regular",
+            "goal": "a substituted easier goal",
+            "method_changed": "ask again",
+            "failure_consequence": "the clerk calls security",
+            "decision_id": "push-attempted-contract-override",
+            "seed": 43,
+        },
+    )
+    assert attempted_override["ok"] is False
+    assert attempted_override["error"]["code"] == "invalid_param"
+    assert "inherits the original check contract" in attempted_override[
+        "error"
+    ]["message"]
+
+
+def test_rules_push_rejects_successful_or_already_pushed_original(campaign_ws):
+    successful = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "target": 99,
+            "difficulty": "regular",
+            "decision_id": "successful-original-cannot-push",
+            "seed": 43,
+        },
+    )
+    assert successful["data"]["success"] is True
+    rejected_success = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "original_check_decision_id": "successful-original-cannot-push",
+            "method_changed": "try again",
+            "failure_consequence": "time is lost",
+            "decision_id": "push-successful-original",
+        },
+    )
+    assert rejected_success["ok"] is False
+    assert rejected_success["error"]["code"] == "invalid_push"
+
+    original_decision_id = "single-push-original"
+    _failed_roll_for_push(campaign_ws, original_decision_id)
+    first = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "original_check_decision_id": original_decision_id,
+            "method_changed": "use the docket",
+            "failure_consequence": "the archive closes",
+            "decision_id": "single-push-first",
+            "seed": 7,
+        },
+    )
+    assert first["ok"] is True
+    second = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "original_check_decision_id": original_decision_id,
+            "method_changed": "bribe the clerk",
+            "failure_consequence": "the police are called",
+            "decision_id": "single-push-second",
+            "seed": 9,
+        },
+    )
+    assert second["ok"] is False
+    assert second["error"]["code"] == "invalid_push"
+
+
+def test_rules_push_rejects_fumble_before_reroll_or_persistent_writes(
+    campaign_ws,
+    monkeypatch,
+):
+    original_decision_id = "fumbled-original-cannot-push"
+    original = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "target": 1,
+            "difficulty": "regular",
+            "goal": "open the swollen archive door",
+            "stakes": {
+                "on_success": "the archive door opens",
+                "on_failure": "the attempt draws the night watchman's attention",
+            },
+            "difficulty_basis": "environment",
+            "decision_id": original_decision_id,
+            "seed": 23,
+        },
+    )
+    assert original["ok"] is True, original
+    assert original["data"]["roll"] == 100
+    assert original["data"]["achieved_level"] == "fumble"
+    assert original["data"]["outcome"] == "fumble"
+    assert not any("may push" in hint for hint in original["hints"])
+
+    campaign_dir = campaign_ws["campaign_dir"]
+    receipt_path = campaign_dir / "save" / "roll-operation-receipts.json"
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    ledger_path = campaign_dir / "save" / "toolbox-ledger.json"
+    before = {
+        path: path.read_bytes()
+        for path in (receipt_path, rolls_path, ledger_path)
+    }
+    reroll_calls = 0
+
+    def unexpected_reroll(*args, **kwargs):
+        nonlocal reroll_calls
+        reroll_calls += 1
+        raise AssertionError("a fumbled original must be rejected before reroll")
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_roll,
+        "percentile_check",
+        unexpected_reroll,
+    )
+    pushed = _run(
+        campaign_ws,
+        "rules.push",
+        {
+            "original_check_decision_id": original_decision_id,
+            "method_changed": "drive a pry bar into the doorframe",
+            "failure_consequence": "the night watchman arrives with the police",
+            "decision_id": "push-fumbled-original",
+            "seed": 43,
+        },
+    )
+
+    assert pushed["ok"] is False
+    assert pushed["error"]["code"] == "invalid_push"
+    assert "fumbles are final" in pushed["error"]["message"]
+    assert reroll_calls == 0
+    for path, expected in before.items():
+        assert path.read_bytes() == expected
+
+    receipt_doc = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert not (receipt_doc["receipts"].get("rules.push") or {})
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    push_key = coc_toolbox.Ctx._ledger_key(
+        "rules.push", "push-fumbled-original"
+    )
+    assert push_key not in ledger["entries"]
+    assert [row["roll_id"] for row in _read_jsonl(rolls_path)] == [
+        original["data"]["roll_id"]
     ]
 
 
@@ -6626,10 +7632,29 @@ def test_floating_knife_roll_keeps_authored_pow_semantics(campaign_ws):
             **common,
             "defense_kind": "dodge",
             "decision_id": "pow-knife-defend",
-            "seed": 9,
+            "seed": 33,
         },
     )
     assert resolved["ok"] is True, resolved
+    turn_event = next(
+        row
+        for row in resolved["data"]["events"]
+        if row.get("event_type") == "combat_turn_resolved"
+    )
+    turn = turn_event["turn"]
+    assert turn["defense_kind"] == "dodge"
+    assert turn["opposed_outcome"] == "tie_defender_wins"
+    assert turn["outcome"] == "miss"
+    assert turn["damage_roll_id"] is None
+    assert resolved["data"]["player_state_receipt"]["hp"] == {
+        "before": 12,
+        "after": 12,
+    }
+    percentile_rolls = turn_event["roll_evidence"]
+    assert [row["achieved_level"] for row in percentile_rolls] == [
+        "regular", "regular",
+    ]
+    assert [row["roll"] for row in percentile_rolls] == [74, 22]
     knife_rolls = [
         row
         for row in _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
@@ -7130,6 +8155,11 @@ def test_toolbox_npc_engagement_producer_emits_exact_current_event_schema(
             "npc_id": npc_id,
             "interaction_kind": "dialogue",
             "decision_id": "npc-schema-producer",
+            **_first_contact_binding(
+                campaign_ws,
+                npc_id,
+                key="npc-schema-producer",
+            ),
         },
     )
     assert result["ok"] is True
@@ -7184,34 +8214,46 @@ def test_rules_cash_assets_lookup_and_validation(tmp_path):
     assert bad_period["error"]["code"] == "invalid_param"
 
 
-def test_npc_reaction_deterministic_concealed_and_npc_bound(campaign_ws):
-    args = {"seed": 7}
+def test_npc_reaction_is_public_deterministic_and_npc_bound(campaign_ws):
+    args = {
+        "npc_id": "npc-test-clerk",
+        "npc_display_name": "测试档案员",
+        "investigator": campaign_ws["investigator_id"],
+        "context": {
+            "player_conduct": "调查员清楚说明来意并保持礼貌",
+            "scene_constraints": "档案室仍有正常借阅和保密边界",
+            "authored_or_relationship_boundary": "双方第一次见面且没有既有私交",
+            "semantic_reason": "外表与信用只调节起初态度",
+        },
+        "seed": 7,
+        "decision_id": "npc-reaction-deterministic",
+    }
     first = _run(campaign_ws, "npc.reaction", args)
     second = _run(campaign_ws, "npc.reaction", args)
     assert first["ok"] is True
-    assert first["data"] == second["data"]  # seeded determinism
+    assert first["data"] == second["data"]
     data = first["data"]
-    assert data["concealed"] is True
-    assert data["rule_ref"] == "keeper-rulebook p.191"
-    assert data["used"] in ("app", "credit_rating")
-    assert data["target"] == max(data["app"], data["credit_rating"])
-    roll, target = data["roll"], data["target"]
-    expected = (
-        "helpful"
-        if roll <= target // 2
-        else "neutral"
-        if roll <= target
-        else "hostile"
-    )
-    assert data["disposition"] == expected
-    assert data["suggested_emotional_tone"]
-    # Concealed keeper roll: no public roll evidence was written.
+    assert data["schema_version"] == 2
+    assert data["rule_ref"].startswith("keeper-rulebook p.191")
+    assert data["governing_attribute"] in ("app", "credit_rating")
+    assert data["governing_value"] == max(data["app"], data["credit_rating"])
+    assert data["roll_record"]["visibility"] == "public"
+    assert data["reaction_tier"]
+    # The public first-impression die is written exactly once.
     rolls_log = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
-    if rolls_log.is_file():
-        assert "npc.reaction" not in rolls_log.read_text(encoding="utf-8")
+    matching = [
+        row for row in _read_jsonl(rolls_log)
+        if row.get("payload", {}).get("roll_id") == data["roll_id"]
+    ]
+    assert len(matching) == 1
 
     npc_id = _first_npc_id(campaign_ws["campaign_dir"])
-    bound = _run(campaign_ws, "npc.reaction", {"seed": 7, "npc_id": npc_id})
+    bound = _run(campaign_ws, "npc.reaction", {
+        **args,
+        "npc_id": npc_id,
+        "npc_display_name": "另一位测试 NPC",
+        "decision_id": "npc-reaction-authored-bound",
+    })
     assert bound["ok"] is True
     assert bound["data"]["npc_id"] == npc_id
 
@@ -7316,15 +8358,23 @@ def test_first_impression_hint_on_npc_query_and_engagement(campaign_ws):
         "npc_id": npc_id,
         "interaction_kind": "dialogue",
         "decision_id": "first-impression-hint-1",
+        **_first_contact_binding(
+            campaign_ws,
+            npc_id,
+            key="first-impression-hint",
+        ),
     })
     assert recorded["ok"] is True
     assert any(
-        "first impression" in hint and "npc.reaction" in hint
+        "first contact settled exactly once" in hint
         for hint in recorded["hints"]
     )
 
-    # Accumulated psych state suppresses the hint: a p.191 first impression no
-    # longer applies once the relationship has a track record.
+    # The pair receipt itself suppresses the first-contact advisory; later
+    # relationship state can then evolve without another first-impression roll.
+    queried_after_contact = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
+    assert queried_after_contact["ok"] is True
+    assert not any("first impression" in hint for hint in queried_after_contact["hints"])
     updated = _run(campaign_ws, "state.npc_update", {
         "npc_id": npc_id,
         "trust_delta": 2,

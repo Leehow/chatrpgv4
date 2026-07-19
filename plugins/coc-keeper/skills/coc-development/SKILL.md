@@ -39,8 +39,11 @@ available to replay a structured pending settlement.
    `lost_weapon_ids` are removed, gear labels append to `equipment[]`, and
    each net change appends an idempotent `inventory_settled` event to the
    investigator's `inventory-history.jsonl`.
-3. Present the completed settlement: skills checked, permanent increases, SAN
-   gained, Luck before/after, and state/evidence references.
+3. Present the completed settlement from the receipt's
+   `player_facing_mechanics` block (hard constraint): every public improvement
+   check, gain die, Luck recovery, and SAN reward appears there exactly once.
+   Do not surface only the SAN reward. Also report skills checked, permanent
+   increases, SAN gained, Luck before/after, and state/evidence references.
 4. Retry only through the same idempotent settlement identity. Never settle a
    completed ending twice. A scenario conclusion reward has a separate durable
    per-investigator identity, so a later ending may run legitimate development

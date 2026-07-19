@@ -39,6 +39,9 @@ coc_narration_style = _load_sibling("coc_narration_style", "coc_narration_style.
 coc_narration_contract = _load_sibling("coc_narration_contract", "coc_narration_contract.py")
 coc_npc_persona = _load_sibling("coc_npc_persona", "coc_npc_persona.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
+coc_first_impression = _load_sibling(
+    "coc_first_impression", "coc_first_impression.py"
+)
 coc_exit_conditions = _load_sibling("coc_exit_conditions", "coc_exit_conditions.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_threat_state = _load_sibling("coc_threat_state", "coc_threat_state.py")
@@ -821,6 +824,24 @@ def build_director_context(
     # E2: structured play language from campaign.json (default zh-Hans).
     campaign_doc = _read_json(campaign_dir / "campaign.json", {})
     play_language = campaign_doc.get("play_language") or "zh-Hans"
+    campaign_id = str(campaign_doc.get("campaign_id") or campaign_dir.name)
+    try:
+        first_impression_document = coc_first_impression.load_document(
+            campaign_dir, campaign_id
+        )
+    except ValueError as exc:
+        # Director advice must remain available if this optional advisory
+        # projection is unreadable.  Degrade to no canonical impression and
+        # surface the structured-source problem; never replace it with a fresh
+        # random reaction path.
+        first_impression_document = coc_first_impression.empty_document(
+            campaign_id
+        )
+        validation_warnings.append({
+            "field": "first_impressions",
+            "reason_code": "source_unavailable",
+            "detail": str(exc),
+        })
 
     authored_threats = _read_json(scenario / "threat-fronts.json", {"fronts": []})
     affinity_findings = coc_scenario_compile._check_threat_affinity_contract({
@@ -874,6 +895,9 @@ def build_director_context(
         "compile_confidence": _read_json(scenario / "compile-confidence.json", {"schema_version": 1, "nodes": []}),
         "belief_state": coc_belief_state.read_belief_state(campaign_dir),
         "npc_state": _read_json(save / "npc-state.json", {"schema_version": 1, "npcs": {}}),
+        "first_impressions": list(
+            (first_impression_document.get("receipts") or {}).values()
+        ),
         "director_strategy_state": _read_json(
             save / "director-strategy-state.json", {"schema_version": 1}
         ),
@@ -2882,6 +2906,12 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
     ctx["npc_state_writes"] = agency_bundle.get("npc_state_writes", [])
     agency_by_npc = agency_bundle.get("by_npc", {})
     psych = (ctx.get("npc_state") or {}).get("psych") or {}
+    first_impressions = {
+        str(receipt.get("npc_id")): receipt
+        for receipt in (ctx.get("first_impressions") or [])
+        if isinstance(receipt, dict)
+        and receipt.get("investigator_id") == ctx.get("investigator_id")
+    }
     moves = []
     for npc_id in scene.get("npc_ids", []):
         agenda = next((n for n in agendas if n["npc_id"] == npc_id), None)
@@ -2892,22 +2922,27 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
         # roll — structured numeric thresholds only, never agenda prose. Forced
         # adversaries (structured relationship field) stay on the legacy path.
         psych_entry = psych.get(npc_id) if isinstance(psych, dict) else None
+        pair_impression = None
+        investigator_id = str(ctx.get("investigator_id") or "").strip()
+        if investigator_id and isinstance(psych_entry, dict):
+            normalized_psych = coc_npc_state.normalize_entry(psych_entry)
+            pair_impression = (
+                normalized_psych.get("impressions", {}).get(investigator_id)
+            )
         disposition = None
         if (
             not _npc_is_forced_adversary(agenda)
             and coc_npc_state.has_signal(psych_entry)
         ):
             disposition = coc_npc_state.npc_disposition(psych_entry)
-        reaction = coc_rule_signals.roll_npc_reaction(
-            app=ctx["rule_signals"].get("app", 50),
-            credit_rating=ctx["rule_signals"].get("credit_rating", 50),
-            rng=ctx["rng"],
-        ) if disposition is None and _should_roll_npc_reaction(action, agenda) else None
-        if reaction is not None and ctx["rule_signals"].get("npc_reaction_roll") is None:
-            # Hold the FIRST rolled NPC reaction on the shared rule_signal so the
-            # emitted plan reflects at least one reaction (generate_director_plan
-            # copies rule_signals verbatim). Per-NPC rolls still live in npc_moves.
-            ctx["rule_signals"]["npc_reaction_roll"] = reaction
+        # The Director never owns a second random reaction path.  Once
+        # npc.reaction has frozen a canonical pair receipt, the Director may
+        # consume its disposition; before then it stays neutral/advisory.
+        reaction = (
+            first_impressions.get(str(npc_id))
+            if disposition is None and _should_roll_npc_reaction(action, agenda)
+            else None
+        )
         # B1: never interpolate secret prose into the plan (Chinese secrets have
         # no spaces, so split()[:3] used to leak the full text to narration).
         has_secret = bool(
@@ -2920,7 +2955,7 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             disposition_source = "npc_state:psych"
         elif reaction is not None:
             emotional_tone = _disposition_to_tone(reaction["disposition"])
-            disposition_source = "rule_signal:npc_reaction_roll"
+            disposition_source = "canonical:first_impression_receipt"
         else:
             emotional_tone = _npc_default_tone(agenda)
             disposition_source = None
@@ -2951,6 +2986,13 @@ def _build_npc_moves(ctx: dict[str, Any], action: str) -> list[dict[str, Any]]:
             "persona": persona_card.get("persona"),
             "agency_moves": (agency_by_npc.get(npc_id) or {}).get("agency_moves", []),
         }
+        if isinstance(pair_impression, dict) and any(
+            pair_impression.get(field)
+            for field in ("summary", "expectations", "reservations", "memories")
+        ):
+            # This is bounded, caller-authored semantic context for the KP and
+            # narrator.  It never decides or gates the NPC's action itself.
+            move["impression"] = pair_impression
         # Player-safe demeanor hint for narrator dialogue seeds (not secret prose).
         voice = agenda.get("voice")
         if isinstance(voice, str) and voice.strip():
@@ -3539,9 +3581,11 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
             request["module_bout_override"] = trig["module_bout_override"]
         requests.append(request)
 
-    # Danger attack profiles: in combat scenes (or when the player fights/flees),
-    # resolve danger attacks as opposed checks so the engine drives combat
-    # mechanically (Dodge vs tentacle slash, Athletics vs wind blast).
+    # Danger profiles with a structured combat reaction belong to
+    # CombatSession.  Generic opposed checks use a different same-level tie
+    # rule and must never stand in for Dodge / Fight Back.  Noncombat contests
+    # (for example Athletics resisting a wind blast) retain the legacy request.
+    ctx["combat_reaction_advisories"] = []
     intent = ctx.get("player_intent_class", "")
     is_combat = (scene.get("scene_type") == "combat") or intent in ("combat", "flee")
     if is_combat:
@@ -3570,8 +3614,40 @@ def _build_rules_requests(ctx: dict[str, Any], action: str,
                 profile = profiles[0]
             if not profile:
                 continue
+            reaction_kind = str(profile.get("reaction_kind") or "unspecified")
+            if reaction_kind not in {
+                "dodge", "fight_back", "dodge_or_fight_back", "noncombat",
+            }:
+                ctx["combat_reaction_advisories"].append({
+                    "danger_id": did,
+                    "attack_name": profile.get("name", "attack"),
+                    "reaction_kind": "unspecified",
+                    "requires_authored_reaction_kind": True,
+                    "canonical_tool": None,
+                    "forbidden_tool": "rules.opposed",
+                })
+                continue
+            if reaction_kind in {"dodge", "fight_back", "dodge_or_fight_back"}:
+                ctx["combat_reaction_advisories"].append({
+                    "danger_id": did,
+                    "attack_name": profile.get("name", "attack"),
+                    "attack_skill": profile.get("attack_skill", "Fighting"),
+                    "attack_target_percent": int(
+                        profile.get("attack_target_percent", 50)
+                    ),
+                    "reaction_kind": reaction_kind,
+                    "same_level_winner": (
+                        "defender" if reaction_kind == "dodge"
+                        else "attacker" if reaction_kind == "fight_back"
+                        else "selected_reaction_rule"
+                    ),
+                    "canonical_tool": "combat.resolve",
+                    "forbidden_tool": "rules.opposed",
+                })
+                continue
             requests.append({
                 "kind": "opposed_check",
+                "contest_kind": "noncombat",
                 "skill": profile.get("resist_skill", "Dodge"),
                 "reason": f"{danger.get('id', did)} uses {profile.get('name', 'attack')}",
                 "difficulty": "regular", "bonus_penalty_dice": 0,
@@ -3963,6 +4039,10 @@ def generate_director_plan(ctx: dict[str, Any], decision_id: str) -> dict[str, A
     keeper_public_plan = coc_keeper_planner.public_projection(keeper_proposal)
     if keeper_public_plan is not None:
         narrative_directives["keeper_plan"] = keeper_public_plan
+    if ctx.get("combat_reaction_advisories"):
+        narrative_directives["combat_reaction_advisories"] = deepcopy(
+            ctx["combat_reaction_advisories"]
+        )
     # Layer-3 Fair Warning (p.209): downgrade lethal structured evidence while
     # lethal_chances_used < 3; attach fair_warning directive for apply/narration.
     pressure_moves = _apply_fair_warning_ladder(

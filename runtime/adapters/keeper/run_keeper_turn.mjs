@@ -6,7 +6,8 @@
  * shell spawns a pi-coding-agent session with the canonical COC keeper
  * skills loaded and read/bash/grep/ls tools enabled, so the keeper LLM reads
  * the same SKILL.md tree and calls the same coc_toolbox.py CLI as every
- * other host. No TypeBox tool contract, no narration envelope, no audit.
+ * other host. The only last-mile gate is the canonical settled-turn
+ * finalization receipt; there is no alternate narration envelope.
  *
  * stdin (one JSON object):
  *   {
@@ -18,14 +19,17 @@
  *     play_language,        // e.g. "zh-Hans"
  *     run_policy?,          // single_session | continue_until_scenario_terminal
  *     transcript_tail?,     // [{role, text}] recent public transcript
+ *     finalization_offset,  // pre-turn turn-finalizations.jsonl byte offset
  *     skills_dir,           // plugins/coc-keeper/skills (absolute)
  *     toolbox_path          // plugins/coc-keeper/scripts/coc_toolbox.py (absolute)
  *   }
- * stdout: { ok: true, narration, model_identity?, usage? }
- *      or { ok: false, error }
+ * stdout: { ok: true, narration, finalization, model_identity?, usage? }
+ *      or { ok: false, error, error_code? }
  */
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import {
   AuthStorage,
@@ -42,6 +46,259 @@ const require = createRequire(
   path.join(__dirname, "node_modules/@earendil-works/pi-coding-agent/package.json"),
 );
 const { loadSkillsFromDir } = require("./dist/core/skills.js");
+
+const FINALIZATION_FIELDS = new Set([
+  "schema_version", "finalization_id", "decision_id", "journal_decision_id",
+  "journal_call_index", "source_start_index", "source_end_index",
+  "source_digest", "source_roll_ids", "obligation_ids", "coverage_ids",
+  "draft_sha256", "coverage_sha256", "bundle_sha256", "rendered_sha256",
+  "bundle", "coverage", "segments", "rendered_text", "integrity_digest",
+]);
+const FINALIZATION_SEGMENT_ORDER = new Map([
+  ["fiction", 0],
+  ["public_check", 1],
+  ["state_delta", 2],
+  ["exceptional_effect", 3],
+  ["context_effect", 4],
+]);
+
+export class KeeperFinalizationError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.name = "KeeperFinalizationError";
+    this.code = "keeper_finalization_blocked";
+    this.reason = reason;
+    this.turnCommitted = true;
+  }
+}
+
+function finalizationFailure(reason, message) {
+  throw new KeeperFinalizationError(reason, message);
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) finalizationFailure("malformed", "finalization contains a non-finite number");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`,
+    ).join(",")}}`;
+  }
+  finalizationFailure("malformed", "finalization contains an unsupported JSON value");
+}
+
+function canonicalDigest(value) {
+  return `sha256:${crypto.createHash("sha256").update(canonicalJson(value), "utf8").digest("hex")}`;
+}
+
+function hasExactKeys(value, expected) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
+}
+
+function isDigest(value) {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
+}
+
+function validateSegments(segments, renderedText, draftSha256) {
+  if (!Array.isArray(segments) || segments.length < 1) {
+    finalizationFailure("malformed", "finalization segments are missing");
+  }
+  let previousOrder = -1;
+  const seen = new Set();
+  for (const segment of segments) {
+    if (!hasExactKeys(segment, new Set(["segment_type", "text", "source_ids"]))) {
+      finalizationFailure("malformed", "finalization segment has an invalid shape");
+    }
+    const segmentType = segment.segment_type;
+    const order = FINALIZATION_SEGMENT_ORDER.get(segmentType);
+    if (order === undefined || seen.has(segmentType) || order <= previousOrder) {
+      finalizationFailure("malformed", "finalization segment order is invalid");
+    }
+    if (typeof segment.text !== "string" || !segment.text.trim()) {
+      finalizationFailure("malformed", "finalization segment text is empty");
+    }
+    if (!Array.isArray(segment.source_ids) || !segment.source_ids.every(
+      (value) => typeof value === "string" && value.length > 0,
+    )) {
+      finalizationFailure("malformed", "finalization segment source ids are invalid");
+    }
+    if (segmentType === "fiction" && segment.source_ids.length !== 0) {
+      finalizationFailure("malformed", "fiction segment must not expose source ids");
+    }
+    seen.add(segmentType);
+    previousOrder = order;
+  }
+  if (segments[0].segment_type !== "fiction") {
+    finalizationFailure("malformed", "finalization must begin with fiction");
+  }
+  const composed = segments.map((segment) => segment.text).join("\n\n");
+  if (composed !== renderedText) {
+    finalizationFailure("rendered_mismatch", "finalization segments do not compose rendered_text");
+  }
+  if (canonicalDigest(segments[0].text) !== draftSha256) {
+    finalizationFailure("digest_mismatch", "finalization fiction hash mismatch");
+  }
+}
+
+export function validateFinalizationReceipt(receipt) {
+  if (!hasExactKeys(receipt, FINALIZATION_FIELDS) || receipt.schema_version !== 1) {
+    finalizationFailure("malformed", "turn finalization receipt has an invalid shape");
+  }
+  for (const key of [
+    "finalization_id", "decision_id", "journal_decision_id", "rendered_text",
+  ]) {
+    if (typeof receipt[key] !== "string" || !receipt[key]) {
+      finalizationFailure("malformed", `turn finalization ${key} is invalid`);
+    }
+  }
+  for (const key of [
+    "source_digest", "draft_sha256", "coverage_sha256", "bundle_sha256",
+    "rendered_sha256", "integrity_digest",
+  ]) {
+    if (!isDigest(receipt[key])) {
+      finalizationFailure("malformed", `turn finalization ${key} is invalid`);
+    }
+  }
+  for (const key of ["journal_call_index", "source_start_index", "source_end_index"]) {
+    if (!Number.isInteger(receipt[key]) || receipt[key] < 0) {
+      finalizationFailure("malformed", `turn finalization ${key} is invalid`);
+    }
+  }
+  if (
+    receipt.source_start_index > receipt.source_end_index ||
+    receipt.source_end_index !== receipt.journal_call_index
+  ) {
+    finalizationFailure("malformed", "turn finalization source window is invalid");
+  }
+  for (const key of ["source_roll_ids", "obligation_ids", "coverage_ids"]) {
+    if (!Array.isArray(receipt[key]) || !receipt[key].every(
+      (value) => typeof value === "string" && value.length > 0,
+    ) || new Set(receipt[key]).size !== receipt[key].length) {
+      finalizationFailure("malformed", `turn finalization ${key} is invalid`);
+    }
+  }
+  if (
+    receipt.obligation_ids.length !== receipt.coverage_ids.length ||
+    receipt.obligation_ids.some((value, index) => value !== receipt.coverage_ids[index])
+  ) {
+    finalizationFailure("malformed", "turn finalization coverage identity is incomplete");
+  }
+  if (!receipt.bundle || typeof receipt.bundle !== "object" || Array.isArray(receipt.bundle)) {
+    finalizationFailure("malformed", "turn finalization bundle is invalid");
+  }
+  if (!Array.isArray(receipt.coverage)) {
+    finalizationFailure("malformed", "turn finalization coverage is invalid");
+  }
+  validateSegments(receipt.segments, receipt.rendered_text, receipt.draft_sha256);
+  if (canonicalDigest(receipt.coverage) !== receipt.coverage_sha256) {
+    finalizationFailure("digest_mismatch", "turn finalization coverage hash mismatch");
+  }
+  if (canonicalDigest(receipt.bundle) !== receipt.bundle_sha256) {
+    finalizationFailure("digest_mismatch", "turn finalization bundle hash mismatch");
+  }
+  if (canonicalDigest(receipt.rendered_text) !== receipt.rendered_sha256) {
+    finalizationFailure("digest_mismatch", "turn finalization rendered hash mismatch");
+  }
+  const body = Object.fromEntries(
+    Object.entries(receipt).filter(([key]) => key !== "integrity_digest"),
+  );
+  if (canonicalDigest(body) !== receipt.integrity_digest) {
+    finalizationFailure("digest_mismatch", "turn finalization integrity digest mismatch");
+  }
+  return receipt;
+}
+
+function finalizationLogPath(request) {
+  const campaignId = String(request.campaign_id || "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(campaignId)) {
+    finalizationFailure("malformed_request", "campaign_id is invalid");
+  }
+  return path.join(
+    path.resolve(String(request.workspace)), ".coc", "campaigns", campaignId,
+    "logs", "turn-finalizations.jsonl",
+  );
+}
+
+function readOneNewFinalization(request) {
+  const offset = request.finalization_offset;
+  if (!Number.isSafeInteger(offset) || offset < 0) {
+    finalizationFailure("malformed_request", "finalization_offset is invalid");
+  }
+  const logPath = finalizationLogPath(request);
+  let bytes;
+  try {
+    bytes = fs.readFileSync(logPath);
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      finalizationFailure("missing", "keeper turn produced no finalization receipt");
+    }
+    finalizationFailure("unreadable", "keeper turn finalization log is unreadable");
+  }
+  if (offset > bytes.length || (offset > 0 && bytes[offset - 1] !== 0x0a)) {
+    finalizationFailure("offset_mismatch", "keeper turn finalization offset is invalid");
+  }
+  let appended;
+  try {
+    appended = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(offset));
+  } catch {
+    finalizationFailure("malformed", "new turn finalization bytes are not UTF-8");
+  }
+  const lines = appended.split("\n").filter((line) => line.trim().length > 0);
+  if (lines.length !== 1) {
+    finalizationFailure(
+      lines.length === 0 ? "missing" : "ambiguous",
+      lines.length === 0
+        ? "keeper turn produced no finalization receipt"
+        : "keeper turn produced multiple finalization receipts",
+    );
+  }
+  let receipt;
+  try {
+    receipt = JSON.parse(lines[0]);
+  } catch {
+    finalizationFailure("malformed", "new turn finalization receipt is malformed JSON");
+  }
+  return validateFinalizationReceipt(receipt);
+}
+
+function finalizationProjection(receipt) {
+  return {
+    finalization_id: receipt.finalization_id,
+    journal_decision_id: receipt.journal_decision_id,
+    rendered_sha256: receipt.rendered_sha256,
+    integrity_digest: receipt.integrity_digest,
+    segments: receipt.segments.map((segment) => ({
+      segment_type: segment.segment_type,
+      text: segment.text,
+      source_ids: [...segment.source_ids],
+    })),
+  };
+}
+
+export function finalizedKeeperOutput(request, assistantText) {
+  const receipt = readOneNewFinalization(request);
+  if (typeof assistantText !== "string" || assistantText !== receipt.rendered_text) {
+    finalizationFailure(
+      "model_output_mismatch",
+      "keeper final message does not exactly echo finalized rendered_text",
+    );
+  }
+  return {
+    ok: true,
+    narration: receipt.rendered_text,
+    finalization: finalizationProjection(receipt),
+  };
+}
 
 function readStdinJson() {
   return new Promise((resolve, reject) => {
@@ -72,7 +329,7 @@ export function resolveRequestedModel({ agentDir, provider, modelId }) {
     path.join(agentDir, "models.json"),
   );
   let model = modelRegistry.find(provider, modelId);
-  if (!model && provider === "coding-relay") {
+  if (!model && (provider === "coding-relay" || provider === "cursor-relay")) {
     const template = modelRegistry
       .getAll()
       .find(
@@ -120,15 +377,40 @@ function keeperSystemPrompt(request) {
     `Run \`${pythonCommand} ${request.toolbox_path} list\` to see all tools;`,
     "`describe <tool>` shows parameters.",
     "",
-    "Three hard rules (everything else is your judgment):",
+    "Hard rules (everything else is your judgment):",
     "1. Dice are real: never invent roll numbers or HP/SAN arithmetic; use rules.* tools and quote results faithfully.",
     "2. State writes go through state.* / rules.* tools, never hand edits.",
     "3. Module truth is read-only: fields marked secret are your reference; reveal through play, never as exposition.",
+    "4. No played turn reaches the player without one canonical turn.finalize receipt.",
     "",
     "Turn shape: ground yourself, resolve risk, and decide the narration and consequences.",
+    "Generic rules.opposed is noncombat-only and requires contest_kind=noncombat.",
+    "Every attack, Dodge, or Fight Back uses combat.resolve with the exact",
+    "structured defense_kind: equal success levels favor a dodger but favor the",
+    "attacker against Fight Back. Never route melee through generic opposed dice.",
     "Then synchronously finish every rules.* resource change and critical state.* write.",
-    "After the narration decision is final, close out synchronously with state.journal",
-    "(or state.end_session when appropriate), then emit the player-facing narration.",
+    "A critical, fumble, or failed pushed roll is not closed by prose alone.",
+    "Before state.journal, apply one source-bound state.exceptional_effect with a",
+    "real benefit/cost, causal link, and explicit boundary. Plain elapsed time or",
+    "a named flag is insufficient. A one-shot bonus/penalty must be carried by the",
+    "next exact-scope rules.roll and consumed through state.exceptional_effect before journaling.",
+    "Read scene.context.continuity.active_exceptional_effects and honor active bounded",
+    "conditions, restrictions, events, and modifiers as canonical continuity.",
+    "For every investigator/NPC pair's first substantive contact, call npc.reaction",
+    "once with a localized npc_display_name and structured semantic context, then bind",
+    "that receipt plus a causal first_impression_realization in its own",
+    "state.record_npc_engagement. A journal may have 0..N NPC engagements, interleaved",
+    "NPC speech, and NPC-to-NPC dialogue; never keep only the first or last NPC.",
+    "Each critical/fumble first-impression roll owns an independent exceptional effect.",
+    "Later relationship change uses state.npc_update. An earned NPC-scoped bonus die",
+    "must link that update, match rules.roll npc_id+skill, and be consumed explicitly;",
+    "no keyword in free prose automatically changes trust or grants a reward.",
+    "A completed full sleep in a safe place needs two structured writes: advance its",
+    "actual minutes with state.advance_time, then call state.mark_safe_rest with",
+    "rest_kind=full_sleep. Never infer completed rest from reason/player prose.",
+    "Every played turn closes synchronously with state.journal. On a terminal turn,",
+    "call state.end_session first, then still call state.journal; terminal settlement",
+    "does not replace the journal boundary.",
     "Before writing the final message, make one semantic judgment: does play continue,",
     "or did the player/fiction establish an actual session boundary? If it is a boundary,",
     "state.journal is not a substitute: call state.end_session exactly once with the",
@@ -140,13 +422,15 @@ function keeperSystemPrompt(request) {
     "Never defer dice, HP/SAN/Luck, clues, NPC state, time, scene, journal, ending,",
     "or development writes. Only append-only JSONL audit/mirror flushing may happen",
     "in the background; it must not change the already-settled game state.",
+    "After state settlement and state.journal, call turn.output_context, draft causal",
+    "fiction covering every returned obligation, and call turn.finalize. Do not call",
+    "another tool afterward. Director, Storylet, narration.brief, and narration.review",
+    "remain optional craft methods, never a mandatory pipeline.",
     `Narrate in ${request.play_language || "zh-Hans"}.`,
     "",
-    "Your FINAL assistant message must be exactly the player-visible narration:",
-    "immersive prose only — no tool logs, no JSON, no meta commentary, no",
-    "numbered action menus. End with an open prompt for the player's next move,",
-    "unless you recorded state.end_session; in that case, close the session and",
-    "do not ask for another immediate action.",
+    "Your FINAL assistant message must echo turn.finalize.rendered_text byte-for-byte.",
+    "Do not add tool logs, JSON, meta commentary, or text before/after it. The receipt",
+    "already owns immersive fiction plus the exact public dice and state/context changes.",
   ].join("\n");
 }
 
@@ -180,9 +464,9 @@ function extractFinalProse(messages) {
     if (!Array.isArray(content)) continue;
     const texts = content
       .filter((c) => c && c.type === "text" && typeof c.text === "string")
-      .map((c) => c.text.trim())
-      .filter(Boolean);
-    if (texts.length) return texts.join("\n").trim();
+      .map((c) => c.text)
+      .filter((text) => text.trim().length > 0);
+    if (texts.length) return texts.join("\n");
   }
   return "";
 }
@@ -202,7 +486,10 @@ function selectedModelIdentity(session) {
 }
 
 export async function runKeeperTurn(request) {
-  for (const key of ["workspace", "campaign_id", "player_input", "play_language", "skills_dir", "toolbox_path"]) {
+  for (const key of [
+    "workspace", "campaign_id", "player_input", "play_language", "skills_dir",
+    "toolbox_path", "finalization_offset",
+  ]) {
     if (!(key in request)) throw new Error(`request missing ${key}`);
   }
   const cwd = path.resolve(String(request.workspace));
@@ -239,7 +526,7 @@ export async function runKeeperTurn(request) {
   await loader.reload();
 
   const provider = process.env.COC_KEEPER_MODEL_PROVIDER || "coding-relay";
-  const modelId = process.env.COC_KEEPER_MODEL_ID || "gpt-5.6-sol";
+  const modelId = process.env.COC_KEEPER_MODEL_ID || "gpt-5.6-luna";
   const { model, modelRegistry } = resolveRequestedModel({ agentDir, provider, modelId });
 
   const { session } = await createAgentSession({
@@ -252,20 +539,12 @@ export async function runKeeperTurn(request) {
     sessionManager: SessionManager.inMemory(cwd),
   });
 
-  let assistantError = null;
   let usageInput = null;
   let usageOutput = null;
   const unsubscribe = session.subscribe((event) => {
     if (event && event.type === "message_end" && event.message) {
       const msg = event.message;
       if (msg.role === "assistant") {
-        if (
-          msg.stopReason === "error" &&
-          typeof msg.errorMessage === "string" &&
-          msg.errorMessage.trim()
-        ) {
-          assistantError = msg.errorMessage.trim();
-        }
         const usage = msg.usage;
         if (usage && typeof usage === "object") {
           if (Number.isInteger(usage.input)) usageInput = (usageInput || 0) + usage.input;
@@ -277,14 +556,8 @@ export async function runKeeperTurn(request) {
 
   try {
     await session.prompt(buildPromptText(request));
-    const narration = extractFinalProse(session.messages);
-    if (assistantError && !narration) {
-      return { ok: false, error: assistantError };
-    }
-    if (!narration) {
-      return { ok: false, error: "keeper agent produced no final narration" };
-    }
-    const result = { ok: true, narration };
+    const assistantText = extractFinalProse(session.messages);
+    const result = finalizedKeeperOutput(request, assistantText);
     const identity = selectedModelIdentity(session);
     if (identity) result.model_identity = identity;
     if (usageInput !== null || usageOutput !== null) {
@@ -304,7 +577,13 @@ async function main() {
     writeResult(result);
     process.exit(result.ok ? 0 : 1);
   } catch (err) {
-    writeResult({ ok: false, error: err && err.message ? err.message : String(err) });
+    const result = { ok: false, error: err && err.message ? err.message : String(err) };
+    if (err instanceof KeeperFinalizationError) {
+      result.error_code = err.code;
+      result.error_reason = err.reason;
+      result.turn_committed = true;
+    }
+    writeResult(result);
     process.exit(1);
   }
 }

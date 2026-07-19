@@ -68,6 +68,9 @@ coc_npc_identity = _load_sibling("coc_npc_identity_toolbox", "coc_npc_identity.p
 coc_npc_event_chain = _load_sibling(
     "coc_npc_event_chain_toolbox", "coc_npc_event_chain.py"
 )
+coc_first_impression = _load_sibling(
+    "coc_first_impression", "coc_first_impression.py"
+)
 coc_async_recorder = _load_sibling(
     "coc_async_recorder_toolbox", "coc_async_recorder.py"
 )
@@ -90,6 +93,12 @@ coc_narration_style = _load_sibling(
 coc_narration_contract = _load_sibling(
     "coc_narration_contract_toolbox", "coc_narration_contract.py"
 )
+coc_exceptional_effects = _load_sibling(
+    "coc_exceptional_effects", "coc_exceptional_effects.py"
+)
+coc_turn_finalization = _load_sibling(
+    "coc_turn_finalization", "coc_turn_finalization.py"
+)
 coc_development = _load_sibling("coc_development_toolbox", "coc_development.py")
 coc_runtime_ops = _load_sibling("coc_runtime_ops_toolbox", "coc_runtime_ops.py")
 coc_narrative_enrichment = _load_sibling(
@@ -104,6 +113,9 @@ coc_action_resolver = _load_sibling(
 )
 coc_keeper_planner = _load_sibling(
     "coc_keeper_planner_toolbox", "coc_keeper_planner.py"
+)
+coc_module_project = _load_sibling(
+    "coc_module_project_toolbox", "coc_module_project.py"
 )
 
 SCENARIO_FILES = (
@@ -614,7 +626,11 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
-            if spec["needs_campaign"] and ctx.campaign_dir is not None:
+            if (
+                spec["needs_campaign"]
+                and ctx.campaign_dir is not None
+                and name != "rules.luck_spend"
+            ):
                 reconcile_campaign_continuity(ctx.campaign_dir, ctx=ctx)
             data, warnings, hints = spec["handler"](ctx, args)
             envelope = {
@@ -940,20 +956,7 @@ def _npc_engagement_advisory_hints(
 def _first_impression_hint(
     ctx: Ctx, npc_id: str, authored_npc: dict[str, Any] | None
 ) -> str | None:
-    """Advisory p.191 pointer for the KP's real path.
-
-    A neutral NPC without accumulated psych state can still take a concealed
-    first-impression roll; once psych state exists it outranks any first
-    impression, so the hint stays silent then. Advisory only — never a gate.
-    """
-    if authored_npc is not None and coc_story_director._npc_is_forced_adversary(
-        authored_npc
-    ):
-        return None
-    npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
-    psych_entry = (npc_state.get("psych") or {}).get(npc_id)
-    if coc_npc_state.has_signal(psych_entry):
-        return None
+    """Advisory pointer for the pair's one public first-impression check."""
     stats: tuple[str, int, int] | None = None
     try:
         investigator_id = _resolve_investigator(ctx, {})
@@ -971,14 +974,22 @@ def _first_impression_hint(
         stats = None
     if stats is None:
         return (
-            f"first impression: '{npc_id}' has no accumulated psych state — an "
-            "npc.reaction roll (p.191, concealed) can still set their initial manner"
+            f"first impression: call npc.reaction once before the first substantive "
+            f"engagement with '{npc_id}'; the APP/Credit Rating D100 is public"
         )
     investigator_id, app, credit_rating = stats
+    try:
+        campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+        document = coc_first_impression.load_document(ctx.campaign_dir, campaign_id)
+        if coc_first_impression.find_by_pair(document, investigator_id, npc_id) is not None:
+            return None
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
     return (
-        f"first impression: '{npc_id}' has no accumulated psych state — consider "
-        f"npc.reaction (p.191, concealed) for their initial manner "
-        f"({investigator_id} APP {app} / CR {credit_rating})"
+        f"first impression: call npc.reaction once for {investigator_id}/'{npc_id}' "
+        f"before their first substantive engagement; public D100 uses max(APP {app}, "
+        f"Credit Rating {credit_rating}) and the KP realizes the result within authored, "
+        "relationship, scene, and conduct boundaries"
     )
 
 
@@ -1312,10 +1323,10 @@ def _source_receipt_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 _ROLL_RECEIPT_TOOLS = frozenset({"rules.roll", "rules.push", "rules.roll_dice"})
-_ROLL_RECEIPT_SCHEMA_VERSION = 4
-_ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION = 4
+_ROLL_RECEIPT_SCHEMA_VERSION = 5
+_ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION = 6
 _ROLL_RECEIPT_DOCUMENT_FIELDS = frozenset({
-    "schema_version", "receipts", "pending_side_effects"
+    "schema_version", "receipts", "pending_side_effects", "luck_spends"
 })
 _ROLL_RECEIPT_FIELDS = frozenset({
     "schema_version",
@@ -1335,14 +1346,48 @@ _ROLL_RECEIPT_FIELDS = frozenset({
 })
 _PERCENTILE_INVOCATION_FIELDS = frozenset({
     "investigator", "skill", "characteristic", "explicit_target",
-    "difficulty", "bonus", "penalty", "reason", "fumble_consequence",
-    "pushed", "method_changed", "failure_consequence",
+    "required_level", "bonus", "penalty", "goal", "stakes",
+    "difficulty_basis", "reason", "fumble_consequence", "pushed",
+    "method_changed", "failure_consequence", "original_check_decision_id",
+    "npc_id",
 })
+_LEGACY_PERCENTILE_INVOCATION_FIELDS = frozenset(
+    _PERCENTILE_INVOCATION_FIELDS - {"npc_id"}
+)
 _PERCENTILE_RESOLUTION_FIELDS = frozenset({
-    "investigator_id", "resolved_label", "resolved_target", "target_source"
+    "investigator_id", "resolved_label", "resolved_target", "target_source",
+    "original_check_ref",
+})
+_DIFFICULTY_BASIS_VALUES = frozenset({
+    "authored_gate", "opponent_skill", "environment", "keeper_judgment",
+})
+_PUSH_INHERITED_ARGUMENTS = frozenset({
+    "investigator", "skill", "characteristic", "target", "difficulty",
+    "bonus", "penalty", "goal", "stakes", "difficulty_basis", "reason",
+    "npc_id",
+})
+_PUSH_INHERITED_OPERATION_FIELDS = frozenset({
+    "investigator", "skill", "characteristic", "explicit_target",
+    "required_level", "bonus", "penalty", "goal", "stakes",
+    "difficulty_basis", "reason", "npc_id",
 })
 _DICE_RESOLUTION_FIELDS = frozenset({
     "expression", "count", "sides", "modifier"
+})
+_LUCK_SPEND_RECEIPT_SCHEMA_VERSION = 1
+_LUCK_SPEND_RECEIPT_FIELDS = frozenset({
+    "schema_version",
+    "tool",
+    "decision_id",
+    "fingerprint",
+    "operation",
+    "source_receipt",
+    "data",
+    "event",
+    _SOURCE_RECEIPT_INTEGRITY_KEY,
+})
+_LUCK_SPEND_OPERATION_FIELDS = frozenset({
+    "investigator_id", "source_roll_id", "points"
 })
 
 
@@ -1368,6 +1413,7 @@ def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
             "schema_version": _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION,
             "receipts": {},
             "pending_side_effects": {},
+            "luck_spends": {},
         }
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -1381,6 +1427,7 @@ def _load_roll_receipt_document(ctx: Ctx) -> dict[str, Any]:
         or document.get("schema_version") != _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION
         or not isinstance(document.get("receipts"), dict)
         or not isinstance(document.get("pending_side_effects"), dict)
+        or not isinstance(document.get("luck_spends"), dict)
     ):
         raise ToolError(
             "state_corrupt",
@@ -1494,6 +1541,161 @@ def _is_exact_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _luck_source_reference(receipt: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tool": str(receipt["tool"]),
+        "decision_id": str(receipt["decision_id"]),
+        "roll_id": str(receipt["roll_id"]),
+        "integrity_digest": str(receipt[_SOURCE_RECEIPT_INTEGRITY_KEY]),
+    }
+
+
+def _luck_spend_data(
+    source_receipt: dict[str, Any],
+    *,
+    points: int,
+    luck_before: int,
+) -> dict[str, Any]:
+    source_data = deepcopy(source_receipt["data"])
+    skill = str(source_data.get("skill") or "")
+    roll_kind = "luck" if skill == "LUCK" else "sanity" if skill == "SAN" else "skill"
+    adjusted = coc_roll.spend_luck(
+        source_data,
+        points,
+        luck_before,
+        roll_kind=roll_kind,
+    )
+    adjusted.update({
+        "original_roll": int(source_data["roll"]),
+        "adjusted_roll": int(adjusted["roll"]),
+        "luck_before": luck_before,
+        "luck_after": int(adjusted["luck_remaining"]),
+        "source_roll_id": str(source_receipt["roll_id"]),
+        "source_receipt": _luck_source_reference(source_receipt),
+    })
+    return adjusted
+
+
+def _luck_spend_receipt(
+    document: dict[str, Any], decision_id: str,
+) -> dict[str, Any] | None:
+    receipts = document.get("luck_spends")
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "canonical Luck receipt map is invalid")
+    receipt = receipts.get(str(decision_id))
+    if receipt is None:
+        return None
+    if not isinstance(receipt, dict):
+        raise ToolError("state_corrupt", "canonical Luck receipt is invalid")
+    return receipt
+
+
+def _new_luck_spend_receipt(
+    *,
+    decision_id: str,
+    operation: dict[str, Any],
+    source_receipt: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    event_id = _operation_event_id("rules.luck_spend", decision_id)
+    event = {"event_id": event_id, "event_type": "luck_spent", **deepcopy(data)}
+    receipt = {
+        "schema_version": _LUCK_SPEND_RECEIPT_SCHEMA_VERSION,
+        "tool": "rules.luck_spend",
+        "decision_id": str(decision_id),
+        "fingerprint": _operation_fingerprint("rules.luck_spend", operation),
+        "operation": deepcopy(operation),
+        "source_receipt": _luck_source_reference(source_receipt),
+        "data": deepcopy(data),
+        "event": event,
+    }
+    receipt[_SOURCE_RECEIPT_INTEGRITY_KEY] = _source_receipt_integrity(receipt)
+    return receipt
+
+
+def _validate_luck_spend_receipts(document: dict[str, Any]) -> None:
+    luck_receipts = document.get("luck_spends")
+    roll_receipts = document.get("receipts")
+    if not isinstance(luck_receipts, dict) or not isinstance(roll_receipts, dict):
+        raise ToolError("state_corrupt", "canonical Luck receipt collection is invalid")
+    source_owners: dict[str, str] = {}
+    for decision_id, receipt in sorted(luck_receipts.items()):
+        if not isinstance(receipt, dict):
+            raise ToolError("state_corrupt", "canonical Luck receipt is invalid")
+        operation = receipt.get("operation")
+        source_ref = receipt.get("source_receipt")
+        data = receipt.get("data")
+        event = receipt.get("event")
+        source_decision_id = (
+            str(source_ref.get("decision_id") or "")
+            if isinstance(source_ref, dict)
+            else ""
+        )
+        source = (roll_receipts.get("rules.roll") or {}).get(source_decision_id)
+        invalid = bool(
+            set(receipt) != set(_LUCK_SPEND_RECEIPT_FIELDS)
+            or receipt.get("schema_version") != _LUCK_SPEND_RECEIPT_SCHEMA_VERSION
+            or receipt.get("tool") != "rules.luck_spend"
+            or str(receipt.get("decision_id") or "") != str(decision_id)
+            or not isinstance(operation, dict)
+            or set(operation) != set(_LUCK_SPEND_OPERATION_FIELDS)
+            or receipt.get("fingerprint")
+            != _operation_fingerprint("rules.luck_spend", operation or {})
+            or not isinstance(source_ref, dict)
+            or set(source_ref)
+            != {"tool", "decision_id", "roll_id", "integrity_digest"}
+            or source_ref.get("tool") != "rules.roll"
+            or not isinstance(source, dict)
+            or source_ref != _luck_source_reference(source or {})
+            or not isinstance(data, dict)
+            or not isinstance(event, dict)
+            or receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY)
+            != _source_receipt_integrity(receipt)
+            or not isinstance(operation.get("investigator_id"), str)
+            or not operation.get("investigator_id")
+            or not isinstance(operation.get("source_roll_id"), str)
+            or operation.get("source_roll_id") != source_ref.get("roll_id")
+            or not _is_exact_int(operation.get("points"))
+            or int(operation.get("points") or 0) <= 0
+            or data.get("investigator_id") != operation.get("investigator_id")
+            or not _is_exact_int(data.get("luck_before"))
+            or data.get("source_receipt") != source_ref
+            or data.get("source_roll_id") != source_ref.get("roll_id")
+            or event
+            != {
+                "event_id": _operation_event_id(
+                    "rules.luck_spend", str(decision_id)
+                ),
+                "event_type": "luck_spent",
+                **(deepcopy(data) if isinstance(data, dict) else {}),
+            }
+        )
+        if not invalid:
+            try:
+                expected = _luck_spend_data(
+                    source,
+                    points=int(operation["points"]),
+                    luck_before=int(data["luck_before"]),
+                )
+            except (KeyError, TypeError, ValueError):
+                invalid = True
+            else:
+                invalid = expected != data
+        if invalid:
+            raise ToolError(
+                "state_corrupt",
+                f"Luck source receipt decision_id '{decision_id}' is invalid",
+            )
+        source_roll_id = str(source_ref["roll_id"])
+        prior = source_owners.get(source_roll_id)
+        if prior is not None and prior != str(decision_id):
+            raise ToolError(
+                "state_corrupt",
+                f"source roll_id '{source_roll_id}' has multiple Luck adjustments",
+            )
+        source_owners[source_roll_id] = str(decision_id)
+
+
 def _optional_scalar_evidence_matches(
     field: str,
     value: str | None,
@@ -1598,14 +1800,22 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
         selector_characteristic = operation.get("characteristic")
         explicit_target = operation.get("explicit_target")
         investigator = operation.get("investigator")
-        difficulty = operation.get("difficulty")
+        required_level = operation.get("required_level")
         bonus = operation.get("bonus")
         penalty = operation.get("penalty")
+        goal = operation.get("goal")
+        stakes = operation.get("stakes")
+        difficulty_basis = operation.get("difficulty_basis")
         reason = operation.get("reason")
+        target_npc_id = operation.get("npc_id")
         fumble_consequence = operation.get("fumble_consequence")
         pushed = operation.get("pushed")
         method_changed = operation.get("method_changed")
         failure_consequence = operation.get("failure_consequence")
+        original_check_decision_id = operation.get(
+            "original_check_decision_id"
+        )
+        original_check_ref = resolution.get("original_check_ref")
         label = resolution.get("resolved_label")
         target_source = resolution.get("target_source")
         expected_bonus = (
@@ -1618,8 +1828,49 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             if _is_exact_int(bonus) and _is_exact_int(penalty)
             else None
         )
+        expected_result: dict[str, Any] | None = None
+        if (
+            _is_exact_int(resolution.get("resolved_target"))
+            and _is_exact_int(data.get("roll"))
+            and required_level in {"regular", "hard", "extreme"}
+        ):
+            try:
+                expected_result = coc_roll.resolve_percentile_roll(
+                    int(data["roll"]),
+                    int(resolution["resolved_target"]),
+                    str(required_level),
+                )
+            except (KeyError, TypeError, ValueError):
+                expected_result = None
+        valid_stakes = bool(
+            isinstance(stakes, dict)
+            and set(stakes) == {"on_success", "on_failure"}
+            and all(
+                isinstance(stakes.get(key), str)
+                and bool(stakes[key].strip())
+                and stakes[key] == stakes[key].strip()
+                for key in ("on_success", "on_failure")
+            )
+        )
+        valid_original_ref = bool(
+            isinstance(original_check_ref, dict)
+            and set(original_check_ref)
+            == {"tool", "decision_id", "roll_id", "integrity_digest"}
+            and original_check_ref.get("tool") == "rules.roll"
+            and isinstance(original_check_ref.get("decision_id"), str)
+            and bool(original_check_ref.get("decision_id"))
+            and isinstance(original_check_ref.get("roll_id"), str)
+            and bool(original_check_ref.get("roll_id"))
+            and re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                str(original_check_ref.get("integrity_digest") or ""),
+            )
+        )
         invalid = bool(
-            set(operation) != set(_PERCENTILE_INVOCATION_FIELDS)
+            frozenset(operation) not in {
+                _PERCENTILE_INVOCATION_FIELDS,
+                _LEGACY_PERCENTILE_INVOCATION_FIELDS,
+            }
             or set(resolution) != set(_PERCENTILE_RESOLUTION_FIELDS)
             or not (
                 investigator is None
@@ -1643,15 +1894,39 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                 )
             )
             or not (explicit_target is None or _is_exact_int(explicit_target))
-            or difficulty not in {"regular", "hard", "extreme"}
+            or required_level not in {"regular", "hard", "extreme"}
             or not _is_exact_int(bonus)
-            or bonus < 0
+            or not 0 <= bonus <= 2
             or not _is_exact_int(penalty)
-            or penalty < 0
-            or not (reason is None or isinstance(reason, str))
+            or not 0 <= penalty <= 2
+            or not isinstance(goal, str)
+            or not goal.strip()
+            or goal != goal.strip()
+            or not valid_stakes
+            or difficulty_basis not in _DIFFICULTY_BASIS_VALUES
+            or not (
+                reason is None
+                or (
+                    isinstance(reason, str)
+                    and bool(reason)
+                    and reason == reason.strip()
+                )
+            )
+            or not (
+                target_npc_id is None
+                or (
+                    isinstance(target_npc_id, str)
+                    and bool(target_npc_id)
+                    and target_npc_id == target_npc_id.strip()
+                )
+            )
             or not (
                 fumble_consequence is None
-                or isinstance(fumble_consequence, str)
+                or (
+                    isinstance(fumble_consequence, str)
+                    and bool(fumble_consequence)
+                    and fumble_consequence == fumble_consequence.strip()
+                )
             )
             or not isinstance(pushed, bool)
             or not isinstance(resolution.get("investigator_id"), str)
@@ -1659,6 +1934,7 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or not isinstance(label, str)
             or not label
             or not _is_exact_int(resolution.get("resolved_target"))
+            or expected_result is None
             or target_source not in {"explicit", "state", "sheet", "rulebook_base"}
             or resolution.get("investigator_id") != data.get("investigator_id")
             or resolution.get("investigator_id") != record.get("actor")
@@ -1666,6 +1942,10 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or label != data.get("skill")
             or label != record.get("skill")
             or label != payload.get("skill")
+            or any(
+                data.get(key) != value
+                for key, value in (expected_result or {}).items()
+            )
             or resolution.get("resolved_target") != data.get("target")
             or resolution.get("resolved_target") != record.get("target")
             or resolution.get("resolved_target") != payload.get("target")
@@ -1692,7 +1972,23 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             )
             or pushed != (tool_name == "rules.push")
             or any(
-                container.get("difficulty") != difficulty
+                container.get("required_level") != required_level
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("difficulty") != required_level
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("goal") != goal
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("stakes") != stakes
+                for container in (data, record, payload)
+            )
+            or any(
+                container.get("difficulty_basis") != difficulty_basis
                 for container in (data, record, payload)
             )
             or any(
@@ -1710,6 +2006,9 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
             or not _optional_scalar_evidence_matches(
                 "reason", reason, data, record, payload
             )
+            or not _optional_scalar_evidence_matches(
+                "npc_id", target_npc_id, data, record, payload
+            )
             or not _optional_consequence_evidence_matches(
                 "fumble_consequence",
                 fumble_consequence,
@@ -1722,8 +2021,10 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                 and (
                     not isinstance(method_changed, str)
                     or not method_changed
+                    or method_changed != method_changed.strip()
                     or not isinstance(failure_consequence, str)
                     or not failure_consequence
+                    or failure_consequence != failure_consequence.strip()
                     or not _optional_scalar_evidence_matches(
                         "method_changed", method_changed, data, record, payload
                     )
@@ -1741,6 +2042,15 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                         record,
                         payload,
                     )
+                    or not isinstance(original_check_decision_id, str)
+                    or not original_check_decision_id
+                    or not valid_original_ref
+                    or original_check_ref.get("decision_id")
+                    != original_check_decision_id
+                    or any(
+                        container.get("original_check") != original_check_ref
+                        for container in (data, record, payload)
+                    )
                 )
             )
             or (
@@ -1748,12 +2058,15 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
                 and (
                     method_changed is not None
                     or failure_consequence is not None
+                    or original_check_decision_id is not None
+                    or original_check_ref is not None
                     or any(
                         field in container
                         for field in (
                             "method_changed",
                             "failure_consequence",
                             "announced_consequence",
+                            "original_check",
                         )
                         for container in (data, record, payload)
                     )
@@ -2009,6 +2322,59 @@ def _validated_roll_document_collection(
             roll_owners[roll_id] = decision_owner
             ordered.append(receipt)
             by_effect_key[_roll_side_effect_key(receipt)] = receipt
+    roll_receipts = receipts.get("rules.roll") or {}
+    push_receipts = receipts.get("rules.push") or {}
+    pushed_originals: dict[str, str] = {}
+    for push_decision_id, push_receipt in push_receipts.items():
+        push_operation = push_receipt["operation"]
+        original_decision_id = str(
+            push_operation.get("original_check_decision_id") or ""
+        )
+        original = roll_receipts.get(original_decision_id)
+        if not isinstance(original, dict):
+            raise ToolError(
+                "state_corrupt",
+                f"pushed roll '{push_decision_id}' has no canonical original rules.roll receipt",
+            )
+        expected_ref = {
+            "tool": "rules.roll",
+            "decision_id": original_decision_id,
+            "roll_id": str(original["roll_id"]),
+            "integrity_digest": str(original[_SOURCE_RECEIPT_INTEGRITY_KEY]),
+        }
+        if (
+            original["data"].get("success") is not False
+            or original["data"].get("passed") is not False
+            or original["data"].get("outcome") != "failure"
+            or push_receipt["resolution"].get("original_check_ref")
+            != expected_ref
+            or any(
+                push_operation.get(field)
+                != original["operation"].get(field)
+                for field in _PUSH_INHERITED_OPERATION_FIELDS
+            )
+            or any(
+                push_receipt["resolution"].get(field)
+                != original["resolution"].get(field)
+                for field in (
+                    "investigator_id",
+                    "resolved_label",
+                    "resolved_target",
+                    "target_source",
+                )
+            )
+        ):
+            raise ToolError(
+                "state_corrupt",
+                f"pushed roll '{push_decision_id}' contradicts its original check contract",
+            )
+        prior_push = pushed_originals.get(original_decision_id)
+        if prior_push is not None and prior_push != str(push_decision_id):
+            raise ToolError(
+                "state_corrupt",
+                f"original check '{original_decision_id}' has multiple pushed rolls",
+            )
+        pushed_originals[original_decision_id] = str(push_decision_id)
     pending = document.get("pending_side_effects")
     if not isinstance(pending, dict):
         raise ToolError("state_corrupt", "canonical roll pending index is invalid")
@@ -2024,6 +2390,7 @@ def _validated_roll_document_collection(
             raise ToolError(
                 "state_corrupt", "canonical roll pending index has no valid receipt"
             )
+    _validate_luck_spend_receipts(document)
     return ordered, by_effect_key
 
 
@@ -2306,9 +2673,12 @@ def _ledger_requires_source_receipt(entry: dict[str, Any] | None) -> bool:
         return False
     manifest = entry.get("source_receipt_manifest")
     digest = str((manifest or {}).get("integrity_digest") or "") if isinstance(manifest, dict) else ""
+    entry_tool = str(entry.get("tool"))
     supported_receipt_versions = (
         frozenset({_ROLL_RECEIPT_SCHEMA_VERSION})
-        if str(entry.get("tool")) in _ROLL_RECEIPT_TOOLS
+        if entry_tool in _ROLL_RECEIPT_TOOLS
+        else frozenset({_LUCK_SPEND_RECEIPT_SCHEMA_VERSION})
+        if entry_tool == "rules.luck_spend"
         else frozenset({_SOURCE_RECEIPT_SCHEMA_VERSION})
     )
     if (
@@ -3607,6 +3977,106 @@ def _combat_state(ctx: Ctx) -> dict[str, Any]:
     return _read_object(ctx.campaign_dir / "save" / "combat.json")
 
 
+def _player_mechanical_snapshot(ctx: Ctx, investigator_id: str) -> dict[str, Any]:
+    state = ctx.inv_state(investigator_id)
+    return {
+        "investigator_id": investigator_id,
+        "hp": state.get("current_hp"),
+        "san": state.get("current_san"),
+        "mp": state.get("current_mp"),
+        "luck": state.get("current_luck"),
+        "conditions": list(state.get("conditions") or []),
+    }
+
+
+def _loaded_ammunition_snapshot(
+    combat: dict[str, Any],
+    investigator_id: str,
+    profile: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    participants = combat.get("participants") or []
+    if isinstance(participants, dict):
+        participant = participants.get(investigator_id)
+    elif isinstance(participants, list):
+        participant = next(
+            (
+                row for row in participants
+                if isinstance(row, dict) and row.get("actor_id") == investigator_id
+            ),
+            None,
+        )
+    else:
+        participant = None
+    participant = participant if isinstance(participant, dict) else {}
+    ammo_map = participant.get("_ammo")
+    ammo_map = ammo_map if isinstance(ammo_map, dict) else {}
+    weapons = participant.get("weapons")
+    if not isinstance(weapons, list) or not weapons:
+        weapons = profile.get("weapons") or []
+    catalog = combat.get("weapon_catalog")
+    if not isinstance(catalog, dict):
+        catalog = coc_subsystem_executor.coc_combat.load_weapon_catalog()
+    snapshot: dict[str, dict[str, Any]] = {}
+    for raw in weapons:
+        override = raw if isinstance(raw, dict) else {"weapon_id": raw}
+        weapon_id = coc_inventory.weapon_ref_id(override)
+        weapon = deepcopy((catalog or {}).get(weapon_id) or {})
+        weapon.update(override)
+        magazine = weapon.get("magazine")
+        if weapon_id is None or isinstance(magazine, bool) or not isinstance(magazine, int):
+            continue
+        loaded = ammo_map.get(weapon_id, magazine)
+        if isinstance(loaded, bool) or not isinstance(loaded, int):
+            raise ToolError(
+                "state_corrupt", f"loaded ammunition for '{weapon_id}' is invalid"
+            )
+        snapshot[weapon_id] = {
+            "weapon_id": weapon_id,
+            "weapon_label": str(
+                weapon.get("label")
+                or weapon.get("name")
+                or weapon.get("display_name")
+                or weapon_id
+            ),
+            "loaded": loaded,
+        }
+    return snapshot
+
+
+def _player_state_receipt(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    ammo_before: dict[str, dict[str, Any]] | None = None,
+    ammo_after: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    receipt = {
+        "schema_version": 1,
+        "investigator_id": str(before["investigator_id"]),
+        "hp": {"before": before.get("hp"), "after": after.get("hp")},
+        "san": {"before": before.get("san"), "after": after.get("san")},
+        "mp": {"before": before.get("mp"), "after": after.get("mp")},
+        "luck": {"before": before.get("luck"), "after": after.get("luck")},
+        "conditions_before": list(before.get("conditions") or []),
+        "conditions_after": list(after.get("conditions") or []),
+        "loaded_ammunition": [],
+    }
+    before_map = ammo_before or {}
+    after_map = ammo_after or {}
+    for weapon_id in sorted(set(before_map) | set(after_map)):
+        old = before_map.get(weapon_id) or after_map[weapon_id]
+        new = after_map.get(weapon_id) or before_map[weapon_id]
+        receipt["loaded_ammunition"].append({
+            "weapon_id": weapon_id,
+            "weapon_label": str(new.get("weapon_label") or old.get("weapon_label") or weapon_id),
+            "before": int(old["loaded"]),
+            "change": int(new["loaded"]) - int(old["loaded"]),
+            "after": int(new["loaded"]),
+            "scope": "current_loaded_magazine_only",
+        })
+    return receipt
+
+
 def _affordance_by_id(scene: dict[str, Any] | None, affordance_id: str) -> dict[str, Any] | None:
     for affordance in (scene or {}).get("affordances") or []:
         if (
@@ -3711,6 +4181,55 @@ def _normalize_percentile_invocation(
     frozen_operation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Normalize immutable caller fields without consulting mutable state."""
+    if pushed:
+        supplied_inherited = sorted(
+            field for field in _PUSH_INHERITED_ARGUMENTS if field in args
+        )
+        if supplied_inherited:
+            raise ToolError(
+                "invalid_param",
+                "rules.push inherits the original check contract; remove: "
+                + ", ".join(supplied_inherited),
+            )
+        if not isinstance(frozen_operation, dict):
+            raise ToolError(
+                "missing_original_check",
+                "rules.push requires a valid original rules.roll receipt",
+            )
+        original_check_decision_id = str(
+            args.get("original_check_decision_id") or ""
+        ).strip()
+        if not original_check_decision_id:
+            raise ToolError(
+                "missing_param", "required parameter: original_check_decision_id"
+            )
+        method_changed = str(args.get("method_changed") or "").strip()
+        failure_consequence = str(
+            args.get("failure_consequence") or ""
+        ).strip()
+        if not method_changed or not failure_consequence:
+            raise ToolError(
+                "invalid_param",
+                "rules.push requires non-empty method_changed and failure_consequence",
+            )
+        fumble_consequence = (
+            str(args["fumble_consequence"]).strip()
+            if args.get("fumble_consequence") is not None
+            else ""
+        ) or None
+        operation = {
+            field: deepcopy(frozen_operation.get(field))
+            for field in _PUSH_INHERITED_OPERATION_FIELDS
+        }
+        operation.update({
+            "fumble_consequence": fumble_consequence,
+            "pushed": True,
+            "method_changed": method_changed,
+            "failure_consequence": failure_consequence,
+            "original_check_decision_id": original_check_decision_id,
+        })
+        return operation
+
     raw_investigator = args.get("investigator")
     investigator = (
         str(raw_investigator).strip()
@@ -3740,40 +4259,74 @@ def _normalize_percentile_invocation(
         if raw_characteristic is not None and str(raw_characteristic).strip()
         else None
     )
-    explicit_target = (
-        int(args["target"]) if args.get("target") is not None else None
-    )
-    difficulty = str(args.get("difficulty") or "regular")
-    bonus = int(args.get("bonus") or 0)
-    penalty = int(args.get("penalty") or 0)
-    return {
+    explicit_target = args.get("target")
+    if explicit_target is not None and not _is_exact_int(explicit_target):
+        raise ToolError("invalid_param", "target must be an integer")
+    required_level = str(args.get("difficulty") or "").strip()
+    bonus = args.get("bonus", 0)
+    penalty = args.get("penalty", 0)
+    if not _is_exact_int(bonus) or not _is_exact_int(penalty):
+        raise ToolError("invalid_param", "bonus and penalty must be integers")
+    raw_stakes = args.get("stakes")
+    if (
+        not isinstance(raw_stakes, dict)
+        or set(raw_stakes) != {"on_success", "on_failure"}
+        or any(
+            not isinstance(raw_stakes.get(key), str)
+            or not raw_stakes[key].strip()
+            for key in ("on_success", "on_failure")
+        )
+    ):
+        raise ToolError(
+            "invalid_param",
+            "stakes must be an object with non-empty on_success and on_failure strings",
+        )
+    goal = str(args.get("goal") or "").strip()
+    difficulty_basis = str(args.get("difficulty_basis") or "").strip()
+    reason = (
+        str(args["reason"]).strip()
+        if args.get("reason") is not None
+        else ""
+    ) or None
+    fumble_consequence = (
+        str(args["fumble_consequence"]).strip()
+        if args.get("fumble_consequence") is not None
+        else ""
+    ) or None
+    npc_id = (
+        str(args["npc_id"]).strip()
+        if args.get("npc_id") is not None
+        else ""
+    ) or None
+    operation = {
         "investigator": investigator,
         "skill": skill,
         "characteristic": characteristic,
         "explicit_target": explicit_target,
-        "difficulty": difficulty,
+        "required_level": required_level,
         "bonus": bonus,
         "penalty": penalty,
-        "reason": (
-            str(args["reason"]) if args.get("reason") is not None else None
-        ),
-        "fumble_consequence": (
-            str(args["fumble_consequence"])
-            if args.get("fumble_consequence") is not None
-            else None
-        ),
-        "pushed": bool(pushed),
-        "method_changed": (
-            str(args["method_changed"])
-            if pushed and args.get("method_changed") is not None
-            else None
-        ),
-        "failure_consequence": (
-            str(args["failure_consequence"])
-            if pushed and args.get("failure_consequence") is not None
-            else None
-        ),
+        "goal": goal,
+        "stakes": {
+            "on_success": raw_stakes["on_success"].strip(),
+            "on_failure": raw_stakes["on_failure"].strip(),
+        },
+        "difficulty_basis": difficulty_basis,
+        "reason": reason,
+        "fumble_consequence": fumble_consequence,
+        "pushed": False,
+        "method_changed": None,
+        "failure_consequence": None,
+        "original_check_decision_id": None,
+        "npc_id": npc_id,
     }
+    if (
+        isinstance(frozen_operation, dict)
+        and "npc_id" not in frozen_operation
+        and npc_id is None
+    ):
+        operation.pop("npc_id")
+    return operation
 
 
 def _compile_new_percentile_invocation(
@@ -3781,16 +4334,89 @@ def _compile_new_percentile_invocation(
     args: dict[str, Any],
     *,
     pushed: bool,
+    document: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve mutable investigator/target state only for an unowned decision."""
-    operation = _normalize_percentile_invocation(args, pushed=pushed)
-    difficulty = str(operation["difficulty"])
+    if pushed:
+        original_check_decision_id = str(
+            args.get("original_check_decision_id") or ""
+        ).strip()
+        original = _roll_receipt(
+            document, "rules.roll", original_check_decision_id
+        )
+        if original is None:
+            raise ToolError(
+                "unknown_original_check",
+                "rules.push original_check_decision_id must name a settled rules.roll",
+            )
+        _validate_roll_receipt(
+            original,
+            tool_name="rules.roll",
+            decision_id=original_check_decision_id,
+        )
+        if original["data"].get("outcome") != "failure":
+            raise ToolError(
+                "invalid_push",
+                "only an ordinary failed original check may be pushed; fumbles are final",
+            )
+        existing_pushes = (
+            document.get("receipts", {}).get("rules.push") or {}
+        )
+        for existing in existing_pushes.values():
+            if (
+                isinstance(existing, dict)
+                and existing.get("operation", {}).get(
+                    "original_check_decision_id"
+                )
+                == original_check_decision_id
+            ):
+                raise ToolError(
+                    "invalid_push", "the original check has already been pushed"
+                )
+        operation = _normalize_percentile_invocation(
+            args,
+            pushed=True,
+            frozen_operation=original["operation"],
+        )
+        resolution = {
+            key: deepcopy(original["resolution"][key])
+            for key in (
+                "investigator_id",
+                "resolved_label",
+                "resolved_target",
+                "target_source",
+            )
+        }
+        resolution["original_check_ref"] = {
+            "tool": "rules.roll",
+            "decision_id": original_check_decision_id,
+            "roll_id": str(original["roll_id"]),
+            "integrity_digest": str(
+                original[_SOURCE_RECEIPT_INTEGRITY_KEY]
+            ),
+        }
+        return operation, resolution
+
+    operation = _normalize_percentile_invocation(args, pushed=False)
+    required_level = str(operation["required_level"])
     bonus = int(operation["bonus"])
     penalty = int(operation["penalty"])
-    if difficulty not in {"regular", "hard", "extreme"}:
-        raise ToolError("invalid_param", f"unsupported difficulty: {difficulty}")
-    if bonus < 0 or penalty < 0:
-        raise ToolError("invalid_param", "bonus and penalty must be nonnegative")
+    if required_level not in {"regular", "hard", "extreme"}:
+        raise ToolError(
+            "invalid_param", f"unsupported difficulty: {required_level}"
+        )
+    if not 0 <= bonus <= 2 or not 0 <= penalty <= 2:
+        raise ToolError(
+            "invalid_param", "bonus and penalty must be integers from 0 to 2"
+        )
+    if not operation["goal"]:
+        raise ToolError("invalid_param", "goal must be a non-empty string")
+    if operation["difficulty_basis"] not in _DIFFICULTY_BASIS_VALUES:
+        raise ToolError(
+            "invalid_param",
+            "difficulty_basis must be one of: "
+            + ", ".join(sorted(_DIFFICULTY_BASIS_VALUES)),
+        )
     investigator_id = _resolve_investigator(
         ctx, {"investigator": operation["investigator"]}
     )
@@ -3812,7 +4438,26 @@ def _compile_new_percentile_invocation(
         "resolved_label": label,
         "resolved_target": target,
         "target_source": target_source,
+        "original_check_ref": None,
     }
+    modifier = _matching_active_exceptional_modifier(
+        ctx,
+        investigator_id=investigator_id,
+        skill=label,
+        npc_id=operation.get("npc_id"),
+    )
+    if modifier is not None:
+        expected_key = (
+            "bonus" if modifier["effect_kind"] == "bonus_die" else "penalty"
+        )
+        opposite_key = "penalty" if expected_key == "bonus" else "bonus"
+        dice = int(modifier["mechanics"]["dice"])
+        if int(operation[expected_key]) != dice or int(operation[opposite_key]) != 0:
+            raise ToolError(
+                "exceptional_modifier_required",
+                f"active {modifier['effect_kind']} {modifier['effect_id']} requires "
+                f"{expected_key}={dice}, {opposite_key}=0 on this next matching check",
+            )
     # ``seed`` is intentionally absent: it is tests-only RNG transport.
     return operation, resolution
 
@@ -3899,7 +4544,7 @@ def _roll_common(
             )
         return _replay_roll_receipt(ctx, document, receipt_hint)
     operation, resolution = _compile_new_percentile_invocation(
-        ctx, args, pushed=pushed
+        ctx, args, pushed=pushed, document=document
     )
     document, receipt = _existing_roll_receipt(
         ctx,
@@ -3914,7 +4559,7 @@ def _roll_common(
     target = int(resolution["resolved_target"])
     label = str(resolution["resolved_label"])
     target_source = str(resolution["target_source"])
-    difficulty = str(operation["difficulty"])
+    difficulty = str(operation["required_level"])
     bonus = int(operation["bonus"])
     penalty = int(operation["penalty"])
     result = coc_roll.percentile_check(target, difficulty, bonus, penalty, rng=_rng(args))
@@ -3922,18 +4567,27 @@ def _roll_common(
     result["skill"] = label
     result["target_source"] = target_source
     result["pushed"] = pushed
-    if args.get("reason"):
-        result["reason"] = str(args["reason"])
-    if pushed and args.get("method_changed"):
-        result["method_changed"] = str(args["method_changed"])
-    if pushed and args.get("failure_consequence"):
-        consequence = {"summary": str(args["failure_consequence"])}
+    result["goal"] = str(operation["goal"])
+    result["stakes"] = deepcopy(operation["stakes"])
+    result["difficulty_basis"] = str(operation["difficulty_basis"])
+    if operation.get("reason"):
+        result["reason"] = str(operation["reason"])
+    if operation.get("npc_id"):
+        result["npc_id"] = str(operation["npc_id"])
+    if pushed and operation.get("method_changed"):
+        result["method_changed"] = str(operation["method_changed"])
+    if pushed and operation.get("failure_consequence"):
+        consequence = {"summary": str(operation["failure_consequence"])}
         result["failure_consequence"] = consequence
         result["announced_consequence"] = consequence
-    if args.get("fumble_consequence"):
+    if operation.get("fumble_consequence"):
         result["fumble_consequence"] = {
-            "summary": str(args["fumble_consequence"])
+            "summary": str(operation["fumble_consequence"])
         }
+    if pushed:
+        result["original_check"] = deepcopy(
+            resolution["original_check_ref"]
+        )
 
     warnings: list[str] = []
     hints: list[str] = []
@@ -3942,7 +4596,7 @@ def _roll_common(
             f"{label} is not listed on the investigator sheet; used the canonical rulebook base chance {target}%"
         )
     outcome = result["outcome"]
-    success = outcome in ("regular", "hard", "extreme", "critical")
+    success = bool(result["success"])
     if (
         success
         and not pushed
@@ -3952,16 +4606,32 @@ def _roll_common(
     ):
         hints.append(f"success: improvement tick recorded for {label}")
     if outcome == "critical":
-        hints.append("critical success: consider an exceptional narrative payoff")
+        hints.append(
+            "critical success: before state.journal apply a source-bound benefit with state.exceptional_effect; prose alone cannot close it"
+        )
     if outcome == "fumble":
-        hints.append("fumble: narrate a meaningful complication, not just failure")
-    if not success and not pushed:
+        hints.append(
+            "fumble: before state.journal apply a source-bound cost with state.exceptional_effect and realize its causal complication"
+        )
+    if outcome == "failure" and not pushed:
         hints.append(
             "failed: the player may push this roll with a changed method and an announced consequence (rules.push)"
         )
     if pushed and not success:
         hints.append(
-            "pushed roll failed: a pushed failure carries a real consequence — narrate it and make it stick"
+            "pushed roll failed: before state.journal apply a source-bound cost with state.exceptional_effect; narration alone is insufficient"
+        )
+    active_modifier = _matching_active_exceptional_modifier(
+        ctx,
+        investigator_id=investigator_id,
+        skill=label,
+        npc_id=operation.get("npc_id"),
+    )
+    if active_modifier is not None:
+        hints.append(
+            "this roll used active exceptional modifier "
+            f"{active_modifier['effect_id']}; call state.exceptional_effect "
+            "action=consume with this roll_id before state.journal"
         )
     roll_record = ctx.prepare_roll({
         "event_type": "roll",
@@ -4107,7 +4777,7 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", str(exc)) from exc
     return data, [], [
         "living standard is descriptive, not a ledger: items matching the investigator's station are simply owned; only spending beyond the daily level touches cash (p.45-47, p.95-97)",
-        "wealth-based first impressions use the npc.reaction tool (concealed roll, p.191); this lookup never rolls",
+        "wealth-based first impressions use the pair-bound public npc.reaction D100 (p.191); this lookup never rolls",
     ]
 
 
@@ -4150,16 +4820,20 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "rules.roll",
-    "Percentile skill/characteristic check for an investigator. Deterministic dice; result is authoritative.",
+    "Contextual percentile skill/characteristic check. Requires an explicit goal, stakes, difficulty, and structured difficulty basis; returns distinct required and achieved levels.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
         "characteristic": {"type": "string", "desc": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill"},
         "target": {"type": "integer", "desc": "explicit target value override"},
-        "difficulty": {"type": "string", "desc": "regular | hard | extreme (default regular)"},
+        "difficulty": {"type": "string", "required": True, "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
+        "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
+        "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences"},
+        "difficulty_basis": {"type": "string", "required": True, "desc": "authored_gate | opponent_skill | environment | keeper_judgment"},
         "bonus": {"type": "integer", "desc": "bonus dice 0-2"},
         "penalty": {"type": "integer", "desc": "penalty dice 0-2"},
-        "reason": {"type": "string", "desc": "what the roll is for (logged)"},
+        "reason": {"type": "string", "desc": "optional audit note distinct from the authoritative goal/stakes contract"},
+        "npc_id": {"type": "string", "desc": "structured NPC target for a social check; required to match/consume an NPC-scoped relationship reward"},
         "fumble_consequence": {
             "type": "string",
             "desc": "predeclared meaningful complication if this roll fumbles (dice evidence)",
@@ -4174,15 +4848,9 @@ def _tool_rules_roll(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "rules.push",
-    "Pushed re-roll after a failure. Requires both a changed method and the consequence announced before rolling.",
+    "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them.",
     {
-        "investigator": {"type": "string", "desc": "investigator id"},
-        "skill": {"type": "string", "desc": "skill name"},
-        "characteristic": {"type": "string", "desc": "characteristic instead of a skill"},
-        "target": {"type": "integer", "desc": "explicit target override"},
-        "difficulty": {"type": "string", "desc": "regular | hard | extreme"},
-        "bonus": {"type": "integer", "desc": "bonus dice"},
-        "penalty": {"type": "integer", "desc": "penalty dice"},
+        "original_check_decision_id": {"type": "string", "required": True, "desc": "decision_id of the failed canonical rules.roll to push"},
         "method_changed": {"type": "string", "required": True, "desc": "how the approach differs from the first attempt"},
         "failure_consequence": {
             "type": "string",
@@ -4193,7 +4861,6 @@ def _tool_rules_roll(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "specific escalation if the pushed roll fumbles",
         },
-        "reason": {"type": "string", "desc": "what the push is for"},
         "seed": {"type": "integer", "desc": "deterministic RNG seed"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
@@ -4267,8 +4934,13 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "rules.opposed",
-    "Opposed check: investigator skill vs an opponent value. Higher success level wins; ties favor the higher value.",
+    "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve.",
     {
+        "contest_kind": {
+            "type": "string",
+            "required": True,
+            "desc": "must be noncombat; combat reactions use combat.resolve defense_kind",
+        },
         "investigator": {"type": "string", "desc": "investigator id"},
         "skill": {"type": "string", "desc": "investigator skill"},
         "characteristic": {"type": "string", "desc": "characteristic instead of a skill"},
@@ -4281,6 +4953,13 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
+    if args.get("contest_kind") != "noncombat":
+        raise ToolError(
+            "invalid_param",
+            "rules.opposed accepts only contest_kind=noncombat; resolve every "
+            "attack, Dodge, or Fight Back through combat.resolve so the "
+            "structured defense_kind owns its distinct tie rule",
+        )
     prior = ctx.ledger_lookup("rules.opposed", args.get("decision_id"))
     if prior is not None:
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
@@ -4489,6 +5168,237 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     return data, warnings, hints
 
 
+def _rewrite_roll_visibilities(
+    campaign_dir: Path,
+    roll_ids: set[str],
+    *,
+    visibility: str,
+    supersession_id: str,
+    reason: str,
+) -> list[str]:
+    """Mark canonical roll rows as non-player-facing after a correction.
+
+    Audit rows remain; only player-facing projection (turn.finalize, battle
+    report) hides them. Returns the roll_ids that were rewritten.
+    """
+    path = Path(campaign_dir) / "logs" / "rolls.jsonl"
+    if not path.is_file() or not roll_ids:
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    rewritten: list[str] = []
+    out_lines: list[str] = []
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            out_lines.append(raw)
+            continue
+        if not isinstance(row, dict):
+            out_lines.append(raw)
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        roll_id = str(
+            row.get("roll_id")
+            or payload.get("roll_id")
+            or row.get("command_id")
+            or ""
+        ).strip()
+        if roll_id not in roll_ids:
+            out_lines.append(raw)
+            continue
+        row["visibility"] = visibility
+        row["superseded"] = True
+        row["supersession_id"] = supersession_id
+        row["supersession_reason"] = reason
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload["visibility"] = visibility
+            payload["superseded"] = True
+            payload["supersession_id"] = supersession_id
+            payload["supersession_reason"] = reason
+            row["payload"] = payload
+        out_lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+        rewritten.append(roll_id)
+    coc_fileio.write_text_atomic(
+        path,
+        "\n".join(out_lines) + ("\n" if out_lines else ""),
+        encoding="utf-8",
+    )
+    return rewritten
+
+
+def _hide_related_hp_events(
+    campaign_dir: Path,
+    roll_ids: set[str],
+    *,
+    supersession_id: str,
+    reason: str,
+) -> int:
+    """Hide hp_change events bound to superseded damage rolls from player view."""
+    path = Path(campaign_dir) / "logs" / "events.jsonl"
+    if not path.is_file() or not roll_ids:
+        return 0
+    lines = path.read_text(encoding="utf-8").splitlines()
+    changed = 0
+    out_lines: list[str] = []
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            out_lines.append(raw)
+            continue
+        if not isinstance(row, dict) or row.get("event_type") != "hp_change":
+            out_lines.append(raw)
+            continue
+        event_roll = str(row.get("roll_id") or "").strip()
+        if event_roll not in roll_ids:
+            out_lines.append(raw)
+            continue
+        row["visibility"] = "superseded"
+        row["player_facing"] = False
+        row["superseded"] = True
+        row["supersession_id"] = supersession_id
+        row["supersession_reason"] = reason
+        out_lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+        changed += 1
+    if changed:
+        coc_fileio.write_text_atomic(
+            path,
+            "\n".join(out_lines) + ("\n" if out_lines else ""),
+            encoding="utf-8",
+        )
+    return changed
+
+
+@tool(
+    "state.supersede_settlement",
+    "Correct a prior public settlement and hide the voided dice/HP from player-facing final output while keeping the audit trail.",
+    {
+        "roll_ids": {
+            "type": "array",
+            "required": True,
+            "desc": "canonical roll_id values to hide from player-facing mechanics (damage, dodge error, etc.)",
+        },
+        "reason": {
+            "type": "string",
+            "required": True,
+            "desc": "structured correction reason (e.g. same-level dodge voids hit)",
+        },
+        "investigator": {
+            "type": "string",
+            "desc": "investigator id when also reversing HP",
+        },
+        "restore_hp_to": {
+            "type": "integer",
+            "desc": "optional absolute current HP after correction (e.g. 12 when an erroneous 12→9 is voided)",
+        },
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)
+def _tool_state_supersede_settlement(ctx: Ctx, args: dict[str, Any]):
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup("state.supersede_settlement", decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    raw_ids = args.get("roll_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        raise ToolError("invalid_param", "roll_ids must be a non-empty array")
+    roll_ids = {
+        str(value).strip()
+        for value in raw_ids
+        if isinstance(value, str) and value.strip()
+    }
+    if not roll_ids:
+        raise ToolError("invalid_param", "roll_ids must contain non-empty strings")
+    reason = str(args.get("reason") or "").strip()
+    if not reason:
+        raise ToolError("invalid_param", "reason is required")
+    supersession_id = f"supersede-{decision_id}"
+    rewritten = _rewrite_roll_visibilities(
+        ctx.campaign_dir,
+        roll_ids,
+        visibility="superseded",
+        supersession_id=supersession_id,
+        reason=reason,
+    )
+    _hide_related_hp_events(
+        ctx.campaign_dir,
+        roll_ids,
+        supersession_id=supersession_id,
+        reason=reason,
+    )
+    hp_receipt: dict[str, Any] | None = None
+    restore_to = args.get("restore_hp_to")
+    if restore_to is not None:
+        if isinstance(restore_to, bool) or not isinstance(restore_to, int) or restore_to < 0:
+            raise ToolError("invalid_param", "restore_hp_to must be a non-negative integer")
+        investigator_id = _resolve_investigator(ctx, args)
+        state = ctx.inv_state(investigator_id)
+        sheet = ctx.sheet(investigator_id)
+        max_hp = int((sheet.get("derived") or {}).get("HP") or 10)
+        before = int(state.get("current_hp", max_hp))
+        after = min(max_hp, int(restore_to))
+        state["current_hp"] = after
+        conditions_before = list(state.get("conditions") or [])
+        conditions = list(conditions_before)
+        if after > 0:
+            for gone in ("dying", "unconscious"):
+                if gone in conditions:
+                    conditions.remove(gone)
+        state["conditions"] = conditions
+        ctx.save_inv_state(investigator_id, state)
+        hp_receipt = {
+            "investigator_id": investigator_id,
+            "kind": "heal" if after >= before else "damage",
+            "amount": abs(after - before),
+            "hp_before": before,
+            "hp_after": after,
+            "max_hp": max_hp,
+            "conditions_before": conditions_before,
+            "conditions_after": list(conditions),
+            "source": f"supersession:{supersession_id}",
+            "player_facing": False,
+            "superseded_correction": True,
+        }
+        ctx.log_event({
+            "event_type": "hp_change",
+            **hp_receipt,
+            "visibility": "superseded",
+            "supersession_id": supersession_id,
+        })
+    data = {
+        "supersession_id": supersession_id,
+        "decision_id": decision_id,
+        "reason": reason,
+        "requested_roll_ids": sorted(roll_ids),
+        "rewritten_roll_ids": sorted(set(rewritten)),
+        "hp_correction": hp_receipt,
+        "player_facing_hidden": True,
+    }
+    ctx.log_event({
+        "event_type": "settlement_superseded",
+        **data,
+        "ts": _now_iso(),
+    })
+    ctx.ledger_record(decision_id, "state.supersede_settlement", data)
+    hints = [
+        "superseded settlements stay in the audit log but are hidden from "
+        "player-facing final mechanics and battle-report public dice"
+    ]
+    if hp_receipt is not None:
+        hints.append(
+            f"HP corrected to {hp_receipt['hp_after']} "
+            f"(was {hp_receipt['hp_before']}); correction itself is non-player-facing"
+        )
+    return data, [], hints
+
+
 @tool(
     "rules.damage",
     "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression.",
@@ -4524,7 +5434,8 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
     before = int(state.get("current_hp", max_hp))
     after = min(max_hp, before + amount) if kind == "heal" else max(0, before - amount)
     state["current_hp"] = after
-    conditions = list(state.get("conditions") or [])
+    conditions_before = list(state.get("conditions") or [])
+    conditions = list(conditions_before)
     hints: list[str] = []
     if kind == "damage":
         if amount >= (max_hp + 1) // 2 and amount > 0:
@@ -4555,6 +5466,8 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
         "hp_before": before,
         "hp_after": after,
         "max_hp": max_hp,
+        "conditions_before": conditions_before,
+        "conditions_after": list(conditions),
         "conditions": conditions,
         "source": args.get("source"),
     }
@@ -4584,43 +5497,191 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 
+def _luck_source_receipt_by_roll_id(
+    ctx: Ctx,
+    document: dict[str, Any],
+    source_roll_id: str,
+) -> dict[str, Any]:
+    found: list[dict[str, Any]] = []
+    for by_tool in (document.get("receipts") or {}).values():
+        if not isinstance(by_tool, dict):
+            raise ToolError("state_corrupt", "canonical roll receipt map is invalid")
+        found.extend(
+            receipt
+            for receipt in by_tool.values()
+            if isinstance(receipt, dict)
+            and receipt.get("roll_id") == source_roll_id
+        )
+    if len(found) != 1:
+        raise ToolError(
+            "invalid_param",
+            "source_roll_id does not identify one current canonical roll receipt",
+        )
+    source = found[0]
+    if source.get("tool") != "rules.roll":
+        raise ToolError(
+            "invalid_param",
+            "source roll is ineligible for Luck adjustment",
+        )
+    if _roll_side_effect_key(source) in document.get("pending_side_effects", {}):
+        raise ToolError(
+            "invalid_param",
+            "source roll is not yet a fully settled current receipt",
+        )
+    raw = _roll_log_bytes(ctx)
+    ordered, _by_effect_key = _validated_roll_document_collection(document)
+    _verify_roll_receipt_prefixes(raw, ordered)
+    complete, tail, index = _parse_complete_roll_frames(raw)
+    if tail or complete != raw or index.get(source_roll_id) != source.get("roll_record"):
+        raise ToolError(
+            "state_corrupt",
+            "source_roll_id is stale or diverges from its canonical public row",
+        )
+    if source.get("roll_record", {}).get("visibility") != "public":
+        raise ToolError("invalid_param", "hidden rolls are ineligible for Luck")
+    return source
+
+
+def _ensure_luck_spend_receipt_effects(
+    ctx: Ctx,
+    receipt: dict[str, Any],
+) -> None:
+    expected_event = receipt["event"]
+    events_path = ctx.campaign_dir / "logs" / "events.jsonl"
+    matches = [
+        row
+        for row in _read_jsonl_records(events_path)
+        if row.get("event_id") == expected_event["event_id"]
+    ]
+    if len(matches) > 1:
+        raise ToolError("state_corrupt", "Luck spend event is duplicated")
+    if matches:
+        material = {key: value for key, value in matches[0].items() if key != "ts"}
+        if material != expected_event:
+            raise ToolError("state_corrupt", "Luck spend event contradicts its receipt")
+    else:
+        investigator_id = str(receipt["operation"]["investigator_id"])
+        state = ctx.inv_state(investigator_id)
+        current = state.get("current_luck")
+        before = receipt["data"]["luck_before"]
+        after = receipt["data"]["luck_after"]
+        if not _is_exact_int(current) or current not in {before, after}:
+            raise ToolError(
+                "state_corrupt",
+                "Luck state diverges from the pending adjustment receipt",
+            )
+        if current == before:
+            state["current_luck"] = after
+            ctx.save_inv_state(investigator_id, state)
+        ctx.log_event(deepcopy(expected_event))
+    manifest = _source_receipt_manifest(receipt)
+    prior = ctx.ledger_lookup("rules.luck_spend", str(receipt["decision_id"]))
+    if (
+        prior is None
+        or prior.get("data") != receipt["data"]
+        or prior.get("source_receipt_manifest") != manifest
+    ):
+        ctx.ledger_record(
+            str(receipt["decision_id"]),
+            "rules.luck_spend",
+            deepcopy(receipt["data"]),
+            source_receipt_manifest=manifest,
+        )
+
+
 @tool(
     "rules.luck_spend",
-    "Spend Luck to lower a failed roll toward success. Enforces the rulebook's legality constraints.",
+    "Bind Luck spending to one existing canonical public rules.roll receipt; adjusts its settlement without creating another dice row.",
     {
         "investigator": {"type": "string", "desc": "investigator id"},
-        "points": {"type": "integer", "required": True, "desc": "luck points to spend"},
-        "roll": {"type": "integer", "required": True, "desc": "the original percentile roll value"},
-        "target": {"type": "integer", "required": True, "desc": "the effective target of that roll"},
-        "outcome": {"type": "string", "desc": "the original outcome label (default failure)"},
-        "roll_kind": {"type": "string", "desc": "skill | luck | damage | sanity (default skill)"},
-        "decision_id": {"type": "string", "desc": "idempotency key"},
+        "points": {"type": "integer", "required": True, "desc": "positive Luck points to spend"},
+        "source_roll_id": {"type": "string", "required": True, "desc": "roll_id of the current canonical failed rules.roll receipt"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_rules_luck_spend(ctx: Ctx, args: dict[str, Any]):
+    allowed = {"investigator", "points", "source_roll_id", "decision_id"}
+    if set(args) - allowed or any(key not in args for key in ("points", "source_roll_id", "decision_id")):
+        raise ToolError(
+            "invalid_param",
+            "rules.luck_spend requires only source_roll_id, points, decision_id, and optional investigator",
+        )
+    points = args.get("points")
+    source_roll_id = args.get("source_roll_id")
+    decision_id = args.get("decision_id")
+    if not _is_exact_int(points) or points <= 0:
+        raise ToolError("invalid_param", "points must be a positive integer")
+    if not isinstance(source_roll_id, str) or not source_roll_id.strip():
+        raise ToolError("invalid_param", "source_roll_id must be a non-empty string")
+    if not isinstance(decision_id, str) or not decision_id.strip():
+        raise ToolError("invalid_param", "decision_id must be a non-empty string")
     investigator_id = _resolve_investigator(ctx, args)
-    prior = ctx.ledger_lookup("rules.luck_spend", args.get("decision_id"))
-    if prior is not None:
-        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
-    state = ctx.inv_state(investigator_id)
-    current_luck = int(state.get("current_luck", 0))
-    result = {
-        "roll": int(args["roll"]),
-        "effective_target": int(args["target"]),
-        "target": int(args["target"]),
-        "outcome": str(args.get("outcome") or "failure"),
+    operation = {
+        "investigator_id": investigator_id,
+        "source_roll_id": source_roll_id,
+        "points": points,
     }
-    adjusted = coc_roll.spend_luck(
-        result, int(args["points"]), current_luck, roll_kind=str(args.get("roll_kind") or "skill")
+    document = _load_roll_receipt_document(ctx)
+    existing = _luck_spend_receipt(document, decision_id)
+    if existing is not None:
+        if existing.get("fingerprint") != _operation_fingerprint(
+            "rules.luck_spend", operation
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' was already applied to a different Luck adjustment",
+            )
+        source = _luck_source_receipt_by_roll_id(
+            ctx,
+            document,
+            source_roll_id,
+        )
+        if existing.get("source_receipt") != _luck_source_reference(source):
+            raise ToolError(
+                "state_corrupt",
+                "Luck adjustment receipt diverges from its current canonical source receipt",
+            )
+        _ensure_luck_spend_receipt_effects(ctx, existing)
+        return deepcopy(existing["data"]), [
+            "duplicate decision_id: recovered the original Luck source receipt"
+        ], []
+    if ctx.ledger_lookup("rules.luck_spend", decision_id) is not None:
+        raise ToolError(
+            "state_corrupt",
+            "Luck ledger entry has no canonical adjustment receipt",
+        )
+    if any(
+        receipt.get("source_receipt", {}).get("roll_id") == source_roll_id
+        for receipt in document["luck_spends"].values()
+        if isinstance(receipt, dict)
+    ):
+        raise ToolError("invalid_param", "source roll was already adjusted with Luck")
+    source = _luck_source_receipt_by_roll_id(ctx, document, source_roll_id)
+    if source.get("resolution", {}).get("investigator_id") != investigator_id:
+        raise ToolError("invalid_param", "source roll belongs to another investigator")
+    state = ctx.inv_state(investigator_id)
+    current_luck = state.get("current_luck")
+    if not _is_exact_int(current_luck) or current_luck < 0:
+        raise ToolError("state_corrupt", "current_luck must be a non-negative integer")
+    try:
+        adjusted = _luck_spend_data(
+            source,
+            points=points,
+            luck_before=current_luck,
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    receipt = _new_luck_spend_receipt(
+        decision_id=decision_id,
+        operation=operation,
+        source_receipt=source,
+        data=adjusted,
     )
-    state["current_luck"] = int(adjusted["luck_remaining"])
-    ctx.save_inv_state(investigator_id, state)
-    adjusted["investigator_id"] = investigator_id
-    # Spending Luck alters an already-resolved roll; it does not create a new
-    # dice event.  Record it in the event log without fabricating a roll row.
-    ctx.log_event({"event_type": "luck_spent", **adjusted})
-    ctx.ledger_record(args.get("decision_id"), "rules.luck_spend", adjusted)
-    return adjusted, [], []
+    document["luck_spends"][decision_id] = deepcopy(receipt)
+    _validated_roll_document_collection(document)
+    _save_roll_receipt_document(ctx, document)
+    _ensure_luck_spend_receipt_effects(ctx, receipt)
+    return deepcopy(adjusted), [], []
 
 
 # --------------------------------------------------------------------------- #
@@ -4755,10 +5816,12 @@ def _record_combat_improvement_ticks(
 
     recorded: list[str] = []
     for event in events:
-        if (
-            event.get("event_type") != "combat_roll"
-            or event.get("actor_id") != investigator_id
-        ):
+        if event.get("event_type") != "combat_roll":
+            continue
+        # Skill credit follows skill_owner, not mere presence on the turn and
+        # not the action designer who only set a remote device in motion.
+        skill_owner = coc_development.skill_owner_for_roll(event)
+        if skill_owner != investigator_id:
             continue
         raw_skill = event.get("skill")
         if not isinstance(raw_skill, str):
@@ -4768,6 +5831,11 @@ def _record_combat_improvement_ticks(
             continue
         roll = deepcopy(event)
         roll["kind"] = "combat_skill"
+        roll.setdefault("skill_owner_id", investigator_id)
+        if event.get("actor_id") and event.get("actor_id") != investigator_id:
+            roll.setdefault("executor_id", event.get("actor_id"))
+        if event.get("action_designer_id"):
+            roll["action_designer_id"] = event["action_designer_id"]
         roll_id = roll.get("roll_id")
         if isinstance(roll_id, str) and roll_id in opposed_wins:
             roll["opposed_won"] = opposed_wins[roll_id]
@@ -5143,7 +6211,7 @@ def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "combat.resolve",
-    "Execute one authored combat beat through CombatSession; persists combat.json and canonical roll evidence.",
+    "Execute one authored combat beat through CombatSession, including reaction-specific ties (Dodge tie: defender; Fight Back tie: attacker), combat.json, and canonical roll evidence.",
     {
         "affordance_id": {
             "type": "string",
@@ -5157,7 +6225,7 @@ def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
         },
         "defense_kind": {
             "type": "string",
-            "desc": "dodge | fight_back | dive_for_cover | none when the investigator owes a defense",
+            "desc": "structured reaction: dodge (ties defend) | fight_back (ties attack) | dive_for_cover | none",
         },
         "luck_spend_max": {
             "type": "integer",
@@ -5183,6 +6251,12 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
     # after this read, but it cannot make one combat command mix two accepted
     # investigator versions.
     character_snapshot = ctx.sheet(investigator_id)
+    investigator_profile = _investigator_combat_profile(
+        ctx,
+        investigator_id,
+        character_snapshot=character_snapshot,
+    )
+    player_state_before = _player_mechanical_snapshot(ctx, investigator_id)
     world = ctx.world()
     scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id"))
     affordance_id = str(args["affordance_id"])
@@ -5210,6 +6284,9 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         )
 
     combat = _combat_state(ctx)
+    loaded_ammunition_before = _loaded_ammunition_snapshot(
+        combat, investigator_id, investigator_profile
+    )
     if combat.get("status") == "concluded":
         warnings.append(
             "the prior combat is concluded; this chosen attack starts a new "
@@ -5248,11 +6325,7 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             "active_scene": scene or {},
             "combat_state": combat,
             "world_state": world,
-            "investigator_combat_profile": _investigator_combat_profile(
-                ctx,
-                investigator_id,
-                character_snapshot=character_snapshot,
-            ),
+            "investigator_combat_profile": investigator_profile,
             "character": character_snapshot,
             "player_intent_rich": rich,
             "turn_number": int(ctx.pacing().get("turn_number") or 0),
@@ -5295,12 +6368,22 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         character_snapshot=character_snapshot,
     )
     current = _combat_state(ctx)
+    player_state_after = _player_mechanical_snapshot(ctx, investigator_id)
+    loaded_ammunition_after = _loaded_ammunition_snapshot(
+        current, investigator_id, investigator_profile
+    )
     data = {
         "results": results,
         "events": events,
         "combat": current,
         "pending_defense": deepcopy(current.get("pending_attack")),
         "improvement_ticks_recorded": improvement_ticks,
+        "player_state_receipt": _player_state_receipt(
+            player_state_before,
+            player_state_after,
+            ammo_before=loaded_ammunition_before,
+            ammo_after=loaded_ammunition_after,
+        ),
     }
     hints: list[str] = []
     if improvement_ticks:
@@ -5396,7 +6479,12 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 @tool(
     "scene.context",
     "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time.",
-    {},
+    {
+        "investigator": {
+            "type": "string",
+            "desc": "optional investigator whose pair-scoped NPC impressions should be projected; defaults only for a one-member party",
+        },
+    },
 )
 def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     world = ctx.world()
@@ -5409,19 +6497,32 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         warnings.append(f"active scene '{active_id}' not found in story graph — use scene.map / state.move_scene")
 
     npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
+    party_ids = ctx.party_ids()
+    impression_investigator: str | None = None
+    if args.get("investigator") is not None:
+        impression_investigator = _resolve_investigator(ctx, args)
+    elif len(party_ids) == 1:
+        impression_investigator = party_ids[0]
     npcs = []
     for npc_id in (scene or {}).get("npc_ids") or []:
         agenda = _npc_by_id(ctx.npc_agendas, npc_id) or {}
         psych = (npc_state.get("psych") or {}).get(str(npc_id)) or {}
+        normalized_psych = coc_npc_state.normalize_entry(psych)
+        impression = (
+            normalized_psych.get("impressions", {}).get(impression_investigator)
+            if impression_investigator
+            else None
+        )
         npcs.append({
             "npc_id": npc_id,
             "name": agenda.get("name"),
             "voice": agenda.get("voice"),
             "relationship_to_investigators": agenda.get("relationship_to_investigators"),
-            "availability": psych.get("availability") or agenda.get("availability"),
-            "trust": psych.get("trust", 0),
-            "fear": psych.get("fear", 0),
-            "suspicion": psych.get("suspicion", 0),
+            "availability": normalized_psych.get("availability") or agenda.get("availability"),
+            "trust": normalized_psych.get("trust", 0),
+            "fear": normalized_psych.get("fear", 0),
+            "suspicion": normalized_psych.get("suspicion", 0),
+            "impression": deepcopy(impression) if isinstance(impression, dict) else None,
             "identity_contract": (
                 _npc_identity_contract(agenda, str(active_id) if active_id else None)
                 if agenda
@@ -5465,6 +6566,31 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
 
     flag_continuity = _world_flag_continuity(ctx)
     active_time_markers = _active_time_markers(ctx)
+    try:
+        exceptional_document = coc_exceptional_effects.load(ctx.campaign_dir)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    active_exceptional_effects = []
+    for effect in exceptional_document["effects"].values():
+        mechanics = effect.get("mechanics") or {}
+        scoped_scene = mechanics.get("scene_id")
+        if (
+            effect.get("status") != "active"
+            or (scoped_scene is not None and scoped_scene != active_id)
+        ):
+            continue
+        active_exceptional_effects.append({
+            "effect_id": effect["effect_id"],
+            "direction": effect["direction"],
+            "effect_kind": effect["effect_kind"],
+            "player_visible_impact": effect["player_visible_impact"],
+            "causal_link": effect["causal_link"],
+            "boundary": deepcopy(effect["boundary"]),
+            "mechanics": deepcopy(effect["mechanics"]),
+            "visibility": effect["visibility"],
+            "status": effect["status"],
+        })
+    active_exceptional_effects.sort(key=lambda row: row["effect_id"])
     # Compact keeper-facing narrative brief per party member (structured sheet
     # fields + sanity engine state only; no prose scanning). Lets the default
     # turn path see APP/CR/build/occupation/age and active madness without a
@@ -5542,6 +6668,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "state_precedence": "live_over_authored_initial",
             **flag_continuity,
             "active_time_markers": active_time_markers,
+            "active_exceptional_effects": active_exceptional_effects,
         },
         "exit_ready": str(active_id) in {str(s) for s in world.get("exit_ready_scene_ids") or []},
         "pending_san_triggers": [
@@ -5590,6 +6717,20 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "active_time_markers are bookkeeping facts only; report their structured "
             "remaining/overdue values, but do not auto-trigger a rescue or block play"
         )
+    if active_exceptional_effects:
+        hints.append(
+            "active_exceptional_effects are canonical continuity: honor their explicit boundary. "
+            "rules.roll fail-closes matching one-shot bonus/penalty dice; restrictions, "
+            "conditions, and scene events remain KP-owned fictional constraints rather than hard scene gates"
+        )
+    if len(party_ids) > 1 and impression_investigator is None:
+        hints.append(
+            "scene.context has multiple investigators; pass investigator explicitly to project one pair-scoped NPC impression"
+        )
+    elif impression_investigator:
+        hints.append(
+            f"npcs_present.impression is the bounded textual memory for investigator '{impression_investigator}'; use it as semantic context, never as a hard gate"
+        )
     hints.append(
         "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored"
     )
@@ -5624,13 +6765,174 @@ def _tool_scene_map(ctx: Ctx, args: dict[str, Any]):
             "exhausted": sid in exhausted,
             "is_terminal": coc_scene_graph.is_terminal_scene(scene, sg),
             "edges": edges_map.get(sid, []),
+            # Progressive track: skeleton/partial/deep (KP-only; never player-facing)
+            "parse_state": scene.get("parse_state"),
+            "evidence_gap": bool(scene.get("evidence_gap")),
         })
     data = {
         "active_scene_id": world.get("active_scene_id"),
         "scenes": scenes,
         "scene_history": world.get("scene_history"),
+        "progressive_asset_root_id": coc_module_project.campaign_asset_root_id(
+            ctx.campaign_dir
+        )
+        if ctx.campaign_dir is not None
+        else None,
     }
     return data, [], []
+
+
+@tool(
+    "progressive.request_deepen",
+    "Player-dig path for progressive modules: ensure a named_only stub, enqueue host deep-extract, "
+    "and return host_hints / evidence_gap status. Use when the investigator materially pursues a "
+    "place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. "
+    "Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only).",
+    {
+        "kind": {
+            "type": "string",
+            "required": True,
+            "desc": "location | npc | clue | handout | threat",
+        },
+        "target_id": {
+            "type": "string",
+            "required": True,
+            "desc": "stable entity id (e.g. gypsy-hillside-camp, npc-carlos-mendoza)",
+        },
+        "title": {
+            "type": "string",
+            "desc": "optional display label for the stub (table language ok)",
+        },
+        "reason": {
+            "type": "string",
+            "desc": "why dig was requested (logged on the queue job)",
+        },
+    },
+)
+def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    try:
+        result = coc_module_project.request_deepen(
+            ctx.root,
+            ctx.campaign_id,
+            kind=str(args["kind"]),
+            target_id=str(args["target_id"]),
+            title=str(args["title"]) if args.get("title") else None,
+            reason=str(args.get("reason") or "player_dig"),
+        )
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    except Exception as exc:
+        raise ToolError("progressive_error", f"request_deepen failed: {exc}") from exc
+    hints = list(result.get("host_hints") or [])
+    if result.get("skipped"):
+        hints.append("campaign is not on the progressive asset track")
+    status = result.get("status") or {}
+    if status.get("deep_ready"):
+        hints.append(
+            f"{args['kind']}:{args['target_id']} already deep — merge/process if not yet in IR"
+        )
+    elif not result.get("skipped"):
+        hints.append(
+            "play may continue with skeleton/stub; do not fabricate handout/secret bodies "
+            "while evidence_gap or dig_pending is set"
+        )
+    return result, [], hints
+
+
+@tool(
+    "progressive.follow_mentions",
+    "Enqueue deepen jobs from a structured mentions list "
+    "[{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, "
+    "or dig yields explicit entity refs. Never pass free prose to scan.",
+    {
+        "mentions": {
+            "type": "array",
+            "required": True,
+            "desc": "list of {kind, ref_id, raw_label?}",
+        },
+        "reason": {
+            "type": "string",
+            "desc": "queue reason label",
+        },
+    },
+)
+def _tool_progressive_follow_mentions(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    mentions = args.get("mentions")
+    if not isinstance(mentions, list):
+        raise ToolError("invalid_param", "mentions must be an array")
+    try:
+        result = coc_module_project.follow_structured_mentions(
+            ctx.root,
+            ctx.campaign_id,
+            mentions,
+            reason=str(args.get("reason") or "structured_mention"),
+        )
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    except Exception as exc:
+        raise ToolError("progressive_error", f"follow_mentions failed: {exc}") from exc
+    return result, [], list(result.get("host_hints") or [])
+
+
+@tool(
+    "progressive.status",
+    "Read progressive parse queue + optional entity status for the campaign asset root. "
+    "Also reports whether the detached parallel queue worker is running. "
+    "Keeper-only; use before inventing detail on a dig target.",
+    {
+        "kind": {
+            "type": "string",
+            "desc": "optional entity kind to inspect",
+        },
+        "target_id": {
+            "type": "string",
+            "desc": "optional entity id to inspect (requires kind)",
+        },
+    },
+)
+def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+    if not root_id:
+        return {
+            "progressive": False,
+            "asset_root_id": None,
+            "queue": None,
+        }, ["campaign is not progressive"], []
+    # list_queue lives on assets module (sibling of project)
+    assets_mod = coc_module_project.coc_module_assets
+    queue = assets_mod.list_queue(ctx.root, root_id)
+    worker_mod = coc_module_project._load_sibling(
+        "coc_module_queue_worker_toolbox", "coc_module_queue_worker.py",
+    )
+    data: dict[str, Any] = {
+        "progressive": True,
+        "asset_root_id": root_id,
+        "queue": {
+            "pending": queue.get("pending") or [],
+            "in_flight": queue.get("in_flight") or [],
+            "done_count": len(queue.get("done") or []),
+            "done_tail": (queue.get("done") or [])[-5:],
+        },
+        "worker": worker_mod.worker_status(ctx.root),
+    }
+    kind = str(args.get("kind") or "").strip()
+    tid = str(args.get("target_id") or "").strip()
+    if kind or tid:
+        if not kind or not tid:
+            raise ToolError("invalid_param", "kind and target_id must be provided together")
+        data["entity"] = coc_module_project._entity_status(
+            ctx.root, root_id, kind, tid,
+        )
+    return data, [], [
+        "queue is non-blocking: dig only enqueues; parallel worker merges ready packs "
+        "and writes host-work requests for missing deep bodies",
+    ]
 
 
 @tool(
@@ -5688,9 +6990,10 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "npc.query",
-    "NPC agendas plus live psych state. 'secret'-marked fields are keeper-only reference — never reveal verbatim.",
+    "NPC agendas plus live psych state and the requested investigator/NPC's bounded textual impression. 'secret'-marked fields are keeper-only reference — never reveal verbatim.",
     {
         "npc_id": {"type": "string", "desc": "a single NPC (default: all)"},
+        "investigator": {"type": "string", "desc": "investigator whose pair-scoped impression should be projected"},
     },
 )
 def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
@@ -5707,11 +7010,22 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     canonical_requested_id = (
         str(requested_npc.get("npc_id")) if requested_npc is not None else ""
     )
+    impression_investigator: str | None = None
+    if args.get("investigator") is not None:
+        impression_investigator = _resolve_investigator(ctx, args)
+    elif len(ctx.party_ids()) == 1:
+        impression_investigator = ctx.party_ids()[0]
     for npc in ctx.npc_agendas.get("npcs") or []:
         if canonical_requested_id and str(npc.get("npc_id")) != canonical_requested_id:
             continue
         npc_id = str(npc.get("npc_id"))
         psych = (npc_state.get("psych") or {}).get(npc_id) or {}
+        normalized_psych = coc_npc_state.normalize_entry(psych)
+        impression = (
+            normalized_psych.get("impressions", {}).get(impression_investigator)
+            if impression_investigator
+            else None
+        )
         identity_contract = _npc_identity_contract(npc, active_scene_id)
         out.append({
             "npc_id": npc_id,
@@ -5738,13 +7052,14 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
             "deflect_options": npc.get("deflect_options"),
             "schedule": npc.get("schedule"),
             "psych": {
-                "trust": psych.get("trust", 0),
-                "fear": psych.get("fear", 0),
-                "suspicion": psych.get("suspicion", 0),
-                "known_facts": psych.get("known_facts", []),
-                "lies_told": psych.get("lies_told", []),
-                "promises": psych.get("promises", []),
-                "availability": psych.get("availability"),
+                "trust": normalized_psych.get("trust", 0),
+                "fear": normalized_psych.get("fear", 0),
+                "suspicion": normalized_psych.get("suspicion", 0),
+                "known_facts": normalized_psych.get("known_facts", []),
+                "lies_told": normalized_psych.get("lies_told", []),
+                "promises": normalized_psych.get("promises", []),
+                "availability": normalized_psych.get("availability"),
+                "impression": deepcopy(impression) if isinstance(impression, dict) else None,
             },
         })
     hints = [
@@ -5753,6 +7068,14 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
         "pass the returned identity_ref to state.record_npc_engagement only when this authored identity is the one portrayed; a missing or mismatched ref records the interaction but is not authored-NPC coverage",
         "when an authored NPC has no pronoun or gender field, repeat the authored name; never invent a gendered pronoun",
     ]
+    if impression_investigator:
+        hints.append(
+            f"psych.impression is the bounded, caller-authored textual memory for investigator '{impression_investigator}'; use it as semantic context, never as a hard action gate"
+        )
+    elif len(ctx.party_ids()) > 1:
+        hints.append(
+            "npc.query has multiple investigators; pass investigator explicitly to project one pair-scoped textual impression"
+        )
     if requested_id and requested_id != canonical_requested_id:
         hints.append(
             f"resolved NPC alias '{requested_id}' to authored id '{canonical_requested_id}'"
@@ -5766,13 +7089,55 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     return {"npcs": out}, [], hints
 
 
+def _ensure_first_impression_roll(
+    ctx: Ctx, receipt: dict[str, Any]
+) -> None:
+    """Materialize a schema-v2 public roll exactly once from its source receipt."""
+    if receipt.get("schema_version") != 2:
+        return
+    expected = receipt.get("roll_record")
+    roll_id = str(receipt.get("roll_id") or "")
+    if not isinstance(expected, dict) or not roll_id:
+        raise ToolError("state_corrupt", "first-impression receipt lacks its public roll source")
+    try:
+        with coc_async_recorder.recorder_lock(ctx.campaign_dir):
+            raw = _roll_log_bytes(ctx)
+            complete, tail, index = _parse_complete_roll_frames(raw)
+            if tail or complete != raw:
+                raise ToolError(
+                    "state_corrupt",
+                    "cannot materialize a first-impression roll over an incomplete rolls.jsonl tail",
+                )
+            prior = index.get(roll_id)
+            if prior is not None:
+                if prior != expected:
+                    raise ToolError(
+                        "state_corrupt",
+                        f"first-impression roll_id '{roll_id}' conflicts with its source receipt",
+                    )
+                return
+            _append_roll_frame_locked(
+                ctx.campaign_dir / "logs" / "rolls.jsonl",
+                _roll_record_frame(expected),
+            )
+    except coc_async_recorder.RecorderLockError as exc:
+        raise ToolError("campaign_busy", str(exc)) from exc
+
+
 @tool(
     "npc.reaction",
-    "Concealed APP/Credit-Rating first-impression roll for one investigator toward an NPC (p.191). Advisory; keeper-only — never quote the number to players.",
+    "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement.",
     {
-        "npc_id": {"type": "string", "desc": "NPC id or short name (optional; binds the reaction evidence to an authored NPC)"},
+        "npc_id": {"type": "string", "required": True, "desc": "stable authored or improvised NPC id"},
+        "npc_display_name": {"type": "string", "desc": "required for a new pair: localized player-safe table name for this stable NPC; never pass the raw npc_id"},
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
+        "run_id": {"type": "string", "desc": "current play/report segment run id; use the same value for the first engagement"},
+        "context": {
+            "type": "object",
+            "desc": "required for a new pair: exactly {player_conduct, scene_constraints, authored_or_relationship_boundary, semantic_reason}; structured semantic grounding only, never used to alter the die",
+        },
         "seed": {"type": "integer", "desc": "deterministic advisory seed"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key; a second decision for the same pair returns the frozen receipt"},
     },
 )
 def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
@@ -5785,37 +7150,138 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
     app = int(_app_raw) if _app_raw is not None else 50
     _cr_raw = skills.get("Credit Rating", 0)
     credit_rating = int(_cr_raw) if _cr_raw is not None else 0
-    warnings: list[str] = []
-    npc_id = str(args.get("npc_id") or "").strip()
-    if npc_id:
-        agenda = _npc_by_id(ctx.npc_agendas, npc_id)
-        if agenda is None:
-            raise ToolError(
-                "unknown_npc",
-                f"npc not found or short name is ambiguous: {npc_id}",
+    decision_id = str(args["decision_id"]).strip()
+    requested_npc_id = str(args["npc_id"]).strip()
+    if not requested_npc_id:
+        raise ToolError("invalid_param", "npc_id must be non-empty")
+    agenda = _npc_by_id(ctx.npc_agendas, requested_npc_id)
+    npc_id = str(agenda.get("npc_id")) if agenda is not None else requested_npc_id
+    npc_display_name = str(args.get("npc_display_name") or "").strip()
+    campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+    run_id = coc_npc_event_chain.resolve_run_id(
+        ctx.campaign_dir, structured_source=args
+    )
+    try:
+        document = coc_first_impression.load_document(
+            ctx.campaign_dir, campaign_id
+        )
+        decision_receipt = coc_first_impression.find_by_decision(
+            document, decision_id
+        )
+        pair_receipt = coc_first_impression.find_by_pair(
+            document, investigator_id, npc_id
+        )
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    if decision_receipt is not None and (
+        decision_receipt["investigator_id"] != investigator_id
+        or decision_receipt["npc_id"] != npc_id
+        or decision_receipt["run_id"] != run_id
+    ):
+        raise ToolError(
+            "idempotency_conflict",
+            f"decision_id '{decision_id}' already owns another first impression",
+        )
+    if pair_receipt is not None:
+        if pair_receipt.get("schema_version") == 2:
+            _ensure_first_impression_roll(ctx, pair_receipt)
+        data = deepcopy(pair_receipt)
+        data["first_impression_ref"] = pair_receipt["receipt_id"]
+        return data, [
+            "first impression already settled for this investigator/NPC pair; returned the frozen receipt without rerolling"
+        ], [
+            (
+                "legacy schema-v1 receipt preserved without rerolling"
+                if pair_receipt.get("schema_version") == 1
+                else "the public die and reaction tier are frozen; use the receipt's context plus current fiction to realize the first response"
             )
-        npc_id = str(agenda.get("npc_id"))
-        if coc_story_director._npc_is_forced_adversary(agenda):
-            warnings.append(
-                f"{npc_id} is a forced adversary by authored structure; the p.191 reaction roll targets neutral NPCs — hostility is already decided"
-            )
-    reaction = coc_rule_signals.roll_npc_reaction(app, credit_rating, rng=_rng(args))
-    data = {
+        ]
+
+    context = deepcopy(args.get("context"))
+    if not npc_display_name or npc_display_name == npc_id:
+        raise ToolError(
+            "invalid_param",
+            "a new first-impression pair requires a localized player-safe npc_display_name distinct from npc_id",
+        )
+    if not isinstance(context, dict) or set(context) != coc_first_impression.CONTEXT_FIELDS:
+        raise ToolError(
+            "invalid_param",
+            "a new first-impression pair requires context exactly: player_conduct, scene_constraints, authored_or_relationship_boundary, semantic_reason",
+        )
+    if not all(
+        isinstance(context.get(key), str)
+        and bool(context[key].strip())
+        and context[key] == context[key].strip()
+        for key in coc_first_impression.CONTEXT_FIELDS
+    ):
+        raise ToolError("invalid_param", "all first-impression context fields must be non-empty strings")
+
+    governing_attribute = "credit_rating" if credit_rating > app else "app"
+    governing_value = max(app, credit_rating)
+    result = coc_roll.percentile_check(
+        governing_value, difficulty="regular", rng=_rng(args)
+    )
+    achieved_level = str(result["achieved_level"])
+    reaction_tier = coc_first_impression.REACTION_TIERS[achieved_level]
+    roll_id = coc_first_impression.current_roll_id(
+        campaign_id, investigator_id, npc_id
+    )
+    roll_record = ctx.prepare_roll({
+        "roll_id": roll_id,
+        "kind": "npc_first_impression",
+        "actor": investigator_id,
         "investigator_id": investigator_id,
-        "npc_id": npc_id or None,
+        "npc_id": npc_id,
+        "npc_display_name": npc_display_name,
+        "skill": "First Impression",
+        "display_skill": "初印象",
         "app": app,
         "credit_rating": credit_rating,
-        **reaction,
-        "suggested_emotional_tone": coc_story_director._disposition_to_tone(
-            reaction["disposition"]
-        ),
-        "concealed": True,
-        "rule_ref": "keeper-rulebook p.191",
-    }
-    return data, warnings, [
-        "concealed keeper roll: never quote the number; only the disposition may color the NPC's portrayed manner",
-        "advisory only — accumulated NPC psych state (npc.query) outranks a fresh first-impression roll",
+        "governing_attribute": governing_attribute,
+        "governing_value": governing_value,
+        **result,
+        "reaction_tier": reaction_tier,
+        "visibility": "public",
+        "source": "keeper_toolbox",
+    })
+    try:
+        receipt = coc_first_impression.new_receipt(
+            campaign_id=campaign_id,
+            run_id=run_id,
+            decision_id=decision_id,
+            investigator_id=investigator_id,
+            npc_id=npc_id,
+            npc_display_name=npc_display_name,
+            app=app,
+            credit_rating=credit_rating,
+            roll_record=roll_record,
+            achieved_level=achieved_level,
+            outcome=str(result["outcome"]),
+            passed=bool(result["passed"]),
+            surplus_levels=int(result["surplus_levels"]),
+            context=context,
+        )
+        coc_first_impression.put_receipt(document, receipt)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    coc_state.write_json_atomic(
+        coc_first_impression.document_path(ctx.campaign_dir), document
+    )
+    _ensure_first_impression_roll(ctx, receipt)
+    data = deepcopy(receipt)
+    data["first_impression_ref"] = receipt["receipt_id"]
+    hints = [
+        "the D100 is public and frozen; do not alter it with authored hostility, relationship state, scene constraints, or bonus/penalty dice",
+        "the reaction_tier changes immediate opportunity or friction, not the NPC's agenda, allegiance, safety policy, authority, or established relationship",
+        "supply first_impression_realization to the matching first state.record_npc_engagement call using the stored context and current fiction",
+        "pass first_impression_ref to the matching first state.record_npc_engagement call",
     ]
+    if achieved_level in {"critical", "fumble"}:
+        hints.insert(
+            0,
+            "before state.journal, apply an independent source-bound state.exceptional_effect for this first-impression roll; prose, a flag, or elapsed time is insufficient",
+        )
+    return data, [], hints
 
 
 @tool(
@@ -6073,6 +7539,7 @@ def _tool_director_advise(ctx: Ctx, args: dict[str, Any]):
             "story_need": director_ctx.get("story_need"),
             "personal_horror_hooks": director_ctx.get("personal_horror_hooks") or [],
             "threat_fronts": director_ctx.get("threat_fronts") or {},
+            "time_signals": director_ctx.get("time_signals") or {},
         },
     }
     return data, [], [
@@ -6617,6 +8084,8 @@ def _tool_sanity_context(ctx: Ctx, args: dict[str, Any]):
     },
 )
 def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
+    investigator_id = _resolve_investigator(ctx, args)
+    player_state_before = _player_mechanical_snapshot(ctx, investigator_id)
     normalized_args = deepcopy(args)
     command = normalized_args.get("command")
     payload = command.get("payload") if isinstance(command, dict) else None
@@ -6633,6 +8102,10 @@ def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
         normalized_args,
         tool_name="sanity.execute",
         allowed_kinds=frozenset({"sanity_check", "bout_tick", "bout_end"}),
+    )
+    data["player_state_receipt"] = _player_state_receipt(
+        player_state_before,
+        _player_mechanical_snapshot(ctx, investigator_id),
     )
     if trigger_id:
         active_scene = _active_scene(ctx)
@@ -6662,7 +8135,7 @@ def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
             for event in result.get("events") or []:
                 if isinstance(event, dict) and event.get("kind") == "sanity_check":
                     event["san_trigger_id"] = trigger_id
-        ctx.ledger_record(args.get("decision_id"), "sanity.execute", data)
+    ctx.ledger_record(args.get("decision_id"), "sanity.execute", data)
     return data, warnings, hints
 
 
@@ -6772,11 +8245,34 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "discovered_total": len(discovered),
         "newly_unlocked_scenes": newly_unlocked,
     }
+    progressive_hints: list[str] = []
     if not already:
         ctx.log_event({"event_type": "clue_discovered", "clue_id": clue_id, "method": args.get("method")})
-    hints = []
+        # Progressive dig queue: structured mentions on the clue only (no free-prose scan).
+        try:
+            if ctx.campaign_dir is not None and coc_module_project.campaign_asset_root_id(
+                ctx.campaign_dir
+            ):
+                dig = coc_module_project.on_clue_discovered(
+                    ctx.root, ctx.campaign_id, clue_id,
+                )
+                if dig and dig.get("progressive") and dig.get("followed"):
+                    data["progressive"] = {
+                        "followed": dig.get("followed"),
+                        "host_hints": dig.get("host_hints") or [],
+                        "merged_location_ids": dig.get("merged_location_ids") or [],
+                    }
+                    progressive_hints.extend(list(dig.get("host_hints") or []))
+                    progressive_hints.append(
+                        f"progressive: clue mentions queued {len(dig['followed'])} "
+                        "deepen target(s) — host-extract missing packs before inventing table detail"
+                    )
+        except Exception as exc:  # progressive must never block clue write
+            warnings.append(f"progressive clue-follow skipped: {exc}")
+    hints: list[str] = []
     if newly_unlocked:
         hints.append(f"new scene(s) unlocked: {', '.join(newly_unlocked)} — consider signposting them")
+    hints.extend(progressive_hints)
     ctx.ledger_record(args.get("decision_id"), "state.record_clue", data)
     return data, warnings, hints
 
@@ -6861,6 +8357,39 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
             "tone": (scene or {}).get("tone"),
         } if scene else None,
     }
+    # Progressive on-demand track: hot-ring enqueue + merge ready deep packs.
+    # Never blocks travel; failures become warnings only.
+    try:
+        progressive_info = coc_module_project.on_enter_scene(
+            ctx.root, str(ctx.campaign_id or ""), target,
+        )
+        if progressive_info and progressive_info.get("progressive"):
+            data["progressive"] = {
+                "merged_active": progressive_info.get("merged_active"),
+                "neighbors": progressive_info.get("neighbors") or [],
+                "host_hints": progressive_info.get("host_hints") or [],
+                "asset_root_id": progressive_info.get("asset_root_id"),
+            }
+            for hint in progressive_info.get("host_hints") or []:
+                if isinstance(hint, str) and hint not in warnings:
+                    warnings.append(hint)
+            if progressive_info.get("merged_active"):
+                # Invalidate scenario cache so later tools see deep merge
+                ctx._scenario_cache.pop("story-graph.json", None)
+                ctx._scenario_cache.pop("clue-graph.json", None)
+                ctx._scenario_cache.pop("npc-agendas.json", None)
+                ctx._scenario_cache.pop("module-meta.json", None)
+                refreshed = _scene_by_id(ctx.story_graph, target)
+                if refreshed:
+                    data["scene"] = {
+                        "scene_type": refreshed.get("scene_type"),
+                        "dramatic_question": refreshed.get("dramatic_question"),
+                        "tone": refreshed.get("tone"),
+                        "parse_state": refreshed.get("parse_state"),
+                    }
+    except Exception as exc:
+        warnings.append(f"progressive on-enter skipped: {exc}")
+
     ctx.ledger_record(args.get("decision_id"), "state.move_scene", data)
     return data, warnings, [
         "call scene.context after moving to see the new scene's full material",
@@ -7060,6 +8589,8 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
         "investigator_id": investigator_id,
         "condition": condition,
         "changed": changed,
+        "conditions_before": before,
+        "conditions_after": list(state.get("conditions") or []),
         "conditions": list(state.get("conditions") or []),
         "reason": reason,
     }
@@ -7236,6 +8767,8 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
         "item_id": item_id,
         "label": label,
         "changed": changed,
+        "present_before": not changed,
+        "present_after": True,
         "items": deepcopy(inventory["entries"]),
     }
     if kind == "weapon":
@@ -7320,6 +8853,23 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
         if wid is not None
     }
     inventory = coc_inventory.normalize_inventory(state)
+    removed_label = item_id
+    for entry in inventory.get("entries") or []:
+        if isinstance(entry, dict) and str(entry.get("item_id") or "") == item_id:
+            removed_label = str(entry.get("label") or item_id)
+            break
+    else:
+        for weapon in coc_inventory.effective_weapons(
+            sheet.get("weapons"), inventory
+        ):
+            if coc_inventory.weapon_ref_id(weapon) == item_id:
+                removed_label = str(
+                    weapon.get("label")
+                    or weapon.get("name")
+                    or weapon.get("weapon_id")
+                    or item_id
+                )
+                break
     inventory, outcome = coc_inventory.remove_item(
         inventory, item_id, sheet_weapon_ids
     )
@@ -7338,8 +8888,11 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
     data = {
         "investigator_id": investigator_id,
         "item_id": item_id,
+        "label": removed_label,
         "outcome": outcome,
         "changed": changed,
+        "present_before": changed,
+        "present_after": not changed,
         "items": deepcopy(inventory["entries"]),
         "lost_weapon_ids": list(inventory["lost_weapon_ids"]),
     }
@@ -7358,9 +8911,10 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "state.record_npc_engagement",
-    "Record that an NPC materially participated in the current scene, even when no psych-state value changed.",
+    "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements.",
     {
         "npc_id": {"type": "string", "required": True, "desc": "stable authored or improvised NPC id"},
+        "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
         "interaction_kind": {
             "type": "string",
             "required": True,
@@ -7369,6 +8923,14 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
         "identity_ref": {
             "type": "string",
             "desc": "exact identity_ref returned by npc.query/scene.context when the authored identity was portrayed",
+        },
+        "first_impression_ref": {
+            "type": "string",
+            "desc": "receipt ref from npc.reaction; mandatory on the first contact for this investigator/NPC pair",
+        },
+        "first_impression_realization": {
+            "type": "object",
+            "desc": "required for a new schema-v2 receipt: exactly {observable_manner, causal_explanation, boundary_preserved, opportunity_or_friction}; semantic KP judgment grounded in persona/agenda/relationship/scene/conduct",
         },
         "run_id": {
             "type": "string",
@@ -7383,14 +8945,22 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     requested_npc_id = str(args["npc_id"])
     requested_interaction_kind = str(args["interaction_kind"]).strip()
     supplied_identity_ref = str(args.get("identity_ref") or "").strip()
+    supplied_first_impression_ref = str(
+        args.get("first_impression_ref") or ""
+    ).strip()
+    supplied_realization = deepcopy(args.get("first_impression_realization"))
+    investigator_id = _resolve_investigator(ctx, args)
     campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
     run_id = coc_npc_event_chain.resolve_run_id(
         ctx.campaign_dir, structured_source=args
     )
     operation = {
         "npc_id": requested_npc_id,
+        "investigator_id": investigator_id,
         "interaction_kind": requested_interaction_kind,
         "identity_ref": supplied_identity_ref or None,
+        "first_impression_ref": supplied_first_impression_ref or None,
+        "first_impression_realization": supplied_realization,
     }
 
     document = _reconcile_all_npc_source_receipts(ctx)
@@ -7416,6 +8986,26 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
                 "idempotency_conflict",
                 f"decision_id '{decision_id}' was already applied to a different NPC engagement payload",
             )
+        prior_event = receipt.get("event") if isinstance(receipt.get("event"), dict) else {}
+        prior_effect = prior_event.get("context_effect") if isinstance(prior_event.get("context_effect"), dict) else {}
+        if prior_event.get("first_contact") and all(
+            isinstance(prior_effect.get(field), str) and prior_effect.get(field, "").strip()
+            for field in (
+                "source_receipt_id", "observable_manner", "causal_explanation",
+                "boundary_preserved", "opportunity_or_friction",
+            )
+        ):
+            coc_npc_state.initialize_first_impression(
+                ctx.campaign_dir,
+                str(prior_event.get("npc_id") or requested_npc_id),
+                str(prior_event.get("investigator_id") or investigator_id),
+                receipt_id=str(prior_effect["source_receipt_id"]),
+                observable_manner=str(prior_effect["observable_manner"]),
+                causal_explanation=str(prior_effect["causal_explanation"]),
+                boundary_preserved=str(prior_effect["boundary_preserved"]),
+                opportunity_or_friction=str(prior_effect["opportunity_or_friction"]),
+                decision_id=decision_id,
+            )
         _ensure_npc_receipt_event(ctx, receipt)
         return deepcopy(receipt["event"]), [
             *_npc_receipt_warnings(receipt),
@@ -7431,6 +9021,77 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
 
     authored_npc = _npc_by_id(ctx.npc_agendas, requested_npc_id)
     npc_id = str(authored_npc.get("npc_id")) if authored_npc else requested_npc_id
+    prior_pair_engagements = [
+        receipt
+        for receipt in (document.get("receipts") or {}).values()
+        if isinstance(receipt, dict)
+        and receipt.get("producer") == tool_name
+        and isinstance(receipt.get("event"), dict)
+        and receipt["event"].get("investigator_id") == investigator_id
+        and receipt["event"].get("npc_id") == npc_id
+    ]
+    first_contact = not prior_pair_engagements
+    first_impression_receipt: dict[str, Any] | None = None
+    context_effect: dict[str, Any] | None = None
+    if first_contact:
+        if not supplied_first_impression_ref:
+            raise ToolError(
+                "first_impression_required",
+                "first contact requires first_impression_ref from npc.reaction before the engagement is written",
+            )
+        try:
+            impression_document = coc_first_impression.load_document(
+                ctx.campaign_dir, campaign_id
+            )
+            first_impression_receipt = coc_first_impression.find_by_ref(
+                impression_document, supplied_first_impression_ref
+            )
+        except ValueError as exc:
+            raise ToolError("state_corrupt", str(exc)) from exc
+        if first_impression_receipt is None:
+            raise ToolError(
+                "first_impression_mismatch",
+                "first_impression_ref does not identify a canonical current receipt",
+            )
+        if (
+            first_impression_receipt.get("campaign_id") != campaign_id
+            or first_impression_receipt.get("run_id") != run_id
+            or first_impression_receipt.get("investigator_id") != investigator_id
+            or first_impression_receipt.get("npc_id") != npc_id
+        ):
+            raise ToolError(
+                "first_impression_mismatch",
+                "first_impression_ref belongs to another campaign/run/investigator/NPC",
+            )
+        if first_impression_receipt.get("schema_version") == 2:
+            if not coc_first_impression.valid_realization(supplied_realization):
+                raise ToolError(
+                    "first_impression_realization_required",
+                    "schema-v2 first contact requires a complete causal realization grounded in NPC/scene/relationship/conduct boundaries",
+                )
+            _ensure_first_impression_roll(ctx, first_impression_receipt)
+            context_effect = coc_first_impression.player_context_effect(
+                first_impression_receipt, supplied_realization
+            )
+        else:
+            if supplied_realization is not None:
+                raise ToolError(
+                    "invalid_param",
+                    "legacy first-impression receipts already own their frozen observable manner",
+                )
+            context_effect = coc_first_impression.player_context_effect(
+                first_impression_receipt
+            )
+    elif supplied_first_impression_ref:
+        raise ToolError(
+            "first_impression_already_consumed",
+            "later meetings do not repeat or replace the pair's first-impression effect",
+        )
+    elif supplied_realization is not None:
+        raise ToolError(
+            "first_impression_already_consumed",
+            "later meetings do not submit another first-impression realization",
+        )
     interaction_kind = requested_interaction_kind
     allowed = {
         "dialogue", "assistance", "opposition", "accompaniment", "witness", "other",
@@ -7466,10 +9127,17 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         "campaign_id": campaign_id,
         "run_id": run_id,
         "decision_id": decision_id,
+        "investigator_id": investigator_id,
         "npc_id": npc_id,
         "scene_id": scene_id,
         "ts": _now_iso(),
         "interaction_kind": interaction_kind,
+        "first_contact": first_contact,
+        "first_impression_ref": (
+            first_impression_receipt["receipt_id"]
+            if first_impression_receipt is not None else None
+        ),
+        "context_effect": context_effect,
         "identity_contract": identity_contract,
         "identity_binding": identity_binding,
     }
@@ -7511,6 +9179,24 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         operation=operation,
         event=event,
     )
+    if first_contact and isinstance(context_effect, dict) and all(
+        isinstance(context_effect.get(field), str) and context_effect.get(field, "").strip()
+        for field in (
+            "source_receipt_id", "observable_manner", "causal_explanation",
+            "boundary_preserved", "opportunity_or_friction",
+        )
+    ):
+        coc_npc_state.initialize_first_impression(
+            ctx.campaign_dir,
+            npc_id,
+            investigator_id,
+            receipt_id=str(context_effect["source_receipt_id"]),
+            observable_manner=str(context_effect["observable_manner"]),
+            causal_explanation=str(context_effect["causal_explanation"]),
+            boundary_preserved=str(context_effect["boundary_preserved"]),
+            opportunity_or_friction=str(context_effect["opportunity_or_friction"]),
+            decision_id=decision_id,
+        )
     try:
         coc_npc_event_chain.put_receipt(document, receipt)
     except ValueError as exc:
@@ -7520,9 +9206,10 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     _save_npc_receipt_document(ctx, document)
     _ensure_npc_receipt_event(ctx, receipt)
     hints = _npc_engagement_advisory_hints(authored_npc, npc_id)
-    first_impression = _first_impression_hint(ctx, npc_id, authored_npc)
-    if first_impression:
-        hints.append(first_impression)
+    if first_contact:
+        hints.append(
+            "first contact settled exactly once for this pair: realize its observable manner, cause, and bounded opportunity/friction in the same fictional beat; other NPC pairs in this journal remain independent"
+        )
     data = deepcopy(event)
     ctx.ledger_record(decision_id, tool_name, data)
     return data, warnings, hints
@@ -7530,16 +9217,21 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "state.npc_update",
-    "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises, availability.",
+    "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises, availability, and a bounded investigator-specific textual impression authored by the KP.",
     {
         "npc_id": {"type": "string", "required": True, "desc": "npc id"},
+        "investigator": {"type": "string", "desc": "investigator whose action changed this relationship; required when linking an NPC-scoped reward"},
         "trust_delta": {"type": "integer", "desc": "trust adjustment (-5..5 clamped)"},
         "fear_delta": {"type": "integer", "desc": "fear adjustment"},
         "suspicion_delta": {"type": "integer", "desc": "suspicion adjustment"},
         "record_fact": {"type": "string", "desc": "fact_id the NPC just disclosed"},
         "record_lie": {"type": "string", "desc": "lie_id the NPC just told"},
         "record_promise": {"type": "string", "desc": "promise_id made"},
-        "availability": {"type": "string", "desc": "availability status (available/unavailable/...)"},
+        "availability": {"type": "string", "desc": "availability status: available | unavailable"},
+        "impression_update": {
+            "type": "object",
+            "desc": "semantic KP-authored update: {summary?, expectations?, reservations?, memory?, reason}; memory requires memory_id, event, interpretation, reason",
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
@@ -7548,26 +9240,33 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
     if prior is not None:
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     requested_npc_id = str(args["npc_id"])
+    investigator_id = (
+        _resolve_investigator(ctx, args)
+        if args.get("investigator") is not None
+        else None
+    )
     authored_npc = _npc_by_id(ctx.npc_agendas, requested_npc_id)
     npc_id = str(authored_npc.get("npc_id")) if authored_npc else requested_npc_id
-    applied: dict[str, Any] = {}
-    for field, key in (("trust", "trust_delta"), ("fear", "fear_delta"), ("suspicion", "suspicion_delta")):
-        if args.get(key) is not None:
-            applied[field] = coc_npc_state.adjust(ctx.campaign_dir, npc_id, field, int(args[key]))
-    if args.get("record_fact"):
-        coc_npc_state.record_fact(ctx.campaign_dir, npc_id, str(args["record_fact"]))
-        applied["recorded_fact"] = str(args["record_fact"])
-    if args.get("record_lie"):
-        coc_npc_state.record_lie(ctx.campaign_dir, npc_id, str(args["record_lie"]))
-        applied["recorded_lie"] = str(args["record_lie"])
-    if args.get("record_promise"):
-        coc_npc_state.record_promise(ctx.campaign_dir, npc_id, str(args["record_promise"]))
-        applied["recorded_promise"] = str(args["record_promise"])
-    if args.get("availability"):
-        coc_npc_state.set_availability(ctx.campaign_dir, npc_id, str(args["availability"]))
-        applied["availability"] = str(args["availability"])
+    applied, entry = coc_npc_state.apply_psych_update(
+        ctx.campaign_dir,
+        npc_id,
+        deltas={
+            field: args[key]
+            for field, key in (
+                ("trust", "trust_delta"),
+                ("fear", "fear_delta"),
+                ("suspicion", "suspicion_delta"),
+            )
+            if args.get(key) is not None
+        },
+        record_fact_id=args.get("record_fact") or None,
+        record_lie_id=args.get("record_lie") or None,
+        record_promise_id=args.get("record_promise") or None,
+        availability=args.get("availability") or None,
+        investigator_id=investigator_id,
+        impression_update=deepcopy(args.get("impression_update")),
+    )
     ctx.log_event({"event_type": "npc_update", "npc_id": npc_id, "applied": applied})
-    entry = coc_npc_state.get_npc_entry(ctx.campaign_dir, npc_id)
     warnings: list[str] = []
     if authored_npc is None:
         warnings.append(f"npc '{npc_id}' is not in the authored agendas — tracking state anyway (improvised NPC)")
@@ -7576,7 +9275,16 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
             f"resolved NPC alias '{requested_npc_id}' to authored id '{npc_id}'"
         )
     hints = _npc_engagement_advisory_hints(authored_npc, npc_id)
-    data = {"npc_id": npc_id, "applied": applied, "psych": entry}
+    if args.get("impression_update") is not None:
+        hints.append(
+            "textual impression updated for this investigator/NPC pair; later NPC portrayals should treat it as semantic context, not a deterministic gate"
+        )
+    data = {
+        "npc_id": npc_id,
+        "investigator_id": investigator_id,
+        "applied": applied,
+        "psych": entry,
+    }
     ctx.ledger_record(args.get("decision_id"), "state.npc_update", data)
     return data, warnings, hints
 
@@ -7809,6 +9517,628 @@ def _tool_state_advance_time(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "state.mark_safe_rest",
+    "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
+        "rest_kind": {"type": "string", "required": True, "desc": "currently exactly full_sleep; a structured KP assertion, not text classification"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.mark_safe_rest"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously recorded rest"
+        ], []
+    rest_kind = str(args.get("rest_kind") or "").strip()
+    if rest_kind != "full_sleep":
+        raise ToolError(
+            "invalid_param",
+            "rest_kind must be full_sleep; ordinary pauses do not reset the rest anchor",
+        )
+    investigator_id = _resolve_investigator(ctx, args)
+    result = coc_time.mark_safe_rest(
+        ctx.campaign_dir,
+        investigator_id,
+        decision_id=decision_id,
+        rest_kind=rest_kind,
+    )
+    if result.get("at_elapsed") is None:
+        raise ToolError("state_corrupt", "time state is not initialized")
+    fired = coc_time.process_due_triggers(ctx.campaign_dir)
+    time_state = coc_time.read_time_state(ctx.campaign_dir)
+    due = coc_time.peek_due_triggers(ctx.campaign_dir)
+    data = {
+        **result,
+        "fired_triggers": fired,
+        "time_signals": coc_time.build_time_signals(time_state, due),
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    hints = [
+        "the canonical rest anchor now drives later Director continuity; state.advance_time alone never records completed rest"
+    ]
+    if fired:
+        hints.append(
+            "safe-rest trigger(s) fired — settle and portray their authoritative outcomes"
+        )
+    return data, [], hints
+
+
+_EXCEPTIONAL_CHANGE_KINDS = frozenset({
+    "arrival", "hazard", "opening", "loss", "escalation", "reversal",
+})
+
+
+def _matching_active_exceptional_modifier(
+    ctx: Ctx, *, investigator_id: str, skill: str, npc_id: str | None = None
+) -> dict[str, Any] | None:
+    try:
+        document = coc_exceptional_effects.load(ctx.campaign_dir)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    active_scene_id = str(ctx.world().get("active_scene_id") or "")
+    matches = []
+    for effect in document["effects"].values():
+        mechanics = effect.get("mechanics") or {}
+        if (
+            effect.get("status") == "active"
+            and effect.get("effect_kind") in {"bonus_die", "penalty_die"}
+            and mechanics.get("investigator_id") == investigator_id
+            and str(mechanics.get("skill") or "").casefold() == skill.casefold()
+            and (
+                mechanics.get("target_id") is None
+                or mechanics.get("target_id") == npc_id
+            )
+            and (
+                mechanics.get("scene_id") is None
+                or mechanics.get("scene_id") == active_scene_id
+            )
+        ):
+            matches.append(effect)
+    if len(matches) > 1:
+        raise ToolError(
+            "state_corrupt",
+            "multiple active exceptional modifiers own the same actor+skill+NPC+scene scope",
+        )
+    return deepcopy(matches[0]) if matches else None
+
+
+def _exceptional_roll_source(
+    ctx: Ctx, roll_id: str
+) -> dict[str, Any]:
+    document = _load_roll_receipt_document(ctx)
+    receipts, _ = _validated_roll_document_collection(document)
+    matches = [row for row in receipts if str(row.get("roll_id")) == roll_id]
+    if len(matches) == 1:
+        receipt = matches[0]
+        if receipt.get("tool") not in {"rules.roll", "rules.push"}:
+            raise ToolError(
+                "invalid_source_roll", "exceptional effects require a percentile check"
+            )
+        return receipt
+    if matches:
+        raise ToolError("state_corrupt", f"roll_id '{roll_id}' has multiple canonical sources")
+
+    try:
+        campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+        impressions = coc_first_impression.load_document(
+            ctx.campaign_dir, campaign_id
+        )
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    impression_matches = [
+        receipt
+        for receipt in (impressions.get("receipts") or {}).values()
+        if isinstance(receipt, dict)
+        and receipt.get("schema_version") == 2
+        and receipt.get("roll_id") == roll_id
+    ]
+    if len(impression_matches) != 1:
+        raise ToolError(
+            "unknown_source_roll",
+            "source_roll_id must name exactly one canonical percentile or schema-v2 first-impression receipt",
+        )
+    impression = impression_matches[0]
+    _ensure_first_impression_roll(ctx, impression)
+    roll_record = deepcopy(impression["roll_record"])
+    return {
+        "tool": "npc.reaction",
+        "decision_id": impression["decision_id"],
+        "roll_id": impression["roll_id"],
+        "roll_record": roll_record,
+        "data": {
+            **{
+                key: deepcopy(value)
+                for key, value in roll_record.items()
+                if key not in {"payload"}
+            },
+            "pushed": False,
+            "visibility": "public",
+        },
+        _SOURCE_RECEIPT_INTEGRITY_KEY: impression["integrity_digest"],
+    }
+
+
+def _successful_call_by_decision(
+    ctx: Ctx, decision_id: str
+) -> dict[str, Any]:
+    path = ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+    rows = _read_jsonl_records(path) if path.is_file() else []
+    matches = [
+        row for row in rows
+        if row.get("ok") is True
+        and isinstance(row.get("args"), dict)
+        and str(row["args"].get("decision_id") or "") == decision_id
+    ]
+    if len(matches) != 1:
+        raise ToolError(
+            "invalid_linked_effect",
+            f"linked decision_id '{decision_id}' must name exactly one successful tool call",
+        )
+    return matches[0]
+
+
+def _validated_exceptional_mechanics(
+    ctx: Ctx,
+    *,
+    effect_kind: str,
+    mechanics: Any,
+    boundary: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(mechanics, dict):
+        raise ToolError("invalid_param", "mechanics must be an object")
+    normalized = deepcopy(mechanics)
+    if effect_kind in {"bonus_die", "penalty_die"}:
+        base_fields = {
+            "dice", "investigator_id", "skill", "scene_id", "target_id",
+        }
+        allowed_field_sets = {
+            frozenset(base_fields),
+            frozenset({*base_fields, "target_display_name"}),
+            frozenset({*base_fields, "source_decision_ids", "target_display_name"}),
+        }
+        if frozenset(normalized) not in allowed_field_sets:
+            raise ToolError(
+                "invalid_param",
+                "dice-modifier mechanics require dice, investigator_id, skill, scene_id, target_id, plus optional source_decision_ids for a relationship reward",
+            )
+        if normalized.get("dice") not in {1, 2}:
+            raise ToolError("invalid_param", "exceptional modifier dice must be 1 or 2")
+        for key in ("investigator_id", "skill"):
+            if not isinstance(normalized.get(key), str) or not normalized[key].strip():
+                raise ToolError("invalid_param", f"mechanics.{key} must be non-empty")
+            normalized[key] = normalized[key].strip()
+        for key in ("scene_id", "target_id"):
+            value = normalized.get(key)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ToolError("invalid_param", f"mechanics.{key} must be null or non-empty")
+            normalized[key] = value.strip() if isinstance(value, str) else None
+        target_display_name = normalized.get("target_display_name")
+        if normalized["target_id"] is not None:
+            if (
+                not isinstance(target_display_name, str)
+                or not target_display_name.strip()
+                or target_display_name.strip() == normalized["target_id"]
+            ):
+                raise ToolError(
+                    "invalid_param",
+                    "an NPC-scoped modifier requires a localized player-safe target_display_name distinct from target_id",
+                )
+            normalized["target_display_name"] = target_display_name.strip()
+        elif "target_display_name" in normalized and target_display_name is not None:
+            raise ToolError(
+                "invalid_param", "target_display_name must be null/absent when target_id is null"
+            )
+        if boundary != {"kind": "until_consumed", "uses": 1}:
+            raise ToolError(
+                "invalid_param", "bonus/penalty effects must use one-shot until_consumed boundary"
+            )
+        document = coc_exceptional_effects.load(ctx.campaign_dir)
+        source_decision_ids = normalized.get("source_decision_ids")
+        if source_decision_ids is not None:
+            if (
+                normalized["target_id"] is None
+                or not isinstance(source_decision_ids, list)
+                or not source_decision_ids
+                or not all(
+                    isinstance(value, str) and bool(value.strip())
+                    for value in source_decision_ids
+                )
+                or len(set(source_decision_ids)) != len(source_decision_ids)
+            ):
+                raise ToolError(
+                    "invalid_param",
+                    "relationship reward source_decision_ids require a non-null target_id and unique non-empty decision ids",
+                )
+            normalized["source_decision_ids"] = [
+                value.strip() for value in source_decision_ids
+            ]
+            linked_calls = [
+                _successful_call_by_decision(ctx, value)
+                for value in normalized["source_decision_ids"]
+            ]
+            if not any(
+                call.get("tool") == "state.npc_update"
+                and (call.get("data") or {}).get("npc_id") == normalized["target_id"]
+                and (call.get("data") or {}).get("investigator_id")
+                == normalized["investigator_id"]
+                and bool((call.get("data") or {}).get("applied"))
+                for call in linked_calls
+                if isinstance(call.get("data"), dict)
+            ):
+                raise ToolError(
+                    "invalid_linked_effect",
+                    "an NPC-scoped relationship reward must link a successful state.npc_update for the same target_id",
+                )
+        for effect in document["effects"].values():
+            if (
+                effect.get("status") == "active"
+                and effect.get("effect_kind") in {"bonus_die", "penalty_die"}
+                and (effect.get("mechanics") or {}).get("investigator_id")
+                == normalized["investigator_id"]
+                and str((effect.get("mechanics") or {}).get("skill") or "").casefold()
+                == normalized["skill"].casefold()
+                and (effect.get("mechanics") or {}).get("target_id")
+                == normalized["target_id"]
+                and (effect.get("mechanics") or {}).get("scene_id")
+                == normalized["scene_id"]
+            ):
+                raise ToolError(
+                    "modifier_scope_conflict",
+                    "an unconsumed exceptional modifier already owns this investigator+skill+NPC+scene scope",
+                )
+    elif effect_kind == "condition":
+        if set(normalized) != {"target_id", "condition_id", "scene_id"}:
+            raise ToolError(
+                "invalid_param", "condition mechanics require target_id, condition_id, scene_id"
+            )
+        if boundary.get("kind") == "immediate":
+            raise ToolError("invalid_param", "a condition requires a continuing boundary")
+        if boundary.get("kind") == "until_consumed":
+            raise ToolError("invalid_param", "only bonus/penalty effects may be consumed")
+    elif effect_kind == "restriction":
+        if set(normalized) != {"subject_id", "restriction_id", "scope", "scene_id"}:
+            raise ToolError(
+                "invalid_param", "restriction mechanics require subject_id, restriction_id, scope, scene_id"
+            )
+        if boundary.get("kind") == "immediate":
+            raise ToolError("invalid_param", "a restriction requires a continuing boundary")
+        if boundary.get("kind") == "until_consumed":
+            raise ToolError("invalid_param", "only bonus/penalty effects may be consumed")
+    elif effect_kind == "scene_event":
+        if set(normalized) != {"scene_id", "event_id", "change_kind"}:
+            raise ToolError(
+                "invalid_param", "scene_event mechanics require scene_id, event_id, change_kind"
+            )
+        if normalized.get("change_kind") not in _EXCEPTIONAL_CHANGE_KINDS:
+            raise ToolError(
+                "invalid_param",
+                "scene_event change_kind must be: " + ", ".join(sorted(_EXCEPTIONAL_CHANGE_KINDS)),
+            )
+        if boundary.get("kind") == "immediate":
+            raise ToolError(
+                "invalid_param",
+                "scene_event must stay active to an explicit boundary so scene.context can consume it",
+            )
+        if boundary.get("kind") == "until_consumed":
+            raise ToolError("invalid_param", "only bonus/penalty effects may be consumed")
+    elif effect_kind in {"resource_delta", "relationship_or_clock"}:
+        expected = (
+            {"source_decision_ids"}
+            if effect_kind == "resource_delta"
+            else {"source_decision_ids", "affected_id", "change_summary"}
+        )
+        if set(normalized) != expected:
+            raise ToolError(
+                "invalid_param",
+                f"{effect_kind} mechanics require exactly: " + ", ".join(sorted(expected)),
+            )
+        decision_ids = normalized.get("source_decision_ids")
+        if (
+            not isinstance(decision_ids, list)
+            or not decision_ids
+            or not all(isinstance(value, str) and value.strip() for value in decision_ids)
+            or len(set(decision_ids)) != len(decision_ids)
+        ):
+            raise ToolError(
+                "invalid_param", "source_decision_ids must be unique non-empty strings"
+            )
+        normalized["source_decision_ids"] = [value.strip() for value in decision_ids]
+        calls = [
+            _successful_call_by_decision(ctx, value)
+            for value in normalized["source_decision_ids"]
+        ]
+        if effect_kind == "resource_delta":
+            projected = coc_turn_finalization._project_state_deltas(calls)
+            material = [
+                row for row in projected
+                if row.get("effect_kind") != "time"
+                and row.get("source_decision_id") in normalized["source_decision_ids"]
+            ]
+            if not material:
+                raise ToolError(
+                    "invalid_linked_effect",
+                    "resource_delta must link an authoritative non-time player state change",
+                )
+            if boundary != {"kind": "immediate"}:
+                raise ToolError("invalid_param", "resource_delta boundary must be immediate")
+        else:
+            material = False
+            for call in calls:
+                tool_name = str(call.get("tool") or "")
+                data = call.get("data") if isinstance(call.get("data"), dict) else {}
+                if tool_name == "state.npc_update" and bool(data.get("applied")):
+                    material = True
+                elif tool_name == "state.threat_tick" and bool(data):
+                    material = True
+                elif tool_name == "state.time_marker" and bool(data.get("marker")):
+                    material = True
+                elif tool_name == "state.advance_time" and bool(data.get("fired_triggers")):
+                    material = True
+            if not material:
+                raise ToolError(
+                    "invalid_linked_effect",
+                    "relationship_or_clock must link a real NPC/threat/deadline change; elapsed time or a flag name alone is insufficient",
+                )
+    else:
+        raise ToolError("invalid_param", f"unsupported effect_kind: {effect_kind}")
+
+    for key, value in normalized.items():
+        if key.endswith("_id") and value is not None:
+            if not isinstance(value, str) or not value.strip():
+                raise ToolError("invalid_param", f"mechanics.{key} must be non-empty")
+            normalized[key] = value.strip()
+    if boundary.get("kind") == "until_scene_end":
+        mechanics_scene = normalized.get("scene_id")
+        if mechanics_scene != boundary.get("scene_id"):
+            raise ToolError(
+                "invalid_param",
+                "until_scene_end requires mechanics.scene_id to match boundary.scene_id",
+            )
+    if (
+        effect_kind == "relationship_or_clock"
+        and boundary.get("kind") == "until_consumed"
+    ):
+        raise ToolError("invalid_param", "only bonus/penalty effects may be consumed")
+    return normalized
+
+
+@tool(
+    "state.exceptional_effect",
+    "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice.",
+    {
+        "action": {"type": "string", "required": True, "desc": "apply | consume"},
+        "source_roll_id": {"type": "string", "desc": "critical/fumble/pushed-failure/first-impression roll_id (apply)"},
+        "effect_id": {"type": "string", "desc": "active bonus/penalty effect id (consume)"},
+        "consuming_roll_id": {"type": "string", "desc": "later roll that actually used the modifier (consume)"},
+        "direction": {"type": "string", "desc": "benefit | cost (apply)"},
+        "effect_kind": {"type": "string", "desc": "bonus_die | penalty_die | condition | restriction | relationship_or_clock | scene_event | resource_delta"},
+        "player_visible_impact": {"type": "string", "desc": "exact concise mechanical/fictional impact shown to the player"},
+        "causal_link": {"type": "string", "desc": "why this exact action/result caused the effect"},
+        "boundary": {"type": "object", "desc": "exactly one of {kind:immediate}; {kind:until_consumed,uses:1}; {kind:until_scene_end,scene_id}; {kind:until_time_marker,marker_id}; {kind:until_condition,description}"},
+        "mechanics": {"type": "object", "desc": "bonus/penalty={dice,investigator_id,skill,scene_id:null|string,target_id:null|npc_id}; non-null target_id also requires localized target_display_name; NPC-scoped relationship bonus additionally requires source_decision_ids linking state.npc_update; condition={target_id,condition_id,scene_id}; restriction={subject_id,restriction_id,scope,scene_id}; scene_event={scene_id,event_id,change_kind}; resource_delta={source_decision_ids}; relationship_or_clock={source_decision_ids,affected_id,change_summary}"},
+        "visibility": {"type": "string", "desc": "player_visible | concealed_observable | keeper_only"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.exceptional_effect"
+    decision_id = str(args["decision_id"])
+    action = str(args["action"]).strip()
+    if action not in {"apply", "consume"}:
+        raise ToolError("invalid_param", "action must be apply or consume")
+    semantic_args = {
+        key: deepcopy(value)
+        for key, value in args.items()
+        if key not in {"decision_id"}
+    }
+    fingerprint = _operation_fingerprint(tool_name, semantic_args)
+    try:
+        document = coc_exceptional_effects.load(ctx.campaign_dir)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    prior_operation = document["operations"].get(decision_id)
+    if prior_operation is not None:
+        if prior_operation.get("fingerprint") != fingerprint:
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' already owns a different exceptional effect operation",
+            )
+        data = deepcopy(prior_operation["data"])
+        if ctx.ledger_lookup(tool_name, decision_id) is None:
+            ctx.ledger_record(decision_id, tool_name, data)
+        return data, ["duplicate decision_id: returning the immutable exceptional effect result"], []
+
+    now = _now_iso()
+    if action == "apply":
+        source_roll_id = str(args.get("source_roll_id") or "").strip()
+        direction = str(args.get("direction") or "").strip()
+        effect_kind = str(args.get("effect_kind") or "").strip()
+        visibility = str(args.get("visibility") or "player_visible").strip()
+        impact = str(args.get("player_visible_impact") or "").strip()
+        causal_link = str(args.get("causal_link") or "").strip()
+        boundary = deepcopy(args.get("boundary"))
+        if direction not in coc_exceptional_effects.DIRECTIONS:
+            raise ToolError("invalid_param", "direction must be benefit or cost")
+        if effect_kind not in coc_exceptional_effects.EFFECT_KINDS:
+            raise ToolError("invalid_param", "unknown exceptional effect_kind")
+        if visibility not in coc_exceptional_effects.VISIBILITIES:
+            raise ToolError("invalid_param", "invalid exceptional effect visibility")
+        if not impact or not causal_link:
+            raise ToolError(
+                "invalid_param", "player_visible_impact and causal_link must be non-empty"
+            )
+        if not coc_exceptional_effects._valid_boundary(boundary):
+            raise ToolError("invalid_param", "boundary does not match the closed schema")
+        source = _exceptional_roll_source(ctx, source_roll_id)
+        source_data = source["data"]
+        outcome = str(source_data.get("outcome") or "")
+        pushed_failure = bool(source_data.get("pushed") is True and outcome == "failure")
+        mechanics = _validated_exceptional_mechanics(
+            ctx,
+            effect_kind=effect_kind,
+            mechanics=args.get("mechanics"),
+            boundary=boundary,
+        )
+        relationship_reward = bool(
+            source.get("tool") in {"rules.roll", "rules.push"}
+            and source_data.get("passed") is True
+            and outcome not in {"critical"}
+            and direction == "benefit"
+            and effect_kind == "bonus_die"
+            and mechanics.get("target_id") is not None
+            and mechanics.get("source_decision_ids")
+        )
+        expected_direction = (
+            "benefit" if outcome == "critical"
+            else "cost" if outcome == "fumble" or pushed_failure
+            else "benefit" if relationship_reward
+            else None
+        )
+        if expected_direction is None:
+            raise ToolError(
+                "invalid_source_roll",
+                "only critical, fumble, failed pushed checks, or a successful NPC-scoped relationship reward with linked state.npc_update may create this effect",
+            )
+        if direction != expected_direction:
+            raise ToolError(
+                "invalid_param",
+                f"{outcome}{' pushed' if pushed_failure else ''} requires direction={expected_direction}",
+            )
+        effect_id = coc_exceptional_effects.stable_effect_id(
+            decision_id, source_roll_id
+        )
+        effect = {
+            "schema_version": 1,
+            "effect_id": effect_id,
+            "source_roll": {
+                "tool": source["tool"],
+                "decision_id": source["decision_id"],
+                "roll_id": source_roll_id,
+                "integrity_digest": source[_SOURCE_RECEIPT_INTEGRITY_KEY],
+                "outcome": outcome,
+                "pushed": bool(source_data.get("pushed") is True),
+                "visibility": str(source_data.get("visibility") or source["roll_record"].get("visibility") or "public"),
+            },
+            "direction": direction,
+            "effect_kind": effect_kind,
+            "player_visible_impact": impact,
+            "causal_link": causal_link,
+            "boundary": boundary,
+            "mechanics": mechanics,
+            "visibility": visibility,
+            "status": "active" if boundary.get("kind") != "immediate" else "applied",
+            "created_at": now,
+            "created_decision_id": decision_id,
+            "consumed_at": None,
+            "consumed_decision_id": None,
+            "consumed_by_roll_id": None,
+            "integrity_digest": "",
+        }
+        effect["integrity_digest"] = coc_exceptional_effects.canonical_digest({
+            key: deepcopy(value)
+            for key, value in effect.items()
+            if key != "integrity_digest"
+        })
+        if not coc_exceptional_effects.valid_effect(effect):
+            raise ToolError("state_corrupt", "generated exceptional effect is invalid")
+        document["effects"][effect_id] = effect
+        projected = coc_exceptional_effects.project_player_effect(effect)
+        data = {"action": "apply", "effect": deepcopy(effect), "player_effect": projected}
+    else:
+        effect_id = str(args.get("effect_id") or "").strip()
+        consuming_roll_id = str(args.get("consuming_roll_id") or "").strip()
+        effect = document["effects"].get(effect_id)
+        if not isinstance(effect, dict):
+            raise ToolError("unknown_effect", "effect_id is not a canonical exceptional effect")
+        if effect.get("status") != "active" or effect.get("effect_kind") not in {"bonus_die", "penalty_die"}:
+            raise ToolError("invalid_effect_state", "only an active bonus/penalty effect may be consumed")
+        consuming = _exceptional_roll_source(ctx, consuming_roll_id)
+        consuming_data = consuming["data"]
+        mechanics = effect["mechanics"]
+        if (
+            consuming_data.get("investigator_id") != mechanics.get("investigator_id")
+            or str(consuming_data.get("skill") or "").casefold()
+            != str(mechanics.get("skill") or "").casefold()
+        ):
+            raise ToolError(
+                "modifier_scope_mismatch",
+                "consuming roll actor/skill does not match the declared exceptional scope",
+            )
+        if (
+            mechanics.get("target_id") is not None
+            and consuming_data.get("npc_id") != mechanics.get("target_id")
+        ):
+            raise ToolError(
+                "modifier_scope_mismatch",
+                "consuming roll NPC does not match the relationship reward target_id",
+            )
+        scene_id = mechanics.get("scene_id")
+        if scene_id is not None and str(ctx.world().get("active_scene_id") or "") != scene_id:
+            raise ToolError(
+                "modifier_scope_mismatch", "consuming roll is outside the declared scene scope"
+            )
+        expected_key = "bonus" if effect["effect_kind"] == "bonus_die" else "penalty"
+        opposite_key = "penalty" if expected_key == "bonus" else "bonus"
+        if (
+            consuming_data.get(expected_key) != mechanics.get("dice")
+            or consuming_data.get(opposite_key) != 0
+        ):
+            raise ToolError(
+                "modifier_not_applied",
+                "the consuming roll must carry exactly the declared net bonus/penalty dice",
+            )
+        effect = deepcopy(effect)
+        effect.update({
+            "status": "consumed",
+            "consumed_at": now,
+            "consumed_decision_id": decision_id,
+            "consumed_by_roll_id": consuming_roll_id,
+            "integrity_digest": "",
+        })
+        effect["integrity_digest"] = coc_exceptional_effects.canonical_digest({
+            key: deepcopy(value)
+            for key, value in effect.items()
+            if key != "integrity_digest"
+        })
+        document["effects"][effect_id] = effect
+        data = {
+            "action": "consume",
+            "effect": deepcopy(effect),
+            "player_effect": coc_exceptional_effects.project_player_effect(effect),
+        }
+
+    document["operations"][decision_id] = {
+        "decision_id": decision_id,
+        "action": action,
+        "fingerprint": fingerprint,
+        "effect_id": effect_id,
+        "data": deepcopy(data),
+    }
+    if not coc_exceptional_effects.valid_document(document):
+        raise ToolError("state_corrupt", "generated exceptional effect document is invalid")
+    coc_state.write_json_atomic(
+        ctx.campaign_dir / "save" / coc_exceptional_effects.FILENAME,
+        document,
+    )
+    ctx.log_event({
+        "event_type": "exceptional_effect_" + action,
+        "effect_id": effect_id,
+        "decision_id": decision_id,
+        "effect_kind": effect["effect_kind"],
+        "direction": effect["direction"],
+        "status": effect["status"],
+    })
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "this effect is canonical state; realize its causal link in fiction and let turn.finalize render the player-visible impact"
+    ]
+
+
+@tool(
     "state.journal",
     "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts.",
     {
@@ -7855,6 +10185,74 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     data = {"turn_number": pacing["turn_number"], "tension_level": pacing.get("tension_level")}
     ctx.ledger_record(args.get("decision_id"), "state.journal", data)
     return data, warnings, []
+
+
+@tool(
+    "turn.output_context",
+    "Read the latest unfinalized journal's causal obligations, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal.",
+    {},
+)
+def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
+    try:
+        data = coc_turn_finalization.build_output_context(ctx.campaign_dir)
+    except coc_turn_finalization.TurnContractError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    return data, [], [
+        "draft fiction from obligations; related sources may share an exact_excerpt, but every obligation_id needs exactly one coverage row",
+        "missing_substantive_effects and pending_modifier_consumptions are hard blockers proving settlement was incomplete; never disguise them in prose",
+        "mechanics_bundle is deterministic and already ordered for final composition; do not copy or recompute its numbers in the fictional draft",
+    ]
+
+
+@tool(
+    "turn.finalize",
+    "Hard final boundary for one journaled turn. Validates exact causal coverage, deterministically appends public dice/changes/context after fiction, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
+    {
+        "draft": {
+            "type": "string",
+            "required": True,
+            "desc": "exact player-facing fictional prose, without deterministic dice/change blocks",
+        },
+        "coverage": {
+            "type": "array",
+            "required": True,
+            "desc": "one closed semantic coverage row per obligation from turn.output_context",
+        },
+        "decision_id": {
+            "type": "string", "required": True, "desc": "idempotency key",
+        },
+    },
+)
+def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
+    decision_id = str(args["decision_id"])
+    existing = coc_turn_finalization.finalization_by_decision(
+        ctx.campaign_dir, decision_id
+    )
+    if existing is not None:
+        if not coc_turn_finalization.replay_matches(
+            existing, draft=args.get("draft"), coverage=args.get("coverage")
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id '{decision_id}' already finalized different draft or coverage",
+            )
+        return deepcopy(existing), [
+            "duplicate decision_id: returning the immutable final turn output"
+        ], ["echo rendered_text exactly; do not prepend, append, or rewrite it"]
+    try:
+        receipt = coc_turn_finalization.build_finalization_receipt(
+            ctx.campaign_dir,
+            decision_id=decision_id,
+            draft=args.get("draft"),
+            coverage=args.get("coverage"),
+        )
+        coc_turn_finalization.append_finalization(ctx.campaign_dir, receipt)
+    except coc_turn_finalization.TurnContractError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    return receipt, [], [
+        "echo rendered_text exactly; direct-host output is contract-invalid if any text or number is changed",
+        "a narration-only repair uses the same settled journal and never reruns rules or state",
+    ]
 
 
 def _ending_rng(ending: dict[str, Any], investigator_id: str) -> random.Random:
@@ -8338,6 +10736,7 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 _MUTATING_TOOLS = frozenset({
+    "npc.reaction",
     "rules.roll",
     "rules.push",
     "rules.roll_dice",
@@ -8371,8 +10770,12 @@ _MUTATING_TOOLS = frozenset({
     "state.npc_update",
     "state.time_marker",
     "state.advance_time",
+    "state.mark_safe_rest",
+    "state.exceptional_effect",
+    "state.supersede_settlement",
     "state.journal",
     "state.end_session",
+    "turn.finalize",
 })
 for _mutating_tool_name in _MUTATING_TOOLS:
     _decision_spec = TOOLS[_mutating_tool_name]["params"].get("decision_id")

@@ -23,9 +23,19 @@ horror, epistemic, NPC, and threat signals and returns a rich
 scheduler against that candidate plan and the same semantic evidence.
 Both are suggestions with rationale — never obligations.
 
-The emitted plan's field vocabulary — `rule_signals`, the APP/CR
-`npc_reaction_roll` behind `npc_moves[].emotional_tone` (p.191), clue policy,
+The emitted plan's field vocabulary — `rule_signals`, the frozen APP/CR
+first-impression receipt behind each `npc_moves[].emotional_tone` (p.191), clue policy,
 epistemic contract — is documented in `../../references/director-protocol.md`.
+
+The Director never rolls or rewrites first impressions. It may read every
+pair's frozen receipt alongside current psych state and the bounded textual
+`psych.impression` projection for the active investigator; live relationship
+state and the current NPC-authored interpretation outrank the old starting
+impression on later meetings. This text is semantic context for motivation,
+belief, and voice, not a deterministic action gate, and it must never expose
+secret agenda prose. `npc_moves` is an array, not a single-speaker slot:
+preserve all applicable NPCs and allow interleaved or NPC-to-NPC dialogue when
+fiction calls for it.
 
 When you consult advice, call `evidence.record_adoption` after deciding whether
 you adopted, modified, or ignored it. This is Keeper-internal evidence, not a

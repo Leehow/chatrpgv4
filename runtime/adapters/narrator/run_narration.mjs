@@ -50,7 +50,7 @@ export function resolveRequestedModel({ agentDir, provider, modelId }) {
     path.join(agentDir, "models.json"),
   );
   let model = modelRegistry.find(provider, modelId);
-  if (!model && provider === "coding-relay") {
+  if (!model && (provider === "coding-relay" || provider === "cursor-relay")) {
     const template = modelRegistry
       .getAll()
       .find(
@@ -1699,8 +1699,8 @@ export async function runNarration(request, serverState = null) {
     }
   }
 
-  const provider = process.env.COC_NARRATOR_MODEL_PROVIDER || "zhipu-coding";
-  const modelId = process.env.COC_NARRATOR_MODEL_ID || "glm-5.2";
+  const provider = process.env.COC_NARRATOR_MODEL_PROVIDER || "coding-relay";
+  const modelId = process.env.COC_NARRATOR_MODEL_ID || "gpt-5.6-luna";
   const agentDir = getAgentDir();
   if (process.env.COC_NARRATOR_TRANSPORT !== "pi-tool") {
     const direct = await callDirectNarrator(request, provider, modelId, agentDir);

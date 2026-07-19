@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "coc-keeper": {
+      "command": "./mcp/launch",
+      "env": {
+        "COC_HOST": "cursor"
+      }
+    }
+  }
+}

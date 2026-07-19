@@ -5,7 +5,8 @@ description: >-
   user explicitly activates COC mode (e.g. "Activate COC mode", "进入 COC 模式"),
   or asks to run a Call of Cthulhu campaign, create an investigator, or import a
   scenario. Routes to canonical skills under plugins/coc-keeper/skills/ — never a
-  second skill copy. Portrait generation is Codex-only; skip imagegen on Kimi.
+  second skill copy. Portraits use host-native image tools; Kimi has none, so
+  skip portraits.
 ---
 
 # COC Keeper (Kimi thin entry)
@@ -66,11 +67,11 @@ through play.
 
 ## Platform gating
 
-Investigator portrait generation is **Codex-only**. It is gated inside
-`CODEX_ONLY_IMAGEGEN` markers in
-`plugins/coc-keeper/skills/coc-character/SKILL.md`. On Kimi (as on Claude Code
-and Cursor), **skip portrait generation** and continue with the rest of
-character creation.
+Investigator portraits use **host-native** image tools
+(`HOST_NATIVE_IMAGEGEN` in
+`plugins/coc-keeper/skills/coc-character/SKILL.md`). Kimi has no built-in image
+tool, so **skip portrait generation** and continue character creation. Do not
+call Codex `imagegen` from Kimi. Grok Build uses its own `image_gen`.
 
 No other craft layer may be silently dropped on Kimi.
 

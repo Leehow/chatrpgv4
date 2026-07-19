@@ -92,7 +92,10 @@ def test_valid_bundle_is_deterministically_formatted_and_hydration_ready(tmp_pat
 
 
 def test_hydration_rejects_missing_bundle_with_codex_pdf_skill_instruction():
-    with pytest.raises(hydration.ScenarioHydrationError, match="Codex pdf skill"):
+    with pytest.raises(
+        hydration.ScenarioHydrationError,
+        match="host source bundle|external host PDF skill|openai/skills",
+    ):
         hydration._extract_source({"source": {"path": "/tmp/module.pdf"}})
 
 

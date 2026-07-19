@@ -2,6 +2,8 @@ import importlib.util
 import random
 from pathlib import Path
 
+import pytest
+
 
 def load_module(name: str, relative_path: str):
     path = Path(relative_path)
@@ -30,6 +32,25 @@ class SequenceRandom:
         return value
 
 
+def _settled_result(
+    roll: int,
+    base_target: int,
+    required_level: str = "regular",
+    **extra,
+):
+    return {
+        **coc_roll.resolve_percentile_roll(
+            roll, base_target, required_level
+        ),
+        "roll": roll,
+        "bonus": 0,
+        "penalty": 0,
+        "tens_values": [],
+        "units": None,
+        **extra,
+    }
+
+
 def test_roll_expression_returns_total_and_terms():
     result = coc_roll.roll_expression("2D6+3", rng=random.Random(4))
     assert result["expression"] == "2D6+3"
@@ -41,10 +62,115 @@ def test_roll_expression_returns_total_and_terms():
 def test_percentile_check_applies_hard_difficulty():
     result = coc_roll.percentile_check(60, difficulty="hard", rng=random.Random(1))
     assert result["target"] == 60
+    assert result["base_target"] == 60
     assert result["effective_target"] == 30
+    assert result["required_target"] == 30
     assert result["difficulty"] == "hard"
+    assert result["required_level"] == "hard"
     assert result["roll"] == 18
-    assert result["outcome"] == "regular"
+    assert result["achieved_level"] == "hard"
+    assert result["outcome"] == "hard"
+    assert result["passed"] is True
+    assert result["success"] is True
+
+
+def test_required_and_achieved_levels_are_distinct_with_surplus():
+    result = coc_roll.percentile_check(
+        45,
+        difficulty="hard",
+        rng=SequenceRandom([5]),
+    )
+
+    assert result["required_level"] == "hard"
+    assert result["required_target"] == 22
+    assert result["achieved_level"] == "extreme"
+    assert result["passed"] is True
+    assert result["surplus_levels"] == 1
+    assert result["outcome"] == "extreme"
+
+
+def test_achieved_regular_can_fail_a_hard_requirement():
+    result = coc_roll.percentile_check(
+        45,
+        difficulty="hard",
+        rng=SequenceRandom([30]),
+    )
+
+    assert result["achieved_level"] == "regular"
+    assert result["passed"] is False
+    assert result["success"] is False
+    assert result["surplus_levels"] == 0
+    assert result["outcome"] == "failure"
+
+
+def test_fumble_band_uses_required_target_not_base_target():
+    result = coc_roll.percentile_check(
+        80,
+        difficulty="hard",
+        rng=SequenceRandom([96]),
+    )
+
+    assert result["base_target"] == 80
+    assert result["required_target"] == 40
+    assert result["achieved_level"] == "fumble"
+    assert result["outcome"] == "fumble"
+    assert result["passed"] is False
+
+
+def test_critical_is_achieved_above_an_extreme_requirement():
+    result = coc_roll.percentile_check(
+        45,
+        difficulty="extreme",
+        rng=SequenceRandom([1]),
+    )
+
+    assert result["achieved_level"] == "critical"
+    assert result["passed"] is True
+    assert result["surplus_levels"] == 1
+    assert result["outcome"] == "critical"
+
+
+@pytest.mark.parametrize(
+    (
+        "base_target",
+        "required_level",
+        "roll",
+        "required_target",
+        "achieved_level",
+        "passed",
+        "outcome",
+        "surplus_levels",
+    ),
+    [
+        (4, "extreme", 1, 0, "critical", True, "critical", 1),
+        (4, "extreme", 2, 0, "hard", False, "failure", 0),
+        (80, "hard", 96, 40, "fumble", False, "fumble", 0),
+        (100, "hard", 96, 50, "regular", False, "failure", 0),
+        (100, "regular", 100, 100, "fumble", False, "fumble", 0),
+        (45, "hard", 30, 22, "regular", False, "failure", 0),
+        (45, "extreme", 15, 9, "hard", False, "failure", 0),
+    ],
+)
+def test_percentile_resolver_boundaries_are_durable(
+    base_target,
+    required_level,
+    roll,
+    required_target,
+    achieved_level,
+    passed,
+    outcome,
+    surplus_levels,
+):
+    result = coc_roll.resolve_percentile_roll(
+        roll, base_target, required_level
+    )
+
+    assert result["required_target"] == required_target
+    assert result["achieved_level"] == achieved_level
+    assert result["passed"] is passed
+    assert result["success"] is passed
+    assert result["outcome"] == outcome
+    assert result["surplus_levels"] == surplus_levels
 
 
 def test_percentile_check_uses_rules_json_difficulty_target(monkeypatch):
@@ -167,7 +293,9 @@ def test_format_percentile_result_shows_bonus_die_components():
 
     assert result["roll"] == 11
     assert coc_roll.format_percentile_result(result, language="zh-Hans") == (
-        "奖励骰：个位 1，十位 4/1，取 1 -> 11/37，困难成功"
+        "奖励骰：个位 1，十位 4/1，取 1 → "
+        "掷骰：11；基础值：37；门槛：普通（≤37）；"
+        "达到：困难成功（超出 1 级）；通过"
     )
 
 
@@ -176,23 +304,15 @@ def test_format_percentile_result_shows_penalty_die_components():
 
     assert result["roll"] == 98
     assert coc_roll.format_percentile_result(result, language="zh-Hans") == (
-        "惩罚骰：个位 8，十位 2/9，取 9 -> 98/70，失败"
+        "惩罚骰：个位 8，十位 2/9，取 9 → "
+        "掷骰：98；基础值：70；门槛：普通（≤70）；达到：失败；未通过"
     )
 
 
 def test_format_percentile_result_shows_tens_units_breakdown_without_modifiers():
     # A plain percentile roll (no bonus/penalty) has no tens_values/units in the
     # result, so the breakdown must be derived from `roll` itself.
-    result = {
-        "target": 50,
-        "effective_target": 50,
-        "roll": 47,
-        "outcome": "regular",
-        "bonus": 0,
-        "penalty": 0,
-        "tens_values": [],
-        "units": None,
-    }
+    result = _settled_result(47, 50)
 
     formatted = coc_roll.format_percentile_result(result, language="zh-Hans")
 
@@ -200,22 +320,14 @@ def test_format_percentile_result_shows_tens_units_breakdown_without_modifiers()
     assert "个位" in formatted
     assert "4" in formatted
     assert "7" in formatted
-    assert "47/50" in formatted
-    assert formatted.startswith("47/50 = ")
+    assert "掷骰：47" in formatted
+    assert "基础值：50" in formatted
+    assert "门槛：普通（≤50）" in formatted
 
 
 def test_format_percentile_result_breakdown_derives_tens_digit_for_double_digit_roll():
     # roll=100 (valid fumble band): tens digit is 10, units digit is 0.
-    result = {
-        "target": 80,
-        "effective_target": 80,
-        "roll": 100,
-        "outcome": "fumble",
-        "bonus": 0,
-        "penalty": 0,
-        "tens_values": [],
-        "units": None,
-    }
+    result = _settled_result(100, 80)
 
     formatted = coc_roll.format_percentile_result(result, language="zh-Hans")
 
@@ -224,50 +336,28 @@ def test_format_percentile_result_breakdown_derives_tens_digit_for_double_digit_
 
 
 def test_format_percentile_result_compact_opt_out_preserves_minimal_form():
-    result = {
-        "target": 50,
-        "effective_target": 50,
-        "roll": 47,
-        "outcome": "regular",
-        "bonus": 0,
-        "penalty": 0,
-        "tens_values": [],
-        "units": None,
-    }
+    result = _settled_result(47, 50)
 
     formatted = coc_roll.format_percentile_result(result, language="zh-Hans", compact=True)
 
-    assert formatted == "47/50，成功"
+    assert formatted == (
+        "掷骰：47；基础值：50；门槛：普通（≤50）；达到：成功；通过"
+    )
 
 
 def test_format_percentile_result_compact_opt_out_english():
-    result = {
-        "target": 50,
-        "effective_target": 50,
-        "roll": 47,
-        "outcome": "regular",
-        "bonus": 0,
-        "penalty": 0,
-        "tens_values": [],
-        "units": None,
-    }
+    result = _settled_result(47, 50)
 
     formatted = coc_roll.format_percentile_result(result, language="en-US", compact=True)
 
-    assert formatted == "47/50, regular"
+    assert formatted == (
+        "roll: 47; base: 50; required: Regular (≤50); "
+        "achieved: Regular; passed"
+    )
 
 
 def test_format_percentile_result_breakdown_english():
-    result = {
-        "target": 50,
-        "effective_target": 50,
-        "roll": 47,
-        "outcome": "regular",
-        "bonus": 0,
-        "penalty": 0,
-        "tens_values": [],
-        "units": None,
-    }
+    result = _settled_result(47, 50)
 
     formatted = coc_roll.format_percentile_result(result, language="en-US")
 
@@ -275,7 +365,42 @@ def test_format_percentile_result_breakdown_english():
     assert "units" in formatted
     assert "4" in formatted
     assert "7" in formatted
-    assert formatted.startswith("47/50 = ")
+    assert "roll: 47" in formatted
+    assert "base: 50" in formatted
+    assert "required: Regular (≤50)" in formatted
+
+
+def test_format_percentile_result_shows_contextual_pass_surplus():
+    result = _settled_result(5, 45, "hard")
+
+    assert coc_roll.format_percentile_result(result, compact=True) == (
+        "掷骰：5；基础值：45；门槛：困难（≤22）；"
+        "达到：极难成功（超出 1 级）；通过"
+    )
+
+
+def test_format_percentile_result_shows_failed_hard_gate_without_contradiction():
+    result = _settled_result(30, 45, "hard")
+
+    formatted = coc_roll.format_percentile_result(result, compact=True)
+
+    assert formatted == (
+        "掷骰：30；基础值：45；门槛：困难（≤22）；达到：成功；未通过"
+    )
+    assert "30/45，失败" not in formatted
+
+
+def test_format_percentile_result_rejects_old_or_contradictory_shapes():
+    with pytest.raises(ValueError, match="lacks contextual fields"):
+        coc_roll.format_percentile_result(
+            {"roll": 30, "target": 45, "outcome": "failure"},
+            compact=True,
+        )
+
+    contradictory = _settled_result(30, 45, "hard")
+    contradictory["passed"] = True
+    with pytest.raises(ValueError, match="contradicts canonical settlement"):
+        coc_roll.format_percentile_result(contradictory, compact=True)
 
 
 def test_roll_percentile_alias_matches_percentile_check():
@@ -293,7 +418,9 @@ def test_public_api_index_lists_aliases_and_formatters():
     assert "percentile_check" in api
     assert "roll_percentile" in api["percentile_check"]["aliases"]
     assert "format_percentile_result" in api
-    assert api["format_percentile_result"]["returns"] == "player-facing roll summary"
+    assert api["format_percentile_result"]["returns"] == (
+        "context-complete player-facing roll summary"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -301,13 +428,7 @@ def test_public_api_index_lists_aliases_and_formatters():
 # --------------------------------------------------------------------------- #
 
 def _failed_result(roll=55, target=50):
-    return {
-        "target": target,
-        "effective_target": target,
-        "difficulty": "regular",
-        "roll": roll,
-        "outcome": "failure",
-    }
+    return _settled_result(roll, target)
 
 
 def test_spend_luck_converts_failure_to_success():
@@ -322,10 +443,16 @@ def test_spend_luck_converts_failure_to_success():
 
 
 def test_spend_luck_can_reach_hard_success():
-    out = coc_roll.spend_luck(_failed_result(roll=30, target=50), 5, 20)
+    out = coc_roll.spend_luck(
+        _settled_result(30, 50, "hard"), 5, 20
+    )
 
     assert out["roll"] == 25
     assert out["outcome"] == "hard"
+    assert out["required_level"] == "hard"
+    assert out["required_target"] == 25
+    assert out["achieved_level"] == "hard"
+    assert out["passed"] is True
 
 
 def test_spend_luck_forbidden_roll_kinds():
@@ -354,11 +481,14 @@ def test_spend_luck_rejects_pushed_roll():
         raise AssertionError("expected ValueError for pushed roll")
 
 
+def test_spend_luck_rejects_an_already_successful_roll():
+    with pytest.raises(ValueError, match="failed_roll"):
+        coc_roll.spend_luck(_settled_result(40, 50), 1, 40)
+
+
 def test_spend_luck_cannot_buy_off_fumble_or_critical():
     fumble = _failed_result(roll=100)
-    fumble["outcome"] = "fumble"
     critical = _failed_result(roll=1)
-    critical["outcome"] = "critical"
     for result in (fumble, critical):
         try:
             coc_roll.spend_luck(result, 5, 40)
@@ -394,6 +524,43 @@ def test_spend_luck_rejects_non_positive_points():
         assert "points" in str(exc)
     else:
         raise AssertionError("expected ValueError for zero points")
+
+
+@pytest.mark.parametrize("points", [True, 1.0, -1])
+def test_spend_luck_rejects_non_integral_or_negative_points(points):
+    with pytest.raises(ValueError, match="points"):
+        coc_roll.spend_luck(_failed_result(), points, 40)
+
+
+@pytest.mark.parametrize("current_luck", [True, 40.0, -1])
+def test_spend_luck_rejects_invalid_current_luck(current_luck):
+    with pytest.raises(ValueError, match="current_luck"):
+        coc_roll.spend_luck(_failed_result(), 1, current_luck)
+
+
+@pytest.mark.parametrize("roll_kind", ["skills", "ordinary", "", 1, True])
+def test_spend_luck_rejects_unknown_roll_kind(roll_kind):
+    with pytest.raises(ValueError, match="roll_kind"):
+        coc_roll.spend_luck(
+            _failed_result(), 1, 40, roll_kind=roll_kind
+        )
+
+
+def test_spend_luck_rejects_old_or_contradictory_percentile_shapes():
+    old_shape = {
+        "target": 50,
+        "effective_target": 25,
+        "difficulty": "hard",
+        "roll": 30,
+        "outcome": "failure",
+    }
+    with pytest.raises(ValueError, match="canonical_contract"):
+        coc_roll.spend_luck(old_shape, 5, 40)
+
+    contradictory = _settled_result(30, 50, "hard")
+    contradictory["achieved_level"] = "hard"
+    with pytest.raises(ValueError, match="contradicts_canonical_contract"):
+        coc_roll.spend_luck(contradictory, 5, 40)
 
 
 def test_recover_luck_success_gains_1d10():
@@ -442,3 +609,6 @@ def test_zero_units_materializes_00_before_bonus_penalty_selection():
     assert penalty["units"] == 0
     assert penalty["unmodified_roll"] == 40
     assert penalty["roll"] == 100
+    assert bonus["success"] is True
+    assert penalty["achieved_level"] == "fumble"
+    assert penalty["success"] is False

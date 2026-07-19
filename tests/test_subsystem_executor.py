@@ -42,7 +42,12 @@ def _campaign_and_character(tmp_path: Path) -> tuple[Path, Path]:
     (campaign / "logs").mkdir(parents=True)
     (campaign / "logs" / "rolls.jsonl").write_text("", encoding="utf-8")
     (campaign / "save" / "investigator-state" / "inv1.json").write_text(
-        json.dumps({"schema_version": 1, "investigator_id": "inv1", "current_san": 55}),
+        json.dumps({
+            "schema_version": 1,
+            "investigator_id": "inv1",
+            "current_san": 55,
+            "current_mp": 0,
+        }),
         encoding="utf-8",
     )
     character = tmp_path / "investigators" / "inv1" / "character.json"
@@ -654,6 +659,58 @@ def _execute(module, campaign: Path, character: Path, commands: list[dict], rng)
     )
 
 
+def test_amount_roll_role_is_a_closed_validated_union():
+    executor = _executor("coc_subsystem_executor_amount_union")
+    valid = {
+        "roll_id": "amount-1",
+        "roll_role": "amount",
+        "rolled_total": 7,
+        "dice": {"expression": "2D6+1", "raw": [2, 4], "total": 7},
+        "outcome": "damage_applied",
+    }
+    executor._validate_roll_event_role(valid, "amount")
+
+    invalid_rows = [
+        {**valid, "target": 50},
+        {**valid, "difficulty": "hard"},
+        {**valid, "success": False},
+        {**valid, "roll": 7},
+        {key: value for key, value in valid.items() if key != "dice"},
+        {**valid, "dice": {"expression": "2D6+1", "raw": [2], "total": 3}, "rolled_total": 3},
+        {**valid, "dice": {"expression": "2D6+1", "raw": [2, 7], "total": 10}, "rolled_total": 10},
+        {**valid, "dice": {"expression": "2D6+1", "raw": [2, 4], "total": 6}},
+        {**valid, "rolled_total": True},
+    ]
+    for offset, invalid in enumerate(invalid_rows):
+        with pytest.raises(executor.SubsystemExecutorError):
+            executor._validate_roll_event_role(invalid, f"amount[{offset}]")
+
+
+def test_sanity_reward_persists_and_replays_canonical_amount_evidence(tmp_path):
+    executor = _executor("coc_subsystem_executor_san_reward_amount")
+    campaign, character = _campaign_and_character(tmp_path)
+    command = _command("san-reward-amount", "sanity_reward", payload={
+        "decision_id": "san-reward-amount",
+        "roll_id": "san-reward-amount",
+        "die": "1D6",
+        "source": "scenario reward",
+        "rule_ref": "module.test.reward",
+    })
+
+    first = _execute(executor, campaign, character, [command], random.Random(4))[0]
+    amount = first["events"][0]
+    assert amount["roll_role"] == "amount"
+    assert amount["rolled_total"] == amount["dice"]["total"]
+    assert amount["dice"]["raw"] == [amount["rolled_total"]]
+    assert not executor.AMOUNT_FORBIDDEN_FIELDS.intersection(amount)
+    row = json.loads(
+        (campaign / "logs" / "rolls.jsonl").read_text().splitlines()[0]
+    )
+    assert row["payload"] == {**amount, "visibility": "public"}
+    replay = _execute(executor, campaign, character, [command], random.Random(999))[0]
+    assert replay == first
+
+
 def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_path):
     executor = _executor("coc_subsystem_executor_authored_operations")
     campaign, character = _campaign_and_character(tmp_path)
@@ -677,6 +734,13 @@ def test_authored_hazard_and_damaged_tome_are_transactional_exact_replays(tmp_pa
         "Luck", "Jump",
     ]
     assert any(row.get("skill") == "HP Damage" for row in first["events"])
+    damage_amount = next(
+        row for row in first["events"] if row.get("skill") == "HP Damage"
+    )
+    assert damage_amount["roll_role"] == "amount"
+    assert damage_amount["rolled_total"] == damage_amount["dice"]["total"]
+    assert damage_amount["target_actor_id"] == "inv1"
+    assert not executor.AMOUNT_FORBIDDEN_FIELDS.intersection(damage_amount)
     after_hazard = json.loads(inv_path.read_text())
     roll_lines = (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
     replay_rng = random.Random(999)
@@ -886,6 +950,248 @@ def test_combat_commands_persist_defense_and_reload_hp_atomically(tmp_path):
     assert replay == resolved
 
 
+def test_combat_mp_preparation_and_attack_cost_mirror_and_replay(tmp_path):
+    executor = _executor("coc_subsystem_executor_combat_mp_mirror")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv_state = json.loads(state_path.read_text(encoding="utf-8"))
+    inv_state.update({
+        "current_hp": 11,
+        "current_mp": 10,
+        "conditions": [],
+    })
+    state_path.write_text(json.dumps(inv_state), encoding="utf-8")
+    start = _combat_start_command("mp-combat-start")
+    start["payload"]["participants"][0].update({
+        "dex": 80,
+        "magic_points": 10,
+    })
+    start["payload"]["preparations"] = [{
+        "effect_id": "mp-ward",
+        "actor_id": "inv1",
+        "resource": "magic_points",
+        "cost": 3,
+        "effect_kind": "protective_ward",
+        "duration_rounds": 2,
+        "rule_ref": "test.combat.mp_preparation",
+    }]
+
+    started = _execute(
+        executor, campaign, character, [start], random.Random(1)
+    )[0]
+    assert started["events"][1] == {
+        "event_type": "resource_change",
+        "actor_id": "inv1",
+        "resource": "magic_points",
+        "reason": "protective_ward",
+        "before": 10,
+        "cost": 3,
+        "delta": -3,
+        "after": 7,
+        "armor_rolls": [],
+        "armor_points": 0,
+        "duration_rounds": 2,
+        "rule_ref": "test.combat.mp_preparation",
+        "source_command_id": "mp-combat-start",
+    }
+    assert json.loads(state_path.read_text(encoding="utf-8"))["current_mp"] == 7
+    start_replay = _execute(
+        executor, campaign, character, [start], random.Random(99)
+    )[0]
+    assert start_replay == started
+    assert json.loads(state_path.read_text(encoding="utf-8"))["current_mp"] == 7
+
+    attack = _command(
+        "mp-combat-attack",
+        "combat_attack",
+        phase="declare",
+        payload={
+            "decision_id": "combat-decision",
+            "revision": 1,
+            "actor_id": "inv1",
+            "target_actor_id": "cultist",
+            "declared_intent": "power the warded strike",
+            "resolution_hint": "opposed_melee",
+            "weapon_id": "unarmed",
+            "resource_cost": {
+                "resource": "magic_points",
+                "cost": 2,
+                "reason": "warded strike",
+                "rule_ref": "test.combat.mp_attack",
+            },
+        },
+    )
+    declared = _execute(
+        executor, campaign, character, [attack], random.Random(2)
+    )[0]
+    assert declared["events"][1]["before"] == 7
+    assert declared["events"][1]["after"] == 5
+    assert json.loads(state_path.read_text(encoding="utf-8"))["current_mp"] == 5
+    loaded = executor.coc_combat.CombatSession.load(
+        campaign,
+        rng=random.Random(3),
+        damage_evidence=executor.load_combat_damage_evidence(campaign),
+    )
+    assert loaded.participants["inv1"]["magic_points"] == 5
+    attack_replay = _execute(
+        executor, campaign, character, [attack], random.Random(999)
+    )[0]
+    assert attack_replay == declared
+    assert json.loads(state_path.read_text(encoding="utf-8"))["current_mp"] == 5
+
+
+def test_combat_armor_preparation_persists_one_canonical_amount_roll(tmp_path):
+    executor = _executor("coc_subsystem_executor_armor_amount")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"current_hp": 11, "current_mp": 2, "conditions": []})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    start = _combat_start_command("armor-amount-start")
+    start["payload"]["participants"][0]["magic_points"] = 2
+    start["payload"]["preparations"] = [{
+        "effect_id": "flesh-ward",
+        "actor_id": "inv1",
+        "resource": "magic_points",
+        "cost": 2,
+        "effect_kind": "flesh_ward",
+        "duration_rounds": 3,
+        "rule_ref": "core.magic.flesh_ward",
+        "armor_dice": "2D6",
+        "armor_rule": "degrades_1_per_damage",
+    }]
+
+    first = _execute(executor, campaign, character, [start], random.Random(7))[0]
+    amount = next(event for event in first["events"] if event.get("roll_id"))
+    assert amount["roll_role"] == "amount"
+    assert amount["rolled_total"] == sum(amount["dice"]["raw"])
+    assert amount["rolled_total"] == amount["dice"]["total"]
+    assert not executor.AMOUNT_FORBIDDEN_FIELDS.intersection(amount)
+    rows = [
+        json.loads(line)
+        for line in (campaign / "logs" / "rolls.jsonl").read_text().splitlines()
+    ]
+    assert [row["roll_id"] for row in rows] == [amount["roll_id"]]
+    assert rows[0]["payload"] == {**amount, "visibility": "public"}
+    replay = _execute(executor, campaign, character, [start], random.Random(999))[0]
+    assert replay == first
+
+
+@pytest.mark.parametrize("invalid_mp", [None, True, -1, 1.5])
+def test_combat_start_requires_exact_current_mp_without_rng_or_writes(
+    tmp_path, invalid_mp,
+):
+    executor = _executor(f"coc_subsystem_executor_strict_mp_{invalid_mp!r}")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if invalid_mp is None:
+        state.pop("current_mp")
+    else:
+        state["current_mp"] = invalid_mp
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    before = {
+        path.relative_to(campaign): path.read_bytes()
+        for path in campaign.rglob("*")
+        if path.is_file() and "locks" not in path.parts
+    }
+    rng = random.Random(441)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError, match="current_mp"):
+        _execute(executor, campaign, character, [_combat_start_command()], rng)
+
+    assert rng.getstate() == rng_before
+    assert {
+        path.relative_to(campaign): path.read_bytes()
+        for path in campaign.rglob("*")
+        if path.is_file() and "locks" not in path.parts
+    } == before
+
+
+@pytest.mark.parametrize("continuation", ["attack", "defend", "end"])
+def test_active_combat_mp_divergence_rejects_before_rng_or_writes(
+    tmp_path, continuation,
+):
+    executor = _executor(f"coc_subsystem_executor_mp_divergence_{continuation}")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"current_hp": 11, "current_mp": 0, "conditions": []})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    _execute(
+        executor, campaign, character, [_combat_start_command()], random.Random(1)
+    )
+    attack = _command("mp-stale-attack", "combat_attack", phase="declare", payload={
+        "decision_id": "mp-stale", "revision": 1,
+        "actor_id": "cultist", "target_actor_id": "inv1",
+        "declared_intent": "test stale authority",
+        "resolution_hint": "opposed_melee", "weapon_id": "unarmed",
+    })
+    if continuation == "defend":
+        _execute(executor, campaign, character, [attack], random.Random(2))
+        command = _command("mp-stale-defend", "combat_defend", payload={
+            "decision_id": "mp-stale", "revision": 2,
+            "actor_id": "inv1", "attack_command_id": "mp-stale-attack",
+            "defense_kind": "dodge",
+        })
+    elif continuation == "end":
+        command = _command("mp-stale-end", "combat_end", phase="end", payload={
+            "decision_id": "mp-stale", "revision": 1,
+            "outcome": "stalemate",
+        })
+    else:
+        command = attack
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["current_mp"] = 1
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    before = {
+        path.relative_to(campaign): path.read_bytes()
+        for path in campaign.rglob("*")
+        if path.is_file() and "locks" not in path.parts
+    }
+    rng = random.Random(552)
+    rng_before = rng.getstate()
+
+    with pytest.raises(executor.SubsystemExecutorError, match="active combat MP"):
+        _execute(executor, campaign, character, [command], rng)
+
+    assert rng.getstate() == rng_before
+    assert {
+        path.relative_to(campaign): path.read_bytes()
+        for path in campaign.rglob("*")
+        if path.is_file() and "locks" not in path.parts
+    } == before
+
+
+def test_combat_save_then_mirror_failure_rolls_back_both_preimages(
+    tmp_path, monkeypatch,
+):
+    executor = _executor("coc_subsystem_executor_mp_mirror_rollback")
+    campaign, character = _campaign_and_character(tmp_path)
+    state_path = campaign / "save" / "investigator-state" / "inv1.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.update({"current_hp": 11, "current_mp": 0, "conditions": []})
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    before_state = state_path.read_bytes()
+    original_sync = executor._sync_investigator_from_combat
+
+    def fail_after_combat_save(*args, **kwargs):
+        assert (campaign / "save" / "combat.json").is_file()
+        raise RuntimeError("injected mirror failure")
+
+    monkeypatch.setattr(executor, "_sync_investigator_from_combat", fail_after_combat_save)
+    rng = random.Random(663)
+    rng_before = rng.getstate()
+    with pytest.raises(executor.SubsystemExecutorError, match="injected mirror failure"):
+        _execute(executor, campaign, character, [_combat_start_command()], rng)
+
+    assert rng.getstate() == rng_before
+    assert not (campaign / "save" / "combat.json").exists()
+    assert state_path.read_bytes() == before_state
+    monkeypatch.setattr(executor, "_sync_investigator_from_combat", original_sync)
+
+
 def test_combat_luck_precommit_spends_minimum_and_preserves_raw_die(tmp_path):
     executor = _executor("coc_subsystem_executor_combat_luck_precommit")
     campaign, character = _campaign_and_character(tmp_path)
@@ -934,10 +1240,51 @@ def test_combat_luck_precommit_spends_minimum_and_preserves_raw_die(tmp_path):
         if event.get("event_type") == "combat_roll"
         and event.get("actor_id") == "inv1"
     )
-    assert roll["roll"] == 76
+    assert roll["roll"] == 40
+    assert roll["original_roll"] == 76
     assert roll["adjusted_roll"] == 40
+    assert roll["luck_spent"] == 36
+    assert roll["luck_before"] == 55
+    assert roll["luck_after"] == roll["luck_remaining"] == 19
     assert roll["dice"] == {"expression": "1D100", "raw": [76], "total": 76}
+    assert roll["base_target"] == 40
+    assert roll["required_level"] == "regular"
+    assert roll["required_target"] == 40
+    assert roll["achieved_level"] == "regular"
+    assert roll["passed"] is True
+    assert roll["success"] is True
+    assert roll["surplus_levels"] == 0
     assert roll["outcome"] == "regular"
+    executor._validate_combat_luck_bindings(
+        [event for event in resolved["events"] if isinstance(event, dict)],
+        "resolved.events",
+    )
+    for field, replacement in (
+        ("original_roll", 75),
+        ("adjusted_roll", 39),
+        ("luck_spent", 35),
+        ("luck_before", 54),
+        ("luck_after", 18),
+        ("luck_remaining", 18),
+    ):
+        tampered = json.loads(json.dumps(roll))
+        tampered[field] = replacement
+        with pytest.raises(executor.SubsystemExecutorError):
+            executor._validate_roll_event_role(tampered, f"luck.{field}")
+    partial = json.loads(json.dumps(roll))
+    partial.pop("luck_before")
+    with pytest.raises(executor.SubsystemExecutorError, match="partial Luck"):
+        executor._validate_roll_event_role(partial, "luck.partial")
+    tampered_dice = json.loads(json.dumps(roll))
+    tampered_dice["dice"]["raw"] = [75]
+    with pytest.raises(executor.SubsystemExecutorError, match="Luck-adjusted"):
+        executor._validate_roll_event_role(tampered_dice, "luck.dice")
+    mismatched_source = json.loads(json.dumps(luck_event))
+    mismatched_source["luck_spent"] -= 1
+    with pytest.raises(executor.SubsystemExecutorError, match="contradicts"):
+        executor._validate_combat_luck_bindings(
+            [roll, mismatched_source], "luck.binding"
+        )
     final_state = json.loads(state_path.read_text(encoding="utf-8"))
     assert final_state["current_luck"] == 19
 
@@ -1084,6 +1431,23 @@ def test_combat_start_rejects_forged_investigator_hp(tmp_path):
     inv_path.write_text(json.dumps(inv), encoding="utf-8")
     with pytest.raises(executor.SubsystemExecutorError, match="combat participant must match"):
         _execute(executor, campaign, character, [_combat_start_command()], random.Random(1))
+
+
+def test_combat_start_rejects_forged_investigator_mp(tmp_path):
+    executor = _executor("coc_subsystem_executor_combat_start_mp_mirror")
+    campaign, character = _campaign_and_character(tmp_path)
+    inv_path = campaign / "save" / "investigator-state" / "inv1.json"
+    inv = json.loads(inv_path.read_text(encoding="utf-8"))
+    inv.update({"current_hp": 11, "current_mp": 8, "conditions": []})
+    inv_path.write_text(json.dumps(inv), encoding="utf-8")
+    start = _combat_start_command()
+    start["payload"]["participants"][0]["magic_points"] = 7
+
+    with pytest.raises(
+        executor.SubsystemExecutorError,
+        match="combat participant MP must match canonical investigator current_mp",
+    ):
+        _execute(executor, campaign, character, [start], random.Random(1))
 
 
 def test_rescue_updates_active_combat_and_investigator_mirror(tmp_path):
@@ -1375,6 +1739,9 @@ def test_medicine_healing_die_has_separate_canonical_evidence_and_replays(tmp_pa
     first = _execute(executor, campaign, character, [command], random.Random(8))[0]
     healing = next(event for event in first["events"] if event.get("skill") == "HP Healing")
     assert healing["roll_id"] == "medicine-dice:healing"
+    assert healing["roll_role"] == "amount"
+    assert healing["rolled_total"] == healing["dice"]["total"]
+    assert not executor.AMOUNT_FORBIDDEN_FIELDS.intersection(healing)
     assert healing["dice"]["expression"] == "1D3"
     assert healing["dice"]["raw"]
     assert healing["dice"]["total"] == first["events"][0]["hp_gained"]
@@ -1471,6 +1838,179 @@ def _persist_failed_pushable_roll(module, campaign: Path, character: Path) -> di
     assert result["events"][0]["outcome"] == "failure"
     assert result["events"][0]["success"] is False
     return result
+
+
+def _set_spot_hidden(character: Path, value: int) -> None:
+    sheet = json.loads(character.read_text(encoding="utf-8"))
+    sheet.setdefault("skills", {})["Spot Hidden"] = value
+    character.write_text(json.dumps(sheet), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    (
+        "difficulty",
+        "seed",
+        "roll",
+        "required_target",
+        "achieved_level",
+        "passed",
+        "outcome",
+    ),
+    [
+        ("hard", 1, 18, 30, "hard", True, "hard"),
+        ("hard", 3, 31, 30, "regular", False, "failure"),
+        ("extreme", 2, 8, 12, "extreme", True, "extreme"),
+        ("extreme", 1, 18, 12, "hard", False, "failure"),
+    ],
+)
+def test_contextual_percentile_contract_survives_persistence_and_replay(
+    tmp_path,
+    difficulty,
+    seed,
+    roll,
+    required_target,
+    achieved_level,
+    passed,
+    outcome,
+):
+    executor = _executor(
+        f"coc_subsystem_executor_contextual_{difficulty}_{seed}"
+    )
+    campaign, character = _campaign_and_character(
+        tmp_path / f"{difficulty}-{seed}"
+    )
+    _set_spot_hidden(character, 60)
+    command = _command(
+        f"contextual-{difficulty}-{seed}",
+        "skill_check",
+        payload={
+            "decision_id": f"contextual-{difficulty}-{seed}",
+            "roll_id": f"contextual-{difficulty}-{seed}:roll",
+            "skill": "Spot Hidden",
+            "difficulty": difficulty,
+        },
+    )
+
+    result = _execute(
+        executor, campaign, character, [command], random.Random(seed)
+    )[0]
+    event = result["events"][0]
+
+    assert event["roll_role"] == "percentile_check"
+    assert event["roll"] == roll
+    assert event["base_target"] == event["target"] == 60
+    assert event["required_level"] == event["difficulty"] == difficulty
+    assert event["required_target"] == event["effective_target"] == required_target
+    assert event["achieved_level"] == achieved_level
+    assert event["passed"] is passed
+    assert event["success"] is passed
+    assert event["surplus_levels"] == 0
+    assert event["outcome"] == outcome
+
+    reloaded = _executor(
+        f"coc_subsystem_executor_contextual_reload_{difficulty}_{seed}"
+    )
+    replay_rng = random.Random(99)
+    replay_before = replay_rng.getstate()
+    replay = _execute(
+        reloaded, campaign, character, [command], replay_rng
+    )[0]
+    assert replay == result
+    assert replay_rng.getstate() == replay_before
+
+
+@pytest.mark.parametrize(
+    (
+        "difficulty",
+        "seed",
+        "roll",
+        "required_target",
+        "achieved_level",
+        "passed",
+        "outcome",
+    ),
+    [
+        ("hard", 1, 18, 30, "hard", True, "hard"),
+        ("hard", 3, 31, 30, "regular", False, "failure"),
+        ("extreme", 2, 8, 12, "extreme", True, "extreme"),
+        ("extreme", 1, 18, 12, "hard", False, "failure"),
+    ],
+)
+def test_pushed_contextual_percentile_contract_survives_history_and_replay(
+    tmp_path,
+    difficulty,
+    seed,
+    roll,
+    required_target,
+    achieved_level,
+    passed,
+    outcome,
+):
+    executor = _executor(
+        f"coc_subsystem_executor_push_contextual_{difficulty}_{seed}"
+    )
+    campaign, character = _campaign_and_character(
+        tmp_path / f"push-{difficulty}-{seed}"
+    )
+    _set_spot_hidden(character, 60)
+    origin_id = f"push-{difficulty}-{seed}-origin"
+    origin = _pushable_roll_command(origin_id)
+    origin["payload"]["difficulty"] = difficulty
+    origin["payload"]["resolution_context"]["clue_policy"][
+        "difficulty"
+    ] = difficulty
+    original = _execute(
+        executor, campaign, character, [origin], random.Random(5)
+    )[0]
+    assert original["events"][0]["roll"] == 80
+    assert original["events"][0]["passed"] is False
+    assert original["events"][0]["outcome"] == "failure"
+
+    offered = _execute(
+        executor,
+        campaign,
+        character,
+        [
+            _valid_push_offer(
+                origin_id,
+                command_id=f"push-{difficulty}-{seed}-offer",
+            )
+        ],
+        random.Random(211),
+    )[0]
+    response = _push_response(offered["pending_choice"], "confirm")
+    commands = executor.commands_from_rules_requests(
+        executor.plan_from_pending_choice_response(
+            campaign, "inv1", response
+        )
+    )
+
+    results = _execute(
+        executor, campaign, character, commands, random.Random(seed)
+    )
+    pushed = results[1]["events"][0]
+
+    assert pushed["roll_role"] == "percentile_check"
+    assert pushed["roll"] == roll
+    assert pushed["base_target"] == pushed["target"] == 60
+    assert pushed["required_level"] == pushed["difficulty"] == difficulty
+    assert pushed["required_target"] == pushed["effective_target"] == required_target
+    assert pushed["achieved_level"] == achieved_level
+    assert pushed["passed"] is passed
+    assert pushed["success"] is passed
+    assert pushed["surplus_levels"] == 0
+    assert pushed["outcome"] == outcome
+
+    reloaded = _executor(
+        f"coc_subsystem_executor_push_contextual_reload_{difficulty}_{seed}"
+    )
+    replay_rng = random.Random(99)
+    replay_before = replay_rng.getstate()
+    replay = _execute(
+        reloaded, campaign, character, commands, replay_rng
+    )
+    assert replay == results
+    assert replay_rng.getstate() == replay_before
 
 
 def _offer_push(module, campaign: Path, character: Path) -> dict:

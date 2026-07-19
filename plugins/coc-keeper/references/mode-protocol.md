@@ -48,7 +48,8 @@ Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule en
 
 ## Roles
 
-- Codex is the Keeper after activation.
+- The host agent that loaded the canonical `coc-keeper` plugin is the Keeper
+  after activation (Codex, Claude Code, Cursor, Grok Build, Kimi, Pi, etc.).
 - The user is the player unless they explicitly ask for another table role.
 - Campaign setup starts before character creation.
 
@@ -72,6 +73,14 @@ Machine-facing markers, JSON keys, filenames, and status values must use ASCII E
 ## Immersion
 
 Ordinary play should be immersive: describe scenes, portray NPCs, ask for player actions, and narrate consequences. Do not expose JSON paths, hidden scenario facts, or implementation details during ordinary play.
+
+Players may guess or bait spoilers; the Keeper owns the intercept. The
+investigator knows only play-established player-visible facts. Do not enact
+unearned room contents, secrets, or layout the player asserts, even when the
+guess is lucky-correct. Prefer play-voice pushback (and light Table Wit when
+tone allows) over dumping module truth or OOC lectures. See
+`skills/coc-keeper-play/SKILL.md` Declaration Adjudication / Player knowledge
+boundary and root `AGENTS.md` Player Knowledge Boundary.
 
 ## Player Action Prompts
 

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# The plugin package owns keeper skills and toolbox behavior; the repository's
+# shared headless runtime remains the single compiler/runtime source. When the
+# host installs a managed plugin copy, pass the opened workspace runtime back
+# explicitly instead of deriving it from the managed plugin cache path.
+if [[ -n "${COC_PROJECT_ROOT:-}" && -d "${COC_PROJECT_ROOT}/runtime" ]]; then
+  export COC_RUNTIME_ROOT="${COC_PROJECT_ROOT}/runtime"
+fi
+
+if [[ -n "${COC_PROJECT_ROOT:-}" && -f "${COC_PROJECT_ROOT}/uv.lock" ]]; then
+  exec uv run --project "$COC_PROJECT_ROOT" --frozen python "$PLUGIN_ROOT/mcp/server.py"
+fi
+
+exec uv run --python 3.14.6 --no-project python "$PLUGIN_ROOT/mcp/server.py"

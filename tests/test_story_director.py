@@ -830,9 +830,9 @@ def test_npc_agenda_text_does_not_keyword_force_adversary():
 
     moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
 
-    assert moves[0]["emotional_tone"] in {"warm and cooperative", "guarded but civil", "cold and suspicious"}
-    assert moves[0]["disposition_source"] == "rule_signal:npc_reaction_roll"
-    assert ctx["rule_signals"]["npc_reaction_roll"] is not None
+    assert moves[0]["emotional_tone"] == "neutral"
+    assert moves[0]["disposition_source"] is None
+    assert ctx["rule_signals"]["npc_reaction_roll"] is None
 
 
 def test_director_builds_npc_agency_from_abstract_social_role(tmp_path):

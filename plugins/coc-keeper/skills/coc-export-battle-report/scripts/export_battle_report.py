@@ -22,6 +22,9 @@ KEEPER_ROLES = {"keeper", "keeper_under_test", "kp", "narrator"}
 PLAYER_ROLES = {"player", "player_simulator"}
 DIALOGUE_ROLES = KEEPER_ROLES | PLAYER_ROLES
 PUBLIC_VISIBILITIES = {"public", "consequence_public"}
+# Corrected settlements remain in the audit log but must not reappear as
+# player-facing battle-report dice or HP chains.
+HIDDEN_PUBLIC_VISIBILITIES = {"superseded", "voided", "corrected_hidden"}
 MARKDOWN_HIDDEN_KEYS = {
     "clue_graph",
     "keeper_notes",
@@ -188,6 +191,10 @@ def _roll_visibility(row: Any) -> str:
         return "unknown"
     payload = row.get("payload")
     for source in (row, payload if isinstance(payload, dict) else {}):
+        if source.get("superseded") is True or source.get("voided") is True:
+            return "superseded"
+        if source.get("player_facing") is False:
+            return "superseded"
         value = source.get("visibility")
         if isinstance(value, str):
             return value
@@ -378,6 +385,59 @@ def _npc_projection(receipts: Any) -> list[dict[str, Any]]:
     return result
 
 
+def _first_impression_projection(
+    document: Any, npc_receipts: Any,
+) -> list[dict[str, Any]]:
+    """Player-safe frozen first impressions plus their first-contact realization."""
+    source = document.get("receipts") if isinstance(document, dict) else None
+    engagement_source = (
+        npc_receipts.get("receipts") if isinstance(npc_receipts, dict) else None
+    )
+    contexts: dict[str, dict[str, Any]] = {}
+    for engagement in (
+        engagement_source.values() if isinstance(engagement_source, dict) else []
+    ):
+        event = engagement.get("event") if isinstance(engagement, dict) else None
+        effect = event.get("context_effect") if isinstance(event, dict) else None
+        ref = event.get("first_impression_ref") if isinstance(event, dict) else None
+        if isinstance(ref, str) and isinstance(effect, dict):
+            contexts[ref] = effect
+    projected: list[dict[str, Any]] = []
+    for receipt in source.values() if isinstance(source, dict) else []:
+        if not isinstance(receipt, dict):
+            continue
+        row = _pick(receipt, (
+            "schema_version", "receipt_id", "investigator_id", "npc_id",
+            "npc_display_name", "app",
+            "credit_rating", "governing_attribute", "governing_value", "roll_id",
+            "required_level", "achieved_level", "outcome", "passed",
+            "reaction_tier", "rule_ref",
+        ))
+        roll_record = receipt.get("roll_record")
+        if isinstance(roll_record, dict) and _is_numeric(roll_record.get("roll")):
+            row["roll"] = roll_record["roll"]
+        context = contexts.get(str(receipt.get("receipt_id") or ""))
+        if isinstance(context, dict):
+            row["realization"] = _pick(context, (
+                "observable_manner", "causal_explanation", "boundary_preserved",
+                "opportunity_or_friction",
+            ))
+        elif receipt.get("schema_version") == 1:
+            # Preserve old campaign evidence without exposing its concealed die.
+            row["legacy_contract"] = True
+            row["realization"] = {
+                "observable_manner": receipt.get("observable_manner"),
+            }
+        projected.append(row)
+    return sorted(
+        projected,
+        key=lambda row: (
+            str(row.get("investigator_id") or ""),
+            str(row.get("npc_id") or ""),
+        ),
+    )
+
+
 # Player-facing social skills (Psychology is a Keeper-concealed roll and is
 # never listed). The view is a focused subset of the public-roll appendix.
 SOCIAL_SKILLS = ("Charm", "Fast Talk", "Intimidate", "Persuade")
@@ -436,6 +496,13 @@ def _consequence_projection(events: Any, investigator_ids: list[str]) -> list[di
     for row in events:
         if not isinstance(row, dict) or row.get("event_type") not in allowed_types:
             continue
+        if (
+            row.get("superseded") is True
+            or row.get("player_facing") is False
+            or str(row.get("visibility") or "").casefold() in HIDDEN_PUBLIC_VISIBILITIES
+            or row.get("superseded_correction") is True
+        ):
+            continue
         investigator_id = row.get("investigator_id")
         if investigator_id is not None and investigator_id not in investigator_ids:
             continue
@@ -446,12 +513,42 @@ def _consequence_projection(events: Any, investigator_ids: list[str]) -> list[di
     return result
 
 
+def _exceptional_effect_projection(document: Any) -> list[dict[str, Any]]:
+    """Player-safe exceptional state; source rolls stay in keeper audit evidence."""
+    effects = document.get("effects") if isinstance(document, dict) else None
+    if not isinstance(effects, dict):
+        return []
+    projected = []
+    for effect in effects.values():
+        if not isinstance(effect, dict) or effect.get("visibility") == "keeper_only":
+            continue
+        row = _pick(effect, (
+            "effect_id", "direction", "effect_kind", "player_visible_impact",
+            "causal_link", "boundary", "mechanics", "visibility", "status",
+            "created_at", "consumed_at", "consumed_by_roll_id",
+        ))
+        source_roll = effect.get("source_roll")
+        if (
+            isinstance(source_roll, dict)
+            and source_roll.get("visibility") in PUBLIC_VISIBILITIES
+            and isinstance(source_roll.get("roll_id"), str)
+        ):
+            row["source_roll_id"] = source_roll["roll_id"]
+        projected.append(row)
+    return sorted(projected, key=lambda row: str(row.get("effect_id") or ""))
+
+
 def _settlement_projection(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     receipt = value.get("receipt") if isinstance(value.get("receipt"), dict) else {}
     result = receipt.get("result") if isinstance(receipt.get("result"), dict) else {}
-    return {
+    player_facing = (
+        receipt.get("player_facing_mechanics")
+        if isinstance(receipt.get("player_facing_mechanics"), dict)
+        else result.get("player_facing_mechanics")
+    )
+    projected = {
         **_pick(value, ("ending_id", "investigator_id", "settled_at")),
         "status": receipt.get("status"),
         "improvement_checks": [
@@ -461,6 +558,15 @@ def _settlement_projection(value: Any) -> dict[str, Any] | None:
         "luck_recovery": _pick(result.get("luck_recovery"), ("roll", "success", "gained", "luck_before", "luck_after")),
         "san_reward": _pick(result.get("scenario_san_reward") or result.get("san_reward"), ("expression", "rolls", "total", "san_before", "san_gained", "san_after")),
     }
+    if isinstance(player_facing, dict):
+        projected["player_facing_mechanics"] = _pick(
+            player_facing,
+            (
+                "required_roll_ids", "rendered_lines", "rendered_text",
+                "complete", "missing_roll_ids", "operation_id",
+            ),
+        )
+    return projected
 
 
 def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
@@ -542,7 +648,8 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             }
         )
 
-    world = flags = npc_receipts = events = clue_graph = None
+    world = flags = npc_receipts = events = clue_graph = exceptional_document = None
+    first_impression_document = None
     toolbox_calls: list[dict[str, Any]] | None = None
     advisory_adoptions: list[dict[str, Any]] | None = None
     progression: dict[str, Any] = {"visited_scene_ids": [], "scene_history": [], "discovered_clues": [], "major_decisions": []}
@@ -554,6 +661,12 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         world = _read_source(run_dir, f"{campaign_relative}/save/world-state.json", "json", manifest)
         flags = _read_source(run_dir, f"{campaign_relative}/save/flags.json", "json", manifest)
         npc_receipts = _read_source(run_dir, f"{campaign_relative}/save/npc-engagement-receipts.json", "json", manifest)
+        first_impression_document = _read_source(
+            run_dir,
+            f"{campaign_relative}/save/npc-first-impressions.json",
+            "json",
+            manifest,
+        )
         events = _read_source(run_dir, f"{campaign_relative}/logs/events.jsonl", "jsonl", manifest)
         clue_graph_relative = f"{campaign_relative}/scenario/clue-graph.json"
         clue_graph = _read_source(run_dir, clue_graph_relative, "json", manifest)
@@ -569,6 +682,12 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             run_dir,
             f"{campaign_relative}/logs/advisory-adoptions.jsonl",
             "jsonl",
+            manifest,
+        )
+        exceptional_document = _read_source(
+            run_dir,
+            f"{campaign_relative}/save/exceptional-effects.json",
+            "json",
             manifest,
         )
         progression = _progression_projection(world, flags)
@@ -708,6 +827,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         npc_receipts=npc_receipts,
     )
 
+    projected_exceptional = _exceptional_effect_projection(exceptional_document)
+    relationship_rewards = [
+        effect for effect in projected_exceptional
+        if effect.get("direction") == "benefit"
+        and effect.get("effect_kind") == "bonus_die"
+        and isinstance(effect.get("mechanics"), dict)
+        and effect["mechanics"].get("target_id")
+    ]
     return {
         "completeness": {
             "classification": "COMPLETE" if not reasons else "INCOMPLETE",
@@ -722,9 +849,17 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         "play_conduct_signals": play_conduct_signals,
         "progression": progression,
         "npc_interactions": npc_interactions,
+        "first_impressions": _first_impression_projection(
+            first_impression_document, npc_receipts
+        ),
         "social_rolls": social_rolls,
         "ending": ending,
         "visible_consequences": visible_consequences,
+        "exceptional_effects": [
+            effect for effect in projected_exceptional
+            if effect not in relationship_rewards
+        ],
+        "relationship_rewards": relationship_rewards,
         "development_settlements": settlements,
         "keeper_internal": {
             "schema_version": 1,
@@ -899,6 +1034,49 @@ def _first_not_none(*values: Any) -> Any:
     return None
 
 
+def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Player-facing labels already carried by each structured character card."""
+    metadata = report.get("run_metadata")
+    if not isinstance(metadata, dict) or metadata.get("play_language") != "zh-Hans":
+        return {}
+    labels_by_investigator: dict[str, dict[str, str]] = {}
+    for investigator in report.get("investigators") or []:
+        if not isinstance(investigator, dict):
+            continue
+        investigator_id = investigator.get("investigator_id")
+        character = investigator.get("character")
+        rows = (
+            character.get("initial_skill_rows")
+            if isinstance(character, dict) else None
+        )
+        labels: dict[str, str] = {}
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            key = row.get("key")
+            label = row.get("label")
+            if (
+                isinstance(key, str) and key.strip()
+                and isinstance(label, str) and label.strip()
+            ):
+                labels[key] = label
+        if isinstance(investigator_id, str) and labels:
+            labels_by_investigator[investigator_id] = labels
+    return labels_by_investigator
+
+
+def _display_skill(
+    labels_by_investigator: dict[str, dict[str, str]],
+    investigator_id: Any,
+    canonical_skill: Any,
+) -> Any:
+    if not isinstance(investigator_id, str) or not isinstance(canonical_skill, str):
+        return canonical_skill
+    return labels_by_investigator.get(investigator_id, {}).get(
+        canonical_skill, canonical_skill
+    )
+
+
 def _nested_dice_display(payload: Any) -> Any:
     if not isinstance(payload, dict):
         return None
@@ -922,6 +1100,21 @@ def _display(value: Any) -> str:
     if isinstance(value, list) and all(isinstance(item, (str, int, float)) for item in value):
         return ", ".join(map(str, value))
     return _pretty_json(value).replace("\n", " ")
+
+
+def _exceptional_boundary_display(value: Any) -> str:
+    if not isinstance(value, dict):
+        return _display(value)
+    kind = str(value.get("kind") or "unknown")
+    detail = next(
+        (
+            value[key]
+            for key in ("description", "scene_id", "marker_id", "uses")
+            if value.get(key) not in (None, "")
+        ),
+        None,
+    )
+    return f"{kind}: {detail}" if detail is not None else kind
 
 
 def _play_conduct_markdown(signals: dict[str, Any]) -> list[str]:
@@ -976,6 +1169,7 @@ def _play_conduct_markdown(signals: dict[str, Any]) -> list[str]:
 def _markdown(report: dict[str, Any]) -> str:
     metadata = report["run_metadata"]
     completeness = report["completeness"]
+    skill_labels = _structured_skill_labels(report)
     lines = [
         "# COC Actual-Play Battle Report", "",
         "This is the final player-readable report produced directly from a real playtest run.", "",
@@ -1108,6 +1302,15 @@ def _markdown(report: dict[str, Any]) -> str:
             dice = san.get("rolls")
             roll_text = ", ".join(map(str, dice)) if isinstance(dice, list) else san.get("total")
             lines.append(f"- SAN reward: {san.get('san_before')} → {san.get('san_after')} (gain {san.get('san_gained')}; {san.get('expression')}: {roll_text})")
+        facing = settlement.get("player_facing_mechanics")
+        if isinstance(facing, dict) and facing.get("rendered_lines"):
+            lines.append("- Public development checks (final output hard constraint):")
+            for line in facing["rendered_lines"]:
+                lines.append(f"  - {line}")
+            if facing.get("complete") is False:
+                lines.append(
+                    f"  - INCOMPLETE missing: {facing.get('missing_roll_ids') or []}"
+                )
         lines.append("")
 
     progression = report.get("progression", {})
@@ -1124,9 +1327,40 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.append(f"- `{npc.get('npc_id', 'unknown')}` · {npc.get('interaction_kind', 'interaction')} · scene `{npc.get('scene_id', 'unknown')}`")
     if not report.get("npc_interactions"):
         lines.append("No player-safe NPC interaction receipts were recorded.")
+    lines.extend(["", "### First Impressions", ""])
+    for impression in report.get("first_impressions", []):
+        basis = (
+            "Credit Rating"
+            if impression.get("governing_attribute") == "credit_rating"
+            else "APP"
+        )
+        result = (
+            "legacy frozen receipt"
+            if impression.get("legacy_contract")
+            else (
+                f"D100 {impression.get('roll')} · "
+                f"{impression.get('achieved_level')} · `{impression.get('roll_id')}`"
+            )
+        )
+        realization = impression.get("realization") or {}
+        lines.append(
+            f"- `{impression.get('investigator_id', 'unknown')}` → "
+            f"{impression.get('npc_display_name') or impression.get('npc_id', 'unknown')} "
+            f"(`{impression.get('npc_id', 'unknown')}`) · APP {impression.get('app')} / "
+            f"CR {impression.get('credit_rating')} · used {basis} "
+            f"{impression.get('governing_value')} · {result} · "
+            f"{realization.get('observable_manner', 'realization not recorded')}"
+        )
+    if not report.get("first_impressions"):
+        lines.append("No first-impression receipts were recorded.")
     lines.extend(["", "### Social Skill Rolls", ""])
     for entry in report.get("social_rolls", []):
-        parts = [f"`{entry.get('roll_id') or 'MISSING'}`", str(entry.get("skill"))]
+        parts = [
+            f"`{entry.get('roll_id') or 'MISSING'}`",
+            str(_display_skill(
+                skill_labels, entry.get("actor"), entry.get("skill")
+            )),
+        ]
         if _is_numeric(entry.get("roll")):
             roll_text = f"roll {_display(entry['roll'])}"
             if _is_numeric(entry.get("target")):
@@ -1144,6 +1378,34 @@ def _markdown(report: dict[str, Any]) -> str:
         lines.append(f"- **{event_type}**{f' — {details}' if details else ''}")
     if not report.get("visible_consequences"):
         lines.append("No structured player-safe combat, HP, or SAN consequences were recorded.")
+    lines.extend(["", "### Exceptional Effects", ""])
+    for effect in report.get("exceptional_effects", []):
+        boundary = _exceptional_boundary_display(effect.get("boundary"))
+        lines.append(
+            f"- **{effect.get('direction', 'effect')} · {effect.get('effect_kind', 'effect')}** — "
+            f"{effect.get('player_visible_impact', '')} "
+            f"(cause: {effect.get('causal_link', '')}; boundary: {boundary}; "
+            f"status: {effect.get('status', 'unknown')})"
+        )
+    if not report.get("exceptional_effects"):
+        lines.append("No source-bound exceptional effects were recorded.")
+    lines.extend(["", "### Relationship / Impression Rewards", ""])
+    for effect in report.get("relationship_rewards", []):
+        mechanics = effect.get("mechanics") or {}
+        boundary = _exceptional_boundary_display(effect.get("boundary"))
+        lines.append(
+            f"- `{mechanics.get('investigator_id', 'unknown')}` → "
+            f"{mechanics.get('target_display_name') or mechanics.get('target_id', 'unknown')} "
+            f"(`{mechanics.get('target_id', 'unknown')}`) · {effect.get('effect_kind')} · "
+            f"{effect.get('player_visible_impact', '')} "
+            f"(cause: {effect.get('causal_link', '')}; skill: "
+            f"{mechanics.get('skill', 'unknown')}; boundary: {boundary}; "
+            f"source roll: {effect.get('source_roll_id', 'unknown')}; "
+            f"source decisions: {mechanics.get('source_decision_ids', [])}; "
+            f"status: {effect.get('status', 'unknown')})"
+        )
+    if not report.get("relationship_rewards"):
+        lines.append("No NPC-scoped relationship rewards were recorded.")
     decisions = progression.get("major_decisions", [])
     lines.extend(["", "### Major Decisions", ""])
     for decision in decisions:
@@ -1165,21 +1427,20 @@ def _markdown(report: dict[str, Any]) -> str:
     for roll in rolls["records"]:
         payload = roll.get("payload") if isinstance(roll.get("payload"), dict) else {}
         dice = payload.get("dice") if isinstance(payload.get("dice"), dict) else {}
+        actor = _first_not_none(
+            _first(roll, ("actor", "investigator_id")),
+            _first(payload, ("actor", "investigator_id")),
+        )
+        canonical_check = _first_not_none(
+            _first(payload, ("skill", "attribute", "reason", "expression")),
+            _first(roll, ("skill", "reason", "expression")),
+        )
         lines.extend([f"### `{_roll_id(roll) or 'MISSING'}`", ""])
         fields = (
-            (
-                "Actor",
-                _first_not_none(
-                    _first(roll, ("actor", "investigator_id")),
-                    _first(payload, ("actor", "investigator_id")),
-                ),
-            ),
+            ("Actor", actor),
             (
                 "Check",
-                _first_not_none(
-                    _first(payload, ("skill", "attribute", "reason", "expression")),
-                    _first(roll, ("skill", "reason", "expression")),
-                ),
+                _display_skill(skill_labels, actor, canonical_check),
             ),
             (
                 "Roll",

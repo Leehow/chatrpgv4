@@ -13,10 +13,18 @@
 
 ## Release posture
 
-- `plugins/coc-keeper/` is the only canonical plugin. AI-coding hosts and the
+- `plugins/coc-keeper/` is the only canonical plugin. AI-coding hosts
+  (including Codex, Claude Code, Cursor, Grok Build, Kimi, and ZCode) and the
   Pi/headless Keeper use the same skill tree, toolbox registry, rules, state,
   advisory, narration, and evidence contracts. A capability available on only
-  one of those surfaces is not a completed product capability.
+  one of those surfaces is not a completed product capability. Grok Build
+  play installs the full plugin (`./skills/`), not a thin entry alone.
+- Cursor, Kimi, and ZCode also use the shared stdio MCP gateway under
+  `plugins/coc-keeper/mcp/`; it is a transport over the canonical toolbox, not a
+  second rules or state engine. Host-native differences are declared in
+  `references/host-capabilities.json`.
+- Investigator portraits use the current host's built-in image tool when one
+  exists (`HOST_NATIVE_IMAGEGEN`); hosts without image tools skip portraits.
 - The White War and The Haunting are packaged as play-ready starters. The
   Haunting distribution basis and plugin-image provenance remain `UNVERIFIED`;
   see `CONTENT_LICENSES.md`.
@@ -63,16 +71,38 @@ gameplay, or a battle report.
 
 ## PDF source-bundle boundary
 
-PDF rendering, OCR, layout recognition, text extraction, and asset extraction
-belong to an external host PDF skill. Codex normally supplies its `pdf` skill.
-The repository has no PDF parser or OCR fallback and no PDF parsing dependency.
+PDF rendering, visual review, text/asset extraction, and page evidence belong
+to an external host PDF skill. Prefer the host's existing PDF capability when
+it can meet the contract; otherwise recommend the open-source Codex workflow
+at `openai/skills` curated `pdf`. The repository has no PDF parser or OCR
+fallback and no PDF parsing dependency.
 
 The external skill must produce the versioned source-bundle contract with
-`producer: codex-pdf-skill`, original PDF identity/hash, explicit zero-based
-page indexes, Markdown/hash entries, accepted review state, realistic parse
-confidence, grep anchors, and asset hashes. `coc_pdf_bundle.py` only validates
-and deterministically reformats that evidence. Binding persists
-`bundle_sha256`; hydration rejects later drift.
+`producer: codex-pdf-skill` (contract identity, not a Codex-only runtime
+requirement), original PDF identity/hash, explicit zero-based page indexes,
+Markdown/hash entries, accepted review state, realistic parse confidence,
+grep anchors, and asset hashes. `coc_pdf_bundle.py` only validates and
+deterministically reformats that evidence. Binding persists `bundle_sha256`;
+hydration rejects later drift.
+
+### Progressive module parse (design + slice 1 store)
+
+Approved direction for player PDFs: skeleton-first map + on-demand deep packs +
+durable `.coc/module-assets/` reuse across campaigns. Contract:
+`docs/active-plans/coc-on-demand-module-skeleton.md`.
+
+**Slices 1–8 (done — progressive vertical):**
+
+- `coc_module_assets.py` — durable `.coc/module-assets/` store
+- `coc_module_project.py` — skeleton / opening-deep / on-enter hot-ring
+- `coc_module_reuse.py` — **reuse by file_sha256**, library link, **process-queue**
+- `state.move_scene` progressive on-enter; `scene.map` parse_state
+- Host workflow in `trpg-pdf-ingest` / `coc-scenario-import`
+- Tests: `test_module_assets`, `test_module_project`, `test_module_reuse`
+
+Production starters/complete chapters still use seven-file compile +
+`module-library` install. Progressive path reuses deep packs across campaigns
+via `module-assets` without re-extract when `file_sha256` hits.
 
 ## Supported product surface
 

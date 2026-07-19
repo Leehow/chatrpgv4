@@ -264,12 +264,12 @@ def test_director_skips_san_request_already_fired(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Task 6: danger attack_profiles → opposed_check requests
+# Task 6: danger attack_profiles → reaction-specific routing
 # ---------------------------------------------------------------------------
 
-def test_director_emits_opposed_check_for_combat_danger(tmp_path):
-    """In a combat scene with danger attack_profiles, director should emit
-    opposed_check requests (e.g. Dodge vs tentacle slash)."""
+def test_director_routes_combat_reaction_away_from_generic_opposed(tmp_path):
+    """Dodge/Fight Back profiles stay advisory for CombatSession; only a
+    structured noncombat contest may emit the generic opposed request."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("coc_story_director_atk", SCRIPTS_DIR / "coc_story_director.py")
     director = importlib.util.module_from_spec(spec)
@@ -277,11 +277,16 @@ def test_director_emits_opposed_check_for_combat_danger(tmp_path):
 
     scene = {"scene_id": "dawn-counterstroke", "scene_type": "combat",
              "on_enter": {"danger_attacks": [{"danger_id": "the-whistler",
-                "attack_name": "tentacle slash"}]}}
+                "attack_name": "tentacle slash"}, {"danger_id": "the-whistler",
+                "attack_name": "wind blast"}]}}
     threat_fronts = {"fronts": [{"front_id": "polyp-horror-pursuit", "dangers": [
         {"id": "the-whistler", "attack_profiles": [
             {"name": "tentacle slash", "attack_skill": "Fighting", "attack_target_percent": 60,
-             "resist_skill": "Dodge", "damage": "1D6+DB", "lethality": 50}]}]}]}
+             "reaction_kind": "dodge_or_fight_back", "resist_skill": "Dodge",
+             "damage": "1D6+DB", "lethality": 50},
+            {"name": "wind blast", "attack_skill": "Athletics", "attack_target_percent": 99,
+             "reaction_kind": "noncombat", "resist_skill": "Athletics",
+             "damage": "1D8", "lethality": None}]}]}]}
     ctx = {
         "active_scene": scene, "active_scene_id": "dawn-counterstroke",
         "rule_signals": {"bout_active": False, "sanity_state": "stable",
@@ -296,9 +301,20 @@ def test_director_emits_opposed_check_for_combat_danger(tmp_path):
     }
     requests = director._build_rules_requests(ctx, "SUBSYSTEM")
     opposed = [r for r in requests if r.get("kind") == "opposed_check"]
-    assert len(opposed) >= 1
-    assert opposed[0]["resist_skill"] == "Dodge"
-    assert "tentacle" in opposed[0]["reason"].lower() or "tentacle" in opposed[0].get("attack_name","").lower()
+    assert len(opposed) == 1
+    assert opposed[0]["contest_kind"] == "noncombat"
+    assert opposed[0]["resist_skill"] == "Athletics"
+    assert opposed[0]["attack_name"] == "wind blast"
+    assert ctx["combat_reaction_advisories"] == [{
+        "danger_id": "the-whistler",
+        "attack_name": "tentacle slash",
+        "attack_skill": "Fighting",
+        "attack_target_percent": 60,
+        "reaction_kind": "dodge_or_fight_back",
+        "same_level_winner": "selected_reaction_rule",
+        "canonical_tool": "combat.resolve",
+        "forbidden_tool": "rules.opposed",
+    }]
 
 
 # ---------------------------------------------------------------------------

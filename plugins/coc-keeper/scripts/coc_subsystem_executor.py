@@ -119,16 +119,39 @@ RESULT_STATUSES_BY_KIND = {
     "mythos_tome_study": frozenset({"completed"}),
     "chase_move": frozenset({"completed", "pending_choice"}),
 }
-SUCCESS_OUTCOMES = frozenset({
-    "critical",
-    "extreme",
-    "hard",
-    "regular",
+PERCENTILE_SETTLEMENT_FIELDS = (
+    "base_target",
+    "target",
+    "required_level",
+    "difficulty",
+    "required_target",
+    "effective_target",
+    "achieved_level",
+    "passed",
     "success",
-    "critical_success",
-    "extreme_success",
-    "hard_success",
-    "regular_success",
+    "surplus_levels",
+    "outcome",
+)
+AMOUNT_FORBIDDEN_FIELDS = frozenset({
+    "roll",
+    "base_target",
+    "target",
+    "required_level",
+    "difficulty",
+    "required_target",
+    "effective_target",
+    "achieved_level",
+    "passed",
+    "success",
+    "surplus_levels",
+})
+LUCK_PERCENTILE_FIELDS = frozenset({
+    "original_roll",
+    "adjusted_roll",
+    "luck_spent",
+    "luck_before",
+    "luck_after",
+    "luck_remaining",
 })
 TRANSIENT_COMBAT_CONDITIONS = frozenset({
     "prone", "grappled", "surprised", "outnumbered", "fled",
@@ -218,6 +241,217 @@ coc_investigator_guard = _load_sibling(
 )
 coc_npc_state = _load_sibling("coc_npc_state_subsystem_executor", "coc_npc_state.py")
 coc_inventory = _load_sibling("coc_inventory_subsystem_executor", "coc_inventory.py")
+
+
+def _resolved_percentile_fields(
+    roll: int,
+    base_target: int,
+    required_level: str,
+) -> dict[str, Any]:
+    resolved = coc_roll.resolve_percentile_roll(
+        int(roll), int(base_target), str(required_level)
+    )
+    return {
+        field: resolved[field]
+        for field in PERCENTILE_SETTLEMENT_FIELDS
+    }
+
+
+def _canonical_percentile_fields(result: dict[str, Any]) -> dict[str, Any]:
+    required = {"roll", *PERCENTILE_SETTLEMENT_FIELDS}
+    missing = sorted(required - set(result))
+    if missing:
+        raise ValueError(
+            "percentile result lacks canonical fields: " + ", ".join(missing)
+        )
+    integer_fields = {
+        "roll",
+        "base_target",
+        "target",
+        "required_target",
+        "effective_target",
+        "surplus_levels",
+    }
+    if any(
+        isinstance(result[field], bool) or not isinstance(result[field], int)
+        for field in integer_fields
+    ) or any(
+        not isinstance(result[field], bool)
+        for field in ("passed", "success")
+    ) or any(
+        not isinstance(result[field], str)
+        for field in (
+            "required_level",
+            "difficulty",
+            "achieved_level",
+            "outcome",
+        )
+    ):
+        raise ValueError("percentile result fields have invalid types")
+    expected = _resolved_percentile_fields(
+        int(result["roll"]),
+        int(result["base_target"]),
+        str(result["required_level"]),
+    )
+    if any(result.get(field) != expected[field] for field in PERCENTILE_SETTLEMENT_FIELDS):
+        raise ValueError("percentile result contradicts canonical settlement")
+    return expected
+
+
+def _validate_roll_event_role(event: dict[str, Any], path: str) -> None:
+    role = event.get("roll_role")
+    if role == "percentile_check":
+        try:
+            _canonical_percentile_fields(event)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _state_error(f"{path} has invalid percentile settlement: {exc}") from exc
+        luck_fields = LUCK_PERCENTILE_FIELDS & set(event)
+        if luck_fields:
+            if luck_fields != LUCK_PERCENTILE_FIELDS:
+                raise _state_error(f"{path} has a partial Luck-adjusted subtype")
+            values = {
+                key: event.get(key)
+                for key in LUCK_PERCENTILE_FIELDS
+            }
+            if any(
+                isinstance(value, bool) or not isinstance(value, int)
+                for value in values.values()
+            ):
+                raise _state_error(f"{path} has invalid Luck arithmetic types")
+            original = int(values["original_roll"])
+            adjusted = int(values["adjusted_roll"])
+            spent = int(values["luck_spent"])
+            before = int(values["luck_before"])
+            after = int(values["luck_after"])
+            dice = event.get("dice")
+            if (
+                not 1 <= original <= 100
+                or not 1 <= adjusted <= 100
+                or spent <= 0
+                or before < 0
+                or after < 0
+                or event.get("roll") != adjusted
+                or original - spent != adjusted
+                or before - spent != after
+                or values["luck_remaining"] != after
+                or dice
+                != {"expression": "1D100", "raw": [original], "total": original}
+            ):
+                raise _state_error(f"{path} has contradictory Luck-adjusted evidence")
+        return
+    if role == "amount":
+        if AMOUNT_FORBIDDEN_FIELDS & set(event):
+            raise _state_error(
+                f"{path} amount roll cannot carry percentile settlement fields"
+            )
+        roll_id = event.get("roll_id")
+        rolled_total = event.get("rolled_total")
+        dice = event.get("dice")
+        if (
+            not isinstance(roll_id, str)
+            or not roll_id
+            or isinstance(rolled_total, bool)
+            or not isinstance(rolled_total, int)
+            or not isinstance(dice, dict)
+            or set(dice) != {"expression", "raw", "total"}
+        ):
+            raise _state_error(f"{path} has invalid amount roll identity or scalar")
+        expression = dice.get("expression")
+        raw = dice.get("raw")
+        total = dice.get("total")
+        if (
+            not isinstance(expression, str)
+            or not expression
+            or expression != expression.strip().upper()
+            or not isinstance(raw, list)
+            or isinstance(total, bool)
+            or not isinstance(total, int)
+            or rolled_total != total
+        ):
+            raise _state_error(f"{path} has invalid amount dice evidence")
+        expected_faces: list[int] = []
+        modifier = 0
+        saw_die = False
+        normalized = expression.replace("-", "+-")
+        for token in (part.strip() for part in normalized.split("+") if part.strip()):
+            match = re.fullmatch(r"([1-9][0-9]*)D([1-9][0-9]*)", token)
+            if match is not None:
+                saw_die = True
+                count, sides = int(match.group(1)), int(match.group(2))
+                if len(raw) < len(expected_faces) + count:
+                    raise _state_error(f"{path} has too few amount die faces")
+                faces = raw[len(expected_faces):len(expected_faces) + count]
+                if any(
+                    isinstance(face, bool)
+                    or not isinstance(face, int)
+                    or not 1 <= face <= sides
+                    for face in faces
+                ):
+                    raise _state_error(f"{path} has an invalid amount die face")
+                expected_faces.extend(faces)
+                continue
+            if re.fullmatch(r"-?[0-9]+", token) is None:
+                raise _state_error(f"{path} has an unsupported amount expression")
+            modifier += int(token)
+        if (
+            len(expected_faces) != len(raw)
+            or (not saw_die and bool(raw))
+            or total != sum(expected_faces) + modifier
+        ):
+            raise _state_error(f"{path} amount dice total is contradictory")
+        return
+    raise _state_error(f"{path} must declare an exact roll_role")
+
+
+def _validate_combat_luck_bindings(
+    events: list[dict[str, Any]], path: str,
+) -> None:
+    adjusted_rolls = {
+        str(event["roll_id"]): event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("roll_role") == "percentile_check"
+        and isinstance(event.get("roll_id"), str)
+        and bool(LUCK_PERCENTILE_FIELDS & set(event))
+    }
+    source_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("event_type") == "combat_luck_spent"
+    ]
+    if not adjusted_rolls and not source_events:
+        return
+    if len(adjusted_rolls) != len(source_events):
+        raise _state_error(f"{path} has an unbound combat Luck settlement")
+    seen: set[str] = set()
+    for source in source_events:
+        source_roll_id = source.get("source_roll_id")
+        if not isinstance(source_roll_id, str) or source_roll_id in seen:
+            raise _state_error(f"{path} has an invalid combat Luck source identity")
+        seen.add(source_roll_id)
+        roll = adjusted_rolls.get(source_roll_id)
+        if roll is None:
+            raise _state_error(f"{path} combat Luck source roll is missing")
+        if any(
+            source.get(key) != roll.get(key)
+            for key in (
+                "actor_id",
+                "original_roll",
+                "adjusted_roll",
+                "luck_spent",
+                "luck_before",
+                "luck_after",
+                "required_level",
+                "required_target",
+                "achieved_level",
+                "passed",
+                "surplus_levels",
+                "outcome",
+                "rule_ref",
+            )
+        ):
+            raise _state_error(f"{path} combat Luck event contradicts its roll")
 
 
 class SubsystemExecutorError(ValueError):
@@ -1537,9 +1771,11 @@ def _validate_history_terminal_snapshot(
             path=f"commands.{command_id}.payload.roll_contract",
         )
         expected_keys = {
-            "roll_id", "decision_id", "kind", "skill", "target", "difficulty",
+            "roll_id", "roll_role", "decision_id", "kind", "skill",
+            "base_target", "target", "required_level", "difficulty",
             "reason", "request_id", "bonus_penalty_dice", "roll",
-            "effective_target", "outcome", "success", "roll_contract",
+            "required_target", "effective_target", "achieved_level", "passed",
+            "success", "surplus_levels", "outcome", "roll_contract",
             "resolution_context", "pushed", "push_gate", "original_command_id",
             "original_roll_id", "announced_consequence", "changed_method_evidence",
             "source_command_id",
@@ -1549,6 +1785,7 @@ def _validate_history_terminal_snapshot(
             expected_keys.add("fumble_consequence")
         expected_static = {
             "roll_id": command["payload"]["roll_id"],
+            "roll_role": "percentile_check",
             "decision_id": command["payload"]["decision_id"],
             "kind": roll_spec.get("kind"),
             "skill": roll_spec.get("skill"),
@@ -1591,23 +1828,25 @@ def _validate_history_terminal_snapshot(
             for key, value in expected_static.items()
         ):
             raise _state_error(f"choice history {choice_id!r} has forged push-roll evidence")
-        expected_effective_target = coc_roll._effective_target(
-            int(roll_spec.get("target")), str(roll_spec.get("difficulty") or "regular")
-        )
-        expected_outcome = (
-            coc_roll.coc_rules.success_level(event.get("roll"), expected_effective_target)
-            if isinstance(event.get("roll"), int) and not isinstance(event.get("roll"), bool)
-            else None
-        )
+        expected_settlement = None
+        if isinstance(event.get("roll"), int) and not isinstance(event.get("roll"), bool):
+            try:
+                expected_settlement = _resolved_percentile_fields(
+                    event["roll"],
+                    int(roll_spec.get("target")),
+                    str(roll_spec.get("difficulty") or "regular"),
+                )
+            except (TypeError, ValueError):
+                expected_settlement = None
         if (
             isinstance(event.get("roll"), bool)
             or not isinstance(event.get("roll"), int)
             or not 1 <= event["roll"] <= 100
-            or isinstance(event.get("effective_target"), bool)
-            or not isinstance(event.get("effective_target"), int)
-            or event.get("effective_target") != expected_effective_target
-            or event.get("outcome") != expected_outcome
-            or event.get("success") != (event.get("outcome") in SUCCESS_OUTCOMES)
+            or expected_settlement is None
+            or any(
+                event.get(field) != expected_settlement[field]
+                for field in PERCENTILE_SETTLEMENT_FIELDS
+            )
         ):
             raise _state_error(f"choice history {choice_id!r} has invalid pushed-roll outcome")
         return
@@ -2279,12 +2518,26 @@ def _validate_result_source_evidence(
     for command_id in state["applied_command_ids"]:
         result = state["result_snapshots"][command_id]
         command = commands_by_id.get(command_id)
+        result_events = [
+            event
+            for event in result.get("events") or []
+            if isinstance(event, dict)
+        ]
+        _validate_combat_luck_bindings(
+            result_events,
+            f"result_snapshots.{command_id}.events",
+        )
         if not _result_requires_roll_evidence(result, command):
             continue
         expected_events = [
-            event for event in result.get("events") or []
-            if isinstance(event, dict) and isinstance(event.get("roll_id"), str)
+            event for event in result_events
+            if isinstance(event.get("roll_id"), str)
         ]
+        for offset, event in enumerate(expected_events):
+            _validate_roll_event_role(
+                event,
+                f"result_snapshots.{command_id}.events[{offset}]",
+            )
         rows = rolls_by_command.get(command_id, [])
         if not expected_events or len(rows) != len(expected_events):
             raise _state_error(
@@ -2926,7 +3179,7 @@ def _mint_push_continuation_capsule(
     Missing or ambiguous structured source evidence simply makes the failed
     roll non-pushable.  It is never repaired later from prose or adjacent IDs.
     """
-    if event.get("success") is not False or event.get("outcome") != "failure":
+    if event.get("passed") is not False or event.get("outcome") != "failure":
         return None
     contract = event.get("roll_contract")
     policy = contract.get("push_policy") if isinstance(contract, dict) else None
@@ -3136,7 +3389,7 @@ def project_latest_eligible_push_candidate(
         contract = event.get("roll_contract")
         policy = contract.get("push_policy") if isinstance(contract, dict) else None
         if (
-            event.get("success") is not False
+            event.get("passed") is not False
             or event.get("outcome") != "failure"
             or not isinstance(policy, dict)
             or policy.get("eligible") is not True
@@ -5583,19 +5836,25 @@ def _roll_result(
             payload,
             rng,
         )
+        settlement = _resolved_percentile_fields(
+            settled["roll"], settled["san_before"], "regular"
+        )
+        if settled.get("outcome") != settlement["outcome"]:
+            raise _error(
+                "invalid_sanity_roll",
+                f"commands.{command['command_id']}",
+                "sanity subsystem outcome contradicts canonical percentile settlement",
+            )
         return {
             "roll_id": roll_id,
+            "roll_role": "percentile_check",
             "decision_id": decision_id,
             "kind": "sanity_check",
             "skill": "SAN",
-            "target": settled["san_before"],
-            "difficulty": "regular",
+            **settlement,
             "reason": payload.get("reason"),
             "bonus_penalty_dice": 0,
             "roll": settled["roll"],
-            "effective_target": settled["san_before"],
-            "outcome": settled["outcome"],
-            "success": settled["outcome"] in SUCCESS_OUTCOMES,
             "san_loss": settled["san_loss"],
             "san_before": settled["san_before"],
             "san_after": settled["san_after"],
@@ -5630,27 +5889,25 @@ def _roll_result(
             penalty=penalty,
             rng=rng,
         )
+        settlement = _canonical_percentile_fields(roll)
         contract, fumble_consequence = _settle_percentile_fumble_contract(
             payload.get("roll_contract"),
-            roll.get("outcome"),
+            settlement["outcome"],
             path=f"commands.{command['command_id']}.payload.roll_contract",
         )
         result = {
             "roll_id": roll_id,
+            "roll_role": "percentile_check",
             "decision_id": decision_id,
             "kind": "idea_roll",
             "skill": "INT",
-            "target": roll.get("target", int_value),
-            "difficulty": difficulty,
+            **settlement,
             "reason": payload.get("reason"),
             "request_id": payload.get("request_id"),
             "signpost_level": payload.get("signpost_level"),
             "missed_clue_id": payload.get("missed_clue_id"),
             "bonus_penalty_dice": bonus_penalty,
             "roll": roll.get("roll"),
-            "effective_target": roll.get("effective_target"),
-            "outcome": roll.get("outcome"),
-            "success": roll.get("outcome") in SUCCESS_OUTCOMES,
             "roll_contract": contract,
             "resolution_context": _json_copy(payload.get("resolution_context") or {}),
             "roll_kind": "idea",
@@ -5667,7 +5924,8 @@ def _roll_result(
         penalty=penalty,
         rng=rng,
     )
-    outcome = roll.get("outcome")
+    settlement = _canonical_percentile_fields(roll)
+    outcome = settlement["outcome"]
     contract, fumble_consequence = _settle_percentile_fumble_contract(
         payload.get("roll_contract"),
         outcome,
@@ -5675,11 +5933,11 @@ def _roll_result(
     )
     result = {
         "roll_id": roll_id,
+        "roll_role": "percentile_check",
         "decision_id": decision_id,
         "kind": kind,
         "skill": payload.get("skill"),
-        "target": target,
-        "difficulty": difficulty,
+        **settlement,
         "reason": payload.get("reason"),
         "request_id": payload.get("request_id"),
         "depends_on": payload.get("depends_on"),
@@ -5688,9 +5946,6 @@ def _roll_result(
         "opposed_skill": payload.get("opposed_skill"),
         "bonus_penalty_dice": bonus_penalty,
         "roll": roll.get("roll"),
-        "effective_target": roll.get("effective_target"),
-        "outcome": outcome,
-        "success": outcome in SUCCESS_OUTCOMES,
         "roll_contract": contract,
         "resolution_context": _json_copy(payload.get("resolution_context") or {}),
     }
@@ -5710,16 +5965,142 @@ def _investigator_state(campaign_dir: Path, investigator_id: str) -> dict[str, A
     return value
 
 
+def _required_current_mp(
+    state: dict[str, Any], *, path: str = "save/investigator-state.current_mp",
+) -> int:
+    if "current_mp" not in state:
+        raise _error(
+            "malformed_investigator_state",
+            path,
+            "current_mp is required by the current state schema",
+        )
+    current_mp = state["current_mp"]
+    if (
+        isinstance(current_mp, bool)
+        or not isinstance(current_mp, int)
+        or current_mp < 0
+    ):
+        raise _error(
+            "malformed_investigator_state",
+            path,
+            "current_mp must be a non-negative integer",
+        )
+    return current_mp
+
+
+def _require_active_combat_mp_match(
+    campaign_dir: Path,
+    investigator_id: str,
+    session: Any,
+) -> int:
+    state = _investigator_state(campaign_dir, investigator_id)
+    current_mp = _required_current_mp(state)
+    participant = session.participants.get(investigator_id)
+    if not isinstance(participant, dict):
+        raise _error(
+            "combat_actor_missing",
+            "save/combat.json.participants",
+            "active combat does not contain the canonical investigator",
+        )
+    combat_mp = participant.get("magic_points")
+    if (
+        isinstance(combat_mp, bool)
+        or not isinstance(combat_mp, int)
+        or combat_mp < 0
+    ):
+        raise _error(
+            "malformed_combat_state",
+            "save/combat.json.participants.magic_points",
+            "combat investigator magic points are invalid",
+        )
+    if combat_mp != current_mp:
+        raise _error(
+            "combat_state_mismatch",
+            "save/combat.json.participants.magic_points",
+            "active combat MP diverges from canonical investigator current_mp",
+        )
+    return current_mp
+
+
+def _preflight_combat_mp_authority(
+    campaign_dir: Path,
+    investigator_id: str,
+    commands_with_hashes: list[tuple[dict[str, Any], str]],
+) -> None:
+    combat_commands = [
+        command
+        for command, _command_hash in commands_with_hashes
+        if command.get("kind") in COMBAT_COMMAND_KINDS
+    ]
+    if not combat_commands:
+        return
+    state = _investigator_state(campaign_dir, investigator_id)
+    current_mp = _required_current_mp(state)
+    combat_path = campaign_dir / "save" / "combat.json"
+    active_session: Any | None = None
+    if combat_path.exists():
+        candidate = _load_combat_session(
+            campaign_dir,
+            rng=random.Random(0),
+            investigator_id=investigator_id,
+        )
+        if candidate.status == "active":
+            active_session = candidate
+    for command in combat_commands:
+        if command["kind"] == "combat_start":
+            own_spec = next(
+                (
+                    spec
+                    for spec in command["payload"]["participants"]
+                    if spec.get("actor_id") == investigator_id
+                ),
+                None,
+            )
+            if not isinstance(own_spec, dict):
+                continue
+            if own_spec.get("magic_points", 0) != current_mp:
+                raise _error(
+                    "combat_state_mismatch",
+                    "commands[0].payload.participants",
+                    "combat participant MP must match canonical investigator current_mp",
+                )
+        elif active_session is not None:
+            _require_active_combat_mp_match(
+                campaign_dir, investigator_id, active_session
+            )
+
+
 def _sync_investigator_from_combat(
     campaign_dir: Path,
     investigator_id: str,
     session: Any,
+    *,
+    expected_current_mp: int,
 ) -> None:
     participant = session.participants.get(investigator_id)
     if not isinstance(participant, dict):
         return
     state = _investigator_state(campaign_dir, investigator_id)
+    canonical_before = _required_current_mp(state)
+    if canonical_before != expected_current_mp:
+        raise _error(
+            "combat_state_mismatch",
+            "save/investigator-state.current_mp",
+            "canonical current_mp changed after combat mutation preflight",
+        )
+    magic_points = participant.get("magic_points")
+    if (
+        isinstance(magic_points, bool)
+        or not isinstance(magic_points, int)
+        or magic_points < 0
+    ):
+        raise _error(
+            "combat_mirror_failed",
+            "save/combat.json.participants.magic_points",
+            "combat investigator magic points are invalid",
+        )
     state["current_hp"] = int(participant["hp_current"])
+    state["current_mp"] = magic_points
     projected_conditions = list(participant.get("conditions") or [])
     if session.status != "active":
         projected_conditions = [
@@ -5771,6 +6152,7 @@ def _sync_investigator_from_combat(
     persisted = _investigator_state(campaign_dir, investigator_id)
     if (
         persisted.get("current_hp") != participant["hp_current"]
+        or persisted.get("current_mp") != magic_points
         or persisted.get("conditions") != projected_conditions
     ):
         raise _error("combat_mirror_failed", path.as_posix(), "combat/investigator mirror diverged")
@@ -6318,6 +6700,19 @@ def _healing_roll_evidence(
         return None
     target = event.get("target")
     difficulty = str(event.get("difficulty") or "regular")
+    if isinstance(target, bool) or not isinstance(target, int):
+        raise _error(
+            "invalid_healing_roll",
+            "healing.target",
+            "percentile healing evidence requires a numeric base target",
+        )
+    settlement = _resolved_percentile_fields(roll, target, difficulty)
+    if event.get("outcome") != settlement["outcome"]:
+        raise _error(
+            "invalid_healing_roll",
+            "healing.outcome",
+            "healing outcome contradicts canonical percentile settlement",
+        )
     bonus = int(event.get("bonus_dice") or 0)
     penalty = int(event.get("penalty_dice") or 0)
     return {
@@ -6327,6 +6722,7 @@ def _healing_roll_evidence(
             else "combat_rescue_roll"
         ),
         "roll_id": f"{command_id}:roll",
+        "roll_role": "percentile_check",
         "decision_id": payload.get("decision_id"),
         **(
             {"actor_id": payload["rescuer_id"]}
@@ -6345,10 +6741,8 @@ def _healing_roll_evidence(
             if payload.get("pushed") is True
             else {}
         ),
-        "target": target,
-        "difficulty": difficulty,
+        **settlement,
         "roll": roll,
-        "outcome": event.get("outcome"),
         "bonus_penalty_dice": bonus - penalty,
         "bonus_dice": bonus,
         "penalty_dice": penalty,
@@ -6373,16 +6767,22 @@ def _weekly_care_roll_evidence(
         or not isinstance(target, int)
     ):
         return None
+    settlement = _resolved_percentile_fields(roll, target, "regular")
+    if event.get("outcome") != settlement["outcome"]:
+        raise _error(
+            "invalid_healing_roll",
+            "weekly_care.outcome",
+            "medical-care outcome contradicts canonical percentile settlement",
+        )
     return {
         "event_type": "weekly_medical_care_roll",
         "roll_id": f"{command_id}:care",
+        "roll_role": "percentile_check",
         "decision_id": payload.get("decision_id"),
         "actor_id": payload["caregiver_id"],
         "skill": "Medicine",
-        "target": target,
-        "difficulty": "regular",
+        **settlement,
         "roll": roll,
-        "outcome": event.get("outcome"),
         "bonus_penalty_dice": 0,
         "dice": {"expression": "1D100", "raw": [roll], "total": roll},
         "source_command_id": command_id,
@@ -6419,6 +6819,7 @@ def _medicine_healing_evidence(
     return {
         "event_type": "combat_healing_roll",
         "roll_id": f"{command_id}:healing",
+        "roll_role": "amount",
         "decision_id": payload.get("decision_id"),
         **(
             {"actor_id": payload["rescuer_id"]}
@@ -6426,11 +6827,8 @@ def _medicine_healing_evidence(
             else {}
         ),
         "skill": "HP Healing",
-        "target": None,
-        "difficulty": "healing",
-        "roll": total,
+        "rolled_total": total,
         "outcome": "healing_applied",
-        "bonus_penalty_dice": 0,
         "dice": {"expression": expression, "raw": list(raw), "total": total},
         "source_command_id": command_id,
     }
@@ -6749,10 +7147,32 @@ def _dispatch_chase(
             }
             if rolls:
                 roll = rolls[0]
+                roll_context = (
+                    hazard
+                    if kind == "chase_hazard" and isinstance(hazard, dict)
+                    else barrier
+                    if kind == "chase_barrier" and isinstance(barrier, dict)
+                    else {}
+                )
+                settlement = _resolved_percentile_fields(
+                    int(roll["roll"]),
+                    int(roll["target"]),
+                    str(roll_context.get("difficulty") or "regular"),
+                )
+                if (
+                    roll.get("outcome") != settlement["outcome"]
+                    or action.get("passed") != settlement["passed"]
+                ):
+                    raise _error(
+                        "invalid_chase_roll",
+                        f"commands.{command_id}",
+                        "chase result contradicts canonical percentile settlement",
+                    )
                 event.update({
+                    "roll_role": "percentile_check",
                     "roll_id": roll.get("roll_id"), "skill": roll.get("skill"),
-                    "target": roll.get("target"), "roll": roll.get("roll"),
-                    "outcome": roll.get("outcome"),
+                    **settlement,
+                    "roll": roll.get("roll"),
                 })
             session.check_outcome()
             event["revision"] = session.revision
@@ -6792,11 +7212,22 @@ def _dispatch_combat(
     additional_events: list[dict[str, Any]] = []
     combat_path = campaign_dir / "save" / "combat.json"
     authoritative_inv = _investigator_state(campaign_dir, investigator_id)
+    canonical_mp_before = _required_current_mp(authoritative_inv)
     if (
         kind != "combat_end"
         and "dead" in (authoritative_inv.get("conditions") or [])
     ):
         raise _error("investigator_dead", "save/investigator-state", "dead is terminal")
+    if kind != "combat_start" and combat_path.exists():
+        preflight_session = _load_combat_session(
+            campaign_dir,
+            rng=random.Random(0),
+            investigator_id=investigator_id,
+        )
+        if preflight_session.status == "active":
+            canonical_mp_before = _require_active_combat_mp_match(
+                campaign_dir, investigator_id, preflight_session
+            )
 
     if kind == "combat_start":
         if combat_path.exists():
@@ -6812,17 +7243,19 @@ def _dispatch_combat(
         if own_spec is None:
             raise _error("combat_actor_missing", "commands[0].payload.participants", "investigator must be a participant")
         expected_hp = authoritative_inv.get("current_hp")
+        expected_mp = canonical_mp_before
         expected_conditions = authoritative_inv.get("conditions") or []
         if (
-            expected_hp is not None
-            and (
-                own_spec["hp_current"] != expected_hp
-                or own_spec["conditions"] != expected_conditions
+            (
+                expected_hp is not None
+                and own_spec["hp_current"] != expected_hp
             )
+            or own_spec["conditions"] != expected_conditions
+            or int(own_spec.get("magic_points", 0)) != expected_mp
         ):
             raise _error(
                 "combat_state_mismatch", "commands[0].payload.participants",
-                "combat participant must match canonical investigator HP/conditions",
+                "combat participant must match canonical investigator HP/MP/conditions",
             )
         session = coc_combat.CombatSession(
             str(payload["combat_id"]), str(payload["scene_ref"]),
@@ -6913,6 +7346,8 @@ def _dispatch_combat(
             }
             if armor_dice is not None:
                 preparation_event["roll_id"] = f"{command_id}:{preparation['effect_id']}"
+                preparation_event["roll_role"] = "amount"
+                preparation_event["rolled_total"] = armor_points
                 preparation_event["dice"] = {
                     "expression": armor_dice,
                     "raw": armor_rolls,
@@ -6922,7 +7357,12 @@ def _dispatch_combat(
         session.begin_round()
         session.revision = 1
         session.save(campaign_dir)
-        _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+        _sync_investigator_from_combat(
+            campaign_dir,
+            investigator_id,
+            session,
+            expected_current_mp=canonical_mp_before,
+        )
         event = {
             "event_type": "combat_started", "combat_id": session.combat_id,
             "revision": session.revision,
@@ -6932,6 +7372,9 @@ def _dispatch_combat(
     elif kind == "combat_attack":
         session = _load_combat_session(
             campaign_dir, rng=rng, investigator_id=investigator_id,
+        )
+        canonical_mp_before = _require_active_combat_mp_match(
+            campaign_dir, investigator_id, session
         )
         if session.status != "active" or session.pending_attack is not None:
             raise _error("combat_not_ready", "save/combat.json", "combat cannot accept an attack declaration")
@@ -6986,6 +7429,12 @@ def _dispatch_combat(
         }
         session.revision += 1
         session.save(campaign_dir)
+        _sync_investigator_from_combat(
+            campaign_dir,
+            investigator_id,
+            session,
+            expected_current_mp=canonical_mp_before,
+        )
         event = {
             "event_type": "combat_defense_required",
             **_json_copy(session.pending_attack),
@@ -6995,6 +7444,9 @@ def _dispatch_combat(
     elif kind == "combat_defend":
         session = _load_combat_session(
             campaign_dir, rng=rng, investigator_id=investigator_id,
+        )
+        canonical_mp_before = _require_active_combat_mp_match(
+            campaign_dir, investigator_id, session
         )
         pending = session.pending_attack
         if not isinstance(pending, dict):
@@ -7139,7 +7591,12 @@ def _dispatch_combat(
                 session.ended_at_turn = session.started_at_turn + session._turn_counter
         session.revision += 1
         session.save(campaign_dir)
-        _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+        _sync_investigator_from_combat(
+            campaign_dir,
+            investigator_id,
+            session,
+            expected_current_mp=canonical_mp_before,
+        )
         event = {
             "event_type": "combat_turn_resolved", "combat_id": session.combat_id,
             "revision": session.revision, "turn": _json_copy(turn),
@@ -7178,54 +7635,51 @@ def _dispatch_combat(
             )
             if row.get("command_id") == command_id
         }
-        roll_events = [
-            {
-                "event_type": "combat_roll", **_json_copy(record),
+        roll_events = []
+        for record in rolls:
+            if not isinstance(record, dict) or not isinstance(
+                record.get("roll_id"), str
+            ):
+                continue
+            roll_id = str(record["roll_id"])
+            if record.get("roll_role") == "amount":
+                damage_payload = damage_payloads.get(roll_id, {})
+                dice = damage_payload.get("dice", record.get("dice"))
+                rolled_total = damage_payload.get(
+                    "rolled_total", record.get("rolled_total")
+                )
+                amount_event = {
+                    "event_type": "combat_roll",
+                    "roll_id": roll_id,
+                    "roll_role": "amount",
+                    "actor_id": record.get("actor_id"),
+                    "skill": record.get("skill"),
+                    "goal": record.get("goal"),
+                    "target_actor_id": damage_payload.get(
+                        "target_actor_id", record.get("target_actor_id")
+                    ),
+                    "rolled_total": rolled_total,
+                    "dice": _json_copy(dice),
+                    "outcome": record.get("outcome"),
+                    "source_command_id": command_id,
+                }
+                receipt = damage_payload.get("combat_damage_receipt")
+                if isinstance(receipt, dict):
+                    amount_event["combat_damage_receipt"] = _json_copy(receipt)
+                roll_events.append(amount_event)
+                continue
+            physical_roll = record.get("original_roll", record.get("roll"))
+            roll_events.append({
+                "event_type": "combat_roll",
+                **_json_copy(record),
                 "source_command_id": command_id,
-                "target": (
-                    damage_payloads.get(record.get("roll_id"), {}).get("target")
-                    if record.get("skill") == "HP Damage"
-                    else record.get("target")
-                ),
-                "difficulty": record.get("difficulty") or (
-                    "damage" if record.get("skill") == "HP Damage" else "regular"
-                ),
-                "raw_roll": (
-                    damage_payloads.get(record.get("roll_id"), {})
-                    .get("combat_damage_receipt", {}).get("raw_damage", record.get("roll"))
-                    if record.get("skill") == "HP Damage" else record.get("roll")
-                ),
+                "raw_roll": physical_roll,
                 "dice": {
-                    "expression": (
-                        damage_payloads.get(record.get("roll_id"), {})
-                        .get("dice", {}).get("expression", record.get("die") or "damage")
-                        if record.get("skill") == "HP Damage" else "1D100"
-                    ),
-                    "raw": (
-                        damage_payloads.get(record.get("roll_id"), {})
-                        .get("combat_damage_receipt", {}).get(
-                            "die_rolls", list(record.get("die_rolls") or [])
-                        )
-                        if record.get("skill") == "HP Damage"
-                        else [record.get("roll")]
-                        if isinstance(record.get("roll"), int) else []
-                    ),
-                    "total": (
-                        damage_payloads.get(record.get("roll_id"), {})
-                        .get("combat_damage_receipt", {}).get("raw_damage", record.get("roll"))
-                        if record.get("skill") == "HP Damage" else record.get("roll")
-                    ),
+                    "expression": "1D100",
+                    "raw": [physical_roll] if isinstance(physical_roll, int) else [],
+                    "total": physical_roll,
                 },
-                **(
-                    {"combat_damage_receipt": _json_copy(
-                        damage_payloads[record["roll_id"]]["combat_damage_receipt"]
-                    )}
-                    if record.get("roll_id") in damage_payloads else {}
-                ),
-            }
-            for record in rolls
-            if isinstance(record, dict) and isinstance(record.get("roll_id"), str)
-        ]
+            })
     elif kind in {"dying_tick", "stabilize", "weekly_recovery"}:
         if kind == "stabilize":
             _persist_legacy_wound_ledger_if_needed(campaign_dir, investigator_id)
@@ -7261,16 +7715,16 @@ def _dispatch_combat(
                 care_roll = coc_roll.percentile_check(
                     int(payload["medicine_skill_value"]), rng=rng
                 )
-                care_outcome = care_roll.get("outcome")
-                medical_care_success = care_outcome in SUCCESS_OUTCOMES
+                care_settlement = _canonical_percentile_fields(care_roll)
+                care_outcome = care_settlement["outcome"]
+                medical_care_success = bool(care_settlement["passed"])
                 medicine_fumbled = care_outcome == "fumble"
                 care_event = {
                     "event_type": "weekly_medical_care",
+                    "roll_role": "percentile_check",
                     "skill": "Medicine",
-                    "target": int(payload["medicine_skill_value"]),
-                    "difficulty": "regular",
+                    **care_settlement,
                     "roll": care_roll.get("roll"),
-                    "outcome": care_outcome,
                     "caregiver_id": payload["caregiver_id"],
                     "success": medical_care_success,
                     "fumbled": medicine_fumbled,
@@ -7348,13 +7802,21 @@ def _dispatch_combat(
             )
             if session.status == "active" and investigator_id in session.participants:
                 combat_active = True
+                canonical_mp_before = _require_active_combat_mp_match(
+                    campaign_dir, investigator_id, session
+                )
                 participant = session.participants[investigator_id]
                 participant["hp_current"] = healing.current_hp
                 participant["conditions"] = list(healing.conditions)
                 session.revision += 1
                 session.save(campaign_dir)
                 event["combat_revision"] = session.revision
-                _sync_investigator_from_combat(campaign_dir, investigator_id, session)
+                _sync_investigator_from_combat(
+                    campaign_dir,
+                    investigator_id,
+                    session,
+                    expected_current_mp=canonical_mp_before,
+                )
         if not combat_active:
             cleared = _clear_inactive_combat_conditions(
                 campaign_dir, investigator_id
@@ -7364,6 +7826,9 @@ def _dispatch_combat(
     else:
         session = _load_combat_session(
             campaign_dir, rng=rng, investigator_id=investigator_id,
+        )
+        canonical_mp_before = _require_active_combat_mp_match(
+            campaign_dir, investigator_id, session
         )
         if session.pending_attack is not None:
             raise _error("combat_defense_pending", "save/combat.json", "resolve defense before ending combat")
@@ -7408,6 +7873,10 @@ def _dispatch_combat(
                 "source_command_id": command_id,
             })
     refs = [f"save/investigator-state/{investigator_id}.json#current_hp"]
+    if kind in {"combat_start", "combat_attack", "combat_defend"}:
+        refs.append(
+            f"save/investigator-state/{investigator_id}.json#current_mp"
+        )
     if kind == "combat_defend" and luck_events:
         refs.append(
             f"save/investigator-state/{investigator_id}.json#current_luck"
@@ -7459,31 +7928,33 @@ def _dispatch(
             def target_for(name: str) -> int:
                 return int(skills.get(name, characteristics.get(name.upper(), 50)))
             luck = coc_roll.percentile_check(target_for(payload["luck_skill"]), rng=rng)
+            luck_settlement = _canonical_percentile_fields(luck)
             luck_event = {
                 "roll_id": f"{command_id}:luck", "decision_id": payload.get("decision_id"),
-                "kind": kind, "skill": payload["luck_skill"], "target": luck["target"],
-                "difficulty": "regular", "roll": luck["roll"],
-                "effective_target": luck["effective_target"], "outcome": luck["outcome"],
-                "success": luck["outcome"] in SUCCESS_OUTCOMES,
+                "roll_role": "percentile_check",
+                "kind": kind, "skill": payload["luck_skill"],
+                **luck_settlement,
+                "roll": luck["roll"],
                 "reason": payload["source"], "rule_ref": payload["rule_ref"],
                 "source_command_id": command_id,
             }
             events.append(luck_event)
-            success = bool(luck_event["success"])
+            success = bool(luck_event["passed"])
             if not success:
                 jump = coc_roll.percentile_check(target_for(payload["jump_skill"]), rng=rng)
+                jump_settlement = _canonical_percentile_fields(jump)
                 jump_event = {
                     "roll_id": f"{command_id}:jump", "decision_id": payload.get("decision_id"),
-                    "kind": kind, "skill": payload["jump_skill"], "target": jump["target"],
-                    "difficulty": "regular", "roll": jump["roll"],
-                    "effective_target": jump["effective_target"], "outcome": jump["outcome"],
-                    "success": jump["outcome"] in SUCCESS_OUTCOMES,
+                    "roll_role": "percentile_check",
+                    "kind": kind, "skill": payload["jump_skill"],
+                    **jump_settlement,
+                    "roll": jump["roll"],
                     "reason": payload["source"], "depends_on": luck_event["roll_id"],
                     "rule_ref": payload["rule_ref"],
                     "source_command_id": command_id,
                 }
                 events.append(jump_event)
-                success = bool(jump_event["success"])
+                success = bool(jump_event["passed"])
                 if not success:
                     participant = {"id": investigator_id, **inv}
                     damage = coc_hazards.apply_other_damage(
@@ -7495,10 +7966,12 @@ def _dispatch(
                     roll = damage["damage_roll"]
                     events.append({
                         "roll_id": f"{command_id}:damage", "decision_id": payload.get("decision_id"),
-                        "kind": kind, "skill": "HP Damage", "target": None,
-                        "difficulty": "damage", "roll": roll["total"],
+                        "roll_role": "amount",
+                        "kind": kind, "skill": "HP Damage",
+                        "target_actor_id": investigator_id,
+                        "rolled_total": roll["total"],
                         "dice": {"expression": roll["expression"], "raw": roll["rolls"], "total": roll["total"]},
-                        "outcome": "damage_applied", "success": False,
+                        "outcome": "damage_applied",
                         "reason": payload["source"],
                         "hp_before": damage["hp_before"], "hp_after": damage["hp_after"],
                         "hp_delta": damage["hp_delta"], "rule_ref": payload["rule_ref"],
@@ -7516,13 +7989,15 @@ def _dispatch(
             success = language_target >= int(payload["language_threshold"])
             if not success:
                 read_roll = coc_roll.percentile_check(language_target, rng=rng)
-                success = read_roll["outcome"] in SUCCESS_OUTCOMES
+                read_settlement = _canonical_percentile_fields(read_roll)
+                success = bool(read_settlement["passed"])
                 events.append({
                     "roll_id": f"{command_id}:language", "decision_id": payload.get("decision_id"),
-                    "kind": kind, "skill": payload["language_skill"], "target": language_target,
-                    "difficulty": "regular", "roll": read_roll["roll"],
-                    "effective_target": read_roll["effective_target"], "outcome": read_roll["outcome"],
-                    "success": success, "reason": f"study {payload['tome_id']}",
+                    "roll_role": "percentile_check",
+                    "kind": kind, "skill": payload["language_skill"],
+                    **read_settlement,
+                    "roll": read_roll["roll"],
+                    "reason": f"study {payload['tome_id']}",
                     "rule_ref": payload["rule_ref"],
                     "source_command_id": command_id,
                 })
@@ -7589,13 +8064,14 @@ def _dispatch(
         event = {
             "event_type": "sanity_rewarded",
             "roll_id": str(command["payload"].get("roll_id") or command_id),
+            "roll_role": "amount",
             "decision_id": command["payload"].get("decision_id"),
             "skill": "SAN Reward",
             "source": command["payload"]["source"],
             "rule_ref": command["payload"]["rule_ref"],
             "die": "1D6",
             "dice": {"expression": "1D6", "raw": [rolled], "total": rolled},
-            "roll": rolled,
+            "rolled_total": rolled,
             "san_before": before,
             "san_delta": after - before,
             "san_after": after,
@@ -7779,7 +8255,8 @@ def _dispatch(
             penalty=max(0, -modifier),
             rng=rng,
         )
-        outcome = str(resolved.get("outcome") or "failure")
+        settlement = _canonical_percentile_fields(resolved)
+        outcome = str(settlement["outcome"])
         roll_contract, _original_fumble = _settle_percentile_fumble_contract(
             roll_spec.get("roll_contract"),
             outcome,
@@ -7787,18 +8264,15 @@ def _dispatch(
         )
         event = {
             "roll_id": str(payload.get("roll_id") or command_id),
+            "roll_role": "percentile_check",
             "decision_id": payload.get("decision_id"),
             "kind": roll_spec.get("kind"),
             "skill": roll_spec.get("skill"),
-            "target": target,
-            "difficulty": difficulty,
+            **settlement,
             "reason": roll_spec.get("reason"),
             "request_id": capsule["settlement"]["request_id"],
             "bonus_penalty_dice": modifier,
             "roll": resolved.get("roll"),
-            "effective_target": resolved.get("effective_target"),
-            "outcome": outcome,
-            "success": outcome in SUCCESS_OUTCOMES,
             "roll_contract": roll_contract,
             "resolution_context": {
                 **_json_copy(capsule["settlement"]["plan_slice"]),
@@ -8223,7 +8697,7 @@ def _preflight_push_offers(
                 path,
                 "a fumbled roll cannot be pushed",
             )
-        if original.get("success") is not False or outcome != "failure":
+        if original.get("passed") is not False or outcome != "failure":
             raise _error(
                 "push_origin_not_failed",
                 path,
@@ -8509,6 +8983,11 @@ def execute_commands(
         applied,
         state,
     )
+    _preflight_combat_mp_authority(
+        campaign,
+        investigator_id,
+        new_commands_with_hashes,
+    )
 
     inflight = _build_inflight(
         campaign,
@@ -8545,6 +9024,21 @@ def execute_commands(
                 command,
                 rng,
                 next_state,
+            )
+            result_events = [
+                event
+                for event in result.get("events") or []
+                if isinstance(event, dict)
+            ]
+            for offset, roll_event in enumerate(result_events):
+                if isinstance(roll_event.get("roll_id"), str):
+                    _validate_roll_event_role(
+                        roll_event,
+                        f"commands.{command_id}.events[{offset}]",
+                    )
+            _validate_combat_luck_bindings(
+                result_events,
+                f"commands.{command_id}.events",
             )
             results.append(result)
             new_results.append((command, result))
@@ -8674,6 +9168,10 @@ def execute_commands(
             for event in result["events"]:
                 if not isinstance(event.get("roll_id"), str):
                     continue
+                _validate_roll_event_role(
+                    event,
+                    f"commands.{command['command_id']}.events",
+                )
                 _append_roll_event(
                     campaign,
                     investigator_id,

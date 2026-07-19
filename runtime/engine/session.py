@@ -36,6 +36,16 @@ class TelemetryPersistenceError(RuntimeError):
         super().__init__(self.kind)
 
 
+class KeeperFinalizationBlockedError(RuntimeError):
+    """A Keeper may have settled state, but exact finalized output was blocked."""
+
+    kind = "keeper_finalization_blocked"
+    turn_committed = True
+
+    def __init__(self) -> None:
+        super().__init__(self.kind)
+
+
 class SessionRegistry:
     """Thread-safe session metadata store with TTL and restart recovery.
 
@@ -684,10 +694,16 @@ def _project_keeper_turn_events(
     offsets: dict[str, int],
     narration_text: str,
     *,
+    finalization: dict[str, Any],
     workspace: Path,
     campaign_id: str,
 ) -> list[dict[str, Any]]:
-    """Build the event stream for one keeper-agent turn from journal receipts."""
+    """Build one finalized player output plus keeper audit/state events.
+
+    ``turn.finalize`` already owns the deterministic public dice and mechanical
+    receipts inside ``narration_text``.  Projecting raw roll events as well
+    would display the same die twice.
+    """
     events_mod = _load_events_module()
     events: list[dict[str, Any]] = []
     for row in _read_new_jsonl_rows(
@@ -703,12 +719,10 @@ def _project_keeper_turn_events(
             },
             visibility="keeper",
         ))
-    for row in _read_new_jsonl_rows(
-        campaign_dir / "logs" / "rolls.jsonl", offsets["rolls"]
+    if finalization.get("rendered_sha256") != _canonical_finalized_text_digest(
+        narration_text
     ):
-        event = _project_roll_event(events_mod, row)
-        if event is not None:
-            events.append(event)
+        raise KeeperFinalizationBlockedError()
     events.append(events_mod.make_event("narration", {"text": narration_text}))
     try:
         state = _load_public_state().build_public_state(
@@ -835,9 +849,56 @@ def get_session(session_id: str) -> dict[str, Any]:
 _KEEPER_TURN_RETRY_MAX = 1
 
 
+def _canonical_finalized_text_digest(text: str) -> str:
+    encoded = json.dumps(
+        text, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _finalized_keeper_texts_by_turn(campaign_dir: Path) -> dict[int, str]:
+    """Resolve valid finalized text onto its authoritative journal turn."""
+    calls = _read_new_jsonl_rows(campaign_dir / "logs" / "toolbox-calls.jsonl", 0)
+    rows = _read_new_jsonl_rows(
+        campaign_dir / "logs" / "turn-finalizations.jsonl", 0
+    )
+    adapter = _load_keeper_adapter()
+    result: dict[int, str] = {}
+    for row in rows:
+        try:
+            adapter.validate_finalization_receipt(row)
+        except adapter.KeeperFinalizationError:
+            continue
+        index = row.get("journal_call_index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= len(calls)
+        ):
+            continue
+        call = calls[index]
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        data = call.get("data") if isinstance(call.get("data"), dict) else {}
+        turn_number = data.get("turn_number")
+        if (
+            call.get("ok") is not True
+            or call.get("tool") != "state.journal"
+            or args.get("decision_id") != row.get("journal_decision_id")
+            or isinstance(turn_number, bool)
+            or not isinstance(turn_number, int)
+            or turn_number in result
+        ):
+            continue
+        result[turn_number] = row["rendered_text"]
+    return result
+
+
 def _recent_public_transcript(campaign_dir: Path, limit: int = 12) -> list[dict[str, str]]:
-    """Rebuild a short player/keeper transcript tail from journal receipts."""
+    """Rebuild a public tail, preferring exact finalized text over summaries."""
     tail: list[dict[str, str]] = []
+    finalized_by_turn = _finalized_keeper_texts_by_turn(campaign_dir)
     rows = _read_new_jsonl_rows(campaign_dir / "logs" / "events.jsonl", 0)
     for row in rows:
         if row.get("event_type") != "turn":
@@ -846,7 +907,15 @@ def _recent_public_transcript(campaign_dir: Path, limit: int = 12) -> list[dict[
         summary = row.get("summary")
         if isinstance(player_action, str) and player_action.strip():
             tail.append({"role": "player", "text": player_action.strip()})
-        if isinstance(summary, str) and summary.strip():
+        turn_number = row.get("turn_number")
+        finalized = (
+            finalized_by_turn.get(turn_number)
+            if isinstance(turn_number, int) and not isinstance(turn_number, bool)
+            else None
+        )
+        if isinstance(finalized, str) and finalized.strip():
+            tail.append({"role": "keeper", "text": finalized})
+        elif isinstance(summary, str) and summary.strip():
             tail.append({"role": "keeper", "text": summary.strip()})
     return tail[-limit:]
 
@@ -861,10 +930,10 @@ def send(
     """Run one keeper turn through the skills-enabled keeper coding agent.
 
     The keeper LLM reads the canonical skill tree and drives the turn with
-    ``coc_toolbox.py`` calls; this engine projects the resulting journal
-    receipts into protocol events. There is no narration envelope, secret
-    audit, or deterministic template fallback — a failed spawn raises after a
-    bounded network/timeout-level retry.
+    ``coc_toolbox.py`` calls; this engine releases only the exact canonical
+    ``turn.finalize`` output. There is no alternate narration envelope or
+    deterministic template fallback. A pre-settlement spawn failure retains
+    one bounded retry; any possibly settled failure is blocked without replay.
     """
     total_started = time.perf_counter()
     if player_intent is not None:
@@ -902,7 +971,11 @@ def send(
     offsets = {
         "toolbox": _file_size(campaign_dir / "logs" / "toolbox-calls.jsonl"),
         "rolls": _file_size(campaign_dir / "logs" / "rolls.jsonl"),
+        "finalizations": _file_size(
+            campaign_dir / "logs" / "turn-finalizations.jsonl"
+        ),
     }
+    request["finalization_offset"] = offsets["finalizations"]
 
     keeper = _load_keeper_adapter()
     runner_override = os.environ.get("COC_KEEPER_RUNNER") or None
@@ -912,14 +985,43 @@ def send(
         try:
             result = keeper.keeper_send_turn(request, runner_path=runner_override)
             break
+        except keeper.KeeperFinalizationError as exc:
+            raise KeeperFinalizationBlockedError() from exc
         except RuntimeError as exc:
+            # A crashed runner is safe to cold-retry only while it has left no
+            # new toolbox/finalization evidence.  Once the agent may have
+            # settled state, replaying the whole turn with new decisions is
+            # more dangerous than failing closed.
+            if (
+                _file_size(campaign_dir / "logs" / "toolbox-calls.jsonl")
+                != offsets["toolbox"]
+                or _file_size(campaign_dir / "logs" / "turn-finalizations.jsonl")
+                != offsets["finalizations"]
+            ):
+                raise KeeperFinalizationBlockedError() from exc
             last_error = exc
     if result is None:
         raise RuntimeError(f"keeper turn failed: {last_error}") from last_error
 
-    narration_text = str(result["narration"])
+    try:
+        canonical_receipt = keeper.load_new_finalization_receipt(
+            campaign_dir / "logs" / "turn-finalizations.jsonl",
+            offsets["finalizations"],
+        )
+        canonical_projection = keeper.finalization_projection(canonical_receipt)
+    except keeper.KeeperFinalizationError as exc:
+        raise KeeperFinalizationBlockedError() from exc
+    narration_text = result.get("narration")
+    finalization = result.get("finalization")
+    if (
+        not isinstance(narration_text, str)
+        or finalization != canonical_projection
+        or narration_text != canonical_receipt["rendered_text"]
+    ):
+        raise KeeperFinalizationBlockedError()
     events = _project_keeper_turn_events(
         campaign_dir, offsets, narration_text,
+        finalization=finalization,
         workspace=workspace, campaign_id=campaign_id,
     )
     decision_ids = _keeper_turn_decision_ids(campaign_dir, offsets["toolbox"])
@@ -930,6 +1032,7 @@ def send(
             model_identity=result.get("model_identity"),
             usage=result.get("usage"),
             decision_ids=decision_ids,
+            finalization=finalization,
         )
     except Exception as exc:
         raise TelemetryPersistenceError() from exc
@@ -1068,6 +1171,7 @@ def _record_turn_telemetry(
     model_identity: dict[str, Any] | None,
     usage: dict[str, Any] | None,
     decision_ids: list[str],
+    finalization: dict[str, Any],
 ) -> None:
     """Persist only timing/attestation metadata, never prompts or player text."""
     total_ms = max(0.0, (time.perf_counter() - total_started) * 1000.0)
@@ -1131,6 +1235,12 @@ def _record_turn_telemetry(
         "narration_sha256": hashlib.sha256(
             narration_text.encode("utf-8")
         ).hexdigest(),
+        "finalization": {
+            "finalization_id": finalization["finalization_id"],
+            "journal_decision_id": finalization["journal_decision_id"],
+            "rendered_sha256": finalization["rendered_sha256"],
+            "integrity_digest": finalization["integrity_digest"],
+        },
     }
     runtime_digest = _append_runtime_row(record["campaign_dir"], runtime_row)
     _load_telemetry_module().write_receipt(
@@ -1181,6 +1291,7 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
     if len(matching_runtime_rows) != 1:
         raise RuntimeError("last turn runtime receipt digest is missing or ambiguous")
     runtime_row = matching_runtime_rows[0]
+    finalization = runtime_row.get("finalization")
     if (
         not isinstance(runtime_row, dict)
         or runtime_row.get("schema_version") != 1
@@ -1188,6 +1299,20 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
         or runtime_row.get("investigator_id") != record["investigator_id"]
         or runtime_row.get("decision_ids") != receipt.get("decision_ids")
         or receipt.get("investigator_id") != record["investigator_id"]
+        or not isinstance(finalization, dict)
+        or set(finalization) != {
+            "finalization_id", "journal_decision_id", "rendered_sha256",
+            "integrity_digest",
+        }
+        or not all(
+            isinstance(finalization.get(key), str) and finalization[key]
+            for key in ("finalization_id", "journal_decision_id")
+        )
+        or any(
+            not isinstance(finalization.get(key), str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", finalization[key]) is None
+            for key in ("rendered_sha256", "integrity_digest")
+        )
     ):
         raise RuntimeError("last turn receipts do not agree")
     encoded = json.dumps(
@@ -1233,6 +1358,7 @@ def get_last_turn_attestation(session_id: str) -> dict[str, Any]:
         "runtime_receipt_sha256": runtime_receipt_sha256,
         "recording_mode": runtime_row.get("recording_mode"),
         "recording_flush": runtime_row.get("recording_flush"),
+        "finalization": copy.deepcopy(finalization),
         "usage": usage,
         "narrator_llm_ms": float(latency),
         "narrator": copy.deepcopy(narrator),

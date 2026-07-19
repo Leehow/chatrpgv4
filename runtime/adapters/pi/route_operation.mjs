@@ -125,10 +125,10 @@ async function run(request) {
   await loader.reload();
   const auth = AuthStorage.create(path.join(agentDir, "auth.json"));
   const registry = ModelRegistry.create(auth, path.join(agentDir, "models.json"));
-  const provider = process.env.COC_OPERATION_ROUTER_MODEL_PROVIDER || "zhipu-coding";
-  const id = process.env.COC_OPERATION_ROUTER_MODEL_ID || "glm-5.2";
+  const provider = process.env.COC_OPERATION_ROUTER_MODEL_PROVIDER || "coding-relay";
+  const id = process.env.COC_OPERATION_ROUTER_MODEL_ID || "gpt-5.6-luna";
   let model = registry.find(provider, id);
-  if (!model && provider === "coding-relay") {
+  if (!model && (provider === "coding-relay" || provider === "cursor-relay")) {
     const template = registry.getAll().find((item) => item.provider === provider && registry.hasConfiguredAuth(item));
     if (template) model = { ...template, id, name: id };
   }

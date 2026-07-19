@@ -39,6 +39,15 @@ NUMERIC_FIELDS = ("trust", "fear", "suspicion")
 FIELD_MIN = -5
 FIELD_MAX = 5
 
+# Textual relationship memory is semantic prompt context.  It is deliberately
+# bounded so one NPC cannot grow an unbounded prompt or turn state into a prose
+# log.  Numeric psych fields remain the canonical mechanical state.
+IMPRESSION_SCHEMA_VERSION = 1
+IMPRESSION_MAX_SUMMARY = 800
+IMPRESSION_MAX_ITEM = 300
+IMPRESSION_MAX_ITEMS = 6
+IMPRESSION_MAX_MEMORIES = 12
+
 # Disposition thresholds (structured numeric — see npc_disposition).
 HOSTILE_TRUST_MAX = -3      # trust <= -3 -> hostile
 HOSTILE_SUSPICION_MIN = 3   # suspicion >= 3 -> hostile
@@ -98,6 +107,9 @@ def _default_entry() -> dict[str, Any]:
         "active_reactions": [],
         "availability": {"status": "available"},
         "schedule": [],
+        # Pair-scoped textual impressions live under investigator id.  Keep
+        # this separate from the legacy NPC-global numeric psychology above.
+        "impressions": {},
     }
 
 
@@ -129,6 +141,147 @@ def _dict_list(value: Any, *, id_keys: tuple[str, ...] = ()) -> list[dict[str, A
         if identity:
             seen.add(identity)
         result.append(copy)
+    return result
+
+
+def _bounded_text(value: Any, *, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return text[:limit] if text else ""
+
+
+def _bounded_text_list(value: Any, *, limit: int, max_items: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = _bounded_text(item, limit=limit)
+        if text and text not in result:
+            result.append(text)
+        if len(result) >= max_items:
+            break
+    return result
+
+
+def _normalize_impression_memory(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    memory_id = _bounded_text(value.get("memory_id"), limit=160)
+    event = _bounded_text(value.get("event"), limit=IMPRESSION_MAX_ITEM)
+    interpretation = _bounded_text(value.get("interpretation"), limit=IMPRESSION_MAX_ITEM)
+    reason = _bounded_text(value.get("reason"), limit=IMPRESSION_MAX_ITEM)
+    if not memory_id or not event or not interpretation or not reason:
+        return None
+    result = {
+        "memory_id": memory_id,
+        "event": event,
+        "interpretation": interpretation,
+        "reason": reason,
+    }
+    source_ref = _bounded_text(value.get("source_ref"), limit=200)
+    if source_ref:
+        result["source_ref"] = source_ref
+    return result
+
+
+def normalize_impression(value: Any) -> dict[str, Any]:
+    """Return a bounded pair-scoped impression projection.
+
+    This is a read-time normalizer.  It never invents a summary or derives
+    meaning from free text; only caller-authored fields survive.
+    """
+    raw = value if isinstance(value, dict) else {}
+    summary = _bounded_text(raw.get("summary"), limit=IMPRESSION_MAX_SUMMARY)
+    expectations = _bounded_text_list(
+        raw.get("expectations"), limit=IMPRESSION_MAX_ITEM,
+        max_items=IMPRESSION_MAX_ITEMS,
+    )
+    reservations = _bounded_text_list(
+        raw.get("reservations"), limit=IMPRESSION_MAX_ITEM,
+        max_items=IMPRESSION_MAX_ITEMS,
+    )
+    memories: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in raw.get("memories") if isinstance(raw.get("memories"), list) else []:
+        memory = _normalize_impression_memory(item)
+        if memory is None or memory["memory_id"] in seen_ids:
+            continue
+        seen_ids.add(memory["memory_id"])
+        memories.append(memory)
+        if len(memories) >= IMPRESSION_MAX_MEMORIES:
+            break
+    return {
+        "schema_version": IMPRESSION_SCHEMA_VERSION,
+        "summary": summary,
+        "expectations": expectations,
+        "reservations": reservations,
+        "memories": memories,
+        "initialized_from_first_impression": bool(
+            raw.get("initialized_from_first_impression") is True
+        ),
+    }
+
+
+def _normalize_impressions(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for investigator_id, raw in value.items():
+        identifier = _bounded_text(investigator_id, limit=160)
+        if not identifier:
+            continue
+        impression = normalize_impression(raw)
+        # Avoid materializing empty pair records from malformed legacy input.
+        if any((impression["summary"], impression["expectations"],
+                impression["reservations"], impression["memories"],
+                impression["initialized_from_first_impression"])):
+            result[identifier] = impression
+    return result
+
+
+def _validate_impression_update(value: Any) -> dict[str, Any] | None:
+    """Strictly validate one semantic, caller-authored impression update."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("impression_update must be an object")
+    allowed = {"summary", "expectations", "reservations", "memory", "reason"}
+    unknown = set(value) - allowed
+    if unknown:
+        raise ValueError(f"impression_update has unknown fields: {sorted(unknown)}")
+    reason = value.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > IMPRESSION_MAX_ITEM:
+        raise ValueError("impression_update.reason must be a non-empty bounded string")
+    result: dict[str, Any] = {"reason": reason.strip()}
+    for field in ("summary",):
+        if field in value:
+            raw = value[field]
+            if not isinstance(raw, str) or not raw.strip() or len(raw.strip()) > IMPRESSION_MAX_SUMMARY:
+                raise ValueError(f"impression_update.{field} must be a non-empty bounded string")
+            result[field] = raw.strip()
+    for field in ("expectations", "reservations"):
+        if field in value:
+            raw = value[field]
+            if not isinstance(raw, list) or not raw or len(raw) > IMPRESSION_MAX_ITEMS:
+                raise ValueError(f"impression_update.{field} must be a non-empty list")
+            if any(
+                not isinstance(item, str) or not item.strip() or len(item.strip()) > IMPRESSION_MAX_ITEM
+                for item in raw
+            ):
+                raise ValueError(f"impression_update.{field} contains an invalid item")
+            result[field] = _bounded_text_list(
+                raw, limit=IMPRESSION_MAX_ITEM, max_items=IMPRESSION_MAX_ITEMS,
+            )
+    if "memory" in value:
+        memory = _normalize_impression_memory(value["memory"])
+        if memory is None:
+            raise ValueError(
+                "impression_update.memory requires memory_id, event, interpretation, reason"
+            )
+        result["memory"] = memory
+    if not any(field in result for field in ("summary", "expectations", "reservations", "memory")):
+        raise ValueError("impression_update must include summary, expectations, reservations, or memory")
     return result
 
 
@@ -394,6 +547,7 @@ def normalize_entry(value: Any) -> dict[str, Any]:
         status = "unavailable"
     result["availability"] = {"status": status}
     result["schedule"] = _dict_list(raw.get("schedule"), id_keys=("schedule_id",))
+    result["impressions"] = _normalize_impressions(raw.get("impressions"))
     return result
 
 
@@ -438,6 +592,22 @@ def get_npc_entry(campaign_dir: Path, npc_id: str) -> dict[str, Any]:
     if not isinstance(entry, dict):
         return _default_entry()
     return normalize_entry(entry)
+
+
+def get_npc_impression(
+    campaign_dir: Path, npc_id: str, investigator_id: str,
+) -> dict[str, Any]:
+    """Read one investigator/NPC textual impression without exposing others."""
+    entry = get_npc_entry(campaign_dir, npc_id)
+    identifier = _bounded_text(investigator_id, limit=160)
+    if not identifier:
+        return normalize_impression(None)
+    return deepcopy_impression(entry.get("impressions", {}).get(identifier))
+
+
+def deepcopy_impression(value: Any) -> dict[str, Any]:
+    """Return a detached normalized impression (keeps this module stdlib-only)."""
+    return json.loads(json.dumps(normalize_impression(value), ensure_ascii=False))
 
 
 def disclosure_decision(
@@ -907,6 +1077,208 @@ def adjust(campaign_dir: Path, npc_id: str, field: str, delta: int) -> int:
     return value
 
 
+def apply_psych_update(
+    campaign_dir: Path,
+    npc_id: str,
+    *,
+    investigator_id: str | None = None,
+    deltas: dict[str, Any] | None = None,
+    record_fact_id: Any = None,
+    record_lie_id: Any = None,
+    record_promise_id: Any = None,
+    availability: Any = None,
+    impression_update: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Validate and atomically apply one complete ``state.npc_update``.
+
+    Every request field is normalized before the state document is loaded, so
+    an invalid late field cannot leave earlier deltas persisted.  The complete
+    update is then written through one atomic file replacement.
+    """
+    identifier = str(npc_id).strip()
+    if not identifier:
+        raise ValueError("npc_id must be a non-empty string")
+
+    pair_identifier: str | None = None
+    if investigator_id is not None:
+        if not isinstance(investigator_id, str) or not investigator_id.strip():
+            raise ValueError("investigator_id must be a non-empty string")
+        pair_identifier = investigator_id.strip()
+    normalized_impression = _validate_impression_update(impression_update)
+
+    normalized_deltas: dict[str, int] = {}
+    for field, raw_delta in (deltas or {}).items():
+        if field not in NUMERIC_FIELDS:
+            raise ValueError(
+                f"unknown npc psych field {field!r}; expected one of {NUMERIC_FIELDS}"
+            )
+        if isinstance(raw_delta, bool) or not isinstance(raw_delta, int):
+            raise ValueError(f"{field}_delta must be an integer")
+        normalized_deltas[field] = raw_delta
+
+    normalized_records: dict[str, str] = {}
+    for label, raw_value in (
+        ("record_fact", record_fact_id),
+        ("record_lie", record_lie_id),
+        ("record_promise", record_promise_id),
+    ):
+        if raw_value is None:
+            continue
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            raise ValueError(f"{label} must be a non-empty string")
+        normalized_records[label] = raw_value.strip()
+
+    normalized_availability: str | None = None
+    if availability is not None:
+        if not isinstance(availability, str) or availability not in {
+            "available", "unavailable",
+        }:
+            raise ValueError("availability status must be available or unavailable")
+        normalized_availability = availability
+
+    if (
+        not normalized_deltas
+        and not normalized_records
+        and normalized_availability is None
+        and normalized_impression is None
+    ):
+        return {}, get_npc_entry(campaign_dir, identifier)
+
+    if normalized_impression is not None and pair_identifier is None:
+        raise ValueError("investigator_id is required for impression_update")
+
+    state = load_npc_state(campaign_dir)
+    entry = _psych_entry(state, identifier)
+    applied: dict[str, Any] = {}
+    for field, delta in normalized_deltas.items():
+        value = int(entry.get(field, 0) or 0) + delta
+        value = max(FIELD_MIN, min(FIELD_MAX, value))
+        entry[field] = value
+        applied[field] = value
+
+    fact_id = normalized_records.get("record_fact")
+    if fact_id is not None:
+        if fact_id not in entry["known_facts"]:
+            entry["known_facts"].append(fact_id)
+        applied["recorded_fact"] = fact_id
+
+    lie_id = normalized_records.get("record_lie")
+    if lie_id is not None:
+        if not any(row.get("lie_id") == lie_id for row in entry["lies_told"]):
+            entry["lies_told"].append({"lie_id": lie_id, "about": None})
+        applied["recorded_lie"] = lie_id
+
+    promise_id = normalized_records.get("record_promise")
+    if promise_id is not None:
+        existing = next((
+            row for row in entry["promises"] if row.get("promise_id") == promise_id
+        ), None)
+        if existing is None:
+            entry["promises"].append({"promise_id": promise_id, "kept": None})
+        else:
+            existing["kept"] = None
+        applied["recorded_promise"] = promise_id
+
+    if normalized_availability is not None:
+        entry["availability"] = {"status": normalized_availability}
+        applied["availability"] = normalized_availability
+
+    if normalized_impression is not None and pair_identifier is not None:
+        prior_impression = normalize_impression(
+            entry["impressions"].get(pair_identifier)
+        )
+        current = dict(prior_impression)
+        if "summary" in normalized_impression:
+            current["summary"] = normalized_impression["summary"]
+        if "expectations" in normalized_impression:
+            current["expectations"] = normalized_impression["expectations"]
+        if "reservations" in normalized_impression:
+            current["reservations"] = normalized_impression["reservations"]
+        memory = normalized_impression.get("memory")
+        if isinstance(memory, dict):
+            current["memories"] = [
+                row for row in current.get("memories", [])
+                if row.get("memory_id") != memory["memory_id"]
+            ]
+            current["memories"].append(memory)
+            current["memories"] = current["memories"][-IMPRESSION_MAX_MEMORIES:]
+        current["schema_version"] = IMPRESSION_SCHEMA_VERSION
+        entry["impressions"][pair_identifier] = normalize_impression(current)
+        applied["impression"] = deepcopy_impression(entry["impressions"][pair_identifier])
+        applied["impression_update_reason"] = normalized_impression["reason"]
+
+    save_npc_state(campaign_dir, state)
+    return applied, normalize_entry(entry)
+
+
+def initialize_first_impression(
+    campaign_dir: Path,
+    npc_id: str,
+    investigator_id: str,
+    *,
+    receipt_id: str,
+    observable_manner: str,
+    causal_explanation: str,
+    boundary_preserved: str,
+    opportunity_or_friction: str,
+    decision_id: str,
+) -> dict[str, Any]:
+    """Persist the first-contact impression seed exactly once for a pair.
+
+    The four strings come from the Keeper's causal first-impression
+    realization; this helper stores them as evidence/context and never tries
+    to infer an interpretation from the prose.
+    """
+    pair_identifier = str(investigator_id).strip()
+    if not pair_identifier:
+        raise ValueError("investigator_id must be a non-empty string")
+    values = {
+        "observable_manner": observable_manner,
+        "causal_explanation": causal_explanation,
+        "boundary_preserved": boundary_preserved,
+        "opportunity_or_friction": opportunity_or_friction,
+    }
+    if any(
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value.strip()) > IMPRESSION_MAX_ITEM
+        for value in values.values()
+    ):
+        raise ValueError("first-impression realization contains invalid text")
+    memory_id = f"first-impression:{str(receipt_id).strip()}"
+    update = {
+        "summary": causal_explanation.strip(),
+        "expectations": [opportunity_or_friction.strip()],
+        "reservations": [boundary_preserved.strip()],
+        "memory": {
+            "memory_id": memory_id,
+            "event": observable_manner.strip(),
+            "interpretation": causal_explanation.strip(),
+            "reason": "first_impression_result",
+            "source_ref": str(receipt_id).strip(),
+        },
+        "reason": "initialize_from_first_impression",
+    }
+    state = load_npc_state(campaign_dir)
+    entry = _psych_entry(state, str(npc_id).strip())
+    existing = normalize_impression(entry["impressions"].get(pair_identifier))
+    if existing.get("initialized_from_first_impression"):
+        return deepcopy_impression(existing)
+    normalized = _validate_impression_update(update)
+    assert normalized is not None
+    current = normalize_impression({
+        "summary": normalized["summary"],
+        "expectations": normalized["expectations"],
+        "reservations": normalized["reservations"],
+        "memories": [normalized["memory"]],
+        "initialized_from_first_impression": True,
+    })
+    current["initialized_from_first_impression"] = True
+    entry["impressions"][pair_identifier] = current
+    save_npc_state(campaign_dir, state)
+    return deepcopy_impression(current)
+
+
 def record_fact(campaign_dir: Path, npc_id: str, fact_id: str) -> None:
     """Record a fact this NPC now knows (deduplicated by fact_id)."""
     fact = str(fact_id)
@@ -1045,4 +1417,9 @@ def has_signal(npc_state_entry: dict[str, Any] | None) -> bool:
     entry = npc_state_entry if isinstance(npc_state_entry, dict) else {}
     if any(int(entry.get(f, 0) or 0) != 0 for f in NUMERIC_FIELDS):
         return True
-    return bool(entry.get("known_facts") or entry.get("lies_told") or entry.get("promises"))
+    return bool(
+        entry.get("known_facts")
+        or entry.get("lies_told")
+        or entry.get("promises")
+        or entry.get("impressions")
+    )

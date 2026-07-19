@@ -730,6 +730,8 @@ _ZH_ROLL_DIFFICULTY_LABELS = {
     "hard": "困难",
     "extreme": "极难",
     "opposed": "对抗",
+    "damage": "伤害",
+    "healing": "治疗",
 }
 _ZH_ROLL_OUTCOME_LABELS = {
     "critical": "大成功",
@@ -759,17 +761,39 @@ def build_rules_owned_public_roll_block(
     """
     entries: list[dict[str, Any]] = []
     lines: list[str] = []
+    seen_roll_ids: set[str] = set()
     for raw in rule_results if isinstance(rule_results, list) else []:
-        if not isinstance(raw, dict) or raw.get("skipped") or "roll" not in raw:
+        if not isinstance(raw, dict) or raw.get("skipped"):
             continue
+        roll_role = raw.get("roll_role")
+        if roll_role == "amount":
+            rolled_total = raw.get("rolled_total")
+            dice = raw.get("dice")
+            if (
+                isinstance(rolled_total, bool)
+                or not isinstance(rolled_total, int)
+                or not isinstance(dice, dict)
+                or dice.get("total") != rolled_total
+                or not isinstance(dice.get("expression"), str)
+                or not isinstance(dice.get("raw"), list)
+            ):
+                raise ValueError("public amount roll lacks canonical dice evidence")
+        elif roll_role in {None, "percentile_check"}:
+            if "roll" not in raw:
+                continue
+            rolled_total = None
+            dice = raw.get("dice")
+        else:
+            raise ValueError(f"unsupported public roll_role: {roll_role!r}")
         visibility = raw.get("visibility")
         if visibility is None:
             visibility = "keeper_only" if raw.get("hidden") is True else "public"
         if visibility not in {"public", "consequence_public"}:
             continue
         roll_id = str(raw.get("roll_id") or raw.get("command_id") or "").strip()
-        if not roll_id:
+        if not roll_id or roll_id in seen_roll_ids:
             continue
+        seen_roll_ids.add(roll_id)
         skill = str(
             raw.get("skill")
             or raw.get("characteristic")
@@ -791,14 +815,36 @@ def build_rules_owned_public_roll_block(
             "roll_id": roll_id,
             "decision_id": str(raw.get("decision_id") or decision_id),
             "visibility": visibility,
+            "roll_role": roll_role or "percentile_check",
             "skill_or_die": skill_or_die,
-            "roll": raw.get("roll"),
             "outcome": outcome,
             "source_ref": str(
                 raw.get("source_ref") or f"logs/rolls.jsonl#{roll_id}"
             ),
         }
-        target = raw.get("effective_target", raw.get("target"))
+        if roll_role == "amount":
+            entry["rolled_total"] = rolled_total
+            entry["dice"] = dice
+            if raw.get("target_actor_id") is not None:
+                entry["target_actor_id"] = raw["target_actor_id"]
+            raw_faces = "+".join(str(value) for value in dice["raw"]) or "—"
+            if play_language == "zh-Hans":
+                display_skill = _ZH_ROLL_SKILL_LABELS.get(skill, skill)
+                lines.append(
+                    f"【明骰】{display_skill} ({dice['expression']})："
+                    f"骰面 {raw_faces} → 总值 {rolled_total}。"
+                    f"【来源：{entry['source_ref']}】"
+                )
+            else:
+                lines.append(
+                    f"[Public roll] {skill} ({dice['expression']}): "
+                    f"faces {raw_faces} -> total {rolled_total}. "
+                    f"[Source: {entry['source_ref']}]"
+                )
+            entries.append(entry)
+            continue
+        entry["roll"] = raw.get("roll")
+        target = raw.get("required_target", raw.get("effective_target", raw.get("target")))
         if target is not None:
             entry["target"] = target
         difficulty = raw.get("difficulty")
@@ -841,12 +887,31 @@ def build_rules_owned_public_roll_block(
             detail_text = f"；{'；'.join(dice_details)}" if dice_details else ""
             pushed_text = "（推骰）" if raw.get("pushed") is True else ""
             consequence_text = f"；后果：{fumble_summary}" if fumble_summary else ""
-            lines.append(
-                f"【明骰】{pushed_text}{display_skill_or_die}：{raw.get('roll')}"
-                f"{target_text}{difficulty_text} → {display_outcome}{detail_text}"
-                f"{consequence_text}。"
-                f"【来源：{entry['source_ref']}】"
-            )
+            if all(
+                isinstance(raw.get(key), int)
+                and not isinstance(raw.get(key), bool)
+                for key in ("original_roll", "luck_spent", "adjusted_roll")
+            ):
+                entry.update({
+                    "original_roll": raw["original_roll"],
+                    "luck_spent": raw["luck_spent"],
+                    "adjusted_roll": raw["adjusted_roll"],
+                    "achieved_level": raw.get("achieved_level"),
+                    "passed": raw.get("passed"),
+                })
+                lines.append(
+                    f"【明骰】{display_skill_or_die}：原始 {raw['original_roll']} "
+                    f"→ 幸运-{raw['luck_spent']} → 调整 {raw['adjusted_roll']}"
+                    f"{target_text}{difficulty_text} → {display_outcome}。"
+                    f"【来源：{entry['source_ref']}】"
+                )
+            else:
+                lines.append(
+                    f"【明骰】{pushed_text}{display_skill_or_die}：{raw.get('roll')}"
+                    f"{target_text}{difficulty_text} → {display_outcome}{detail_text}"
+                    f"{consequence_text}。"
+                    f"【来源：{entry['source_ref']}】"
+                )
         else:
             target_text = f" / target {target}" if target is not None else ""
             difficulty_text = f" ({difficulty})" if difficulty is not None else ""
@@ -855,11 +920,30 @@ def build_rules_owned_public_roll_block(
             consequence_text = (
                 f"; consequence: {fumble_summary}" if fumble_summary else ""
             )
-            lines.append(
-                f"[Public roll]{pushed_text} {skill_or_die}: {raw.get('roll')}{target_text}{difficulty_text} "
-                f"-> {outcome}{detail_text}{consequence_text}. "
-                f"[Source: {entry['source_ref']}]"
-            )
+            if all(
+                isinstance(raw.get(key), int)
+                and not isinstance(raw.get(key), bool)
+                for key in ("original_roll", "luck_spent", "adjusted_roll")
+            ):
+                entry.update({
+                    "original_roll": raw["original_roll"],
+                    "luck_spent": raw["luck_spent"],
+                    "adjusted_roll": raw["adjusted_roll"],
+                    "achieved_level": raw.get("achieved_level"),
+                    "passed": raw.get("passed"),
+                })
+                lines.append(
+                    f"[Public roll] {skill_or_die}: raw {raw['original_roll']} "
+                    f"-> Luck -{raw['luck_spent']} -> adjusted {raw['adjusted_roll']}"
+                    f"{target_text}{difficulty_text} -> {outcome}. "
+                    f"[Source: {entry['source_ref']}]"
+                )
+            else:
+                lines.append(
+                    f"[Public roll]{pushed_text} {skill_or_die}: {raw.get('roll')}{target_text}{difficulty_text} "
+                    f"-> {outcome}{detail_text}{consequence_text}. "
+                    f"[Source: {entry['source_ref']}]"
+                )
         if fumble_summary:
             entry["fumble_consequence_summary"] = fumble_summary
         entries.append(entry)
@@ -1160,6 +1244,31 @@ def _sanitize_npc_move(
         "persona": _sanitize_persona(move.get("persona")),
         "agency_moves": _sanitize_agency_moves(move.get("agency_moves")),
     }
+    impression = move.get("impression")
+    if isinstance(impression, dict):
+        # Pair-scoped textual memory is bounded and caller-authored.  Keep it
+        # as semantic narration context while preserving the secret boundary;
+        # it is not a deterministic action gate or player-facing label.
+        safe_move["impression"] = {
+            "summary": str(impression.get("summary") or "")[:800],
+            "expectations": [
+                str(item)[:300] for item in (impression.get("expectations") or [])
+                if isinstance(item, str) and item.strip()
+            ][:6],
+            "reservations": [
+                str(item)[:300] for item in (impression.get("reservations") or [])
+                if isinstance(item, str) and item.strip()
+            ][:6],
+            "memories": [
+                {
+                    key: str(row.get(key) or "")[:300]
+                    for key in ("memory_id", "event", "interpretation", "reason", "source_ref")
+                    if row.get(key) is not None
+                }
+                for row in (impression.get("memories") or [])
+                if isinstance(row, dict)
+            ][:12],
+        }
     return safe_move
 
 

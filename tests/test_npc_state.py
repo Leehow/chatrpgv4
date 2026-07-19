@@ -117,6 +117,64 @@ def test_record_promise_kept_update(tmp_path):
     assert entry["promises"] == [{"promise_id": "promise-1", "kept": True}]
 
 
+def test_pair_scoped_textual_impression_initializes_and_updates(tmp_path):
+    camp = _campaign(tmp_path)
+    seeded = coc_npc_state.initialize_first_impression(
+        camp,
+        "npc-a",
+        "inv-1",
+        receipt_id="npc-first-impression-v2:one",
+        observable_manner="凯恩先核对证件，再把椅子推回桌边。",
+        causal_explanation="他把托马斯看成谨慎而有程序意识的人。",
+        boundary_preserved="封存卷宗仍需正式授权。",
+        opportunity_or_friction="愿意在监督下查阅公开目录。",
+        decision_id="contact-1",
+    )
+    assert seeded["initialized_from_first_impression"] is True
+    assert seeded["summary"] == "他把托马斯看成谨慎而有程序意识的人。"
+    assert coc_npc_state.get_npc_impression(camp, "npc-a", "inv-2")["summary"] == ""
+
+    applied, entry = coc_npc_state.apply_psych_update(
+        camp,
+        "npc-a",
+        investigator_id="inv-1",
+        impression_update={
+            "summary": "凯恩现在认为托马斯可靠，但会在危险方案前要求明确的撤退边界。",
+            "expectations": ["先说明证据责任，再提出请求。"],
+            "reservations": ["担心他在科比特案上投入过深。"],
+            "memory": {
+                "memory_id": "case-2",
+                "event": "托马斯在异常声响后主动终止搜查。",
+                "interpretation": "他不会为了进度把警员置于不必要的危险中。",
+                "reason": "现场共同经历",
+            },
+            "reason": "meaningful_observed_behavior",
+        },
+    )
+    assert applied["impression"]["summary"].startswith("凯恩现在认为")
+    assert len(entry["impressions"]["inv-1"]["memories"]) == 2
+    assert coc_npc_state.get_npc_impression(camp, "npc-a", "inv-1")["summary"].startswith("凯恩现在认为")
+
+
+def test_invalid_impression_update_is_atomic(tmp_path):
+    camp = _campaign(tmp_path)
+    coc_npc_state.adjust(camp, "npc-a", "trust", 1)
+    before = coc_npc_state.get_npc_entry(camp, "npc-a")
+    try:
+        coc_npc_state.apply_psych_update(
+            camp,
+            "npc-a",
+            investigator_id="inv-1",
+            deltas={"trust": 2},
+            impression_update={"summary": "缺少 reason"},
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected invalid impression update")
+    assert coc_npc_state.get_npc_entry(camp, "npc-a") == before
+
+
 # --------------------------------------------------------------------------- #
 # Disposition (pure, threshold-based)
 # --------------------------------------------------------------------------- #
@@ -241,6 +299,55 @@ def test_build_npc_moves_consumes_persisted_stance():
     assert any(d["field"] == "trust" for d in moves[0]["stance_drivers"])
 
 
+def test_build_npc_moves_injects_pair_scoped_impression_context():
+    ctx = {
+        "active_scene": {"npc_ids": ["npc-clerk"]},
+        "npc_agendas": {"npcs": [{"npc_id": "npc-clerk", "agenda": "work"}]},
+        "npc_state": {
+            "schema_version": 1,
+            "npcs": {},
+            "psych": {
+                "npc-clerk": {
+                    "impressions": {
+                        "inv-1": {
+                            "summary": "他认为调查员会承认不确定之处。",
+                            "expectations": ["先说明证据责任。"],
+                            "reservations": ["不要擅自越权。"],
+                            "memories": [],
+                            "initialized_from_first_impression": True,
+                        }
+                    }
+                }
+            },
+        },
+        "investigator_id": "inv-1",
+        "rule_signals": {},
+        "rng": random.Random(42),
+    }
+    moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
+    assert moves[0]["impression"]["summary"].startswith("他认为调查员")
+
+
+def test_build_npc_moves_injects_impression_without_summary():
+    ctx = {
+        "active_scene": {"npc_ids": ["npc-clerk"]},
+        "npc_agendas": {"npcs": [{"npc_id": "npc-clerk", "agenda": "work"}]},
+        "npc_state": {"psych": {"npc-clerk": {"impressions": {
+            "inv-1": {
+                "summary": "",
+                "expectations": ["先说明证据责任。"],
+                "reservations": [],
+                "memories": [],
+            }
+        }}}},
+        "investigator_id": "inv-1",
+        "rule_signals": {},
+        "rng": random.Random(42),
+    }
+    moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
+    assert moves[0]["impression"]["expectations"] == ["先说明证据责任。"]
+
+
 def test_build_npc_moves_warm_stance_softens():
     npc_state_doc = {
         "schema_version": 1,
@@ -260,8 +367,8 @@ def test_build_npc_moves_warm_stance_softens():
     assert moves[0]["emotional_tone"] == "warm and cooperative"
 
 
-def test_build_npc_moves_neutral_psych_falls_back_to_reaction_roll():
-    """Zeroed psych entry (or none) keeps the legacy APP/CR reaction path."""
+def test_build_npc_moves_neutral_psych_does_not_invent_reaction_roll():
+    """Without a frozen pair receipt, the Director stays neutral and does not roll."""
     ctx = {
         "active_scene": {"npc_ids": ["npc-clerk"]},
         "npc_agendas": {"npcs": [{"npc_id": "npc-clerk", "agenda": "work"}]},
@@ -271,7 +378,8 @@ def test_build_npc_moves_neutral_psych_falls_back_to_reaction_roll():
     }
     moves = coc_story_director._build_npc_moves(ctx, "CHARACTER")
     assert moves[0].get("psych_stance") is None
-    assert moves[0]["disposition_source"] == "rule_signal:npc_reaction_roll"
+    assert moves[0]["disposition_source"] is None
+    assert moves[0]["emotional_tone"] == "neutral"
 
 
 def test_build_npc_moves_forced_adversary_stays_hostile_despite_warm_psych():

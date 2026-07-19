@@ -1,14 +1,14 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "coc-keeper",
-  "description": "COC Keeper plugins for Claude Code (thin marketplace entry over plugins/coc-keeper)",
+  "description": "COC Keeper plugin marketplace entry for Claude Code and ZCode over the canonical plugins/coc-keeper tree",
   "owner": {
     "name": "Leehow"
   },
   "plugins": [
     {
       "name": "coc-keeper",
-      "description": "Call of Cthulhu Keeper mode — structured rules and persistent campaign state. Portrait generation is Codex-only; Claude Code skips that capability.",
+      "description": "Call of Cthulhu Keeper mode — structured rules and persistent campaign state. Portraits use host-native image tools; Claude Code has none and skips them.",
       "version": "0.4.0-alpha.0",
       "source": "./plugins/coc-keeper",
       "author": {
