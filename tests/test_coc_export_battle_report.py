@@ -146,6 +146,38 @@ def test_final_report_is_readable_actual_play_not_raw_payload_dump(tmp_path):
     assert '"description"' not in markdown
 
 
+def test_zh_play_language_localizes_exporter_chrome_only(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    fixture = _fixture(run)
+    metadata = dict(fixture["metadata"])
+    metadata["play_language"] = "zh-Hans"
+    _write_json(run / "run.json", metadata)
+
+    module.export_battle_report(run)
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+
+    assert markdown.startswith("# COC 实际游玩战报\n")
+    assert "## 调查员" in markdown
+    assert "## 实际游玩记录" in markdown
+    assert "### 第 1 轮 · KP[门卫]" in markdown
+    assert "## 公开规则与骰点" in markdown
+    assert "- 骰点: 42" in markdown
+    assert "- 检定: 侦查" in markdown
+    assert "- 结果: 成功" in markdown
+    localized_probe = module._localize_fixed_markdown_zh(
+        "- Difficulty: regular\n- Outcome: regular"
+    )
+    assert "- 难度: 普通" in localized_probe
+    assert "- 结果: 普通成功" in localized_probe
+    assert "- 描述: A public assignment" in markdown
+    assert " · 场景 `" in markdown
+    assert " · scene `" not in markdown
+    assert "# COC Actual-Play Battle Report" not in markdown
+    # Source-authored prose is evidence, not exporter chrome: preserve it.
+    assert "A public assignment" in markdown
+
+
 def test_final_report_preserves_zero_character_and_roll_values(tmp_path):
     module = _load()
     run = tmp_path / "run"
@@ -542,10 +574,10 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
     assert entry["target"] == 45
     assert entry["outcome"] == "regular"
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
-    assert "### Social Skill Rolls" in markdown
-    assert "`social-1` · 说服 · roll 39 vs 45 · regular" in markdown
-    assert "- Check: 说服" in markdown
-    assert "- Check: Persuade" not in markdown
+    assert "### 社交技能检定" in markdown
+    assert "`social-1` · 说服 · 骰点 39 对 45 · 普通成功" in markdown
+    assert "- 检定: 说服" in markdown
+    assert "- 检定: Persuade" not in markdown
     assert "other-1 · Spot Hidden" not in markdown  # non-social rolls stay in the appendix only
     assert "KEEPER_ROLL_SECRET" not in markdown
     evidence = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))

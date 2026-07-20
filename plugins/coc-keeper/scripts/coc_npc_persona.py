@@ -91,8 +91,16 @@ def _json_clone(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False))
 
 
-def _normalize_social_role(raw: dict[str, Any] | None) -> dict[str, Any]:
-    role = _deep_merge_dict(DEFAULT_SOCIAL_ROLE, raw or {})
+def _normalize_social_role(raw: Any) -> dict[str, Any]:
+    # Progressive source packs may carry a player-facing role label as a
+    # string.  It is not structured authority evidence, so keep persona
+    # behavior on the neutral default instead of crashing or inferring power
+    # from free prose.  The projection layer preserves that text separately as
+    # ``role_label``.
+    role = _deep_merge_dict(
+        DEFAULT_SOCIAL_ROLE,
+        raw if isinstance(raw, dict) else {},
+    )
     for key in ("authority_scope", "responsibility_domains", "duty_pressure"):
         role[key] = [str(item) for item in _as_list(role.get(key)) if str(item)]
     policy = role.get("delegation_policy") or {}
@@ -184,7 +192,11 @@ def build_persona_card(
 ) -> dict[str, Any]:
     """Build a seed-stable persona card from structured NPC data."""
     npc_id = str(npc.get("npc_id") or "")
-    social_role = _normalize_social_role(npc.get("social_role"))
+    raw_social_role = npc.get("social_role")
+    social_role = _normalize_social_role(raw_social_role)
+    role_label = npc.get("role_label")
+    if not role_label and isinstance(raw_social_role, str):
+        role_label = raw_social_role.strip() or None
     weights = dict(DEFAULT_PERSONA_WEIGHTS)
     weights.update(npc.get("persona_tag_weights") or {})
     persona_seed_parts = [*seed_parts, "persona"]
@@ -197,6 +209,7 @@ def build_persona_card(
         "lifecycle": str(npc.get("lifecycle") or "persistent"),
         "name": _name_record(npc, context),
         "social_role": social_role,
+        "role_label": role_label,
         "persona": {
             "tags": tags,
             "surface_cues": [str(item) for item in _as_list(npc.get("surface_cues")) if str(item)],
@@ -229,6 +242,7 @@ def _generation_log(card: dict[str, Any]) -> dict[str, Any]:
         "inputs": generation.get("inputs") or {},
         "rolls": generation.get("rolls") or {},
         "social_role": card.get("social_role") or {},
+        "role_label": card.get("role_label"),
         "persona": card.get("persona") or {},
         "name": card.get("name") or {},
     }

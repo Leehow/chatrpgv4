@@ -34,13 +34,9 @@ FINALIZATION_PROJECTION_FIELDS = frozenset({
     "finalization_id", "journal_decision_id", "rendered_sha256",
     "integrity_digest", "segments",
 })
-FINALIZATION_SEGMENT_ORDER = {
-    "fiction": 0,
-    "public_check": 1,
-    "state_delta": 2,
-    "exceptional_effect": 3,
-    "context_effect": 4,
-}
+FINALIZATION_SEGMENT_TYPES = frozenset({
+    "fiction", "public_check", "state_delta", "exceptional_effect",
+})
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -80,8 +76,7 @@ def _validate_segments(
     if not isinstance(segments, list) or not segments:
         raise KeeperFinalizationError("finalization segments are missing", reason="malformed")
     normalized: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    previous_order = -1
+    seen_source_ids: set[str] = set()
     for segment in segments:
         if not isinstance(segment, dict) or set(segment) != {
             "segment_type", "text", "source_ids",
@@ -90,10 +85,9 @@ def _validate_segments(
                 "finalization segment has an invalid shape", reason="malformed"
             )
         segment_type = segment.get("segment_type")
-        order = FINALIZATION_SEGMENT_ORDER.get(segment_type)
-        if order is None or segment_type in seen or order <= previous_order:
+        if segment_type not in FINALIZATION_SEGMENT_TYPES:
             raise KeeperFinalizationError(
-                "finalization segment order is invalid", reason="malformed"
+                "finalization segment type is invalid", reason="malformed"
             )
         text = segment.get("text")
         source_ids = segment.get("source_ids")
@@ -111,13 +105,20 @@ def _validate_segments(
             raise KeeperFinalizationError(
                 "fiction segment must not expose source ids", reason="malformed"
             )
+        if segment_type != "fiction" and not source_ids:
+            raise KeeperFinalizationError(
+                "mechanic segment must cite source ids", reason="malformed"
+            )
+        if any(source_id in seen_source_ids for source_id in source_ids):
+            raise KeeperFinalizationError(
+                "finalization mechanic source id is duplicated", reason="malformed"
+            )
+        seen_source_ids.update(source_ids)
         normalized.append({
             "segment_type": segment_type,
             "text": text,
             "source_ids": list(source_ids),
         })
-        seen.add(segment_type)
-        previous_order = order
     if normalized[0]["segment_type"] != "fiction":
         raise KeeperFinalizationError(
             "finalization must begin with fiction", reason="malformed"
@@ -127,7 +128,10 @@ def _validate_segments(
             "finalization segments do not compose rendered_text",
             reason="rendered_mismatch",
         )
-    if _canonical_digest(normalized[0]["text"]) != draft_sha256:
+    reconstructed_draft = "\n\n".join(
+        row["text"] for row in normalized if row["segment_type"] == "fiction"
+    )
+    if _canonical_digest(reconstructed_draft) != draft_sha256:
         raise KeeperFinalizationError(
             "finalization fiction hash mismatch", reason="digest_mismatch"
         )
@@ -192,11 +196,39 @@ def validate_finalization_receipt(receipt: Any) -> dict[str, Any]:
         raise KeeperFinalizationError(
             "turn finalization bundle/coverage is invalid", reason="malformed"
         )
-    _validate_segments(
+    normalized_segments = _validate_segments(
         receipt["segments"],
         rendered_text=receipt["rendered_text"],
         draft_sha256=receipt["draft_sha256"],
     )
+    expected_sources: set[tuple[str, str]] = set()
+    for segment_type, source_key in (
+        ("public_check", "roll_id"),
+        ("state_delta", "effect_id"),
+        ("exceptional_effect", "event_id"),
+    ):
+        rows = receipt["bundle"].get(segment_type) or []
+        if not isinstance(rows, list):
+            raise KeeperFinalizationError(
+                "turn finalization bundle mechanic rows are invalid", reason="malformed"
+            )
+        for row in rows:
+            source_id = row.get(source_key) if isinstance(row, dict) else None
+            if not isinstance(source_id, str) or not source_id:
+                raise KeeperFinalizationError(
+                    "turn finalization bundle mechanic source is invalid", reason="malformed"
+                )
+            expected_sources.add((segment_type, source_id))
+    rendered_sources = {
+        (segment["segment_type"], source_id)
+        for segment in normalized_segments
+        if segment["segment_type"] != "fiction"
+        for source_id in segment["source_ids"]
+    }
+    if rendered_sources != expected_sources:
+        raise KeeperFinalizationError(
+            "turn finalization mechanic placement is incomplete", reason="malformed"
+        )
     for value, digest, label in (
         (receipt["coverage"], receipt["coverage_sha256"], "coverage"),
         (receipt["bundle"], receipt["bundle_sha256"], "bundle"),
@@ -385,10 +417,12 @@ def _parse_finalization_projection(raw: Any, narration: str) -> dict[str, Any]:
     segments = _validate_segments(
         raw.get("segments"),
         rendered_text=narration,
-        draft_sha256=_canonical_digest(raw["segments"][0]["text"])
+        draft_sha256=_canonical_digest("\n\n".join(
+            segment.get("text", "")
+            for segment in raw.get("segments", [])
+            if isinstance(segment, dict) and segment.get("segment_type") == "fiction"
+        ))
         if isinstance(raw.get("segments"), list) and raw["segments"]
-        and isinstance(raw["segments"][0], dict)
-        and isinstance(raw["segments"][0].get("text"), str)
         else "",
     )
     if _canonical_digest(narration) != raw["rendered_sha256"]:

@@ -144,15 +144,41 @@ def test_normalize_inventory_drops_malformed_rows():
                 "garbage",
             ],
             "lost_weapon_ids": ["revolver_38", 7, "revolver_38"],
+            "lost_equipment_ids": ["sheet-gear-compass", 8, "sheet-gear-compass"],
         }
     }
     inventory = coc_inventory.normalize_inventory(state)
     assert [row["item_id"] for row in inventory["entries"]] == ["ok"]
     assert inventory["lost_weapon_ids"] == ["revolver_38"]
+    assert inventory["lost_equipment_ids"] == ["sheet-gear-compass"]
     assert coc_inventory.normalize_inventory({}) == {
         "entries": [],
         "lost_weapon_ids": [],
+        "lost_equipment_ids": [],
     }
+
+
+def test_effective_items_include_sheet_equipment_runtime_gains_and_losses():
+    sheet = ["father's brass compass", "oilskin coat"]
+    compass_id = coc_inventory.sheet_equipment_item_id(sheet[0])
+    inventory = coc_inventory.empty_inventory()
+    inventory["lost_equipment_ids"].append(compass_id)
+    coc_inventory.grant_entry(
+        inventory,
+        {"item_id": "dry-rope", "kind": "gear", "label": "Dry rope"},
+    )
+
+    effective = coc_inventory.effective_items(sheet, inventory)
+    assert [row["label"] for row in effective] == ["oilskin coat", "Dry rope"]
+
+    coat_id = coc_inventory.sheet_equipment_item_id(sheet[1])
+    inventory, outcome = coc_inventory.remove_item(
+        inventory,
+        coat_id,
+        sheet_equipment_ids={coat_id},
+    )
+    assert outcome == "marked_lost_equipment"
+    assert inventory["lost_equipment_ids"] == [compass_id, coat_id]
 
 
 def test_npc_items_override_and_authored_lookup():
@@ -451,6 +477,10 @@ def test_combat_start_seeds_and_applies_npc_weapon_override(tmp_path):
 
 def test_inventory_settlement_writes_library_sheet_and_history(tmp_path):
     campaign, character = _executor_campaign(tmp_path)
+    character_doc = json.loads(character.read_text(encoding="utf-8"))
+    character_doc["equipment"] = ["Pocket watch"]
+    character.write_text(json.dumps(character_doc), encoding="utf-8")
+    pocket_watch_id = coc_inventory.sheet_equipment_item_id("Pocket watch")
     inv_state_path = campaign / "save" / "investigator-state" / "hero.json"
     inv_state = json.loads(inv_state_path.read_text(encoding="utf-8"))
     inv_state["inventory"] = {
@@ -464,6 +494,7 @@ def test_inventory_settlement_writes_library_sheet_and_history(tmp_path):
             {"item_id": "lantern", "kind": "gear", "label": "Storm lantern"},
         ],
         "lost_weapon_ids": ["revolver_38"],
+        "lost_equipment_ids": [pocket_watch_id],
     }
     inv_state_path.write_text(json.dumps(inv_state), encoding="utf-8")
 
@@ -475,7 +506,8 @@ def test_inventory_settlement_writes_library_sheet_and_history(tmp_path):
         "added_weapons": ["knife_custom"],
         "removed_weapons": ["revolver_38"],
         "added_gear": ["Storm lantern"],
-        "merge_policy": "inventory_net_diff_v1",
+        "removed_gear": ["Pocket watch"],
+        "merge_policy": "inventory_net_diff_v2",
     }
 
     written = json.loads(
@@ -497,6 +529,7 @@ def test_inventory_settlement_writes_library_sheet_and_history(tmp_path):
         ("add", "weapon", "knife_custom"),
         ("remove", "weapon", "revolver_38"),
         ("add", "gear", "Storm lantern"),
+        ("remove", "gear", pocket_watch_id),
     }
     assert all(e["event_type"] == "inventory_settled" for e in events)
 
@@ -606,10 +639,20 @@ def test_item_tools_grant_list_remove_roundtrip(campaign_ws):
     weapon_ids = [row["weapon_id"] for row in listed["data"]["weapons"]]
     assert "revolver_38_or_9mm" in weapon_ids  # sheet weapon survives
     assert "revolver_45" in weapon_ids  # granted weapon is selectable
-    assert {row["item_id"] for row in listed["data"]["items"]} == {
-        "revolver_45",
-        "lantern",
-    }
+    item_ids = {row["item_id"] for row in listed["data"]["items"]}
+    assert {"revolver_45", "lantern"} <= item_ids
+    by_label = {row["label"]: row for row in listed["data"]["items"]}
+    assert "flashlight" in by_label  # reusable sheet equipment is live too
+
+    removed_sheet_gear = _run(campaign_ws, "state.item_remove", {
+        "investigator": inv,
+        "item_id": by_label["flashlight"]["item_id"],
+        "reason": "lost in the cellar",
+        "decision_id": "remove-sheet-flashlight",
+    })
+    assert removed_sheet_gear["ok"] is True
+    assert removed_sheet_gear["data"]["outcome"] == "marked_lost_equipment"
+    assert removed_sheet_gear["hints"]
 
     removed_gear = _run(campaign_ws, "state.item_remove", {
         "investigator": inv,
@@ -635,6 +678,8 @@ def test_item_tools_grant_list_remove_roundtrip(campaign_ws):
     assert "revolver_38_or_9mm" not in weapon_ids
     assert "revolver_45" in weapon_ids
     assert listed["data"]["lost_weapon_ids"] == ["revolver_38_or_9mm"]
+    assert all(row["label"] != "flashlight" for row in listed["data"]["items"])
+    assert len(listed["data"]["lost_equipment_ids"]) == 1
 
     missing = _run(campaign_ws, "state.item_remove", {
         "investigator": inv,

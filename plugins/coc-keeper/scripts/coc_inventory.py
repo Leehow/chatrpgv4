@@ -19,11 +19,17 @@ Inventory shape (investigator-state)::
     {"entries": [{"item_id": str, "kind": "gear"|"weapon",
                   "label": str, "weapon": {"weapon_id": str, ...}?,
                   "note": str?, "acquired": {...}?}],
-     "lost_weapon_ids": [weapon_id, ...]}
+     "lost_weapon_ids": [weapon_id, ...],
+     "lost_equipment_ids": [sheet_equipment_id, ...]}
 
 Effective investigator weapons = (character-sheet weapons minus
 ``lost_weapon_ids``) merged with ``kind == "weapon"`` entries; entries win on
 ``weapon_id`` collision, sheet order is preserved, new weapons append.
+
+Effective investigator items likewise include character-sheet ``equipment``
+minus ``lost_equipment_ids``, merged with runtime entries by stable item id.
+Bare-string sheet equipment receives a deterministic content-derived id so a
+later loss can be recorded without editing the reusable character sheet.
 
 NPC items shape (npc-state)::
 
@@ -36,6 +42,8 @@ weapons; ``None``/absent means "no runtime override recorded yet".
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
+import re
 from typing import Any
 
 ENTRY_KINDS = ("gear", "weapon")
@@ -47,7 +55,52 @@ _AFFORDANCE_LIST_KEYS = ("affordances",)
 
 
 def empty_inventory() -> dict[str, Any]:
-    return {"entries": [], "lost_weapon_ids": []}
+    return {
+        "entries": [],
+        "lost_weapon_ids": [],
+        "lost_equipment_ids": [],
+    }
+
+
+def _sheet_equipment_label(row: Any) -> str | None:
+    if isinstance(row, str):
+        value = row
+    elif isinstance(row, dict):
+        value = row.get("label") or row.get("name")
+    else:
+        return None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def sheet_equipment_item_id(row: Any) -> str | None:
+    """Return a stable campaign item id for one sheet ``equipment`` row."""
+    label = _sheet_equipment_label(row)
+    if label is None:
+        return None
+    if isinstance(row, dict):
+        supplied = row.get("item_id")
+        if isinstance(supplied, str) and supplied.strip():
+            return supplied.strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", label.casefold()).strip("-")[:40]
+    digest = hashlib.sha256(label.encode("utf-8")).hexdigest()[:10]
+    readable = f"{slug}-" if slug else ""
+    return f"sheet-gear-{readable}{digest}"
+
+
+def sheet_equipment_entries(sheet_equipment: list[Any] | None) -> list[dict[str, Any]]:
+    """Project reusable character-sheet equipment into structured entries."""
+    projected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in sheet_equipment or []:
+        item_id = sheet_equipment_item_id(row)
+        label = _sheet_equipment_label(row)
+        if item_id is None or label is None or item_id in seen:
+            continue
+        projected.append({"item_id": item_id, "kind": "gear", "label": label})
+        seen.add(item_id)
+    return projected
 
 
 def weapon_ref_id(row: Any) -> str | None:
@@ -115,7 +168,43 @@ def normalize_inventory(state: dict[str, Any] | None) -> dict[str, Any]:
         for value in lost:
             if isinstance(value, str) and value.strip() and value not in inventory["lost_weapon_ids"]:
                 inventory["lost_weapon_ids"].append(value.strip())
+    lost_equipment = raw.get("lost_equipment_ids")
+    if isinstance(lost_equipment, list):
+        for value in lost_equipment:
+            if (
+                isinstance(value, str)
+                and value.strip()
+                and value not in inventory["lost_equipment_ids"]
+            ):
+                inventory["lost_equipment_ids"].append(value.strip())
     return inventory
+
+
+def effective_items(
+    sheet_equipment: list[Any] | None,
+    inventory: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Merge character-sheet equipment with campaign-local runtime entries."""
+    lost = set(inventory.get("lost_equipment_ids") or [])
+    merged: list[dict[str, Any]] = []
+    positions: dict[str, int] = {}
+    for entry in sheet_equipment_entries(sheet_equipment):
+        item_id = entry["item_id"]
+        if item_id in lost:
+            continue
+        positions[item_id] = len(merged)
+        merged.append(entry)
+    for entry in inventory.get("entries") or []:
+        item_id = str(entry.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        copied = deepcopy(entry)
+        if item_id in positions:
+            merged[positions[item_id]] = copied
+        else:
+            positions[item_id] = len(merged)
+            merged.append(copied)
+    return merged
 
 
 def effective_weapons(
@@ -176,6 +265,12 @@ def grant_entry(
         inventory["lost_weapon_ids"] = [
             value for value in inventory["lost_weapon_ids"] if value != wid
         ]
+    if entry["item_id"] in inventory["lost_equipment_ids"]:
+        inventory["lost_equipment_ids"] = [
+            value
+            for value in inventory["lost_equipment_ids"]
+            if value != entry["item_id"]
+        ]
     return inventory, True
 
 
@@ -183,8 +278,9 @@ def remove_item(
     inventory: dict[str, Any],
     item_id: str,
     sheet_weapon_ids: set[str] | None = None,
+    sheet_equipment_ids: set[str] | None = None,
 ) -> tuple[dict[str, Any], str]:
-    """Remove an item. Outcome: removed_entry | marked_lost | already_lost | not_found."""
+    """Remove an item from runtime entries or a reusable sheet baseline."""
     item_id = str(item_id or "").strip()
     entries = inventory["entries"]
     for index, row in enumerate(entries):
@@ -198,6 +294,12 @@ def remove_item(
     if sheet_weapon_ids and item_id in sheet_weapon_ids:
         lost.append(item_id)
         return inventory, "marked_lost"
+    lost_equipment = inventory["lost_equipment_ids"]
+    if item_id in lost_equipment:
+        return inventory, "already_lost"
+    if sheet_equipment_ids and item_id in sheet_equipment_ids:
+        lost_equipment.append(item_id)
+        return inventory, "marked_lost_equipment"
     return inventory, "not_found"
 
 

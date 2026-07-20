@@ -84,6 +84,41 @@ def test_advance_time_updates_elapsed_and_sequence(campaign):
     assert state["sequence"] == 1
 
 
+def test_player_time_projection_keeps_exact_clock_backend_only(campaign):
+    before = coc_time.current_stamp(campaign)
+    assert before["elapsed_minutes"] == 0
+    assert before["player_time"] == {
+        "phase": "evening",
+        "appearance_mode": "normal",
+        "display_label": None,
+        "source_ref": None,
+    }
+
+    changed = coc_time.set_time_appearance(
+        campaign,
+        mode="perpetual_darkness",
+        decision_id="polar-night",
+        reason="source-authored polar winter",
+        source_ref="page:12",
+    )
+    assert changed["current_time"]["elapsed_minutes"] == 0
+    assert changed["current_time"]["player_time"]["appearance_mode"] == (
+        "perpetual_darkness"
+    )
+
+    advanced = coc_time.advance_time(
+        campaign, 120, decision_id="travel", reason="cross the ice",
+    )
+    assert advanced["from_elapsed"] == 0
+    assert advanced["to_elapsed"] == 120
+    assert advanced["previous_time"]["player_time"]["appearance_mode"] == (
+        "perpetual_darkness"
+    )
+    assert advanced["current_time"]["player_time"]["appearance_mode"] == (
+        "perpetual_darkness"
+    )
+
+
 def test_advance_time_writes_time_jsonl(campaign):
     coc_time.advance_time(campaign, 20, decision_id="d1", reason="search")
     log_lines = (campaign / "logs" / "time.jsonl").read_text().strip().split("\n")
@@ -93,6 +128,174 @@ def test_advance_time_writes_time_jsonl(campaign):
     assert record["delta_minutes"] == 20
     assert record["reason"] == "search"
     assert record["decision_id"] == "d1"
+
+
+def test_scene_change_updates_clock_location_and_is_idempotent(campaign):
+    first = coc_time.record_scene_change(
+        campaign, "miskatonic-library", decision_id="move-1", reason="travel",
+    )
+    second = coc_time.record_scene_change(
+        campaign, "miskatonic-library", decision_id="move-1", reason="travel",
+    )
+    state = coc_time.read_time_state(campaign)
+    assert first["from_location_id"] == "arkham"
+    assert state["clock"]["location_id"] == "miskatonic-library"
+    assert state["anchors"]["last_scene_change_elapsed"] == 0
+    assert second["duplicate"] is True
+    assert state["sequence"] == 1
+
+
+def test_clock_discontinuity_reanchors_imprecise_civil_time_without_rewinding_elapsed(
+    campaign,
+):
+    coc_time.advance_time(campaign, 37, decision_id="travel-37", reason="rough crossing")
+    triggers_before = json.loads(
+        (campaign / "save" / "time-triggers.json").read_text(encoding="utf-8")
+    )
+    coc_time.record_scene_change(
+        campaign,
+        "dunwich-south-forest-1287",
+        decision_id="enter-forest-before-time-shift",
+        reason="the party landed in the forest",
+    )
+
+    first = coc_time.record_clock_discontinuity(
+        campaign,
+        discontinuity_kind="time_shift",
+        calendar_mode="julian",
+        precision="day_phase",
+        display="1287年1月1日，上半夜（具体时刻未知）",
+        local_date="1287-01-01",
+        day_phase="night",
+        source_ref="module:page-17#forest-arrival",
+        decision_id="forest-time-shift",
+        reason="the underwater bell displaced the investigators into 1287",
+    )
+
+    assert first["elapsed_minutes"] == 37
+    assert first["relative_deadlines_preserved"] is True
+    assert first["civil_time"]["local_datetime"] is None
+    assert first["civil_time"]["local_date"] == "1287-01-01"
+    assert first["civil_time"]["time_precision"] == "day_phase"
+    assert first["current_time"]["day_phase"] == "night"
+    assert first["current_time"]["minutes_since_civil_anchor"] == 0
+    assert json.loads(
+        (campaign / "save" / "time-triggers.json").read_text(encoding="utf-8")
+    ) == triggers_before
+
+    duplicate = coc_time.record_clock_discontinuity(
+        campaign,
+        discontinuity_kind="time_shift",
+        calendar_mode="julian",
+        precision="day_phase",
+        display="1287年1月1日，上半夜（具体时刻未知）",
+        local_date="1287-01-01",
+        day_phase="night",
+        decision_id="forest-time-shift",
+        reason="the underwater bell displaced the investigators into 1287",
+    )
+    assert duplicate["duplicate"] is True
+
+    advanced = coc_time.advance_time(
+        campaign, 5, decision_id="forest-five-minutes", reason="recover in the forest"
+    )
+    assert advanced["to_elapsed"] == 42
+    assert advanced["current_time"]["display"] == (
+        "1287年1月1日，上半夜（具体时刻未知）"
+    )
+    assert advanced["current_time"]["local_datetime"] is None
+    assert advanced["current_time"]["day_phase"] == "night"
+    assert advanced["current_time"]["minutes_since_civil_anchor"] == 5
+
+    dawn = coc_time.advance_time(
+        campaign,
+        180,
+        decision_id="wait-for-first-bell",
+        reason="wait under the harbour eaves until the first morning bell",
+        day_phase_after="morning",
+        display_after="1287年1月1日，清晨（具体时刻未知）",
+    )
+    assert dawn["to_elapsed"] == 222
+    assert dawn["current_time"]["local_datetime"] is None
+    assert dawn["current_time"]["day_phase"] == "morning"
+    assert dawn["current_time"]["display"] == (
+        "1287年1月1日，清晨（具体时刻未知）"
+    )
+    assert dawn["day_phase_transition"] == {
+        "before": "night",
+        "after": "morning",
+        "display_after": "1287年1月1日，清晨（具体时刻未知）",
+    }
+
+    log_rows = [
+        json.loads(line)
+        for line in (campaign / "logs" / "time.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    discontinuities = [
+        row for row in log_rows if row.get("event_type") == "clock_discontinuity"
+    ]
+    assert len(discontinuities) == 1
+    assert discontinuities[0]["elapsed_minutes"] == 37
+    assert discontinuities[0]["to_civil_time"]["local_date"] == "1287-01-01"
+
+
+def test_imprecise_phase_transition_requires_paired_display(campaign):
+    with pytest.raises(ValueError, match="supplied together"):
+        coc_time.advance_time(
+            campaign,
+            60,
+            decision_id="bad-phase",
+            reason="wait",
+            day_phase_after="morning",
+        )
+
+
+def test_clock_discontinuity_rejects_false_precision(campaign):
+    with pytest.raises(ValueError, match="requires local_datetime"):
+        coc_time.record_clock_discontinuity(
+            campaign,
+            discontinuity_kind="calendar_correction",
+            calendar_mode="gregorian",
+            precision="minute",
+            display="unknown exact minute",
+            local_date="1925-01-16",
+            decision_id="bad-false-precision",
+            reason="test",
+        )
+
+
+def test_clock_discontinuity_can_restore_a_prior_civil_anchor_without_rewinding(
+    campaign,
+):
+    coc_time.advance_time(campaign, 10, decision_id="ten-minutes", reason="travel")
+    corrected = coc_time.record_clock_discontinuity(
+        campaign,
+        discontinuity_kind="calendar_correction",
+        calendar_mode="julian",
+        precision="day_phase",
+        display="1287年1月1日，上半夜（具体时刻未知）",
+        local_date="1287-01-01",
+        day_phase="night",
+        civil_anchor_elapsed=0,
+        decision_id="restore-prior-anchor",
+        reason="restore a previously settled civil anchor after projection drift",
+    )
+    assert corrected["elapsed_minutes"] == 10
+    assert corrected["civil_anchor_elapsed"] == 0
+    assert corrected["current_time"]["minutes_since_civil_anchor"] == 10
+
+    with pytest.raises(ValueError, match="between 0 and current"):
+        coc_time.record_clock_discontinuity(
+            campaign,
+            discontinuity_kind="calendar_correction",
+            calendar_mode="relative",
+            precision="unknown",
+            display="unknown",
+            civil_anchor_elapsed=11,
+            decision_id="future-anchor-invalid",
+            reason="test",
+        )
 
 
 def test_advance_time_updates_gregorian_datetime(campaign):
@@ -122,6 +325,36 @@ def test_day_phase_uses_local_calendar_hour_not_elapsed_minutes(tmp_path):
     assert stamp["local_datetime"] == "1920-10-12T11:15:00"
     assert stamp["display"] == "1920-10-12 11:15"
     assert stamp["day_phase"] == "morning"
+
+
+def test_day_phase_honors_module_specific_dawn_boundary(tmp_path):
+    camp = tmp_path / "summer-dawn"
+    (camp / "save").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    coc_time.initialize_time_state(camp, start={
+        "calendar_mode": "gregorian",
+        "local_datetime": "1925-06-21T05:00:00",
+        "display": "1925-06-21 05:00",
+        "day_phase_boundaries": {
+            "morning_start": "05:00",
+            "afternoon_start": "12:00",
+            "evening_start": "18:00",
+            "night_start": "21:00",
+        },
+    })
+    assert coc_time.current_stamp(camp)["day_phase"] == "morning"
+
+
+def test_day_phase_keeps_default_dawn_without_module_override(tmp_path):
+    camp = tmp_path / "default-dawn"
+    (camp / "save").mkdir(parents=True)
+    (camp / "logs").mkdir(parents=True)
+    coc_time.initialize_time_state(camp, start={
+        "calendar_mode": "gregorian",
+        "local_datetime": "1925-06-21T05:55:00",
+        "display": "1925-06-21 05:55",
+    })
+    assert coc_time.current_stamp(camp)["day_phase"] == "night"
 
 
 def test_meta_turn_does_not_advance_time(campaign):

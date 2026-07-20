@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -21,6 +22,12 @@ STRUCTURE_LABELS_ZH = {
     "linear_investigation": "线性调查",
     "node_mystery": "节点式谜团",
     "sandbox": "沙盒调查",
+    "linear_acts": "线性章节",
+    "time_loop": "时间循环",
+    "branching_investigation": "分支调查",
+    "hub_sandbox": "枢纽沙盒",
+    "multi_faction": "多势力博弈",
+    "campaign_sequel": "战役续篇",
     "hybrid_mega": "大型混合战役",
 }
 
@@ -56,6 +63,50 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     coc_fileio.write_json_atomic(
         path, payload, indent=2, ensure_ascii=False, trailing_newline=True
     )
+
+
+def public_setup_sha256(
+    campaign: dict[str, Any],
+    scenario: dict[str, Any],
+    module_meta: dict[str, Any],
+    source_map: dict[str, Any],
+    *,
+    language: str,
+) -> str:
+    """Hash only the player-safe inputs that determine a briefing.
+
+    ``campaign.character_creation`` is deliberately excluded: it contains the
+    generated pointer and timestamp, so hashing the whole campaign would make
+    every render invalidate itself.
+    """
+    public_inputs = {
+        "language": language,
+        "campaign": {
+            key: campaign.get(key)
+            for key in ("title", "era", "play_language", "localized_terms")
+        },
+        "scenario": {
+            key: scenario.get(key)
+            for key in (
+                "scenario_id", "title", "player_safe_summary", "source",
+            )
+        },
+        "module_meta": {
+            key: module_meta.get(key)
+            for key in (
+                "scenario_id", "title", "era", "structure_type",
+                "content_flags", "player_safe_summary", "module_identity",
+            )
+        },
+        "source_map": {"sources": source_map.get("sources")},
+    }
+    encoded = json.dumps(
+        public_inputs,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _slugify(value: str) -> str:
@@ -315,6 +366,13 @@ def render_briefing_from_campaign(
     source_map = _load_json(source_map_path, {})
     play_language = language or str(campaign.get("play_language") or "zh-Hans")
     title = str(scenario.get("title") or module_meta.get("title") or campaign.get("title") or "scenario")
+    setup_digest = public_setup_sha256(
+        campaign,
+        scenario,
+        module_meta,
+        source_map,
+        language=play_language,
+    )
 
     out_dir = out_dir or (campaign_dir / "assets" / "character-creation")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -328,6 +386,7 @@ def render_briefing_from_campaign(
         "briefing_path": _repo_relative(output_path, repo_root),
         "language": play_language,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "public_setup_sha256": setup_digest,
     }
     if write_back:
         campaign["character_creation"] = {

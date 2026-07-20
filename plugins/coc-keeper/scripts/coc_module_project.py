@@ -27,6 +27,12 @@ REQUIRED_FILES = (
     "pacing-map.json",
     "improvisation-boundaries.json",
 )
+DEFAULT_NEIGHBOR_PREFETCH_BUDGET = 4
+NO_PREFETCH_LOCATION_TAGS = frozenset({"sandbox-hub"})
+ROLE_TAG_RELATIONSHIP_ALIASES = {
+    "superior": "superior_officer",
+    "commanding": "commanding_officer",
+}
 
 
 def _load_sibling(name: str, filename: str):
@@ -40,6 +46,14 @@ def _load_sibling(name: str, filename: str):
 coc_fileio = _load_sibling("coc_fileio_module_project", "coc_fileio.py")
 coc_module_assets = _load_sibling("coc_module_assets_project", "coc_module_assets.py")
 coc_state = _load_sibling("coc_state_module_project", "coc_state.py")
+coc_character_creation_briefing = _load_sibling(
+    "coc_character_creation_briefing_module_project",
+    "coc_character_creation_briefing.py",
+)
+coc_compiled_archive = _load_sibling(
+    "coc_compiled_archive_module_project", "coc_compiled_archive.py"
+)
+coc_npc_roles = _load_sibling("coc_npc_roles_module_project", "coc_npc_roles.py")
 
 
 class ModuleProjectError(ValueError):
@@ -98,6 +112,8 @@ def skeleton_scene_from_location(loc: dict[str, Any], *, is_start: bool) -> dict
         "parse_state": parse_state,
         "evidence_gap": bool(loc.get("evidence_gap")),
         "source_span": loc.get("source_span"),
+        "source_refs": json.loads(json.dumps(loc.get("source_refs") or [])),
+        "source_page_indices": list(loc.get("source_page_indices") or []),
     }
 
 
@@ -120,7 +136,7 @@ def edges_from_skeleton(skeleton: dict[str, Any]) -> dict[str, list[dict[str, An
             "kind": edge_kind,
             "when": {"kind": "always"} if edge_kind == "travel" else {
                 "kind": "flag_set",
-                "flag": f"unlock:{src}:{dst}",
+                "flag_id": f"unlock:{src}:{dst}",
             },
             "provisional": True,
             "confidence": conf,
@@ -181,6 +197,11 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
         "content_flags": list(skeleton.get("content_flags") or []),
         "module_identity": identity,
         "source": source,
+        "start_clock": json.loads(json.dumps(skeleton.get("start_clock"))),
+        "start_clock_status": skeleton.get("start_clock_status") or "unbound",
+        "start_clock_source_refs": json.loads(
+            json.dumps(skeleton.get("start_clock_source_refs") or [])
+        ),
         "progressive": True,
         "parse_tier": skeleton.get("parse_tier") or 1,
         "player_safe_summary": str(
@@ -286,6 +307,28 @@ def _load_json(path: Path, default: Any) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _voice_from_notes(value: Any) -> str | None:
+    """Normalize host-pack voice notes for the canonical NPC consumers."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, list):
+        notes = [str(note).strip() for note in value if str(note).strip()]
+        if notes:
+            return "；".join(notes)
+    return None
+
+
+def _relationship_from_role_tags(value: Any) -> str | None:
+    """Bridge structured host role tags into the canonical relationship enum."""
+    if not isinstance(value, list):
+        return None
+    for tag in value:
+        relationship = ROLE_TAG_RELATIONSHIP_ALIASES.get(str(tag).strip())
+        if relationship:
+            return relationship
+    return None
+
+
 def merge_deep_location_into_ir(
     ir: dict[str, Any],
     pack: dict[str, Any],
@@ -321,11 +364,48 @@ def merge_deep_location_into_ir(
         if pack.get(pack_key) is not None:
             scene[key] = list(pack.get(pack_key) or [])
     if pack.get("scene_edges") is not None:
-        # deep edges replace provisional ones for this scene
-        scene["scene_edges"] = list(pack.get("scene_edges") or [])
+        # Deep edges replace Tier-1 provisional topology, but must not erase
+        # campaign-local routes created when a player materially digs a named
+        # place. Those routes are part of the growing live map, not PDF guesses.
+        deep_edges = json.loads(json.dumps(pack.get("scene_edges") or []))
+        deep_targets = {
+            (str(edge.get("to") or ""), str(edge.get("kind") or ""))
+            for edge in deep_edges
+            if isinstance(edge, dict)
+        }
+        for edge in scene.get("scene_edges") or []:
+            if not isinstance(edge, dict) or edge.get("origin") != (
+                "campaign_progressive_dig"
+            ):
+                continue
+            identity = (
+                str(edge.get("to") or ""), str(edge.get("kind") or ""),
+            )
+            if identity not in deep_targets:
+                deep_edges.append(json.loads(json.dumps(edge)))
+                deep_targets.add(identity)
+        scene["scene_edges"] = deep_edges
+    if pack.get("san_triggers") is not None:
+        # Authored horror beats must reach the same canonical scene contract
+        # consumed by scene.context and rules.sanity_check.  Without this
+        # projection, an evidence-bound PDF trigger is mislabeled improvised.
+        on_enter = scene.setdefault("on_enter", {})
+        on_enter["san_triggers"] = json.loads(
+            json.dumps(pack.get("san_triggers") or [])
+        )
     scene["player_safe_summary"] = pack.get("player_safe_summary") or scene.get(
         "player_safe_summary"
     )
+    # Provenance and source-quality evidence are part of the canonical entity,
+    # not disposable parser metadata.  Preserve them on the same scene object
+    # consumed by the compiler/archive/runtime.
+    for key in (
+        "source_refs", "source_span", "source_page_indices",
+        "page_text_sha256", "source_evidence", "source_discrepancies",
+        "location_tags", "entry_conditions", "importance",
+    ):
+        if pack.get(key) is not None:
+            scene[key] = json.loads(json.dumps(pack[key]))
 
     # Clues: attach under a progressive conclusion bucket
     conclusions = out["clue-graph.json"].setdefault("conclusions", [])
@@ -349,23 +429,20 @@ def merge_deep_location_into_ir(
     for clue in pack.get("clues") or []:
         if not isinstance(clue, dict) or not clue.get("clue_id"):
             continue
-        row = {
-            "clue_id": clue["clue_id"],
-            "delivery_kind": clue.get("delivery_kind") or "obvious",
-            "visibility": "player-safe",
-            "origin": "source",
-            "player_safe_summary": str(
-                clue.get("player_safe_summary") or clue.get("summary") or ""
-            ),
-            "parse_state": "deep",
-        }
-        if clue.get("skill"):
-            row["skill"] = clue["skill"]
-            row["difficulty"] = clue.get("difficulty") or "regular"
-        if clue.get("source_npc_ids"):
-            row["source_npc_ids"] = list(clue["source_npc_ids"])
-        if clue.get("localized_text"):
-            row["localized_text"] = clue["localized_text"]
+        # Clue packs are already validated at the asset boundary.  Copy the
+        # full structured row so new semantic/provenance fields cannot vanish
+        # merely because this projector predates them.
+        row = json.loads(json.dumps(clue))
+        row["clue_id"] = clue["clue_id"]
+        row.setdefault("delivery_kind", "obvious")
+        row.setdefault("visibility", "player-safe")
+        row.setdefault("origin", "source")
+        row["player_safe_summary"] = str(
+            clue.get("player_safe_summary") or clue.get("summary") or ""
+        )
+        row.setdefault("parse_state", "deep")
+        if row.get("skill"):
+            row.setdefault("difficulty", "regular")
         # Structured follow-ups only (never free-prose keyword mentions).
         if clue.get("mentions"):
             row["mentions"] = [
@@ -385,19 +462,47 @@ def merge_deep_location_into_ir(
             continue
         nid = npc["npc_id"]
         base = npc_by_id.get(nid) or {"npc_id": nid, "origin": "source"}
+        relationship = npc.get("relationship_to_investigators")
+        if not relationship or str(relationship) == "unknown":
+            relationship = (
+                _relationship_from_role_tags(npc.get("role_tags"))
+                or base.get("relationship_to_investigators")
+            )
+        for key, value in npc.items():
+            if key not in {
+                "schema_version", "updated_at", "host_timing", "ingest_timing",
+                "host_work_job_id",
+            }:
+                base[key] = json.loads(json.dumps(value))
         base.update({
             "name": npc.get("name") or npc.get("display_name") or nid,
             "display_name": npc.get("display_name") or npc.get("name") or nid,
-            "agenda": npc.get("agenda") or base.get("agenda") or f"{nid} agenda",
+            "agenda": (
+                npc.get("agenda")
+                or npc.get("agenda_public")
+                or base.get("agenda")
+                or f"{nid} agenda"
+            ),
             "relationship_to_investigators": npc.get(
                 "relationship_to_investigators"
-            ) or base.get("relationship_to_investigators") or "unknown",
-            "voice": npc.get("voice") or base.get("voice"),
+            ) or relationship or "unknown",
+            "voice": (
+                npc.get("voice")
+                or _voice_from_notes(npc.get("voice_notes"))
+                or base.get("voice")
+            ),
             "parse_state": npc.get("parse_state") or "deep",
-            "origin": "source",
+            "origin": npc.get("origin") or "source",
         })
-        if npc.get("social_role"):
-            base["social_role"] = npc["social_role"]
+        social_role = npc.get("social_role")
+        if isinstance(social_role, dict):
+            base["social_role"] = json.loads(json.dumps(social_role))
+        elif isinstance(social_role, str) and social_role.strip():
+            # A natural-language job/title is display context, not a semantic
+            # authority contract.  Preserve it without feeding free prose into
+            # the Director's structured social-role engine.
+            base["role_label"] = social_role.strip()
+            base.pop("social_role", None)
         npc_by_id[nid] = base
         if nid not in scene["npc_ids"]:
             scene["npc_ids"].append(nid)
@@ -414,19 +519,213 @@ def merge_deep_location_into_ir(
 
     secrets = out["improvisation-boundaries.json"].setdefault("keeper_secrets", [])
     existing_ids = {s.get("id") for s in secrets if isinstance(s, dict)}
+    scene_secret_refs = list(scene.get("keeper_secret_refs") or [])
+    scene_secret_ids = {
+        str(ref.get("id") if isinstance(ref, dict) else ref)
+        for ref in scene_secret_refs
+        if ref
+    }
     for sec in pack.get("keeper_secret_refs") or []:
         if not isinstance(sec, dict) or not sec.get("id"):
             continue
-        if sec["id"] in existing_ids:
-            continue
-        secrets.append({
-            "id": sec["id"],
-            "category": sec.get("category") or "keeper_secret",
-            "prose": sec.get("prose") or "",
-        })
-        existing_ids.add(sec["id"])
+        secret_id = str(sec["id"])
+        existing = next(
+            (row for row in secrets if isinstance(row, dict) and row.get("id") == secret_id),
+            None,
+        )
+        secret_row = existing if existing is not None else json.loads(json.dumps(sec))
+        for key, value in sec.items():
+            secret_row[key] = json.loads(json.dumps(value))
+        secret_row["id"] = secret_id
+        secret_row.setdefault("category", "keeper_secret")
+        secret_row.setdefault("prose", "")
+        linked_scenes = {
+            str(value) for value in (secret_row.get("scene_ids") or []) if value
+        }
+        linked_scenes.add(lid)
+        secret_row["scene_ids"] = sorted(linked_scenes)
+        if existing is None:
+            secrets.append(secret_row)
+            existing_ids.add(secret_id)
+        if secret_id not in scene_secret_ids:
+            scene_secret_refs.append({"id": secret_id, "category": secret_row["category"]})
+            scene_secret_ids.add(secret_id)
+    scene["keeper_secret_refs"] = scene_secret_refs
 
     return out
+
+
+def merge_deep_npc_into_ir(
+    ir: dict[str, Any],
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Upsert a standalone deep NPC pack into canonical campaign agendas."""
+    out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}
+    nid = str(pack.get("npc_id") or "").strip()
+    if not nid:
+        raise ModuleProjectError("deep NPC pack missing npc_id")
+    npcs = out["npc-agendas.json"].setdefault("npcs", [])
+    base = next((row for row in npcs if row.get("npc_id") == nid), None)
+    if base is None:
+        base = {"npc_id": nid, "origin": "source"}
+        npcs.append(base)
+    for key, value in pack.items():
+        if key not in {
+            "schema_version", "updated_at", "host_timing", "ingest_timing",
+            "host_work_job_id",
+        }:
+            base[key] = json.loads(json.dumps(value))
+    base.setdefault("name", pack.get("display_name") or nid)
+    base.setdefault("display_name", pack.get("name") or nid)
+    if not pack.get("agenda") and pack.get("agenda_public"):
+        base["agenda"] = pack["agenda_public"]
+    base.setdefault("agenda", f"{nid} agenda")
+    if not pack.get("voice"):
+        voice = _voice_from_notes(pack.get("voice_notes"))
+        if voice:
+            base["voice"] = voice
+    relationship = base.get("relationship_to_investigators")
+    if not relationship or str(relationship) == "unknown":
+        relationship = _relationship_from_role_tags(pack.get("role_tags"))
+    base["relationship_to_investigators"] = relationship or "unknown"
+    social_role = pack.get("social_role")
+    if isinstance(social_role, dict):
+        base["social_role"] = json.loads(json.dumps(social_role))
+    elif isinstance(social_role, str) and social_role.strip():
+        base["role_label"] = social_role.strip()
+        base.pop("social_role", None)
+    base["parse_state"] = pack.get("parse_state") or "deep"
+    base["origin"] = pack.get("origin") or "source"
+
+    scene_ids = {
+        str(scene_id)
+        for scene_id in (pack.get("scene_ids") or [])
+        if str(scene_id).strip()
+    }
+    for schedule_row in pack.get("schedule") or []:
+        if not isinstance(schedule_row, dict):
+            continue
+        scene_ids.update(
+            str(scene_id)
+            for scene_id in (schedule_row.get("scene_ids") or [])
+            if str(scene_id).strip()
+        )
+    for scene in out["story-graph.json"].setdefault("scenes", []):
+        if scene.get("scene_id") in scene_ids:
+            ids = scene.setdefault("npc_ids", [])
+            if nid not in ids:
+                ids.append(nid)
+    return out
+
+
+def merge_deep_clue_into_ir(
+    ir: dict[str, Any],
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Upsert a standalone deep clue while preserving its structured evidence."""
+    out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}
+    clue_id = str(pack.get("clue_id") or "").strip()
+    if not clue_id:
+        raise ModuleProjectError("deep clue pack missing clue_id")
+    conclusions = out["clue-graph.json"].setdefault("conclusions", [])
+    conclusion_id = str(pack.get("conclusion_id") or "progressive-local")
+    conclusion = next(
+        (row for row in conclusions if row.get("conclusion_id") == conclusion_id),
+        None,
+    )
+    if conclusion is None:
+        conclusion = {
+            "conclusion_id": conclusion_id,
+            "importance": pack.get("importance") or "supporting",
+            "description": pack.get("conclusion_description")
+            or "On-demand deep-parsed local clues",
+            "minimum_routes": 1,
+            "origin": "source",
+            "clues": [],
+        }
+        conclusions.append(conclusion)
+    clues = conclusion.setdefault("clues", [])
+    base = next((row for row in clues if row.get("clue_id") == clue_id), None)
+    if base is None:
+        base = {"clue_id": clue_id, "origin": "source"}
+        clues.append(base)
+    for key, value in pack.items():
+        if key not in {
+            "schema_version", "updated_at", "evidence_gap",
+            "host_timing", "ingest_timing", "host_work_job_id",
+        }:
+            base[key] = json.loads(json.dumps(value))
+    base.setdefault("delivery_kind", "obvious")
+    base.setdefault("visibility", "player-safe")
+    base["parse_state"] = pack.get("parse_state") or "deep"
+    for scene_id in pack.get("scene_ids") or []:
+        scene = next(
+            (row for row in out["story-graph.json"].setdefault("scenes", [])
+             if row.get("scene_id") == scene_id),
+            None,
+        )
+        if scene is not None:
+            available = scene.setdefault("available_clues", [])
+            if clue_id not in available:
+                available.append(clue_id)
+    return out
+
+
+def merge_deep_threat_into_ir(
+    ir: dict[str, Any],
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Upsert a standalone deep threat into the Director-consumed front list."""
+    out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}
+    tid = str(pack.get("threat_id") or pack.get("front_id") or "").strip()
+    if not tid:
+        raise ModuleProjectError("deep threat pack missing threat_id")
+    fronts = out["threat-fronts.json"].setdefault("fronts", [])
+    base = next(
+        (row for row in fronts if row.get("front_id") == tid),
+        None,
+    )
+    if base is None:
+        base = {
+            "front_id": tid,
+            "clock_id": f"clock-{tid}",
+            "segments": 4,
+            "value": 0,
+            "scene_ids": [],
+        }
+        fronts.append(base)
+    for key, value in pack.items():
+        if key not in {
+            "schema_version", "updated_at", "threat_id",
+            "host_timing", "ingest_timing", "host_work_job_id",
+        }:
+            base[key] = json.loads(json.dumps(value))
+    base["front_id"] = tid
+    base.setdefault("label", tid)
+    base.setdefault("on_tick_visible", base["label"])
+    base["parse_state"] = pack.get("parse_state") or "deep"
+    return out
+
+
+def merge_deep_entity_into_ir(
+    ir: dict[str, Any],
+    entity_kind: str,
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Dispatch a ready entity pack to its canonical campaign consumer."""
+    mergers = {
+        "location": merge_deep_location_into_ir,
+        "npc": merge_deep_npc_into_ir,
+        "clue": merge_deep_clue_into_ir,
+        "threat": merge_deep_threat_into_ir,
+    }
+    try:
+        merger = mergers[entity_kind]
+    except KeyError as exc:
+        raise ModuleProjectError(
+            f"entity kind {entity_kind!r} has no campaign IR consumer"
+        ) from exc
+    return merger(ir, pack)
 
 
 def _sync_campaign_era_clock_from_meta(
@@ -436,17 +735,21 @@ def _sync_campaign_era_clock_from_meta(
     """Align campaign era + pristine clock with progressive module meta.
 
     Freeform labels (e.g. ``1597 Spain``) are normalized via
-    ``coc_state.normalize_era``. When the time clock is still at zero elapsed,
-    reseed so player-visible dates match the module era instead of silently
-    defaulting to 1925.
+    ``coc_state.normalize_era``. The civil clock is seeded only before live
+    play mutates it. Progressive IR projection owns authored setup, never a
+    later time shift, loop reset, scene clock, or ordinary elapsed time.
     """
     if not isinstance(meta, dict):
         return
     identity = meta.get("module_identity") if isinstance(meta.get("module_identity"), dict) else {}
     era_raw = meta.get("era") or identity.get("era")
-    if not era_raw or str(era_raw).strip().lower() in {"unknown", "none", "null"}:
+    start_clock = meta.get("start_clock")
+    authored_era = bool(
+        era_raw
+        and str(era_raw).strip().lower() not in {"unknown", "none", "null"}
+    )
+    if not authored_era and not isinstance(start_clock, dict):
         return
-    era_key = coc_state.normalize_era(str(era_raw))
     camp_path = campaign_dir / "campaign.json"
     if not camp_path.is_file():
         return
@@ -457,10 +760,14 @@ def _sync_campaign_era_clock_from_meta(
     if not isinstance(camp, dict):
         return
     camp_id = str(camp.get("campaign_id") or campaign_dir.name)
-    changed = camp.get("era") != era_key
-    camp["era"] = era_key
+    era_key = coc_state.normalize_era(
+        str(era_raw) if authored_era else str(camp.get("era") or "1920s")
+    )
+    changed = authored_era and camp.get("era") != era_key
+    if authored_era:
+        camp["era"] = era_key
     # Prefer module identity era field to stay canonical for later readers.
-    if isinstance(identity, dict) and not identity.get("era"):
+    if authored_era and isinstance(identity, dict) and not identity.get("era"):
         identity = dict(identity)
         identity["era"] = era_key
         meta = dict(meta)
@@ -468,29 +775,97 @@ def _sync_campaign_era_clock_from_meta(
         meta["era"] = era_key
     if changed:
         _write_json(camp_path, camp)
-    # Reseed clock only while still pristine (no travel time spent), or when
-    # the displayed epoch is still the generic 1920s default under a non-1920s era.
+    # Reseed only a genuinely pristine clock. ``elapsed == 0`` alone is not a
+    # setup signal: an authored time jump can happen instantly, and later deep
+    # pack projection must not overwrite that live civil-calendar anchor.
     time_path = campaign_dir / "save" / "time-state.json"
     elapsed = 0
-    local_dt = ""
+    sequence = 0
+    anchors: dict[str, Any] = {}
+    civil_segment_id: Any = None
+    time_state_missing = not time_path.is_file()
     if time_path.is_file():
         try:
             ts = json.loads(time_path.read_text(encoding="utf-8"))
             clock = ts.get("clock") if isinstance(ts, dict) else {}
             if isinstance(clock, dict):
                 elapsed = int(clock.get("elapsed_minutes") or 0)
-                local_dt = str(clock.get("local_datetime") or "")
+                civil_segment_id = clock.get("civil_segment_id")
+            if isinstance(ts, dict):
+                sequence = int(ts.get("sequence") or 0)
+                if isinstance(ts.get("anchors"), dict):
+                    anchors = ts["anchors"]
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             elapsed = 0
-            local_dt = ""
-    looks_like_1920s_default = local_dt.startswith("1925-") or local_dt.startswith("1920-")
-    if elapsed == 0 or (era_key != "1920s" and looks_like_1920s_default):
+            sequence = 0
+            anchors = {}
+            civil_segment_id = None
+    pristine = time_state_missing or (
+        elapsed == 0
+        and sequence == 0
+        and not anchors.get("last_scene_change_decision_id")
+        and not anchors.get("last_clock_discontinuity_decision_id")
+        and civil_segment_id in {None, "", "civil-start"}
+    )
+    if pristine:
         coc_state.reseed_campaign_clock_for_era(
             campaign_dir,
             camp_id,
             era_key,
             preserve_elapsed=True,
+            start_clock=start_clock if isinstance(start_clock, dict) else None,
         )
+
+
+def _refresh_character_creation_briefing_if_stale(
+    campaign_dir: Path,
+) -> str | None:
+    """Refresh the player setup derivative after public IR metadata changes."""
+    campaign_path = campaign_dir / "campaign.json"
+    if not campaign_path.is_file():
+        return None
+    campaign = _load_json(campaign_path, {})
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    module_meta = _load_json(
+        campaign_dir / "scenario" / "module-meta.json", {},
+    )
+    source_map = _load_json(campaign_dir / "index" / "source-map.json", {})
+    if not isinstance(campaign, dict):
+        return None
+    language = str(campaign.get("play_language") or "zh-Hans")
+    expected_digest = coc_character_creation_briefing.public_setup_sha256(
+        campaign,
+        scenario if isinstance(scenario, dict) else {},
+        module_meta if isinstance(module_meta, dict) else {},
+        source_map if isinstance(source_map, dict) else {},
+        language=language,
+    )
+    current = (
+        campaign.get("character_creation")
+        if isinstance(campaign.get("character_creation"), dict)
+        else {}
+    )
+    workspace = campaign_dir.parents[2]
+    current_path_raw = str(current.get("briefing_path") or "").strip()
+    current_path = Path(current_path_raw) if current_path_raw else None
+    if current_path is not None and not current_path.is_absolute():
+        current_path = workspace / current_path
+    if (
+        current.get("public_setup_sha256") == expected_digest
+        and current_path is not None
+        and current_path.is_file()
+    ):
+        return None
+    rendered = coc_character_creation_briefing.render_briefing_from_campaign(
+        campaign_dir,
+        repo_root=workspace,
+        language=language,
+        write_back=True,
+    )
+    rendered_path = Path(rendered["briefing_path"])
+    if not rendered_path.is_absolute():
+        rendered_path = workspace / rendered_path
+    return str(rendered_path)
 
 
 def write_ir_to_campaign(
@@ -498,9 +873,19 @@ def write_ir_to_campaign(
     ir: dict[str, Any],
     *,
     asset_root_id: str | None = None,
+    publish_compiled_archive: bool = True,
 ) -> list[str]:
     scenario_dir = campaign_dir / "scenario"
     scenario_dir.mkdir(parents=True, exist_ok=True)
+    ir = dict(ir)
+    npc_agendas = ir.get("npc-agendas.json")
+    if isinstance(npc_agendas, dict):
+        rules_dir = SCRIPT_DIR.parent / "references" / "rules-json"
+        ir["npc-agendas.json"] = coc_npc_roles.expand_npc_social_roles(
+            npc_agendas,
+            coc_npc_roles.load_role_templates(rules_dir),
+            keywords=coc_npc_roles.load_role_mappings(rules_dir),
+        )
     written = []
     for name in REQUIRED_FILES:
         if name not in ir:
@@ -542,6 +927,15 @@ def write_ir_to_campaign(
             _write_json(scenario_dir / "module-meta.json", meta)
             ir["module-meta.json"] = meta
         _sync_campaign_era_clock_from_meta(campaign_dir, meta if isinstance(meta, dict) else {})
+    briefing_path = _refresh_character_creation_briefing_if_stale(campaign_dir)
+    if briefing_path is not None:
+        written.append(briefing_path)
+    # Materialized archive is rebuildable only; never block or roll back IR.
+    if publish_compiled_archive:
+        archive_result = coc_compiled_archive.publish_from_ir(campaign_dir, ir)
+        if not archive_result.get("ok"):
+            # Explicit status already recorded by publish_from_ir / record_error.
+            pass
     return written
 
 
@@ -611,6 +1005,21 @@ def project_opening_deep(
     ir = project_skeleton_to_ir(skeleton)
     starts = [str(x).strip() for x in (skeleton.get("start_candidates") or [])]
     packs = list(deep_packs or [])
+    # A host-supplied opening pack is reusable module truth, not a one-off IR
+    # patch. Persist it through the canonical entity store before projection
+    # so first scene entry and later campaigns do not request it again.
+    for pack in packs:
+        if not isinstance(pack, dict):
+            raise ModuleProjectError("opening deep pack must be an object")
+        location_id = str(pack.get("location_id") or "").strip()
+        if not location_id:
+            raise ModuleProjectError("opening deep pack requires location_id")
+        try:
+            coc_module_assets.put_entity(
+                workspace, asset_root_id, "location", location_id, pack,
+            )
+        except coc_module_assets.ModuleAssetsError as exc:
+            raise ModuleProjectError(str(exc)) from exc
     if not packs:
         for sid in starts:
             pack = coc_module_assets.get_entity(
@@ -674,6 +1083,16 @@ def _is_deep_state(state: Any) -> bool:
     return str(state or "") in {"deep", "body_parsed"}
 
 
+def _is_usable_location_pack(pack: Any) -> bool:
+    return (
+        isinstance(pack, dict)
+        and str(pack.get("parse_state") or "") in {
+            "partial", "deep", "body_parsed",
+        }
+        and not pack.get("evidence_gap")
+    )
+
+
 def _neighbor_ids_from_skeleton(
     skeleton: dict[str, Any], location_id: str,
 ) -> list[str]:
@@ -716,7 +1135,9 @@ def on_enter_scene(
 
     - If a deep location pack exists, merge it into campaign IR.
     - Always enqueue deepen for the active scene (deduped).
-    - Stub + enqueue depth-1 neighbors and structured mentions from the pack.
+    - Materialize structured mentions as source-scoped named-only stubs.
+    - Enqueue a mention only after a player-visible clue follows it or the
+      player materially pursues it through ``request_deepen``.
     - Never fabricates handout bodies; returns ``host_hints`` for missing deep.
     """
     campaign_dir = _campaign_dir(workspace, campaign_id)
@@ -737,28 +1158,21 @@ def on_enter_scene(
     host_hints: list[str] = []
     actions: list[dict[str, Any]] = []
 
-    # Always request deep for active scene
-    q = coc_module_assets.enqueue_job(
-        workspace, root_id,
-        kind="deepen_location",
-        target_id=sid,
-        priority=100,
-        reason=f"enter:{sid}",
-    )
-    actions.append({"enqueue": q})
-
     pack = coc_module_assets.get_entity(workspace, root_id, "location", sid)
     merged = False
-    if pack and _is_deep_state(pack.get("parse_state")) and not pack.get("evidence_gap"):
+    if _is_usable_location_pack(pack):
         ir = load_campaign_ir(campaign_dir)
         ir = merge_deep_location_into_ir(ir, pack)
         write_ir_to_campaign(campaign_dir, ir, asset_root_id=root_id)
         merged = True
-        actions.append({"merged_deep": sid})
-        # Mentions from deep pack → stubs + enqueue
-        for mention in pack.get("mentions") or []:
-            if not isinstance(mention, dict):
-                continue
+        actions.append({
+            "merged_pack": sid,
+            "parse_state": pack.get("parse_state"),
+        })
+        # Pack mentions are topology/index facts, not proof that the player is
+        # pursuing every referenced entity.  Materialize narrow source-scoped
+        # stubs now; explicit dig and discovered-clue paths own enqueueing.
+        for mention in _scoped_mentions(pack):
             kind = str(mention.get("kind") or "").strip()
             ref = str(mention.get("ref_id") or "").strip()
             if kind not in coc_module_assets.ENTITY_KINDS or not ref:
@@ -767,25 +1181,20 @@ def on_enter_scene(
                 workspace, root_id, kind, ref,
                 title=str(mention.get("raw_label") or ref),
                 reason=f"mention_from:{sid}",
+                source_scope=_source_scope(mention),
             )
             actions.append({"ensure_stub": stub})
-            job_kind = {
-                "location": "deepen_location",
-                "npc": "deepen_npc",
-                "clue": "deepen_clue",
-                "handout": "deepen_handout",
-                "threat": "ensure_stub",
-            }.get(kind, "ensure_stub")
-            if job_kind != "ensure_stub":
-                eq = coc_module_assets.enqueue_job(
-                    workspace, root_id,
-                    kind=job_kind,
-                    target_id=ref,
-                    priority=50,
-                    reason=f"mention_from:{sid}",
-                )
-                actions.append({"enqueue": eq})
-    else:
+    if not pack or not _is_deep_state(pack.get("parse_state")) or pack.get(
+        "evidence_gap"
+    ):
+        q = coc_module_assets.enqueue_job(
+            workspace, root_id,
+            kind="deepen_location",
+            target_id=sid,
+            priority=100,
+            reason=f"enter:{sid}",
+        )
+        actions.append({"enqueue": q})
         host_hints.append(
             f"host: deep-extract location {sid!r} and put_entity "
             f"(parse_state=deep), then re-enter or call process-enter"
@@ -816,6 +1225,27 @@ def on_enter_scene(
             seen_n.add(n)
             unique_neighbors.append(n)
 
+    active_location = next(
+        (
+            row for row in (skeleton.get("locations") or [])
+            if isinstance(row, dict) and str(row.get("location_id") or "") == sid
+        ),
+        {},
+    )
+    active_tags = {
+        str(tag) for tag in (active_location.get("location_tags") or [])
+    }
+    if isinstance(pack, dict):
+        active_tags.update(
+            str(tag) for tag in (pack.get("location_tags") or [])
+        )
+    prefetch_budget = (
+        0
+        if active_tags & NO_PREFETCH_LOCATION_TAGS
+        else DEFAULT_NEIGHBOR_PREFETCH_BUDGET
+    )
+    prefetched_neighbors: list[str] = []
+    deferred_neighbors: list[str] = []
     for nid in unique_neighbors:
         stub = coc_module_assets.ensure_stub(
             workspace, root_id, "location", nid,
@@ -824,25 +1254,24 @@ def on_enter_scene(
         actions.append({"ensure_stub": stub})
         n_pack = coc_module_assets.get_entity(workspace, root_id, "location", nid)
         if n_pack and _is_deep_state(n_pack.get("parse_state")):
-            # optional: leave deep packs; do not auto-merge neighbors (only active)
-            eq = coc_module_assets.enqueue_job(
-                workspace, root_id,
-                kind="partial_neighbor",
-                target_id=nid,
-                priority=40,
-                reason=f"neighbor_of:{sid}",
-            )
-        else:
-            eq = coc_module_assets.enqueue_job(
-                workspace, root_id,
-                kind="deepen_location",
-                target_id=nid,
-                priority=50,
-                reason=f"neighbor_of:{sid}",
-            )
-            host_hints.append(
-                f"host: optional prefetch partial/deep for neighbor {nid!r}"
-            )
+            # A durable deep pack is already reusable.  Do not merge or queue
+            # an unvisited neighbor merely because the active scene links it.
+            deferred_neighbors.append(nid)
+            continue
+        if len(prefetched_neighbors) >= prefetch_budget:
+            deferred_neighbors.append(nid)
+            continue
+        eq = coc_module_assets.enqueue_job(
+            workspace, root_id,
+            kind="partial_neighbor",
+            target_id=nid,
+            priority=40,
+            reason=f"neighbor_of:{sid}",
+        )
+        prefetched_neighbors.append(nid)
+        host_hints.append(
+            f"host: optional partial prefetch for neighbor {nid!r}"
+        )
         actions.append({"enqueue": eq})
 
     # Apply any pending deepen jobs that already have deep packs (active only auto-merge)
@@ -860,9 +1289,14 @@ def on_enter_scene(
         "asset_root_id": root_id,
         "merged_active": merged,
         "neighbors": unique_neighbors,
+        "prefetched_neighbors": prefetched_neighbors,
+        "deferred_neighbors": deferred_neighbors,
+        "neighbor_prefetch_budget": prefetch_budget,
         "host_hints": host_hints,
         "actions": actions,
-        "queue": coc_module_assets.list_queue(workspace, root_id),
+        "queue": _compact_queue_snapshot(
+            coc_module_assets.list_queue(workspace, root_id)
+        ),
     }
 
 
@@ -878,53 +1312,84 @@ def process_ready_deepens(
     root_id = asset_root_id or campaign_asset_root_id(campaign_dir)
     if not root_id:
         return {"merged_location_ids": [], "skipped": True}
-    queue = coc_module_assets.list_queue(workspace, root_id)
-    pending = list(queue.get("pending") or [])
+    module_dir = coc_module_assets.assets_root(workspace) / root_id
+    path = module_dir / "parse-queue.json"
     merged_ids: list[str] = []
-    still_pending: list[dict[str, Any]] = []
-    done = list(queue.get("done") or [])
-    ir = None
-    for job in pending:
-        if job.get("kind") != "deepen_location":
-            still_pending.append(job)
-            continue
-        tid = str(job.get("target_id") or "")
-        if only_scene_ids is not None and tid not in only_scene_ids:
-            still_pending.append(job)
-            continue
-        pack = coc_module_assets.get_entity(workspace, root_id, "location", tid)
-        if not pack or not _is_deep_state(pack.get("parse_state")) or pack.get(
-            "evidence_gap"
-        ):
-            still_pending.append(job)
-            continue
-        if ir is None:
-            ir = load_campaign_ir(campaign_dir)
-        ir = merge_deep_location_into_ir(ir, pack)
-        merged_ids.append(tid)
-        done.append({**job, "completed_at": _now_iso(), "result": "merged"})
-    if ir is not None and merged_ids:
-        write_ir_to_campaign(campaign_dir, ir, asset_root_id=root_id)
-        # rewrite queue
-        path = coc_module_assets.assets_root(workspace) / root_id / "parse-queue.json"
-        _write_json(path, {
-            "schema_version": coc_module_assets.SCHEMA_VERSION,
-            "pending": still_pending,
-            "in_flight": queue.get("in_flight") or [],
-            "done": done[-100:],
-        })
+    pending_count = 0
+    with coc_fileio.advisory_file_lock(module_dir / "parse-queue.lock"):
+        queue = coc_module_assets.list_queue(workspace, root_id)
+        pending = list(queue.get("pending") or [])
+        still_pending: list[dict[str, Any]] = []
+        done = list(queue.get("done") or [])
+        ir = None
+        for job in pending:
+            if job.get("kind") != "deepen_location":
+                still_pending.append(job)
+                continue
+            tid = str(job.get("target_id") or "")
+            if only_scene_ids is not None and tid not in only_scene_ids:
+                still_pending.append(job)
+                continue
+            pack = coc_module_assets.get_entity(workspace, root_id, "location", tid)
+            if not pack or not _is_deep_state(pack.get("parse_state")) or pack.get(
+                "evidence_gap"
+            ):
+                still_pending.append(job)
+                continue
+            if ir is None:
+                ir = load_campaign_ir(campaign_dir)
+            ir = merge_deep_location_into_ir(ir, pack)
+            merged_ids.append(tid)
+            done.append({**job, "completed_at": _now_iso(), "result": "merged"})
+        pending_count = len(still_pending) if ir is not None else len(pending)
+        if ir is not None and merged_ids:
+            write_ir_to_campaign(campaign_dir, ir, asset_root_id=root_id)
+            _write_json(path, {
+                "schema_version": coc_module_assets.SCHEMA_VERSION,
+                "pending": still_pending,
+                "in_flight": queue.get("in_flight") or [],
+                "done": coc_module_assets.dedupe_done_jobs(done, limit=100),
+            })
     return {
         "merged_location_ids": merged_ids,
-        "pending_remaining": len(still_pending) if ir is not None else len(pending),
+        "pending_remaining": pending_count,
     }
 
 
-_JOB_KIND_FOR_ENTITY = {
-    "location": "deepen_location",
-    "npc": "deepen_npc",
-    "clue": "deepen_clue",
-    "handout": "deepen_handout",
-}
+_JOB_KIND_FOR_ENTITY = dict(coc_module_assets.JOB_KIND_FOR_ENTITY)
+_SOURCE_SCOPE_FIELDS = (
+    "source_refs", "source_span", "source_page_indices", "page_text_sha256",
+)
+
+
+def _source_scope(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        field: json.loads(json.dumps(value[field]))
+        for field in _SOURCE_SCOPE_FIELDS
+        if value.get(field) is not None
+    }
+
+
+def _scoped_mentions(container: Any) -> list[dict[str, Any]]:
+    """Copy structured mentions and inherit their enclosing source scope.
+
+    This is provenance propagation only; mention kind/ref_id remain authored
+    structured data and no free prose is interpreted here.
+    """
+    if not isinstance(container, dict):
+        return []
+    inherited = _source_scope(container)
+    out: list[dict[str, Any]] = []
+    for raw in container.get("mentions") or []:
+        if not isinstance(raw, dict):
+            continue
+        mention = json.loads(json.dumps(raw))
+        if not _source_scope(mention) and inherited:
+            mention.update(json.loads(json.dumps(inherited)))
+        out.append(mention)
+    return out
 
 
 def ensure_location_on_skeleton(
@@ -950,18 +1415,27 @@ def ensure_location_on_skeleton(
     existing = next((l for l in locs if str(l.get("location_id")) == lid), None)
     created = False
     if existing is None:
-        locs.append({
+        existing = {
             "location_id": lid,
             "title": title or lid,
             "parse_state": "named_only",
             "scene_type": "investigation",
             "location_tags": [lid],
             "is_final": False,
-        })
+        }
+        locs.append(existing)
         skeleton["locations"] = locs
         created = True
     elif title and not existing.get("title"):
         existing["title"] = title
+    source_scope_changed = False
+    pack = coc_module_assets.get_entity(
+        workspace, asset_root_id, "location", lid,
+    )
+    for field, value in _source_scope(pack).items():
+        if existing.get(field) != value:
+            existing[field] = value
+            source_scope_changed = True
     edges = list(skeleton.get("edges_provisional") or [])
     edge_added = False
     src = str(link_from or "").strip()
@@ -993,7 +1467,7 @@ def ensure_location_on_skeleton(
             })
             skeleton["edges_provisional"] = edges
             edge_added = True
-    if created or edge_added or (title and existing is not None):
+    if created or edge_added or source_scope_changed or (title and existing is not None):
         errors = coc_module_assets.validate_skeleton(skeleton)
         if errors:
             raise ModuleProjectError("skeleton invalid after dig attach: " + "; ".join(errors[:5]))
@@ -1002,6 +1476,7 @@ def ensure_location_on_skeleton(
         "location_id": lid,
         "created_on_skeleton": created,
         "edge_added": edge_added,
+        "source_scope_changed": source_scope_changed,
         "link_from": src or None,
     }
 
@@ -1027,9 +1502,17 @@ def project_location_stub_into_campaign(
     ir = load_campaign_ir(campaign_dir)
     scenes = ir["story-graph.json"].setdefault("scenes", [])
     scene = next((s for s in scenes if str(s.get("scene_id")) == lid), None)
+    skeleton = coc_module_assets.get_skeleton(workspace, root_id) or {}
+    skeleton_location = next(
+        (
+            row for row in skeleton.get("locations") or []
+            if isinstance(row, dict) and str(row.get("location_id") or "") == lid
+        ),
+        None,
+    )
     if scene is None:
         scene = skeleton_scene_from_location(
-            {
+            skeleton_location or {
                 "location_id": lid,
                 "title": title or lid,
                 "parse_state": "named_only",
@@ -1047,6 +1530,8 @@ def project_location_stub_into_campaign(
         )
         if title:
             scene["display_name"] = title
+        for field, value in _source_scope(skeleton_location).items():
+            scene[field] = value
     # Link edges on both ends in IR
     src = str(link_from or "").strip()
     if src and src != lid:
@@ -1055,12 +1540,20 @@ def project_location_stub_into_campaign(
             if sc is None:
                 return
             edges = list(sc.get("scene_edges") or [])
-            if any(str(e.get("to")) == to_id for e in edges):
+            existing_edge = next(
+                (e for e in edges if str(e.get("to")) == to_id), None,
+            )
+            if existing_edge is not None:
+                # The route has now been established by live player dig even
+                # if it originated as provisional skeleton topology.
+                existing_edge["origin"] = "campaign_progressive_dig"
+                sc["scene_edges"] = edges
                 return
             edges.append({
                 "to": to_id,
                 "kind": "travel",
                 "when": {"kind": "always"},
+                "origin": "campaign_progressive_dig",
             })
             sc["scene_edges"] = edges
         _ensure_edge(src, lid)
@@ -1111,6 +1604,79 @@ def _entity_status(
         or pack.get("display_name")
         or pack.get("name")
         or (pack.get("names") or [None])[0],
+        "source_evidence": json.loads(json.dumps(pack.get("source_evidence"))),
+        "ingest_timing": json.loads(json.dumps(pack.get("ingest_timing"))),
+    }
+
+
+def _compact_queue_snapshot(queue: dict[str, Any]) -> dict[str, Any]:
+    """Bound queue evidence returned on the live dig path.
+
+    The durable parse queue keeps its full capped history on disk.  Returning
+    that entire history after every mention/deepen call makes normal Keeper
+    context grow with the length of the campaign, even when no work is
+    pending.  Live callers need the active work plus a small audit tail; the
+    full durable queue remains available to repository diagnostics.
+    """
+    done = list(queue.get("done") or [])
+    def median_ms(field: str) -> int | None:
+        values = sorted(
+            int(row[field])
+            for row in done
+            if isinstance(row, dict)
+            and isinstance(row.get(field), int)
+            and not isinstance(row.get(field), bool)
+        )
+        if not values:
+            return None
+        middle = len(values) // 2
+        if len(values) % 2:
+            return values[middle]
+        return round((values[middle - 1] + values[middle]) / 2)
+
+    total_values = [
+        int(row["total_ms"])
+        for row in done
+        if isinstance(row, dict)
+        and isinstance(row.get("total_ms"), int)
+        and not isinstance(row.get("total_ms"), bool)
+    ]
+    tail_fields = (
+        "job_id", "kind", "target_id", "result", "failed",
+        "enqueued_at", "completed_at", "total_ms", "processing_ms",
+        "requeue_count",
+    )
+    done_tail = [
+        {key: row[key] for key in tail_fields if key in row}
+        for row in done[-5:]
+        if isinstance(row, dict)
+    ]
+    awaiting_host = [
+        row for row in done
+        if isinstance(row, dict) and row.get("result") == "awaiting_host_pack"
+    ]
+    return {
+        "schema_version": queue.get("schema_version"),
+        "pending": list(queue.get("pending") or []),
+        "in_flight": list(queue.get("in_flight") or []),
+        "done_count": len(done),
+        "done_tail": done_tail,
+        "awaiting_host_count": len(awaiting_host),
+        "awaiting_host_tail": [
+            {key: row[key] for key in tail_fields if key in row}
+            for row in awaiting_host[-5:]
+        ],
+        "timing_ms": {
+            "measured_count": len(total_values),
+            "median_total": median_ms("total_ms"),
+            "median_processing": median_ms("processing_ms"),
+            "median_queue_worker_processing": median_ms("processing_ms"),
+            "max_total": max(total_values) if total_values else None,
+            "scope_note": (
+                "queue timings cover scheduling/merge only; source_compile_ms "
+                "is reported per entity under ingest_timing"
+            ),
+        },
     }
 
 
@@ -1162,10 +1728,16 @@ def follow_structured_mentions(
         if kind not in coc_module_assets.ENTITY_KINDS or not ref:
             continue
         label = str(mention.get("raw_label") or ref)
+        source_scope = _source_scope(mention)
+        if not source_scope:
+            source_scope = _campaign_entity_source_scope(
+                campaign_dir, kind, ref,
+            )
         stub = coc_module_assets.ensure_stub(
             workspace, root_id, kind, ref,
             title=label,
             reason=reason,
+            source_scope=source_scope,
         )
         actions.append({"ensure_stub": stub})
         if kind == "location":
@@ -1181,9 +1753,26 @@ def follow_structured_mentions(
                 actions.append({"project_stub": proj})
             except ModuleProjectError as exc:
                 host_hints.append(f"stub project failed for {ref!r}: {exc}")
+        status = _entity_status(workspace, root_id, kind, ref)
+        if not status["deep_ready"]:
+            # Mark stub dig targets as evidence_gap so KP never invents bodies.
+            pack = coc_module_assets.get_entity(workspace, root_id, kind, ref)
+            if (
+                pack
+                and not _is_deep_state(pack.get("parse_state"))
+                and not (pack.get("evidence_gap") and pack.get("dig_pending"))
+            ):
+                pack = dict(pack)
+                pack["evidence_gap"] = True
+                pack["dig_pending"] = True
+                pack.setdefault("dig_reason", reason)
+                if kind == "location" and label:
+                    pack["title"] = pack.get("title") or label
+                coc_module_assets.put_entity(workspace, root_id, kind, ref, pack)
+                status = _entity_status(workspace, root_id, kind, ref)
         job_kind = _JOB_KIND_FOR_ENTITY.get(kind)
         enqueue_result = None
-        if job_kind:
+        if job_kind and not status["deep_ready"]:
             enqueue_result = coc_module_assets.enqueue_job(
                 workspace, root_id,
                 kind=job_kind,
@@ -1192,24 +1781,18 @@ def follow_structured_mentions(
                 reason=reason,
             )
             actions.append({"enqueue": enqueue_result})
-        status = _entity_status(workspace, root_id, kind, ref)
         if not status["deep_ready"]:
-            # Mark stub dig targets as evidence_gap so KP never invents bodies.
-            pack = coc_module_assets.get_entity(workspace, root_id, kind, ref)
-            if pack and not _is_deep_state(pack.get("parse_state")):
-                pack = dict(pack)
-                pack["evidence_gap"] = True
-                pack["dig_pending"] = True
-                pack["dig_reason"] = reason
-                if kind == "location" and label:
-                    pack["title"] = pack.get("title") or label
-                coc_module_assets.put_entity(workspace, root_id, kind, ref, pack)
-                status = _entity_status(workspace, root_id, kind, ref)
-            host_hints.append(
-                f"host: deep-extract {kind} {ref!r} ({label}) for player dig "
-                f"({reason}); put_entity parse_state=deep, then progressive.process_queue "
-                f"or state.move_scene to merge"
-            )
+            if (enqueue_result or {}).get("dedupe_state") == "awaiting_host_pack":
+                host_hints.append(
+                    f"host: existing deep-extract request still covers {kind} {ref!r}; "
+                    "reuse it unless the source scope changes"
+                )
+            else:
+                host_hints.append(
+                    f"host: deep-extract {kind} {ref!r} ({label}) for player dig "
+                    f"({reason}); put_entity parse_state=deep, then progressive.process_queue "
+                    f"or state.move_scene to merge"
+                )
         followed.append({
             "kind": kind,
             "ref_id": ref,
@@ -1221,6 +1804,8 @@ def follow_structured_mentions(
             "deduped": bool((enqueue_result or {}).get("deduped"))
             if enqueue_result
             else False,
+            "dedupe_state": (enqueue_result or {}).get("dedupe_state"),
+            "canonical_scene_id": ref if kind == "location" else None,
         })
 
     applied = process_ready_deepens(
@@ -1235,8 +1820,60 @@ def follow_structured_mentions(
         "host_hints": host_hints,
         "actions": actions,
         "merged_location_ids": applied.get("merged_location_ids") or [],
-        "queue": coc_module_assets.list_queue(workspace, root_id),
+        "queue": _compact_queue_snapshot(
+            coc_module_assets.list_queue(workspace, root_id)
+        ),
     }
+
+
+def _campaign_entity_source_scope(
+    campaign_dir: Path,
+    kind: str,
+    entity_id: str,
+) -> dict[str, Any]:
+    """Reuse exact source scope already projected into canonical campaign IR."""
+    try:
+        ir = load_campaign_ir(campaign_dir)
+    except ModuleProjectError:
+        return {}
+    rows: list[dict[str, Any]] = []
+    if kind == "location":
+        rows = list((ir.get("story-graph.json") or {}).get("scenes") or [])
+        keys = ("scene_id",)
+    elif kind == "npc":
+        rows = list((ir.get("npc-agendas.json") or {}).get("npcs") or [])
+        keys = ("npc_id",)
+    elif kind == "clue":
+        rows = [
+            clue
+            for conclusion in (
+                (ir.get("clue-graph.json") or {}).get("conclusions") or []
+            )
+            if isinstance(conclusion, dict)
+            for clue in (conclusion.get("clues") or [])
+            if isinstance(clue, dict)
+        ]
+        keys = ("clue_id",)
+    elif kind == "handout":
+        rows = [
+            clue
+            for conclusion in (
+                (ir.get("clue-graph.json") or {}).get("conclusions") or []
+            )
+            if isinstance(conclusion, dict)
+            for clue in (conclusion.get("clues") or [])
+            if isinstance(clue, dict)
+        ]
+        keys = ("handout_id",)
+    elif kind == "threat":
+        rows = list((ir.get("threat-fronts.json") or {}).get("fronts") or [])
+        keys = ("threat_id", "front_id")
+    else:
+        return {}
+    for row in rows:
+        if any(str(row.get(key) or "") == entity_id for key in keys):
+            return _source_scope(row)
+    return {}
 
 
 def request_deepen(
@@ -1303,13 +1940,13 @@ def on_clue_discovered(
         for conc in (ir.get("clue-graph.json") or {}).get("conclusions") or []:
             for clue in conc.get("clues") or []:
                 if str(clue.get("clue_id")) == str(clue_id):
-                    mentions.extend(list(clue.get("mentions") or []))
+                    mentions.extend(_scoped_mentions(clue))
     except ModuleProjectError:
         pass
     # Also check entity pack if present.
     pack = coc_module_assets.get_entity(workspace, root_id, "clue", clue_id)
     if pack and pack.get("mentions"):
-        mentions.extend(list(pack.get("mentions") or []))
+        mentions.extend(_scoped_mentions(pack))
     # Location packs may embed the clue with mentions.
     if not mentions:
         ent_dir = coc_module_assets.assets_root(workspace) / root_id / "entities"
@@ -1321,7 +1958,7 @@ def on_clue_discovered(
                     continue
                 for clue in loc.get("clues") or []:
                     if str(clue.get("clue_id")) == str(clue_id) and clue.get("mentions"):
-                        mentions.extend(list(clue.get("mentions") or []))
+                        mentions.extend(_scoped_mentions(clue))
 
     # Dedup by kind:ref
     seen: set[str] = set()

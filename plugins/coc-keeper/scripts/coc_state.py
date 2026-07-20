@@ -78,6 +78,7 @@ TOP_LEVEL_DIRS = (
 
 CAMPAIGN_DIRS = (
     "save/investigator-state",
+    "save/continuation/checkpoints",
     "scenario",
     "index",
     "memory",
@@ -107,6 +108,26 @@ ERA_CLOCKS = {
         "timezone": "Europe/Madrid",
         "display": "1597-07-15 10:00",
     },
+    # Historical categories without a safe universal calendar anchor stay
+    # relative until a progressive module supplies start_clock evidence.
+    "prehistoric": {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "timezone": None,
+        "display": "",
+    },
+    "medieval": {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "timezone": None,
+        "display": "",
+    },
+    "early_modern": {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "timezone": None,
+        "display": "",
+    },
     # Gaslight / late Victorian default (London).
     "1890s": {
         "calendar_mode": "gregorian",
@@ -120,6 +141,14 @@ ERA_CLOCKS = {
         "local_datetime": "1937-10-12T10:00:00",
         "timezone": "Europe/Moscow",
         "display": "1937-10-12 10:00",
+    },
+    # Seventies road/survival scenarios; source-specific start_clock can
+    # replace this neutral July 1975 Texas anchor.
+    "1970s": {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1975-07-01T11:00:00",
+        "timezone": "America/Chicago",
+        "display": "1975-07-01 11:00",
     },
     "modern": {
         "calendar_mode": "gregorian",
@@ -141,6 +170,14 @@ ERA_ALIASES = {
     "cthulhu_classic": "1920s",
     "gaslight": "1890s",
     "victorian": "1890s",
+    "prehistoric": "prehistoric",
+    "paleolithic": "prehistoric",
+    "ice_age": "prehistoric",
+    "40000_bce": "prehistoric",
+    "middle_ages": "medieval",
+    "medieval": "medieval",
+    "early_modern": "early_modern",
+    "roman_britain": "roman",
     "contemporary": "modern",
     "present": "modern",
     "dark_ages": "roman",
@@ -206,6 +243,10 @@ def normalize_era(era: str | None, *, default: str = "1920s") -> str:
         decade = f"{(year // 10) * 10}s"
         if decade in ERA_CLOCKS:
             return decade
+        if 500 <= year <= 1499:
+            return "medieval"
+        if 1500 <= year <= 1699:
+            return "early_modern"
     return default if default in ERA_CLOCKS else "1920s"
 
 
@@ -221,6 +262,10 @@ def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None
             "timezone": start_clock.get("timezone", era_clock["timezone"]),
             "location_id": start_clock.get("location_id"),
             "display": start_clock.get("display", era_clock["display"]),
+            "day_phase_boundaries": start_clock.get("day_phase_boundaries"),
+            "appearance_mode": start_clock.get("appearance_mode", "normal"),
+            "appearance_display_label": start_clock.get("appearance_display_label"),
+            "appearance_source_ref": start_clock.get("appearance_source_ref"),
         }
     return {
         "elapsed_minutes": 0,
@@ -230,6 +275,9 @@ def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None
         "timezone": era_clock["timezone"],
         "location_id": None,
         "display": era_clock["display"],
+        "appearance_mode": "normal",
+        "appearance_display_label": None,
+        "appearance_source_ref": None,
     }
 
 
@@ -239,6 +287,7 @@ def reseed_campaign_clock_for_era(
     era: str,
     *,
     preserve_elapsed: bool = True,
+    start_clock: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Rewrite ``save/time-state.json`` clock fields for ``era``.
 
@@ -251,6 +300,7 @@ def reseed_campaign_clock_for_era(
     campaign_dir = Path(campaign_dir)
     time_state_path = campaign_dir / "save" / "time-state.json"
     elapsed = 0
+    current_location: Any = None
     existing: dict[str, Any] = {}
     if time_state_path.is_file():
         try:
@@ -262,8 +312,11 @@ def reseed_campaign_clock_for_era(
                 elapsed = int(existing["clock"].get("elapsed_minutes") or 0)
             except (TypeError, ValueError):
                 elapsed = 0
-    clock = initial_clock_for_era(era_key)
+            current_location = existing["clock"].get("location_id")
+    clock = initial_clock_for_era(era_key, start_clock)
     clock["elapsed_minutes"] = max(0, elapsed)
+    if preserve_elapsed and current_location is not None:
+        clock["location_id"] = current_location
     base_raw = clock.get("local_datetime")
     if base_raw and elapsed:
         try:

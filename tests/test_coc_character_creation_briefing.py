@@ -74,6 +74,35 @@ def test_render_briefing_writes_player_safe_markdown_and_campaign_pointer(tmp_pa
     assert "快速数组：80、70、60、60、50、50、50、40" in markdown
     assert "The secret solution" not in markdown
     assert campaign["character_creation"]["briefing_path"] == result["briefing_path"]
+    assert campaign["character_creation"]["public_setup_sha256"] == result[
+        "public_setup_sha256"
+    ]
+    assert len(result["public_setup_sha256"]) == 64
+
+
+def test_render_briefing_localizes_progressive_structure_type(tmp_path):
+    briefing = _load_briefing_script()
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "case-loop"
+    _write_json(
+        campaign_dir / "campaign.json",
+        {"play_language": "zh-Hans", "era": "1890s"},
+    )
+    _write_json(
+        campaign_dir / "scenario" / "scenario.json",
+        {"title": "Loop Case"},
+    )
+    _write_json(
+        campaign_dir / "scenario" / "module-meta.json",
+        {"title": "Loop Case", "era": "1890s", "structure_type": "time_loop"},
+    )
+
+    result = briefing.render_briefing_from_campaign(
+        campaign_dir,
+        repo_root=tmp_path,
+    )
+    markdown = (tmp_path / result["briefing_path"]).read_text(encoding="utf-8")
+
+    assert "**结构**：时间循环" in markdown
 
 
 def test_render_briefing_uses_safe_default_when_summary_missing(tmp_path):

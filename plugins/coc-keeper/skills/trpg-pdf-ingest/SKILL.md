@@ -35,6 +35,12 @@ titles + resolution/timeline titles (still ≤32 pages per source-bundle window)
 Validate with `coc_pdf_bundle.py` if using a formal handoff window, then emit
 structured `skeleton.json` (locations, provisional edges, npc_roster names,
 handout index, threat stubs, start_candidates). **No full handout bodies.**
+When the source establishes a calendar opening whose daylight differs from the
+default 06:00/12:00/18:00/21:00 phases, include a top-level `start_clock` with
+the exact `local_datetime`, `timezone`, `display`, and optional
+`day_phase_boundaries` (`morning_start`, `afternoon_start`, `evening_start`,
+`night_start`, each `HH:MM`). Declare only source- or setting-grounded values;
+do not infer a printed-page offset or silently guess seasonal sunrise.
 
 ```bash
 uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
@@ -54,7 +60,9 @@ Host deep-extracts **start location pages only**, builds a deep location pack
 ```bash
 uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
   --workspace . put-page --asset-root-id <id> --pdf-index N --text-file page.md
-# host writes entities/location-<start>.json via put_entity API / CLI later
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
+  --workspace . put-entity --asset-root-id <id> --kind location \
+  --entity-id <start> --entity-json /path/to/opening-deep-pack.json
 
 uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
   --workspace . opening-deep --campaign <campaign-id> --asset-root-id <id> \
@@ -117,7 +125,33 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_pdf_bundle.py \
 
 4. Bind the scenario with `scenario.bind_pdf`, passing
    `source_bundle_path`. The operation validates the bundle again before any
-   scenario hydration or semantic compilation.
+   scenario hydration or semantic compilation. Binding also registers every
+   selected page in the content-addressed progressive module cache and returns
+   `result.source_cache.asset_root_id`; it does **not** by itself activate the
+   progressive play path.
+
+For a later on-demand page window from the same PDF, validate it with the same
+bundle contract and register only that window. The existing asset root and
+unchanged pages are reused by `file_sha256`:
+
+```bash
+uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
+  --workspace . register-bundle \
+  --source-bundle /absolute/path/to/later-source-bundle
+```
+
+Deep/partial entity packs produced from a registered bundle must include exact
+`source_page_indices` (or `source_refs` / `source_span`) and should include
+the request's `host_work_job_id` plus
+`host_timing: {started_at, completed_at, duration_ms, producer}`. The asset
+boundary enriches those references from cached page hashes and rejects missing
+or drifted evidence. A host-work request with `cached_scope_complete: true`
+must be fulfilled from `cached_page_refs` without reopening the PDF.
+Landing the pack closes that exact host-work request; an idempotent re-put
+reuses the original timing receipt instead of manufacturing a new delay.
+Structured `mentions[]` inherit the exact source scope of the enclosing pack
+or clue. Preserve that scope on the mention/stub so the follow-up host-work
+request reads only those cached pages instead of broad-scanning the cache.
 
 ## Source bundle schema v1
 

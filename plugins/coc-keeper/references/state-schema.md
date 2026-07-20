@@ -15,6 +15,8 @@ Keeper secrets.
 ├── rules/
 ├── investigators/
 ├── campaigns/
+├── runtime/
+│   └── host-sessions/              # disposable startup/compaction epoch markers
 ├── playtests/
 ├── indexes/
 ├── module-library/
@@ -65,6 +67,7 @@ Campaigns store temporary and scenario-specific state:
 │   ├── npc-state.json              # persisted NPC persona cards + stat promotions
 │   │                               # + "psych" namespace: per-NPC trust/fear/suspicion,
 │   │                               #   known_facts / lies_told / promises (coc_npc_state)
+│   │                               # + receipt-backed "presence" live scene overlay
 │   ├── storylet-ledger.json        # storylet anti-repeat signatures + usage ledger
 │   ├── time-state.json             # in-fiction world clock
 │   ├── time-triggers.json          # scheduled time-based triggers
@@ -78,6 +81,13 @@ Campaigns store temporary and scenario-specific state:
 │   ├── combat.json                 # combat session state (only during combat)
 │   ├── chase.json                  # chase session state (only during chases)
 │   ├── character-creation-draft.json  # in-progress creation workflow state
+│   ├── pending-turn.json           # journaled turn awaiting exact finalization
+│   ├── turn-source-cursor.json     # bounded toolbox-log source cursor
+│   ├── turn-manifests/             # immutable/finalized current-turn source windows
+│   ├── continuation/
+│   │   ├── latest.json             # atomic pointer to newest rebuildable checkpoint
+│   │   ├── checkpoints/            # immutable per-finalized-turn recovery projections
+│   │   └── delivery-receipts.jsonl # exact Keeper-output transport acknowledgements
 │   └── investigator-state/         # per-investigator campaign-local HP/SAN/conditions
 │                                   # + optional "inventory": runtime item truth —
 │                                   #   entries[] (kind gear|weapon) gained in play,
@@ -97,6 +107,9 @@ Campaigns store temporary and scenario-specific state:
 │   ├── events.jsonl                # story events
 │   ├── rolls.jsonl                 # mechanical roll events
 │   ├── audit.jsonl                 # Keeper-facing audit events (e.g. spoiler reveals)
+│   ├── toolbox-calls.jsonl         # ordered canonical operation evidence
+│   ├── turn-finalizations.jsonl    # immutable rendered turn receipts + exact hashes
+│   ├── table-transcript.jsonl      # exact player/Keeper text actually bound to play
 │   ├── live-turn-runtime.jsonl     # run_live_turn receipts (decision ids, intent
 │   │                               # resolution, recording mode, auto-advance)
 │   ├── scene-state-patches.jsonl   # detailed state_patch payloads (queued)
@@ -135,6 +148,14 @@ normalization is not a repository-wide migration. Ordinary live turns may
 change this state only through structured `npc_interactions` and typed
 `npc_effects`. Free prose, skill names, agendas, and clue summaries are never
 scanned to infer a tactic, target, or disclosure decision.
+
+`save/npc-state.json["presence"][npc_id]` is the canonical explicit live
+location overlay written only by `state.npc_presence`. Each current record is
+bound to `presence_heads` plus a source receipt and says `present` or `absent`
+for one `scene_id`. `scene.context` starts from authored `scene.npc_ids`, then
+lets the latest live record add, remove, or relocate that stable NPC. NPC
+engagement history, names in prose, and source `mentions[]` are never treated
+as presence evidence.
 
 `save/npc-state.json["items"][npc_id]` is the runtime NPC item override:
 `current_weapons` (a list, possibly empty) replaces the authored module
@@ -184,6 +205,51 @@ creation, explicit rules subsystems, or player-requested option summaries.
 玩家可见的行动暗示必须来自编译后场景的 `affordances`（见 story-graph-schema），由 narrator 转成
 diegetic cue，并由 `choice_frame.is_real_fork` 决定是否在真分叉时停下交选择。`pending_choices`
 只承载 Keeper 续跑所需的状态连续性，绝不承载玩家菜单。
+
+## Continuation And Context Epochs
+
+Every successful `turn.finalize` publishes one hash-bound schema-v1 checkpoint
+under `save/continuation/checkpoints/` and atomically advances `latest.json`.
+The checkpoint contains only a bounded projection: canonical state identities,
+hash/length/ref identities for the last public exchange, a merged KP-authored
+semantic capsule, and refs back to authoritative receipts. It is a rebuildable cache, never a second
+campaign ledger. The runtime retains the newest 16 checkpoint files as a ring;
+older cache files may be pruned only after the new pointer has been reloaded and
+hash-validated. Canonical finalization, transcript, state, and summary evidence
+remains append-only, so any pruned checkpoint can be rebuilt.
+The complete `session.resume.data` wire projection is capped at 40 KiB. When
+inline host input, finalized delivery text, current-turn receipts, scene detail,
+or output context would cross that budget, resume replaces it with canonical
+hash-bound refs and exact typed read cards (`session.delivery_text`,
+`turn.output_context`, or `scene.context`) rather than generating a summary.
+If its shape, hash, pointer, or source identity is invalid, `session.resume`
+ignores it and rebuilds from `turn-finalizations.jsonl`, `table-transcript.jsonl`,
+canonical save state, and the current turn cursor.
+
+`memory/session-summaries.jsonl[].continuation_delta` is sparse structured
+meaning supplied by the Keeper: unresolved intent, identified thread lifecycle,
+confirmed decisions, do-not-repeat commitments, and durable style commitments.
+Runtime code validates IDs, enums, sizes, and merge identity only; it never uses
+keywords or regexes to infer those meanings. Default style commitments preserve
+scene/NPC/causal play, campaign language, and situational Table Wit across
+compaction.
+
+`delivery-receipts.jsonl` is append-only transport evidence. A checkpoint starts
+with delivery unconfirmed. An explicit host acknowledgement or the next exact
+player reply confirms that the prior `rendered_sha256` reached the table. Until
+then, resume may replay only the prior exact `rendered_text` (inline or fetched
+by `session.delivery_text` using its finalization ID and hash); it must never
+reroll, reapply state, or generate substitute prose.
+
+`.coc/runtime/host-sessions/` is disposable workspace cache, not campaign
+truth. Plugin hooks mark a new `context_epoch` at startup and compaction. The
+canonical toolbox recommends `session.resume` until that exact host session and
+epoch are bound to a campaign, but does not turn recovery into a fifth hard
+narrative/action gate. Direct hosts without hooks still call the same operation
+as their first campaign read. Concurrent host sessions are resolved by exact
+session identity rather than the most recently updated marker. User prompt text
+retained there remains explicitly
+`unclassified_host_input` until semantic Keeper judgment and `state.journal`.
 
 ## Logs And Memory
 

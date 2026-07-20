@@ -29,6 +29,22 @@ def test_render_public_roll_uses_die_rolls_not_empty_face():
     assert "1D6" in line
 
 
+def test_render_public_roll_exposes_extreme_impale_damage_settlement():
+    line = coc_turn._render_public_roll({
+        "skill": "HP Damage",
+        "roll_role": "amount",
+        "die": "1D4+2+1D4",
+        "die_rolls": [2, 4],
+        "rolled_total": 8,
+        "combat_damage_receipt": {
+            "rolled_total": 8,
+            "raw_damage": 13,
+        },
+    })
+    assert "总值 8" in line
+    assert "极难穿刺结算：13 点伤害" in line
+
+
 def test_is_player_facing_roll_hides_superseded():
     assert coc_turn.is_player_facing_roll({"visibility": "public", "roll_id": "a"})
     assert not coc_turn.is_player_facing_roll({

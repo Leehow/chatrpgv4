@@ -54,12 +54,8 @@ const FINALIZATION_FIELDS = new Set([
   "draft_sha256", "coverage_sha256", "bundle_sha256", "rendered_sha256",
   "bundle", "coverage", "segments", "rendered_text", "integrity_digest",
 ]);
-const FINALIZATION_SEGMENT_ORDER = new Map([
-  ["fiction", 0],
-  ["public_check", 1],
-  ["state_delta", 2],
-  ["exceptional_effect", 3],
-  ["context_effect", 4],
+const FINALIZATION_SEGMENT_TYPES = new Set([
+  "fiction", "public_check", "state_delta", "exceptional_effect",
 ]);
 
 export class KeeperFinalizationError extends Error {
@@ -113,16 +109,14 @@ function validateSegments(segments, renderedText, draftSha256) {
   if (!Array.isArray(segments) || segments.length < 1) {
     finalizationFailure("malformed", "finalization segments are missing");
   }
-  let previousOrder = -1;
-  const seen = new Set();
+  const seenSourceIds = new Set();
   for (const segment of segments) {
     if (!hasExactKeys(segment, new Set(["segment_type", "text", "source_ids"]))) {
       finalizationFailure("malformed", "finalization segment has an invalid shape");
     }
     const segmentType = segment.segment_type;
-    const order = FINALIZATION_SEGMENT_ORDER.get(segmentType);
-    if (order === undefined || seen.has(segmentType) || order <= previousOrder) {
-      finalizationFailure("malformed", "finalization segment order is invalid");
+    if (!FINALIZATION_SEGMENT_TYPES.has(segmentType)) {
+      finalizationFailure("malformed", "finalization segment type is invalid");
     }
     if (typeof segment.text !== "string" || !segment.text.trim()) {
       finalizationFailure("malformed", "finalization segment text is empty");
@@ -135,8 +129,13 @@ function validateSegments(segments, renderedText, draftSha256) {
     if (segmentType === "fiction" && segment.source_ids.length !== 0) {
       finalizationFailure("malformed", "fiction segment must not expose source ids");
     }
-    seen.add(segmentType);
-    previousOrder = order;
+    if (segmentType !== "fiction" && segment.source_ids.length === 0) {
+      finalizationFailure("malformed", "mechanic segment must cite source ids");
+    }
+    if (segment.source_ids.some((sourceId) => seenSourceIds.has(sourceId))) {
+      finalizationFailure("malformed", "finalization mechanic source id is duplicated");
+    }
+    segment.source_ids.forEach((sourceId) => seenSourceIds.add(sourceId));
   }
   if (segments[0].segment_type !== "fiction") {
     finalizationFailure("malformed", "finalization must begin with fiction");
@@ -145,7 +144,11 @@ function validateSegments(segments, renderedText, draftSha256) {
   if (composed !== renderedText) {
     finalizationFailure("rendered_mismatch", "finalization segments do not compose rendered_text");
   }
-  if (canonicalDigest(segments[0].text) !== draftSha256) {
+  const reconstructedDraft = segments
+    .filter((segment) => segment.segment_type === "fiction")
+    .map((segment) => segment.text)
+    .join("\n\n");
+  if (canonicalDigest(reconstructedDraft) !== draftSha256) {
     finalizationFailure("digest_mismatch", "finalization fiction hash mismatch");
   }
 }
@@ -200,6 +203,37 @@ export function validateFinalizationReceipt(receipt) {
     finalizationFailure("malformed", "turn finalization coverage is invalid");
   }
   validateSegments(receipt.segments, receipt.rendered_text, receipt.draft_sha256);
+  const expectedSources = new Set();
+  for (const [segmentType, sourceKey] of [
+    ["public_check", "roll_id"],
+    ["state_delta", "effect_id"],
+    ["exceptional_effect", "event_id"],
+  ]) {
+    const rows = receipt.bundle[segmentType] || [];
+    if (!Array.isArray(rows)) {
+      finalizationFailure("malformed", "turn finalization bundle mechanic rows are invalid");
+    }
+    for (const row of rows) {
+      const sourceId = row && row[sourceKey];
+      if (typeof sourceId !== "string" || sourceId.length === 0) {
+        finalizationFailure("malformed", "turn finalization bundle mechanic source is invalid");
+      }
+      expectedSources.add(`${segmentType}\u0000${sourceId}`);
+    }
+  }
+  const renderedSources = new Set();
+  for (const segment of receipt.segments) {
+    if (segment.segment_type === "fiction") continue;
+    for (const sourceId of segment.source_ids) {
+      renderedSources.add(`${segment.segment_type}\u0000${sourceId}`);
+    }
+  }
+  if (
+    expectedSources.size !== renderedSources.size ||
+    [...expectedSources].some((source) => !renderedSources.has(source))
+  ) {
+    finalizationFailure("malformed", "turn finalization mechanic placement is incomplete");
+  }
   if (canonicalDigest(receipt.coverage) !== receipt.coverage_sha256) {
     finalizationFailure("digest_mismatch", "turn finalization coverage hash mismatch");
   }
@@ -374,14 +408,22 @@ function keeperSystemPrompt(request) {
           "The host exports it to toolbox subprocesses; preserve it when a tool exposes run_id.",
         ]
       : []),
-    `Run \`${pythonCommand} ${request.toolbox_path} list\` to see all tools;`,
-    "`describe <tool>` shows parameters.",
+    "Your first campaign command in this fresh agent context must be:",
+    `  ${pythonCommand} ${request.toolbox_path} session.resume --root . --campaign ${request.campaign_id} --json '{}'`,
+    "Use that bounded packet instead of listing the toolbox, rereading .coc, or",
+    "rescanning history. Only describe or discover one exact long-tail operation",
+    "later when the current adjudication actually needs it.",
+    "If resume mode is pending_finalization, finish and echo that already-journaled",
+    "turn without accepting this request as a new action; never reroll or repeat state.",
+    "If the prior delivery is unconfirmed but this request is a genuine reply to it,",
+    "the reply itself proves delivery; continue normally and let state.journal record it.",
     "",
     "Hard rules (everything else is your judgment):",
     "1. Dice are real: never invent roll numbers or HP/SAN arithmetic; use rules.* tools and quote results faithfully.",
     "2. State writes go through state.* / rules.* tools, never hand edits.",
     "3. Module truth is read-only: fields marked secret are your reference; reveal through play, never as exposition.",
     "4. No played turn reaches the player without one canonical turn.finalize receipt.",
+    "   When calling state.journal, copy this request's Player input byte-for-byte into player_text; keep player_action as a separate summary, and pass run_id when supplied.",
     "",
     "Turn shape: ground yourself, resolve risk, and decide the narration and consequences.",
     "Generic rules.opposed is noncombat-only and requires contest_kind=noncombat.",
@@ -423,7 +465,14 @@ function keeperSystemPrompt(request) {
     "or development writes. Only append-only JSONL audit/mirror flushing may happen",
     "in the background; it must not change the already-settled game state.",
     "After state settlement and state.journal, call turn.output_context, draft causal",
-    "fiction covering every returned obligation, and call turn.finalize. Do not call",
+    "fiction as paragraphs covering every returned obligation. In turn.finalize, place",
+    "every deterministic mechanic exactly once with mechanics_placements. Put each public",
+    "roll after the paragraph that establishes the action/risk and before the later paragraph",
+    "that narrates its result; never collect a turn's rolls after all consequences. Then call",
+    "npc_performance_constraints are Keeper-only portrayal context: realize each observable_manner",
+    "naturally through action or dialogue, but never quote or expose its causal_explanation,",
+    "opportunity_or_friction, or boundary_preserved as a structured player-facing block.",
+    "turn.finalize. Do not call",
     "another tool afterward. Director, Storylet, narration.brief, and narration.review",
     "remain optional craft methods, never a mandatory pipeline.",
     `Narrate in ${request.play_language || "zh-Hans"}.`,

@@ -26,6 +26,10 @@ AI-coding hosts and Pi/headless.
 - Public dice and player-visible HP/SAN/MP/Luck, ammunition, items, conditions,
   and time changes are deterministic output owned by the finalizer, not LLM
   arithmetic.
+- Deterministic ownership does not mean an end-of-turn mechanics dump. The KP
+  places immutable mechanic sources at paragraph boundaries: action/risk,
+  authoritative roll, fictional result, then any immediately relevant damage
+  or state change. A public roll after its covered consequence is invalid.
 - Structured investigator and scene factors such as APP, Credit Rating,
   SIZ/Build, occupation, visible equipment, and environmental scale become
   causal narration obligations only when they actually influenced an NPC
@@ -99,6 +103,14 @@ unresolvable overlap.
    exposed by play or a genuinely high-risk authority boundary.
 
 ## Progress log
+
+- `2026-07-19`: replaced the fixed `fiction -> all rolls -> all deltas` output
+  order with closed `mechanics_placements`. Every bundle source is rendered
+  exactly once at a declared paragraph boundary, and each public roll must
+  precede its coverage excerpt. Host validators now accept interleaved fiction
+  and mechanic segments while still verifying exact hashes and source
+  completeness. Natural-Chinese style remains always on; `narration.review`
+  is selective rather than a routine empty per-turn receipt.
 
 - `2026-07-18`: contextual percentile resolver now separates base target,
   required level/target, achieved level, pass/fail, and surplus. Generic

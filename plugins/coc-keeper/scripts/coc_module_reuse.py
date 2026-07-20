@@ -367,32 +367,13 @@ def process_queue(
     except Exception:  # noqa: BLE001
         force_merged = []
 
-    # Also clear partial_neighbor jobs when a deep/partial pack exists
-    queue = coc_module_assets.list_queue(ws, root_id)
-    pending = list(queue.get("pending") or [])
-    done = list(queue.get("done") or [])
-    still: list[dict[str, Any]] = []
-    cleared = 0
-    for job in pending:
-        kind = job.get("kind")
-        tid = str(job.get("target_id") or "")
-        if kind == "partial_neighbor" and tid:
-            pack = coc_module_assets.get_entity(ws, root_id, "location", tid)
-            if pack and str(pack.get("parse_state") or "") in {
-                "partial", "deep", "body_parsed",
-            }:
-                done.append({**job, "completed_at": _now_iso(), "result": "neighbor_ready"})
-                cleared += 1
-                continue
-        if kind == "deepen_location" and tid in (applied.get("merged_location_ids") or []):
-            # already moved to done by process_ready_deepens rewrite
-            continue
-        still.append(job)
-
-    # If process_ready rewrote queue, re-read and merge clears
+    # process_ready_deepens may have rewritten the queue. Re-read it once and
+    # clear ready neighbor jobs without folding an earlier snapshot back into
+    # done: doing so duplicated the full completion history on every play turn.
     queue2 = coc_module_assets.list_queue(ws, root_id)
     pending2 = list(queue2.get("pending") or [])
     done2 = list(queue2.get("done") or [])
+    cleared = 0
     # rebuild: drop partial_neighbor that are ready
     still2: list[dict[str, Any]] = []
     for job in pending2:
@@ -413,7 +394,7 @@ def process_queue(
         "schema_version": coc_module_assets.SCHEMA_VERSION,
         "pending": still2[: max(0, int(max_jobs) * 4)],
         "in_flight": queue2.get("in_flight") or [],
-        "done": (done2 + done)[-200:],
+        "done": coc_module_assets.dedupe_done_jobs(done2, limit=200),
     })
 
     merged_ids = list(applied.get("merged_location_ids") or [])

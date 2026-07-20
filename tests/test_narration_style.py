@@ -28,11 +28,15 @@ def test_style_guard_contract_requires_observable_behavior_before_interpretation
     assert "crisis_scene_clarity" in guard["required_rules"]
     assert "final_prose_guard_before_output" in guard["required_rules"]
     final_pass = guard["final_output_pass"]
-    assert final_pass["required"] is True
+    assert final_pass["required"] is False
     assert final_pass["reviewer"] == "keeper_llm_semantic_review"
     assert final_pass["tool"] == "narration.review"
     assert final_pass["authority"] == "advisory"
     assert final_pass["hard_gate"] is False
+    assert final_pass["routine_turn_policy"] == (
+        "self_review_in_drafting_pass; do_not_emit_empty_review_receipt"
+    )
+    assert "tonal_climax" in final_pass["invoke_when"]
     assert final_pass["applies_to"] == "player_visible_narration_only"
     assert guard["not_for"] == ["scene_routing", "storylet_selection", "rules_adjudication"]
     uptake = guard["action_uptake_review"]

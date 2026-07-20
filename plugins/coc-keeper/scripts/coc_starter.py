@@ -36,6 +36,7 @@ STARTER_DIR = PLUGIN_ROOT / "references" / "starter-scenarios"
 import coc_fileio
 import coc_state
 import coc_character_creation_briefing
+import coc_compiled_archive
 import coc_investigator_guard
 
 # The seven story-graph JSON files the Story Director reads (see
@@ -1010,6 +1011,20 @@ def quick_start(
                     post_commit_warnings.append(
                         "campaign staging owner cleanup deferred: "
                         f"{type(exc).__name__}"
+                    )
+                try:
+                    archive_result = coc_compiled_archive.publish_from_campaign(
+                        campaign_dir
+                    )
+                    if not archive_result.get("ok"):
+                        post_commit_warnings.append(
+                            "compiled archive publish deferred: "
+                            + str(archive_result.get("error") or "unknown error")
+                        )
+                except Exception as exc:  # cache maintenance never rolls back publication
+                    post_commit_warnings.append(
+                        "compiled archive publish deferred: "
+                        f"{type(exc).__name__}: {exc}"
                     )
             except BaseException as original:
                 cleanup_errors: list[BaseException] = []

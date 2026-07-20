@@ -216,6 +216,29 @@ def test_process_queue_merges_pending_deep(tmp_path: Path):
     assert cellar["parse_state"] == "deep"
 
 
+def test_process_queue_does_not_duplicate_completed_history(tmp_path: Path):
+    _seed_assets(tmp_path)
+    _campaign(tmp_path, "queue-idempotent")
+    project.project_skeleton_to_campaign(
+        tmp_path, "queue-idempotent", "reuse-demo",
+    )
+    assets.enqueue_job(
+        tmp_path, "reuse-demo",
+        kind="deepen_location", target_id="cellar", priority=90, reason="test",
+    )
+
+    reuse.process_queue(
+        tmp_path, "queue-idempotent", asset_root_id="reuse-demo",
+    )
+    reuse.process_queue(
+        tmp_path, "queue-idempotent", asset_root_id="reuse-demo",
+    )
+
+    done = assets.list_queue(tmp_path, "reuse-demo")["done"]
+    job_ids = [row["job_id"] for row in done]
+    assert len(job_ids) == len(set(job_ids))
+
+
 def test_stamp_install_progressive(tmp_path: Path):
     _seed_assets(tmp_path)
     lib = tmp_path / ".coc" / "module-library" / "reuse-demo"

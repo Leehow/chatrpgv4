@@ -264,13 +264,20 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
         ),
     }
     final_output_pass = {
-        "required": True,
+        "required": False,
         "reviewer": "keeper_llm_semantic_review",
         "tool": "narration.review",
+        "invoke_when": [
+            "long_or_multi_stage_causality",
+            "multiple_speaking_npcs",
+            "tonal_climax",
+            "keeper_detects_possible_summary_or_translationese",
+        ],
+        "routine_turn_policy": "self_review_in_drafting_pass; do_not_emit_empty_review_receipt",
         "applies_to": "player_visible_narration_only",
         "not_for": ["scene_routing", "storylet_selection", "rules_adjudication"],
         "instruction": (
-            "Review the drafted narration semantically against the narration "
+            "When the draft is genuinely difficult, review it semantically against the narration "
             "envelope, its action_uptake, and the style contract. Record each "
             "finding with a concrete "
             "reason through narration.review, then decide whether to rewrite. "

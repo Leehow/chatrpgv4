@@ -1246,6 +1246,10 @@ def test_validate_compiled_accepts_typed_no_roll_completion_and_skill_minimum():
                     "summary": "The petitioner is permanently barred.",
                     "effect": {"kind": "route_closed", "route_id": "access"},
                 },
+                "retry_policy": {
+                    "mode": "elapsed_time_reset",
+                    "minimum_elapsed_minutes": 240,
+                },
                 "approaches": [
                     {"verb": "persuade", "skill": "Persuade"},
                     {"verb": "charm", "skill": "Charm"},

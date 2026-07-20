@@ -724,6 +724,12 @@ _ZH_ROLL_SKILL_LABELS = {
     "Psychology": "心理学",
     "Dodge": "闪避",
     "Credit Rating": "信用评级",
+    "hp_damage": "伤害",
+    "hp_heal": "治疗",
+    "san_loss": "理智损失",
+    "damage": "伤害",
+    "healing": "治疗",
+    "random_table": "随机结果",
 }
 _ZH_ROLL_DIFFICULTY_LABELS = {
     "regular": "常规",
@@ -2065,9 +2071,17 @@ def assert_narration_ready(plan: dict[str, Any], scenario_dir: Path) -> dict[str
         final_output_pass = guard.get("final_output_pass") if isinstance(guard, dict) else {}
         final_output_pass_ok = (
             isinstance(final_output_pass, dict)
-            and final_output_pass.get("required") is True
+            and final_output_pass.get("required") is False
             and final_output_pass.get("reviewer") == "keeper_llm_semantic_review"
             and final_output_pass.get("tool") == "narration.review"
+            and final_output_pass.get("invoke_when") == [
+                "long_or_multi_stage_causality",
+                "multiple_speaking_npcs",
+                "tonal_climax",
+                "keeper_detects_possible_summary_or_translationese",
+            ]
+            and final_output_pass.get("routine_turn_policy")
+            == "self_review_in_drafting_pass; do_not_emit_empty_review_receipt"
             and final_output_pass.get("authority") == "advisory"
             and final_output_pass.get("hard_gate") is False
             and final_output_pass.get("applies_to") == "player_visible_narration_only"

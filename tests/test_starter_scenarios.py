@@ -370,6 +370,58 @@ def test_1590s_era_clock_and_freeform_normalize():
         assert ts["clock"]["local_datetime"].startswith("1597-07"), ts["clock"]
 
 
+def test_diverse_module_eras_do_not_fall_back_to_1920s():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "coc_state_diverse_eras", PLUGIN_ROOT / "scripts" / "coc_state.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert mod.normalize_era("40000 BCE") == "prehistoric"
+    assert mod.normalize_era("Roman Britain") == "roman"
+    assert mod.normalize_era("1287 England") == "medieval"
+    assert mod.normalize_era("1603 London") == "early_modern"
+    assert mod.normalize_era("1975 Texas") == "1970s"
+    assert mod.initial_clock_for_era("1975 Texas")["local_datetime"].startswith(
+        "1975-07"
+    )
+
+
+def test_reseed_clock_preserves_live_scene_location(tmp_path: Path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "coc_state_reseed_location", PLUGIN_ROOT / "scripts" / "coc_state.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.ensure_workspace(tmp_path)
+    mod.create_campaign(tmp_path, "road", "Road", era="1975 Texas")
+    campaign_dir = tmp_path / ".coc" / "campaigns" / "road"
+    time_path = campaign_dir / "save" / "time-state.json"
+    time_state = json.loads(time_path.read_text(encoding="utf-8"))
+    time_state["clock"]["location_id"] = "esso-gas-station"
+    mod.write_json_atomic(time_path, time_state)
+
+    mod.reseed_campaign_clock_for_era(
+        campaign_dir,
+        "road",
+        "1975 Texas",
+        preserve_elapsed=True,
+        start_clock={
+            "calendar_mode": "gregorian",
+            "local_datetime": "1975-07-01T11:00:00",
+            "timezone": "America/Chicago",
+            "display": "1975-07-01 11:00",
+        },
+    )
+
+    reseeded = json.loads(time_path.read_text(encoding="utf-8"))
+    assert reseeded["clock"]["location_id"] == "esso-gas-station"
+
+
 # ---------------------------------------------------------------------------
 # N2: the-haunting starter
 # ---------------------------------------------------------------------------
@@ -526,6 +578,9 @@ def test_quick_start_installs_campaign_and_pregen(tmp_path):
     world = json.loads((campaign_dir / "save" / "world-state.json").read_text("utf-8"))
     assert world["status"] == "active"
     assert world["active_scene_id"]
+    archive = coc_starter.coc_compiled_archive.load_published(campaign_dir)
+    assert archive["ok"] is True
+    assert archive["archive_revision"]
     assert coc_starter.player_safe_opening(campaign_dir) == (
         "调查员会接受 Knott 的委托，并决定先从哪里着手调查吗？"
     )

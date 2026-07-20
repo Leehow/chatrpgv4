@@ -353,6 +353,10 @@
                 "route_id": "befriend-ruth"
               }
             },
+            "retry_policy": {
+              "mode": "elapsed_time_reset",
+              "minimum_elapsed_minutes": 720
+            },
             "approaches": [
               {
                 "verb": "charm",

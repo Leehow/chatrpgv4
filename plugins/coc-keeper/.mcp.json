@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "coc-keeper": {
+      "command": "${GROK_PLUGIN_ROOT}/mcp/launch",
+      "env": {
+        "COC_HOST": "grok"
+      }
+    }
+  }
+}

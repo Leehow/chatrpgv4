@@ -1,0 +1,3478 @@
+{
+  "content_sha256": "sha256:7f5a68bd4e56ffc369cf410e5a3f73148e7101b92068cd60a2467af58299e67a",
+  "kind": "mcp_operation_contracts",
+  "listed_hotset": [
+    "session.resume",
+    "scene.context",
+    "secrets.briefing",
+    "actions.advise",
+    "rules.roll",
+    "rules.sanity_check",
+    "npc.reaction",
+    "state.record_clue",
+    "state.record_npc_engagement",
+    "state.journal",
+    "turn.output_context",
+    "turn.finalize"
+  ],
+  "operation_count": 73,
+  "operations": {
+    "actions.advise": {
+      "canonical_operation": "actions.advise",
+      "description": "Contextual authored-route and roll advice for one KP-interpreted player action. Read-only; direct delivery, Push, retry, and narrative suggestions are all soft and never force or block play. Canonical operation `actions.advise`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "intent_evidence": {
+            "additionalProperties": true,
+            "description": "optional KP semantic result with primary_intent, reason, and matched_affordance_ids/selected_affordance_ids",
+            "type": "object"
+          },
+          "investigator": {
+            "description": "investigator id (optional when party has one member)",
+            "type": "string"
+          },
+          "player_text": {
+            "description": "optional exact player message for combined Director/Storylet advice",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Contextual authored-route and roll advice for one KP-interpreted player action. Read-only; direct delivery, Push, retry, and narrative suggestions are all soft and never force or block play."
+    },
+    "actions.list": {
+      "canonical_operation": "actions.list",
+      "description": "Authored affordances of the current scene with roll gates and precondition status (informational, not blocking). Canonical operation `actions.list`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Authored affordances of the current scene with roll gates and precondition status (informational, not blocking)."
+    },
+    "chase.context": {
+      "canonical_operation": "chase.context",
+      "description": "Read the current canonical ChaseSession snapshot and unresolved subsystem choices. Canonical operation `chase.context`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read the current canonical ChaseSession snapshot and unresolved subsystem choices."
+    },
+    "chase.execute": {
+      "canonical_operation": "chase.execute",
+      "description": "Execute one exact command through the existing full ChaseSession subsystem. No fixed chase workflow is imposed by the toolbox. Canonical operation `chase.execute`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "command": {
+            "additionalProperties": true,
+            "description": "exact chase_start/move/hazard/barrier/conflict/end command",
+            "type": "object"
+          },
+          "decision_id": {
+            "description": "idempotency key; must match command.payload.decision_id",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "command",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Execute one exact command through the existing full ChaseSession subsystem. No fixed chase workflow is imposed by the toolbox."
+    },
+    "clues.query": {
+      "canonical_operation": "clues.query",
+      "description": "Clue graph with discovery state. Filter by scene_id or clue_id. Undiscovered clues are keeper secrets. Canonical operation `clues.query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "clue_id": {
+            "description": "a single clue",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "only clues available in this scene",
+            "type": "string"
+          },
+          "since_revision": {
+            "description": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
+            "type": "string"
+          },
+          "undiscovered_only": {
+            "description": "only clues not yet found",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Clue graph with discovery state. Filter by scene_id or clue_id. Undiscovered clues are keeper secrets."
+    },
+    "combat.context": {
+      "canonical_operation": "combat.context",
+      "description": "Read the canonical combat snapshot, initiative cursor, and pending defense choice. Canonical operation `combat.context`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read the canonical combat snapshot, initiative cursor, and pending defense choice."
+    },
+    "combat.end": {
+      "canonical_operation": "combat.end",
+      "description": "Finalize the current CombatSession and emit the canonical combat_ended receipt. Canonical operation `combat.end`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "structured CombatSession outcome",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "outcome",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Finalize the current CombatSession and emit the canonical combat_ended receipt."
+    },
+    "combat.resolve": {
+      "canonical_operation": "combat.resolve",
+      "description": "Execute one authored combat beat through CombatSession, including reaction-specific ties (Dodge tie: defender; Fight Back tie: attacker), combat.json, and canonical roll evidence. Canonical operation `combat.resolve`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "affordance_id": {
+            "description": "current-scene affordance whose rules_operation is combat_engagement",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "defense_kind": {
+            "description": "structured reaction: dodge (ties defend) | fight_back (ties attack) | dive_for_cover | none",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "luck_spend_max": {
+            "description": "optional pre-authorization (1..99): spend only the minimum Luck that changes this opposed melee result",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          },
+          "weapon_id": {
+            "description": "stable owned weapon id for a structured_player_selection route",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "affordance_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Execute one authored combat beat through CombatSession, including reaction-specific ties (Dodge tie: defender; Fight Back tie: attacker), combat.json, and canonical roll evidence."
+    },
+    "development.settle": {
+      "canonical_operation": "development.settle",
+      "description": "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine. Canonical operation `development.settle`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "ending_id": {
+            "description": "exact persisted ending id; defaults to the latest ending",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id; defaults to the linked party member",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Replay or complete deterministic post-ending development bookkeeping through the canonical development engine."
+    },
+    "director.advise": {
+      "canonical_operation": "director.advise",
+      "description": "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration. Canonical operation `director.advise`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "stable turn decision id",
+            "type": "string"
+          },
+          "intent_evidence": {
+            "additionalProperties": true,
+            "description": "KP semantic result with primary_intent and reason",
+            "type": "object"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "player_text": {
+            "description": "exact current player message; retained as evidence, never keyword-classified",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic advisory seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "player_text",
+          "intent_evidence"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration."
+    },
+    "epistemic.query": {
+      "canonical_operation": "epistemic.query",
+      "description": "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence. Canonical operation `epistemic.query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read compiled open questions, belief state, and structured lifecycle suggestions from current evidence."
+    },
+    "evidence.record_adoption": {
+      "canonical_operation": "evidence.record_adoption",
+      "description": "Record which advisory candidates the KP adopted, modified, or ignored. Keeper-internal audit evidence only. Canonical operation `evidence.record_adoption`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "adopted_fields": {
+            "description": "structured field paths actually used",
+            "type": "array"
+          },
+          "advice_id": {
+            "description": "id returned by an advisory tool",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "stable turn decision id",
+            "type": "string"
+          },
+          "disposition": {
+            "description": "adopted | modified | ignored",
+            "type": "string"
+          },
+          "emotional_tone_adoption": {
+            "description": "per-NPC first-impression follow-through for each npc_moves[].emotional_tone in the referenced plan: {npc_id, emotional_tone, adoption: adopted|modified|ignored}",
+            "type": "array"
+          },
+          "exact_excerpt": {
+            "description": "optional exact finalized draft excerpt realizing the adopted candidate",
+            "type": "string"
+          },
+          "finalization_id": {
+            "description": "optional finalized output proving the adopted candidate reached the delivered draft",
+            "type": "string"
+          },
+          "reason": {
+            "description": "concise semantic reason, not hidden chain-of-thought",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "storylet_candidate": {
+            "additionalProperties": true,
+            "description": "optional exact candidate returned by actions.advise/storylets.suggest; adopted or modified candidates update the existing anti-repeat ledger",
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "advice_id",
+          "disposition",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record which advisory candidates the KP adopted, modified, or ignored. Keeper-internal audit evidence only."
+    },
+    "evidence.table_opening": {
+      "canonical_operation": "evidence.table_opening",
+      "description": "Record the exact player-visible Keeper opening that precedes the first player message, so the readable transcript starts where play actually started. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "current play/report segment id",
+            "type": "string"
+          },
+          "speaker": {
+            "description": "player-facing Keeper speaker label",
+            "type": "string"
+          },
+          "text": {
+            "description": "exact opening text delivered to the player",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "text",
+          "run_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record the exact player-visible Keeper opening that precedes the first player message, so the readable transcript starts where play actually started."
+    },
+    "narration.brief": {
+      "canonical_operation": "narration.brief",
+      "description": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract. Canonical operation `narration.brief`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "applied_events": {
+            "description": "authoritative state/rules receipts already applied this turn",
+            "type": "array"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "candidate_plan": {
+            "additionalProperties": true,
+            "description": "KP-adopted or modified Director plan",
+            "type": "object"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "candidate_plan"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract."
+    },
+    "narration.review": {
+      "canonical_operation": "narration.review",
+      "description": "Record an LLM semantic review of drafted narration. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "stable turn decision id",
+            "type": "string"
+          },
+          "draft_text": {
+            "description": "exact draft reviewed by the KP",
+            "type": "string"
+          },
+          "findings": {
+            "description": "semantic findings with rule_id and reason; empty when the draft is sound",
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id",
+          "draft_text"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record an LLM semantic review of drafted narration. Advice only; no keyword matcher and no blocking prose gate."
+    },
+    "npc.advise": {
+      "canonical_operation": "npc.advise",
+      "description": "Build existing persona cards and optional NPC agency moves for NPCs in the active scene. Advice only. Canonical operation `npc.advise`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "intent_evidence": {
+            "additionalProperties": true,
+            "description": "KP semantic intent result",
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic advisory seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "intent_evidence"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Build existing persona cards and optional NPC agency moves for NPCs in the active scene. Advice only."
+    },
+    "npc.query": {
+      "canonical_operation": "npc.query",
+      "description": "NPC agendas plus live psych state and the requested investigator/NPC's bounded textual impression. 'secret'-marked fields are keeper-only reference — never reveal verbatim. Canonical operation `npc.query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator whose pair-scoped impression should be projected",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "a single NPC (default: all)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "since_revision": {
+            "description": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "NPC agendas plus live psych state and the requested investigator/NPC's bounded textual impression. 'secret'-marked fields are keeper-only reference — never reveal verbatim."
+    },
+    "npc.reaction": {
+      "canonical_operation": "npc.reaction",
+      "description": "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement. Canonical operation `npc.reaction`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "context": {
+            "additionalProperties": true,
+            "description": "required for a new pair: exactly {player_conduct, scene_constraints, authored_or_relationship_boundary, semantic_reason}; structured semantic grounding only, never used to alter the die",
+            "type": "object"
+          },
+          "decision_id": {
+            "description": "idempotency key; a second decision for the same pair returns the frozen receipt",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id (optional when party has one member)",
+            "type": "string"
+          },
+          "npc_display_name": {
+            "description": "required for a new pair: localized player-safe table name for this stable NPC; never pass the raw npc_id",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "stable authored or improvised NPC id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "current play/report segment run id; use the same value for the first engagement",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic advisory seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "npc_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement."
+    },
+    "personal_horror.query": {
+      "canonical_operation": "personal_horror.query",
+      "description": "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose. Canonical operation `personal_horror.query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose."
+    },
+    "progressive.follow_mentions": {
+      "canonical_operation": "progressive.follow_mentions",
+      "description": "Enqueue deepen jobs from a structured mentions list [{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, or dig yields explicit entity refs. Never pass free prose to scan. Canonical operation `progressive.follow_mentions`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "mentions": {
+            "description": "list of {kind, ref_id, raw_label?}",
+            "type": "array"
+          },
+          "reason": {
+            "description": "queue reason label",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "mentions"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Enqueue deepen jobs from a structured mentions list [{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, or dig yields explicit entity refs. Never pass free prose to scan."
+    },
+    "progressive.fulfill_host_work": {
+      "canonical_operation": "progressive.fulfill_host_work",
+      "description": "Submit one host-PDF semantic pack for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work. Canonical operation `progressive.fulfill_host_work`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "job_id": {
+            "description": "open job_id returned by progressive.status or scene.context",
+            "type": "string"
+          },
+          "pack": {
+            "additionalProperties": true,
+            "description": "source-bound semantic entity pack produced by the host PDF capability",
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "job_id",
+          "pack"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Submit one host-PDF semantic pack for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work."
+    },
+    "progressive.request_deepen": {
+      "canonical_operation": "progressive.request_deepen",
+      "description": "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, and return host_hints / evidence_gap status. Use when the investigator materially pursues a place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only). Canonical operation `progressive.request_deepen`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "location | npc | clue | handout | threat",
+            "type": "string"
+          },
+          "reason": {
+            "description": "why dig was requested (logged on the queue job)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "target_id": {
+            "description": "stable entity id (e.g. gypsy-hillside-camp, npc-carlos-mendoza)",
+            "type": "string"
+          },
+          "title": {
+            "description": "optional display label for the stub (table language ok)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "kind",
+          "target_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, and return host_hints / evidence_gap status. Use when the investigator materially pursues a place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only)."
+    },
+    "progressive.status": {
+      "canonical_operation": "progressive.status",
+      "description": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only; use before inventing detail on a dig target. Canonical operation `progressive.status`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "optional entity kind to inspect",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "target_id": {
+            "description": "optional entity id to inspect (requires kind)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only; use before inventing detail on a dig target."
+    },
+    "rules.build_scale": {
+      "canonical_operation": "rules.build_scale",
+      "description": "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads. Canonical operation `rules.build_scale`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_build": {
+            "description": "acting being's build; with target_build, returns the lift/throw and maneuver verdict",
+            "type": "integer"
+          },
+          "build": {
+            "description": "single build value to look up scale examples for",
+            "type": "integer"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "target_build": {
+            "description": "target being/object's build",
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Comparative build scale and lift/throw capability (Table XV, p.279). Read-only lookup; use when size shapes the fiction — who can lift, carry, or throw whom, and how big something reads."
+    },
+    "rules.cash_assets": {
+      "canonical_operation": "rules.cash_assets",
+      "description": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter. Canonical operation `rules.cash_assets`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "credit_rating": {
+            "description": "the investigator's Credit Rating skill value",
+            "type": "integer"
+          },
+          "period": {
+            "description": "finance period from cash-assets.json (default '1920s')",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "credit_rating"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter."
+    },
+    "rules.damage": {
+      "canonical_operation": "rules.damage",
+      "description": "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression. Canonical operation `rules.damage`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "integer or dice expression (e.g. '1D6+1')",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "damage | heal (default damage)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          },
+          "source": {
+            "description": "what caused it (logged)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "amount",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression."
+    },
+    "rules.dying_check": {
+      "canonical_operation": "rules.dying_check",
+      "description": "Resolve the canonical CON death clock for a dying or temporarily stabilized investigator. Canonical operation `rules.dying_check`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "clock_kind": {
+            "description": "round while unstabilized; hour while stabilized",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "dying investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "clock_kind",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Resolve the canonical CON death clock for a dying or temporarily stabilized investigator."
+    },
+    "rules.first_aid": {
+      "canonical_operation": "rules.first_aid",
+      "description": "Resolve canonical First Aid, including stabilization at 0 HP, through the transactional healing engine. Canonical operation `rules.first_aid`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "changed_method": {
+            "description": "what materially changes on the pushed First Aid attempt",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "failure_consequence": {
+            "description": "consequence announced before the pushed attempt",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "injured investigator id",
+            "type": "string"
+          },
+          "pushed": {
+            "description": "true for second/subsequent attempts after an earlier First Aid roll",
+            "type": "boolean"
+          },
+          "rescuer_id": {
+            "description": "stable actor id for roll evidence (defaults to the investigator)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          },
+          "skill_value": {
+            "description": "First Aid value of the acting rescuer (1..100)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "skill_value",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Resolve canonical First Aid, including stabilization at 0 HP, through the transactional healing engine."
+    },
+    "rules.luck_spend": {
+      "canonical_operation": "rules.luck_spend",
+      "description": "Bind Luck spending to one existing canonical public rules.roll receipt; adjusts its settlement without creating another dice row. Canonical operation `rules.luck_spend`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "points": {
+            "description": "positive Luck points to spend",
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_roll_id": {
+            "description": "roll_id of the current canonical failed rules.roll receipt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "points",
+          "source_roll_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Bind Luck spending to one existing canonical public rules.roll receipt; adjusts its settlement without creating another dice row."
+    },
+    "rules.medicine": {
+      "canonical_operation": "rules.medicine",
+      "description": "Resolve canonical Medicine treatment, including clearing a stabilized dying state and its 1D3 healing. Canonical operation `rules.medicine`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "injured investigator id",
+            "type": "string"
+          },
+          "rescuer_id": {
+            "description": "stable actor id for roll evidence (defaults to the investigator)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          },
+          "skill_value": {
+            "description": "Medicine value of the acting caregiver (1..100)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "skill_value",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Resolve canonical Medicine treatment, including clearing a stabilized dying state and its 1D3 healing."
+    },
+    "rules.opposed": {
+      "canonical_operation": "rules.opposed",
+      "description": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve. Canonical operation `rules.opposed`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "characteristic": {
+            "description": "characteristic instead of a skill",
+            "type": "string"
+          },
+          "contest_kind": {
+            "description": "must be noncombat; combat reactions use combat.resolve defense_kind",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "opponent_label": {
+            "description": "opponent description (logged)",
+            "type": "string"
+          },
+          "opponent_value": {
+            "description": "opponent's skill/characteristic value",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "what the contest is about",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          },
+          "skill": {
+            "description": "investigator skill",
+            "type": "string"
+          },
+          "target": {
+            "description": "explicit investigator target override",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "contest_kind",
+          "opponent_value",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve."
+    },
+    "rules.push": {
+      "canonical_operation": "rules.push",
+      "description": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them. Canonical operation `rules.push`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "failure_consequence": {
+            "description": "specific failure consequence announced to the player before the pushed roll",
+            "type": "string"
+          },
+          "fumble_consequence": {
+            "description": "specific escalation if the pushed roll fumbles",
+            "type": "string"
+          },
+          "method_changed": {
+            "description": "how the approach differs from the first attempt",
+            "type": "string"
+          },
+          "original_check_decision_id": {
+            "description": "decision_id of the failed canonical rules.roll to push",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "original_check_decision_id",
+          "method_changed",
+          "failure_consequence",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them."
+    },
+    "rules.roll": {
+      "canonical_operation": "rules.roll",
+      "description": "Contextual percentile skill/characteristic check. Requires an explicit goal, stakes, difficulty, and structured difficulty basis; returns distinct required and achieved levels. Canonical operation `rules.roll`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "bonus": {
+            "description": "bonus dice 0-2",
+            "type": "integer"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "characteristic": {
+            "description": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "difficulty": {
+            "description": "required success level: regular | hard | extreme; never inferred or defaulted",
+            "type": "string"
+          },
+          "difficulty_basis": {
+            "description": "authored_gate | opponent_skill | environment | keeper_judgment",
+            "type": "string"
+          },
+          "fumble_consequence": {
+            "description": "predeclared meaningful complication if this roll fumbles (dice evidence)",
+            "type": "string"
+          },
+          "goal": {
+            "description": "the concrete fictional objective this one check may settle",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id (optional when party has one member)",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "structured NPC target for a social check; required to match/consume an NPC-scoped relationship reward",
+            "type": "string"
+          },
+          "penalty": {
+            "description": "penalty dice 0-2",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "optional audit note distinct from the authoritative goal/stakes contract",
+            "type": "string"
+          },
+          "resolution_context": {
+            "additionalProperties": true,
+            "description": "optional KP-supplied structured continuity identity: attempt_id, scene_id, route_id, roll_density_group, and optional reset_evidence. Used only for soft Push/retry/route advice; never blocks the roll",
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          },
+          "skill": {
+            "description": "skill name on the sheet (e.g. 'Library Use')",
+            "type": "string"
+          },
+          "stakes": {
+            "additionalProperties": true,
+            "description": "exactly {on_success, on_failure}, both non-empty player-action consequences",
+            "type": "object"
+          },
+          "target": {
+            "description": "explicit target value override",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "difficulty",
+          "goal",
+          "stakes",
+          "difficulty_basis",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Contextual percentile skill/characteristic check. Requires an explicit goal, stakes, difficulty, and structured difficulty basis; returns distinct required and achieved levels."
+    },
+    "rules.roll_dice": {
+      "canonical_operation": "rules.roll_dice",
+      "description": "Roll an arbitrary dice expression (e.g. '1D6+1') for damage, SAN loss amounts, or randomization. Canonical operation `rules.roll_dice`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "expression": {
+            "description": "NdM(+/-k) expression",
+            "type": "string"
+          },
+          "reason": {
+            "description": "what the roll is for (logged)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "expression",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Roll an arbitrary dice expression (e.g. '1D6+1') for damage, SAN loss amounts, or randomization."
+    },
+    "rules.sanity_check": {
+      "canonical_operation": "rules.sanity_check",
+      "description": "SAN check with success/failure loss expressions (e.g. '0' / '1D6'). Applies the loss to the investigator. Canonical operation `rules.sanity_check`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "loss_failure": {
+            "description": "loss on failure (int or dice, e.g. '1D6')",
+            "type": "string"
+          },
+          "loss_success": {
+            "description": "loss on success (default '0'; int or dice)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          },
+          "source": {
+            "description": "what horror caused the check",
+            "type": "string"
+          },
+          "trigger_id": {
+            "description": "authored scene SAN trigger id; marks that trigger fired after settlement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "source",
+          "loss_failure",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "SAN check with success/failure loss expressions (e.g. '0' / '1D6'). Applies the loss to the investigator."
+    },
+    "rules.skill_describe": {
+      "canonical_operation": "rules.skill_describe",
+      "description": "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll. Canonical operation `rules.skill_describe`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "include_selection_policy": {
+            "description": "when true, include the interpersonal disambiguation policy (default true when fetching Charm/Fast Talk/Intimidate/Persuade)",
+            "type": "boolean"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "skill": {
+            "description": "optional canonical skill name (e.g. 'Persuade'); omit with include_selection_policy to list known entries",
+            "type": "string"
+          },
+          "skills": {
+            "description": "optional list of candidate skill names to fetch together (e.g. interpersonal shortlist)",
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll."
+    },
+    "rules.weekly_recovery": {
+      "canonical_operation": "rules.weekly_recovery",
+      "description": "Resolve one due major-wound recovery week from authoritative game time, with optional weekly medical care and complete dice evidence. Canonical operation `rules.weekly_recovery`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "caregiver_id": {
+            "description": "stable caregiver id; defaults to the investigator when Medicine is supplied",
+            "type": "string"
+          },
+          "complete_rest": {
+            "description": "true only when the investigator had complete comfortable rest for the interval",
+            "type": "boolean"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "recovering investigator id",
+            "type": "string"
+          },
+          "medicine_skill_value": {
+            "description": "optional caregiver Medicine value (1..100) for this week's care roll",
+            "type": "integer"
+          },
+          "poor_environment": {
+            "description": "true when the recovery environment or rest was inadequate",
+            "type": "boolean"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed (tests only)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "complete_rest",
+          "poor_environment",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Resolve one due major-wound recovery week from authoritative game time, with optional weekly medical care and complete dice evidence."
+    },
+    "sanity.context": {
+      "canonical_operation": "sanity.context",
+      "description": "Read the full persisted SanitySession snapshot and unresolved subsystem choices. Canonical operation `sanity.context`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read the full persisted SanitySession snapshot and unresolved subsystem choices."
+    },
+    "sanity.execute": {
+      "canonical_operation": "sanity.execute",
+      "description": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem. Canonical operation `sanity.execute`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "command": {
+            "additionalProperties": true,
+            "description": "exact sanity_check, bout_tick, or bout_end command",
+            "type": "object"
+          },
+          "decision_id": {
+            "description": "idempotency key; must match command.payload.decision_id",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "command",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Execute one exact sanity_check/bout command through the existing full SanitySession subsystem."
+    },
+    "scene.context": {
+      "canonical_operation": "scene.context",
+      "description": "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time. Canonical operation `scene.context`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "optional investigator whose pair-scoped NPC impressions should be projected; defaults only for a one-member party",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "since_revision": {
+            "description": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time."
+    },
+    "scene.map": {
+      "canonical_operation": "scene.map",
+      "description": "The whole scene graph with unlock/visit status — where the story can go and what gates each edge. Canonical operation `scene.map`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "The whole scene graph with unlock/visit status — where the story can go and what gates each edge."
+    },
+    "secrets.briefing": {
+      "canonical_operation": "secrets.briefing",
+      "description": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump. Canonical operation `secrets.briefing`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "clue_ids": {
+            "description": "optional explicit clue ids when scope=entities",
+            "type": "array"
+          },
+          "npc_ids": {
+            "description": "optional explicit NPC ids when scope=entities",
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "for scope=active_scene: optional override (defaults to world.active_scene_id). for scope=entities: include a scene only when this is explicitly passed; never implied from active scene",
+            "type": "string"
+          },
+          "scope": {
+            "description": "active_scene (default) | entities | whole_module_audit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump."
+    },
+    "session.delivery_ack": {
+      "canonical_operation": "session.delivery_ack",
+      "description": "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics. Canonical operation `session.delivery_ack`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ack_kind": {
+            "description": "how the host delivered the immutable text",
+            "enum": [
+              "displayed",
+              "replayed"
+            ],
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "finalization_id": {
+            "description": "latest finalization_id returned by session.resume",
+            "type": "string"
+          },
+          "rendered_sha256": {
+            "description": "exact latest rendered_sha256 returned by session.resume",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "stable host delivery/event identity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "finalization_id",
+          "rendered_sha256",
+          "ack_kind",
+          "source_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics."
+    },
+    "session.delivery_text": {
+      "canonical_operation": "session.delivery_text",
+      "description": "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget. Canonical operation `session.delivery_text`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "finalization_id": {
+            "description": "latest finalization identity from session.resume.delivery",
+            "type": "string"
+          },
+          "rendered_sha256": {
+            "description": "exact rendered hash from session.resume.delivery",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "finalization_id",
+          "rendered_sha256"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget."
+    },
+    "session.resume": {
+      "canonical_operation": "session.resume",
+      "description": "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context. Canonical operation `session.resume`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "context_epoch": {
+            "description": "optional epoch from a host lifecycle notice; rejects a stale resume race",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "host_session_id": {
+            "description": "optional host session identity when the host does not export one to child tools",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "optional investigator for pair-scoped NPC impression projection",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context."
+    },
+    "state.advance_time": {
+      "canonical_operation": "state.advance_time",
+      "description": "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval. Canonical operation `state.advance_time`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "day_phase_after": {
+            "description": "optional broad phase established after this interval for an imprecise civil clock; requires display_after",
+            "enum": [
+              "morning",
+              "afternoon",
+              "evening",
+              "night"
+            ],
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "display_after": {
+            "description": "localized imprecise civil-time display paired with day_phase_after",
+            "type": "string"
+          },
+          "minutes": {
+            "description": "minutes to advance (>= 0)",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "what consumed the time",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "minutes",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval."
+    },
+    "state.backstory_corruption_add": {
+      "canonical_operation": "state.backstory_corruption_add",
+      "description": "Persist an accepted SanitySession backstory amendment using structured fields only. Canonical operation `state.backstory_corruption_add`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "backstory_field": {
+            "description": "structured backstory field",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "keeper_note": {
+            "description": "accepted amendment note",
+            "type": "string"
+          },
+          "mode": {
+            "description": "corrupt_existing | add_irrational",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "mode",
+          "backstory_field",
+          "keeper_note",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Persist an accepted SanitySession backstory amendment using structured fields only."
+    },
+    "state.belief_apply": {
+      "canonical_operation": "state.belief_apply",
+      "description": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger. Canonical operation `state.belief_apply`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "candidate_plan": {
+            "additionalProperties": true,
+            "description": "adopted or KP-modified Director plan",
+            "type": "object"
+          },
+          "committed_clue_ids": {
+            "description": "clue ids already committed by state.record_clue",
+            "type": "array"
+          },
+          "decision_id": {
+            "description": "idempotency key; must match plan decision_id when present",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "candidate_plan",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Apply an adopted Director epistemic contract and committed clues to the persistent belief ledger."
+    },
+    "state.clear_transient_condition": {
+      "canonical_operation": "state.clear_transient_condition",
+      "description": "Clear one combat-only positional condition after the fiction ends it; injury, dying, and death conditions are intentionally unsupported. Canonical operation `state.clear_transient_condition`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "condition": {
+            "description": "prone | grappled | surprised | outnumbered | fled",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "the narrated action or transition that ended the condition",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "condition",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Clear one combat-only positional condition after the fiction ends it; injury, dying, and death conditions are intentionally unsupported."
+    },
+    "state.clock_discontinuity": {
+      "canonical_operation": "state.clock_discontinuity",
+      "description": "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines. Canonical operation `state.clock_discontinuity`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "calendar_mode": {
+            "description": "calendar used by the target civil-time anchor",
+            "enum": [
+              "relative",
+              "gregorian",
+              "julian",
+              "proleptic_gregorian",
+              "fictional"
+            ],
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "civil_anchor_elapsed": {
+            "description": "optional prior monotonic elapsed position where this civil anchor became true; use only for delayed recovery/correction from authoritative evidence",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "day_phase": {
+            "description": "broad source-supported phase when no exact time is known",
+            "enum": [
+              "morning",
+              "afternoon",
+              "evening",
+              "night",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "discontinuity_kind": {
+            "description": "structured semantic kind chosen by the KP; never inferred from prose",
+            "enum": [
+              "time_shift",
+              "loop_reset",
+              "dream_transition",
+              "calendar_correction",
+              "other"
+            ],
+            "type": "string"
+          },
+          "display": {
+            "description": "faithful campaign-language rendering of the target civil time",
+            "type": "string"
+          },
+          "local_date": {
+            "description": "ISO local date when the source establishes a date without an exact time",
+            "type": "string"
+          },
+          "local_datetime": {
+            "description": "ISO local datetime when precision is exact/minute/hour",
+            "type": "string"
+          },
+          "precision": {
+            "description": "source-supported precision; day_phase/date avoid inventing an exact clock time",
+            "enum": [
+              "exact",
+              "minute",
+              "hour",
+              "date",
+              "day_phase",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "why the civil clock changed in the fiction",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_ref": {
+            "description": "optional module or campaign-canon provenance reference",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "target timezone when meaningful; omission clears a stale prior timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "discontinuity_kind",
+          "calendar_mode",
+          "precision",
+          "display",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines."
+    },
+    "state.end_session": {
+      "canonical_operation": "state.end_session",
+      "description": "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration. Canonical operation `state.end_session`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "optional investigator id; defaults to every linked party member",
+            "type": "string"
+          },
+          "kind": {
+            "description": "ending flavor: conclusion | tpk | retreat | cliffhanger (default conclusion)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "summary": {
+            "description": "player-safe closing summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Declare a structured story ending, then synchronously finalize deterministic development bookkeeping without gating narration."
+    },
+    "state.exceptional_effect": {
+      "canonical_operation": "state.exceptional_effect",
+      "description": "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice. Canonical operation `state.exceptional_effect`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "apply | consume | resolve",
+            "type": "string"
+          },
+          "boundary": {
+            "additionalProperties": true,
+            "description": "exactly one of {kind:immediate}; {kind:until_consumed,uses:1}; {kind:until_scene_end,scene_id}; {kind:until_time_marker,marker_id}; {kind:until_condition,description}. until_condition.description is rendered verbatim to the player and must use the campaign's active play_language",
+            "type": "object"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "causal_link": {
+            "description": "exact player-visible causal wording rendered verbatim; write it in the campaign's active play_language, not as internal audit reasoning",
+            "type": "string"
+          },
+          "consuming_roll_id": {
+            "description": "later roll that actually used the modifier (consume)",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "direction": {
+            "description": "benefit | cost (apply)",
+            "type": "string"
+          },
+          "effect_id": {
+            "description": "active bonus/penalty effect id (consume)",
+            "type": "string"
+          },
+          "effect_kind": {
+            "description": "bonus_die | penalty_die | condition | restriction | relationship_or_clock | scene_event | resource_delta",
+            "type": "string"
+          },
+          "mechanics": {
+            "additionalProperties": true,
+            "description": "bonus/penalty={dice,investigator_id,skill,scene_id:null|string,target_id:null|npc_id}; non-null target_id also requires localized target_display_name; NPC-scoped relationship bonus additionally requires source_decision_ids linking state.npc_update; condition={target_id,condition_id,scene_id}; restriction={subject_id,restriction_id,scope,scene_id}; scene_event={scene_id,event_id,change_kind}; resource_delta={source_decision_ids}; relationship_or_clock={source_decision_ids,affected_id,change_summary}",
+            "type": "object"
+          },
+          "player_visible_impact": {
+            "description": "exact concise mechanical/fictional impact rendered verbatim to the player; write it in the campaign's active play_language",
+            "type": "string"
+          },
+          "resolution_event_ids": {
+            "description": "canonical event_id/decision_id evidence that satisfied a non-roll until_condition boundary (resolve)",
+            "type": "array"
+          },
+          "resolution_reason": {
+            "description": "semantic reason the successful check satisfies the recorded boundary (resolve)",
+            "type": "string"
+          },
+          "resolution_roll_id": {
+            "description": "successful canonical check that satisfied an until_condition boundary (resolve)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_roll_id": {
+            "description": "critical/fumble/pushed-failure/first-impression roll_id (apply)",
+            "type": "string"
+          },
+          "visibility": {
+            "description": "player_visible | concealed_observable | keeper_only",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "action",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice."
+    },
+    "state.inventory_list": {
+      "canonical_operation": "state.inventory_list",
+      "description": "Show an investigator's effective items and weapons (character sheet minus recorded losses plus runtime gains), or an NPC's runtime items. Canonical operation `state.inventory_list`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "NPC actor id (query instead of an investigator)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Show an investigator's effective items and weapons (character sheet minus recorded losses plus runtime gains), or an NPC's runtime items."
+    },
+    "state.item_grant": {
+      "canonical_operation": "state.item_grant",
+      "description": "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement. Canonical operation `state.item_grant`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "stable item id (defaults to weapon_id for weapons)",
+            "type": "string"
+          },
+          "kind": {
+            "description": "gear | weapon",
+            "type": "string"
+          },
+          "label": {
+            "description": "short display label",
+            "type": "string"
+          },
+          "note": {
+            "description": "where/how the item was obtained",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "NPC actor id (exactly one of investigator/npc_id)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "weapon": {
+            "additionalProperties": true,
+            "description": "full custom weapon spec with weapon_id (kind=weapon)",
+            "type": "object"
+          },
+          "weapon_id": {
+            "description": "catalog/module weapon id (kind=weapon)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "kind",
+          "label",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Grant an item or weapon to an investigator or NPC. Granted weapons become legal combat selections; changes persist in campaign state and reach the investigator library at development settlement."
+    },
+    "state.item_remove": {
+      "canonical_operation": "state.item_remove",
+      "description": "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override. Canonical operation `state.item_remove`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "item id or weapon id to remove",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "NPC actor id (exactly one of investigator/npc_id)",
+            "type": "string"
+          },
+          "reason": {
+            "description": "what happened to the item",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "item_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override."
+    },
+    "state.journal": {
+      "canonical_operation": "state.journal",
+      "description": "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts. Canonical operation `state.journal`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "continuation": {
+            "additionalProperties": false,
+            "description": "optional KP-authored semantic delta for recovery after compaction; record only meaning that changed this turn",
+            "properties": {
+              "clear_unresolved_intent": {
+                "type": "boolean"
+              },
+              "confirmed_decisions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "decision_id": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "decision_id",
+                    "summary",
+                    "reason"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "do_not_repeat": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "instruction": {
+                      "type": "string"
+                    },
+                    "item_id": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "instruction",
+                    "reason"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "open_threads": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "reason": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "active",
+                        "deferred",
+                        "resolved",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "summary": {
+                      "type": "string"
+                    },
+                    "thread_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "thread_id",
+                    "summary",
+                    "reason",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "style_commitments": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "unresolved_intent": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "intent_class": {
+            "description": "your read of the intent (investigate/social/move/stuck/meta/...)",
+            "type": "string"
+          },
+          "player_action": {
+            "description": "what the player did (verbatim or condensed)",
+            "type": "string"
+          },
+          "player_speaker": {
+            "description": "player-facing speaker name",
+            "type": "string"
+          },
+          "player_text": {
+            "description": "exact byte-for-byte player message for the readable transcript",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "current play/report segment id",
+            "type": "string"
+          },
+          "summary": {
+            "description": "player-safe summary of what just happened",
+            "type": "string"
+          },
+          "tension": {
+            "description": "set tension level: low | medium | high | climax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "summary",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Close out a narrated turn: bump the turn counter, optionally set tension, and write player-safe receipts."
+    },
+    "state.mark_safe_rest": {
+      "canonical_operation": "state.mark_safe_rest",
+      "description": "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose. Canonical operation `state.mark_safe_rest`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id (optional when party has one member)",
+            "type": "string"
+          },
+          "rest_kind": {
+            "description": "currently exactly full_sleep; a structured KP assertion, not text classification",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "rest_kind",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose."
+    },
+    "state.move_scene": {
+      "canonical_operation": "state.move_scene",
+      "description": "Move the party to a scene. Off-graph or locked moves warn but succeed — you own the fiction. Canonical operation `state.move_scene`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "exhaust_previous": {
+            "description": "mark the departed scene exhausted (done with it)",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "why the story moves (logged)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "destination scene id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "scene_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Move the party to a scene. Off-graph or locked moves warn but succeed — you own the fiction."
+    },
+    "state.npc_presence": {
+      "canonical_operation": "state.npc_presence",
+      "description": "Explicitly place or remove one stable authored/improvised NPC in a scene. This is live scene state; engagement history never implies continued presence. Canonical operation `state.npc_presence`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "stable authored or campaign-local NPC id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "fictional cause for this explicit presence change",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "scene whose live presence is being asserted or ended",
+            "type": "string"
+          },
+          "status": {
+            "description": "present places the NPC here; absent records that they are no longer here",
+            "enum": [
+              "present",
+              "absent"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "npc_id",
+          "scene_id",
+          "status",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Explicitly place or remove one stable authored/improvised NPC in a scene. This is live scene state; engagement history never implies continued presence."
+    },
+    "state.npc_update": {
+      "canonical_operation": "state.npc_update",
+      "description": "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises made or resolved, availability, and a bounded investigator-specific textual impression authored by the KP. Canonical operation `state.npc_update`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "description": "availability status: available | unavailable",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "fear_delta": {
+            "description": "fear adjustment",
+            "type": "integer"
+          },
+          "impression_update": {
+            "additionalProperties": true,
+            "description": "semantic KP-authored update: {summary?, expectations?, reservations?, memory?, reason}; memory requires memory_id, event, interpretation, reason",
+            "type": "object"
+          },
+          "investigator": {
+            "description": "investigator whose action changed this relationship; required when linking an NPC-scoped reward",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "npc id",
+            "type": "string"
+          },
+          "record_fact": {
+            "description": "fact_id the NPC just disclosed",
+            "type": "string"
+          },
+          "record_lie": {
+            "description": "lie_id the NPC just told",
+            "type": "string"
+          },
+          "record_promise": {
+            "description": "promise_id made",
+            "type": "string"
+          },
+          "resolve_promise": {
+            "additionalProperties": false,
+            "description": "close an existing promise as exactly {promise_id, kept:boolean}",
+            "properties": {
+              "kept": {
+                "type": "boolean"
+              },
+              "promise_id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "suspicion_delta": {
+            "description": "suspicion adjustment",
+            "type": "integer"
+          },
+          "trust_delta": {
+            "description": "trust adjustment (-5..5 clamped)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "npc_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises made or resolved, availability, and a bounded investigator-specific textual impression authored by the KP."
+    },
+    "state.personal_horror_add": {
+      "canonical_operation": "state.personal_horror_add",
+      "description": "Persist one structured personal-horror hook after the KP has accepted it. Canonical operation `state.personal_horror_add`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "backstory_field": {
+            "description": "structured character-sheet backstory field",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "hook_id": {
+            "description": "stable hook id",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "summary": {
+            "description": "concise keeper summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "hook_id",
+          "backstory_field",
+          "summary",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Persist one structured personal-horror hook after the KP has accepted it."
+    },
+    "state.personal_horror_mark_woven": {
+      "canonical_operation": "state.personal_horror_mark_woven",
+      "description": "Mark a structured personal-horror hook as actually woven after it appears in delivered play. Canonical operation `state.personal_horror_mark_woven`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "hook_id": {
+            "description": "existing hook id",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "hook_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Mark a structured personal-horror hook as actually woven after it appears in delivered play."
+    },
+    "state.record_clue": {
+      "canonical_operation": "state.record_clue",
+      "description": "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block. Canonical operation `state.record_clue`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "clue_id": {
+            "description": "clue id from the clue graph",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "method": {
+            "description": "how it was found (roll, social, exploration...)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "route_ref": {
+            "additionalProperties": true,
+            "description": "optional exact {scene_id, route_id} from actions.advise; binds direct clue delivery to authored route completion without forcing the route",
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign",
+          "clue_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record a clue as discovered. Idempotent; unlocks any scenes gated on it. Off-design discoveries warn, not block."
+    },
+    "state.record_npc_engagement": {
+      "canonical_operation": "state.record_npc_engagement",
+      "description": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements. Canonical operation `state.record_npc_engagement`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "first_impression_realization": {
+            "additionalProperties": true,
+            "description": "required for a new schema-v2 receipt: exactly {observable_manner, causal_explanation, boundary_preserved, opportunity_or_friction}; semantic KP judgment grounded in persona/agenda/relationship/scene/conduct",
+            "type": "object"
+          },
+          "first_impression_ref": {
+            "description": "receipt ref from npc.reaction; mandatory on the first contact for this investigator/NPC pair",
+            "type": "string"
+          },
+          "identity_ref": {
+            "description": "exact identity_ref returned by npc.query/scene.context when the authored identity was portrayed",
+            "type": "string"
+          },
+          "interaction_kind": {
+            "description": "dialogue | assistance | opposition | accompaniment | witness | other",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id (optional when party has one member)",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "stable authored or improvised NPC id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "current play/report segment run id; live play hosts supply this automatically",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "npc_id",
+          "interaction_kind",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements."
+    },
+    "state.set_flag": {
+      "canonical_operation": "state.set_flag",
+      "description": "Set or clear a structured world flag (feeds flag_set unlock conditions). Canonical operation `state.set_flag`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "flag_id": {
+            "description": "flag identifier",
+            "type": "string"
+          },
+          "reason": {
+            "description": "why (logged)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "value": {
+            "description": "true (default) or false",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "campaign",
+          "flag_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Set or clear a structured world flag (feeds flag_set unlock conditions)."
+    },
+    "state.supersede_settlement": {
+      "canonical_operation": "state.supersede_settlement",
+      "description": "Correct a prior public settlement and hide the voided dice/HP from player-facing final output while keeping the audit trail. Canonical operation `state.supersede_settlement`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id when also reversing HP",
+            "type": "string"
+          },
+          "reason": {
+            "description": "structured correction reason (e.g. same-level dodge voids hit)",
+            "type": "string"
+          },
+          "restore_hp_to": {
+            "description": "optional absolute current HP after correction (e.g. 12 when an erroneous 12→9 is voided)",
+            "type": "integer"
+          },
+          "roll_ids": {
+            "description": "canonical roll_id values to hide from player-facing mechanics (damage, dodge error, etc.)",
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "roll_ids",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Correct a prior public settlement and hide the voided dice/HP from player-facing final output while keeping the audit trail."
+    },
+    "state.threat_tick": {
+      "canonical_operation": "state.threat_tick",
+      "description": "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated. Canonical operation `state.threat_tick`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "clock_id": {
+            "description": "authored clock id",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key and stable source id",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "clock_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Advance one authored threat clock segment transactionally. Consequences are returned as advice, never auto-narrated."
+    },
+    "state.time_appearance": {
+      "canonical_operation": "state.time_appearance",
+      "description": "Set the broad player-perceived light/time appearance without changing the authoritative elapsed or civil clock. Use for polar day/night, inverted cycles, or source-/fiction-established supernatural distortion. Canonical operation `state.time_appearance`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "display_label": {
+            "description": "optional active-play-language label overriding the mode default",
+            "type": "string"
+          },
+          "mode": {
+            "description": "structured presentation mode chosen semantically by the KP",
+            "enum": [
+              "normal",
+              "perpetual_daylight",
+              "perpetual_darkness",
+              "inverted",
+              "distorted"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "source- or fiction-established reason for the presentation change",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_ref": {
+            "description": "optional module/campaign evidence reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "mode",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Set the broad player-perceived light/time appearance without changing the authoritative elapsed or civil clock. Use for polar day/night, inverted cycles, or source-/fiction-established supernatural distortion."
+    },
+    "state.time_marker": {
+      "canonical_operation": "state.time_marker",
+      "description": "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects. Canonical operation `state.time_marker`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "set | reset | clear",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "label": {
+            "description": "short keeper-facing label",
+            "type": "string"
+          },
+          "marker_id": {
+            "description": "stable deadline/agreement id",
+            "type": "string"
+          },
+          "minutes_from_now": {
+            "description": "minutes until due; required for set/reset and must be >= 0",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "why the marker changed (logged)",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "action",
+          "marker_id",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Set, reset, or clear a persistent in-fiction deadline marker. Bookkeeping only; it never auto-fires narrative effects."
+    },
+    "storylets.suggest": {
+      "canonical_operation": "storylets.suggest",
+      "description": "Run the existing rich storylet scheduler against a Director candidate plan. Advisory only; selection never applies itself. Canonical operation `storylets.suggest`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "candidate_plan": {
+            "additionalProperties": true,
+            "description": "candidate_plan returned by director.advise",
+            "type": "object"
+          },
+          "intent_evidence": {
+            "additionalProperties": true,
+            "description": "KP semantic intent result",
+            "type": "object"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "max": {
+            "description": "max suggestions (default 1)",
+            "type": "integer"
+          },
+          "player_text": {
+            "description": "exact player message used for the Director context",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic advisory seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "candidate_plan",
+          "player_text",
+          "intent_evidence"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Run the existing rich storylet scheduler against a Director candidate plan. Advisory only; selection never applies itself."
+    },
+    "threat.query": {
+      "canonical_operation": "threat.query",
+      "description": "Read authored threat fronts with verified live current_segments projected onto them. Canonical operation `threat.query`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read authored threat fronts with verified live current_segments projected onto them."
+    },
+    "turn.finalize": {
+      "canonical_operation": "turn.finalize",
+      "description": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim. Canonical operation `turn.finalize`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "advisory_uptake": {
+            "additionalProperties": false,
+            "description": "optional proof that one actions.advise Storylet candidate actually shaped this finalized draft; omitted when ignored",
+            "properties": {
+              "adopted_fields": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "advice_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "disposition": {
+                "enum": [
+                  "adopted",
+                  "modified"
+                ],
+                "type": "string"
+              },
+              "exact_excerpt": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "reason": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "storylet_candidate": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            },
+            "required": [
+              "advice_id",
+              "disposition",
+              "reason",
+              "adopted_fields",
+              "storylet_candidate",
+              "exact_excerpt"
+            ],
+            "type": "object"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "coverage": {
+            "description": "one closed semantic coverage row per obligation from turn.output_context",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "action_realization": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "causal_explanation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "exact_excerpt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "exceptional_beat": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "obligation_id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "persona_fit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "player_input_handling": {
+                  "enum": [
+                    "abstract_completed",
+                    "not_applicable",
+                    "specific_preserved"
+                  ],
+                  "type": "string"
+                },
+                "realization": {
+                  "enum": [
+                    "concealed_no_player_visible_beat",
+                    "fictional_beat"
+                  ],
+                  "type": "string"
+                },
+                "response": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "action_realization",
+                "causal_explanation",
+                "exact_excerpt",
+                "exceptional_beat",
+                "obligation_id",
+                "persona_fit",
+                "player_input_handling",
+                "realization",
+                "response"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "draft": {
+            "description": "exact player-facing fictional prose, without deterministic dice/change blocks",
+            "type": "string"
+          },
+          "mechanics_placements": {
+            "description": "optional override rows {after_paragraph (zero-based), segment_type, source_ids}; omit for safe causal defaults, or supply every source exactly once when deliberate interleaving is needed",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "after_paragraph": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "segment_type": {
+                  "enum": [
+                    "exceptional_effect",
+                    "public_check",
+                    "state_delta"
+                  ],
+                  "type": "string"
+                },
+                "source_ids": {
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "after_paragraph",
+                "segment_type",
+                "source_ids"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "repair_finalization_id": {
+            "description": "optional latest finalization id; permits a prose/placement-only replacement only while that exact output remains delivery-unconfirmed",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "validate_only": {
+            "description": "optional preflight: run the full finalize validation and return every violation at once (error.violations) without writing any receipt",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "campaign",
+          "draft",
+          "coverage",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim."
+    },
+    "turn.output_context": {
+      "canonical_operation": "turn.output_context",
+      "description": "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal. Canonical operation `turn.output_context`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal."
+    }
+  },
+  "producer": "coc_mcp_contract_archive",
+  "schema_version": 1
+}

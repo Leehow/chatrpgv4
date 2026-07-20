@@ -115,7 +115,9 @@ def _valid_source_roll(value: Any) -> bool:
             "tool", "decision_id", "roll_id", "integrity_digest", "outcome",
             "pushed", "visibility",
         }
-        and value.get("tool") in {"rules.roll", "rules.push", "npc.reaction"}
+        and value.get("tool") in {
+            "rules.roll", "rules.push", "npc.reaction", "combat.resolve",
+        }
         and isinstance(value.get("decision_id"), str)
         and value["decision_id"]
         and isinstance(value.get("roll_id"), str)
@@ -151,15 +153,26 @@ def valid_effect(effect: Any) -> bool:
         return False
     if not isinstance(effect.get("mechanics"), dict):
         return False
-    if effect.get("status") not in {"active", "applied", "consumed"}:
+    if effect.get("status") not in {"active", "applied", "consumed", "resolved"}:
         return False
-    consumed = effect.get("status") == "consumed"
-    for key in ("consumed_at", "consumed_decision_id", "consumed_by_roll_id"):
+    terminal = effect.get("status") in {"consumed", "resolved"}
+    for key in ("consumed_at", "consumed_decision_id"):
         value = effect.get(key)
-        if consumed != (isinstance(value, str) and bool(value)):
+        if terminal != (isinstance(value, str) and bool(value)):
             return False
-        if not consumed and value is not None:
+        if not terminal and value is not None:
             return False
+    consumed_by_roll_id = effect.get("consumed_by_roll_id")
+    if effect.get("status") == "consumed":
+        if not isinstance(consumed_by_roll_id, str) or not consumed_by_roll_id:
+            return False
+    elif effect.get("status") == "resolved":
+        if consumed_by_roll_id is not None and (
+            not isinstance(consumed_by_roll_id, str) or not consumed_by_roll_id
+        ):
+            return False
+    elif consumed_by_roll_id is not None:
+        return False
     body = {key: deepcopy(value) for key, value in effect.items() if key != "integrity_digest"}
     return effect.get("integrity_digest") == canonical_digest(body)
 
@@ -183,7 +196,7 @@ def valid_document(document: Any) -> bool:
             not isinstance(operation, dict)
             or set(operation) != OPERATION_FIELDS
             or operation.get("decision_id") != decision_id
-            or operation.get("action") not in {"apply", "consume"}
+            or operation.get("action") not in {"apply", "consume", "resolve"}
             or not isinstance(operation.get("fingerprint"), str)
             or not operation["fingerprint"].startswith("sha256:")
             or not isinstance(operation.get("effect_id"), str)
@@ -195,7 +208,7 @@ def valid_document(document: Any) -> bool:
             or recorded_effect.get("effect_id") != operation.get("effect_id")
             or data.get("player_effect") != project_player_effect(recorded_effect)
             or (
-                operation.get("action") == "consume"
+                operation.get("action") in {"consume", "resolve"}
                 and recorded_effect != document["effects"][operation["effect_id"]]
             )
             or (
@@ -221,7 +234,7 @@ def load(campaign_dir: Path) -> dict[str, Any]:
 
 
 def project_player_effect(effect: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the safe deterministic block rendered after fiction."""
+    """Return the safe deterministic block rendered at a causal boundary."""
     if effect.get("visibility") == "keeper_only":
         return None
     return {

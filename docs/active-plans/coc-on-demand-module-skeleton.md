@@ -273,6 +273,34 @@ runtime keyword scan of player prose.
 - Handout: markdown body path + meta; table delivery still follows play_language
   constitution (render in play language; source body remains in store).
 
+### Canonical source-to-runtime bridge
+
+`scenario.bind_pdf` registers validated bundle pages in this asset root before
+either cold compilation or progressive projection. Additional bundle windows
+for the same `file_sha256` add pages to the same content-addressed cache.
+
+On a bundle-backed root, every `partial`, `body_parsed`, or `deep` entity with
+`evidence_gap: false` must identify cached pages through `source_page_indices`,
+`source_refs`, or `source_span`. `put_entity` canonicalizes that evidence into
+page/bundle hashes and explicit refs on nested clues, NPCs, and secret rows.
+Projection must preserve all meaning-bearing fields into Scenario IR; compiled
+archive views must be semantically equivalent to IR for agenda, provenance,
+clue delivery, and Keeper-only material.
+
+`host_timing.duration_ms` records host semantic compilation separately from
+queue wait/merge timings. `cached_scope_complete: true` in a host-work request
+means the host must use `cached_page_refs` and must not reopen the PDF for that
+entity scope.
+The entity pack echoes `host_work_job_id`; accepting it closes that durable
+request. Re-putting an identical semantic pack preserves the first timing
+receipt and increments reuse metadata instead of recomputing request latency.
+
+Source provenance also travels along structured `mentions[]`: enclosing page
+refs are materialized on each mention, copied to its named-only entity stub,
+then resolved by the queue worker into the narrow `requested_pdf_indices`.
+This prevents a newly discovered place or NPC from degenerating into a scan of
+all cached pages merely because it was absent from the initial skeleton.
+
 ## Parse queue (`parse-queue.json`)
 
 Event-driven; not a free-running crawler.
@@ -419,7 +447,10 @@ track. Do not ship partial six-field `scene_function` or partial A21 blocks
 2. First player turn can run with only opening deep packs.
 3. Entering a new location deepens it once; second visit does not re-extract
    if page hashes match.
-4. Mention of an unseen place creates a stub immediately and enqueues deepen.
+4. A source-pack mention of an unseen entity creates a narrow, reusable stub
+   immediately. Deepening is enqueued only when delivered clue evidence follows
+   that mention or the player materially pursues the entity; merely entering a
+   scene does not fan out host requests for every referenced place and NPC.
 5. New campaign with same `file_sha256` reuses `.coc/module-assets` without
    host re-extract for already-deep pages.
 6. No player-visible English dump when `play_language` is `zh-Hans`.

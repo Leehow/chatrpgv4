@@ -49,6 +49,42 @@ def test_kimi_uses_current_plugin_manifest_path_and_mcp():
     assert (PLUGIN_ROOT / "skills" / "coc-host-bootstrap" / "SKILL.md").is_file()
 
 
+def test_kimi_manifest_declares_the_same_continuation_hooks_as_codex():
+    manifest = read_json(PLUGIN_ROOT / ".kimi-plugin" / "plugin.json")
+    hooks = manifest["hooks"]
+    events = {entry["event"] for entry in hooks}
+    codex = read_json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")
+    codex_hooks = read_json(PLUGIN_ROOT / codex["hooks"])["hooks"]
+    assert events == set(codex_hooks)
+    for entry in hooks:
+        assert entry["command"] == "bash ./hooks/run"
+        assert entry["timeout"] >= 5
+        if entry["event"] == "PreToolUse":
+            matcher = entry["matcher"]
+            assert "coc[-_]keeper" in matcher
+            assert "mcp__coc" in matcher
+            assert "Bash" in matcher
+            assert "Edit" in matcher
+        else:
+            assert "matcher" not in entry
+
+
+def test_hook_runner_and_bridge_adapt_the_kimi_payload_shape():
+    runner = (PLUGIN_ROOT / "hooks" / "run").read_text(encoding="utf-8")
+    assert "KIMI_PLUGIN_ROOT" in runner
+    assert "hook_event_name" in runner
+    assert '"$(_payload_field cwd)"' in runner
+    assert "emit_allow" in runner
+    bridge = (PLUGIN_ROOT / "hooks" / "coc_context_hook.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"kimi"' in bridge
+    assert "KIMI_PLUGIN_ROOT" in bridge
+    # Kimi MCP names are dotted (mcp__coc-keeper__session.resume); the resume
+    # exemption must recognize the dotted spelling or recovery dead-locks.
+    assert '"session.resume" in normalized_name' in bridge
+
+
 def test_zcode_uses_plugin_root_variables_for_mcp():
     manifest = read_json(PLUGIN_ROOT / ".zcode-plugin" / "plugin.json")
     server = manifest["mcpServers"]["coc-keeper"]
@@ -69,7 +105,8 @@ def test_mcp_gateway_exposes_registry_and_capability_tools():
     assert response["result"]["tools"][0]["name"] == "coc_capabilities"
     names = {tool["name"] for tool in response["result"]["tools"]}
     assert {"coc_discover", "scene.context", "turn.finalize"} <= names
-    assert len(names) >= 60
+    assert len(names) == 15
+    assert "rules.skill_describe" not in names
 
 
 def test_mcp_gateway_routes_discovery_and_read_only_calls_to_toolbox():

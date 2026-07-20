@@ -27,7 +27,7 @@ one-shot full-module cold compile when the book is large or multi-location.
 
 | Step | Tool |
 |------|------|
-| Init durable root | `coc_module_assets.py init` |
+| Bind + cache verified pages | `scenario.bind_pdf` → `result.source_cache.asset_root_id` |
 | Store skeleton | `coc_module_assets.py put-skeleton` |
 | Project topology → campaign sparse IR | `coc_module_project.py skeleton` |
 | Store pages / stubs / queue | `put-page`, `ensure-stub`, `enqueue` |
@@ -36,7 +36,8 @@ one-shot full-module cold compile when the book is large or multi-location.
 | Map depth | `scene.map` → `parse_state` / `evidence_gap` per scene |
 
 ```bash
-# After campaign.create + host Tier 0–1 extract + skeleton.json:
+# After campaign.create + scenario.bind_pdf + host Tier 0–1 skeleton.json.
+# Reuse the asset root returned as result.source_cache.asset_root_id:
 uv run --frozen python plugins/coc-keeper/scripts/coc_module_project.py \
   --workspace . skeleton --campaign <id> --asset-root-id <asset>
 # After host builds opening deep pack JSON:
@@ -52,8 +53,32 @@ During play, `state.move_scene` on a progressive campaign:
 
 1. Enqueues `deepen_location` for the destination (priority 100)
 2. Merges the deep pack if already in module-assets
-3. Stubs + enqueues depth-1 neighbors and structured `mentions[]`
+3. Applies the bounded map-neighbor prefetch budget, while structured
+   `mentions[]` create source-scoped named-only stubs **without** enqueuing
 4. Adds `host_hints` when deep extract is still needed (never fabricates handouts)
+
+For a source-bundle-backed root, skeleton compilation must explicitly record
+`start_clock_status` (`source`, `not_authored`, `unresolved`, or
+`campaign_override`). `source` also requires `start_clock` plus
+`start_clock_source_refs`; this prevents an authored opening time from silently
+turning into the era default. Deep/partial packs must cite cached pages through
+`source_page_indices`, `source_refs`, or `source_span`. The store canonicalizes
+those references and binds every nested clue/NPC/secret row to page hashes.
+It also carries page scope along structured `mentions[]` into their named-only
+stubs; later deepen requests must use that inherited scope rather than list all
+cached pages.
+
+Deep-pack `mentions[]` are indexed as source-scoped named-only stubs on scene
+entry, but that internal index does not enqueue host extraction by itself.
+
+Deep-pack presence is deliberately stricter than source relationship:
+`npc_ids` and embedded `npcs[]` assert that those people are unconditionally
+present in the live scene represented by the pack. Related, historical,
+conditional, or merely source-mentioned people belong in structured
+`mentions[]`; they do not enter `scene.context` and do not start host work.
+When play itself brings an authored or campaign-local NPC into or out of a
+scene, the KP records that live overlay with `state.npc_presence` rather than
+rewriting module truth or inferring presence from a prior conversation.
 
 **Player dig (not only scene enter):** when the investigator materially pursues
 a place/NPC/clue that is only named or stubbed (ask about it, insist, head there
@@ -62,8 +87,9 @@ in fiction) **without** a scene move yet, call:
 | Tool | When |
 |------|------|
 | `progressive.request_deepen` | KP dig path: structured `{kind, target_id}` only |
-| `progressive.follow_mentions` | Batch structured `[{kind,ref_id,raw_label?}]` |
+| `progressive.follow_mentions` | Batch structured `[{kind,ref_id,raw_label?,source_page_indices?}]` |
 | `progressive.status` | Queue + detached worker status + entity parse_state |
+| `progressive.fulfill_host_work` | Submit the host PDF semantic pack for one returned open `job_id` |
 
 `state.record_clue` also follows **structured** `mentions[]` on that clue row
 (if present) and enqueues deepen jobs. Never keyword-scan free prose for
@@ -76,6 +102,15 @@ mentions. Until the host puts a deep pack, play continues with
 - Worker claims `pending` → `in_flight` in a **thread pool**, merges ready deep
   packs into bound campaigns, and writes `module-assets/<root>/host-work/*.json`
   for missing packs (host PDF skill fulfills; no in-repo PDF parse).
+- `awaiting_host_pack` is a queue negative-cache result, not completed semantic
+  parsing. `progressive.status`, `scene.context`, and `session.resume` surface
+  bounded open requests with cached page refs and the exact fulfillment card.
+- The host reads `cached_page_refs` first, opens the original PDF only for
+  missing indices, and submits the source-bound pack through
+  `progressive.fulfill_host_work`; never hand-edit an entity file.
+- The resulting pack carries that request's `host_work_job_id`; `put_entity`
+  marks it fulfilled and preserves one source-compile timing receipt across
+  idempotent re-puts.
 - After `put_entity` deep, merge is re-enqueued at priority 100 and the worker
   is kicked again.
 

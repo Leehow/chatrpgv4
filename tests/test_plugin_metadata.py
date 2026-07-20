@@ -16,6 +16,16 @@ def _text(path: Path):
     return path.read_text(encoding="utf-8")
 
 
+def _skill_package_text(skill_dir: Path) -> str:
+    """Main SKILL.md plus normative progressive references under references/."""
+    parts = [_text(skill_dir / "SKILL.md")]
+    refs = skill_dir / "references"
+    if refs.is_dir():
+        for path in sorted(refs.glob("*.md")):
+            parts.append(_text(path))
+    return "\n".join(parts)
+
+
 def test_all_host_manifests_share_the_040a_version():
     marketplace = _json(ROOT / ".claude-plugin" / "marketplace.json")
     versions = {
@@ -79,6 +89,7 @@ def test_grok_plugin_is_full_canonical_skill_tree():
     manifest = _json(PLUGIN_ROOT / ".grok-plugin" / "plugin.json")
     assert manifest["name"] == "coc-keeper"
     assert manifest["version"] == EXPECTED_PLUGIN_VERSION
+    assert manifest["hooks"] == "./hooks/hooks.json"
     skills_ref = manifest["skills"]
     assert skills_ref in {"./skills/", "skills/", "skills"}
     resolved = (PLUGIN_ROOT / "skills").resolve()
@@ -108,6 +119,116 @@ def test_grok_plugin_is_full_canonical_skill_tree():
         assert phrase in compact, phrase
     assert "thin entry alone" in compact or "not a thin entry" in compact
 
+
+def test_grok_plugin_exposes_shared_mcp_and_safe_host_contract():
+    config = _json(PLUGIN_ROOT / ".mcp.json")
+    server = config["mcpServers"]["coc-keeper"]
+    assert server["command"] == "${GROK_PLUGIN_ROOT}/mcp/launch"
+    assert server["env"] == {"COC_HOST": "grok"}
+    assert not (PLUGIN_ROOT / "mcp" / "grok_server.py").exists()
+
+    capabilities = _json(PLUGIN_ROOT / "references" / "host-capabilities.json")
+    assert capabilities["grok"] == {
+        "plugin_skills": True,
+        "plugin_mcp": True,
+        "native_imagegen": True,
+        "isolated_player_agent": True,
+    }
+
+    bootstrap = " ".join(
+        _text(PLUGIN_ROOT / "skills" / "coc-host-bootstrap" / "SKILL.md").split()
+    ).lower()
+    for phrase in (
+        "mcp tools first",
+        "do not mix mcp and shell",
+        "exact delivered message",
+        "never edit `.coc`",
+        "toolbox-calls.jsonl",
+        "ordering or integrity error",
+        "typed, transactional, idempotent operation",
+        "fail closed",
+    ):
+        assert phrase in bootstrap, phrase
+
+    install = _text(PLUGIN_ROOT / "scripts" / "install-grok-plugin.sh")
+    assert "grok plugin details coc-keeper" in install
+    assert "grok mcp doctor coc-keeper --json" in install
+    assert "MCP server component" in install
+    assert '"healthy"' in install
+    assert "MCP servers|" in install
+    assert "blocked|:[[:space:]]*0" in install
+    assert "grep -Eq" in install
+
+
+def test_plugin_bundles_cross_host_continuation_hooks():
+    hooks = _json(PLUGIN_ROOT / "hooks" / "hooks.json")["hooks"]
+    assert set(hooks) == {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreCompact",
+        "PostCompact",
+        "SessionEnd",
+        "PreToolUse",
+    }
+    for lifecycle in (
+        "SessionStart", "UserPromptSubmit", "PreCompact", "PostCompact",
+        "SessionEnd",
+    ):
+        assert "matcher" not in hooks[lifecycle][0]
+    assert "coc[-_]keeper" in hooks["PreToolUse"][0]["matcher"]
+    for event, entries in hooks.items():
+        handler = entries[0]["hooks"][0]
+        assert handler["type"] == "command"
+        assert "${CLAUDE_PLUGIN_ROOT}/hooks/run" in handler["command"]
+        assert handler["env"]["COC_HOOK_EVENT"]
+    assert (PLUGIN_ROOT / "hooks" / "run").stat().st_mode & 0o111
+    assert (PLUGIN_ROOT / "hooks" / "coc_context_hook.py").is_file()
+
+    install = _text(PLUGIN_ROOT / "scripts" / "install-grok-plugin.sh")
+    assert "continuation lifecycle hooks" in install
+    assert "components:.*hooks" in install
+    assert "grok-global-hooks.json" in install
+    assert "coc-keeper-continuation.json" in install
+    global_hooks = _json(
+        PLUGIN_ROOT / "hooks" / "grok-global-hooks.json"
+    )["hooks"]
+    assert set(global_hooks) == set(hooks)
+    for entries in global_hooks.values():
+        command = entries[0]["hooks"][0]["command"]
+        assert "$HOME/.grok/coc-keeper-current/hooks/run" in command
+
+
+def test_codex_manifest_exposes_same_skills_mcp_and_hooks():
+    manifest = _json(PLUGIN_ROOT / ".codex-plugin" / "plugin.json")
+    assert manifest["skills"] == "./skills/"
+    assert manifest["hooks"] == "./hooks/hooks.json"
+    assert manifest["mcpServers"] == "./mcp-codex.json"
+    mcp = _json(PLUGIN_ROOT / "mcp-codex.json")["mcpServers"]["coc-keeper"]
+    assert mcp == {
+        "command": "${PLUGIN_ROOT}/mcp/launch",
+        "env": {"COC_HOST": "codex"},
+    }
+    assert not (PLUGIN_ROOT / "mcp" / "codex_server.py").exists()
+
+
+def test_kimi_manifest_exposes_same_skills_mcp_and_hooks():
+    manifest = _json(PLUGIN_ROOT / ".kimi-plugin" / "plugin.json")
+    assert manifest["skills"] == "./skills/"
+    assert manifest["sessionStart"] == {"skill": "coc-host-bootstrap"}
+    server = manifest["mcpServers"]["coc-keeper"]
+    assert server["command"] == "./mcp/launch"
+    assert server["env"] == {"COC_HOST": "kimi"}
+    events = {entry["event"] for entry in manifest["hooks"]}
+    assert events == {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreCompact",
+        "PostCompact",
+        "SessionEnd",
+        "PreToolUse",
+    }
+    assert not (PLUGIN_ROOT / "mcp" / "kimi_server.py").exists()
+
 def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
     text = _text(ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md")
     compact = " ".join(text.split()).lower()
@@ -135,12 +256,16 @@ def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
     assert (
         PLUGIN_ROOT / "skills" / "coc-story-director" / "agents" / "openai.yaml"
     ).is_file()
-    play = _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md")
-    play_compact = " ".join(play.split()).lower()
-    core_at = play_compact.index("core keeper response contract (always active)")
-    brief_at = play_compact.index("narration.brief")
-    review_at = play_compact.index("narration.review")
+    play_dir = PLUGIN_ROOT / "skills" / "coc-keeper-play"
+    play_main = _text(play_dir / "SKILL.md")
+    play_main_compact = " ".join(play_main.split()).lower()
+    # Always-loaded main skill: core contract before optional narration tools.
+    core_at = play_main_compact.index("core keeper response contract (always active)")
+    brief_at = play_main_compact.index("narration.brief")
+    review_at = play_main_compact.index("narration.review")
     assert core_at < brief_at < review_at
+    # Progressive references hold full craft detail; main + refs = package.
+    play_compact = " ".join(_skill_package_text(play_dir).split()).lower()
     for phrase in (
         "must make that declaration happen in the fictional world",
         "whether or not",
@@ -173,9 +298,20 @@ def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
     ):
         assert phrase in agents_compact, phrase
     assert "action_uptake" in play_compact
-    assert "not acceptable player-" in play_compact or (
-        "not acceptable player" in play_compact
+    assert "not acceptable player-" in play_main_compact or (
+        "not acceptable player" in play_main_compact
     )
+    # Main skill must still carry the always-on uptake constitution itself.
+    for phrase in (
+        "must make that declaration happen in the fictional world",
+        "always-on prompt-level drafting responsibility",
+        "player knowledge boundary",
+        "kp owns the intercept",
+        "play_language",
+        "turn.finalize",
+        "rendered_text",
+    ):
+        assert phrase in play_main_compact, phrase
     cursor_chain = " ".join(
         _text(ROOT / ".cursor" / "skills" / "coc-keeper" / "SKILL.md").split()
     ).lower()
@@ -309,3 +445,68 @@ def test_current_skills_reject_legacy_or_mismatched_runtime_state():
     assert "exact-schema" in combined or "exact current" in combined
     assert "legacy" in combined or "mismatched" in combined
     assert "start fresh" in combined or "fresh campaign" in combined
+
+
+def test_keeper_play_professional_inference_boundary_is_always_on():
+    """Canonical live KP path carries expertise-before-check adjudication.
+
+    Static contract for plugin instructions: always-on main skill + ordinary-
+    turn tooling reference. Not a semantic gameplay validator and not a
+    keyword-router design proof for play content.
+    """
+    play_dir = PLUGIN_ROOT / "skills" / "coc-keeper-play"
+    play_main = " ".join(_text(play_dir / "SKILL.md").split()).lower()
+    tooling_path = play_dir / "references" / "turn-tooling-and-typed-ops.md"
+    assert tooling_path.is_file()
+    tooling = " ".join(_text(tooling_path).split()).lower()
+
+    # Always-loaded main skill: boundary is ordinary-turn product invariant.
+    assert "always-on product invariants" in play_main
+    for phrase in (
+        "professional inference boundary",
+        "always before a check",
+        "observable phenomenon",
+        "professional inference or expert action",
+        "matching professional skill",
+        "even when its sheet value is lower",
+        "directly observable facts or objects",
+        "downgraded substitute",
+        "distinct information layers",
+        "not a keyword map or hard narrative gate",
+    ):
+        assert phrase in play_main, phrase
+    # Main skill must reject general observation as expert-conclusion substitute.
+    assert "must **not** return the same diagnosis" in play_main or (
+        "must not return the same diagnosis" in play_main
+    )
+    assert "professional conclusions" in play_main
+    assert "check adjudication flow" in play_main
+    # Orientation points KP at the boundary before skill selection.
+    assert "professional inference boundary before selecting a skill" in play_main
+
+    # Routed ordinary-turn reference expands operational method/goal guidance.
+    assert "check adjudication flow (kp owns the choice)" in tooling
+    for phrase in (
+        "professional inference boundary",
+        "method, goal, and information layer",
+        "no-roll obvious facts",
+        "professional skill for diagnosis",
+        "broad perception",
+        "raw observables only",
+        "must not emit the same diagnosis",
+        "do not choose the higher sheet value merely to improve odds",
+        "allied specialty only with rulebook-supported increased",
+        "compound layers stay distinct",
+        "not a keyword router, fixed skill map, or hard runtime narrative gate",
+    ):
+        assert phrase in tooling, phrase
+    # Illustrative corpse examination layers — never an event→skill map.
+    assert "illustrative only" in tooling
+    assert "never a fixed event→skill map" in tooling or (
+        "never a fixed event" in tooling and "skill map" in tooling
+    )
+    assert "seeing an obvious body needs no spot hidden" in tooling
+    assert "medicine diagnoses" in tooling
+    assert "not corpse-keyword routing" in tooling
+    # General-perception success still limited to observable layer.
+    assert "general-perception success still yields only the observable layer" in tooling

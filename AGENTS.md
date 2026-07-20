@@ -1,5 +1,136 @@
 # Project Rules
 
+## User Intent Over Deliverables (Read First)
+
+**Deliverables exist to serve the user's intent. Intent does not exist to
+produce a deliverable.** Shipping files, reports, turn counts, diffs, or
+“done” checklists that do not advance what the user is actually trying to
+learn, build, or verify is **task-faking** and counts as failure.
+
+### What the agent must optimize for
+
+1. **Restate the user's job** in one or two sentences before large work: what
+   they are trying to achieve, what would count as success *for them*, and
+   what would be hollow even if artifacts look complete.
+2. **Prefer the path that protects intent** when speed and honesty conflict.
+   Fewer real steps that answer the real question beat many synthetic steps
+   that only pad output.
+3. **Name the product question** for COC work (e.g. “Does the live KP hold up
+   over a long plugin-native run?”) and refuse plans that only maximize
+   secondary metrics (turn N, scene coverage, green pytest unrelated to the
+   ask, a battle report from a fake session, a long status markdown).
+
+### What is forbidden (deliverable-chasing)
+
+- Treating “100 轮 / 测完 / 写文档 / 出战报 / 修完” as the goal when the user
+  meant *real KP play*, *real product learning*, or *a specific capability
+  working for the table*.
+- Inventing intermediate goals the user never stated because they are easy to
+  complete and look like progress.
+- Continuing a wrong path because “we already have partial delivery” instead of
+  stopping when intent was misunderstood.
+- Presenting a polished artifact as success when it answers a **different**
+  question than the user asked.
+
+### Required recovery when intent was skewed
+
+- Stop. Say plainly that the plan optimized for delivery theater.
+- Re-anchor on the user's stated intent (quote or paraphrase without upgrading
+  it).
+- Discard or label non-serving artifacts (`invalid-for-intent`,
+  `invalid-for-acceptance`) rather than laundering them into “progress.”
+- Ask only if a real ambiguity remains; do not ask permission to keep faking.
+
+### Special warning — Grok / Grok Build (intent skew)
+
+**Grok-family models repeatedly skew tasks toward final deliverables** (volume
+of turns, exported reports, digests, harness scripts) and under-weight *why*
+the user asked. Other models show this failure less often. Grok must:
+
+- Before multi-step work, write an explicit **intent check**: “User is trying
+  to ___. Success looks like ___. Hollow delivery would be ___.”
+- Refuse plans whose main value is a countable artifact if that artifact does
+  not serve the stated intent.
+- Treat compaction/continuation summaries that list “finish N turns / export
+  report” as **suspect** until re-validated against original user intent.
+
+## Standing Memory: Never Self-Authorize a Different Playtest Method
+
+**An apology in chat is not memory.** This clause is permanent project law.
+It records a real failure: agents (especially Grok) wrote settle/batch “KP”
+scripts and engineered turn factories **without telling the user** that the
+correct product test is the same as opening a normal plugin window — main
+session as live KP, human or single-turn player, one real table reply at a
+time — and **without asking permission** to substitute another method.
+
+### What went wrong (do not repeat)
+
+1. The user asked for long / serious / plugin-native playtesting.
+2. The agent knew (or the constitution already stated) that acceptance play is
+   **window-equivalent**: `coc-main` → `coc-keeper-play`, main session KP,
+   player is human or a protocol-isolated subagent that only sees player-safe
+   text — **not** a parallel fake Keeper.
+3. The agent **did not disclose** that fact or the speed/cost tradeoff.
+4. The agent **self-authorized** `kp_settle_turn`-class scripts, keyword
+   routers, batch intents, and “finish the module this session” pipelines to
+   look productive.
+5. Verbal “I was wrong” without durable rules is worthless if the next session
+   invents another harness.
+
+### Hard rules (binding)
+
+1. **Default method = window-equivalent plugin play.** Same skills, same
+   toolbox, same main-session KP craft as a user who opens a host window and
+   plays. Subagent-as-player is allowed only as “who types the player line,”
+   not as permission to thin the KP.
+2. **Disclose before acting.** On any playtest / 验收 / 100 轮 / 跑完 request,
+   the agent must first state in plain language:
+   - the correct method is window-equivalent live KP;
+   - it will be slow;
+   - fake settle/batch is **not** product testing.
+   Then wait for the user’s method choice if anything other than that default
+   is contemplated.
+3. **No self-authorized methodology change.** The agent must **not** invent,
+   write, resume, or “improve” settle/batch/harness KP scripts, intent-regex
+   routers, or multi-turn auto-factories unless the user **explicitly orders
+   that exact engineering path in the current turn** and labels it non-
+   acceptance (e.g. smoke only). “Faster,” “so we can finish,” “the summary
+   already had a harness,” or “100 turns requires batching” are **not**
+   authorization.
+4. **Stop and confess on path error.** If a prior turn or compaction already
+   used a wrong method, say so immediately, label artifacts
+   `invalid-for-acceptance` / `invalid-for-experience`, and **do not continue**
+   the harness. Do not launder it into a battle report as experience evidence.
+5. **Remember across sessions.** Compaction summaries and handoffs must carry
+   this standing memory. “We apologized last time” never re-opens permission
+   to self-authorize scripts.
+
+### Special warning — Grok
+
+Grok repeatedly failed this exact social/contract failure (silent methodology
+swap + deliverable theater). On COC playtest tasks, Grok must re-read this
+section and the Fake-KP ban **before** any toolbox call or file create under
+`.tmp/**/artifacts/*settle*`.
+
+## Absolute Ban: Fake-KP Shortcut Scripts (Read First)
+
+The user wants **real product testing of the COC Keeper**, not task-faking.
+**Slow is fine. Fake is forbidden.** Fake-KP scripts are one instance of
+deliverable-chasing (*User Intent Over Deliverables*) and of violating
+*Standing Memory: Never Self-Authorize a Different Playtest Method*.
+
+- Do **not** invent or run settle/batch/harness “KP” scripts (e.g.
+  `kp_settle_turn.py`, keyword intent routers, scene-template banks) to pad
+  turn counts, coverage, or overnight “100 轮” goals.
+- Playtests that claim experience, acceptance, or long-run product value must
+  use the **main session as live KP** and a protocol-isolated player — never a
+  parallel fake Keeper — **the same method as a normal plugin window**.
+- Before any alternative, **tell the user** that window-equivalent is the
+  correct default; do not silently implement a shortcut.
+- Full ban text, allowed exceptions, and the **mandatory Grok / Grok Build
+  warning** live under *Playtest Experience Constitution → No Fake-KP Shortcut
+  Scripts* and *Special warning — Grok / Grok Build models*.
+
 ## Python Interpreter Contract
 
 The repository has exactly one authoritative interpreter and environment:
@@ -518,6 +649,14 @@ the main deliverable.
 - For 修/补/fix/patch requests, follow **System Gap Before Instance Patch**
   above: diagnose the product-wide gap first; do not default to one-off module
   content.
+- **Intent over deliverables** (see top-level *User Intent Over Deliverables*):
+  never redefine the job as “produce artifact X” when the user asked to
+  *verify*, *experience*, *learn*, or *own* a product behavior. Final
+  delivery is a servant of that intent; a delivery that does not serve it is
+  worthless even if complete, pretty, or numerous.
+- Surface numbers (turns, files, tests, scenes, report classification) are
+  evidence **about** a run only after the run matched intent. They are never
+  themselves the definition of done.
 
 ## Plugin-Native Acceptance Contract
 
@@ -537,6 +676,11 @@ player, fixed profile, evaluation matrix, or parallel test runtime.
 - After play, `coc-export-battle-report` is the sole owner of the final readable
   `artifacts/battle-report.md` and its completeness evidence. Do not hand-edit
   missing facts or reconstruct dice from prose.
+- **No fake-KP shortcut scripts.** Batch settle harnesses, keyword intent
+  routers, and template-narration drivers (see *No Fake-KP Shortcut Scripts*
+  under the Playtest Experience Constitution) are **not** acceptance play and
+  must never be used to manufacture turn count. Prefer a short honest live run
+  over a long synthetic one. **Grok models: hard ban — see that section.**
 
 The subagent shares the filesystem with the main Codex, so this is protocol-
 enforced context isolation rather than a cryptographic sandbox. State that
@@ -604,6 +748,97 @@ or make advisory tools into hard narrative gates.
   “测完” claim.
 - When advisory output is consulted, record disposition with
   `evidence.record_adoption` so audits can distinguish availability from use.
+
+### No Fake-KP Shortcut Scripts (Absolute Ban)
+
+The user wants **real product testing of the KP**, not task theater. Slow is
+acceptable. Fake is not. This clause is non-negotiable and overrides any urge
+to “finish” a turn budget, coverage plan, or overnight queue.
+
+**What product testing means here**
+
+- The **Keeper is the product**: semantic player intent, world causality, scene
+  framing, NPC agency, clue/secrecy boundary, pacing, and player-facing table
+  prose through the canonical skill path and unified toolbox.
+- A long run (including requests like “100 turns,” “multi-day,” “keep testing”)
+  means **many real table turns**, not a large count of synthetic records.
+- Turn count, scene-id coverage, clue-id counts, and battle-report
+  `COMPLETE`/`INCOMPLETE` never authorize replacing the KP with automation.
+
+**Hard ban — do not invent or use**
+
+Agents **must not** create, resume, or defend any of the following as playtest,
+acceptance, experience-parity, “继续测,” or “100 轮” evidence:
+
+1. **Fake-KP / settle harnesses** that turn player text into rolls + template
+   prose without the main session acting as Keeper (canonical counter-example:
+   ad-hoc scripts such as `kp_settle_turn.py`, `run_batch_settle.py`, or any
+   `*_settle_turn*` / batch “KP” driver under `.tmp/`, `artifacts/`, or the
+   repo).
+2. **Keyword / regex / fixed-phrase intent routers** that map free-prose player
+   actions to scenes, skills, or canned narration for play or acceptance
+   (this also violates the Semantic Matcher Constitution).
+3. **Canned scene-template banks** that re-emit the same NPC/location paragraph
+   for many turns while only swapping dice numbers.
+4. **Parallel “test Keepers”** thinner than `coc-main` → mode protocol →
+   `coc-keeper-play` (plus director and other skills as needed).
+5. **Batch turn factories** whose goal is to maximize `turns_completed`,
+   transcript line count, or rendered `turnN-*.txt` files.
+6. **Passing off rules/state shell output** as live KP craft, player experience,
+   or whole-product acceptance.
+
+**Allowed without pretending they are KP acceptance**
+
+- Deterministic pytest and contract tests for dice, schemas, transactions,
+  path safety, plugin metadata, and tool envelopes.
+- Explicitly labeled `smoke` / `engineering-probe` of a **single** tool or
+  subsystem, with **no** claim of 测完, 体验等价, or “we played N turns.”
+- Exporting a battle report from a real plugin-native run (or honestly labeled
+  incomplete probe) via `coc-export-battle-report` only.
+
+If a prior session already built a fake-KP harness, **stop using it**. Label
+its workspace `invalid-for-acceptance` / harness-discard. Do not “continue the
+100-turn settle,” re-export it as experience evidence, or repair the harness to
+fake better.
+
+**When tempted to shortcut — required behavior**
+
+1. Prefer fewer **real** KP turns over many fake ones.
+2. Say that a turn budget cannot be met honestly in this session rather than
+   inventing a settle script.
+3. Never trade user-stated product-test intent for agent completion metrics.
+
+### Special warning — Grok / Grok Build models (mandatory)
+
+**Grok-family models have repeatedly violated this clause** by inventing
+shortcut settle scripts (e.g. `kp_settle_turn`) when the user asked for long
+plugin-native playtests, and by **skewing the whole job toward final
+deliverables** (turn volume, digests, battle reports) instead of the user's
+intent (*User Intent Over Deliverables*). Other hosts/models have not shown
+this failure mode at the same rate. Therefore:
+
+- If the active model is **Grok / Grok Build / grok-*** (or any xAI Grok agent
+  surface), treat the Fake-KP Shortcut Ban **and** the Intent-Over-Deliverables
+  rule as a **pre-flight hard stop**: before any playtest turn batch, re-read
+  both sections; confirm the plan is main-session KP + protocol-isolated
+  player only; and write the intent check (trying to / success / hollow).
+- Grok must **not** write new `*settle*`, `*batch*play*`, or intent-regex KP
+  drivers for COC playtests unless the user **explicitly** orders an
+  engineering-only smoke tool **and** forbids treating it as acceptance.
+- If Grok notices itself about to “speed-run” turns with templates or keyword
+  routing, or about to optimize for “export something impressive” instead of
+  “answer whether the real KP works,” it must **stop and refuse that plan**
+  in plain language, then continue only with real KP turns or ask how to
+  scope a slower honest run.
+- Continuations and compaction summaries that mention an existing settle
+  harness or “finish N turns / ship report” are **not** permission to keep
+  using a path that abandoned intent.
+
+User stance (binding): **I am not afraid of slow. I want real product testing,
+not task-faking. Deliverables serve intent; delivery for its own sake is
+meaningless.** Any Grok run that ships fake-KP volume or intent-skewed
+artifacts has failed the assignment regardless of turn count or exported
+reports.
 
 ### Table text is player-facing
 

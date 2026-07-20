@@ -38,6 +38,26 @@ MARKDOWN_HIDDEN_KEYS = {
     "secret",
 }
 
+ZH_MECHANICAL_LABELS = {
+    "Art/Craft (Photography)": "艺术/手艺（摄影）",
+    "Credit Rating": "信用评级",
+    "Dodge": "闪避",
+    "Drive Auto": "汽车驾驶",
+    "Fast Talk": "话术",
+    "Fighting (Brawl)": "斗殴",
+    "First Aid": "急救",
+    "First Impression": "初印象",
+    "History": "历史",
+    "Language (Own: English)": "母语（英语）",
+    "Library Use": "图书馆使用",
+    "Listen": "聆听",
+    "Navigate": "导航",
+    "Persuade": "说服",
+    "Psychology": "心理学",
+    "Spot Hidden": "侦查",
+    "Stealth": "潜行",
+}
+
 
 class ExportError(RuntimeError):
     """Raised when source or destination safety prevents an honest export."""
@@ -418,10 +438,9 @@ def _first_impression_projection(
             row["roll"] = roll_record["roll"]
         context = contexts.get(str(receipt.get("receipt_id") or ""))
         if isinstance(context, dict):
-            row["realization"] = _pick(context, (
-                "observable_manner", "causal_explanation", "boundary_preserved",
-                "opportunity_or_friction",
-            ))
+            # The report is player-safe. Full realization remains in NPC state;
+            # only behavior already observable at the table is projected here.
+            row["realization"] = _pick(context, ("observable_manner",))
         elif receipt.get("schema_version") == 1:
             # Preserve old campaign evidence without exposing its concealed die.
             row["legacy_contract"] = True
@@ -582,25 +601,51 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         raw_metadata = _read_source(run_dir, metadata_source, "json", manifest)
     metadata = _safe_metadata(raw_metadata)
 
+    campaign_relative = _campaign_relative(run_dir, raw_metadata)
+
     final_path = run_dir / "transcript.jsonl"
     partial_path = run_dir / "partial-transcript.jsonl"
-    if final_path.exists():
+    canonical_transcript_relative = (
+        f"{campaign_relative}/logs/table-transcript.jsonl"
+        if campaign_relative else None
+    )
+    canonical_transcript_path = (
+        _safe_source_path(run_dir, canonical_transcript_relative)
+        if canonical_transcript_relative else None
+    )
+    transcript_origin = "legacy"
+    if canonical_transcript_path is not None and canonical_transcript_path.exists():
+        transcript_relative = canonical_transcript_relative
+        transcript_candidate_present = True
+        transcript_origin = "canonical"
+    elif final_path.exists():
         transcript_relative = "transcript.jsonl"
-        transcript_complete = True
+        transcript_candidate_present = True
     elif partial_path.exists():
         if not allow_partial:
             raise ExportError(
                 "only partial-transcript.jsonl exists; rerun with --allow-partial to export it as INCOMPLETE"
             )
         transcript_relative = "partial-transcript.jsonl"
-        transcript_complete = False
+        transcript_candidate_present = False
     else:
         transcript_relative = "transcript.jsonl"
-        transcript_complete = False
+        transcript_candidate_present = False
     transcript = _read_source(
         run_dir, transcript_relative, "jsonl", manifest,
-        required=final_path.exists() or partial_path.exists(),
+        required=bool(
+            (canonical_transcript_path is not None and canonical_transcript_path.exists())
+            or final_path.exists()
+            or partial_path.exists()
+        ),
     ) or []
+    if transcript_origin == "canonical" and metadata.get("run_id"):
+        transcript = [
+            row for row in transcript
+            if isinstance(row, dict) and row.get("run_id") == metadata["run_id"]
+        ]
+        manifest[transcript_relative]["included_record_count"] = len(transcript)
+        manifest[transcript_relative]["projection"] = "current_run_exact_table_text"
     dialogue = []
     for source_line, row in enumerate(transcript, start=1):
         if not _is_dialogue_row(row):
@@ -611,7 +656,6 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 projected[key] = row[key]
         dialogue.append(projected)
 
-    campaign_relative = _campaign_relative(run_dir, raw_metadata)
     party = _read_source(run_dir, f"{campaign_relative}/party.json", "json", manifest) if campaign_relative else None
     investigator_ids = _party_ids(party)
     roots = [run_dir / "sandbox" / ".coc" / "investigators"]
@@ -651,6 +695,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     world = flags = npc_receipts = events = clue_graph = exceptional_document = None
     first_impression_document = None
     toolbox_calls: list[dict[str, Any]] | None = None
+    turn_finalizations: list[dict[str, Any]] | None = None
     advisory_adoptions: list[dict[str, Any]] | None = None
     progression: dict[str, Any] = {"visited_scene_ids": [], "scene_history": [], "discovered_clues": [], "major_decisions": []}
     npc_interactions: list[dict[str, Any]] = []
@@ -675,6 +720,12 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         toolbox_calls = _read_source(
             run_dir,
             f"{campaign_relative}/logs/toolbox-calls.jsonl",
+            "jsonl",
+            manifest,
+        )
+        turn_finalizations = _read_source(
+            run_dir,
+            f"{campaign_relative}/logs/turn-finalizations.jsonl",
             "jsonl",
             manifest,
         )
@@ -743,15 +794,81 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         dimensions[name] = {"status": "PASS" if passed else "FAIL", "findings": list(findings)}
 
     dimension("source_identity", bool(metadata) and campaign_relative is not None, "run metadata and campaign directory resolved" if metadata and campaign_relative else "run metadata or campaign directory is missing")
-    transcript_findings = []
-    if not transcript_complete:
-        transcript_findings.append("final transcript.jsonl is missing")
+    transcript_findings: list[str] = []
+    if not transcript_candidate_present:
+        transcript_findings.append("final exact transcript source is missing")
     if role_counts["keeper"] == 0:
         transcript_findings.append("no non-empty Keeper/KP dialogue rows were found")
     if role_counts["player"] == 0:
         transcript_findings.append("no non-empty player dialogue rows were found")
-    transcript_ok = transcript_complete and not transcript_findings
-    dimension("exact_transcript", transcript_ok, *(transcript_findings or ["final ordered transcript contains both table roles"]))
+
+    journal_decision_ids = {
+        str((call.get("args") or {}).get("decision_id"))
+        for call in toolbox_calls or []
+        if isinstance(call, dict)
+        and call.get("ok") is True
+        and call.get("tool") == "state.journal"
+        and (call.get("args") or {}).get("decision_id")
+    }
+    finalization_ids = {
+        str(row.get("finalization_id"))
+        for row in turn_finalizations or []
+        if isinstance(row, dict) and row.get("finalization_id")
+    }
+    if transcript_origin == "canonical":
+        transcript_player_journals = {
+            str(row.get("journal_decision_id"))
+            for row in transcript
+            if isinstance(row, dict)
+            and _dialogue_side(row) == "player"
+            and row.get("journal_decision_id")
+        }
+        transcript_keeper_finalizations = {
+            str(row.get("finalization_id"))
+            for row in transcript
+            if isinstance(row, dict)
+            and _dialogue_side(row) == "keeper"
+            and row.get("finalization_id")
+        }
+        missing_players = sorted(journal_decision_ids - transcript_player_journals)
+        missing_keepers = sorted(finalization_ids - transcript_keeper_finalizations)
+        orphan_players = sorted(transcript_player_journals - journal_decision_ids)
+        orphan_keepers = sorted(transcript_keeper_finalizations - finalization_ids)
+        if missing_players:
+            transcript_findings.append(
+                f"exact player text is missing for {len(missing_players)} journaled turn(s)"
+            )
+        if missing_keepers:
+            transcript_findings.append(
+                f"finalized Keeper text is missing for {len(missing_keepers)} turn(s)"
+            )
+        if orphan_players or orphan_keepers:
+            transcript_findings.append(
+                "transcript contains rows that are not bound to canonical journal/finalization receipts"
+            )
+    else:
+        if journal_decision_ids and role_counts["player"] < len(journal_decision_ids):
+            transcript_findings.append(
+                f"legacy transcript has {role_counts['player']} player row(s) for {len(journal_decision_ids)} journaled turn(s)"
+            )
+        if finalization_ids and role_counts["keeper"] < len(finalization_ids):
+            transcript_findings.append(
+                f"legacy transcript has {role_counts['keeper']} Keeper row(s) for {len(finalization_ids)} finalized turn(s)"
+            )
+
+    run_status = str(metadata.get("status") or "").casefold()
+    if run_status in {"blocked", "in_progress", "running", "partial"}:
+        transcript_findings.append(
+            f"run status is {run_status}; transcript cannot be claimed final"
+        )
+    transcript_complete = transcript_candidate_present and not transcript_findings
+    dimension(
+        "exact_transcript",
+        transcript_complete,
+        *(transcript_findings or [
+            "every journaled player message and finalized Keeper response is present exactly once"
+        ]),
+    )
     dimension("dice", all_rolls is not None and not malformed_lines and not duplicate_roll_ids, "structured public-roll evidence is traceable exactly once" if all_rolls is not None and not malformed_lines and not duplicate_roll_ids else "structured roll evidence is missing or invalid")
     character_ok = bool(investigators) and all(i["source_status"]["character"] == "PRESENT" and i["source_status"]["state"] == "PRESENT" for i in investigators)
     dimension("character_and_final_state", character_ok, "initial card and final dynamic state are present" if character_ok else "an investigator lacks an initial card or final state")
@@ -763,7 +880,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     dimension("player_safe_projection", projection_ok, "explicit per-source allowlists applied" if projection_ok else "player-safe projection sources are malformed")
 
     reasons: list[str] = [finding for value in dimensions.values() if value["status"] == "FAIL" for finding in value["findings"]]
-    if not transcript_complete and transcript_relative != "transcript.jsonl":
+    if not transcript_complete and transcript_relative == "partial-transcript.jsonl":
         reasons.append("partial transcript exported by explicit request")
     if all_rolls is None:
         reasons.append("structured rolls.jsonl is missing; public roll count cannot be proven")
@@ -1060,8 +1177,11 @@ def _structured_skill_labels(report: dict[str, Any]) -> dict[str, dict[str, str]
                 and isinstance(label, str) and label.strip()
             ):
                 labels[key] = label
-        if isinstance(investigator_id, str) and labels:
-            labels_by_investigator[investigator_id] = labels
+        if isinstance(investigator_id, str):
+            labels_by_investigator[investigator_id] = {
+                **ZH_MECHANICAL_LABELS,
+                **labels,
+            }
     return labels_by_investigator
 
 
@@ -1166,6 +1286,207 @@ def _play_conduct_markdown(signals: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _localize_fixed_markdown_zh(markdown: str) -> str:
+    """Translate exporter-owned chrome without touching exact table prose."""
+    exact = {
+        "# COC Actual-Play Battle Report": "# COC 实际游玩战报",
+        "This is the final player-readable report produced directly from a real playtest run.": "本战报直接由一次真实跑团记录生成，供玩家阅读。",
+        "> Completeness covers report-source evidence only. It does not certify prose quality, Director use, or whole-product KP quality.": "> 完整性只表示战报证据来源是否齐全，不代表叙事质量、导演方法使用情况或整体 KP 体验已经通过验收。",
+        "## Investigators": "## 调查员",
+        "## Development and Ending": "## 成长与结局",
+        "## Investigation Chronicle": "## 调查纪要",
+        "### Scene Progression": "### 场景进展",
+        "### Discovered Clues": "### 已发现线索",
+        "### NPC Interactions": "### NPC 互动",
+        "### First Impressions": "### 初印象",
+        "### Social Skill Rolls": "### 社交技能检定",
+        "### Recorded Consequences": "### 已记录后果",
+        "### Exceptional Effects": "### 特殊结果影响",
+        "### Relationship / Impression Rewards": "### 关系与印象奖励",
+        "### Major Decisions": "### 重大决定",
+        "## Actual Play": "## 实际游玩记录",
+        "## Public Rules and Dice": "## 公开规则与骰点",
+        "## Play Conduct Signals": "## 游玩过程信号",
+        "Observational structured facts for human review. They are not pass/fail judgments and do not change the completeness classification.": "以下是供人工复核的结构化观察，不是通过/未通过判定，也不改变完整性分类。",
+        "## Completeness and Provenance": "## 完整性与来源",
+        "#### Characteristics": "#### 属性",
+        "#### Initial Derived Values": "#### 初始衍生数值",
+        "#### Initial Skills": "#### 初始技能",
+        "#### Weapons": "#### 武器",
+        "#### Equipment": "#### 装备",
+        "#### Backstory and Traits": "#### 背景与特质",
+        "#### Personal Horror": "#### 个人恐怖",
+        "No structured ending was recorded.": "未记录结构化结局。",
+        "No visited-scene path was recorded.": "未记录场景访问路径。",
+        "No discovered-clue receipts were recorded.": "未记录已发现线索回执。",
+        "No player-safe NPC interaction receipts were recorded.": "未记录玩家安全的 NPC 互动回执。",
+        "No first-impression receipts were recorded.": "未记录初印象回执。",
+        "No public social-skill rolls (Charm, Fast Talk, Intimidate, Persuade) were recorded.": "未记录公开社交技能检定（魅惑、话术、恐吓、说服）。",
+        "No structured player-safe combat, HP, or SAN consequences were recorded.": "未记录结构化且玩家可见的战斗、生命值或理智值后果。",
+        "No source-bound exceptional effects were recorded.": "未记录与来源检定绑定的特殊结果影响。",
+        "No NPC-scoped relationship rewards were recorded.": "未记录面向特定 NPC 的关系奖励。",
+        "No structured major-decision receipts were recorded.": "未记录结构化重大决定回执。",
+        "No player/Keeper dialogue was recorded.": "未记录玩家与 KP 的对话。",
+        "No public or consequence-public rolls occurred.": "没有发生公开骰点或公开后果骰点。",
+        "- All required final-report sources passed validation.": "- 最终战报所需的全部来源均通过验证。",
+        "- Keeper-only rolls, scenario truth, hidden logs, runner prompts, NPC identity contracts/agendas/voices, and secret fields are excluded.": "- 已排除仅限 KP 的骰点、模组真相、隐藏日志、运行器提示词、NPC 身份契约/议程/语气和秘密字段。",
+        "- This is evidence/report-source completeness, not a prose-quality, Director-use, or whole-product KP-quality claim.": "- 这里声明的是证据与战报来源完整性，不代表叙事质量、导演方法使用情况或整体 KP 质量。",
+    }
+    prefixes = {
+        "- Report ID:": "- 战报 ID:",
+        "- Run:": "- 运行段:",
+        "- Campaign:": "- 战役:",
+        "- Completeness:": "- 完整性:",
+        "- ID:": "- ID:",
+        "- Occupation:": "- 职业:",
+        "- Age:": "- 年龄:",
+        "- Sex:": "- 性别:",
+        "- Nationality:": "- 国籍:",
+        "- Era:": "- 年代:",
+        "- Residence:": "- 居住地:",
+        "- Birthplace:": "- 出生地:",
+        "- Credit Rating:": "- 信用评级:",
+        "- Cash:": "- 现金:",
+        "- Final HP:": "- 最终生命值:",
+        "- Final SAN:": "- 最终理智值:",
+        "- Final MP:": "- 最终魔法值:",
+        "- Final Luck:": "- 最终幸运:",
+        "- Conditions:": "- 状态:",
+        "Public roll count:": "公开骰点数量:",
+        "Dice completeness:": "骰点完整性:",
+        "- Actor:": "- 行动者:",
+        "- Check:": "- 检定:",
+        "- Roll:": "- 骰点:",
+        "- Raw Dice:": "- 原始骰点:",
+        "- Target:": "- 目标值:",
+        "- Difficulty:": "- 难度:",
+        "- Outcome:": "- 结果:",
+        "- Visibility:": "- 可见性:",
+        "- Source:": "- 来源:",
+        "- Dialogue turns:": "- 对话轮次:",
+        "- Public rolls:": "- 公开骰点:",
+        "- Tool calls per turn": "- 每轮工具调用",
+        "- Discovered clues:": "- 已发现线索:",
+        "- NPC engagements recorded:": "- 已记录 NPC 互动:",
+        "- Dialogue rows rendered:": "- 已渲染对话行数:",
+        "- Public rolls rendered exactly once:": "- 仅渲染一次的公开骰点:",
+        "- Description:": "- 描述:",
+        "- Ideology Beliefs:": "- 信念:",
+        "- Significant People:": "- 重要之人:",
+        "- Treasured Possessions:": "- 珍贵物品:",
+        "- Traits:": "- 特质:",
+        "  - Description:": "  - 描述:",
+        "  - Ideology Beliefs:": "  - 信念:",
+        "  - Significant People:": "  - 重要之人:",
+        "  - Treasured Possessions:": "  - 珍贵物品:",
+        "  - Traits:": "  - 特质:",
+    }
+    phrase_map = {
+        "**INCOMPLETE**": "**不完整**",
+        "**COMPLETE**": "**完整**",
+        "**PASS**": "**通过**",
+        "**FAIL**": "**未通过**",
+        "run metadata and campaign directory resolved": "已解析运行元数据和战役目录",
+        "every journaled player message and finalized Keeper response is present exactly once": "每条已入账玩家消息和已定稿 KP 回复都恰好出现一次",
+        "structured public-roll evidence is traceable exactly once": "结构化公开骰点证据均可追溯且恰好出现一次",
+        "initial card and final dynamic state are present": "初始角色卡和最终动态状态均存在",
+        "visited scenes and discovered-clue receipts are projected": "已投影访问场景和已发现线索回执",
+        "structured ending or development settlement is missing": "缺少结构化结局或成长结算",
+        "explicit per-source allowlists applied": "已应用逐来源显式白名单",
+        " — not recorded as woven": " — 未记录已融入剧情",
+        " · payoff recorded": " · 已记录回收",
+    }
+    output: list[str] = []
+    in_table_transcript = False
+    for line in markdown.splitlines():
+        if line == "## Actual Play":
+            in_table_transcript = True
+            output.append(exact[line])
+            continue
+        elif line == "## Public Rules and Dice":
+            in_table_transcript = False
+        if in_table_transcript and line.startswith("### Turn "):
+            left, separator, speaker = line.partition(" · ")
+            turn = left.removeprefix("### Turn ")
+            output.append(f"### 第 {turn} 轮{separator}{speaker}")
+            continue
+        if in_table_transcript:
+            output.append(line)
+            continue
+        localized = exact.get(line, line)
+        for source, target in prefixes.items():
+            if localized.startswith(source):
+                localized = target + localized[len(source):]
+                break
+        if localized.startswith("- Source Identity:"):
+            localized = localized.replace("- Source Identity:", "- 来源身份:", 1)
+        elif localized.startswith("- Exact Transcript:"):
+            localized = localized.replace("- Exact Transcript:", "- 精确逐字记录:", 1)
+        elif localized.startswith("- Dice:"):
+            localized = localized.replace("- Dice:", "- 骰点:", 1)
+        elif localized.startswith("- Character And Final State:"):
+            localized = localized.replace("- Character And Final State:", "- 角色与最终状态:", 1)
+        elif localized.startswith("- Progression:"):
+            localized = localized.replace("- Progression:", "- 进展:", 1)
+        elif localized.startswith("- Ending And Development:"):
+            localized = localized.replace("- Ending And Development:", "- 结局与成长:", 1)
+        elif localized.startswith("- Player Safe Projection:"):
+            localized = localized.replace("- Player Safe Projection:", "- 玩家安全投影:", 1)
+        for source, target in phrase_map.items():
+            localized = localized.replace(source, target)
+        outcome_labels = {
+            "success": "成功",
+            "regular": "普通成功",
+            "hard": "困难成功",
+            "extreme": "极难成功",
+            "critical": "大成功",
+            "failure": "失败",
+        }
+        difficulty_labels = {
+            "regular": "普通",
+            "hard": "困难",
+            "extreme": "极难",
+        }
+        if localized.startswith("- 结果: "):
+            label, separator, value = localized.partition(": ")
+            localized = label + separator + outcome_labels.get(value, value)
+        elif localized.startswith("- 难度: "):
+            label, separator, value = localized.partition(": ")
+            localized = label + separator + difficulty_labels.get(value, value)
+        elif localized.startswith("- 可见性: "):
+            localized = localized.replace(": public", ": 公开", 1)
+        elif localized.startswith("- `") and " · D100 " in localized:
+            localized = localized.replace(" / CR ", " / 信用评级 ", 1)
+            localized = localized.replace(" · used APP ", " · 采用外貌 ", 1)
+            localized = localized.replace(
+                " · used Credit Rating ", " · 采用信用评级 ", 1
+            )
+            for source, target in outcome_labels.items():
+                localized = localized.replace(f" · {source} ·", f" · {target} ·")
+        elif localized.startswith("- `") and " · scene `" in localized:
+            interaction_labels = {
+                "assistance": "协助",
+                "dialogue": "对话",
+                "witness": "见证",
+                "opposition": "对抗",
+                "accompaniment": "陪同",
+                "interaction": "互动",
+            }
+            localized = localized.replace(" · scene `", " · 场景 `", 1)
+            for source, target in interaction_labels.items():
+                localized = localized.replace(f" · {source} ·", f" · {target} ·", 1)
+        elif localized.startswith("- `") and " · roll " in localized:
+            localized = localized.replace(" · roll ", " · 骰点 ", 1).replace(
+                " vs ", " 对 ", 1
+            )
+            for source, target in outcome_labels.items():
+                if localized.endswith(f" · {source}"):
+                    localized = localized[: -len(source)] + target
+                    break
+        output.append(localized)
+    return "\n".join(output)
+
+
 def _markdown(report: dict[str, Any]) -> str:
     metadata = report["run_metadata"]
     completeness = report["completeness"]
@@ -1238,7 +1559,15 @@ def _markdown(report: dict[str, Any]) -> str:
                 lines.append(f"| {display_label} | {_display(row.get('value'))} | {_display(row.get('half'))} | {_display(row.get('fifth'))} |")
             lines.append("")
         elif isinstance(character.get("initial_skills"), dict) and character["initial_skills"]:
-            lines.extend(["#### Initial Skills", "", " | ".join(f"{k}: {_display(v)}" for k, v in character["initial_skills"].items()), ""])
+            lines.extend([
+                "#### Initial Skills",
+                "",
+                " | ".join(
+                    f"{_display_skill(skill_labels, investigator['investigator_id'], key)}: {_display(value)}"
+                    for key, value in character["initial_skills"].items()
+                ),
+                "",
+            ])
         for heading, key in (("Weapons", "weapons"), ("Equipment", "equipment")):
             value = character.get(key)
             if isinstance(value, list) and value:
@@ -1492,7 +1821,10 @@ def _markdown(report: dict[str, Any]) -> str:
         "- Keeper-only rolls, scenario truth, hidden logs, runner prompts, NPC identity contracts/agendas/voices, and secret fields are excluded.",
         "- This is evidence/report-source completeness, not a prose-quality, Director-use, or whole-product KP-quality claim.", "",
     ])
-    return "\n".join(lines)
+    markdown = "\n".join(lines)
+    if str(metadata.get("play_language") or "").casefold().startswith("zh"):
+        return _localize_fixed_markdown_zh(markdown)
+    return markdown
 
 
 def _safe_artifacts_dir(run_dir: Path) -> Path:

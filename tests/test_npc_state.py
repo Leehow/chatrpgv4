@@ -10,6 +10,8 @@ import importlib.util
 import json
 import random
 
+import pytest
+
 
 def _load(name, rel):
     spec = importlib.util.spec_from_file_location(name, rel)
@@ -115,6 +117,33 @@ def test_record_promise_kept_update(tmp_path):
     coc_npc_state.record_promise(camp, "npc-a", "promise-1", kept=True)
     entry = coc_npc_state.get_npc_entry(camp, "npc-a")
     assert entry["promises"] == [{"promise_id": "promise-1", "kept": True}]
+
+
+def test_atomic_psych_update_resolves_existing_promise(tmp_path):
+    camp = _campaign(tmp_path)
+    coc_npc_state.record_promise(camp, "npc-a", "promise-1")
+
+    applied, entry = coc_npc_state.apply_psych_update(
+        camp,
+        "npc-a",
+        resolve_promise={"promise_id": "promise-1", "kept": True},
+    )
+
+    assert applied["resolved_promise"] == {
+        "promise_id": "promise-1",
+        "kept": True,
+    }
+    assert entry["promises"] == [{"promise_id": "promise-1", "kept": True}]
+
+    before = coc_npc_state.get_npc_entry(camp, "npc-a")
+    with pytest.raises(ValueError, match="unknown promise"):
+        coc_npc_state.apply_psych_update(
+            camp,
+            "npc-a",
+            deltas={"trust": 2},
+            resolve_promise={"promise_id": "missing", "kept": False},
+        )
+    assert coc_npc_state.get_npc_entry(camp, "npc-a") == before
 
 
 def test_pair_scoped_textual_impression_initializes_and_updates(tmp_path):

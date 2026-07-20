@@ -17,6 +17,12 @@
     "native_imagegen": false,
     "isolated_player_agent": true
   },
+  "grok": {
+    "plugin_skills": true,
+    "plugin_mcp": true,
+    "native_imagegen": true,
+    "isolated_player_agent": true
+  },
   "kimi": {
     "plugin_skills": true,
     "plugin_mcp": true,

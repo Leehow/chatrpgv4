@@ -2,6 +2,21 @@
 
 Grep-native memory layer for the COC Story Director. The historical design spec is retired; see the tombstone index `docs/status/DIAGNOSIS-LEDGER.md`.
 
+This Director card store is distinct from host-context recovery. Per-turn
+startup/compaction recovery uses the typed `session.resume` operation and the
+hash-bound `save/continuation/` checkpoint described in `state-schema.md`.
+Never make a new model context grep all cards or session history merely to
+resume play; retrieve cards later only when the current semantic beat needs
+them. The checkpoint directory is a bounded 16-file rebuildable cache; durable
+history remains in canonical append-only receipts and memory streams. Resume
+also returns current operation opportunities and the stable narrative
+opportunity when present, so a compacted host continues the attempt instead of
+re-confirming tool parameters or rolling again. Resume runs once per host
+context epoch, not once per played turn. Its entire data projection has a fixed
+40 KiB budget; oversized values become canonical refs plus typed exact-read
+cards, while the per-turn checkpoint stores transcript hashes/lengths/refs
+rather than duplicating delivered prose.
+
 ## Layout
 ```
 .coc/campaigns/<id>/memory/

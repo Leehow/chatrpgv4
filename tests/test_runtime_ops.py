@@ -2252,6 +2252,19 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     assert scenario["resolution_policy"] == "source_first"
     assert len(scenario["source"]["bundle_sha256"]) == 64
     assert scenario["source"]["source_bundle_path"] == str(source_bundle)
+    assert scenario["source_cache_asset_root_id"] == "custom-module"
+    assert "progressive_asset_root_id" not in scenario
+    assert bound["result"]["source_cache"]["asset_root_id"] == "custom-module"
+    assert bound["result"]["source_cache"]["new_page_count"] == 1
+    cached_page = (
+        tmp_path
+        / ".coc"
+        / "module-assets"
+        / "custom-module"
+        / "pages"
+        / "0000.md"
+    )
+    assert cached_page.read_text(encoding="utf-8") == markdown.decode("utf-8")
     metadata = json.loads(
         (tmp_path / ".coc" / "campaigns" / "custom" / "campaign.json")
         .read_text(encoding="utf-8")

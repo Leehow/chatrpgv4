@@ -169,6 +169,19 @@ def _is_typed_consequence_effect(value: Any) -> bool:
     return False
 
 
+def _is_retry_policy(value: Any) -> bool:
+    if value is None:
+        return True
+    return bool(
+        isinstance(value, dict)
+        and set(value) == {"mode", "minimum_elapsed_minutes"}
+        and value.get("mode") == "elapsed_time_reset"
+        and isinstance(value.get("minimum_elapsed_minutes"), int)
+        and not isinstance(value.get("minimum_elapsed_minutes"), bool)
+        and value["minimum_elapsed_minutes"] > 0
+    )
+
+
 def _is_canonical_string_list(value: Any) -> bool:
     """True for an exact list of non-empty, already-trimmed strings."""
     return _is_string_list(value) and all(item == item.strip() for item in value)
@@ -725,11 +738,15 @@ def _check_reference_integrity(
                 )
                 if (
                     not isinstance(roll_gate, dict)
-                    or set(roll_gate) != {
+                    or set(roll_gate) not in ({
                         "kind", "difficulty", "stakes", "ordinary_failure",
                         "fumble_consequence", "push_failure_consequence",
                         "approaches",
-                    }
+                    }, {
+                        "kind", "difficulty", "stakes", "ordinary_failure",
+                        "fumble_consequence", "push_failure_consequence",
+                        "approaches", "retry_policy",
+                    })
                     or roll_gate.get("kind") != "skill_check"
                     or roll_gate.get("difficulty") not in {
                         "regular", "hard", "extreme",
@@ -765,6 +782,7 @@ def _check_reference_integrity(
                     or set(push_effect) != {"kind", "route_id"}
                     or push_effect.get("kind") != "route_closed"
                     or push_effect.get("route_id") != affordance.get("id")
+                    or not _is_retry_policy(roll_gate.get("retry_policy"))
                 ):
                     findings.append(_finding(
                         "invalid_affordance_roll_gate", "error",

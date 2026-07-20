@@ -313,6 +313,40 @@ def valid_entity_head(
                 return False
         elif marker is not None:
             return False
+    elif stable_kind == "npc_presence":
+        if set(live_record) != {"schema_version", "npc_id", "record"}:
+            return False
+        if (
+            live_record.get("schema_version") != 1
+            or str(live_record.get("npc_id") or "") != stable_id
+        ):
+            return False
+        record = live_record.get("record")
+        expected_fields = {
+            "schema_version", "npc_id", "scene_id", "status", "reason",
+            "revision", "changed_at", "decision_id", "source_sequence",
+            "producer",
+        }
+        if not isinstance(record, dict) or set(record) != expected_fields:
+            return False
+        if (
+            record.get("schema_version") != 1
+            or str(record.get("npc_id") or "") != stable_id
+            or not str(record.get("scene_id") or "")
+            or record.get("status") not in {"present", "absent"}
+            or not str(record.get("reason") or "")
+            or not isinstance(record.get("revision"), int)
+            or isinstance(record.get("revision"), bool)
+            or int(record.get("revision") or 0) < 1
+            or not str(record.get("changed_at") or "")
+            or str(record.get("decision_id") or "")
+            != str(head.get("decision_id") or "")
+            or positive_sequence(record.get("source_sequence"))
+            != positive_sequence(head.get("source_sequence"))
+            or str(record.get("producer") or "")
+            != str(head.get("producer") or "")
+        ):
+            return False
     else:
         return False
     return bool(

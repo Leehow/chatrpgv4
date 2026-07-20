@@ -59,6 +59,7 @@ EXPECTED_NAMESPACES = {
     "narration",
     "evidence",
     "secrets",
+    "session",
     "state",
     "progressive",
     "turn",
@@ -136,6 +137,60 @@ def _run(ws, tool: str, args: dict | None = None) -> dict:
         ws["campaign_id"],
         args,
     )
+
+
+def _finalize_pending_turn_for_test(
+    ws: dict, *, decision_id: str
+) -> dict:
+    """Close a journaled component-test turn through the current contract."""
+    output = _run(ws, "turn.output_context")
+    assert output["ok"] is True, output
+    context = output["data"]
+    result_paragraph = "已结算的测试结果按其原有因果关系发生。"
+    draft = "测试中的行动继续推进。\n\n" + result_paragraph
+    coverage = [
+        {
+            "obligation_id": obligation["obligation_id"],
+            "realization": "fictional_beat",
+            "action_realization": "调查员完成了这项已结算的测试行动",
+            "response": "场景按权威结算结果作出对应反应",
+            "causal_explanation": "该反应直接来自本轮已经结算的行动结果",
+            "persona_fit": "这项行动保持调查员既有的测试角色设定",
+            "player_input_handling": "abstract_completed",
+            "exact_excerpt": result_paragraph,
+            "exceptional_beat": (
+                "特殊结果已经产生与该行动直接相连的实质影响"
+                if obligation["exceptional_required"]
+                else ""
+            ),
+        }
+        for obligation in context["obligations"]
+    ]
+    mechanics_placements = []
+    for segment_type, source_key, after_paragraph in (
+        ("public_check", "roll_id", 0),
+        ("state_delta", "effect_id", 1),
+        ("exceptional_effect", "event_id", 1),
+    ):
+        rows = context["mechanics_bundle"].get(segment_type) or []
+        if rows:
+            mechanics_placements.append({
+                "after_paragraph": after_paragraph,
+                "segment_type": segment_type,
+                "source_ids": [str(row[source_key]) for row in rows],
+            })
+    finalized = _run(
+        ws,
+        "turn.finalize",
+        {
+            "draft": draft,
+            "coverage": coverage,
+            "mechanics_placements": mechanics_placements,
+            "decision_id": decision_id,
+        },
+    )
+    assert finalized["ok"] is True, finalized
+    return finalized
 
 
 def _first_contact_binding(
@@ -257,6 +312,44 @@ def _read_jsonl(path: Path) -> list[dict]:
         if line:
             out.append(json.loads(line))
     return out
+
+
+def test_initial_authored_start_move_has_no_off_graph_warning(campaign_ws):
+    story_graph = json.loads(
+        (campaign_ws["campaign_dir"] / "scenario" / "story-graph.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    start = next(scene for scene in story_graph["scenes"] if scene.get("is_start"))
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = None
+    world["unlocked_scene_ids"] = []
+    _write_json(world_path, world)
+
+    moved = _run(campaign_ws, "state.move_scene", {
+        "scene_id": start["scene_id"],
+        "decision_id": "enter-authored-start",
+    })
+
+    assert moved["ok"] is True
+    assert not any("off-graph" in warning for warning in moved["warnings"])
+    assert not any("not unlocked" in warning for warning in moved["warnings"])
+    assert moved["data"]["next_operation"]["operation"] == "scene.context"
+
+
+def test_scene_context_softly_redirects_nonactive_preview_to_typed_move(
+    campaign_ws,
+):
+    current = _run(campaign_ws, "scene.context")
+    destination = current["data"]["exits"][0]["to"]
+    preview = _run(campaign_ws, "scene.context", {"scene_id": destination})
+    assert preview["ok"] is True
+    assert preview["data"]["active_scene_id"] != destination
+    assert any(
+        "state.move_scene" in warning and "do not read" in warning
+        for warning in preview["warnings"]
+    )
 
 
 
@@ -475,6 +568,73 @@ def test_successful_call_returns_unified_envelope(campaign_ws):
     assert "error" not in envelope
 
 
+def test_clock_discontinuity_is_canonical_idempotent_and_visible_to_scene_context(
+    campaign_ws,
+):
+    before_context = _run(campaign_ws, "scene.context")
+    before_location = before_context["data"]["time"]["location_id"]
+    advanced = _run(campaign_ws, "state.advance_time", {
+        "minutes": 19,
+        "reason": "crossing before the temporal displacement",
+        "decision_id": "pre-discontinuity-advance",
+    })
+    assert advanced["ok"] is True
+
+    args = {
+        "discontinuity_kind": "time_shift",
+        "calendar_mode": "julian",
+        "precision": "day_phase",
+        "display": "1287年1月1日，上半夜（具体时刻未知）",
+        "local_date": "1287-01-01",
+        "day_phase": "night",
+        "source_ref": "module:page-17#forest-arrival",
+        "reason": "the source-authored bell displaced the party into 1287",
+        "decision_id": "canonical-clock-discontinuity",
+    }
+    first = _run(campaign_ws, "state.clock_discontinuity", args)
+    replay = _run(campaign_ws, "state.clock_discontinuity", args)
+
+    assert first["ok"] is True, first
+    assert first["data"]["elapsed_minutes"] == 19
+    assert first["data"]["relative_deadlines_preserved"] is True
+    assert first["data"]["civil_time"]["local_datetime"] is None
+    assert first["data"]["civil_time"]["local_date"] == "1287-01-01"
+    assert replay["data"] == first["data"]
+    assert any("duplicate decision_id" in row for row in replay["warnings"])
+
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is True
+    stamp = context["data"]["time"]
+    assert stamp["elapsed_minutes"] == 19
+    assert stamp["calendar_mode"] == "julian"
+    assert stamp["local_datetime"] is None
+    assert stamp["local_date"] == "1287-01-01"
+    assert stamp["day_phase"] == "night"
+    assert stamp["location_id"] == before_location
+
+    bad = _run(campaign_ws, "state.clock_discontinuity", {
+        **args,
+        "precision": "minute",
+        "decision_id": "canonical-clock-discontinuity-bad",
+    })
+    assert bad["ok"] is False
+    assert bad["error"]["code"] == "invalid_param"
+
+    dawn = _run(campaign_ws, "state.advance_time", {
+        "minutes": 180,
+        "reason": "wait for the first morning bell",
+        "day_phase_after": "morning",
+        "display_after": "1287年1月1日，清晨（具体时刻未知）",
+        "decision_id": "advance-to-first-bell",
+    })
+    assert dawn["ok"] is True, dawn
+    assert dawn["data"]["current_time"]["local_datetime"] is None
+    assert dawn["data"]["current_time"]["day_phase"] == "morning"
+    assert dawn["data"]["current_time"]["display"] == (
+        "1287年1月1日，清晨（具体时刻未知）"
+    )
+
+
 def test_structured_full_sleep_updates_director_rest_continuity(campaign_ws):
     advanced = _run(campaign_ws, "state.advance_time", {
         "minutes": 600,
@@ -578,6 +738,15 @@ def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
         (
             "state.record_npc_engagement",
             {"npc_id": "npc-steven-knott", "interaction_kind": "dialogue"},
+        ),
+        (
+            "state.npc_presence",
+            {
+                "npc_id": "npc-steven-knott",
+                "scene_id": "neighborhood-gossip",
+                "status": "present",
+                "reason": "Knott is speaking here",
+            },
         ),
         ("state.npc_update", {"npc_id": "npc-steven-knott", "trust_delta": 1}),
         (
@@ -2727,6 +2896,57 @@ def test_state_record_clue_idempotent_on_decision_id(campaign_ws):
     assert len(discoveries) == 1
 
 
+def test_pending_journal_rejects_later_state_mutation_before_it_writes(campaign_ws):
+    journal_args = {
+        "summary": "本轮到此结算。",
+        "player_action": "结束本轮",
+        "intent_class": "investigate",
+        "decision_id": "journal-before-illegal-move",
+    }
+    journaled = _run(campaign_ws, "state.journal", journal_args)
+    assert journaled["ok"] is True
+    before = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    rejected = _run(campaign_ws, "state.move_scene", {
+        "scene_id": "post-journal-place",
+        "decision_id": "illegal-post-journal-move",
+    })
+    duplicate = _run(campaign_ws, "state.journal", journal_args)
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "turn_pending_finalization"
+    assert duplicate["ok"] is True
+    after = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert after == before
+
+
+def test_pending_journal_allows_scene_context_before_finalization(campaign_ws):
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "本轮状态已经结算，KP 随后读取场景投影用于组织输出。",
+        "player_action": "结束本轮",
+        "intent_class": "investigate",
+        "decision_id": "journal-before-scene-context",
+    })
+    assert journaled["ok"] is True
+
+    context = _run(campaign_ws, "scene.context")
+    assert context["ok"] is True
+
+    finalized = _finalize_pending_turn_for_test(
+        campaign_ws,
+        decision_id="finalize-after-scene-context",
+    )
+    assert finalized["data"]["rendered_text"]
+
+
 def test_same_decision_id_is_scoped_by_tool_name(campaign_ws):
     decision_id = "shared-across-tools"
     moved = _run(
@@ -2912,6 +3132,36 @@ def test_state_flag_and_npc_updates_are_idempotent(campaign_ws):
     assert len(npc_events) == 1
 
 
+def test_npc_update_can_resolve_an_existing_promise(campaign_ws):
+    npc_id = _first_npc_id(campaign_ws["campaign_dir"])
+    made = _run(campaign_ws, "state.npc_update", {
+        "npc_id": npc_id,
+        "record_promise": "promise-shelter-until-dawn",
+        "decision_id": "npc-promise-made",
+    })
+    assert made["ok"] is True, made
+
+    resolution_args = {
+        "npc_id": npc_id,
+        "resolve_promise": {
+            "promise_id": "promise-shelter-until-dawn",
+            "kept": True,
+        },
+        "decision_id": "npc-promise-kept",
+    }
+    resolved = _run(campaign_ws, "state.npc_update", resolution_args)
+    duplicate = _run(campaign_ws, "state.npc_update", resolution_args)
+    assert resolved["ok"] is True, resolved
+    assert duplicate["data"] == resolved["data"]
+    assert resolved["data"]["applied"]["resolved_promise"] == {
+        "promise_id": "promise-shelter-until-dawn",
+        "kept": True,
+    }
+    assert resolved["data"]["psych"]["promises"] == [
+        {"promise_id": "promise-shelter-until-dawn", "kept": True}
+    ]
+
+
 def test_npc_update_invalid_availability_has_no_partial_state_mutation(campaign_ws):
     npc_id = _first_npc_id(campaign_ws["campaign_dir"])
     decision_id = "npc-atomic-invalid-then-valid"
@@ -3025,6 +3275,10 @@ def test_scene_context_projects_live_flag_truth_over_stale_authored_description(
     )
     active_scene["pressure_moves"] = ["The side door is still locked (initial description)."]
     _write_json(story_path, story)
+    republished = coc_toolbox.coc_compiled_archive.publish_from_campaign(
+        campaign_dir
+    )
+    assert republished["ok"] is True
 
     flag = _run(
         campaign_ws,
@@ -4368,6 +4622,10 @@ def test_evicted_roll_replay_does_not_reearn_consumed_development_check(
             "decision_id": f"ledger-rotation-{index}",
         })
         assert journaled["ok"] is True
+        _finalize_pending_turn_for_test(
+            campaign_ws,
+            decision_id=f"ledger-rotation-finalize-{index}",
+        )
 
     replay = _run(campaign_ws, "rules.roll", roll_args)
     assert replay["ok"] is True
@@ -4998,15 +5256,8 @@ def test_capsule_event_identity_survives_preappend_crash_and_interleaving(
     assert len(capsule_paths) == 1
     capsule = json.loads(capsule_paths[0].read_text(encoding="utf-8"))
 
-    interleaved = _run(
-        campaign_ws,
-        "state.journal",
-        {
-            "summary": "an unrelated event lands before ending retry",
-            "decision_id": "ending-preappend-interleave",
-        },
-    )
-    assert interleaved["ok"] is True
+    # New state must land before state.journal.  The journal then closes and is
+    # finalized before the interrupted ending is replayed in the next turn.
     moved = _run(
         campaign_ws,
         "state.move_scene",
@@ -5016,6 +5267,19 @@ def test_capsule_event_identity_survives_preappend_crash_and_interleaving(
         },
     )
     assert moved["ok"] is True
+    interleaved = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "unrelated events land before the ending retry",
+            "decision_id": "ending-preappend-interleave",
+        },
+    )
+    assert interleaved["ok"] is True
+    _finalize_pending_turn_for_test(
+        campaign_ws,
+        decision_id="ending-preappend-interleave-finalize",
+    )
     coc_state.link_party(
         campaign_ws["workspace"], campaign_ws["campaign_id"], []
     )
@@ -5738,6 +6002,248 @@ def test_bonus_die_only_combat_success_preserves_06_66_evidence_without_tick(
 # --------------------------------------------------------------------------- #
 
 
+def _activate_newspaper_morgue(campaign_ws: dict) -> None:
+    world_path = campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "newspaper-morgue"
+    _write_json(world_path, world)
+
+
+def test_contextual_authored_routes_prevent_false_rolls_and_settle_direct_handouts(
+    campaign_ws,
+):
+    _activate_newspaper_morgue(campaign_ws)
+    access = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Persuade",
+        "target": 100,
+        "difficulty": "regular",
+        "goal": "说服 Arty 允许进入剪报库",
+        "stakes": {
+            "on_success": "Arty 允许进入剪报库",
+            "on_failure": "Arty 拒绝开放剪报库",
+        },
+        "difficulty_basis": "authored_gate",
+        "resolution_context": {
+            "attempt_id": "route:newspaper-morgue:persuade-arty",
+            "scene_id": "newspaper-morgue",
+            "route_id": "persuade-arty",
+            "roll_density_group": "route:newspaper-morgue:persuade-arty",
+        },
+        "decision_id": "persuade-arty-success",
+        "seed": 2,
+    })
+    assert access["ok"] is True, access
+    assert access["data"]["success"] is True
+
+    hot_context = _run(campaign_ws, "scene.context")
+    direct_summary = next(
+        row for row in hot_context["data"]["action_routes"]
+        if row["route_id"] == "search-clippings"
+    )
+    assert direct_summary["resolution_kind"] == "direct_delivery"
+    assert "operation_opportunities" not in direct_summary
+
+    advised = _run(campaign_ws, "actions.advise", {
+        "investigator": campaign_ws["investigator_id"],
+        "intent_evidence": {
+            "primary_intent": "investigate",
+            "reason": "调查员已获准进入剪报库并按地址翻找旧稿。",
+            "matched_affordance_ids": ["search-clippings"],
+        },
+    })
+    assert advised["ok"] is True, advised
+    resolution = advised["data"]["resolution_advice"]
+    assert resolution["route_id"] == "search-clippings"
+    assert resolution["resolution_kind"] == "direct_delivery"
+    operations = resolution["operation_opportunities"]
+    assert [row["operation"] for row in operations] == [
+        "state.record_clue", "state.record_clue",
+    ]
+    assert all(row["hard_gate"] is False for row in advised["data"]["action_routes"])
+
+    results = []
+    for index, operation in enumerate(operations, start=1):
+        results.append(_run(
+            campaign_ws,
+            operation["operation"],
+            {
+                **operation["prefilled_arguments"],
+                "decision_id": f"direct-clipping-{index}",
+            },
+        ))
+    assert all(row["ok"] is True for row in results)
+    assert results[0]["data"]["route_completion"] is None
+    assert results[1]["data"]["route_completion"]["route_id"] == "search-clippings"
+    world = json.loads((
+        campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    ).read_text(encoding="utf-8"))
+    consumed = {
+        row["route_id"] for row in world.get("route_completion_receipts") or []
+        if row.get("status") == "consumed"
+    }
+    assert {"persuade-arty", "search-clippings"}.issubset(consumed)
+    roll_rows = _read_jsonl(campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl")
+    assert len(roll_rows) == 1
+
+
+def test_same_attempt_retry_is_soft_advice_and_survives_resume(campaign_ws):
+    _activate_newspaper_morgue(campaign_ws)
+    story_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    morgue = next(
+        row for row in story["scenes"] if row["scene_id"] == "newspaper-morgue"
+    )
+    persuade = next(
+        row for row in morgue["affordances"] if row["id"] == "persuade-arty"
+    )
+    persuade["roll_gate"]["retry_policy"] = {
+        "mode": "elapsed_time_reset",
+        "minimum_elapsed_minutes": 60,
+    }
+    _write_json(story_path, story)
+    context = {
+        "attempt_id": "archive-index-attempt",
+        "scene_id": "newspaper-morgue",
+        "route_id": "persuade-arty",
+        "roll_density_group": "archive-index",
+    }
+    first = _run(campaign_ws, "rules.roll", {
+        "target": 1,
+        "resolution_context": context,
+        "decision_id": "soft-attempt-one",
+        "seed": 2,
+    })
+    assert first["ok"] is True
+    assert first["data"]["success"] is False
+    opportunity = first["data"]["operation_opportunities"][0]
+    assert opportunity["hard_gate"] is False
+    assert opportunity["suggested_operation"]["operation"] == "rules.push"
+    assert opportunity["attempt_pressure"]["same_goal_no_progress_count"] == 1
+    assert opportunity["retry_status"]["status"] == "waiting"
+
+    second = _run(campaign_ws, "rules.roll", {
+        "target": 1,
+        "resolution_context": context,
+        "decision_id": "soft-attempt-two",
+        "seed": 2,
+    })
+    assert second["ok"] is True
+    assert second["data"]["attempt_advisory"]["hard_gate"] is False
+    assert second["data"]["attempt_pressure"]["same_goal_no_progress_count"] == 2
+    assert any("soft advice only" in warning for warning in second["warnings"])
+
+    resumed = _run(campaign_ws, "session.resume")
+    assert resumed["ok"] is True, resumed
+    open_attempts = resumed["data"]["operation_opportunities"]
+    assert open_attempts[-1]["source"]["decision_id"] == "soft-attempt-two"
+    assert open_attempts[-1]["hard_gate"] is False
+    assert open_attempts[-1]["attempt_pressure"]["same_goal_no_progress_count"] == 2
+
+    advanced = _run(campaign_ws, "state.advance_time", {
+        "minutes": 60,
+        "reason": "等待作者声明的重新尝试窗口",
+        "decision_id": "soft-attempt-wait",
+    })
+    assert advanced["ok"] is True
+    advised = _run(campaign_ws, "actions.advise", {
+        "intent_evidence": {
+            "primary_intent": "retry_editor_access",
+            "reason": "作者结构化等待窗口已经由权威时间记录满足。",
+            "matched_affordance_ids": ["persuade-arty"],
+        },
+    })
+    reset_retry = advised["data"]["resolution_advice"]
+    assert reset_retry["resolution_kind"] == "reset_retry"
+    assert reset_retry["hard_gate"] is False
+    assert reset_retry["operation_opportunities"]
+    reset_context = reset_retry["operation_opportunities"][0][
+        "prefilled_arguments"
+    ]["resolution_context"]
+    assert reset_context["reset_evidence"]["policy_mode"] == "elapsed_time_reset"
+    assert reset_context["reset_evidence"]["elapsed_minutes"] == 60
+
+
+def test_actions_advise_combines_stable_storylet_and_adoption_updates_ledger(
+    campaign_ws, monkeypatch,
+):
+    candidate = {
+        "storylet_id": "test-longrun-pressure",
+        "family_id": "longrun",
+        "trope_id": "world_moves",
+        "title": "世界不会干等",
+        "cue": "调查员核对资料时，窗外报童突然喊出一条与旧宅有关的新消息。",
+        "beat": "pressure",
+        "conflict_level": "rising",
+        "target_conflict_level": "rising",
+        "bound_entities": {"location_id": "campaign-opening"},
+        "rolled_variants": {},
+        "presentation_mode": "fictional_beat",
+        "grounding_contract": {"status": "authorized"},
+        "serves": ["pacing"],
+    }
+    monkeypatch.setattr(
+        coc_toolbox.coc_storylets,
+        "select_storylet_moves",
+        lambda *args, **kwargs: [deepcopy(candidate)],
+    )
+    args = {
+        "player_text": "我继续核对眼前的资料，同时留意房间里的动静。",
+        "intent_evidence": {
+            "primary_intent": "investigate",
+            "reason": "玩家继续调查，但也明确关注环境变化。",
+            "matched_affordance_ids": [],
+        },
+    }
+    first = _run(campaign_ws, "actions.advise", args)
+    second = _run(campaign_ws, "actions.advise", args)
+    assert first["ok"] is True, first
+    assert second["ok"] is True, second
+    opportunity = first["data"]["narrative_opportunity"]
+    assert opportunity is not None
+    assert opportunity["hard_gate"] is False
+    assert opportunity == second["data"]["narrative_opportunity"]
+
+    journal = _run(campaign_ws, "state.journal", {
+        "summary": "调查员继续核对资料，同时留意环境变化。",
+        "player_action": "核对资料并留意周围动静",
+        "player_text": args["player_text"],
+        "decision_id": "journal-longrun-pressure",
+    })
+    assert journal["ok"] is True, journal
+    output = _run(campaign_ws, "turn.output_context")
+    assert output["ok"] is True, output
+    assert output["data"]["narrative_opportunity"] == opportunity
+    excerpt = "窗外报童忽然扯开嗓子，喊出一条与旧宅有关的新消息。"
+    finalized = _run(campaign_ws, "turn.finalize", {
+        "draft": "纸页在指间沙沙作响。\n\n" + excerpt,
+        "coverage": [],
+        "mechanics_placements": [],
+        "decision_id": "finalize-longrun-pressure",
+        "advisory_uptake": {
+            "advice_id": opportunity["advice_id"],
+            "disposition": "modified",
+            "reason": "保留世界主动变化的功能，并改写成当前场景可直接听见的报童叫卖。",
+            "adopted_fields": ["candidate.cue", "candidate.beat"],
+            "storylet_candidate": opportunity["candidate"],
+            "exact_excerpt": excerpt,
+        },
+    })
+    assert finalized["ok"] is True, finalized
+    ledger = json.loads((
+        campaign_ws["campaign_dir"] / "save" / "storylet-ledger.json"
+    ).read_text(encoding="utf-8"))
+    assert ledger["last_storylet_id"] == "test-longrun-pressure"
+    adoption_rows = [
+        json.loads(line)
+        for line in (
+            campaign_ws["campaign_dir"] / "logs" / "advisory-adoptions.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+    assert adoption_rows[-1]["finalization_id"] == finalized["data"]["finalization_id"]
+    assert adoption_rows[-1]["exact_excerpt"] == excerpt
+
+
 def test_director_advise_is_advisory_not_blocking(campaign_ws):
     envelope = _run(campaign_ws, "director.advise", {
         "player_text": "我检查房间里刚才异响的来源。",
@@ -6080,6 +6586,70 @@ def test_clues_query_returns_discovery_state_without_blocking(campaign_ws):
     )
 
 
+def test_clues_query_cache_reuses_revision_and_invalidates_on_discovery(campaign_ws):
+    first = _run(campaign_ws, "clues.query", {"undiscovered_only": True})
+    revision = first["data"]["working_set"]["revision"]
+    assert first["cache"]["status"] == "miss"
+
+    cached = _run(campaign_ws, "clues.query", {"undiscovered_only": True})
+    assert cached["cache"]["status"] == "hit"
+    assert cached["data"] == first["data"]
+    assert (campaign_ws["campaign_dir"] / cached["cache"]["ref"]).is_file()
+
+    compact = _run(
+        campaign_ws,
+        "clues.query",
+        {"undiscovered_only": True, "since_revision": revision},
+    )
+    assert compact["cache"]["status"] == "not_modified"
+    assert compact["data"] == {
+        "working_set": {
+            "mode": "not_modified",
+            "revision": revision,
+            "read_domains": first["data"]["working_set"]["read_domains"],
+        }
+    }
+
+    clue_id = _first_clue_id(campaign_ws["campaign_dir"])
+    different_scope = _run(
+        campaign_ws,
+        "clues.query",
+        {"clue_id": clue_id, "since_revision": revision},
+    )
+    assert different_scope["cache"]["status"] == "miss"
+    assert different_scope["data"]["working_set"]["mode"] == "full"
+    assert different_scope["data"]["working_set"]["revision"] != revision
+    discovered = _run(
+        campaign_ws,
+        "state.record_clue",
+        {
+            "clue_id": clue_id,
+            "method": "cache invalidation probe",
+            "decision_id": "cache-discover-clue",
+        },
+    )
+    assert discovered["ok"] is True
+    refreshed = _run(
+        campaign_ws,
+        "clues.query",
+        {"undiscovered_only": True, "since_revision": revision},
+    )
+    assert refreshed["cache"]["status"] == "miss"
+    assert refreshed["data"]["working_set"]["mode"] == "full"
+    assert refreshed["data"]["working_set"]["revision"] != revision
+    assert clue_id not in {row["clue_id"] for row in refreshed["data"]["clues"]}
+    query_receipts = [
+        row
+        for row in _read_jsonl(
+            campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+        )
+        if row.get("tool") == "clues.query"
+    ]
+    assert query_receipts
+    assert all("clues" not in (row.get("data") or {}) for row in query_receipts)
+    assert any((row.get("data") or {}).get("projection_ref") for row in query_receipts)
+
+
 def test_npc_query_preserves_authored_identity_contract(campaign_ws):
     envelope = _run(campaign_ws, "npc.query", {"npc_id": "npc-kim-debrun"})
 
@@ -6088,7 +6658,8 @@ def test_npc_query_preserves_authored_identity_contract(campaign_ws):
     assert kim["origin"] == "source"
     assert kim["relationship_to_investigators"] == "court_contact"
     assert kim["social_role"]["authority_scope"] == ["specialist_knowledge"]
-    assert kim["identity_ref"].startswith("npc-identity-v1:")
+    assert kim["identity_ref"].startswith("npc-identity-v2:")
+    assert kim["profile_revision_ref"].startswith("npc-profile-v2:")
     contract = kim["identity_contract"]
     assert contract["keeper_only"] is True
     assert contract["npc_id"] == "npc-kim-debrun"
@@ -6101,6 +6672,141 @@ def test_npc_query_preserves_authored_identity_contract(campaign_ws):
     ]
     assert any("identity contract" in hint for hint in envelope["hints"])
     assert any("never invent a gendered pronoun" in hint for hint in envelope["hints"])
+
+
+def test_npc_query_projects_campaign_local_npc_and_invalidates_on_first_impression(
+    campaign_ws,
+):
+    npc_id = "npc-invented-port-clerk"
+    updated = _run(campaign_ws, "state.npc_update", {
+        "npc_id": npc_id,
+        "trust_delta": 1,
+        "decision_id": "campaign-local-query-state",
+    })
+    assert updated["ok"] is True
+
+    before_reaction = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
+    assert before_reaction["ok"] is True
+    revision = before_reaction["data"]["working_set"]["revision"]
+    row = before_reaction["data"]["npcs"][0]
+    assert row["origin"] == "improvised"
+    assert row["name"] is None
+    assert row["identity_ref"] is None
+    assert row["profile_revision_ref"] is None
+    assert row["identity_contract"] is None
+    assert row["psych"]["trust"] == 1
+    assert any("npc.reaction" in hint for hint in before_reaction["hints"])
+
+    binding = _first_contact_binding(
+        campaign_ws,
+        npc_id,
+        key="campaign-local-query",
+    )
+    after_reaction = _run(campaign_ws, "npc.query", {
+        "npc_id": npc_id,
+        "since_revision": revision,
+    })
+    assert after_reaction["ok"] is True
+    assert after_reaction["data"].get("not_modified") is not True
+    assert after_reaction["data"]["working_set"]["revision"] != revision
+    assert after_reaction["data"]["npcs"][0]["name"] == (
+        "测试 NPC campaign-local-query"
+    )
+    assert not any("npc.reaction" in hint for hint in after_reaction["hints"])
+
+    recorded = _run(campaign_ws, "state.record_npc_engagement", {
+        "npc_id": npc_id,
+        "interaction_kind": "dialogue",
+        "decision_id": "campaign-local-query-engagement",
+        **binding,
+    })
+    assert recorded["ok"] is True
+
+    queried = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
+    assert queried["ok"] is True
+    row = queried["data"]["npcs"][0]
+    assert row["psych"]["trust"] == 1
+    assert row["psych"]["impression"]["initialized_from_first_impression"] is True
+    all_npcs = _run(campaign_ws, "npc.query")
+    assert npc_id in {item["npc_id"] for item in all_npcs["data"]["npcs"]}
+
+
+def test_explicit_campaign_local_npc_presence_reaches_scene_context_and_replays(
+    campaign_ws,
+):
+    npc_id = "npc-improvised-door-attendant"
+    seeded = _run(campaign_ws, "state.npc_update", {
+        "npc_id": npc_id,
+        "suspicion_delta": 1,
+        "decision_id": "presence-seed-psych",
+    })
+    assert seeded["ok"] is True
+
+    before = _run(campaign_ws, "scene.context")
+    assert before["ok"] is True
+    revision = before["data"]["working_set"]["revision"]
+    assert npc_id not in {
+        row["npc_id"] for row in before["data"]["npcs_present"]
+    }
+    scene_id = before["data"]["active_scene_id"]
+    args = {
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "status": "present",
+        "reason": "the attendant opened the door and remained at the threshold",
+        "decision_id": "presence-door-attendant-arrives",
+    }
+    placed = _run(campaign_ws, "state.npc_presence", args)
+    replay = _run(campaign_ws, "state.npc_presence", args)
+    assert placed["ok"] is True, placed
+    assert replay["ok"] is True, replay
+    assert replay["data"] == placed["data"]
+    assert any("duplicate decision_id" in warning for warning in replay["warnings"])
+
+    after = _run(campaign_ws, "scene.context", {"since_revision": revision})
+    assert after["ok"] is True
+    assert after["data"].get("not_modified") is not True
+    row = next(
+        row for row in after["data"]["npcs_present"] if row["npc_id"] == npc_id
+    )
+    assert row["origin"] == "improvised"
+    assert row["presence_source"] == "live"
+    assert row["presence"]["scene_id"] == scene_id
+    assert row["presence"]["status"] == "present"
+    assert row["suspicion"] == 1
+
+    conflict = _run(campaign_ws, "state.npc_presence", {
+        **args,
+        "status": "absent",
+    })
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "idempotency_conflict"
+
+    removed = _run(campaign_ws, "state.npc_presence", {
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "status": "absent",
+        "reason": "the attendant left the threshold",
+        "decision_id": "presence-door-attendant-leaves",
+    })
+    assert removed["ok"] is True
+    final_context = _run(campaign_ws, "scene.context")
+    assert npc_id not in {
+        row["npc_id"] for row in final_context["data"]["npcs_present"]
+    }
+
+    state = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "npc-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    receipt = state["operation_receipts"]["state.npc_presence"][
+        "presence-door-attendant-arrives"
+    ]
+    assert receipt["entity_head"]["entity_kind"] == "npc_presence"
+    assert state["presence_heads"][npc_id]["decision_id"] == (
+        "presence-door-attendant-leaves"
+    )
 
 
 def test_actions_list_gives_noncombat_choices_equal_structured_semantics(campaign_ws):
@@ -6232,6 +6938,9 @@ def test_npc_engagement_receipt_recovers_before_a_different_next_decision(
     assert later["ok"] is True
     replay = _run(campaign_ws, "state.record_npc_engagement", args)
     assert replay["ok"] is True
+    assert replay["idempotent_replay"] is True
+    context = _run(campaign_ws, "turn.output_context")
+    assert context["ok"] is True
     events = [
         row for row in _read_jsonl(
             campaign_ws["campaign_dir"] / "logs" / "events.jsonl"
@@ -6249,6 +6958,36 @@ def test_npc_engagement_receipt_recovers_before_a_different_next_decision(
         row for row in receipt_doc["receipts"].values()
         if row["decision_id"] == args["decision_id"]
     ]) == 1
+
+    # Exact replay is the only post-journal exception.  A changed payload and
+    # a new decision remain non-mutating failures, and neither can append a
+    # source receipt or event outside the pending turn manifest.
+    before_receipts = (campaign_ws["campaign_dir"] / "save" /
+                       "npc-engagement-receipts.json").read_bytes()
+    before_events = (campaign_ws["campaign_dir"] / "logs" /
+                     "events.jsonl").read_bytes()
+    changed = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {**args, "interaction_kind": "dialogue"},
+    )
+    unbound = _run(
+        campaign_ws,
+        "state.record_npc_engagement",
+        {
+            "npc_id": args["npc_id"],
+            "interaction_kind": "witness",
+            "decision_id": f"new-after-{crash_stage}",
+        },
+    )
+    assert changed["ok"] is False
+    assert changed["error"]["code"] == "idempotency_conflict"
+    assert unbound["ok"] is False
+    assert unbound["error"]["code"] == "turn_pending_finalization"
+    assert (campaign_ws["campaign_dir"] / "save" /
+            "npc-engagement-receipts.json").read_bytes() == before_receipts
+    assert (campaign_ws["campaign_dir"] / "logs" /
+            "events.jsonl").read_bytes() == before_events
 
 
 def test_background_flusher_and_toolbox_recovery_share_stable_event_lock(
@@ -6657,12 +7396,9 @@ def test_npc_engagement_identity_binding_degrades_to_warnings_not_a_gate(
     dooley = next(
         npc for npc in context["data"]["npcs_present"] if npc["npc_id"] == "npc-dooley"
     )
-    assert dooley["identity_contract"]["identity_ref"] == dooley_ref
-    assert dooley["identity_contract"]["location_provenance"] == {
-        "active_scene_id": "neighborhood-gossip",
-        "authored_scene_ids": ["neighborhood-gossip"],
-        "active_scene_matches_schedule": True,
-    }
+    assert dooley["identity_ref"] == dooley_ref
+    assert dooley["agenda"]
+    assert "identity_contract" not in dooley
 
 
 def test_npc_short_name_and_open_interaction_label_degrade_without_blocking(campaign_ws):
@@ -7158,6 +7894,11 @@ def test_first_aid_wakes_non_dying_major_wound_for_resume(campaign_ws):
     assert aid["data"]["current_hp"] == 2
     assert "unconscious" not in aid["data"]["conditions"]
     assert "major_wound" in aid["data"]["conditions"]
+    receipt = aid["data"]["player_state_receipt"]
+    assert receipt["investigator_id"] == investigator_id
+    assert receipt["hp"] == {"before": 1, "after": 2}
+    assert "unconscious" in receipt["conditions_before"]
+    assert "unconscious" not in receipt["conditions_after"]
 
 
 def test_first_aid_then_medicine_closes_dying_consumer_chain(campaign_ws):

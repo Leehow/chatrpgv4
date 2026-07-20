@@ -14,7 +14,8 @@ import unicodedata
 from typing import Any
 
 
-IDENTITY_CONTRACT_SCHEMA_VERSION = 1
+IDENTITY_CONTRACT_SCHEMA_VERSION = 2
+SUPPORTED_IDENTITY_CONTRACT_SCHEMA_VERSIONS = frozenset({1, 2})
 IDENTITY_BINDING_SCHEMA_VERSION = 1
 ENGAGEMENT_EVENT_SCHEMA_VERSION = 2
 SUPPORTED_ENGAGEMENT_EVENT_SCHEMA_VERSIONS = frozenset({
@@ -80,7 +81,7 @@ def _authored_scene_ids(schedule: Any) -> list[str]:
     return sorted(authored_scene_ids)
 
 
-def _identity_ref(identity_source: dict[str, Any]) -> str:
+def _identity_ref(identity_source: dict[str, Any], *, schema_version: int) -> str:
     encoded = json.dumps(
         identity_source,
         ensure_ascii=False,
@@ -89,19 +90,21 @@ def _identity_ref(identity_source: dict[str, Any]) -> str:
         default=str,
     ).encode("utf-8")
     return (
-        f"npc-identity-v{IDENTITY_CONTRACT_SCHEMA_VERSION}:"
+        f"npc-identity-v{schema_version}:"
         f"{hashlib.sha256(encoded).hexdigest()[:24]}"
     )
 
 
-def identity_contract(
-    npc: dict[str, Any],
-    active_scene_id: str | None,
-) -> dict[str, Any]:
-    """Build a versioned digest over the complete structured identity producer."""
-    schedule = deepcopy(npc.get("schedule") or [])
-    authored_scene_ids = _authored_scene_ids(schedule)
-    identity_source = {
+def _stable_identity_source(npc: dict[str, Any]) -> dict[str, Any]:
+    """Fields that identify an authored entity, not its progressively parsed profile."""
+    return {
+        "npc_id": npc.get("npc_id"),
+        "origin": npc.get("origin"),
+    }
+
+
+def _profile_source(npc: dict[str, Any], schedule: Any) -> dict[str, Any]:
+    return {
         "npc_id": npc.get("npc_id"),
         "name": npc.get("name"),
         "origin": npc.get("origin"),
@@ -111,10 +114,26 @@ def identity_contract(
             "relationship_to_investigators"
         ),
         "social_role": deepcopy(npc.get("social_role")),
-        "schedule": schedule,
+        "schedule": deepcopy(schedule),
         "source_refs": deepcopy(npc.get("source_refs") or []),
     }
-    identity_ref = _identity_ref(identity_source)
+
+
+def identity_contract(
+    npc: dict[str, Any],
+    active_scene_id: str | None,
+) -> dict[str, Any]:
+    """Build a versioned digest over the complete structured identity producer."""
+    schedule = deepcopy(npc.get("schedule") or [])
+    authored_scene_ids = _authored_scene_ids(schedule)
+    identity_ref = _identity_ref(
+        _stable_identity_source(npc),
+        schema_version=IDENTITY_CONTRACT_SCHEMA_VERSION,
+    )
+    profile_revision_ref = _identity_ref(
+        _profile_source(npc, schedule),
+        schema_version=IDENTITY_CONTRACT_SCHEMA_VERSION,
+    ).replace("npc-identity-", "npc-profile-")
     active = str(active_scene_id) if active_scene_id not in (None, "") else None
     scene_match: bool | None = None
     if authored_scene_ids:
@@ -126,11 +145,16 @@ def identity_contract(
         "name": npc.get("name"),
         "origin": npc.get("origin"),
         "identity_ref": identity_ref,
+        "profile_revision_ref": profile_revision_ref,
         "role": {
             "relationship_to_investigators": npc.get(
                 "relationship_to_investigators"
             ),
             "social_role": deepcopy(npc.get("social_role")),
+            # Free-prose source titles are display identity, not structured
+            # authority.  Preserve them without feeding them into role logic
+            # or changing the stable authored identity digest.
+            "role_label": npc.get("role_label"),
         },
         "agenda": npc.get("agenda"),
         "voice": npc.get("voice"),
@@ -216,7 +240,8 @@ def validate_authored_attestation(
         or event_schema_version not in SUPPORTED_ENGAGEMENT_EVENT_SCHEMA_VERSIONS
     ):
         return False
-    if contract.get("schema_version") != IDENTITY_CONTRACT_SCHEMA_VERSION:
+    contract_version = contract.get("schema_version")
+    if contract_version not in SUPPORTED_IDENTITY_CONTRACT_SCHEMA_VERSIONS:
         return False
     if binding.get("schema_version") != IDENTITY_BINDING_SCHEMA_VERSION:
         return False
@@ -230,7 +255,7 @@ def validate_authored_attestation(
     if not isinstance(role, dict):
         return False
     schedule = deepcopy(contract.get("schedule") or [])
-    identity_source = {
+    contract_as_npc = {
         "npc_id": contract.get("npc_id"),
         "name": contract.get("name"),
         "origin": contract.get("origin"),
@@ -243,9 +268,20 @@ def validate_authored_attestation(
         "schedule": schedule,
         "source_refs": deepcopy(contract.get("source_refs") or []),
     }
-    expected_ref = _identity_ref(identity_source)
+    if contract_version == 1:
+        expected_ref = _identity_ref(contract_as_npc, schema_version=1)
+    else:
+        expected_ref = _identity_ref(
+            _stable_identity_source(contract_as_npc), schema_version=2,
+        )
     if str(contract.get("identity_ref") or "") != expected_ref:
         return False
+    if contract_version == 2:
+        expected_profile_ref = _identity_ref(
+            _profile_source(contract_as_npc, schedule), schema_version=2,
+        ).replace("npc-identity-", "npc-profile-")
+        if contract.get("profile_revision_ref") != expected_profile_ref:
+            return False
 
     location = contract.get("location_provenance")
     if not isinstance(location, dict):

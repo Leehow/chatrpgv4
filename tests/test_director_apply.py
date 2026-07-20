@@ -1304,7 +1304,9 @@ def test_apply_plan_npc_producer_contract_has_attested_identity_binding(
     }
     assert all(row["schema_version"] == 2 for row in produced)
     assert all(
-        row["identity_contract"]["schema_version"] == 1 for row in produced
+        row["identity_contract"]["schema_version"]
+        == coc_director_apply.coc_npc_identity.IDENTITY_CONTRACT_SCHEMA_VERSION
+        for row in produced
     )
     assert all(
         row["identity_binding"]["status"] == "authored_bound"

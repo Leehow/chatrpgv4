@@ -81,6 +81,17 @@ def test_persona_generation_is_seed_stable_and_uses_abstract_fields():
     assert first["name"]["status"] == "pending_llm"
 
 
+def test_player_facing_role_label_string_does_not_crash_persona_generation():
+    card = coc_npc_persona.build_persona_card(
+        {"npc_id": "shopkeeper", "social_role": "加油站老板"},
+        seed_parts=["campaign", "station", "shopkeeper"],
+    )
+
+    assert card["social_role"]["authority_scope"] == []
+    assert card["social_role"]["initiative_style"] == "consultative"
+    assert card["role_label"] == "加油站老板"
+
+
 def test_instantiate_npc_adds_demographics_name_context_and_generation_log():
     npc = {
         "npc_id": "npc-auto-003",

@@ -1,0 +1,71 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.grok/coc-keeper-current/hooks/run\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.grok/coc-keeper-current/hooks/run\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.grok/coc-keeper-current/hooks/run\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.grok/coc-keeper-current/hooks/run\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.grok/coc-keeper-current/hooks/run\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "coc[-_]keeper|MCPTool|CallMcpTool|use_tool|Bash|run_terminal_command|Edit|Write|MultiEdit|search_replace|Read|read_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.grok/coc-keeper-current/hooks/run\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

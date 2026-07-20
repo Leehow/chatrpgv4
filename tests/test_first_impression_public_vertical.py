@@ -26,6 +26,23 @@ def _write_json(path: Path, value: object) -> None:
     )
 
 
+def _placements(bundle: dict, *, roll_after: int = 0, other_after: int = 1) -> list[dict]:
+    specs = (
+        ("public_check", "roll_id", roll_after),
+        ("state_delta", "effect_id", other_after),
+        ("exceptional_effect", "event_id", other_after),
+    )
+    return [
+        {
+            "after_paragraph": after,
+            "segment_type": segment_type,
+            "source_ids": [str(row[source_key]) for row in bundle.get(segment_type, [])],
+        }
+        for segment_type, source_key, after in specs
+        if bundle.get(segment_type)
+    ]
+
+
 def _load_exporter():
     path = (
         REPO / "plugins" / "coc-keeper" / "skills"
@@ -153,6 +170,10 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
     })
     assert second["data"]["roll_id"] != first["data"]["roll_id"]
     assert second["data"]["achieved_level"] == "fumble"
+    assert any(
+        "boundary.description" in hint and "active play_language" in hint
+        for hint in second["hints"]
+    )
 
     reward = call("state.exceptional_effect", {
         "action": "apply",
@@ -231,7 +252,8 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
         "decision_id": "journal-multi-first-impression",
     })
     output = call("turn.output_context")["data"]
-    context_effects = output["mechanics_bundle"]["context_effect"]
+    assert "context_effect" not in output["mechanics_bundle"]
+    context_effects = output["npc_performance_constraints"]
     assert [row["npc_id"] for row in context_effects] == [
         "npc-arty-wilmot", "npc-ruth-blake",
     ]
@@ -239,11 +261,12 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
     assert len(output["mechanics_bundle"]["exceptional_effect"]) == 2
     assert output["missing_substantive_effects"] == []
 
-    draft = (
-        "托马斯收起笔记本，先向两人亮明身份，再把请求说得清清楚楚。"
+    setup = "托马斯收起笔记本，先向两人亮明身份，再把请求说得清清楚楚。"
+    result = (
         "露丝把椅子推近柜台，阿蒂却按住登记簿，叫来主管后才肯继续听；"
         "同一番开场，在两人那里引出了截然不同的反应。"
     )
+    draft = setup + "\n\n" + result
     coverage = [
         {
             "obligation_id": row["obligation_id"],
@@ -253,7 +276,7 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
             "causal_explanation": "两次独立初印象骰与各自 persona/职责共同塑造不同反应",
             "persona_fit": "符合两名 NPC 各自的办公职责，也保留托马斯记者式的得体表达",
             "player_input_handling": "abstract_completed",
-            "exact_excerpt": draft,
+            "exact_excerpt": result,
             "exceptional_beat": (
                 "这次极端结果形成了与对应 NPC 和源骰绑定的独立后续影响"
                 if row["exceptional_required"] else ""
@@ -264,6 +287,7 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
     finalized = call("turn.finalize", {
         "draft": draft,
         "coverage": coverage,
+        "mechanics_placements": _placements(output["mechanics_bundle"]),
         "decision_id": "finalize-multi-first-impression",
     })
     rendered = finalized["data"]["rendered_text"]
@@ -272,7 +296,8 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
     assert "npc-ruth-blake" not in rendered
     assert "npc-arty-wilmot" not in rendered
     assert rendered.count("【明骰】初印象·") == 2
-    assert rendered.count("【初次反应】") == 2
+    assert "【初次反应】" not in rendered
+    assert "causal_explanation" not in rendered
     assert rendered.count("【关系/印象奖励】") == 1
     assert rendered.count("【特殊影响】") == 1
 
@@ -298,6 +323,10 @@ def test_two_first_contacts_finalize_and_export_without_overwrite(tmp_path: Path
     assert {row["npc_display_name"] for row in report["first_impressions"]} == {
         "阿蒂·威尔莫特", "露丝·布莱克",
     }
+    assert all(
+        set(row.get("realization") or {}) <= {"observable_manner"}
+        for row in report["first_impressions"]
+    )
     assert len(report["relationship_rewards"]) == 1
     assert len(report["exceptional_effects"]) == 1
     markdown = (run_dir / "artifacts" / "battle-report.md").read_text(encoding="utf-8")
@@ -408,10 +437,11 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
     })
     unrelated_output = call("turn.output_context")["data"]
     assert unrelated_output["pending_modifier_consumptions"] == []
-    unrelated_draft = (
-        "托马斯找出登记错误的来源，替露丝洗清了本不该由她承担的责任。"
+    unrelated_setup = "托马斯找出登记错误的来源，替露丝洗清了本不该由她承担的责任。"
+    unrelated_result = (
         "稍后他请阿蒂核对另一页登记；这件事与露丝欠下的人情无关。"
     )
+    unrelated_draft = unrelated_setup + "\n\n" + unrelated_result
     unrelated_coverage = [{
         "obligation_id": row["obligation_id"],
         "realization": "fictional_beat",
@@ -420,12 +450,13 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
         "causal_explanation": "NPC 专属奖励只适用于露丝，不能因技能相同而套到阿蒂身上",
         "persona_fit": "两名 NPC 各自回应与自己有关的行为",
         "player_input_handling": "specific_preserved",
-        "exact_excerpt": unrelated_draft,
+        "exact_excerpt": unrelated_result,
         "exceptional_beat": "",
     } for row in unrelated_output["obligations"]]
     unrelated_finalized = call("turn.finalize", {
         "draft": unrelated_draft,
         "coverage": unrelated_coverage,
+        "mechanics_placements": _placements(unrelated_output["mechanics_bundle"]),
         "decision_id": "finalize-unrelated-npc-does-not-consume-reward",
     })
     assert unrelated_finalized["data"]["rendered_text"].count(
@@ -486,10 +517,11 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
     output = call("turn.output_context")["data"]
     assert output["pending_modifier_consumptions"] == []
     assert len(output["mechanics_bundle"]["exceptional_effect"]) == 1
-    draft = (
-        "托马斯找出登记错误的来源，替露丝洗清了本不该由她承担的责任。"
+    setup = "托马斯找出登记错误的来源，替露丝洗清了本不该由她承担的责任。"
+    result = (
         "当他随后请求多留一会儿时，露丝记起这份实际帮助，重新把卷宗推回桌面。"
     )
+    draft = setup + "\n\n" + result
     coverage = [{
         "obligation_id": row["obligation_id"],
         "realization": "fictional_beat",
@@ -498,12 +530,13 @@ def test_npc_scoped_relationship_bonus_matches_and_consumes_once(tmp_path: Path)
         "causal_explanation": "成功帮助、live trust 更新和一次性奖励骰共同构成后续关系变化",
         "persona_fit": "露丝回报的是对她职业责任有实际价值的帮助，而非泛化讨好",
         "player_input_handling": "specific_preserved",
-        "exact_excerpt": draft,
+        "exact_excerpt": result,
         "exceptional_beat": "",
     } for row in output["obligations"]]
     finalized = call("turn.finalize", {
         "draft": draft,
         "coverage": coverage,
+        "mechanics_placements": _placements(output["mechanics_bundle"]),
         "decision_id": "finalize-relationship-reward",
     })
     assert finalized["data"]["rendered_text"].count("【关系/印象奖励】") == 1
@@ -605,6 +638,7 @@ def test_state_delta_preserves_canonical_tool_call_order(tmp_path: Path) -> None
         for row in deltas if row["effect_kind"] == "time"
     ]
     assert time_chain == [(0, 25, 25), (25, 40, 15), (40, 70, 30)]
-    assert output["output_order"][:3] == [
-        "fiction", "public_check", "state_delta",
-    ]
+    assert output["composition_mode"] == "causal_paragraph_placements"
+    assert set(output["placement_segment_types"]) == {
+        "public_check", "state_delta", "exceptional_effect",
+    }

@@ -40,6 +40,25 @@ _LANGUAGE_ALIASES = {
     "瑞典语": "swedish",
 }
 
+_LANGUAGE_DISPLAY_NAMES = {
+    "zh-Hans": {
+        "english": "英语",
+        "finnish": "芬兰语",
+        "german": "德语",
+        "italian": "意大利语",
+        "latin": "拉丁语",
+        "swedish": "瑞典语",
+    },
+    "ja-JP": {
+        "english": "英語",
+        "finnish": "フィンランド語",
+        "german": "ドイツ語",
+        "italian": "イタリア語",
+        "latin": "ラテン語",
+        "swedish": "スウェーデン語",
+    },
+}
+
 
 def _normalize_language_name(value: Any) -> str:
     text = str(value or "").strip().lower()
@@ -976,6 +995,135 @@ LANGUAGE_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
+# Player-facing table mechanics chrome (public rolls / deltas). Selected by
+# campaign `play_language` — never assume Chinese at a non-zh table.
+TABLE_MECHANICS_LABELS: dict[str, dict[str, str]] = {
+    "zh-Hans": {
+        "public_check_tag": "明骰",
+        "change_tag": "变化",
+        "first_impression_tag": "初印象",
+        "first_reaction_tag": "初次反应",
+        "check_fallback": "检定",
+        "die_fallback": "骰值",
+        "roll_kind_san_loss": "理智损失",
+        "roll_kind_hp_damage": "伤害",
+        "roll_kind_hp_heal": "治疗",
+        "roll_kind_damage": "伤害",
+        "roll_kind_healing": "治疗",
+        "roll_kind_random_table": "随机结果",
+        "this_person": "这名人物",
+        "app": "外貌",
+        "credit_rating": "信用评级",
+        "using": "采用",
+        "die_faces": "骰面",
+        "total": "总值",
+        "time": "时间",
+        "minutes": "分钟",
+        "elapsed_prefix": "累计",
+        "time_phase": "时段",
+        "phase_morning": "早上",
+        "phase_afternoon": "下午",
+        "phase_evening": "黄昏",
+        "phase_night": "夜晚",
+        "phase_unknown": "时段不明",
+        "appearance_perpetual_daylight": "极昼",
+        "appearance_perpetual_darkness": "极夜",
+        "appearance_inverted": "昼夜颠倒",
+        "appearance_distorted": "昼夜紊乱",
+        "raw_roll": "原始",
+        "luck": "幸运",
+        "adjusted": "调整",
+        "roll_word": "掷骰",
+        "exceptional_tag": "特殊影响",
+        "cause": "因果",
+        "opportunity_friction": "当下机会/摩擦",
+        "boundary_still": "边界仍在",
+    },
+    "en-US": {
+        "public_check_tag": "Public roll",
+        "change_tag": "Change",
+        "first_impression_tag": "First impression",
+        "first_reaction_tag": "First reaction",
+        "check_fallback": "Check",
+        "die_fallback": "Die",
+        "roll_kind_san_loss": "SAN loss",
+        "roll_kind_hp_damage": "HP damage",
+        "roll_kind_hp_heal": "HP healing",
+        "roll_kind_damage": "Damage",
+        "roll_kind_healing": "Healing",
+        "roll_kind_random_table": "Random result",
+        "this_person": "this person",
+        "app": "APP",
+        "credit_rating": "Credit Rating",
+        "using": "using",
+        "die_faces": "faces",
+        "total": "total",
+        "time": "time",
+        "minutes": "min",
+        "elapsed_prefix": "elapsed",
+        "time_phase": "time of day",
+        "phase_morning": "morning",
+        "phase_afternoon": "afternoon",
+        "phase_evening": "evening",
+        "phase_night": "night",
+        "phase_unknown": "unknown time of day",
+        "appearance_perpetual_daylight": "perpetual daylight",
+        "appearance_perpetual_darkness": "perpetual darkness",
+        "appearance_inverted": "inverted day and night",
+        "appearance_distorted": "distorted day and night",
+        "raw_roll": "raw",
+        "luck": "Luck",
+        "adjusted": "adjusted",
+        "roll_word": "roll",
+        "exceptional_tag": "Exceptional",
+        "cause": "cause",
+        "opportunity_friction": "opportunity/friction",
+        "boundary_still": "boundary held",
+    },
+    "ja-JP": {
+        "public_check_tag": "公開ロール",
+        "change_tag": "変化",
+        "first_impression_tag": "第一印象",
+        "first_reaction_tag": "初回反応",
+        "check_fallback": "判定",
+        "die_fallback": "出目",
+        "roll_kind_san_loss": "正気度喪失",
+        "roll_kind_hp_damage": "ダメージ",
+        "roll_kind_hp_heal": "HP回復",
+        "roll_kind_damage": "ダメージ",
+        "roll_kind_healing": "回復",
+        "roll_kind_random_table": "ランダム結果",
+        "this_person": "この人物",
+        "app": "外貌",
+        "credit_rating": "信用",
+        "using": "採用",
+        "die_faces": "出目",
+        "total": "合計",
+        "time": "時間",
+        "minutes": "分",
+        "elapsed_prefix": "累計",
+        "time_phase": "時間帯",
+        "phase_morning": "朝",
+        "phase_afternoon": "午後",
+        "phase_evening": "夕暮れ",
+        "phase_night": "夜",
+        "phase_unknown": "時間帯不明",
+        "appearance_perpetual_daylight": "白夜",
+        "appearance_perpetual_darkness": "極夜",
+        "appearance_inverted": "昼夜逆転",
+        "appearance_distorted": "昼夜の乱れ",
+        "raw_roll": "生出目",
+        "luck": "幸運",
+        "adjusted": "調整後",
+        "roll_word": "ロール",
+        "exceptional_tag": "特殊効果",
+        "cause": "因果",
+        "opportunity_friction": "機会/摩擦",
+        "boundary_still": "境界は維持",
+    },
+}
+
+
 DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
     "zh-Hans": {
         "Accounting": "会计",
@@ -992,6 +1140,7 @@ DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
         "Firearms (Handgun)": "射击（手枪）",
         "Firearms (Rifle/Shotgun)": "射击（步枪/霰弹枪）",
         "First Aid": "急救",
+        "First Impression": "初印象",
         "History": "历史",
         "HP Damage": "生命值伤害",
         "HP Healing": "生命值恢复",
@@ -1047,8 +1196,78 @@ DEFAULT_LOCALIZED_TERMS: dict[str, dict[str, str]] = {
 
 
 def default_localized_terms(play_language: str | None = None) -> dict[str, str]:
-    """Built-in table vocabulary; run metadata may override any entry."""
+    """Built-in table vocabulary; run metadata may override any entry.
+
+    Canonical skill/characteristic keys stay machine-facing. This map only
+    supplies player-facing display strings for the active `play_language`.
+    Languages without a dedicated map return {} so callers keep the
+    canonical English key rather than inventing Chinese.
+    """
     return deepcopy(DEFAULT_LOCALIZED_TERMS.get(play_language or DEFAULT_PLAY_LANGUAGE, {}))
+
+
+def table_mechanics_labels(play_language: str | None = None) -> dict[str, str]:
+    """Chrome labels for public rolls / state deltas in the play language."""
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    if language in TABLE_MECHANICS_LABELS:
+        return deepcopy(TABLE_MECHANICS_LABELS[language])
+    # Unknown language: English chrome, not Chinese.
+    return deepcopy(TABLE_MECHANICS_LABELS["en-US"])
+
+
+def player_time_label(
+    player_time: dict[str, Any] | None,
+    play_language: str | None = None,
+) -> str:
+    """Render a broad time/light label without exposing exact clock values."""
+    chrome = table_mechanics_labels(play_language)
+    projection = player_time if isinstance(player_time, dict) else {}
+    custom = str(projection.get("display_label") or "").strip()
+    if custom:
+        return custom
+    mode = str(projection.get("appearance_mode") or "normal")
+    if mode != "normal":
+        return chrome.get(f"appearance_{mode}", chrome["phase_unknown"])
+    phase = str(projection.get("phase") or "unknown")
+    return chrome.get(f"phase_{phase}", chrome["phase_unknown"])
+
+
+def player_facing_skill_label(
+    skill: str,
+    play_language: str | None = None,
+    *,
+    terms: dict[str, str] | None = None,
+) -> str:
+    """Map a canonical skill key to a player-facing label for play_language."""
+    vocabulary = terms if terms is not None else default_localized_terms(play_language)
+    label = vocabulary.get(skill)
+    if isinstance(label, str) and label.strip():
+        return label
+    language_name, is_own = _language_name_from_skill_key(skill)
+    is_language_skill = str(skill).startswith(
+        ("Language (", "Other Language (")
+    )
+    language = play_language or DEFAULT_PLAY_LANGUAGE
+    if is_language_skill and language in {"zh-Hans", "ja-JP"}:
+        normalized_name = _normalize_language_name(language_name)
+        localized_name = _LANGUAGE_DISPLAY_NAMES.get(language, {}).get(
+            normalized_name
+        )
+        if language == "zh-Hans":
+            group_label = "母语" if is_own else "外语"
+            return (
+                f"{group_label}（{localized_name}）"
+                if localized_name
+                else group_label
+            )
+        group_label = "母国語" if is_own else "外国語"
+        return (
+            f"{group_label}（{localized_name}）"
+            if localized_name
+            else group_label
+        )
+    # en-US and unmapped languages: keep the canonical key as the table form.
+    return skill
 
 
 def localize_terms(value: Any, terms: dict[str, str]) -> str:

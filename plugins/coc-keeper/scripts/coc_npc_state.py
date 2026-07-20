@@ -1086,6 +1086,7 @@ def apply_psych_update(
     record_fact_id: Any = None,
     record_lie_id: Any = None,
     record_promise_id: Any = None,
+    resolve_promise: dict[str, Any] | None = None,
     availability: Any = None,
     impression_update: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1128,6 +1129,32 @@ def apply_psych_update(
             raise ValueError(f"{label} must be a non-empty string")
         normalized_records[label] = raw_value.strip()
 
+    normalized_promise_resolution: dict[str, Any] | None = None
+    if resolve_promise is not None:
+        if not isinstance(resolve_promise, dict):
+            raise ValueError("resolve_promise must be an object")
+        unknown = set(resolve_promise) - {"promise_id", "kept"}
+        if unknown:
+            raise ValueError(
+                f"resolve_promise has unknown fields: {sorted(unknown)}"
+            )
+        promise_id = resolve_promise.get("promise_id")
+        kept = resolve_promise.get("kept")
+        if not isinstance(promise_id, str) or not promise_id.strip():
+            raise ValueError(
+                "resolve_promise.promise_id must be a non-empty string"
+            )
+        if not isinstance(kept, bool):
+            raise ValueError("resolve_promise.kept must be a boolean")
+        normalized_promise_resolution = {
+            "promise_id": promise_id.strip(),
+            "kept": kept,
+        }
+        if normalized_records.get("record_promise") == promise_id.strip():
+            raise ValueError(
+                "record_promise and resolve_promise cannot target the same promise"
+            )
+
     normalized_availability: str | None = None
     if availability is not None:
         if not isinstance(availability, str) or availability not in {
@@ -1139,6 +1166,7 @@ def apply_psych_update(
     if (
         not normalized_deltas
         and not normalized_records
+        and normalized_promise_resolution is None
         and normalized_availability is None
         and normalized_impression is None
     ):
@@ -1178,6 +1206,20 @@ def apply_psych_update(
         else:
             existing["kept"] = None
         applied["recorded_promise"] = promise_id
+
+    if normalized_promise_resolution is not None:
+        resolved_id = normalized_promise_resolution["promise_id"]
+        existing = next((
+            row
+            for row in entry["promises"]
+            if row.get("promise_id") == resolved_id
+        ), None)
+        if existing is None:
+            raise ValueError(
+                f"cannot resolve unknown promise {resolved_id!r} for npc {identifier!r}"
+            )
+        existing["kept"] = normalized_promise_resolution["kept"]
+        applied["resolved_promise"] = dict(normalized_promise_resolution)
 
     if normalized_availability is not None:
         entry["availability"] = {"status": normalized_availability}

@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+payload="$(cat)"
+event="${GROK_HOOK_EVENT:-${COC_HOOK_EVENT:-}}"
+
+# Kimi plugin hooks cannot carry per-event env overrides; the event name and
+# the session workspace travel inside the stdin payload instead.
+_payload_field() {
+  printf '%s' "$payload" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+}
+if [[ -z "$event" ]]; then
+  event="$(_payload_field hook_event_name)"
+fi
+
+is_kimi=false
+if [[ -n "${KIMI_PLUGIN_ROOT:-}${KIMI_CODE_HOME:-}" ]]; then
+  is_kimi=true
+fi
+
+emit_allow() {
+  # Kimi appends a passing hook's stdout to the model context; other hosts
+  # expect the explicit allow receipt. Stay silent on Kimi.
+  if [[ "$is_kimi" == false ]]; then
+    printf '%s\n' '{"decision":"allow"}'
+  fi
+}
+
+# PreToolUse is hot.  Avoid starting Python for ordinary source reads/edits
+# that neither touch .coc nor invoke the canonical COC gateway.
+case "$event" in
+  pre_tool_use|PreToolUse|preToolUse)
+    case "$payload" in
+      *'.coc'*|*'coc-keeper'*|*'coc_keeper'*|*'coc_toolbox.py'*|*'toolbox-calls.jsonl'*|*'turn-finalizations.jsonl'*|*'pending-turn.json'*|*'world-state.json'*) ;;
+      *)
+        emit_allow
+        exit 0
+        ;;
+    esac
+    ;;
+esac
+
+workspace="${GROK_WORKSPACE_ROOT:-${CLAUDE_PROJECT_DIR:-}}"
+if [[ -z "$workspace" ]]; then
+  # Kimi runs plugin hooks with the plugin root as cwd, so the payload's
+  # session cwd is the only reliable workspace signal there.
+  payload_cwd="$(_payload_field cwd)"
+  if [[ -n "$payload_cwd" && -d "$payload_cwd" ]]; then
+    workspace="$payload_cwd"
+  fi
+fi
+if [[ -z "$workspace" ]]; then
+  workspace="$(pwd)"
+fi
+
+# Plugin hosts do not all populate their compatibility aliases at the same
+# lifecycle instant.  The executable location is the stable fallback and
+# avoids dropping SessionStart before the Python bridge can inspect the actual
+# workspaceRoot/cwd from the hook payload.
+hook_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+plugin_root="${GROK_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${KIMI_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}}}"
+if [[ -z "$plugin_root" ]]; then
+  plugin_root="$(CDPATH= cd -- "$hook_dir/.." && pwd)"
+fi
+if [[ -z "$plugin_root" || ! -f "$plugin_root/hooks/coc_context_hook.py" ]]; then
+  if [[ "$event" == "pre_tool_use" || "$event" == "PreToolUse" || "$event" == "preToolUse" ]]; then
+    emit_allow
+  fi
+  exit 0
+fi
+
+uv_bin="$(command -v uv 2>/dev/null || true)"
+if [[ -z "$uv_bin" ]]; then
+  for candidate in "$HOME/.local/bin/uv" /opt/homebrew/bin/uv /usr/local/bin/uv; do
+    if [[ -x "$candidate" ]]; then
+      uv_bin="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$uv_bin" ]]; then
+  if [[ "$event" == "pre_tool_use" || "$event" == "PreToolUse" || "$event" == "preToolUse" ]]; then
+    emit_allow
+  fi
+  exit 0
+fi
+
+export COC_HOOK_EVENT="$event"
+python_project=""
+if [[ -f "$workspace/pyproject.toml" && -f "$workspace/uv.lock" ]]; then
+  python_project="$workspace"
+elif [[ -n "${COC_PROJECT_ROOT:-}" && -f "$COC_PROJECT_ROOT/pyproject.toml" && -f "$COC_PROJECT_ROOT/uv.lock" ]]; then
+  python_project="$COC_PROJECT_ROOT"
+fi
+if [[ -n "$python_project" ]]; then
+  printf '%s' "$payload" | "$uv_bin" run \
+    --project "$python_project" \
+    --frozen \
+    python "$plugin_root/hooks/coc_context_hook.py"
+else
+  printf '%s' "$payload" | "$uv_bin" run \
+    --python 3.14.6 \
+    --no-project \
+    python "$plugin_root/hooks/coc_context_hook.py"
+fi
+exit 0

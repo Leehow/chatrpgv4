@@ -137,7 +137,7 @@ def _roll_gate_projection(raw: Any) -> dict[str, Any] | None:
         )
     ):
         return None
-    return {
+    projected = {
         "kind": "skill_check",
         "difficulty": difficulty,
         "stakes": stakes,
@@ -146,6 +146,21 @@ def _roll_gate_projection(raw: Any) -> dict[str, Any] | None:
         "push_failure_consequence": json.loads(json.dumps(push_consequence, ensure_ascii=False)),
         "approaches": approaches,
     }
+    retry_policy = raw.get("retry_policy")
+    if isinstance(retry_policy, dict):
+        mode = _text(retry_policy.get("mode"))
+        minimum = retry_policy.get("minimum_elapsed_minutes")
+        if (
+            mode == "elapsed_time_reset"
+            and isinstance(minimum, int)
+            and not isinstance(minimum, bool)
+            and minimum > 0
+        ):
+            projected["retry_policy"] = {
+                "mode": mode,
+                "minimum_elapsed_minutes": minimum,
+            }
+    return projected
 
 
 def _open_affordances(

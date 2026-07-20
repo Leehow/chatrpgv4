@@ -60,6 +60,7 @@ coc_state = _load_sibling("coc_state", "coc_state.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
 coc_flag_state = _load_sibling("coc_flag_state_toolbox", "coc_flag_state.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+coc_language = _load_sibling("coc_language", "coc_language.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
@@ -96,6 +97,12 @@ coc_narration_contract = _load_sibling(
 coc_exceptional_effects = _load_sibling(
     "coc_exceptional_effects", "coc_exceptional_effects.py"
 )
+coc_turn_manifest = _load_sibling("coc_turn_manifest", "coc_turn_manifest.py")
+coc_continuation = _load_sibling("coc_continuation", "coc_continuation.py")
+coc_host_context = _load_sibling("coc_host_context", "coc_host_context.py")
+coc_working_set_cache = _load_sibling(
+    "coc_working_set_cache", "coc_working_set_cache.py"
+)
 coc_turn_finalization = _load_sibling(
     "coc_turn_finalization", "coc_turn_finalization.py"
 )
@@ -116,6 +123,9 @@ coc_keeper_planner = _load_sibling(
 )
 coc_module_project = _load_sibling(
     "coc_module_project_toolbox", "coc_module_project.py"
+)
+coc_compiled_archive = _load_sibling(
+    "coc_compiled_archive_toolbox", "coc_compiled_archive.py"
 )
 
 SCENARIO_FILES = (
@@ -153,10 +163,17 @@ def _now_iso() -> str:
 
 
 class ToolError(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        violations: list[dict[str, str]] | None = None,
+    ):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+        self.violations = violations
 
 
 # --------------------------------------------------------------------------- #
@@ -510,13 +527,327 @@ def _rng(args: dict[str, Any]) -> random.Random:
 TOOLS: dict[str, dict[str, Any]] = {}
 
 
-def tool(name: str, summary: str, params: dict[str, dict[str, Any]], *, needs_campaign: bool = True):
+def _working_set_domain_paths(
+    ctx: Ctx, domains: tuple[str, ...]
+) -> dict[str, tuple[Path, ...]]:
+    campaign = ctx.campaign_dir
+    save = campaign / "save"
+    scenario = campaign / "scenario"
+    known: dict[str, tuple[Path, ...]] = {
+        "scene": (scenario / "story-graph.json",),
+        "world": (save / "world-state.json",),
+        "pacing": (save / "pacing-state.json", save / "active-scene.json"),
+        "clues": (scenario / "clue-graph.json",),
+        "npc": (
+            scenario / "npc-agendas.json",
+            save / "npc-state.json",
+            save / coc_first_impression.FILENAME,
+        ),
+        "npc_presence": (
+            scenario / "story-graph.json",
+            save / "world-state.json",
+            save / "npc-state.json",
+            save / coc_first_impression.FILENAME,
+        ),
+        "time": (save / "time-state.json", save / "time-markers.json"),
+        "active_effects": (save / coc_exceptional_effects.FILENAME,),
+        "attempts": (save / "roll-operation-receipts.json",),
+        "flags": (save / "flags.json",),
+        # The compiled archive is a rebuildable read model, but scene.context
+        # consumes it directly.  Its atomic manifest/status pair must therefore
+        # participate in query-cache invalidation even when canonical scenario
+        # IR and live campaign state are unchanged (for example after a
+        # compiler-contract upgrade followed by writer-side republish).
+        "module_archive": (
+            save / coc_compiled_archive.ARCHIVE_DIRNAME / coc_compiled_archive.MANIFEST_NAME,
+            save / coc_compiled_archive.ARCHIVE_DIRNAME / coc_compiled_archive.STATUS_NAME,
+        ),
+    }
+    party_paths: list[Path] = [campaign / "party.json"]
+    for investigator_id in ctx.party_ids():
+        party_paths.extend((
+            ctx.coc_root / "investigators" / investigator_id / "character.json",
+            save / "investigator-state" / f"{investigator_id}.json",
+            save / "sanity-state" / f"{investigator_id}.json",
+        ))
+    known["party"] = tuple(party_paths)
+    asset_root_id = (
+        coc_module_project.campaign_asset_root_id(campaign)
+        if campaign is not None else None
+    )
+    if asset_root_id:
+        module_root = coc_module_project.coc_module_assets.assets_root(ctx.root) / asset_root_id
+        known["module_progressive"] = (
+            module_root / "parse-queue.json",
+            *tuple(sorted((module_root / "host-work").glob("*.json"))),
+        )
+    return {
+        domain: known[domain]
+        for domain in domains
+        if domain in known
+    }
+
+
+_CONTINUATION_DOMAINS = (
+    "scene", "world", "pacing", "clues", "npc", "npc_presence", "time",
+    "active_effects", "attempts", "flags", "party", "module_progressive",
+)
+_SESSION_RESUME_DATA_MAX_BYTES = 40 * 1024
+
+
+def _wire_bytes(value: Any) -> int:
+    return len(json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8"))
+
+
+def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Keep the recovery working set inside one explicit wire budget.
+
+    Canonical sources remain untouched.  Oversized inline projections degrade
+    to hash-bound refs and exact typed read cards, never guessed summaries.
+    """
+    bounded = deepcopy(data)
+    reductions: list[str] = []
+
+    def over() -> bool:
+        return _wire_bytes(bounded) > _SESSION_RESUME_DATA_MAX_BYTES
+
+    host_input = bounded.get("host_input")
+    if over() and isinstance(host_input, dict) and isinstance(
+        host_input.get("text"), str
+    ):
+        host_input["text_ref"] = (
+            ".coc/runtime/host-sessions/"
+            + str(((bounded.get("host_context") or {}).get("before_resume") or {}).get(
+                "session_id"
+            ) or "current")
+        )
+        host_input["text"] = None
+        reductions.append("host_input_text_to_ref")
+
+    delivery = bounded.get("delivery")
+    if over() and isinstance(delivery, dict) and isinstance(
+        delivery.get("exact_text"), str
+    ):
+        exact = delivery["exact_text"]
+        delivery["exact_text_bytes"] = len(exact.encode("utf-8"))
+        delivery["exact_text"] = None
+        delivery["replay_operation"] = {
+            "operation": "session.delivery_text",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "finalization_id": delivery.get("finalization_id"),
+                "rendered_sha256": delivery.get("rendered_sha256"),
+            },
+            "missing_arguments": [],
+        }
+        reductions.append("delivery_text_to_typed_read")
+
+    current_turn = bounded.get("current_turn")
+    if over() and isinstance(current_turn, dict):
+        for row in current_turn.get("rows") or []:
+            if not over():
+                break
+            if isinstance(row, dict) and "data" in row:
+                payload = row.pop("data")
+                row["data_ref"] = row.get("data_ref") or (
+                    "logs/toolbox-calls.jsonl#call-"
+                    + str(row.get("call_index") or "unknown")
+                )
+                row["data_digest"] = hashlib.sha256(json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")).hexdigest()
+                row["data_bytes"] = _wire_bytes(payload)
+        reductions.append("current_turn_rows_to_refs")
+
+    if over() and isinstance(bounded.get("scene_context"), dict):
+        scene = bounded["scene_context"]
+        bounded["scene_context"] = {
+            key: deepcopy(scene.get(key))
+            for key in (
+                "campaign_id", "active_scene_id", "scene", "npcs_present",
+                "exits", "party", "party_investigators", "time",
+                "tension_level", "turn_number", "action_routes",
+                "operation_opportunities", "drilldown_refs",
+            )
+            if key in scene
+        }
+        bounded["scene_context"]["full_projection_operation"] = {
+            "operation": "scene.context",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {},
+            "missing_arguments": [],
+        }
+        reductions.append("scene_context_to_core_projection")
+
+    capsule = bounded.get("semantic_capsule")
+    if over() and isinstance(capsule, dict):
+        summaries = capsule.get("recent_summaries")
+        if isinstance(summaries, list) and len(summaries) > 2:
+            capsule["recent_summaries"] = summaries[-2:]
+            capsule["older_summary_count"] = len(summaries) - 2
+            reductions.append("older_semantic_summaries_to_count")
+
+    if over() and bounded.get("pending_output_context") is not None:
+        bounded["pending_output_context"] = {
+            "projection_ref": "turn.output_context",
+            "operation": {
+                "operation": "turn.output_context",
+                "invoke_via": "coc_invoke",
+                "prefilled_arguments": {},
+                "missing_arguments": [],
+            },
+        }
+        reductions.append("pending_output_context_to_typed_read")
+
+    if over() and isinstance(bounded.get("scene_context"), dict):
+        scene = bounded["scene_context"]
+        bounded["scene_context"] = {
+            key: deepcopy(scene.get(key))
+            for key in (
+                "campaign_id", "active_scene_id", "scene", "party", "time",
+                "operation_opportunities", "full_projection_operation",
+            )
+            if key in scene
+        }
+        reductions.append("scene_context_to_minimal_ref")
+
+    if over() and isinstance(current_turn, dict):
+        current_turn["rows"] = [
+            {
+                "call_index": row.get("call_index"),
+                "tool": row.get("tool"),
+                "ok": row.get("ok"),
+                "row_ref": row.get("row_ref") or row.get("data_ref"),
+                "row_digest": row.get("row_digest") or row.get("data_digest"),
+            }
+            for row in current_turn.get("rows") or []
+            if isinstance(row, dict)
+        ]
+        reductions.append("current_turn_to_receipt_refs")
+
+    measured = _wire_bytes(bounded)
+    if measured > _SESSION_RESUME_DATA_MAX_BYTES:
+        raise ToolError(
+            "resume_budget_exceeded",
+            "bounded recovery identities still exceed the fixed resume budget; "
+            "preserve canonical refs and inspect the cited typed projection",
+        )
+    bounded["resume_budget"] = {
+        "schema_version": 1,
+        "max_data_bytes": _SESSION_RESUME_DATA_MAX_BYTES,
+        "measured_data_bytes": measured,
+        "reductions": reductions,
+        "canonical_sources_unchanged": True,
+    }
+    # Account for the budget metadata itself.
+    bounded["resume_budget"]["measured_data_bytes"] = _wire_bytes(bounded)
+    if bounded["resume_budget"]["measured_data_bytes"] > _SESSION_RESUME_DATA_MAX_BYTES:
+        raise ToolError(
+            "resume_budget_exceeded",
+            "resume budget metadata exceeded the fixed recovery budget",
+        )
+    return bounded
+
+
+def _continuation_revision(ctx: Ctx) -> tuple[dict[str, int], str]:
+    return coc_working_set_cache.revision_vector(
+        ctx.campaign_dir,
+        _working_set_domain_paths(ctx, _CONTINUATION_DOMAINS),
+    )
+
+
+def _recover_compiled_archive_for_resume(
+    campaign_dir: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    """Publish a missing/stale rebuildable archive at lifecycle recovery.
+
+    ``session.resume`` already repairs continuation caches.  Doing the same
+    once-per-context maintenance for the compiled archive keeps ordinary turns
+    on typed scene/entity projections instead of inviting host file scans.
+    Canonical scenario IR is never modified.
+    """
+    loaded = coc_compiled_archive.load_published(campaign_dir)
+    if loaded.get("ok"):
+        return {
+            "status": "reused",
+            "archive_revision": loaded.get("archive_revision"),
+            "canonical_sources_unchanged": True,
+        }, []
+    published = coc_compiled_archive.publish_from_campaign(campaign_dir)
+    if published.get("ok"):
+        return {
+            "status": "published",
+            "reason": loaded.get("code") or "archive_unavailable",
+            "archive_revision": published.get("archive_revision"),
+            "canonical_sources_unchanged": True,
+        }, []
+    return {
+        "status": "fallback",
+        "reason": loaded.get("code") or "archive_unavailable",
+        "archive_revision": None,
+        "canonical_sources_unchanged": True,
+    }, [
+        "compiled archive lifecycle maintenance failed; scene.context will use "
+        "canonical IR fallback, but hosts must still use typed operations rather "
+        "than reading module files: "
+        + str(published.get("error") or loaded.get("error") or "unknown error")
+    ]
+
+
+def _query_cache_contract(spec: dict[str, Any]) -> dict[str, Any]:
+    try:
+        stat = (_HERE / "coc_toolbox.py").stat()
+        source_identity = {"mtime_ns": stat.st_mtime_ns, "size": stat.st_size}
+    except OSError:
+        source_identity = {"mtime_ns": None, "size": None}
+    return {
+        "tool": spec["name"],
+        "params": spec["params"],
+        "read_domains": list(spec.get("read_domains") or ()),
+        "response_mode": spec.get("response_mode", "full"),
+        "source_identity": source_identity,
+    }
+
+
+def tool(
+    name: str,
+    summary: str,
+    params: dict[str, dict[str, Any]],
+    *,
+    needs_campaign: bool = True,
+    access: str = "mutation",
+    read_domains: tuple[str, ...] = (),
+    write_domains: tuple[str, ...] = (),
+    recovery_domains: tuple[str, ...] | None = None,
+    response_mode: str = "full",
+    audit_mode: str = "full",
+):
+    if access not in {"query", "mutation"}:
+        raise ValueError(f"invalid tool access mode: {access}")
     def deco(fn: Callable[[Ctx, dict[str, Any]], tuple[Any, list[str], list[str]]]):
         TOOLS[name] = {
             "name": name,
             "summary": summary,
             "params": params,
             "needs_campaign": needs_campaign,
+            "access": access,
+            "read_domains": tuple(read_domains),
+            "write_domains": tuple(write_domains),
+            "recovery_domains": (
+                None if recovery_domains is None else tuple(recovery_domains)
+            ),
+            "response_mode": response_mode,
+            "audit_mode": audit_mode,
             "handler": fn,
         }
         return fn
@@ -533,10 +864,10 @@ def _log_tool_call(
     max_attempts: int = 1,
     recovered_after_retry: bool = False,
     will_retry: bool = False,
-) -> None:
+) -> int | None:
     """Append a tool-call receipt for runtime event projection (best effort)."""
     if ctx is None or ctx.campaign_dir is None:
-        return
+        return None
     record = {
         "schema_version": 2,
         "ts": _now_iso(),
@@ -556,6 +887,26 @@ def _log_tool_call(
         "retryable": bool(envelope.get("retryable")),
         "will_retry": bool(will_retry),
     }
+    if isinstance(envelope.get("cache"), dict):
+        record["cache"] = deepcopy(envelope["cache"])
+    if envelope.get("idempotent_replay") is True:
+        # A pending-turn exact replay is operational evidence, not a new
+        # settlement.  Preserve that distinction so the bounded manifest can
+        # ignore this row without weakening its post-journal mutation gate.
+        record["idempotent_replay"] = True
+    spec = TOOLS.get(name) or {}
+    if (
+        envelope.get("ok") is True
+        and spec.get("audit_mode") == "reference"
+        and isinstance(envelope.get("data"), dict)
+    ):
+        working_set = envelope["data"].get("working_set")
+        cache = envelope.get("cache") if isinstance(envelope.get("cache"), dict) else {}
+        record["data"] = {
+            "projection_ref": cache.get("ref"),
+            "result_digest": _canonical_digest(envelope["data"]),
+            "working_set": deepcopy(working_set),
+        }
     if envelope.get("retry_exhausted"):
         record["retry_exhausted"] = True
     if recovered_after_retry:
@@ -570,15 +921,17 @@ def _log_tool_call(
     except (OSError, ValueError, TypeError):
         record["turn_number"] = None
     try:
-        coc_state.append_jsonl(ctx.campaign_dir / "logs" / "toolbox-calls.jsonl", record)
+        log_path = ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+        coc_state.append_jsonl(log_path, record)
+        return log_path.stat().st_size
     except OSError:
-        pass
+        return None
 
 
 def _error_recovery_hints(code: str) -> list[str]:
     hints = {
         "unknown_npc": [
-            "call npc.query without npc_id to inspect authored ids; an improvised NPC may still be recorded with state.record_npc_engagement"
+            "call npc.query without npc_id to inspect authored and campaign-local ids; unknown means no authored agenda, first-impression receipt, persona card, or live psych state currently owns that exact id"
         ],
         "unknown_skill": [
             "inspect the investigator sheet or pass an explicit target; canonical rulebook base chances are used automatically when available"
@@ -607,6 +960,15 @@ def _error_recovery_hints(code: str) -> list[str]:
         "settlement_target_conflict": [
             "retry the persisted ending for one of its frozen investigator_ids; party changes do not retarget an existing ending"
         ],
+        "context_rehydration_required": [
+            "call session.resume for this campaign before any other campaign operation; use its bounded recovery bundle instead of rereading saves or rediscovering the full tool catalog"
+        ],
+        "context_epoch_conflict": [
+            "the host compacted again while recovery was being built; call session.resume once more and use only the newest bundle"
+        ],
+        "delivery_conflict": [
+            "acknowledge only the latest exact rendered_sha256 returned by session.resume; never regenerate or silently replace finalized text"
+        ],
     }
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
 
@@ -626,13 +988,158 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
+            pending_turn_manifest = None
+            pending_exact_replay = None
+            context_rehydration_advisory = None
+            if spec["needs_campaign"] and ctx.campaign_dir is not None:
+                host_marker = coc_host_context.current_marker(ctx.root)
+                if name != "session.resume" and host_marker is not None and (
+                    host_marker.get("requires_resume") is True
+                    or host_marker.get("acknowledged_campaign_id")
+                    not in {None, ctx.campaign_id}
+                ):
+                    context_rehydration_advisory = {
+                        "code": "context_rehydration_recommended",
+                        "campaign_id": ctx.campaign_id,
+                        "host_session_id": host_marker.get("session_id"),
+                        "context_epoch": host_marker.get("context_epoch"),
+                        "next_operation": "session.resume",
+                        "authority": "advisory",
+                        "hard_gate": False,
+                    }
+                pending_turn_manifest = coc_turn_manifest.pending_manifest(
+                    ctx.campaign_dir
+                )
+            if (
+                pending_turn_manifest is not None
+                and spec.get("access", "mutation") != "query"
+            ):
+                if (
+                    name not in {
+                        "turn.finalize", "state.exceptional_effect", "state.journal",
+                    }
+                ):
+                    # The journal boundary forbids every new mutation.  The
+                    # sole exception is a read-only proof that this exact NPC
+                    # operation was fully recovered before state.journal and
+                    # therefore has nothing left to write.  A missing source,
+                    # ledger, event, or exact payload match remains blocked.
+                    if name == "state.record_npc_engagement":
+                        pending_exact_replay = (
+                            _pending_npc_engagement_exact_replay(ctx, args)
+                        )
+                    if pending_exact_replay is None:
+                        raise ToolError(
+                            "turn_pending_finalization",
+                            "state.journal already committed for this turn; finalize it "
+                            "before any further state mutation",
+                        )
             if (
                 spec["needs_campaign"]
                 and ctx.campaign_dir is not None
+                and pending_turn_manifest is None
+                and name != "session.resume"
                 and name != "rules.luck_spend"
+                and (
+                    spec.get("access", "mutation") != "query"
+                    or bool(spec.get("recovery_domains"))
+                )
             ):
-                reconcile_campaign_continuity(ctx.campaign_dir, ctx=ctx)
-            data, warnings, hints = spec["handler"](ctx, args)
+                reconcile_campaign_continuity(
+                    ctx.campaign_dir,
+                    ctx=ctx,
+                    domains=spec.get("recovery_domains"),
+                )
+            cache_metadata = None
+            cacheable = (
+                spec.get("access") == "query"
+                and spec.get("response_mode") == "full_or_not_modified"
+                and ctx.campaign_dir is not None
+            )
+            if pending_exact_replay is not None:
+                data, warnings, hints = pending_exact_replay
+            elif cacheable:
+                domain_paths = _working_set_domain_paths(
+                    ctx, tuple(spec.get("read_domains") or ())
+                )
+                revision_vector, _domain_revision_token = (
+                    coc_working_set_cache.revision_vector(
+                        ctx.campaign_dir, domain_paths
+                    )
+                )
+                cache_key, args_digest = coc_working_set_cache.cache_identity(
+                    campaign_id=str(ctx.campaign_id),
+                    tool=name,
+                    args=args,
+                    revision_vector=revision_vector,
+                    contract_identity=_query_cache_contract(spec),
+                )
+                # The public token binds both state and exact argument scope;
+                # a revision from a different filter must never produce a
+                # false not_modified response.
+                revision_token = f"ws-v1-{cache_key[:24]}"
+                if args.get("since_revision") == revision_token:
+                    data = {
+                        "working_set": {
+                            "mode": "not_modified",
+                            "revision": revision_token,
+                            "read_domains": revision_vector,
+                        }
+                    }
+                    warnings, hints = [], [
+                        "reuse the prior full projection for this exact tool and argument scope"
+                    ]
+                    cache_metadata = {
+                        "status": "not_modified",
+                        "revision": revision_token,
+                        "key": cache_key,
+                    }
+                else:
+                    cached = coc_working_set_cache.load(
+                        ctx.campaign_dir,
+                        tool=name,
+                        cache_key=cache_key,
+                        revision_token=revision_token,
+                        revision_vector=revision_vector,
+                        args_digest=args_digest,
+                    )
+                    if cached is None:
+                        data, warnings, hints = spec["handler"](ctx, args)
+                        cache_ref = coc_working_set_cache.store(
+                            ctx.campaign_dir,
+                            tool=name,
+                            cache_key=cache_key,
+                            revision_token=revision_token,
+                            revision_vector=revision_vector,
+                            args_digest=args_digest,
+                            data=data,
+                            warnings=warnings,
+                            hints=hints,
+                        )
+                        cache_status = "miss"
+                    else:
+                        data, warnings, hints = cached
+                        cache_ref = coc_working_set_cache.cache_ref(
+                            ctx.campaign_dir,
+                            tool=name,
+                            cache_key=cache_key,
+                        )
+                        cache_status = "hit"
+                    if isinstance(data, dict):
+                        data = deepcopy(data)
+                        data["working_set"] = {
+                            "mode": "full",
+                            "revision": revision_token,
+                            "read_domains": revision_vector,
+                        }
+                    cache_metadata = {
+                        "status": cache_status,
+                        "revision": revision_token,
+                        "key": cache_key,
+                        "ref": cache_ref,
+                    }
+            else:
+                data, warnings, hints = spec["handler"](ctx, args)
             envelope = {
                 "ok": True,
                 "tool": name,
@@ -640,11 +1147,45 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 "warnings": warnings,
                 "hints": hints,
             }
+            if cache_metadata is not None:
+                envelope["cache"] = cache_metadata
+            if pending_exact_replay is not None:
+                envelope["idempotent_replay"] = True
+            if context_rehydration_advisory is not None:
+                envelope.setdefault("warnings", []).append(
+                    "The current host context has not acknowledged its latest "
+                    "recovery epoch; continuing is allowed, but session.resume "
+                    "is recommended before relying on remembered scene state."
+                )
+                envelope.setdefault("hints", []).append(
+                    "call session.resume once for this context epoch, then reuse "
+                    "the returned bounded working set instead of resuming every turn"
+                )
+                envelope["context_rehydration"] = context_rehydration_advisory
         except ToolError as exc:
+            error = {"code": exc.code, "message": exc.message}
+            if exc.violations:
+                error["violations"] = exc.violations
             envelope = {
                 "ok": False,
                 "tool": name,
-                "error": {"code": exc.code, "message": exc.message},
+                "error": error,
+            }
+        except coc_working_set_cache.WorkingSetCacheError as exc:
+            envelope = {
+                "ok": False,
+                "tool": name,
+                "error": {"code": exc.code, "message": str(exc)},
+            }
+        except (
+            coc_continuation.ContinuationError,
+            coc_host_context.HostContextError,
+            coc_turn_manifest.TurnManifestError,
+        ) as exc:
+            envelope = {
+                "ok": False,
+                "tool": name,
+                "error": {"code": exc.code, "message": str(exc)},
             }
         except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
             envelope = {
@@ -742,8 +1283,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         will_retry = bool(retryable and attempt < max_attempts)
         # Recovery conflict is a strict, non-mutating reusable-state barrier;
         # even the best-effort toolbox audit log must remain byte-identical.
+        log_end_offset = None
         if ctx is not None and error_code.lower() != "recovery_conflict":
-            _log_tool_call(
+            log_end_offset = _log_tool_call(
                 ctx,
                 name,
                 args,
@@ -753,6 +1295,78 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 recovered_after_retry=recovered,
                 will_retry=will_retry,
             )
+        if (
+            ctx is not None
+            and ctx.campaign_dir is not None
+            and envelope.get("ok") is True
+            and name == "turn.finalize"
+            and log_end_offset is not None
+        ):
+            data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
+            try:
+                with coc_fileio.campaign_lock(
+                    ctx.campaign_dir,
+                    wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
+                ):
+                    try:
+                        repair_finalization_id = str(
+                            args.get("repair_finalization_id") or ""
+                        ).strip()
+                        if repair_finalization_id:
+                            coc_turn_manifest.complete_undelivered_output_repair(
+                                ctx.campaign_dir,
+                                journal_decision_id=str(
+                                    data.get("journal_decision_id") or ""
+                                ),
+                                previous_finalization_id=repair_finalization_id,
+                                finalization_id=str(
+                                    data.get("finalization_id") or ""
+                                ),
+                                completed_end_offset=log_end_offset,
+                            )
+                        else:
+                            coc_turn_manifest.complete_pending_turn(
+                                ctx.campaign_dir,
+                                journal_decision_id=str(
+                                    data.get("journal_decision_id") or ""
+                                ),
+                                finalization_id=str(
+                                    data.get("finalization_id") or ""
+                                ),
+                                completed_end_offset=log_end_offset,
+                            )
+                    except coc_turn_manifest.TurnManifestError as exc:
+                        envelope.setdefault("warnings", []).append(
+                            "turn finalization is durable, but the bounded source cursor will recover on the next campaign call: "
+                            + str(exc)
+                        )
+                    try:
+                        revision_vector, revision_token = _continuation_revision(ctx)
+                        checkpoint = coc_continuation.publish_finalized_checkpoint(
+                            ctx.campaign_dir,
+                            data,
+                            revision_vector=revision_vector,
+                            revision_token=revision_token,
+                        )
+                    except (
+                        coc_continuation.ContinuationError,
+                        coc_working_set_cache.WorkingSetCacheError,
+                    ) as exc:
+                        envelope.setdefault("warnings", []).append(
+                            "turn finalization is durable, but its rebuildable continuation checkpoint was not published; session.resume will retry from canonical receipts: "
+                            + str(exc)
+                        )
+                    else:
+                        envelope["continuation"] = {
+                            "checkpoint_id": checkpoint["checkpoint_id"],
+                            "turn_number": checkpoint["turn_number"],
+                            "content_sha256": checkpoint["content_sha256"],
+                        }
+            except coc_fileio.CampaignLockError as exc:
+                envelope.setdefault("warnings", []).append(
+                    "turn finalization is durable, but post-finalization cursor/checkpoint publication will recover on the next campaign call: "
+                    + str(exc)
+                )
         if not retryable or attempt >= max_attempts:
             return envelope
         time.sleep(_TOOL_TRANSIENT_RETRY_DELAY_SECONDS * attempt)
@@ -802,6 +1416,65 @@ def _npc_identity_contract(
     active_scene_id: str | None,
 ) -> dict[str, Any]:
     return coc_npc_identity.identity_contract(npc, active_scene_id)
+
+
+def _campaign_npc_projection_index(
+    ctx: Ctx, npc_state: dict[str, Any]
+) -> tuple[set[str], dict[str, str], set[str]]:
+    """Index campaign-local NPC ids and their player-safe stable names.
+
+    Both npc.query and scene.context consume this same projection so an
+    improvised contact cannot exist in relationship state yet disappear from
+    scene grounding merely because the module did not author an agenda row.
+    """
+    try:
+        campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+        impression_document = coc_first_impression.load_document(
+            ctx.campaign_dir, campaign_id
+        )
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+
+    campaign_names: dict[str, str] = {}
+    name_conflicts: set[str] = set()
+    receipt_npc_ids: set[str] = set()
+    for pair in sorted((impression_document.get("receipts") or {})):
+        receipt = impression_document["receipts"][pair]
+        npc_id = str(receipt.get("npc_id") or "").strip()
+        if not npc_id:
+            continue
+        receipt_npc_ids.add(npc_id)
+        display_name = str(receipt.get("npc_display_name") or "").strip()
+        if not display_name:
+            continue
+        prior_name = campaign_names.setdefault(npc_id, display_name)
+        if prior_name != display_name:
+            name_conflicts.add(npc_id)
+
+    persona_cards = (
+        npc_state.get("npcs") if isinstance(npc_state.get("npcs"), dict) else {}
+    )
+    psych_by_id = (
+        npc_state.get("psych") if isinstance(npc_state.get("psych"), dict) else {}
+    )
+    campaign_npc_ids = {
+        str(npc_id).strip()
+        for source in (persona_cards, psych_by_id)
+        for npc_id in source
+        if str(npc_id).strip()
+    } | receipt_npc_ids
+    for npc_id, card in persona_cards.items():
+        if npc_id in campaign_names or not isinstance(card, dict):
+            continue
+        raw_name = card.get("name")
+        if isinstance(raw_name, dict):
+            raw_name = raw_name.get("value")
+        if not isinstance(raw_name, str):
+            raw_name = card.get("display_name")
+        name = str(raw_name or "").strip()
+        if name:
+            campaign_names[str(npc_id)] = name
+    return campaign_npc_ids, campaign_names, name_conflicts
 
 
 # --------------------------------------------------------------------------- #
@@ -1276,6 +1949,20 @@ _SOURCE_RECEIPT_FIELDS = frozenset({
     "hints",
     "entity_head",
     _SOURCE_RECEIPT_INTEGRITY_KEY,
+})
+
+_NPC_PRESENCE_SCHEMA_VERSION = 1
+_NPC_PRESENCE_RECORD_FIELDS = frozenset({
+    "schema_version",
+    "npc_id",
+    "scene_id",
+    "status",
+    "reason",
+    "revision",
+    "changed_at",
+    "decision_id",
+    "source_sequence",
+    "producer",
 })
 
 
@@ -2568,8 +3255,22 @@ def _replay_roll_receipt(
     warnings.append(
         "duplicate decision_id: recovered the original roll source receipt"
     )
+    data = receipt.get("data") if isinstance(receipt.get("data"), dict) else {}
+    context = (
+        data.get("resolution_context")
+        if isinstance(data.get("resolution_context"), dict)
+        else None
+    )
+    _route_receipt, route_warnings = _settle_contextual_route(
+        ctx,
+        context,
+        decision_id=str(receipt.get("decision_id") or ""),
+        source_tool=str(receipt.get("tool") or "rules.roll"),
+        successful=bool(data.get("success")),
+    )
+    warnings.extend(route_warnings)
     return (
-        deepcopy(receipt["data"]),
+        deepcopy(data),
         warnings,
         list(receipt.get("hints") or []),
     )
@@ -2998,6 +3699,103 @@ def _stored_toolbox_receipt_valid(receipt: Any) -> bool:
     )
 
 
+def _npc_presence_record_valid(
+    record: Any, *, npc_id: str | None = None
+) -> bool:
+    if (
+        not isinstance(record, dict)
+        or set(record) != set(_NPC_PRESENCE_RECORD_FIELDS)
+        or record.get("schema_version") != _NPC_PRESENCE_SCHEMA_VERSION
+        or not isinstance(record.get("npc_id"), str)
+        or not str(record.get("npc_id") or "").strip()
+        or not isinstance(record.get("scene_id"), str)
+        or not str(record.get("scene_id") or "").strip()
+        or record.get("status") not in {"present", "absent"}
+        or not isinstance(record.get("reason"), str)
+        or not str(record.get("reason") or "").strip()
+        or not isinstance(record.get("revision"), int)
+        or isinstance(record.get("revision"), bool)
+        or int(record.get("revision") or 0) < 1
+        or not isinstance(record.get("changed_at"), str)
+        or not str(record.get("changed_at") or "").strip()
+        or not isinstance(record.get("decision_id"), str)
+        or not str(record.get("decision_id") or "").strip()
+        or not isinstance(record.get("source_sequence"), int)
+        or isinstance(record.get("source_sequence"), bool)
+        or int(record.get("source_sequence") or 0) < 1
+        or record.get("producer") != "state.npc_presence"
+    ):
+        return False
+    return npc_id is None or str(record["npc_id"]) == str(npc_id)
+
+
+def _load_npc_presence_document(ctx: Ctx) -> dict[str, Any]:
+    """Load the presence namespace that shares canonical npc-state.json.
+
+    Persona cards and psychology retain their existing ownership.  Presence is
+    an explicit live overlay: engagement history is never treated as proof
+    that an NPC is still in a scene.
+    """
+    document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+    for key, default in (
+        ("presence", {}),
+        ("presence_heads", {}),
+        ("presence_source_sequence", 0),
+        (_SOURCE_RECEIPTS_KEY, {}),
+    ):
+        if key not in document:
+            document[key] = deepcopy(default)
+    if not isinstance(document.get("presence"), dict):
+        raise ToolError("state_corrupt", "npc-state presence map is invalid")
+    if not isinstance(document.get("presence_heads"), dict):
+        raise ToolError("state_corrupt", "npc-state presence head map is invalid")
+    sequence = document.get("presence_source_sequence")
+    if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0:
+        raise ToolError("state_corrupt", "npc-state presence source sequence is invalid")
+    all_receipts = document.get(_SOURCE_RECEIPTS_KEY)
+    if not isinstance(all_receipts, dict):
+        raise ToolError("state_corrupt", "npc-state operation receipt map is invalid")
+    presence_receipts = all_receipts.get("state.npc_presence", {})
+    if not isinstance(presence_receipts, dict):
+        raise ToolError("state_corrupt", "npc-state presence receipt map is invalid")
+    for key, record in document["presence"].items():
+        if not _npc_presence_record_valid(record, npc_id=str(key)):
+            raise ToolError(
+                "state_corrupt", f"npc presence record '{key}' is invalid"
+            )
+    for key, head in document["presence_heads"].items():
+        if not coc_flag_state.valid_entity_head(
+            head, entity_kind="npc_presence", entity_id=str(key)
+        ):
+            raise ToolError(
+                "state_corrupt", f"npc presence head '{key}' is invalid"
+            )
+    return document
+
+
+def _npc_presence_live_record(
+    document: dict[str, Any], npc_id: str
+) -> dict[str, Any]:
+    presence = document.get("presence")
+    presence = presence if isinstance(presence, dict) else {}
+    record = presence.get(str(npc_id))
+    return {
+        "schema_version": _NPC_PRESENCE_SCHEMA_VERSION,
+        "npc_id": str(npc_id),
+        "record": deepcopy(record) if isinstance(record, dict) else None,
+    }
+
+
+def _npc_presence_receipts(document: dict[str, Any]) -> dict[str, Any]:
+    receipts = (
+        (document.get(_SOURCE_RECEIPTS_KEY) or {}).get("state.npc_presence")
+        or {}
+    )
+    if not isinstance(receipts, dict):
+        raise ToolError("state_corrupt", "npc-state presence receipt map is invalid")
+    return receipts
+
+
 def _director_receipt_event_present(
     ctx: Ctx, receipt: dict[str, Any]
 ) -> bool:
@@ -3042,6 +3840,47 @@ def _unique_max_head(
             f"{entity_kind} '{entity_id}' has conflicting source heads at sequence {maximum}",
         )
     return next(iter(unique.values()))
+
+
+def _anchored_npc_presence_heads(
+    ctx: Ctx,
+    document: dict[str, Any],
+    *,
+    npc_id: str,
+    require_event: bool = True,
+) -> list[dict[str, Any]]:
+    heads: list[dict[str, Any]] = []
+    for receipt in _npc_presence_receipts(document).values():
+        if (
+            not isinstance(receipt, dict)
+            or not _stored_toolbox_receipt_valid(receipt)
+            or receipt.get("tool") != "state.npc_presence"
+        ):
+            raise ToolError("state_corrupt", "canonical NPC presence receipt is invalid")
+        head = receipt["entity_head"]
+        if str(head.get("entity_id") or "") != str(npc_id):
+            continue
+        present = _operation_event_present(ctx, receipt)
+        if require_event and not present:
+            continue
+        heads.append(deepcopy(head))
+    return heads
+
+
+def _latest_anchored_npc_presence_head(
+    ctx: Ctx,
+    document: dict[str, Any],
+    npc_id: str,
+    *,
+    require_event: bool = True,
+) -> dict[str, Any] | None:
+    return _unique_max_head(
+        _anchored_npc_presence_heads(
+            ctx, document, npc_id=npc_id, require_event=require_event
+        ),
+        entity_kind="npc_presence",
+        entity_id=str(npc_id),
+    )
 
 
 def _anchored_flag_heads(
@@ -3514,6 +4353,97 @@ def _reconcile_all_marker_source_receipts(
             _save_time_markers(ctx, payload)
 
 
+def _reconcile_all_npc_presence_source_receipts(ctx: Ctx) -> None:
+    """Finish durable presence receipts and verify their one live head.
+
+    The presence record, head, and receipt share one atomic npc-state write;
+    only append-only event and ledger materialization can remain after a
+    crash.  A missing or divergent live record is therefore corruption, not
+    an invitation to infer presence from engagement history.
+    """
+    document = _load_npc_presence_document(ctx)
+    receipts = _npc_presence_receipts(document)
+    ordered: list[dict[str, Any]] = []
+    for receipt in receipts.values():
+        if (
+            not isinstance(receipt, dict)
+            or not _stored_toolbox_receipt_valid(receipt)
+            or receipt.get("tool") != "state.npc_presence"
+        ):
+            raise ToolError("state_corrupt", "canonical NPC presence receipt is invalid")
+        operation = receipt.get("operation") or {}
+        npc_id = str(operation.get("npc_id") or "")
+        _validate_source_receipt(
+            receipt,
+            tool_name="state.npc_presence",
+            decision_id=str(receipt.get("decision_id") or ""),
+            operation=operation,
+        )
+        _validated_receipt_entity_head(
+            receipt, entity_kind="npc_presence", entity_id=npc_id
+        )
+        ordered.append(receipt)
+    ordered.sort(
+        key=lambda receipt: (
+            int(receipt["entity_head"]["source_sequence"]),
+            str(receipt.get("event_id") or ""),
+        )
+    )
+    for receipt in ordered:
+        _ensure_operation_event(ctx, receipt, inspect_pending=True)
+        manifest = _source_receipt_manifest(receipt)
+        prior = ctx.ledger_lookup(
+            "state.npc_presence", str(receipt["decision_id"])
+        )
+        if (
+            prior is None
+            or prior.get("data") != receipt.get("data")
+            or prior.get("source_receipt_manifest") != manifest
+        ):
+            ctx.ledger_record(
+                str(receipt["decision_id"]),
+                "state.npc_presence",
+                deepcopy(receipt.get("data") or {}),
+                source_receipt_manifest=manifest,
+            )
+
+    presence = document["presence"]
+    head_map = document["presence_heads"]
+    entity_ids = {str(value) for value in presence} | {
+        str(value) for value in head_map
+    }
+    max_sequence = 0
+    for receipt in ordered:
+        max_sequence = max(
+            max_sequence, int(receipt["entity_head"]["source_sequence"])
+        )
+        entity_ids.add(str(receipt["entity_head"]["entity_id"]))
+    if int(document["presence_source_sequence"]) != max_sequence:
+        raise ToolError(
+            "state_corrupt",
+            "npc presence source sequence does not match its durable receipts",
+        )
+    for npc_id in entity_ids:
+        expected = _latest_anchored_npc_presence_head(
+            ctx, document, npc_id
+        )
+        if expected is None:
+            raise ToolError(
+                "state_corrupt",
+                f"npc presence '{npc_id}' has no source receipt anchor",
+            )
+        if head_map.get(npc_id) != expected:
+            raise ToolError(
+                "state_corrupt",
+                f"npc presence '{npc_id}' live head is not its latest receipt",
+            )
+        if _npc_presence_live_record(document, npc_id) != expected["live_record"]:
+            raise ToolError(
+                "state_corrupt",
+                f"npc presence '{npc_id}' live record conflicts with its causal head",
+            )
+
+
 def _reconcile_all_canonical_source_receipts(ctx: Ctx) -> None:
     """Finish every durable source receipt before any later mutation.
 
@@ -3534,11 +4464,15 @@ def _reconcile_all_canonical_source_receipts(ctx: Ctx) -> None:
     if _npc_receipt_path(ctx).is_file():
         _reconcile_all_npc_source_receipts(ctx)
 
+    if (ctx.campaign_dir / "save" / "npc-state.json").is_file():
+        _reconcile_all_npc_presence_source_receipts(ctx)
+
 
 def reconcile_campaign_continuity(
     campaign_dir: Path | str,
     *,
     ctx: Ctx | None = None,
+    domains: tuple[str, ...] | list[str] | set[str] | None = None,
 ) -> None:
     """Complete every durable continuity receipt at a turn/read boundary.
 
@@ -3567,7 +4501,34 @@ def reconcile_campaign_continuity(
             "state_corrupt",
             "continuity preflight context does not match its campaign directory",
         )
-    _reconcile_all_canonical_source_receipts(ctx)
+    selected = (
+        {"rolls", "flags", "time_markers", "npc", "npc_presence"}
+        if domains is None
+        else {str(value) for value in domains}
+    )
+    unknown = selected - {
+        "rolls", "flags", "time_markers", "npc", "npc_presence",
+    }
+    if unknown:
+        raise ToolError(
+            "invalid_request",
+            "unknown continuity recovery domain(s): " + ", ".join(sorted(unknown)),
+        )
+    if "rolls" in selected:
+        _reconcile_all_roll_source_receipts(ctx)
+    if "flags" in selected:
+        flags = ctx.flags()
+        _reconcile_all_flag_source_receipts(ctx, flags)
+    if "time_markers" in selected and _time_markers_path(ctx).is_file():
+        markers = _load_time_markers(ctx)
+        _reconcile_all_marker_source_receipts(ctx, markers)
+    if "npc" in selected and _npc_receipt_path(ctx).is_file():
+        _reconcile_all_npc_source_receipts(ctx)
+    if (
+        "npc_presence" in selected
+        and (ctx.campaign_dir / "save" / "npc-state.json").is_file()
+    ):
+        _reconcile_all_npc_presence_source_receipts(ctx)
 
 
 def _positive_source_sequence(value: Any) -> int | None:
@@ -4513,6 +5474,404 @@ def _mark_improvement_tick(
     return True
 
 
+_ROLL_RESOLUTION_CONTEXT_TEXT_FIELDS = (
+    "attempt_id", "scene_id", "route_id", "roll_density_group",
+)
+
+
+def _current_elapsed_minutes(ctx: Ctx) -> int | None:
+    try:
+        value = coc_time.current_stamp(ctx.campaign_dir).get("elapsed_minutes")
+    except (OSError, ValueError, TypeError):
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _normalize_roll_resolution_context(
+    value: Any,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Normalize KP-supplied attempt identity without interpreting its prose.
+
+    This context is advisory continuity data.  Invalid optional fields are
+    ignored with warnings; they never deny the action or suppress a die roll.
+    """
+    if value is None:
+        return None, []
+    if not isinstance(value, dict):
+        return None, [
+            "resolution_context was not an object; ignored without blocking the roll"
+        ]
+    context: dict[str, Any] = {"schema_version": 1, "hard_gate": False}
+    warnings: list[str] = []
+    for field in _ROLL_RESOLUTION_CONTEXT_TEXT_FIELDS:
+        raw = value.get(field)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            warnings.append(
+                f"resolution_context.{field} was blank and was ignored"
+            )
+            continue
+        context[field] = text[:240]
+    if "attempt_id" not in context and context.get("roll_density_group"):
+        context["attempt_id"] = str(context["roll_density_group"])
+    reset = value.get("reset_evidence")
+    if reset is not None:
+        if not isinstance(reset, dict):
+            warnings.append(
+                "resolution_context.reset_evidence was not an object and was ignored"
+            )
+        else:
+            reason = str(reset.get("reason") or "").strip()
+            if not reason:
+                warnings.append(
+                    "resolution_context.reset_evidence needs a semantic reason and was ignored"
+                )
+            else:
+                context["reset_evidence"] = {
+                    "kind": str(reset.get("kind") or "fiction_changed").strip()[:120],
+                    "reason": reason[:1000],
+                }
+                for field in (
+                    "elapsed_minutes", "source_attempt_elapsed_minutes",
+                ):
+                    number = reset.get(field)
+                    if isinstance(number, int) and not isinstance(number, bool):
+                        context["reset_evidence"][field] = number
+                for field in ("policy_mode", "source_attempt_id"):
+                    text = str(reset.get(field) or "").strip()
+                    if text:
+                        context["reset_evidence"][field] = text[:240]
+    if len(context) == 2:
+        return None, warnings
+    return context, warnings
+
+
+def _route_roll_context(
+    ctx: Ctx, context: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if not isinstance(context, dict):
+        return None, None
+    scene_id = str(context.get("scene_id") or "").strip()
+    route_id = str(context.get("route_id") or "").strip()
+    if not scene_id or not route_id:
+        return None, None
+    scene = _scene_by_id(ctx.story_graph, scene_id)
+    return scene, _affordance_by_id(scene, route_id)
+
+
+def _route_retry_status(
+    ctx: Ctx,
+    route: dict[str, Any] | None,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    gate = route.get("roll_gate") if isinstance(route, dict) else None
+    policy = gate.get("retry_policy") if isinstance(gate, dict) else None
+    base = {
+        "schema_version": 1,
+        "authority": "advisory",
+        "hard_gate": False,
+        "eligible": False,
+        "policy": deepcopy(policy) if isinstance(policy, dict) else None,
+    }
+    if not isinstance(policy, dict):
+        return {
+            **base,
+            "status": "no_authored_reset_policy",
+            "reason": "Use the open Push, change method or goal, or let the failed consequence stand.",
+        }
+    if policy.get("mode") != "elapsed_time_reset":
+        return {**base, "status": "unsupported_authored_policy"}
+    minimum = policy.get("minimum_elapsed_minutes")
+    started = context.get("attempt_started_elapsed_minutes")
+    current = _current_elapsed_minutes(ctx)
+    if (
+        not isinstance(minimum, int) or isinstance(minimum, bool)
+        or not isinstance(started, int) or isinstance(started, bool)
+        or current is None
+    ):
+        return {
+            **base,
+            "status": "insufficient_structured_time_evidence",
+            "current_elapsed_minutes": current,
+            "attempt_started_elapsed_minutes": started,
+        }
+    elapsed = max(0, current - started)
+    eligible = elapsed >= minimum
+    return {
+        **base,
+        "status": "eligible" if eligible else "waiting",
+        "eligible": eligible,
+        "elapsed_minutes": elapsed,
+        "remaining_minutes": max(0, minimum - elapsed),
+        "current_elapsed_minutes": current,
+        "attempt_started_elapsed_minutes": started,
+        "reset_evidence": (
+            {
+                "kind": "authored_elapsed_time_reset",
+                "reason": (
+                    f"Authored retry policy permits a fresh attempt after {minimum} elapsed minutes; "
+                    f"canonical campaign time advanced by {elapsed} minutes."
+                ),
+                "elapsed_minutes": elapsed,
+                "source_attempt_elapsed_minutes": started,
+                "policy_mode": "elapsed_time_reset",
+                "source_attempt_id": str(context.get("attempt_id") or ""),
+            }
+            if eligible else None
+        ),
+    }
+
+
+def _settle_contextual_route(
+    ctx: Ctx,
+    context: dict[str, Any] | None,
+    *,
+    decision_id: str,
+    source_tool: str,
+    successful: bool,
+    committed_clue_ids: list[str] | None = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Project an exact structured settlement into the authored route ledger.
+
+    Unknown, stale, repeatable, or incomplete route references degrade to
+    warnings.  They never roll back the underlying clue or rules settlement.
+    """
+    scene, route = _route_roll_context(ctx, context)
+    if scene is None or route is None:
+        if isinstance(context, dict) and context.get("route_id"):
+            return None, [
+                "resolution_context route_ref was unavailable; the underlying settlement remains valid"
+            ]
+        return None, []
+    scene_id = str(scene.get("scene_id") or context.get("scene_id") or "")
+    route_id = str(route.get("id") or route.get("route_id") or "")
+    if (
+        route.get("repeatable") is True
+        or str(route.get("status") or "") in {"repeatable", "resume"}
+        or str(route.get("completion_policy") or "") == "repeatable"
+    ):
+        return None, []
+    world = ctx.world()
+    receipts = [
+        deepcopy(row) for row in world.get("route_completion_receipts") or []
+        if isinstance(row, dict)
+    ]
+    existing = next(
+        (
+            row for row in receipts
+            if str(row.get("route_id") or "") == route_id
+            and str(row.get("scene_id") or scene_id) == scene_id
+            and row.get("status") in {"consumed", "blocked"}
+        ),
+        None,
+    )
+    if existing is not None:
+        return deepcopy(existing), []
+    completed = coc_action_resolver._route_receipt_ids(
+        world, scene_id, "consumed"
+    )
+    required = {
+        str(value).strip()
+        for value in route.get("requires_completed_route_ids") or []
+        if str(value or "").strip()
+    }
+    if not required.issubset(completed):
+        return None, [
+            f"route '{route_id}' prerequisites are not yet settled; kept the result but left the route open"
+        ]
+    grants = coc_action_resolver._affordance_clue_ids(route)
+    discovered = {
+        str(value) for value in world.get("discovered_clue_ids") or [] if value
+    }
+    committed = [
+        str(value) for value in committed_clue_ids or [] if str(value) in grants
+    ]
+    if grants:
+        complete = set(grants).issubset(discovered)
+    else:
+        complete = bool(successful and isinstance(route.get("roll_gate"), dict))
+    if not complete:
+        return None, []
+    completion = {
+        "schema_version": 1,
+        "route_id": route_id,
+        "scene_id": scene_id,
+        "status": "consumed",
+        "committed_clue_ids": list(grants if grants else committed),
+        "committed_flag_ids": [],
+        "remaining_clue_ids": [],
+        "rule_request_ids": [],
+        "rule_outcomes": ["success"] if successful else [],
+        "success": bool(successful or grants),
+        "completion_quality": "clean",
+        "decision_id": str(decision_id),
+        "source": f"toolbox_context:{source_tool}",
+        "ts": _now_iso(),
+    }
+    receipts.append(completion)
+    world["route_completion_receipts"] = receipts[-256:]
+    ctx.save_world(world)
+    ctx.log_event({
+        "event_type": "route_completed",
+        "decision_id": str(decision_id),
+        "route_id": route_id,
+        "scene_id": scene_id,
+        "committed_clue_ids": list(completion["committed_clue_ids"]),
+        "status": "completed",
+        "success": completion["success"],
+        "completion_quality": "clean",
+        "player_visible_goal": str(route.get("cue") or ""),
+        "player_visible_outcome": str(route.get("player_visible_outcome") or ""),
+        "source": completion["source"],
+        "summary": f"structured route completed: {route_id}",
+    })
+    return completion, []
+
+
+def _push_operation_opportunity(
+    ctx: Ctx,
+    receipt: dict[str, Any],
+    *,
+    no_progress_count: int = 1,
+) -> dict[str, Any]:
+    data = receipt.get("data") if isinstance(receipt.get("data"), dict) else {}
+    context = (
+        data.get("resolution_context")
+        if isinstance(data.get("resolution_context"), dict)
+        else {}
+    )
+    _scene, route = _route_roll_context(ctx, context)
+    gate = route.get("roll_gate") if isinstance(route, dict) else None
+    push_consequence = (
+        gate.get("push_failure_consequence")
+        if isinstance(gate, dict) else None
+    )
+    fumble_consequence = (
+        gate.get("fumble_consequence") if isinstance(gate, dict) else None
+    )
+    retry_status = _route_retry_status(ctx, route, context)
+    prefilled: dict[str, Any] = {
+        "original_check_decision_id": str(receipt.get("decision_id") or ""),
+    }
+    missing = ["method_changed", "failure_consequence", "decision_id"]
+    if isinstance(push_consequence, dict) and str(
+        push_consequence.get("summary") or ""
+    ).strip():
+        prefilled["failure_consequence"] = str(
+            push_consequence["summary"]
+        ).strip()
+        missing.remove("failure_consequence")
+    if isinstance(fumble_consequence, dict) and str(
+        fumble_consequence.get("summary") or ""
+    ).strip():
+        prefilled["fumble_consequence"] = str(
+            fumble_consequence["summary"]
+        ).strip()
+    opportunity = {
+        "schema_version": 1,
+        "kind": "open_push_or_context_change",
+        "authority": "advisory",
+        "hard_gate": False,
+        "reason_code": "ordinary_failure_has_unresolved_attempt",
+        "source": {
+            "decision_id": str(receipt.get("decision_id") or ""),
+            "roll_id": data.get("roll_id"),
+            "attempt_id": context.get("attempt_id"),
+            "scene_id": context.get("scene_id"),
+            "route_id": context.get("route_id"),
+            "roll_density_group": context.get("roll_density_group"),
+        },
+        "suggested_operation": {
+            "operation": "rules.push",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": prefilled,
+            "missing_arguments": missing,
+        },
+        "attempt_pressure": {
+            "schema_version": 1,
+            "same_goal_no_progress_count": max(1, int(no_progress_count)),
+            "level": (
+                "repeated_without_progress"
+                if int(no_progress_count) > 1
+                else "first_ordinary_failure"
+            ),
+            "authority": "advisory",
+            "hard_gate": False,
+        },
+        "retry_status": retry_status,
+        "alternatives": [
+            "accept the failed result and let its consequence change play",
+            "change the fictional method or goal",
+            "record structured reset_evidence after time, access, position, or circumstances materially change",
+        ],
+    }
+    if retry_status.get("eligible") is True and isinstance(route, dict):
+        opportunity["reset_retry_operations"] = _route_operation_cards(
+            ctx,
+            route,
+            reset_evidence=retry_status.get("reset_evidence"),
+        )
+    return opportunity
+
+
+def _open_attempt_opportunities_from_document(
+    ctx: Ctx,
+    document: dict[str, Any],
+    *,
+    scene_id: str | None = None,
+) -> list[dict[str, Any]]:
+    receipts = document.get("receipts") if isinstance(document, dict) else {}
+    roll_receipts = receipts.get("rules.roll") if isinstance(receipts, dict) else {}
+    push_receipts = receipts.get("rules.push") if isinstance(receipts, dict) else {}
+    pushed_originals = {
+        str((row.get("operation") or {}).get("original_check_decision_id") or "")
+        for row in (push_receipts or {}).values()
+        if isinstance(row, dict)
+    }
+    by_group: dict[str, dict[str, Any]] = {}
+    pressure_by_group: dict[str, int] = {}
+    for decision_id, receipt in (roll_receipts or {}).items():
+        if not isinstance(receipt, dict):
+            continue
+        data = receipt.get("data") if isinstance(receipt.get("data"), dict) else {}
+        context = data.get("resolution_context")
+        if not isinstance(context, dict):
+            continue
+        group = str(context.get("roll_density_group") or "").strip()
+        if not group:
+            continue
+        if scene_id and str(context.get("scene_id") or "") not in {"", scene_id}:
+            continue
+        outcome = str(data.get("outcome") or "")
+        if outcome == "failure" and str(decision_id) not in pushed_originals:
+            by_group[group] = receipt
+            if isinstance(context.get("reset_evidence"), dict):
+                pressure_by_group[group] = 1
+            else:
+                pressure_by_group[group] = pressure_by_group.get(group, 0) + 1
+        else:
+            by_group.pop(group, None)
+            pressure_by_group.pop(group, None)
+    return [
+        _push_operation_opportunity(
+            ctx,
+            receipt,
+            no_progress_count=pressure_by_group.get(group, 1),
+        )
+        for group, receipt in list(by_group.items())[-8:]
+    ]
+
+
+def _open_attempt_opportunities(
+    ctx: Ctx, *, scene_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return _open_attempt_opportunities_from_document(
+        ctx, _load_roll_receipt_document(ctx), scene_id=scene_id,
+    )
+
+
 def _roll_common(
     ctx: Ctx,
     args: dict[str, Any],
@@ -4562,6 +5921,54 @@ def _roll_common(
     difficulty = str(operation["required_level"])
     bonus = int(operation["bonus"])
     penalty = int(operation["penalty"])
+    context_warnings: list[str] = []
+    resolution_context: dict[str, Any] | None
+    if pushed:
+        original = _roll_receipt(
+            document,
+            "rules.roll",
+            str(operation.get("original_check_decision_id") or ""),
+        )
+        original_data = (
+            original.get("data") if isinstance(original, dict) else None
+        )
+        resolution_context = (
+            deepcopy(original_data.get("resolution_context"))
+            if isinstance(original_data, dict)
+            and isinstance(original_data.get("resolution_context"), dict)
+            else None
+        )
+    else:
+        resolution_context, context_warnings = (
+            _normalize_roll_resolution_context(args.get("resolution_context"))
+        )
+        if (
+            isinstance(resolution_context, dict)
+            and resolution_context.get("roll_density_group")
+        ):
+            current_elapsed = _current_elapsed_minutes(ctx)
+            if current_elapsed is not None:
+                resolution_context["attempt_started_elapsed_minutes"] = current_elapsed
+    prior_attempt_advisory = None
+    if (
+        not pushed
+        and isinstance(resolution_context, dict)
+        and resolution_context.get("roll_density_group")
+        and not isinstance(resolution_context.get("reset_evidence"), dict)
+    ):
+        group = str(resolution_context["roll_density_group"])
+        prior_attempt_advisory = next(
+            (
+                row for row in _open_attempt_opportunities_from_document(
+                    ctx,
+                    document,
+                    scene_id=str(resolution_context.get("scene_id") or "") or None,
+                )
+                if str((row.get("source") or {}).get("roll_density_group") or "")
+                == group
+            ),
+            None,
+        )
     result = coc_roll.percentile_check(target, difficulty, bonus, penalty, rng=_rng(args))
     result["investigator_id"] = investigator_id
     result["skill"] = label
@@ -4574,6 +5981,17 @@ def _roll_common(
         result["reason"] = str(operation["reason"])
     if operation.get("npc_id"):
         result["npc_id"] = str(operation["npc_id"])
+    if resolution_context is not None:
+        result["resolution_context"] = deepcopy(resolution_context)
+    if prior_attempt_advisory is not None:
+        result["attempt_advisory"] = {
+            **deepcopy(prior_attempt_advisory),
+            "recommendation": (
+                "This appears to revisit an unresolved attempt. Prefer the open Push, "
+                "accept its consequence, or explain structured reset_evidence; this is "
+                "advice only and the requested roll was still honored."
+            ),
+        }
     if pushed and operation.get("method_changed"):
         result["method_changed"] = str(operation["method_changed"])
     if pushed and operation.get("failure_consequence"):
@@ -4589,14 +6007,44 @@ def _roll_common(
             resolution["original_check_ref"]
         )
 
-    warnings: list[str] = []
+    warnings: list[str] = list(context_warnings)
     hints: list[str] = []
+    if prior_attempt_advisory is not None:
+        warnings.append(
+            "same roll_density_group still had an ordinary failure open; soft advice only, so the new roll was not blocked"
+        )
     if target_source == "rulebook_base":
         hints.append(
             f"{label} is not listed on the investigator sheet; used the canonical rulebook base chance {target}%"
         )
     outcome = result["outcome"]
     success = bool(result["success"])
+    if isinstance(resolution_context, dict) and resolution_context.get(
+        "roll_density_group"
+    ):
+        prior_pressure = (
+            ((prior_attempt_advisory or {}).get("attempt_pressure") or {}).get(
+                "same_goal_no_progress_count"
+            )
+            or 0
+        )
+        result["attempt_pressure"] = {
+            "schema_version": 1,
+            "same_goal_no_progress_count": (
+                int(prior_pressure) + 1 if outcome == "failure" else 0
+            ),
+            "level": (
+                "resolved"
+                if outcome != "failure"
+                else (
+                    "repeated_without_progress"
+                    if int(prior_pressure) >= 1
+                    else "first_ordinary_failure"
+                )
+            ),
+            "authority": "advisory",
+            "hard_gate": False,
+        }
     if (
         success
         and not pushed
@@ -4621,6 +6069,13 @@ def _roll_common(
         hints.append(
             "pushed roll failed: before state.journal apply a source-bound cost with state.exceptional_effect; narration alone is insufficient"
         )
+    if outcome in {"critical", "fumble"} or (pushed and not success):
+        hints.append(
+            "before applying state.exceptional_effect, write player_visible_impact, "
+            "causal_link, and any until_condition boundary.description in the "
+            "campaign's active play_language; turn.finalize renders all three "
+            "verbatim, so internal English reasoning or machine ids do not belong there"
+        )
     active_modifier = _matching_active_exceptional_modifier(
         ctx,
         investigator_id=investigator_id,
@@ -4633,6 +6088,13 @@ def _roll_common(
             f"{active_modifier['effect_id']}; call state.exceptional_effect "
             "action=consume with this roll_id before state.journal"
         )
+    if outcome == "failure" and not pushed:
+        result["operation_opportunities"] = [
+            _push_operation_opportunity(
+                ctx,
+                {"decision_id": decision_id, "data": result},
+            )
+        ]
     roll_record = ctx.prepare_roll({
         "event_type": "roll",
         "kind": "pushed_skill_check" if pushed else "skill_check",
@@ -4642,6 +6104,16 @@ def _roll_common(
         **result,
     })
     result["roll_id"] = roll_record["roll_id"]
+    if outcome == "failure" and not pushed:
+        result["operation_opportunities"][0]["source"]["roll_id"] = result[
+            "roll_id"
+        ]
+        roll_record["operation_opportunities"] = deepcopy(
+            result["operation_opportunities"]
+        )
+        roll_record["payload"]["operation_opportunities"] = deepcopy(
+            result["operation_opportunities"]
+        )
     receipt = _new_roll_receipt(
         tool_name=tool_name,
         decision_id=decision_id,
@@ -4653,6 +6125,14 @@ def _roll_common(
         hints=hints,
     )
     _commit_new_roll_receipt(ctx, document, receipt)
+    _route_receipt, route_warnings = _settle_contextual_route(
+        ctx,
+        resolution_context,
+        decision_id=decision_id,
+        source_tool=tool_name,
+        successful=bool(result.get("success")),
+    )
+    warnings.extend(route_warnings)
     return result, warnings, hints
 
 
@@ -4838,8 +6318,16 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "predeclared meaningful complication if this roll fumbles (dice evidence)",
         },
+        "resolution_context": {
+            "type": "object",
+            "desc": (
+                "optional KP-supplied structured continuity identity: attempt_id, "
+                "scene_id, route_id, roll_density_group, and optional reset_evidence. "
+                "Used only for soft Push/retry/route advice; never blocks the roll"
+            ),
+        },
         "seed": {"type": "integer", "desc": "deterministic RNG seed (tests only)"},
-        "decision_id": {"type": "string", "desc": "idempotency key"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_rules_roll(ctx: Ctx, args: dict[str, Any]):
@@ -5865,6 +7353,8 @@ def _healing_tool_data(
     investigator_id: str,
     results: list[dict[str, Any]],
     events: list[dict[str, Any]],
+    *,
+    state_before: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     state = ctx.inv_state(investigator_id)
     primary = next(
@@ -5884,7 +7374,7 @@ def _healing_tool_data(
         ),
         None,
     )
-    return {
+    data = {
         "investigator_id": investigator_id,
         "event": primary,
         "results": results,
@@ -5892,6 +7382,18 @@ def _healing_tool_data(
         "current_hp": state.get("current_hp"),
         "conditions": list(state.get("conditions") or []),
     }
+    if isinstance(state_before, dict):
+        data["player_state_receipt"] = {
+            "schema_version": 1,
+            "investigator_id": investigator_id,
+            "hp": {
+                "before": state_before.get("current_hp"),
+                "after": state.get("current_hp"),
+            },
+            "conditions_before": list(state_before.get("conditions") or []),
+            "conditions_after": list(state.get("conditions") or []),
+        }
+    return data
 
 
 @tool(
@@ -5932,6 +7434,7 @@ def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
             "duplicate decision_id: returning the previously settled result"
         ], []
     investigator_id = _resolve_investigator(ctx, args)
+    state_before = deepcopy(ctx.inv_state(investigator_id))
     rescuer_id = str(args.get("rescuer_id") or investigator_id)
     pushed = args.get("pushed", False)
     if not isinstance(pushed, bool):
@@ -5962,7 +7465,13 @@ def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
         seed=args.get("seed"),
         tool_name="rules.first_aid",
     )
-    data = _healing_tool_data(ctx, investigator_id, results, events)
+    data = _healing_tool_data(
+        ctx,
+        investigator_id,
+        results,
+        events,
+        state_before=state_before,
+    )
     data["rescuer_id"] = rescuer_id
     conditions = set(data["conditions"])
     hints: list[str] = []
@@ -6006,6 +7515,7 @@ def _tool_rules_medicine(ctx: Ctx, args: dict[str, Any]):
             "duplicate decision_id: returning the previously settled result"
         ], []
     investigator_id = _resolve_investigator(ctx, args)
+    state_before = deepcopy(ctx.inv_state(investigator_id))
     rescuer_id = str(args.get("rescuer_id") or investigator_id)
     results, events = _execute_subsystem_requests(
         ctx,
@@ -6021,7 +7531,13 @@ def _tool_rules_medicine(ctx: Ctx, args: dict[str, Any]):
         seed=args.get("seed"),
         tool_name="rules.medicine",
     )
-    data = _healing_tool_data(ctx, investigator_id, results, events)
+    data = _healing_tool_data(
+        ctx,
+        investigator_id,
+        results,
+        events,
+        state_before=state_before,
+    )
     data["rescuer_id"] = rescuer_id
     conditions = set(data["conditions"])
     hints: list[str] = []
@@ -6071,6 +7587,7 @@ def _tool_rules_weekly_recovery(ctx: Ctx, args: dict[str, Any]):
             "duplicate decision_id: returning the previously settled result"
         ], []
     investigator_id = _resolve_investigator(ctx, args)
+    state_before = deepcopy(ctx.inv_state(investigator_id))
     complete_rest = args["complete_rest"]
     poor_environment = args["poor_environment"]
     if not isinstance(complete_rest, bool) or not isinstance(
@@ -6107,7 +7624,13 @@ def _tool_rules_weekly_recovery(ctx: Ctx, args: dict[str, Any]):
         seed=args.get("seed"),
         tool_name="rules.weekly_recovery",
     )
-    data = _healing_tool_data(ctx, investigator_id, results, events)
+    data = _healing_tool_data(
+        ctx,
+        investigator_id,
+        results,
+        events,
+        state_before=state_before,
+    )
     state = ctx.inv_state(investigator_id)
     data["major_wound_recovery_ledger"] = deepcopy(
         state.get("major_wound_recovery_ledger") or []
@@ -6153,6 +7676,7 @@ def _tool_rules_dying_check(ctx: Ctx, args: dict[str, Any]):
             "duplicate decision_id: returning the previously settled result"
         ], []
     investigator_id = _resolve_investigator(ctx, args)
+    state_before = deepcopy(ctx.inv_state(investigator_id))
     clock_kind = str(args["clock_kind"])
     results, events = _execute_subsystem_requests(
         ctx,
@@ -6166,7 +7690,13 @@ def _tool_rules_dying_check(ctx: Ctx, args: dict[str, Any]):
         seed=args.get("seed"),
         tool_name="rules.dying_check",
     )
-    data = _healing_tool_data(ctx, investigator_id, results, events)
+    data = _healing_tool_data(
+        ctx,
+        investigator_id,
+        results,
+        events,
+        state_before=state_before,
+    )
     conditions = set(data["conditions"])
     hints: list[str] = []
     if "dead" in conditions:
@@ -6484,28 +8014,192 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "optional investigator whose pair-scoped NPC impressions should be projected; defaults only for a one-member party",
         },
+        "since_revision": {
+            "type": "string",
+            "desc": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
+        },
     },
+    access="query",
+    read_domains=(
+        "scene", "world", "pacing", "clues", "npc_presence", "npc", "time",
+        "active_effects", "flags", "party", "module_archive", "module_progressive",
+    ),
+    recovery_domains=("flags", "time_markers", "npc", "npc_presence"),
+    response_mode="full_or_not_modified",
+    audit_mode="reference",
 )
 def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     world = ctx.world()
     sg = ctx.story_graph
     active_id = world.get("active_scene_id")
-    scene = _scene_by_id(sg, active_id)
     discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
     warnings: list[str] = []
+    requested_scene_id = str(args.get("scene_id") or "").strip()
+    if requested_scene_id and requested_scene_id != str(active_id or ""):
+        warnings.append(
+            "scene.context reads only the current active scene; the supplied "
+            f"scene_id {requested_scene_id!r} was ignored. Use the exact "
+            "state.move_scene exit card first, then call scene.context once; "
+            "do not read story-graph, clue-graph, or module asset files to preview it."
+        )
+    archive_meta: dict[str, Any] | None = None
+    archive_packet: dict[str, Any] | None = None
+    scene: dict[str, Any] | None = None
+    static_npcs: dict[str, dict[str, Any]] = {}
+    static_clues: dict[str, dict[str, Any]] = {}
+    drilldown_refs: dict[str, Any] = {"npc": [], "clue": [], "secret": []}
+    covered_domains = [
+        "scene", "npc_presence", "clues", "time", "active_effects", "flags", "party",
+    ]
+
+    # Prefer the compiled archive scene shard for authored static material.
+    # Live world/npc/time/effect state is always overlaid from canonical saves.
+    if active_id and ctx.campaign_dir is not None:
+        try:
+            archive_packet = coc_compiled_archive.active_scene_static_packet(
+                ctx.campaign_dir, str(active_id),
+            )
+            scene_shard = archive_packet["scene"]
+            scene = {
+                "scene_id": scene_shard["entity_id"],
+                **deepcopy(scene_shard.get("player_safe") or {}),
+                "on_enter": {
+                    "san_triggers": deepcopy(
+                        (scene_shard.get("keeper_only") or {}).get("san_triggers") or []
+                    ),
+                },
+                "affordances": [
+                    {
+                        **deepcopy(row),
+                        **(
+                            {
+                                "rules_operation": {
+                                    "kind": op.get("kind"),
+                                }
+                            }
+                            if (
+                                op := next(
+                                    (
+                                        item
+                                        for item in (
+                                            (scene_shard.get("keeper_only") or {}).get(
+                                                "affordance_operations"
+                                            )
+                                            or []
+                                        )
+                                        if item.get("affordance_id") == row.get("id")
+                                    ),
+                                    None,
+                                )
+                            )
+                            else {}
+                        ),
+                    }
+                    for row in (scene_shard.get("player_safe") or {}).get("affordances") or []
+                    if isinstance(row, dict)
+                ],
+                "npc_ids": list(
+                    (scene_shard.get("player_safe") or {}).get("npc_ids") or []
+                ),
+                "available_clues": list(
+                    (scene_shard.get("player_safe") or {}).get("available_clue_ids") or []
+                ),
+                "parse_state": scene_shard.get("parse_state"),
+                "evidence_gap": bool(scene_shard.get("evidence_gap")),
+            }
+            for npc_shard in archive_packet.get("npcs") or []:
+                keeper_npc = npc_shard.get("keeper_only") or {}
+                identity_source = (
+                    keeper_npc.get("identity_source")
+                    or {"npc_id": npc_shard.get("entity_id")}
+                )
+                static_npcs[str(npc_shard["entity_id"])] = {
+                    **deepcopy(identity_source),
+                    **deepcopy(npc_shard.get("player_safe") or {}),
+                    # Agenda is keeper-only but meaning-bearing identity data.
+                    # The archive must expose it to the same identity contract
+                    # as canonical IR; omitting it made scene.context and
+                    # npc.query disagree about one authored NPC.
+                    "agenda": keeper_npc.get("agenda"),
+                    "source_refs": deepcopy(
+                        (npc_shard.get("provenance") or {}).get("source_refs") or []
+                    ),
+                    "npc_id": npc_shard["entity_id"],
+                }
+            for clue_shard in archive_packet.get("clues") or []:
+                static_clues[str(clue_shard["entity_id"])] = {
+                    **deepcopy(clue_shard.get("player_safe") or {}),
+                    **{
+                        key: deepcopy(value)
+                        for key, value in (clue_shard.get("keeper_only") or {}).items()
+                        if key in {"player_safe_summary", "localized_text", "mentions", "source_npc_ids"}
+                    },
+                    "clue_id": clue_shard["entity_id"],
+                }
+            drilldown_refs = deepcopy(archive_packet.get("drilldown_refs") or drilldown_refs)
+            archive_meta = {
+                "archive_revision": archive_packet.get("archive_revision"),
+                "covered_domains": list(archive_packet.get("covered_domains") or []),
+                "source": "compiled_archive",
+            }
+            # Inject keeper affordance ops from archive for mechanics block.
+            scene["_archive_affordance_operations"] = deepcopy(
+                (scene_shard.get("keeper_only") or {}).get("affordance_operations") or []
+            )
+        except coc_compiled_archive.CompiledArchiveError as exc:
+            warnings.append(
+                f"compiled archive unavailable ({exc.code}); falling back to scenario IR"
+            )
+            scene = _scene_by_id(sg, active_id)
+        except Exception as exc:  # noqa: BLE001 — never block scene.context on archive
+            warnings.append(
+                f"compiled archive read failed; falling back to scenario IR ({exc})"
+            )
+            scene = _scene_by_id(sg, active_id)
+    else:
+        scene = _scene_by_id(sg, active_id)
+
     if scene is None:
-        warnings.append(f"active scene '{active_id}' not found in story graph — use scene.map / state.move_scene")
+        warnings.append(
+            f"active scene '{active_id}' not found in story graph — use scene.map / state.move_scene"
+        )
 
     npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
+    presence_document = _load_npc_presence_document(ctx)
+    live_presence = presence_document["presence"]
+    _campaign_npc_ids, campaign_names, name_conflicts = (
+        _campaign_npc_projection_index(ctx, npc_state)
+    )
     party_ids = ctx.party_ids()
     impression_investigator: str | None = None
     if args.get("investigator") is not None:
         impression_investigator = _resolve_investigator(ctx, args)
     elif len(party_ids) == 1:
         impression_investigator = party_ids[0]
+    authored_presence_ids = [
+        str(npc_id)
+        for npc_id in ((scene or {}).get("npc_ids") or [])
+        if str(npc_id or "").strip()
+    ]
+    present_npc_ids: list[str] = []
+    for npc_id in authored_presence_ids:
+        live = live_presence.get(npc_id)
+        if live is None or (
+            live.get("status") == "present"
+            and str(live.get("scene_id")) == str(active_id)
+        ):
+            present_npc_ids.append(npc_id)
+    for npc_id, live in live_presence.items():
+        if (
+            live.get("status") == "present"
+            and str(live.get("scene_id")) == str(active_id)
+            and str(npc_id) not in present_npc_ids
+        ):
+            present_npc_ids.append(str(npc_id))
+
     npcs = []
-    for npc_id in (scene or {}).get("npc_ids") or []:
-        agenda = _npc_by_id(ctx.npc_agendas, npc_id) or {}
+    for npc_id in present_npc_ids:
+        agenda = static_npcs.get(str(npc_id)) or _npc_by_id(ctx.npc_agendas, npc_id) or {}
         psych = (npc_state.get("psych") or {}).get(str(npc_id)) or {}
         normalized_psych = coc_npc_state.normalize_entry(psych)
         impression = (
@@ -6513,33 +8207,71 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             if impression_investigator
             else None
         )
+        identity = (
+            _npc_identity_contract(agenda, str(active_id) if active_id else None)
+            if agenda
+            else None
+        )
         npcs.append({
             "npc_id": npc_id,
-            "name": agenda.get("name"),
+            "name": agenda.get("name") or campaign_names.get(str(npc_id)),
+            "origin": agenda.get("origin") if agenda else "improvised",
+            "agenda": agenda.get("agenda"),
             "voice": agenda.get("voice"),
             "relationship_to_investigators": agenda.get("relationship_to_investigators"),
+            "social_role": deepcopy(agenda.get("social_role")),
+            "role_label": agenda.get("role_label"),
             "availability": normalized_psych.get("availability") or agenda.get("availability"),
             "trust": normalized_psych.get("trust", 0),
             "fear": normalized_psych.get("fear", 0),
             "suspicion": normalized_psych.get("suspicion", 0),
             "impression": deepcopy(impression) if isinstance(impression, dict) else None,
-            "identity_contract": (
-                _npc_identity_contract(agenda, str(active_id) if active_id else None)
-                if agenda
+            # scene.context is the hot path, so keep the stable identity and
+            # current performance facts without embedding the full identity
+            # contract a second time.  npc.query remains the exact drilldown.
+            "identity_ref": (
+                identity.get("identity_ref")
+                if isinstance(identity, dict)
                 else None
             ),
+            "profile_revision_ref": (
+                identity.get("profile_revision_ref")
+                if isinstance(identity, dict)
+                else None
+            ),
+            "presence": deepcopy(live_presence.get(str(npc_id))),
+            "presence_source": (
+                "live" if str(npc_id) in live_presence else "authored_initial"
+            ),
         })
+    if name_conflicts & set(present_npc_ids):
+        warnings.append(
+            "campaign-local first-impression receipts disagree on a present "
+            "NPC display name; the earliest canonical name was preserved"
+        )
 
     clues = []
     for clue_id in (scene or {}).get("available_clues") or []:
-        clue = _clue_by_id(ctx.clue_graph, str(clue_id))
+        clue = static_clues.get(str(clue_id)) or _clue_by_id(ctx.clue_graph, str(clue_id))
         if clue is not None:
             clues.append(_clue_public_view(clue, discovered))
         else:
             clues.append({"clue_id": clue_id, "discovered": str(clue_id) in discovered})
 
     candidates = coc_scene_graph.transition_candidates(active_id, sg, dict(world))
-    edges = coc_scene_graph.derive_scene_edges(sg).get(str(active_id or ""), [])
+    authored_edges = list((scene or {}).get("scene_edges") or [])
+    if authored_edges:
+        edges = [
+            {
+                "to": edge.get("to"),
+                "kind": edge.get("kind"),
+                "when": edge.get("when"),
+            }
+            for edge in authored_edges
+            if isinstance(edge, dict) and edge.get("to")
+        ]
+    else:
+        edges = coc_scene_graph.derive_scene_edges(sg).get(str(active_id or ""), [])
     exits = []
     for edge in edges:
         target = str(edge["to"])
@@ -6548,6 +8280,14 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "kind": edge.get("kind"),
             "when": edge.get("when"),
             "open": target in candidates,
+            "operation_opportunity": {
+                "operation": "state.move_scene",
+                "invoke_via": "coc_invoke",
+                "prefilled_arguments": {"scene_id": target},
+                "missing_arguments": ["reason", "decision_id"],
+                "authority": "advisory",
+                "hard_gate": False,
+            },
         })
 
     pacing = ctx.pacing()
@@ -6642,6 +8382,38 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "madness": madness,
             "conditions": san_signal.get("conditions") or [],
         })
+    archive_ops = (scene or {}).get("_archive_affordance_operations")
+    if isinstance(archive_ops, list):
+        affordance_operations = deepcopy(archive_ops)
+    else:
+        affordance_operations = [
+            {
+                "affordance_id": affordance.get("id"),
+                "kind": affordance["rules_operation"].get("kind"),
+                "tool": (
+                    "combat.resolve"
+                    if affordance["rules_operation"].get("kind")
+                    == "combat_engagement"
+                    else None
+                ),
+            }
+            for affordance in (scene or {}).get("affordances") or []
+            if isinstance(affordance, dict)
+            and isinstance(affordance.get("rules_operation"), dict)
+        ]
+    progressive_projection: dict[str, Any] | None = None
+    if ctx.campaign_dir is not None:
+        asset_root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+        if asset_root_id:
+            assets_mod = coc_module_project.coc_module_assets
+            open_host_work = assets_mod.list_host_work_requests(
+                ctx.root, asset_root_id, limit=3,
+            )
+            progressive_projection = {
+                "asset_root_id": asset_root_id,
+                "open_host_work_count": len(open_host_work),
+                "open_host_work": open_host_work,
+            }
     data = {
         "campaign_id": ctx.campaign_id,
         "active_scene_id": active_id,
@@ -6662,6 +8434,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "tension_level": pacing.get("tension_level"),
         "turn_number": pacing.get("turn_number"),
         "time": coc_time.current_stamp(ctx.campaign_dir),
+        "progressive": progressive_projection,
         "continuity": {
             "schema_version": 1,
             "keeper_only": True,
@@ -6676,22 +8449,23 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         ],
         "keeper_mechanics": {
             "secret": True,
-            "affordance_operations": [
-                {
-                    "affordance_id": affordance.get("id"),
-                    "kind": affordance["rules_operation"].get("kind"),
-                    "tool": (
-                        "combat.resolve"
-                        if affordance["rules_operation"].get("kind")
-                        == "combat_engagement"
-                        else None
-                    ),
-                }
-                for affordance in (scene or {}).get("affordances") or []
-                if isinstance(affordance, dict)
-                and isinstance(affordance.get("rules_operation"), dict)
-            ],
+            "affordance_operations": affordance_operations,
         },
+        "action_routes": _project_action_route_cards(
+            ctx, include_operation_opportunities=False
+        ),
+        "operation_opportunities": _open_attempt_opportunities(
+            ctx, scene_id=str(active_id or "") or None,
+        ),
+        "compiled_archive": archive_meta or {
+            "source": "scenario_ir_fallback",
+            "archive_revision": None,
+            "covered_domains": [],
+        },
+        "covered_domains": covered_domains + (
+            list((archive_meta or {}).get("covered_domains") or [])
+        ),
+        "drilldown_refs": drilldown_refs,
     }
     hints: list[str] = []
     undiscovered = [c for c in clues if not c.get("discovered")]
@@ -6707,6 +8481,14 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "structured scene mechanics are keeper-only; use combat.resolve for a "
             "combat_engagement and do not quote operation secrets to the player"
         )
+    if data["action_routes"]:
+        hints.append(
+            "action_routes is the compact authored action working set: prefer direct_delivery without a roll; after semantic route selection, actions.advise returns the exact operation card; all recommendations are advisory and may be overridden by the KP"
+        )
+    if data["operation_opportunities"]:
+        hints.append(
+            "an ordinary failure still has a Push/context-change opportunity; do not fish for another roll, but this is a soft recommendation and never blocks play"
+        )
     if data["continuity"]["live_world_flags"]:
         hints.append(
             "continuity.live_world_flags is current campaign truth and supersedes "
@@ -6716,6 +8498,12 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             "active_time_markers are bookkeeping facts only; report their structured "
             "remaining/overdue values, but do not auto-trigger a rescue or block play"
+        )
+    if progressive_projection and progressive_projection["open_host_work"]:
+        hints.append(
+            "progressive.open_host_work is an unresolved host parsing boundary, not a "
+            "completed parse; read cached_page_refs first and close it through "
+            "progressive.fulfill_host_work before claiming deep detail"
         )
     if active_exceptional_effects:
         hints.append(
@@ -6731,6 +8519,11 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             f"npcs_present.impression is the bounded textual memory for investigator '{impression_investigator}'; use it as semantic context, never as a hard gate"
         )
+    if archive_meta and archive_meta.get("archive_revision"):
+        hints.append(
+            "compiled_archive supplies active-scene authored material; drilldown_refs "
+            "list exact entity ids still available without rescanning the whole module"
+        )
     hints.append(
         "optional pacing support: call director.advise on scene entry, after repeated approaches, or when momentum stalls; its suggestions are advisory and may be ignored"
     )
@@ -6738,6 +8531,347 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "optional enrichment support: call storylets.suggest when a personal callback or atmospheric beat would help; absence of a fitting storylet never blocks play"
     )
     return data, warnings, hints
+
+
+@tool(
+    "session.resume",
+    "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context.",
+    {
+        "investigator": {
+            "type": "string",
+            "desc": "optional investigator for pair-scoped NPC impression projection",
+        },
+        "host_session_id": {
+            "type": "string",
+            "desc": "optional host session identity when the host does not export one to child tools",
+        },
+        "context_epoch": {
+            "type": "integer",
+            "minimum": 1,
+            "desc": "optional epoch from a host lifecycle notice; rejects a stale resume race",
+        },
+    },
+    access="query",
+    read_domains=_CONTINUATION_DOMAINS,
+    recovery_domains=("flags", "time_markers", "npc"),
+    audit_mode="reference",
+)
+def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
+    current_host_marker = coc_host_context.current_marker(
+        ctx.root, session_id=args.get("host_session_id")
+    )
+    requested_epoch = args.get("context_epoch")
+    if (
+        current_host_marker is not None
+        and requested_epoch is not None
+        and int(requested_epoch) != int(current_host_marker["context_epoch"])
+    ):
+        raise ToolError(
+            "context_epoch_conflict",
+            "host context changed since this session.resume request was prepared; "
+            "use the current lifecycle epoch",
+        )
+    if (
+        current_host_marker is not None
+        and current_host_marker.get("ended_at") is None
+        and current_host_marker.get("requires_resume") is False
+        and current_host_marker.get("acknowledged_campaign_id")
+        == str(ctx.campaign_id)
+    ):
+        acknowledged = coc_host_context.pending_projection(current_host_marker)
+        if isinstance(acknowledged, dict):
+            acknowledged["requires_resume"] = False
+        data = _bound_session_resume_data({
+            "schema_version": 1,
+            "campaign_id": ctx.campaign_id,
+            "mode": "already_acknowledged",
+            "reuse_existing_working_set": True,
+            "host_context": {"acknowledged": acknowledged},
+            "next_operations": ["continue_from_existing_working_set"],
+            "recovery_contract": {
+                "authoritative_truth": [
+                    "the bounded working set already returned for this exact host context epoch",
+                    "deterministic receipts and canonical campaign state",
+                ],
+                "never": [
+                    "rebuild campaign context again inside the same acknowledged epoch",
+                    "reread saves, module files, or the full tool catalog",
+                ],
+            },
+        })
+        return data, [
+            "session.resume already acknowledged this exact host context epoch; "
+            "returning a no-op instead of rebuilding campaign context"
+        ], [
+            "reuse the working set and receipts already in model context; continue "
+            "the current player turn without another recovery pass"
+        ]
+
+    pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+    if pending is None:
+        reconcile_campaign_continuity(
+            ctx.campaign_dir,
+            ctx=ctx,
+            domains=TOOLS["session.resume"].get("recovery_domains"),
+        )
+    archive_recovery, archive_warnings = _recover_compiled_archive_for_resume(
+        ctx.campaign_dir
+    )
+    revision_vector, revision_token = _continuation_revision(ctx)
+    checkpoint, checkpoint_warnings = coc_continuation.ensure_latest_checkpoint(
+        ctx.campaign_dir,
+        revision_vector=revision_vector,
+        revision_token=revision_token,
+    )
+    current_window = coc_turn_manifest.resume_window(ctx.campaign_dir)
+    delivery = coc_continuation.delivery_projection(
+        ctx.campaign_dir, checkpoint
+    )
+    semantic_capsule = (
+        deepcopy(checkpoint["semantic_capsule"])
+        if checkpoint is not None
+        else coc_continuation.empty_semantic_capsule()
+    )
+    host_marker = coc_host_context.pending_marker(
+        ctx.root, session_id=args.get("host_session_id")
+    )
+    host_before = coc_host_context.pending_projection(host_marker)
+    unclassified_input = coc_continuation.classify_host_input(
+        ctx.campaign_dir,
+        coc_host_context.latest_unclassified_input(
+            ctx.root,
+            campaign_id=str(ctx.campaign_id),
+            session_id=args.get("host_session_id"),
+        ),
+    )
+    attempt_opportunities = _open_attempt_opportunities(
+        ctx,
+        scene_id=str(ctx.world().get("active_scene_id") or "") or None,
+    )
+
+    warnings = [*checkpoint_warnings, *archive_warnings]
+    hints: list[str] = []
+    scene_context: dict[str, Any] | None = None
+    pending_output_context: dict[str, Any] | None = None
+    if pending is not None:
+        try:
+            pending_output_context = coc_turn_finalization.build_output_context(
+                ctx.campaign_dir
+            )
+        except coc_turn_finalization.TurnContractError as exc:
+            raise ToolError(exc.code, str(exc)) from exc
+        pending_output_context["narrative_opportunity"] = (
+            _latest_narrative_opportunity(current_window)
+        )
+        mode = "pending_finalization"
+        next_operations = ["turn.finalize"]
+        if (
+            pending_output_context.get("missing_substantive_effects")
+            or pending_output_context.get("pending_modifier_consumptions")
+        ):
+            next_operations.insert(0, "state.exceptional_effect")
+        hints.extend([
+            "the journaled turn is already settled: use pending_output_context and finalize it before accepting another player action",
+            "do not reroll, repeat state writes, reopen scene discovery, or regenerate deterministic mechanics",
+        ])
+    else:
+        scene_context, scene_warnings, scene_hints = _tool_scene_context(
+            ctx,
+            {"investigator": args.get("investigator")},
+        )
+        warnings.extend(scene_warnings)
+        hints.extend(scene_hints)
+        if current_window["meaningful_row_count"]:
+            mode = "open_turn_recovery"
+            next_operations = ["continue_current_turn_from_receipts"]
+            hints.insert(
+                0,
+                "continue semantic adjudication from current_turn.rows; reuse successful receipts by decision_id and never reroll them",
+            )
+        else:
+            mode = "awaiting_player"
+            next_operations = ["interpret_current_player_message"]
+            hints.insert(
+                0,
+                "the campaign is ready for the current player message; use the recovered voice, scene, and unresolved threads without rereading history",
+            )
+
+    if current_window["overflow"]:
+        warnings.append(
+            "the current turn exceeded the bounded inline recovery budget; reference-only rows cite exact toolbox receipts and must not be guessed"
+        )
+    if (
+        unclassified_input is not None
+        and unclassified_input.get("disposition")
+        == "uncommitted_unclassified"
+    ):
+        hints.append(
+            "host_input is unclassified transport evidence only; semantically decide whether it is a player action, meta request, or something else before journaling"
+        )
+    if delivery["status"] == "unconfirmed":
+        hints.append(
+            "the previous exact Keeper output may not have reached the player; replay only delivery.exact_text byte-for-byte if absent, without any tool or state replay"
+        )
+    if attempt_opportunities:
+        hints.append(
+            "resume preserved an unresolved ordinary failure: prefer its exact Push opportunity, a changed goal, or structured reset evidence instead of repeating the same check"
+        )
+
+    data: dict[str, Any] = {
+        "schema_version": 1,
+        "campaign_id": ctx.campaign_id,
+        "mode": mode,
+        "working_set": {
+            "mode": "full",
+            "revision": revision_token,
+            "read_domains": revision_vector,
+        },
+        "checkpoint": (
+            {
+                key: deepcopy(checkpoint[key])
+                for key in (
+                    "schema_version", "kind", "campaign_id", "checkpoint_id",
+                    "turn_number", "status", "created_at", "source",
+                    "canonical_projection", "refs", "content_sha256",
+                )
+                if key in checkpoint
+            }
+            if checkpoint is not None
+            else None
+        ),
+        "semantic_capsule": semantic_capsule,
+        "delivery": delivery,
+        "current_turn": current_window,
+        "pending_turn": deepcopy(pending),
+        "pending_output_context": pending_output_context,
+        "scene_context": scene_context,
+        "host_input": unclassified_input,
+        "host_context": {
+            "before_resume": host_before,
+            "acknowledged": None,
+        },
+        "operation_opportunities": attempt_opportunities,
+        "compiled_archive_recovery": archive_recovery,
+        "next_operations": next_operations,
+        "recovery_contract": {
+            "authoritative_truth": [
+                "deterministic rules receipts and canonical state",
+                "canonical_projection.time and scene_context.time override any time claim in summary prose",
+                "turn finalization receipt and exact transcript",
+                "KP-authored semantic capsule",
+                "rebuildable continuation checkpoint",
+            ],
+            "never": [
+                "reroll or reapply a successful receipt",
+                "treat checkpoint prose as a second state ledger",
+                "promote unclassified host input to campaign fact automatically",
+                "drop scene craft, NPC agency, causality, or Table Wit after compaction",
+                "derive exact elapsed time from narrative prose or expose backend clock arithmetic to the player",
+            ],
+        },
+    }
+    acknowledged = coc_host_context.acknowledge_resume(
+        ctx.root,
+        campaign_id=str(ctx.campaign_id),
+        checkpoint_id=(
+            str(checkpoint["checkpoint_id"])
+            if checkpoint is not None
+            else None
+        ),
+        session_id=args.get("host_session_id"),
+        context_epoch=args.get("context_epoch"),
+    )
+    data["host_context"]["acknowledged"] = (
+        coc_host_context.pending_projection(acknowledged)
+        if acknowledged is not None
+        else None
+    )
+    if isinstance(data["host_context"]["acknowledged"], dict):
+        data["host_context"]["acknowledged"]["requires_resume"] = False
+    data = _bound_session_resume_data(data)
+    if data["resume_budget"]["reductions"]:
+        hints.append(
+            "resume projections exceeded the inline budget; use the returned exact typed read cards instead of scanning files"
+        )
+    return data, warnings, hints
+
+
+@tool(
+    "session.delivery_text",
+    "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget.",
+    {
+        "finalization_id": {
+            "type": "string", "required": True,
+            "desc": "latest finalization identity from session.resume.delivery",
+        },
+        "rendered_sha256": {
+            "type": "string", "required": True,
+            "desc": "exact rendered hash from session.resume.delivery",
+        },
+    },
+    access="query",
+    read_domains=_CONTINUATION_DOMAINS,
+    audit_mode="reference",
+)
+def _tool_session_delivery_text(ctx: Ctx, args: dict[str, Any]):
+    receipt = coc_turn_finalization.finalization_by_id(
+        ctx.campaign_dir, str(args["finalization_id"])
+    )
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("rendered_sha256") != str(args["rendered_sha256"])
+    ):
+        raise ToolError(
+            "delivery_conflict",
+            "requested delivery text does not match the canonical finalization",
+        )
+    return {
+        "finalization_id": receipt["finalization_id"],
+        "rendered_sha256": receipt["rendered_sha256"],
+        "exact_text": receipt["rendered_text"],
+    }, [], [
+        "replay exact_text byte-for-byte only when the player did not receive it; never regenerate equivalent prose"
+    ]
+
+
+@tool(
+    "session.delivery_ack",
+    "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics.",
+    {
+        "finalization_id": {
+            "type": "string", "required": True,
+            "desc": "latest finalization_id returned by session.resume",
+        },
+        "rendered_sha256": {
+            "type": "string", "required": True,
+            "desc": "exact latest rendered_sha256 returned by session.resume",
+        },
+        "ack_kind": {
+            "type": "string", "required": True,
+            "enum": ["displayed", "replayed"],
+            "desc": "how the host delivered the immutable text",
+        },
+        "source_id": {
+            "type": "string", "required": True,
+            "desc": "stable host delivery/event identity",
+        },
+        "decision_id": {
+            "type": "string", "desc": "idempotency key",
+        },
+    },
+    write_domains=("delivery",),
+)
+def _tool_session_delivery_ack(ctx: Ctx, args: dict[str, Any]):
+    receipt = coc_continuation.acknowledge_delivery(
+        ctx.campaign_dir,
+        finalization_id=str(args["finalization_id"]),
+        rendered_sha256=str(args["rendered_sha256"]),
+        ack_kind=str(args["ack_kind"]),
+        source_id=str(args["source_id"]),
+    )
+    return receipt, [], [
+        "delivery confirmation closes transport uncertainty only; it does not create a new played turn"
+    ]
 
 
 @tool(
@@ -6784,7 +8918,7 @@ def _tool_scene_map(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "progressive.request_deepen",
-    "Player-dig path for progressive modules: ensure a named_only stub, enqueue host deep-extract, "
+    "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, "
     "and return host_hints / evidence_gap status. Use when the investigator materially pursues a "
     "place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. "
     "Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only).",
@@ -6879,6 +9013,81 @@ def _tool_progressive_follow_mentions(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "progressive.fulfill_host_work",
+    "Submit one host-PDF semantic pack for an open progressive parsing request. "
+    "This is the canonical closure path: it validates the request/entity binding, "
+    "marks the handoff fulfilled, and re-enqueues campaign merge work.",
+    {
+        "job_id": {
+            "type": "string", "required": True,
+            "desc": "open job_id returned by progressive.status or scene.context",
+        },
+        "pack": {
+            "type": "object", "required": True,
+            "desc": "source-bound semantic entity pack produced by the host PDF capability",
+        },
+    },
+)
+def _tool_progressive_fulfill_host_work(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+    if not root_id:
+        raise ToolError("invalid_param", "campaign is not progressive")
+    assets_mod = coc_module_project.coc_module_assets
+    job_id = str(args.get("job_id") or "").strip()
+    requests = assets_mod.list_host_work_requests(
+        ctx.root, root_id, include_closed=True, limit=512,
+    )
+    request = next(
+        (row for row in requests if str(row.get("job_id") or "") == job_id),
+        None,
+    )
+    if request is None:
+        raise ToolError("not_found", f"host-work job {job_id!r} was not found")
+    if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
+        raise ToolError(
+            "invalid_state",
+            f"host-work job {job_id!r} is already {request.get('status')}",
+        )
+    job_kind = str(request.get("kind") or "")
+    entity_kind = assets_mod._job_entity_kind(job_kind)
+    target_id = str(request.get("target_id") or "").strip()
+    if not entity_kind or not target_id:
+        raise ToolError("invalid_state", "host-work request has no entity binding")
+    pack = deepcopy(args.get("pack"))
+    if not isinstance(pack, dict):
+        raise ToolError("invalid_param", "pack must be an object")
+    expected_state = "partial" if job_kind == "partial_neighbor" else "deep"
+    supplied_state = str(pack.get("parse_state") or expected_state)
+    if supplied_state != expected_state:
+        raise ToolError(
+            "invalid_param",
+            f"{job_kind} requires parse_state={expected_state!r}",
+        )
+    pack["parse_state"] = expected_state
+    pack["host_work_job_id"] = job_id
+    try:
+        result = assets_mod.put_entity(
+            ctx.root, root_id, entity_kind, target_id, pack,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    return {
+        "asset_root_id": root_id,
+        "job_id": job_id,
+        "request_status": "fulfilled",
+        "entity": coc_module_project._entity_status(
+            ctx.root, root_id, entity_kind, target_id,
+        ),
+        "put": result,
+    }, [], [
+        "the reusable pack is durable and merge was re-enqueued; continue play from "
+        "the pack instead of reopening the same PDF scope",
+    ]
+
+
+@tool(
     "progressive.status",
     "Read progressive parse queue + optional entity status for the campaign asset root. "
     "Also reports whether the detached parallel queue worker is running. "
@@ -6910,16 +9119,30 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
     worker_mod = coc_module_project._load_sibling(
         "coc_module_queue_worker_toolbox", "coc_module_queue_worker.py",
     )
+    module_root = assets_mod.assets_root(ctx.root) / root_id
+    identity = _read_optional_json(module_root / "identity.json", {})
+    skeleton = assets_mod.get_skeleton(ctx.root, root_id) or {}
+    host_work = assets_mod.list_host_work_requests(ctx.root, root_id, limit=8)
     data: dict[str, Any] = {
         "progressive": True,
         "asset_root_id": root_id,
-        "queue": {
-            "pending": queue.get("pending") or [],
-            "in_flight": queue.get("in_flight") or [],
-            "done_count": len(queue.get("done") or []),
-            "done_tail": (queue.get("done") or [])[-5:],
-        },
+        "queue": coc_module_project._compact_queue_snapshot(queue),
         "worker": worker_mod.worker_status(ctx.root),
+        "source_cache": {
+            "source_id": (identity.get("source") or {}).get("source_id"),
+            "file_sha256": identity.get("file_sha256"),
+            "bundle_count": len(identity.get("source_bundles") or []),
+            "cached_pdf_indices": sorted(
+                int(path.stem)
+                for path in (module_root / "pages").glob("*.md")
+                if path.stem.isdigit()
+            ),
+        },
+        "start_clock_status": skeleton.get("start_clock_status") or "unbound",
+        "host_work": {
+            "open_count": len(host_work),
+            "requests": host_work,
+        },
     }
     kind = str(args.get("kind") or "").strip()
     tid = str(args.get("target_id") or "").strip()
@@ -6929,10 +9152,16 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         data["entity"] = coc_module_project._entity_status(
             ctx.root, root_id, kind, tid,
         )
-    return data, [], [
+    hints = [
         "queue is non-blocking: dig only enqueues; parallel worker merges ready packs "
         "and writes host-work requests for missing deep bodies",
     ]
+    if host_work:
+        hints.append(
+            "open host_work requests are not completed parses: use cached_page_refs first, "
+            "then submit one source-bound pack through progressive.fulfill_host_work"
+        )
+    return data, [], hints
 
 
 @tool(
@@ -6942,7 +9171,16 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         "scene_id": {"type": "string", "desc": "only clues available in this scene"},
         "clue_id": {"type": "string", "desc": "a single clue"},
         "undiscovered_only": {"type": "boolean", "desc": "only clues not yet found"},
+        "since_revision": {
+            "type": "string",
+            "desc": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
+        },
     },
+    access="query",
+    read_domains=("clues", "world", "scene"),
+    recovery_domains=(),
+    response_mode="full_or_not_modified",
+    audit_mode="reference",
 )
 def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
     world = ctx.world()
@@ -6994,63 +9232,112 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
     {
         "npc_id": {"type": "string", "desc": "a single NPC (default: all)"},
         "investigator": {"type": "string", "desc": "investigator whose pair-scoped impression should be projected"},
+        "since_revision": {
+            "type": "string",
+            "desc": "revision returned by the previous identical query; matching state returns not_modified instead of the full projection",
+        },
     },
+    access="query",
+    read_domains=("npc", "scene", "party"),
+    recovery_domains=("npc",),
+    response_mode="full_or_not_modified",
+    audit_mode="reference",
 )
 def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
     active_scene_id = ctx.world().get("active_scene_id")
+    authored_npcs = [
+        npc for npc in (ctx.npc_agendas.get("npcs") or [])
+        if isinstance(npc, dict) and str(npc.get("npc_id") or "").strip()
+    ]
+    authored_by_id = {
+        str(npc["npc_id"]): npc
+        for npc in authored_npcs
+    }
+    psych_by_id = (
+        npc_state.get("psych") if isinstance(npc_state.get("psych"), dict) else {}
+    )
+    campaign_npc_ids, campaign_names, name_conflicts = (
+        _campaign_npc_projection_index(ctx, npc_state)
+    )
+
     out = []
     requested_id = str(args.get("npc_id") or "").strip()
     requested_npc = _npc_by_id(ctx.npc_agendas, requested_id) if requested_id else None
-    if requested_id and requested_npc is None:
+    if requested_npc is not None:
+        canonical_requested_id = str(requested_npc.get("npc_id"))
+    elif requested_id and requested_id in campaign_npc_ids:
+        canonical_requested_id = requested_id
+    elif requested_id:
         raise ToolError(
             "unknown_npc",
             f"npc not found or short name is ambiguous: {requested_id}",
         )
-    canonical_requested_id = (
-        str(requested_npc.get("npc_id")) if requested_npc is not None else ""
-    )
+    else:
+        canonical_requested_id = ""
     impression_investigator: str | None = None
     if args.get("investigator") is not None:
         impression_investigator = _resolve_investigator(ctx, args)
     elif len(ctx.party_ids()) == 1:
         impression_investigator = ctx.party_ids()[0]
-    for npc in ctx.npc_agendas.get("npcs") or []:
-        if canonical_requested_id and str(npc.get("npc_id")) != canonical_requested_id:
+    projected_ids = [str(npc["npc_id"]) for npc in authored_npcs]
+    projected_ids.extend(sorted(campaign_npc_ids - set(projected_ids)))
+    for npc_id in projected_ids:
+        npc = authored_by_id.get(npc_id)
+        if canonical_requested_id and npc_id != canonical_requested_id:
             continue
-        npc_id = str(npc.get("npc_id"))
-        psych = (npc_state.get("psych") or {}).get(npc_id) or {}
+        psych = psych_by_id.get(npc_id) or {}
         normalized_psych = coc_npc_state.normalize_entry(psych)
         impression = (
             normalized_psych.get("impressions", {}).get(impression_investigator)
             if impression_investigator
             else None
         )
-        identity_contract = _npc_identity_contract(npc, active_scene_id)
+        identity_contract = (
+            _npc_identity_contract(npc, active_scene_id) if npc is not None else None
+        )
+        campaign_name = campaign_names.get(npc_id)
         out.append({
             "npc_id": npc_id,
-            "name": npc.get("name"),
-            "identity_ref": identity_contract["identity_ref"],
+            "name": npc.get("name") if npc is not None else campaign_name,
+            "identity_ref": (
+                identity_contract["identity_ref"] if identity_contract else None
+            ),
+            "profile_revision_ref": (
+                identity_contract["profile_revision_ref"]
+                if identity_contract else None
+            ),
             "identity_contract": identity_contract,
             # Preserve the authored identity contract.  The module compiler
             # already distinguishes source NPCs from inferred/improvised
             # people and expands their structured social role; dropping those
             # fields here invited downstream Keepers to recast a court contact
             # as a police detective merely because both touch the same file.
-            "origin": npc.get("origin"),
-            "voice": npc.get("voice"),
-            "agenda": npc.get("agenda"),
-            "fear": npc.get("fear"),
-            "relationship_to_investigators": npc.get("relationship_to_investigators"),
-            "social_role": deepcopy(npc.get("social_role")),
-            "secret": {"value": npc.get("secret"), "secret": True},
-            "keeper_note": {"value": npc.get("keeper_note"), "secret": True},
-            "facts": npc.get("facts"),
-            "known_fact_ids": npc.get("known_fact_ids"),
-            "revealable_fact_ids": npc.get("revealable_fact_ids"),
-            "lie_options": npc.get("lie_options"),
-            "deflect_options": npc.get("deflect_options"),
-            "schedule": npc.get("schedule"),
+            "origin": npc.get("origin") if npc is not None else "improvised",
+            "voice": npc.get("voice") if npc is not None else None,
+            "agenda": npc.get("agenda") if npc is not None else None,
+            "fear": npc.get("fear") if npc is not None else None,
+            "relationship_to_investigators": (
+                npc.get("relationship_to_investigators") if npc is not None else None
+            ),
+            "social_role": deepcopy(npc.get("social_role")) if npc is not None else None,
+            "role_label": npc.get("role_label") if npc is not None else None,
+            "secret": {
+                "value": npc.get("secret") if npc is not None else None,
+                "secret": True,
+            },
+            "keeper_note": {
+                "value": npc.get("keeper_note") if npc is not None else None,
+                "secret": True,
+            },
+            "facts": npc.get("facts") if npc is not None else None,
+            "known_fact_ids": npc.get("known_fact_ids") if npc is not None else None,
+            "revealable_fact_ids": (
+                npc.get("revealable_fact_ids") if npc is not None else None
+            ),
+            "lie_options": npc.get("lie_options") if npc is not None else None,
+            "deflect_options": npc.get("deflect_options") if npc is not None else None,
+            "schedule": npc.get("schedule") if npc is not None else None,
             "psych": {
                 "trust": normalized_psych.get("trust", 0),
                 "fear": normalized_psych.get("fear", 0),
@@ -7065,6 +9352,8 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     hints = [
         "fields marked secret:true are your reference only — reveal through play, not exposition",
         "origin=source plus relationship_to_investigators/social_role is an authored identity contract: preserve that NPC's institution and role; introduce a new stable NPC id for a different role",
+        "role_label is source-authored display context only; never infer structured authority from its free prose",
+        "origin=improvised is a campaign-local canonical contact projected from first-impression/persona/psych state; identity_contract stays null because the module did not author that identity",
         "pass the returned identity_ref to state.record_npc_engagement only when this authored identity is the one portrayed; a missing or mismatched ref records the interaction but is not authored-NPC coverage",
         "when an authored NPC has no pronoun or gender field, repeat the authored name; never invent a gendered pronoun",
     ]
@@ -7076,11 +9365,17 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             "npc.query has multiple investigators; pass investigator explicitly to project one pair-scoped textual impression"
         )
+    if name_conflicts:
+        hints.append(
+            "campaign-local first-impression receipts disagree on player-safe "
+            f"display name for: {', '.join(sorted(name_conflicts))}; the earliest "
+            "canonical receipt name is projected and the KP should preserve one stable identity"
+        )
     if requested_id and requested_id != canonical_requested_id:
         hints.append(
             f"resolved NPC alias '{requested_id}' to authored id '{canonical_requested_id}'"
         )
-    if requested_npc is not None:
+    if canonical_requested_id:
         first_impression = _first_impression_hint(
             ctx, canonical_requested_id, requested_npc
         )
@@ -7122,6 +9417,32 @@ def _ensure_first_impression_roll(
             )
     except coc_async_recorder.RecorderLockError as exc:
         raise ToolError("campaign_busy", str(exc)) from exc
+
+
+def _campaign_play_language(ctx: Ctx) -> str:
+    """Active campaign play_language for player-facing chrome (default zh-Hans)."""
+    if ctx.campaign_dir is None:
+        return "zh-Hans"
+    path = ctx.campaign_dir / "campaign.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return "zh-Hans"
+    if isinstance(data, dict):
+        language = str(data.get("play_language") or "").strip()
+        if language:
+            return language
+    return "zh-Hans"
+
+
+def _first_impression_display_skill(ctx: Ctx) -> str:
+    """First-impression public-roll label in the campaign play language."""
+    language = _campaign_play_language(ctx)
+    labels = coc_language.table_mechanics_labels(language)
+    return str(
+        labels.get("first_impression_tag")
+        or coc_language.player_facing_skill_label("First Impression", language)
+    )
 
 
 @tool(
@@ -7234,7 +9555,7 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
         "npc_id": npc_id,
         "npc_display_name": npc_display_name,
         "skill": "First Impression",
-        "display_skill": "初印象",
+        "display_skill": _first_impression_display_skill(ctx),
         "app": app,
         "credit_rating": credit_rating,
         "governing_attribute": governing_attribute,
@@ -7281,7 +9602,192 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
             0,
             "before state.journal, apply an independent source-bound state.exceptional_effect for this first-impression roll; prose, a flag, or elapsed time is insufficient",
         )
+        hints.insert(
+            1,
+            "before applying that effect, write player_visible_impact, causal_link, "
+            "and any until_condition boundary.description in the campaign's active "
+            "play_language; turn.finalize renders all three verbatim",
+        )
     return data, [], hints
+
+
+def _current_open_affordances(ctx: Ctx) -> list[dict[str, Any]]:
+    world = ctx.world()
+    active_id = world.get("active_scene_id")
+    scene = _scene_by_id(ctx.story_graph, active_id)
+    if not isinstance(scene, dict):
+        return []
+    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
+    scene_key = str(active_id or "")
+    completed = coc_action_resolver._route_receipt_ids(
+        world, scene_key, "consumed"
+    )
+    blocked = coc_action_resolver._route_receipt_ids(world, scene_key, "blocked")
+    try:
+        return coc_action_resolver._open_affordances(
+            scene, discovered, completed, blocked
+        )
+    except RuntimeError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+
+
+def _route_operation_cards(
+    ctx: Ctx,
+    route: dict[str, Any],
+    *,
+    reset_evidence: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    scene_id = str(route.get("route_owner_scene_id") or "")
+    route_id = str(route.get("affordance_id") or "")
+    clue_ids = [str(value) for value in route.get("grants_clue_ids") or []]
+    gate = route.get("roll_gate") if isinstance(route.get("roll_gate"), dict) else None
+    if clue_ids and gate is None:
+        return [
+            {
+                "operation": "state.record_clue",
+                "invoke_via": "coc_invoke",
+                "prefilled_arguments": {
+                    "clue_id": clue_id,
+                    "method": "authored_direct_route",
+                    "route_ref": {"scene_id": scene_id, "route_id": route_id},
+                },
+                "missing_arguments": ["decision_id"],
+            }
+            for clue_id in clue_ids
+        ]
+    if gate is None:
+        return []
+    density_group = f"route:{scene_id}:{route_id}"
+    stakes_label = str(gate.get("stakes") or "the authored route objective")
+    failure = gate.get("ordinary_failure") or {}
+    failure_summary = str(
+        failure.get("summary") or "failure changes the situation without progress"
+    )
+    fumble = gate.get("fumble_consequence") or {}
+    cards = []
+    for approach in gate.get("approaches") or []:
+        if not isinstance(approach, dict) or not approach.get("skill"):
+            continue
+        attempt_id = density_group
+        if isinstance(reset_evidence, dict):
+            attempt_id = (
+                f"{density_group}:reset:"
+                f"{reset_evidence.get('source_attempt_elapsed_minutes', 'structured')}"
+                f":{reset_evidence.get('elapsed_minutes', 'changed')}"
+            )
+        prefilled = {
+            "skill": str(approach["skill"]),
+            "difficulty": str(gate.get("difficulty") or "regular"),
+            "goal": str(route.get("player_visible_cue") or stakes_label),
+            "stakes": {
+                "on_success": f"achieve the authored objective: {stakes_label}",
+                "on_failure": failure_summary,
+            },
+            "difficulty_basis": "authored_gate",
+            "reason": f"authored route {route_id}",
+            "resolution_context": {
+                "attempt_id": attempt_id,
+                "scene_id": scene_id,
+                "route_id": route_id,
+                "roll_density_group": density_group,
+            },
+        }
+        if isinstance(reset_evidence, dict):
+            prefilled["resolution_context"]["reset_evidence"] = deepcopy(
+                reset_evidence
+            )
+        if str(fumble.get("summary") or "").strip():
+            prefilled["fumble_consequence"] = str(fumble["summary"]).strip()
+        cards.append({
+            "operation": "rules.roll",
+            "invoke_via": "coc_invoke",
+            "approach": {
+                "verb": approach.get("verb"),
+                "skill": approach.get("skill"),
+            },
+            "prefilled_arguments": prefilled,
+            "missing_arguments": ["decision_id"],
+        })
+    return cards
+
+
+def _project_action_route_cards(
+    ctx: Ctx,
+    *,
+    include_operation_opportunities: bool = True,
+) -> list[dict[str, Any]]:
+    open_affordances = _current_open_affordances(ctx)
+    open_attempts = _open_attempt_opportunities(
+        ctx, scene_id=str(ctx.world().get("active_scene_id") or "") or None,
+    )
+    attempts_by_route = {
+        str((row.get("source") or {}).get("route_id") or ""): row
+        for row in open_attempts
+        if str((row.get("source") or {}).get("route_id") or "")
+    }
+    cards: list[dict[str, Any]] = []
+    for route in open_affordances:
+        route_id = str(route.get("affordance_id") or "")
+        clue_ids = [str(value) for value in route.get("grants_clue_ids") or []]
+        gate = route.get("roll_gate")
+        attempt_opportunity = attempts_by_route.get(route_id)
+        retry_status = (
+            (attempt_opportunity.get("retry_status") or {})
+            if isinstance(attempt_opportunity, dict)
+            else {}
+        )
+        if route_id in attempts_by_route and retry_status.get("eligible") is True:
+            resolution_kind = "reset_retry"
+        elif route_id in attempts_by_route:
+            resolution_kind = "push_or_context_change"
+        elif clue_ids and not isinstance(gate, dict):
+            resolution_kind = "direct_delivery"
+        elif isinstance(gate, dict):
+            resolution_kind = "authored_roll_advice"
+        elif route.get("runtime_status") == "NOT_IMPLEMENTED":
+            resolution_kind = "typed_capability_unavailable"
+        else:
+            resolution_kind = "keeper_judgment"
+        card = {
+            "route_id": route_id,
+            "route_type": route.get("route_type"),
+            "cue": route.get("player_visible_cue"),
+            "target_entities": deepcopy(route.get("target_entities") or []),
+            "grants_clue_ids": clue_ids,
+            "resolution_kind": resolution_kind,
+            "authority": "advisory",
+            "hard_gate": False,
+            "may_override": True,
+        }
+        if isinstance(gate, dict):
+            card["roll_advice"] = {
+                "difficulty": str(gate.get("difficulty") or "regular"),
+                "stakes": gate.get("stakes"),
+                "approaches": [
+                    {
+                        "verb": approach.get("verb"),
+                        "skill": approach.get("skill"),
+                    }
+                    for approach in gate.get("approaches") or []
+                    if isinstance(approach, dict) and approach.get("skill")
+                ],
+            }
+        if include_operation_opportunities:
+            if route_id in attempts_by_route:
+                if resolution_kind == "reset_retry":
+                    card["operation_opportunities"] = deepcopy(
+                        attempt_opportunity.get("reset_retry_operations") or []
+                    )
+                else:
+                    card["operation_opportunities"] = [deepcopy(
+                        attempt_opportunity["suggested_operation"]
+                    )]
+            else:
+                card["operation_opportunities"] = _route_operation_cards(ctx, route)
+        if route_id in attempts_by_route:
+            card["attempt_opportunity"] = deepcopy(attempt_opportunity)
+        cards.append(card)
+    return cards
 
 
 @tool(
@@ -7344,27 +9850,20 @@ def _tool_actions_list(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "actions.advise",
-    "Authored roll-gate rule advice for the current scene's legal affordances — the same advisory surface the headless runtime planner consumes. Read-only; never applies state or forces a roll.",
+    "Contextual authored-route and roll advice for one KP-interpreted player action. Read-only; direct delivery, Push, retry, and narrative suggestions are all soft and never force or block play.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
+        "player_text": {"type": "string", "desc": "optional exact player message for combined Director/Storylet advice"},
+        "intent_evidence": {
+            "type": "object",
+            "desc": "optional KP semantic result with primary_intent, reason, and matched_affordance_ids/selected_affordance_ids",
+        },
     },
 )
 def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
     world = ctx.world()
     active_id = world.get("active_scene_id")
-    scene = _scene_by_id(ctx.story_graph, active_id)
-    discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
-    scene_key = str(active_id or "")
-    completed = coc_action_resolver._route_receipt_ids(world, scene_key, "consumed")
-    blocked = coc_action_resolver._route_receipt_ids(world, scene_key, "blocked")
-    try:
-        affordances = (
-            coc_action_resolver._open_affordances(scene, discovered, completed, blocked)
-            if isinstance(scene, dict)
-            else []
-        )
-    except RuntimeError as exc:
-        raise ToolError("state_corrupt", str(exc)) from exc
+    affordances = _current_open_affordances(ctx)
     investigator_id = _resolve_investigator(ctx, args)
     advice = coc_keeper_planner.build_rule_advice(
         affordances, ctx.sheet(investigator_id)
@@ -7373,19 +9872,165 @@ def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
         row for row in advice
         if isinstance(row, dict) and row.get("classification") == "authored_rule_advice"
     ]
+    warnings: list[str] = []
+    route_cards = _project_action_route_cards(ctx)
+    route_index = {
+        str(row.get("route_id") or ""): row
+        for row in route_cards
+        if isinstance(row, dict) and row.get("route_id")
+    }
+    intent: dict[str, Any] | None = None
+    selected_ids: list[str] = []
+    if args.get("intent_evidence") is not None:
+        intent = _intent_evidence(args.get("intent_evidence"))
+        selected_ids = list(dict.fromkeys(
+            str(value).strip()
+            for value in (
+                intent.get("matched_affordance_ids")
+                or intent.get("selected_affordance_ids")
+                or []
+            )
+            if str(value or "").strip()
+        ))
+        legacy_route_ids = [
+            str(value).strip()
+            for value in (intent.get("selected_route_ids") or [])
+            if str(value or "").strip()
+        ]
+        if legacy_route_ids and not selected_ids:
+            warnings.append(
+                "intent_evidence.selected_route_ids is not a supported semantic "
+                "binding and was ignored; use matched_affordance_ids (or "
+                "selected_affordance_ids) with the exact action_routes IDs. "
+                "Do not compensate by reading scenario files."
+            )
+    unavailable = [route_id for route_id in selected_ids if route_id not in route_index]
+    if unavailable:
+        warnings.append(
+            "KP-selected authored route ids are not in the current open working set and were ignored: "
+            + ", ".join(unavailable)
+        )
+    selected_routes = [
+        deepcopy(route_index[route_id])
+        for route_id in selected_ids if route_id in route_index
+    ]
+    if intent is None:
+        resolution_advice: dict[str, Any] = {
+            "kind": "current_route_working_set",
+            "authority": "advisory",
+            "hard_gate": False,
+            "routes": route_cards,
+            "reason": "Supply KP semantic intent evidence to project one contextual route recommendation.",
+        }
+    elif not selected_routes:
+        resolution_advice = {
+            "kind": "keeper_judgment",
+            "authority": "advisory",
+            "hard_gate": False,
+            "may_improvise": True,
+            "reason": (
+                "No exact current authored route was selected. The KP may adjudicate "
+                "the action semantically, ask a necessary clarification, or improvise."
+            ),
+        }
+    elif len(selected_routes) == 1:
+        resolution_advice = deepcopy(selected_routes[0])
+    else:
+        resolution_advice = {
+            "kind": "compound_or_ambiguous_authored_action",
+            "authority": "advisory",
+            "hard_gate": False,
+            "selected_routes": selected_routes,
+            "reason": "The KP decides whether these routes form one natural action, a montage, or successive goals.",
+        }
     data = {
         "schema_version": 1,
         "authority": "advisory",
+        "hard_gate": False,
         "scene_id": active_id,
         "investigator_id": investigator_id,
         "authored_roll_gate_count": len(gated),
         "rule_advice": advice,
+        "action_routes": route_cards,
+        "intent_evidence": intent,
+        "resolution_advice": resolution_advice,
+        "operation_opportunities": _open_attempt_opportunities(
+            ctx, scene_id=str(active_id or "") or None,
+        ),
     }
+    player_text = str(args.get("player_text") or "").strip()
+    if intent is not None and player_text:
+        director_intent = deepcopy(intent)
+        if not isinstance(director_intent.get("action_resolution"), dict):
+            director_intent["action_resolution"] = {
+                "schema_version": 1,
+                "primary_intent": director_intent.get("primary_intent"),
+                "matched_affordance_ids": [
+                    route_id for route_id in selected_ids if route_id in route_index
+                ],
+                "matched_destination_scene_id": None,
+                "normalized_action_atoms": deepcopy(
+                    director_intent.get("normalized_action_atoms") or []
+                ),
+                "no_match": not bool(selected_routes),
+            }
+        try:
+            director_data, director_ctx = _build_director_advice_payload(
+                ctx,
+                {
+                    "player_text": player_text,
+                    "intent_evidence": director_intent,
+                    "investigator": investigator_id,
+                },
+            )
+            storylet_data = _storylet_advice_payload(
+                ctx,
+                plan=director_data["candidate_plan"],
+                director_ctx=director_ctx,
+                seed=None,
+                limit=1,
+            )
+            if storylet_data["candidates"]:
+                candidate = storylet_data["candidates"][0]
+                data["narrative_opportunity"] = {
+                    "schema_version": 1,
+                    "authority": "advisory",
+                    "hard_gate": False,
+                    "advice_id": storylet_data["advice_id"],
+                    "candidate": candidate,
+                    "reason": (
+                        "A stable existing Storylet candidate is available for this "
+                        "action. Adopt, modify, or ignore it according to current pacing; "
+                        "never insert it merely to satisfy a quota."
+                    ),
+                    "adoption_operation": {
+                        "operation": "evidence.record_adoption",
+                        "invoke_via": "coc_invoke",
+                        "prefilled_arguments": {
+                            "advice_id": storylet_data["advice_id"],
+                            "storylet_candidate": candidate,
+                        },
+                        "missing_arguments": [
+                            "decision_id", "disposition", "reason", "adopted_fields",
+                        ],
+                    },
+                }
+            else:
+                data["narrative_opportunity"] = None
+        except (ToolError, ValueError, RuntimeError, OSError) as exc:
+            warnings.append(
+                f"combined Director/Storylet advice was unavailable and was skipped without blocking play: {exc}"
+            )
+            data["narrative_opportunity"] = None
     hints = [
+        "the returned route cards are the bounded authored source for this action; do not reread story-graph, clue-graph, module assets, tool logs, or old finalization examples",
         "authored roll gates are cited rule advice, not a mandatory pipeline — accept, override with a reason, or ignore",
+        "direct_delivery means the authored route grants its clue/handout without a roll; invoke the prefilled state.record_clue cards and narrate the actual discovery",
+        "push_or_context_change is a soft anti-roll-fishing reminder; it never rejects a player action or prevents the KP from honoring a deliberately chosen new check",
+        "narrative_opportunity is one stable optional Storylet candidate, not a random-event quota; record adoption only when its substance actually reaches play",
         "a player-declared fact never satisfies a roll gate by itself; resolve the check with rules.roll before recording its clue",
     ]
-    return data, [], hints
+    return data, warnings, hints
 
 
 # --------------------------------------------------------------------------- #
@@ -7420,6 +10065,22 @@ def _advice_id(tool_name: str, ctx: Ctx, material: Any) -> str:
     ).hexdigest()[:20]
     turn = ctx.pacing().get("turn_number", 0)
     return f"{tool_name}:{turn}:{digest}"
+
+
+def _storylet_advice_matches_candidate(
+    advice_id: Any, candidate: dict[str, Any]
+) -> bool:
+    projected = [_project_storylet_candidate(candidate)]
+    digest = hashlib.sha256(
+        json.dumps(
+            projected,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:20]
+    parts = str(advice_id or "").split(":")
+    return len(parts) == 3 and parts[0] == "storylets" and parts[2] == digest
 
 
 def _active_scene(ctx: Ctx) -> dict[str, Any]:
@@ -7494,6 +10155,72 @@ def _execute_subsystem_command(
 # director.* — rich existing Director implementation, advisory only
 # --------------------------------------------------------------------------- #
 
+
+def _stable_advisory_seed(ctx: Ctx, kind: str, material: Any) -> str:
+    digest = hashlib.sha256(
+        json.dumps(
+            material,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    return (
+        f"{kind}:{ctx.campaign_id}:{ctx.pacing().get('turn_number', 0)}:"
+        f"{ctx.world().get('active_scene_id')}:{digest}"
+    )
+
+
+def _build_director_advice_payload(
+    ctx: Ctx, args: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    player_text = str(args.get("player_text") or "").strip()
+    if not player_text:
+        raise ToolError("invalid_param", "player_text is required")
+    intent = _intent_evidence(args.get("intent_evidence"))
+    investigator_id = _resolve_investigator(ctx, args)
+    sheet = ctx.sheet(investigator_id)
+    seed = (
+        args.get("seed")
+        if args.get("seed") is not None
+        else _stable_advisory_seed(
+            ctx, "director", {"player_text": player_text, "intent": intent},
+        )
+    )
+    decision_id = str(args.get("decision_id") or _advice_id(
+        "director", ctx, {"player_text": player_text, "intent": intent}
+    ))
+    director_ctx = coc_story_director.build_director_context(
+        ctx.campaign_dir,
+        _investigator_character_path(ctx, investigator_id),
+        investigator_id,
+        player_text,
+        str(intent["primary_intent"]),
+        rng=random.Random(seed),
+        player_intent_rich=intent,
+        character_snapshot=sheet,
+    )
+    plan = coc_story_director.generate_director_plan(director_ctx, decision_id)
+    advice_id = _advice_id("director", ctx, plan)
+    return {
+        "schema_version": 1,
+        "advice_id": advice_id,
+        "authority": "advisory",
+        "hard_gate": False,
+        "intent_evidence": intent,
+        "candidate_plan": plan,
+        "context_summary": {
+            "active_scene_id": director_ctx.get("active_scene_id"),
+            "turn_number": director_ctx.get("turn_number"),
+            "story_need": director_ctx.get("story_need"),
+            "personal_horror_hooks": director_ctx.get("personal_horror_hooks") or [],
+            "threat_fronts": director_ctx.get("threat_fronts") or {},
+            "time_signals": director_ctx.get("time_signals") or {},
+        },
+    }, director_ctx
+
+
 @tool(
     "director.advise",
     "Build the existing rich Director context and candidate plan from structured KP intent evidence. Advice only; never applies state or forces narration.",
@@ -7506,46 +10233,65 @@ def _execute_subsystem_command(
     },
 )
 def _tool_director_advise(ctx: Ctx, args: dict[str, Any]):
-    player_text = str(args.get("player_text") or "").strip()
-    if not player_text:
-        raise ToolError("invalid_param", "player_text is required")
-    intent = _intent_evidence(args.get("intent_evidence"))
-    investigator_id = _resolve_investigator(ctx, args)
-    sheet = ctx.sheet(investigator_id)
-    decision_id = str(args.get("decision_id") or _advice_id(
-        "director", ctx, {"player_text": player_text, "intent": intent}
-    ))
-    director_ctx = coc_story_director.build_director_context(
-        ctx.campaign_dir,
-        _investigator_character_path(ctx, investigator_id),
-        investigator_id,
-        player_text,
-        str(intent["primary_intent"]),
-        rng=_rng(args),
-        player_intent_rich=intent,
-        character_snapshot=sheet,
-    )
-    plan = coc_story_director.generate_director_plan(director_ctx, decision_id)
-    advice_id = _advice_id("director", ctx, plan)
-    data = {
-        "schema_version": 1,
-        "advice_id": advice_id,
-        "authority": "advisory",
-        "intent_evidence": intent,
-        "candidate_plan": plan,
-        "context_summary": {
-            "active_scene_id": director_ctx.get("active_scene_id"),
-            "turn_number": director_ctx.get("turn_number"),
-            "story_need": director_ctx.get("story_need"),
-            "personal_horror_hooks": director_ctx.get("personal_horror_hooks") or [],
-            "threat_fronts": director_ctx.get("threat_fronts") or {},
-            "time_signals": director_ctx.get("time_signals") or {},
-        },
-    }
+    data, _director_ctx = _build_director_advice_payload(ctx, args)
     return data, [], [
         "this is a candidate orchestration plan, not a turn pipeline or state mutation",
         "adopt, modify, or ignore any part; resolve dice and state only through authoritative tools",
     ]
+
+
+def _project_storylet_candidate(move: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "storylet_id", "family_id", "trope_id", "title", "cue", "beat",
+        "conflict_level", "target_conflict_level", "bound_entities",
+        "rolled_variants", "presentation_mode", "grounding_contract", "serves",
+        "ledger_update", "source",
+    )
+    return {
+        field: deepcopy(move[field]) for field in fields if field in move
+    }
+
+
+def _storylet_advice_payload(
+    ctx: Ctx,
+    *,
+    plan: dict[str, Any],
+    director_ctx: dict[str, Any],
+    seed: Any | None,
+    limit: int,
+) -> dict[str, Any]:
+    ledger_path = ctx.campaign_dir / "save" / "storylet-ledger.json"
+    ledger = _read_optional_json(ledger_path, {})
+    stable_seed = (
+        seed
+        if seed is not None
+        else _stable_advisory_seed(
+            ctx,
+            "storylets",
+            {
+                "decision_id": plan.get("decision_id"),
+                "scene_action": plan.get("scene_action"),
+                "intent": (plan.get("turn_input") or {}).get("player_intent_rich"),
+            },
+        )
+    )
+    moves = coc_storylets.select_storylet_moves(
+        plan,
+        director_ctx,
+        library=coc_storylets.load_storylet_library(),
+        ledger=ledger,
+        seed=stable_seed,
+        max_storylets=max(1, min(5, int(limit))),
+    )
+    candidates = [_project_storylet_candidate(move) for move in moves]
+    advice_id = _advice_id("storylets", ctx, candidates)
+    return {
+        "schema_version": 1,
+        "advice_id": advice_id,
+        "authority": "advisory",
+        "hard_gate": False,
+        "candidates": candidates,
+    }
 
 
 @tool(
@@ -7575,27 +10321,27 @@ def _tool_storylets_suggest(ctx: Ctx, args: dict[str, Any]):
         investigator_id,
         player_text,
         str(intent["primary_intent"]),
-        rng=_rng(args),
+        rng=random.Random(
+            args.get("seed")
+            if args.get("seed") is not None
+            else _stable_advisory_seed(
+                ctx,
+                "storylets-context",
+                {"player_text": player_text, "intent": intent},
+            )
+        ),
         player_intent_rich=intent,
         character_snapshot=ctx.sheet(investigator_id),
     )
-    ledger_path = ctx.campaign_dir / "save" / "storylet-ledger.json"
-    ledger = _read_optional_json(ledger_path, {})
     limit = max(1, min(5, int(args.get("max") or 1)))
-    moves = coc_storylets.select_storylet_moves(
-        plan,
-        director_ctx,
-        library=coc_storylets.load_storylet_library(),
-        ledger=ledger,
+    data = _storylet_advice_payload(
+        ctx,
+        plan=plan,
+        director_ctx=director_ctx,
         seed=args.get("seed"),
-        max_storylets=limit,
+        limit=limit,
     )
-    return {
-        "schema_version": 1,
-        "advice_id": _advice_id("storylets", ctx, moves),
-        "authority": "advisory",
-        "candidates": moves,
-    }, [], [
+    return data, [], [
         "storylets change presentation and cost only; they never rewrite module truth",
         "persist ledger use only after the KP actually adopts and delivers a candidate",
     ]
@@ -7964,9 +10710,28 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "reason": {"type": "string", "required": True, "desc": "concise semantic reason, not hidden chain-of-thought"},
         "adopted_fields": {"type": "array", "desc": "structured field paths actually used"},
         "emotional_tone_adoption": {"type": "array", "desc": "per-NPC first-impression follow-through for each npc_moves[].emotional_tone in the referenced plan: {npc_id, emotional_tone, adoption: adopted|modified|ignored}"},
+        "storylet_candidate": {
+            "type": "object",
+            "desc": "optional exact candidate returned by actions.advise/storylets.suggest; adopted or modified candidates update the existing anti-repeat ledger",
+        },
+        "finalization_id": {
+            "type": "string",
+            "desc": "optional finalized output proving the adopted candidate reached the delivered draft",
+        },
+        "exact_excerpt": {
+            "type": "string",
+            "desc": "optional exact finalized draft excerpt realizing the adopted candidate",
+        },
     },
 )
 def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup(
+        "evidence.record_adoption", args.get("decision_id")
+    )
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously recorded advisory disposition"
+        ], []
     disposition = str(args.get("disposition") or "")
     if disposition not in {"adopted", "modified", "ignored"}:
         raise ToolError("invalid_param", "disposition must be adopted, modified, or ignored")
@@ -8010,14 +10775,80 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
         "reason": reason,
         "adopted_fields": fields,
     }
+    if args.get("finalization_id") is not None:
+        data["finalization_id"] = str(args["finalization_id"])
+    if args.get("exact_excerpt") is not None:
+        data["exact_excerpt"] = str(args["exact_excerpt"])
     if normalized_tones:
         data["emotional_tone_adoption"] = normalized_tones
+    warnings: list[str] = []
+    storylet_candidate = args.get("storylet_candidate")
+    if storylet_candidate is not None:
+        if not isinstance(storylet_candidate, dict):
+            warnings.append(
+                "storylet_candidate was not an object; adoption evidence was kept but the anti-repeat ledger was not changed"
+            )
+        elif disposition in {"adopted", "modified"}:
+            if not _storylet_advice_matches_candidate(
+                args["advice_id"], storylet_candidate
+            ):
+                warnings.append(
+                    "storylet candidate no longer matches this turn's stable advice id; adoption evidence was kept but the anti-repeat ledger was not changed"
+                )
+            elif not str(storylet_candidate.get("storylet_id") or "").strip():
+                warnings.append(
+                    "storylet candidate has no stable storylet_id; adoption evidence was kept but the anti-repeat ledger was not changed"
+                )
+            else:
+                ledger_path = ctx.campaign_dir / "save" / "storylet-ledger.json"
+                current_ledger = _read_optional_json(ledger_path, {})
+                ledger_update = coc_storylets.project_ledger_update(
+                    current_ledger, storylet_candidate
+                )
+                coc_state.write_json_atomic(ledger_path, ledger_update)
+                data["storylet_adoption"] = {
+                    "storylet_id": storylet_candidate.get("storylet_id"),
+                    "family_id": storylet_candidate.get("family_id"),
+                    "trope_id": storylet_candidate.get("trope_id"),
+                    "ledger_updated": True,
+                }
+                ctx.log_event({
+                    "event_type": "storylet_move",
+                    "decision_id": str(args["decision_id"]),
+                    "storylet_id": storylet_candidate.get("storylet_id"),
+                    "family_id": storylet_candidate.get("family_id"),
+                    "trope_id": storylet_candidate.get("trope_id"),
+                    "title": storylet_candidate.get("title"),
+                    "cue": storylet_candidate.get("cue"),
+                    "beat": storylet_candidate.get("beat"),
+                    "conflict_level": storylet_candidate.get("conflict_level"),
+                    "target_conflict_level": storylet_candidate.get(
+                        "target_conflict_level"
+                    ),
+                    "bound_entities": deepcopy(
+                        storylet_candidate.get("bound_entities") or {}
+                    ),
+                    "rolled_variants": deepcopy(
+                        storylet_candidate.get("rolled_variants") or {}
+                    ),
+                    "presentation_mode": storylet_candidate.get(
+                        "presentation_mode"
+                    ),
+                    "grounding_contract": deepcopy(
+                        storylet_candidate.get("grounding_contract") or {}
+                    ),
+                    "serves": deepcopy(storylet_candidate.get("serves") or []),
+                    "source": "toolbox_advisory_adoption",
+                })
     ctx.ledger_record(args["decision_id"], "evidence.record_adoption", data)
     coc_state.append_jsonl(
         ctx.campaign_dir / "logs" / "advisory-adoptions.jsonl",
         {**data, "ts": _now_iso()},
     )
-    return data, [], ["this receipt proves use or rejection; it does not constrain the next turn"]
+    return data, warnings, [
+        "this receipt proves use or rejection; it does not constrain the next turn",
+        "an adopted Storylet updates only its existing anti-repeat ledger; the KP still owns fictional realization and may ignore future candidates",
+    ]
 
 
 @tool(
@@ -8141,42 +10972,227 @@ def _tool_sanity_execute(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "secrets.briefing",
-    "Keeper-only briefing: what is still secret (undiscovered clues, NPC secrets, module truth). Read-only reference.",
-    {},
+    "Keeper-only briefing scoped to the active scene by default. "
+    "Pass scope=whole_module_audit for explicit cold-path full-module dump.",
+    {
+        "scope": {
+            "type": "string",
+            "desc": "active_scene (default) | entities | whole_module_audit",
+        },
+        "scene_id": {
+            "type": "string",
+            "desc": (
+                "for scope=active_scene: optional override (defaults to "
+                "world.active_scene_id). for scope=entities: include a scene "
+                "only when this is explicitly passed; never implied from active scene"
+            ),
+        },
+        "npc_ids": {
+            "type": "array",
+            "desc": "optional explicit NPC ids when scope=entities",
+        },
+        "clue_ids": {
+            "type": "array",
+            "desc": "optional explicit clue ids when scope=entities",
+        },
+    },
+    access="query",
+    read_domains=("scene", "world", "clues", "npc", "flags"),
+    response_mode="full",
+    audit_mode="reference",
 )
 def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
     world = ctx.world()
     discovered = {str(c) for c in (world.get("discovered_clue_ids") or [])}
-    undiscovered = [
-        {
-            "clue_id": c.get("clue_id"),
-            "player_safe_summary": c.get("player_safe_summary"),
-            "delivery": c.get("delivery"),
+    scope_raw = str(args.get("scope") or "active_scene").strip() or "active_scene"
+    if scope_raw not in {"active_scene", "entities", "whole_module_audit"}:
+        raise ToolError(
+            "invalid_param",
+            "scope must be active_scene, entities, or whole_module_audit",
+        )
+    # Default scene_id from world only for active_scene. Entity-only requests
+    # must not silently expand to the active-scene secret surface.
+    if scope_raw == "active_scene":
+        scene_id = (
+            str(args.get("scene_id") or world.get("active_scene_id") or "").strip()
+            or None
+        )
+    elif "scene_id" in args and args.get("scene_id") is not None and str(args.get("scene_id")).strip():
+        scene_id = str(args["scene_id"]).strip()
+    else:
+        scene_id = None
+    npc_ids = [
+        str(value)
+        for value in (args.get("npc_ids") or [])
+        if str(value).strip()
+    ]
+    clue_ids = [
+        str(value)
+        for value in (args.get("clue_ids") or [])
+        if str(value).strip()
+    ]
+    if scope_raw == "active_scene" and not scene_id:
+        raise ToolError(
+            "invalid_param",
+            "active_scene secrets.briefing requires an active scene or scene_id",
+        )
+    if scope_raw == "entities" and not (scene_id or npc_ids or clue_ids):
+        raise ToolError(
+            "invalid_param",
+            "entities scope requires explicit scene_id and/or npc_ids and/or clue_ids",
+        )
+
+    warnings: list[str] = []
+    archive_payload: dict[str, Any] | None = None
+    if ctx.campaign_dir is not None:
+        try:
+            archive_payload = coc_compiled_archive.secrets_briefing_from_archive(
+                ctx.campaign_dir,
+                scope=scope_raw,
+                scene_id=scene_id,
+                npc_ids=npc_ids,
+                clue_ids=clue_ids,
+                discovered_clue_ids=discovered,
+            )
+        except coc_compiled_archive.CompiledArchiveError as exc:
+            warnings.append(
+                f"compiled archive unavailable ({exc.code}); using scenario IR fallback"
+            )
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(
+                f"compiled archive secrets read failed; using scenario IR fallback ({exc})"
+            )
+
+    if archive_payload is not None:
+        undiscovered = archive_payload.get("undiscovered_clues") or []
+        npc_secrets = archive_payload.get("npc_secrets") or []
+        module_secrets = archive_payload.get("module_secrets") or []
+        archive_meta = {
+            "archive_revision": archive_payload.get("archive_revision"),
+            "source": "compiled_archive",
+            "scope": archive_payload.get("scope"),
+            "selected_counts": archive_payload.get("selected_counts"),
+            "whole_module": bool(archive_payload.get("whole_module")),
         }
-        for c in _all_clues(ctx.clue_graph)
-        if str(c.get("clue_id")) not in discovered
-    ]
-    npc_secrets = [
-        {"npc_id": n.get("npc_id"), "name": n.get("name"), "secret": n.get("secret"), "keeper_note": n.get("keeper_note")}
-        for n in ctx.npc_agendas.get("npcs") or []
-        if n.get("secret") or n.get("keeper_note")
-    ]
+    else:
+        # Explicit IR fallback (and whole_module_audit when archive missing).
+        if scope_raw == "whole_module_audit":
+            selected_clues = _all_clues(ctx.clue_graph)
+            selected_npcs = [
+                n for n in (ctx.npc_agendas.get("npcs") or []) if isinstance(n, dict)
+            ]
+            module_secrets = [
+                {
+                    "id": secret.get("id"),
+                    "category": secret.get("category"),
+                    "prose": secret.get("prose"),
+                    "secret": True,
+                }
+                for secret in (
+                    (ctx.scenario("improvisation-boundaries.json") or {}).get(
+                        "keeper_secrets"
+                    )
+                    or []
+                )
+                if isinstance(secret, dict) and secret.get("id")
+            ]
+        elif scope_raw == "entities" and not scene_id:
+            # Exact entity scope: only the explicit npc/clue ids, no active scene.
+            selected_clues = [
+                clue for clue in _all_clues(ctx.clue_graph)
+                if str(clue.get("clue_id")) in set(clue_ids)
+            ]
+            selected_npcs = [
+                n for n in (ctx.npc_agendas.get("npcs") or [])
+                if isinstance(n, dict) and str(n.get("npc_id")) in set(npc_ids)
+            ]
+            module_secrets = []
+        else:
+            scene = _scene_by_id(ctx.story_graph, scene_id) if scene_id else None
+            scene_clue_ids = {
+                str(value) for value in ((scene or {}).get("available_clues") or [])
+            }
+            scene_npc_ids = {
+                str(value) for value in ((scene or {}).get("npc_ids") or [])
+            }
+            if clue_ids:
+                scene_clue_ids.update(clue_ids)
+            if npc_ids:
+                scene_npc_ids.update(npc_ids)
+            selected_clues = [
+                clue for clue in _all_clues(ctx.clue_graph)
+                if str(clue.get("clue_id")) in scene_clue_ids
+            ]
+            selected_npcs = [
+                n for n in (ctx.npc_agendas.get("npcs") or [])
+                if isinstance(n, dict) and str(n.get("npc_id")) in scene_npc_ids
+            ]
+            module_secrets = []
+        undiscovered = [
+            {
+                "clue_id": c.get("clue_id"),
+                "player_safe_summary": c.get("player_safe_summary"),
+                "delivery": c.get("delivery"),
+                "secret": True,
+            }
+            for c in selected_clues
+            if str(c.get("clue_id")) not in discovered
+        ]
+        npc_secrets = [
+            {
+                "npc_id": n.get("npc_id"),
+                "name": n.get("name"),
+                "secret": n.get("secret"),
+                "keeper_note": n.get("keeper_note"),
+                "secret_marker": True,
+            }
+            for n in selected_npcs
+            if n.get("secret") or n.get("keeper_note")
+        ]
+        archive_meta = {
+            "archive_revision": None,
+            "source": "scenario_ir_fallback",
+            "scope": scope_raw,
+            "whole_module": scope_raw == "whole_module_audit",
+        }
+
     meta = ctx.scenario("module-meta.json")
+    # module_meta overview is only included on explicit whole-module audit.
+    module_meta: dict[str, Any] = {"title": meta.get("title")}
+    if scope_raw == "whole_module_audit":
+        module_meta["keeper_overview"] = {
+            "value": meta.get("keeper_overview") or meta.get("overview"),
+            "secret": True,
+        }
     data = {
         "module_truth_note": "module truth is read-only: tools never let you rewrite it, and you should not contradict it",
-        "module_meta": {
-            "title": meta.get("title"),
-            "keeper_overview": {"value": meta.get("keeper_overview") or meta.get("overview"), "secret": True},
-        },
+        "module_meta": module_meta,
+        "scope": scope_raw,
+        "scene_id": scene_id,
         "undiscovered_clues": undiscovered,
         "npc_secrets": npc_secrets,
+        "module_secrets": module_secrets if scope_raw != "active_scene" or module_secrets else [],
         "spoiler_reveals_so_far": ctx.flags().get("spoiler_reveals"),
+        "compiled_archive": archive_meta,
+        "secret": True,
     }
+    if scope_raw == "active_scene" and archive_payload is not None:
+        # Active-scene path may still surface scene-bound module secret refs.
+        data["module_secrets"] = archive_payload.get("module_secrets") or []
     hints = [
         "reveal secrets only through play (successful rolls, NPC disclosure, discovery) — never as narration exposition",
         "when a secret does surface, record it with state.record_clue or flags so the briefing stays current",
     ]
-    return data, [], hints
+    if scope_raw == "active_scene":
+        hints.append(
+            "default secrets.briefing is active-scene scoped; pass scope=whole_module_audit "
+            "only for explicit cold-path module audit"
+        )
+    elif scope_raw == "whole_module_audit":
+        hints.append(
+            "whole_module_audit returns the full remaining secret surface; prefer active_scene or entities during play"
+        )
+    return data, warnings, hints
 
 
 # --------------------------------------------------------------------------- #
@@ -8189,6 +11205,10 @@ def _tool_secrets_briefing(ctx: Ctx, args: dict[str, Any]):
     {
         "clue_id": {"type": "string", "required": True, "desc": "clue id from the clue graph"},
         "method": {"type": "string", "desc": "how it was found (roll, social, exploration...)"},
+        "route_ref": {
+            "type": "object",
+            "desc": "optional exact {scene_id, route_id} from actions.advise; binds direct clue delivery to authored route completion without forcing the route",
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
@@ -8237,6 +11257,37 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
     flags["clues_found"] = clues_found
     ctx.save_flags(flags)
 
+    route_context: dict[str, Any] | None = None
+    route_ref = args.get("route_ref")
+    if route_ref is not None:
+        if isinstance(route_ref, dict):
+            scene_ref = str(route_ref.get("scene_id") or "").strip()
+            route_id = str(route_ref.get("route_id") or "").strip()
+            if scene_ref and route_id:
+                route_context = {
+                    "schema_version": 1,
+                    "hard_gate": False,
+                    "scene_id": scene_ref,
+                    "route_id": route_id,
+                }
+            else:
+                warnings.append(
+                    "route_ref was incomplete; clue remained recorded and no route completion was inferred"
+                )
+        else:
+            warnings.append(
+                "route_ref was not an object; clue remained recorded and no route completion was inferred"
+            )
+    route_completion, route_warnings = _settle_contextual_route(
+        ctx,
+        route_context,
+        decision_id=str(args.get("decision_id") or f"clue:{clue_id}"),
+        source_tool="state.record_clue",
+        successful=False,
+        committed_clue_ids=[clue_id] if not already else [],
+    )
+    warnings.extend(route_warnings)
+
     data = {
         "clue_id": clue_id,
         "already_discovered": already,
@@ -8244,6 +11295,7 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "localized_text": (clue or {}).get("localized_text"),
         "discovered_total": len(discovered),
         "newly_unlocked_scenes": newly_unlocked,
+        "route_completion": deepcopy(route_completion),
     }
     progressive_hints: list[str] = []
     if not already:
@@ -8294,6 +11346,7 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     world = ctx.world()
     sg = ctx.story_graph
+    coc_scene_graph.ensure_world_scene_fields(world, sg)
     active = world.get("active_scene_id")
     warnings: list[str] = []
     scene = _scene_by_id(sg, target)
@@ -8302,7 +11355,8 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     else:
         candidates = coc_scene_graph.transition_candidates(active, sg, dict(world))
         unlocked = {str(s) for s in world.get("unlocked_scene_ids") or []}
-        if target not in candidates:
+        initial_authored_start = active is None and bool(scene.get("is_start"))
+        if target not in candidates and not initial_authored_start:
             if target not in unlocked:
                 edges = coc_scene_graph.derive_scene_edges(sg)
                 gate = None
@@ -8329,6 +11383,12 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     world["active_scene_id"] = target
     newly_unlocked = _evaluate_and_apply_unlocks(ctx, world)
     ctx.save_world(world)
+    time_scene_change = coc_time.record_scene_change(
+        ctx.campaign_dir,
+        target,
+        decision_id=str(args.get("decision_id") or f"scene:{active}:{target}"),
+        reason=str(args.get("reason") or ""),
+    )
 
     active_scene_path = ctx.campaign_dir / "save" / "active-scene.json"
     pointer = {
@@ -8346,16 +11406,26 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
         "from_scene_id": active,
         "to_scene_id": target,
         "reason": args.get("reason"),
+        "decision_id": args.get("decision_id"),
     })
     data = {
         "from_scene_id": active,
         "to_scene_id": target,
         "newly_unlocked_scenes": newly_unlocked,
+        "time_scene_change": time_scene_change,
         "scene": {
             "scene_type": (scene or {}).get("scene_type"),
             "dramatic_question": (scene or {}).get("dramatic_question"),
             "tone": (scene or {}).get("tone"),
         } if scene else None,
+        "next_operation": {
+            "operation": "scene.context",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {},
+            "missing_arguments": [],
+            "reason": "Read the newly active scene's bounded material after the transition.",
+            "hard_gate": False,
+        },
     }
     # Progressive on-demand track: hot-ring enqueue + merge ready deep packs.
     # Never blocks travel; failures become warnings only.
@@ -8367,6 +11437,15 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
             data["progressive"] = {
                 "merged_active": progressive_info.get("merged_active"),
                 "neighbors": progressive_info.get("neighbors") or [],
+                "prefetched_neighbors": progressive_info.get(
+                    "prefetched_neighbors"
+                ) or [],
+                "deferred_neighbor_count": len(
+                    progressive_info.get("deferred_neighbors") or []
+                ),
+                "neighbor_prefetch_budget": progressive_info.get(
+                    "neighbor_prefetch_budget"
+                ),
                 "host_hints": progressive_info.get("host_hints") or [],
                 "asset_root_id": progressive_info.get("asset_root_id"),
             }
@@ -8387,12 +11466,22 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
                         "tone": refreshed.get("tone"),
                         "parse_state": refreshed.get("parse_state"),
                     }
+                post_merge_unlocked = _evaluate_and_apply_unlocks(ctx, world)
+                if post_merge_unlocked:
+                    newly_unlocked.extend(
+                        scene_id for scene_id in post_merge_unlocked
+                        if scene_id not in newly_unlocked
+                    )
+                    data["newly_unlocked_scenes"] = newly_unlocked
+                    ctx.save_world(world)
     except Exception as exc:
         warnings.append(f"progressive on-enter skipped: {exc}")
 
     ctx.ledger_record(args.get("decision_id"), "state.move_scene", data)
     return data, warnings, [
-        "call scene.context after moving to see the new scene's full material",
+        "call the returned exact scene.context card once after moving; never "
+        "preview a destination by passing scene_id to scene.context or by reading "
+        "story-graph, clue-graph, module assets, or prior tool logs",
         *_adjudication_gap_hints(ctx),
     ]
 
@@ -8630,9 +11719,12 @@ def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
     weapons = coc_inventory.effective_weapons(sheet.get("weapons"), inventory)
     return {
         "investigator_id": investigator_id,
-        "items": deepcopy(inventory["entries"]),
+        "items": coc_inventory.effective_items(
+            sheet.get("equipment"), inventory
+        ),
         "weapons": weapons,
         "lost_weapon_ids": list(inventory["lost_weapon_ids"]),
+        "lost_equipment_ids": list(inventory["lost_equipment_ids"]),
     }, [], []
 
 
@@ -8736,6 +11828,7 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
 
     investigator_id = _resolve_investigator(ctx, args)
     state = ctx.inv_state(investigator_id)
+    sheet = ctx.sheet(investigator_id)
     inventory = coc_inventory.normalize_inventory(state)
     entry: dict[str, Any] = {"item_id": item_id, "kind": kind, "label": label}
     if weapon_spec is not None:
@@ -8769,7 +11862,9 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
         "changed": changed,
         "present_before": not changed,
         "present_after": True,
-        "items": deepcopy(inventory["entries"]),
+        "items": coc_inventory.effective_items(
+            sheet.get("equipment"), inventory
+        ),
     }
     if kind == "weapon":
         data["weapon"] = deepcopy(weapon_spec)
@@ -8784,7 +11879,7 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "state.item_remove",
-    "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing a character-sheet weapon records a loss; removing an NPC weapon updates its runtime override.",
+    "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override.",
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (exactly one of investigator/npc_id)"},
@@ -8852,9 +11947,17 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
         )
         if wid is not None
     }
+    sheet_equipment_entries = coc_inventory.sheet_equipment_entries(
+        sheet.get("equipment")
+    )
+    sheet_equipment_ids = {
+        str(entry["item_id"]) for entry in sheet_equipment_entries
+    }
     inventory = coc_inventory.normalize_inventory(state)
     removed_label = item_id
-    for entry in inventory.get("entries") or []:
+    for entry in coc_inventory.effective_items(
+        sheet.get("equipment"), inventory
+    ):
         if isinstance(entry, dict) and str(entry.get("item_id") or "") == item_id:
             removed_label = str(entry.get("label") or item_id)
             break
@@ -8871,9 +11974,13 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
                 )
                 break
     inventory, outcome = coc_inventory.remove_item(
-        inventory, item_id, sheet_weapon_ids
+        inventory, item_id, sheet_weapon_ids, sheet_equipment_ids
     )
-    changed = outcome in {"removed_entry", "marked_lost"}
+    changed = outcome in {
+        "removed_entry",
+        "marked_lost",
+        "marked_lost_equipment",
+    }
     if changed:
         state["inventory"] = inventory
         ctx.save_inv_state(investigator_id, state)
@@ -8893,8 +12000,11 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
         "changed": changed,
         "present_before": changed,
         "present_after": not changed,
-        "items": deepcopy(inventory["entries"]),
+        "items": coc_inventory.effective_items(
+            sheet.get("equipment"), inventory
+        ),
         "lost_weapon_ids": list(inventory["lost_weapon_ids"]),
+        "lost_equipment_ids": list(inventory["lost_equipment_ids"]),
     }
     ctx.ledger_record(decision_id, tool_name, data)
     warnings = []
@@ -8906,7 +12016,117 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
             f"'{item_id}' was a character-sheet weapon: the loss is recorded in "
             "campaign state and reaches the investigator library at development settlement"
         )
+    if outcome == "marked_lost_equipment":
+        hints.append(
+            f"'{item_id}' was character-sheet equipment: the loss is recorded in "
+            "campaign state and reaches the investigator library at development settlement"
+        )
     return data, warnings, hints
+
+
+def _npc_engagement_operation(
+    ctx: Ctx, args: dict[str, Any]
+) -> tuple[str, str, str, str, dict[str, Any]]:
+    """Resolve the immutable engagement identity without writing campaign state."""
+    decision_id = str(args["decision_id"])
+    requested_npc_id = str(args["npc_id"])
+    requested_interaction_kind = str(args["interaction_kind"]).strip()
+    supplied_identity_ref = str(args.get("identity_ref") or "").strip()
+    supplied_first_impression_ref = str(
+        args.get("first_impression_ref") or ""
+    ).strip()
+    supplied_realization = deepcopy(args.get("first_impression_realization"))
+    investigator_id = _resolve_investigator(ctx, args)
+    run_id = coc_npc_event_chain.resolve_run_id(
+        ctx.campaign_dir, structured_source=args
+    )
+    operation = {
+        "npc_id": requested_npc_id,
+        "investigator_id": investigator_id,
+        "interaction_kind": requested_interaction_kind,
+        "identity_ref": supplied_identity_ref or None,
+        "first_impression_ref": supplied_first_impression_ref or None,
+        "first_impression_realization": supplied_realization,
+    }
+    return (
+        decision_id,
+        requested_npc_id,
+        requested_interaction_kind,
+        run_id,
+        operation,
+    )
+
+
+def _pending_npc_engagement_exact_replay(
+    ctx: Ctx, args: dict[str, Any]
+) -> tuple[dict[str, Any], list[str], list[str]] | None:
+    """Prove a post-journal call is an already-recovered exact replay.
+
+    This path is deliberately read-only.  It does not run source recovery or
+    the normal handler because either could materialize a missing write after
+    the journal boundary.
+    """
+    (
+        decision_id,
+        _requested_npc_id,
+        _requested_interaction_kind,
+        run_id,
+        operation,
+    ) = _npc_engagement_operation(ctx, args)
+    try:
+        document = coc_npc_event_chain.load_receipt_document(ctx.campaign_dir)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    prior_receipts = _npc_receipts_for_decision(
+        document,
+        producer="state.record_npc_engagement",
+        decision_id=decision_id,
+    )
+    if not prior_receipts:
+        return None
+    if len(prior_receipts) != 1:
+        raise ToolError(
+            "state_corrupt",
+            "state.record_npc_engagement decision_id "
+            f"'{decision_id}' has multiple source receipts",
+        )
+    receipt = prior_receipts[0]
+    if receipt.get("run_id") != run_id:
+        raise ToolError(
+            "idempotency_conflict",
+            f"decision_id '{decision_id}' was already applied in a different play run",
+        )
+    if receipt.get("operation_digest") != coc_npc_event_chain.canonical_digest(
+        operation
+    ):
+        raise ToolError(
+            "idempotency_conflict",
+            f"decision_id '{decision_id}' was already applied to a different NPC engagement payload",
+        )
+    event = receipt.get("event")
+    if not isinstance(event, dict) or not _operation_event_present(ctx, receipt):
+        raise ToolError(
+            "state_corrupt",
+            f"NPC engagement decision_id '{decision_id}' was not fully materialized before state.journal",
+        )
+    pending_rows = _pending_jsonl_rows(
+        ctx, "logs/events.jsonl", str(receipt["event_id"])
+    )
+    if any(row != event for row in pending_rows) or len(pending_rows) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"pending NPC engagement decision_id '{decision_id}' conflicts with its source receipt",
+        )
+    prior = ctx.ledger_lookup("state.record_npc_engagement", decision_id)
+    if prior is None or prior.get("data") != event:
+        raise ToolError(
+            "state_corrupt",
+            f"NPC engagement decision_id '{decision_id}' was not fully recovered before state.journal",
+        )
+    return deepcopy(event), [
+        *_npc_receipt_warnings(receipt),
+        "duplicate decision_id: returning the fully recovered NPC engagement without a new write",
+    ], []
 
 
 @tool(
@@ -8941,27 +12161,20 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
 )
 def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     tool_name = "state.record_npc_engagement"
-    decision_id = str(args["decision_id"])
-    requested_npc_id = str(args["npc_id"])
-    requested_interaction_kind = str(args["interaction_kind"]).strip()
+    (
+        decision_id,
+        requested_npc_id,
+        requested_interaction_kind,
+        run_id,
+        operation,
+    ) = _npc_engagement_operation(ctx, args)
     supplied_identity_ref = str(args.get("identity_ref") or "").strip()
     supplied_first_impression_ref = str(
         args.get("first_impression_ref") or ""
     ).strip()
     supplied_realization = deepcopy(args.get("first_impression_realization"))
-    investigator_id = _resolve_investigator(ctx, args)
+    investigator_id = str(operation["investigator_id"])
     campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
-    run_id = coc_npc_event_chain.resolve_run_id(
-        ctx.campaign_dir, structured_source=args
-    )
-    operation = {
-        "npc_id": requested_npc_id,
-        "investigator_id": investigator_id,
-        "interaction_kind": requested_interaction_kind,
-        "identity_ref": supplied_identity_ref or None,
-        "first_impression_ref": supplied_first_impression_ref or None,
-        "first_impression_realization": supplied_realization,
-    }
 
     document = _reconcile_all_npc_source_receipts(ctx)
     prior_receipts = _npc_receipts_for_decision(
@@ -9216,8 +12429,166 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "state.npc_presence",
+    "Explicitly place or remove one stable authored/improvised NPC in a scene. This is live scene state; engagement history never implies continued presence.",
+    {
+        "npc_id": {
+            "type": "string",
+            "required": True,
+            "desc": "stable authored or campaign-local NPC id",
+        },
+        "scene_id": {
+            "type": "string",
+            "required": True,
+            "desc": "scene whose live presence is being asserted or ended",
+        },
+        "status": {
+            "type": "string",
+            "required": True,
+            "enum": ["present", "absent"],
+            "desc": "present places the NPC here; absent records that they are no longer here",
+        },
+        "reason": {
+            "type": "string",
+            "required": True,
+            "desc": "fictional cause for this explicit presence change",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+    write_domains=("npc_presence",),
+)
+def _tool_state_npc_presence(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.npc_presence"
+    decision_id = str(args["decision_id"])
+    requested_npc_id = str(args["npc_id"]).strip()
+    authored_npc = _npc_by_id(ctx.npc_agendas, requested_npc_id)
+    npc_id = (
+        str(authored_npc.get("npc_id")) if authored_npc else requested_npc_id
+    )
+    scene_id = str(args["scene_id"]).strip()
+    status = str(args["status"]).strip().lower()
+    reason = str(args["reason"]).strip()
+    if not npc_id:
+        raise ToolError("invalid_param", "npc_id must be non-empty")
+    if not scene_id:
+        raise ToolError("invalid_param", "scene_id must be non-empty")
+    if status not in {"present", "absent"}:
+        raise ToolError("invalid_param", "status must be present or absent")
+    if not reason:
+        raise ToolError("invalid_param", "reason must be non-empty")
+
+    operation = {
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "status": status,
+        "reason": reason,
+    }
+    document = _load_npc_presence_document(ctx)
+    receipt = _source_receipt(document, tool_name, decision_id)
+    if receipt is not None:
+        _validate_source_receipt(
+            receipt,
+            tool_name=tool_name,
+            decision_id=decision_id,
+            operation=operation,
+        )
+        return _replay_source_receipt(ctx, receipt)
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        raise ToolError(
+            "state_corrupt",
+            f"toolbox ledger entry for {tool_name} decision_id '{decision_id}' has no canonical source receipt",
+        )
+
+    previous = deepcopy(document["presence"].get(npc_id))
+    source_sequence = int(document["presence_source_sequence"]) + 1
+    changed_at = _now_iso()
+    record = {
+        "schema_version": _NPC_PRESENCE_SCHEMA_VERSION,
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "status": status,
+        "reason": reason,
+        "revision": int((previous or {}).get("revision") or 0) + 1,
+        "changed_at": changed_at,
+        "decision_id": decision_id,
+        "source_sequence": source_sequence,
+        "producer": tool_name,
+    }
+    document["presence"][npc_id] = record
+    live_record = _npc_presence_live_record(document, npc_id)
+    entity_head = coc_flag_state.entity_head(
+        entity_kind="npc_presence",
+        entity_id=npc_id,
+        decision_id=decision_id,
+        source_sequence=source_sequence,
+        producer=tool_name,
+        live_record=live_record,
+    )
+    document["presence_heads"][npc_id] = deepcopy(entity_head)
+    document["presence_source_sequence"] = source_sequence
+    event = {
+        "npc_presence_schema_version": _NPC_PRESENCE_SCHEMA_VERSION,
+        "event_type": "npc_presence_changed",
+        "event_id": _operation_event_id(tool_name, decision_id),
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "status": status,
+        "previous_scene_id": (previous or {}).get("scene_id"),
+        "previous_status": (previous or {}).get("status"),
+        "reason": reason,
+        "decision_id": decision_id,
+        "source_sequence": source_sequence,
+        "ts": changed_at,
+        "live_head_digest": coc_flag_state.canonical_digest(entity_head),
+    }
+    warnings: list[str] = []
+    if authored_npc is None:
+        warnings.append(
+            f"npc '{npc_id}' is campaign-local/improvised; explicit presence is tracked without inventing an authored identity contract"
+        )
+    elif requested_npc_id != npc_id:
+        warnings.append(
+            f"resolved NPC alias '{requested_npc_id}' to authored id '{npc_id}'"
+        )
+    if _scene_by_id(ctx.story_graph, scene_id) is None:
+        warnings.append(
+            f"scene '{scene_id}' is not in the current authored graph; presence remains campaign-local continuity"
+        )
+    hints = [
+        "scene.context overlays this explicit live record over authored initial npc_ids; update it again when the NPC leaves or relocates",
+        "do not derive current presence from state.record_npc_engagement history",
+    ]
+    data = {
+        "npc_id": npc_id,
+        "presence": deepcopy(record),
+        "previous_presence": previous,
+    }
+    receipt = _new_source_receipt(
+        tool_name=tool_name,
+        decision_id=decision_id,
+        operation=operation,
+        event=event,
+        data=data,
+        warnings=warnings,
+        hints=hints,
+        entity_head=entity_head,
+    )
+    _put_source_receipt(document, receipt)
+    coc_npc_state.save_npc_state(ctx.campaign_dir, document)
+    _ensure_operation_event(ctx, receipt)
+    ctx.ledger_record(
+        decision_id,
+        tool_name,
+        data,
+        source_receipt_manifest=_source_receipt_manifest(receipt),
+    )
+    return data, warnings, hints
+
+
+@tool(
     "state.npc_update",
-    "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises, availability, and a bounded investigator-specific textual impression authored by the KP.",
+    "Update an NPC's live psych state: trust/fear/suspicion deltas, facts told, lies, promises made or resolved, availability, and a bounded investigator-specific textual impression authored by the KP.",
     {
         "npc_id": {"type": "string", "required": True, "desc": "npc id"},
         "investigator": {"type": "string", "desc": "investigator whose action changed this relationship; required when linking an NPC-scoped reward"},
@@ -9227,6 +12598,15 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         "record_fact": {"type": "string", "desc": "fact_id the NPC just disclosed"},
         "record_lie": {"type": "string", "desc": "lie_id the NPC just told"},
         "record_promise": {"type": "string", "desc": "promise_id made"},
+        "resolve_promise": {
+            "type": "object",
+            "desc": "close an existing promise as exactly {promise_id, kept:boolean}",
+            "properties": {
+                "promise_id": {"type": "string"},
+                "kept": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
         "availability": {"type": "string", "desc": "availability status: available | unavailable"},
         "impression_update": {
             "type": "object",
@@ -9262,6 +12642,7 @@ def _tool_state_npc_update(ctx: Ctx, args: dict[str, Any]):
         record_fact_id=args.get("record_fact") or None,
         record_lie_id=args.get("record_lie") or None,
         record_promise_id=args.get("record_promise") or None,
+        resolve_promise=deepcopy(args.get("resolve_promise")),
         availability=args.get("availability") or None,
         investigator_id=investigator_id,
         impression_update=deepcopy(args.get("impression_update")),
@@ -9481,11 +12862,74 @@ def _tool_state_time_marker(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "state.time_appearance",
+    "Set the broad player-perceived light/time appearance without changing the "
+    "authoritative elapsed or civil clock. Use for polar day/night, inverted cycles, "
+    "or source-/fiction-established supernatural distortion.",
+    {
+        "mode": {
+            "type": "string", "required": True,
+            "enum": [
+                "normal", "perpetual_daylight", "perpetual_darkness",
+                "inverted", "distorted",
+            ],
+            "desc": "structured presentation mode chosen semantically by the KP",
+        },
+        "display_label": {
+            "type": "string",
+            "desc": "optional active-play-language label overriding the mode default",
+        },
+        "reason": {
+            "type": "string", "required": True,
+            "desc": "source- or fiction-established reason for the presentation change",
+        },
+        "source_ref": {
+            "type": "string",
+            "desc": "optional module/campaign evidence reference",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_time_appearance(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.time_appearance"
+    prior = ctx.ledger_lookup(tool_name, args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously settled result"
+        ], []
+    try:
+        result = coc_time.set_time_appearance(
+            ctx.campaign_dir,
+            mode=str(args["mode"]),
+            display_label=args.get("display_label"),
+            reason=str(args["reason"]),
+            source_ref=args.get("source_ref"),
+            decision_id=str(args.get("decision_id") or f"toolbox-{_now_iso()}"),
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    ctx.ledger_record(args.get("decision_id"), tool_name, result)
+    return result, [], [
+        "exact elapsed/civil time remains Keeper-only; player prose and final "
+        "mechanics should use current_time.player_time",
+    ]
+
+
+@tool(
     "state.advance_time",
-    "Advance the in-fiction clock (monotonic). Fires any due scheduled triggers.",
+    "Advance the in-fiction clock (monotonic). Fires due triggers; an imprecise civil clock may also record a source- or fiction-established broad phase reached after the elapsed interval.",
     {
         "minutes": {"type": "integer", "required": True, "desc": "minutes to advance (>= 0)"},
         "reason": {"type": "string", "required": True, "desc": "what consumed the time"},
+        "day_phase_after": {
+            "type": "string",
+            "enum": ["morning", "afternoon", "evening", "night"],
+            "desc": "optional broad phase established after this interval for an imprecise civil clock; requires display_after",
+        },
+        "display_after": {
+            "type": "string",
+            "desc": "localized imprecise civil-time display paired with day_phase_after",
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
@@ -9499,6 +12943,8 @@ def _tool_state_advance_time(ctx: Ctx, args: dict[str, Any]):
         decision_id=str(args.get("decision_id") or f"toolbox-{_now_iso()}"),
         reason=str(args["reason"]),
         source="keeper_toolbox",
+        day_phase_after=args.get("day_phase_after"),
+        display_after=args.get("display_after"),
     )
     hints = []
     active_time_markers = _active_time_markers(ctx)
@@ -9514,6 +12960,114 @@ def _tool_state_advance_time(ctx: Ctx, args: dict[str, Any]):
         )
     ctx.ledger_record(args.get("decision_id"), "state.advance_time", result)
     return result, [], hints
+
+
+@tool(
+    "state.clock_discontinuity",
+    "Replace the in-fiction civil-calendar anchor for an explicit time shift, loop reset, dream transition, or correction while preserving monotonic elapsed time and relative deadlines.",
+    {
+        "discontinuity_kind": {
+            "type": "string",
+            "required": True,
+            "enum": [
+                "time_shift",
+                "loop_reset",
+                "dream_transition",
+                "calendar_correction",
+                "other",
+            ],
+            "desc": "structured semantic kind chosen by the KP; never inferred from prose",
+        },
+        "calendar_mode": {
+            "type": "string",
+            "required": True,
+            "enum": [
+                "relative",
+                "gregorian",
+                "julian",
+                "proleptic_gregorian",
+                "fictional",
+            ],
+            "desc": "calendar used by the target civil-time anchor",
+        },
+        "precision": {
+            "type": "string",
+            "required": True,
+            "enum": ["exact", "minute", "hour", "date", "day_phase", "unknown"],
+            "desc": "source-supported precision; day_phase/date avoid inventing an exact clock time",
+        },
+        "display": {
+            "type": "string",
+            "required": True,
+            "desc": "faithful campaign-language rendering of the target civil time",
+        },
+        "local_datetime": {
+            "type": "string",
+            "desc": "ISO local datetime when precision is exact/minute/hour",
+        },
+        "local_date": {
+            "type": "string",
+            "desc": "ISO local date when the source establishes a date without an exact time",
+        },
+        "timezone": {
+            "type": "string",
+            "desc": "target timezone when meaningful; omission clears a stale prior timezone",
+        },
+        "day_phase": {
+            "type": "string",
+            "enum": ["morning", "afternoon", "evening", "night", "unknown"],
+            "desc": "broad source-supported phase when no exact time is known",
+        },
+        "source_ref": {
+            "type": "string",
+            "desc": "optional module or campaign-canon provenance reference",
+        },
+        "civil_anchor_elapsed": {
+            "type": "integer",
+            "minimum": 0,
+            "desc": "optional prior monotonic elapsed position where this civil anchor became true; use only for delayed recovery/correction from authoritative evidence",
+        },
+        "reason": {
+            "type": "string",
+            "required": True,
+            "desc": "why the civil clock changed in the fiction",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+    write_domains=("time",),
+)
+def _tool_state_clock_discontinuity(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.clock_discontinuity"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously recorded civil-clock transition"
+        ], []
+    try:
+        result = coc_time.record_clock_discontinuity(
+            ctx.campaign_dir,
+            discontinuity_kind=str(args["discontinuity_kind"]),
+            calendar_mode=str(args["calendar_mode"]),
+            precision=str(args["precision"]),
+            display=str(args["display"]),
+            decision_id=decision_id,
+            reason=str(args["reason"]),
+            local_datetime=args.get("local_datetime"),
+            local_date=args.get("local_date"),
+            timezone=args.get("timezone"),
+            day_phase=args.get("day_phase"),
+            source_ref=args.get("source_ref"),
+            civil_anchor_elapsed=args.get("civil_anchor_elapsed"),
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    result["active_time_markers"] = _active_time_markers(ctx)
+    ctx.ledger_record(decision_id, tool_name, result)
+    return result, [], [
+        "the civil calendar changed, but elapsed_minutes and relative trigger deadlines remained monotonic",
+        "render only the precision the source supports; a hidden date or era remains Keeper-only until play establishes it",
+    ]
 
 
 @tool(
@@ -9622,6 +13176,52 @@ def _exceptional_roll_source(
     if matches:
         raise ToolError("state_corrupt", f"roll_id '{roll_id}' has multiple canonical sources")
 
+    # CombatSession writes its authoritative percentile evidence directly to
+    # logs/rolls.jsonl rather than the rules.roll receipt document.  These
+    # rows still need to own critical/fumble effects; otherwise the finalizer
+    # requires a substantive effect that state.exceptional_effect can never
+    # create.
+    raw_roll_log = _roll_log_bytes(ctx)
+    _complete, tail, roll_index = _parse_complete_roll_frames(raw_roll_log)
+    if tail:
+        raise ToolError(
+            "state_corrupt",
+            "logs/rolls.jsonl has an incomplete tail; combat exceptional source cannot be proven",
+        )
+    logged_roll = roll_index.get(roll_id)
+    if isinstance(logged_roll, dict):
+        payload = logged_roll.get("payload")
+        payload = payload if isinstance(payload, dict) else {}
+        roll_role = logged_roll.get("roll_role", payload.get("roll_role"))
+        source_command_id = str(
+            logged_roll.get("source_command_id")
+            or payload.get("source_command_id")
+            or ""
+        )
+        if roll_role == "percentile_check" and source_command_id.startswith("combat-"):
+            data = {
+                key: deepcopy(value)
+                for key, value in logged_roll.items()
+                if key != "payload"
+            }
+            for key, value in payload.items():
+                data.setdefault(key, deepcopy(value))
+            actor_id = data.get("actor_id")
+            if isinstance(actor_id, str) and actor_id in set(ctx.party_ids()):
+                data.setdefault("investigator_id", actor_id)
+            data.setdefault("pushed", False)
+            data.setdefault("visibility", str(logged_roll.get("visibility") or "public"))
+            return {
+                "tool": "combat.resolve",
+                "decision_id": source_command_id,
+                "roll_id": roll_id,
+                "roll_record": deepcopy(logged_roll),
+                "data": data,
+                _SOURCE_RECEIPT_INTEGRITY_KEY: coc_exceptional_effects.canonical_digest(
+                    logged_roll
+                ),
+            }
+
     try:
         campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
         impressions = coc_first_impression.load_document(
@@ -9660,6 +13260,43 @@ def _exceptional_roll_source(
         },
         _SOURCE_RECEIPT_INTEGRITY_KEY: impression["integrity_digest"],
     }
+
+
+def _exceptional_resolution_source(
+    ctx: Ctx, roll_id: str
+) -> dict[str, Any]:
+    """Return the authoritative final settlement for a resolution check.
+
+    Luck spending does not create a second dice row: its canonical receipt
+    supersedes the failed settlement carried by the original ``rules.roll``
+    receipt.  Persistent-effect resolution therefore has to consult that
+    adjustment instead of treating the immutable original roll as final.
+    """
+    source = _exceptional_roll_source(ctx, roll_id)
+    if source["data"].get("passed") is True:
+        return source
+
+    document = _load_roll_receipt_document(ctx)
+    _validated_roll_document_collection(document)
+    adjustments = [
+        receipt
+        for receipt in document["luck_spends"].values()
+        if isinstance(receipt, dict)
+        and receipt.get("source_receipt", {}).get("roll_id") == roll_id
+    ]
+    if len(adjustments) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"roll_id '{roll_id}' has multiple canonical Luck settlements",
+        )
+    if not adjustments:
+        return source
+
+    adjusted = deepcopy(source)
+    adjusted["data"] = deepcopy(adjustments[0]["data"])
+    adjusted["settlement_tool"] = "rules.luck_spend"
+    adjusted["settlement_decision_id"] = str(adjustments[0]["decision_id"])
+    return adjusted
 
 
 def _successful_call_by_decision(
@@ -9910,15 +13547,18 @@ def _validated_exceptional_mechanics(
     "state.exceptional_effect",
     "Apply or consume one source-bound substantive consequence/reward for a critical, fumble, failed pushed check, or exceptional first-impression check. This is canonical state, not prose advice.",
     {
-        "action": {"type": "string", "required": True, "desc": "apply | consume"},
+        "action": {"type": "string", "required": True, "desc": "apply | consume | resolve"},
         "source_roll_id": {"type": "string", "desc": "critical/fumble/pushed-failure/first-impression roll_id (apply)"},
         "effect_id": {"type": "string", "desc": "active bonus/penalty effect id (consume)"},
         "consuming_roll_id": {"type": "string", "desc": "later roll that actually used the modifier (consume)"},
+        "resolution_roll_id": {"type": "string", "desc": "successful canonical check that satisfied an until_condition boundary (resolve)"},
+        "resolution_event_ids": {"type": "array", "desc": "canonical event_id/decision_id evidence that satisfied a non-roll until_condition boundary (resolve)"},
+        "resolution_reason": {"type": "string", "desc": "semantic reason the successful check satisfies the recorded boundary (resolve)"},
         "direction": {"type": "string", "desc": "benefit | cost (apply)"},
         "effect_kind": {"type": "string", "desc": "bonus_die | penalty_die | condition | restriction | relationship_or_clock | scene_event | resource_delta"},
-        "player_visible_impact": {"type": "string", "desc": "exact concise mechanical/fictional impact shown to the player"},
-        "causal_link": {"type": "string", "desc": "why this exact action/result caused the effect"},
-        "boundary": {"type": "object", "desc": "exactly one of {kind:immediate}; {kind:until_consumed,uses:1}; {kind:until_scene_end,scene_id}; {kind:until_time_marker,marker_id}; {kind:until_condition,description}"},
+        "player_visible_impact": {"type": "string", "desc": "exact concise mechanical/fictional impact rendered verbatim to the player; write it in the campaign's active play_language"},
+        "causal_link": {"type": "string", "desc": "exact player-visible causal wording rendered verbatim; write it in the campaign's active play_language, not as internal audit reasoning"},
+        "boundary": {"type": "object", "desc": "exactly one of {kind:immediate}; {kind:until_consumed,uses:1}; {kind:until_scene_end,scene_id}; {kind:until_time_marker,marker_id}; {kind:until_condition,description}. until_condition.description is rendered verbatim to the player and must use the campaign's active play_language"},
         "mechanics": {"type": "object", "desc": "bonus/penalty={dice,investigator_id,skill,scene_id:null|string,target_id:null|npc_id}; non-null target_id also requires localized target_display_name; NPC-scoped relationship bonus additionally requires source_decision_ids linking state.npc_update; condition={target_id,condition_id,scene_id}; restriction={subject_id,restriction_id,scope,scene_id}; scene_event={scene_id,event_id,change_kind}; resource_delta={source_decision_ids}; relationship_or_clock={source_decision_ids,affected_id,change_summary}"},
         "visibility": {"type": "string", "desc": "player_visible | concealed_observable | keeper_only"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
@@ -9928,8 +13568,8 @@ def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
     tool_name = "state.exceptional_effect"
     decision_id = str(args["decision_id"])
     action = str(args["action"]).strip()
-    if action not in {"apply", "consume"}:
-        raise ToolError("invalid_param", "action must be apply or consume")
+    if action not in {"apply", "consume", "resolve"}:
+        raise ToolError("invalid_param", "action must be apply, consume, or resolve")
     semantic_args = {
         key: deepcopy(value)
         for key, value in args.items()
@@ -10048,7 +13688,7 @@ def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
         document["effects"][effect_id] = effect
         projected = coc_exceptional_effects.project_player_effect(effect)
         data = {"action": "apply", "effect": deepcopy(effect), "player_effect": projected}
-    else:
+    elif action == "consume":
         effect_id = str(args.get("effect_id") or "").strip()
         consuming_roll_id = str(args.get("consuming_roll_id") or "").strip()
         effect = document["effects"].get(effect_id)
@@ -10110,6 +13750,89 @@ def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
             "effect": deepcopy(effect),
             "player_effect": coc_exceptional_effects.project_player_effect(effect),
         }
+    else:
+        effect_id = str(args.get("effect_id") or "").strip()
+        resolution_roll_id = str(args.get("resolution_roll_id") or "").strip()
+        resolution_event_ids = args.get("resolution_event_ids") or []
+        resolution_reason = str(args.get("resolution_reason") or "").strip()
+        effect = document["effects"].get(effect_id)
+        if not isinstance(effect, dict):
+            raise ToolError("unknown_effect", "effect_id is not a canonical exceptional effect")
+        if (
+            effect.get("status") != "active"
+            or effect.get("effect_kind") not in {"condition", "restriction"}
+            or (effect.get("boundary") or {}).get("kind") != "until_condition"
+        ):
+            raise ToolError(
+                "invalid_effect_state",
+                "resolve requires an active condition/restriction with an until_condition boundary",
+            )
+        if not isinstance(resolution_event_ids, list) or any(
+            not isinstance(value, str) or not value.strip()
+            for value in resolution_event_ids
+        ):
+            raise ToolError(
+                "invalid_param", "resolution_event_ids must be non-empty strings"
+            )
+        resolution_event_ids = [value.strip() for value in resolution_event_ids]
+        if bool(resolution_roll_id) == bool(resolution_event_ids):
+            raise ToolError(
+                "invalid_param",
+                "resolve requires exactly one of resolution_roll_id or resolution_event_ids",
+            )
+        if not resolution_reason:
+            raise ToolError("invalid_param", "resolve requires resolution_reason")
+        terminal_source_id: str | None = resolution_roll_id or None
+        if resolution_roll_id:
+            resolving = _exceptional_resolution_source(ctx, resolution_roll_id)
+            if resolving["data"].get("passed") is not True:
+                raise ToolError(
+                    "resolution_not_proven",
+                    "resolution_roll_id must name a successful canonical check",
+                )
+        else:
+            event_rows: list[dict[str, Any]] = []
+            events_path = ctx.campaign_dir / "logs" / "events.jsonl"
+            if events_path.is_file():
+                for line in events_path.read_text(encoding="utf-8").splitlines():
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(row, dict):
+                        event_rows.append(row)
+            missing = [
+                evidence_id for evidence_id in resolution_event_ids
+                if not any(
+                    evidence_id in {row.get("event_id"), row.get("decision_id")}
+                    for row in event_rows
+                )
+            ]
+            if missing:
+                raise ToolError(
+                    "resolution_not_proven",
+                    "resolution_event_ids are not canonical campaign events: "
+                    + ", ".join(missing),
+                )
+        effect = deepcopy(effect)
+        effect.update({
+            "status": "resolved",
+            "consumed_at": now,
+            "consumed_decision_id": decision_id,
+            "consumed_by_roll_id": terminal_source_id,
+            "integrity_digest": "",
+        })
+        effect["integrity_digest"] = coc_exceptional_effects.canonical_digest({
+            key: deepcopy(value)
+            for key, value in effect.items()
+            if key != "integrity_digest"
+        })
+        document["effects"][effect_id] = effect
+        data = {
+            "action": "resolve",
+            "effect": deepcopy(effect),
+            "player_effect": coc_exceptional_effects.project_player_effect(effect),
+        }
 
     document["operations"][decision_id] = {
         "decision_id": decision_id,
@@ -10134,8 +13857,279 @@ def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
     })
     ctx.ledger_record(decision_id, tool_name, data)
     return data, [], [
-        "this effect is canonical state; realize its causal link in fiction and let turn.finalize render the player-visible impact"
+        "this effect is canonical state; realize its causal link in fiction and let turn.finalize render the player-visible impact",
+        "player_visible_impact, causal_link, and any until_condition boundary.description are rendered verbatim in the mechanics block; keep all of them in the campaign's active play_language",
     ]
+
+
+_TABLE_TRANSCRIPT_RELATIVE = Path("logs") / "table-transcript.jsonl"
+_UNDELIVERED_OUTPUT_REPAIR_RELATIVE = (
+    Path("logs") / "undelivered-output-repairs.jsonl"
+)
+
+
+def _table_transcript_rows(ctx: Ctx) -> list[dict[str, Any]]:
+    path = ctx.campaign_dir / _TABLE_TRANSCRIPT_RELATIVE
+    return _read_jsonl_records(path) if path.is_file() else []
+
+
+def _table_transcript_entry_id(role: str, source_id: str) -> str:
+    payload = json.dumps(
+        ["table-transcript-v1", role, source_id],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"table-transcript-v1:{hashlib.sha256(payload).hexdigest()[:40]}"
+
+
+def _record_table_transcript_entry(
+    ctx: Ctx,
+    *,
+    role: str,
+    text: str,
+    run_id: str,
+    turn_number: int,
+    turn_id: str,
+    journal_decision_id: str,
+    source_id: str,
+    speaker: str,
+    finalization_id: str | None = None,
+) -> dict[str, Any]:
+    clean_text = str(text)
+    if not clean_text.strip():
+        raise ToolError("invalid_param", "table transcript text must be non-empty")
+    entry_id = _table_transcript_entry_id(role, source_id)
+    stable = {
+        "schema_version": 1,
+        "entry_id": entry_id,
+        "run_id": run_id,
+        "turn": int(turn_number),
+        "turn_id": turn_id,
+        "journal_decision_id": journal_decision_id,
+        "role": role,
+        "speaker": speaker,
+        "text": clean_text,
+        "text_sha256": _canonical_digest(clean_text),
+        "source_id": source_id,
+        "source_ref": (
+            f"logs/turn-finalizations.jsonl#{finalization_id}"
+            if finalization_id
+            else f"table.opening#{source_id}"
+            if role == "keeper"
+            else f"state.journal#{journal_decision_id}"
+        ),
+        "finalization_id": finalization_id,
+    }
+    matches = [
+        row for row in _table_transcript_rows(ctx)
+        if row.get("entry_id") == entry_id
+    ]
+    if len(matches) > 1:
+        raise ToolError("state_corrupt", f"duplicate table transcript entry '{entry_id}'")
+    if matches:
+        prior = matches[0]
+        comparable = {key: prior.get(key) for key in stable}
+        if comparable != stable:
+            raise ToolError(
+                "idempotency_conflict",
+                f"table transcript entry '{entry_id}' already owns different text",
+            )
+        return deepcopy(prior)
+    entry = {**stable, "ts": _now_iso()}
+    coc_state.append_jsonl(ctx.campaign_dir / _TABLE_TRANSCRIPT_RELATIVE, entry)
+    return entry
+
+
+@tool(
+    "evidence.table_opening",
+    "Record the exact player-visible Keeper opening that precedes the first player message, so the readable transcript starts where play actually started.",
+    {
+        "text": {"type": "string", "required": True, "desc": "exact opening text delivered to the player"},
+        "run_id": {"type": "string", "required": True, "desc": "current play/report segment id"},
+        "speaker": {"type": "string", "desc": "player-facing Keeper speaker label"},
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
+    decision_id = str(args.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ToolError("invalid_param", "evidence.table_opening requires a stable decision_id")
+    prior = ctx.ledger_lookup("evidence.table_opening", decision_id)
+    if prior is not None:
+        entry = _record_table_transcript_entry(
+            ctx,
+            role="keeper",
+            text=str(args.get("text") or ""),
+            run_id=str(args.get("run_id") or ""),
+            turn_number=0,
+            turn_id=f"opening:{args.get('run_id')}",
+            journal_decision_id="",
+            source_id=decision_id,
+            speaker=str(args.get("speaker") or "KP"),
+        )
+        return entry, ["duplicate decision_id: returning the immutable opening transcript row"], []
+    if _table_transcript_rows(ctx):
+        raise ToolError(
+            "opening_already_started",
+            "the table transcript already contains dialogue; an opening cannot be inserted later",
+        )
+    entry = _record_table_transcript_entry(
+        ctx,
+        role="keeper",
+        text=str(args.get("text") or ""),
+        run_id=str(args.get("run_id") or ""),
+        turn_number=0,
+        turn_id=f"opening:{args.get('run_id')}",
+        journal_decision_id="",
+        source_id=decision_id,
+        speaker=str(args.get("speaker") or "KP"),
+    )
+    ctx.ledger_record(decision_id, "evidence.table_opening", entry)
+    return entry, [], ["deliver this exact opening text to the player"]
+
+
+def _record_finalized_keeper_text(ctx: Ctx, receipt: dict[str, Any]) -> dict[str, Any]:
+    journal_decision_id = str(receipt.get("journal_decision_id") or "")
+    player_rows = [
+        row for row in _table_transcript_rows(ctx)
+        if row.get("role") == "player"
+        and row.get("journal_decision_id") == journal_decision_id
+    ]
+    if len(player_rows) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"journal '{journal_decision_id}' has multiple exact player transcript rows",
+        )
+    player_row = player_rows[0] if player_rows else {}
+    run_id = str(player_row.get("run_id") or coc_npc_event_chain.resolve_run_id(ctx.campaign_dir))
+    turn_number = player_row.get("turn")
+    if isinstance(turn_number, bool) or not isinstance(turn_number, int):
+        turn_number = int(ctx.pacing().get("turn_number") or 0)
+    turn_id = str(player_row.get("turn_id") or f"journal:{journal_decision_id}")
+    finalization_id = str(receipt.get("finalization_id") or "")
+    return _record_table_transcript_entry(
+        ctx,
+        role="keeper",
+        text=str(receipt.get("rendered_text") or ""),
+        run_id=run_id,
+        turn_number=turn_number,
+        turn_id=turn_id,
+        journal_decision_id=journal_decision_id,
+        source_id=finalization_id,
+        speaker="KP",
+        finalization_id=finalization_id,
+    )
+
+
+def _replace_undelivered_finalization_artifacts(
+    ctx: Ctx,
+    *,
+    source_receipt: dict[str, Any],
+    replacement_receipt: dict[str, Any],
+) -> dict[str, Any]:
+    """Atomically swap the unpublished canonical tail and retain an audit copy."""
+    finalization_path = (
+        ctx.campaign_dir
+        / "logs"
+        / coc_turn_finalization.FINALIZATION_FILENAME
+    )
+    transcript_path = ctx.campaign_dir / _TABLE_TRANSCRIPT_RELATIVE
+    try:
+        original_finalization_text = finalization_path.read_text(encoding="utf-8")
+        original_transcript_text = transcript_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ToolError(
+            "state_corrupt", "cannot read finalized output artifacts for repair"
+        ) from exc
+
+    finalizations = coc_turn_finalization.load_finalizations(ctx.campaign_dir)
+    if not finalizations or finalizations[-1] != source_receipt:
+        raise ToolError(
+            "repair_conflict", "repair source is not the latest finalization"
+        )
+    transcript_rows = _table_transcript_rows(ctx)
+    matches = [
+        index
+        for index, row in enumerate(transcript_rows)
+        if row.get("role") == "keeper"
+        and row.get("journal_decision_id")
+        == source_receipt["journal_decision_id"]
+        and row.get("finalization_id") == source_receipt["finalization_id"]
+    ]
+    if len(matches) != 1:
+        raise ToolError(
+            "state_corrupt",
+            "undelivered finalization does not have exactly one Keeper transcript row",
+        )
+    transcript_index = matches[0]
+    original_transcript_row = deepcopy(transcript_rows[transcript_index])
+    replacement_id = str(replacement_receipt["finalization_id"])
+    replacement_text = str(replacement_receipt["rendered_text"])
+    replacement_transcript_row = {
+        **original_transcript_row,
+        "entry_id": _table_transcript_entry_id("keeper", replacement_id),
+        "text": replacement_text,
+        "text_sha256": str(replacement_receipt["rendered_sha256"]),
+        "source_id": replacement_id,
+        "source_ref": f"logs/turn-finalizations.jsonl#{replacement_id}",
+        "finalization_id": replacement_id,
+        "ts": _now_iso(),
+    }
+    finalizations[-1] = deepcopy(replacement_receipt)
+    transcript_rows[transcript_index] = replacement_transcript_row
+    repaired_finalization_text = "".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+        for row in finalizations
+    )
+    repaired_transcript_text = "".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+        for row in transcript_rows
+    )
+    repair_audit = {
+        "schema_version": 1,
+        "kind": "coc_undelivered_output_repair",
+        "repair_id": (
+            "undelivered-output-repair-v1:"
+            + hashlib.sha256(
+                json.dumps(
+                    [
+                        source_receipt["finalization_id"],
+                        replacement_id,
+                        replacement_receipt["decision_id"],
+                    ],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()[:40]
+        ),
+        "campaign_id": ctx.campaign_id,
+        "journal_decision_id": source_receipt["journal_decision_id"],
+        "source_finalization": deepcopy(source_receipt),
+        "source_transcript_row": original_transcript_row,
+        "replacement_finalization_id": replacement_id,
+        "replacement_rendered_sha256": replacement_receipt["rendered_sha256"],
+        "decision_id": replacement_receipt["decision_id"],
+        "created_at": _now_iso(),
+    }
+    audit_path = ctx.campaign_dir / _UNDELIVERED_OUTPUT_REPAIR_RELATIVE
+    try:
+        coc_fileio.write_text_atomic(
+            finalization_path, repaired_finalization_text
+        )
+        coc_fileio.write_text_atomic(transcript_path, repaired_transcript_text)
+        coc_state.append_jsonl(audit_path, repair_audit)
+    except Exception as exc:
+        coc_fileio.write_text_atomic(
+            finalization_path, original_finalization_text
+        )
+        coc_fileio.write_text_atomic(transcript_path, original_transcript_text)
+        raise ToolError(
+            "repair_failed", "undelivered output repair did not commit atomically"
+        ) from exc
+    return {
+        "repair": repair_audit,
+        "transcript": replacement_transcript_row,
+    }
 
 
 @tool(
@@ -10144,18 +14138,141 @@ def _tool_state_exceptional_effect(ctx: Ctx, args: dict[str, Any]):
     {
         "summary": {"type": "string", "required": True, "desc": "player-safe summary of what just happened"},
         "player_action": {"type": "string", "desc": "what the player did (verbatim or condensed)"},
+        "player_text": {"type": "string", "desc": "exact byte-for-byte player message for the readable transcript"},
+        "player_speaker": {"type": "string", "desc": "player-facing speaker name"},
+        "run_id": {"type": "string", "desc": "current play/report segment id"},
         "intent_class": {"type": "string", "desc": "your read of the intent (investigate/social/move/stuck/meta/...)"},
         "tension": {"type": "string", "desc": "set tension level: low | medium | high | climax"},
+        "continuation": {
+            "type": "object",
+            "desc": "optional KP-authored semantic delta for recovery after compaction; record only meaning that changed this turn",
+            "properties": {
+                "unresolved_intent": {"type": "string"},
+                "clear_unresolved_intent": {"type": "boolean"},
+                "open_threads": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "thread_id": {"type": "string"},
+                            "summary": {"type": "string"},
+                            "reason": {"type": "string"},
+                            "status": {
+                                "type": "string",
+                                "enum": ["active", "deferred", "resolved", "archived"],
+                            },
+                        },
+                        "required": ["thread_id", "summary", "reason", "status"],
+                        "additionalProperties": False,
+                    },
+                },
+                "confirmed_decisions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "decision_id": {"type": "string"},
+                            "summary": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["decision_id", "summary", "reason"],
+                        "additionalProperties": False,
+                    },
+                },
+                "do_not_repeat": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "item_id": {"type": "string"},
+                            "instruction": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["item_id", "instruction", "reason"],
+                        "additionalProperties": False,
+                    },
+                },
+                "style_commitments": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "additionalProperties": False,
+        },
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
 )
 def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
     prior = ctx.ledger_lookup("state.journal", args.get("decision_id"))
     if prior is not None:
+        prior_data = prior.get("data") or {}
+        try:
+            replay_delta = coc_continuation.normalize_semantic_delta(
+                args.get("continuation"),
+                turn_number=int(prior_data.get("turn_number") or 0),
+            )
+        except coc_continuation.ContinuationError as exc:
+            raise ToolError(exc.code, str(exc)) from exc
+        if replay_delta != (prior_data.get("continuation_delta") or {}):
+            raise ToolError(
+                "idempotency_conflict",
+                "state.journal decision_id already owns a different continuation delta",
+            )
+        player_text = args.get("player_text")
+        if isinstance(player_text, str) and player_text.strip():
+            run_id = coc_npc_event_chain.resolve_run_id(
+                ctx.campaign_dir,
+                structured_source={"run_id": args.get("run_id")},
+            )
+            _record_table_transcript_entry(
+                ctx,
+                role="player",
+                text=player_text,
+                run_id=run_id,
+                turn_number=int(prior_data.get("turn_number") or 0),
+                turn_id=str(prior_data.get("turn_id") or ""),
+                journal_decision_id=str(args.get("decision_id") or ""),
+                source_id=str(args.get("decision_id") or ""),
+                speaker=str(args.get("player_speaker") or "Player"),
+            )
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    decision_id = str(args.get("decision_id") or "").strip()
+    if not decision_id:
+        raise ToolError("invalid_param", "state.journal requires a stable decision_id")
+    try:
+        pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
+        coc_turn_manifest.load_or_create_cursor(ctx.campaign_dir)
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    if pending is not None and pending["journal_decision_id"] != decision_id:
+        raise ToolError(
+            "turn_finalization_pending",
+            "the previous journaled turn must be finalized or repaired before another turn can close",
+        )
     pacing = ctx.pacing()
-    pacing["turn_number"] = int(pacing.get("turn_number") or 0) + 1
+    next_turn_number = int(pacing.get("turn_number") or 0) + 1
+    try:
+        continuation_delta = coc_continuation.normalize_semantic_delta(
+            args.get("continuation"), turn_number=next_turn_number
+        )
+    except coc_continuation.ContinuationError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    pacing["turn_number"] = next_turn_number
     warnings: list[str] = []
+    player_text = args.get("player_text")
+    if isinstance(player_text, str) and player_text.strip():
+        try:
+            delivery_ack = coc_continuation.acknowledge_latest_from_player_response(
+                ctx.campaign_dir,
+                player_text=player_text,
+                source_journal_decision_id=decision_id,
+            )
+        except coc_continuation.ContinuationError as exc:
+            raise ToolError(exc.code, str(exc)) from exc
+        if delivery_ack is not None:
+            warnings.append(
+                "the player's exact reply confirmed delivery of the previous finalized Keeper output"
+            )
     if args.get("tension"):
         tension = str(args["tension"])
         if tension in ("low", "medium", "high", "climax"):
@@ -10180,33 +14297,171 @@ def _tool_state_journal(ctx: Ctx, args: dict[str, Any]):
             "ts": _now_iso(),
             "turn_number": pacing["turn_number"],
             "summary": str(args["summary"]),
+            "continuation_delta": continuation_delta,
         },
     )
-    data = {"turn_number": pacing["turn_number"], "tension_level": pacing.get("tension_level")}
-    ctx.ledger_record(args.get("decision_id"), "state.journal", data)
+    try:
+        manifest = coc_turn_manifest.start_pending_turn(
+            ctx.campaign_dir,
+            journal_decision_id=decision_id,
+            turn_number=pacing["turn_number"],
+        )
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    data = {
+        "turn_number": pacing["turn_number"],
+        "tension_level": pacing.get("tension_level"),
+        "turn_id": manifest["turn_id"],
+        "continuation_delta": continuation_delta,
+    }
+    if isinstance(player_text, str) and player_text.strip():
+        run_id = coc_npc_event_chain.resolve_run_id(
+            ctx.campaign_dir,
+            structured_source={"run_id": args.get("run_id")},
+        )
+        _record_table_transcript_entry(
+            ctx,
+            role="player",
+            text=player_text,
+            run_id=run_id,
+            turn_number=pacing["turn_number"],
+            turn_id=manifest["turn_id"],
+            journal_decision_id=decision_id,
+            source_id=decision_id,
+            speaker=str(args.get("player_speaker") or "Player"),
+        )
+    else:
+        warnings.append(
+            "exact player_text was not recorded; readable transcript completeness will fail"
+        )
+    ctx.ledger_record(decision_id, "state.journal", data)
     return data, warnings, []
+
+
+def _latest_narrative_opportunity(
+    current_window: dict[str, Any],
+) -> dict[str, Any] | None:
+    for row in reversed(current_window.get("rows") or []):
+        if not isinstance(row, dict) or row.get("tool") != "actions.advise":
+            continue
+        data = row.get("data")
+        if isinstance(data, dict) and isinstance(
+            data.get("narrative_opportunity"), dict
+        ):
+            return deepcopy(data["narrative_opportunity"])
+    return None
+
+
+def _normalize_finalized_advisory_uptake(
+    raw: Any,
+    *,
+    draft: Any,
+) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ToolError("invalid_param", "advisory_uptake must be an object")
+    expected = {
+        "advice_id", "disposition", "reason", "adopted_fields",
+        "storylet_candidate", "exact_excerpt",
+    }
+    if set(raw) != expected:
+        raise ToolError(
+            "invalid_param", "advisory_uptake must use the exact closed schema"
+        )
+    disposition = str(raw.get("disposition") or "").strip()
+    if disposition not in {"adopted", "modified"}:
+        raise ToolError(
+            "invalid_param",
+            "turn.finalize advisory_uptake records only adopted or modified candidates; ignored advice stays optional evidence.record_adoption",
+        )
+    candidate = raw.get("storylet_candidate")
+    if not isinstance(candidate, dict) or not str(
+        candidate.get("storylet_id") or ""
+    ).strip():
+        raise ToolError(
+            "invalid_param", "advisory_uptake requires the exact Storylet candidate"
+        )
+    if not _storylet_advice_matches_candidate(raw.get("advice_id"), candidate):
+        raise ToolError(
+            "invalid_param", "advisory_uptake advice_id does not bind this candidate"
+        )
+    reason = str(raw.get("reason") or "").strip()
+    fields = raw.get("adopted_fields")
+    excerpt = str(raw.get("exact_excerpt") or "").strip()
+    if not reason:
+        raise ToolError("invalid_param", "advisory_uptake.reason is required")
+    if (
+        not isinstance(fields, list) or not fields
+        or any(not isinstance(value, str) or not value.strip() for value in fields)
+    ):
+        raise ToolError(
+            "invalid_param", "advisory_uptake.adopted_fields must be non-empty strings"
+        )
+    if not isinstance(draft, str) or not excerpt or excerpt not in draft:
+        raise ToolError(
+            "excerpt_mismatch",
+            "advisory_uptake.exact_excerpt must occur verbatim in the finalized draft",
+        )
+    return {
+        "advice_id": str(raw["advice_id"]),
+        "disposition": disposition,
+        "reason": reason,
+        "adopted_fields": [str(value).strip() for value in fields],
+        "storylet_candidate": deepcopy(candidate),
+        "exact_excerpt": excerpt,
+    }
+
+
+def _record_finalized_advisory_uptake(
+    ctx: Ctx,
+    *,
+    uptake: dict[str, Any] | None,
+    finalization: dict[str, Any],
+) -> tuple[list[str], list[str]]:
+    if uptake is None:
+        return [], []
+    _data, warnings, hints = _tool_evidence_record_adoption(ctx, {
+        "decision_id": str(finalization["decision_id"]) + ":storylet-uptake",
+        "advice_id": uptake["advice_id"],
+        "disposition": uptake["disposition"],
+        "reason": uptake["reason"],
+        "adopted_fields": uptake["adopted_fields"],
+        "storylet_candidate": uptake["storylet_candidate"],
+        "finalization_id": finalization["finalization_id"],
+        "exact_excerpt": uptake["exact_excerpt"],
+    })
+    return warnings, hints
 
 
 @tool(
     "turn.output_context",
-    "Read the latest unfinalized journal's causal obligations, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal.",
+    "Read the latest unfinalized journal's causal obligations, Keeper-only NPC performance constraints, source-bound exceptional-effect status, and deterministic player-mechanics bundle. Call only after all settlement and state.journal.",
     {},
+    access="query",
 )
 def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     try:
         data = coc_turn_finalization.build_output_context(ctx.campaign_dir)
     except coc_turn_finalization.TurnContractError as exc:
         raise ToolError(exc.code, str(exc)) from exc
+    current_window = coc_turn_manifest.resume_window(ctx.campaign_dir)
+    data["narrative_opportunity"] = _latest_narrative_opportunity(
+        current_window
+    )
     return data, [], [
         "draft fiction from obligations; related sources may share an exact_excerpt, but every obligation_id needs exactly one coverage row",
+        "npc_performance_constraints are Keeper-only: portray observable_manner naturally, but never print causal_explanation, opportunity_or_friction, or boundary_preserved as a player-facing analysis block",
         "missing_substantive_effects and pending_modifier_consumptions are hard blockers proving settlement was incomplete; never disguise them in prose",
-        "mechanics_bundle is deterministic and already ordered for final composition; do not copy or recompute its numbers in the fictional draft",
+        "split the draft into causal paragraphs and normally omit mechanics_placements: the finalizer inserts each public roll before its coverage result paragraph and groups later changes exactly once; provide explicit placements only when deliberate interleaving improves the scene",
+        "mechanics_bundle text and arithmetic are deterministic; do not copy, recompute, or paraphrase their numbers in fictional paragraphs",
+        "if narrative_opportunity actually shaped the draft, pass advisory_uptake with an exact draft excerpt to turn.finalize; only then is the Storylet ledger updated",
     ]
 
 
 @tool(
     "turn.finalize",
-    "Hard final boundary for one journaled turn. Validates exact causal coverage, deterministically appends public dice/changes/context after fiction, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
+    "Hard final boundary for one journaled turn. Validates exact causal coverage and paragraph-level mechanic placement, inserts authoritative dice/changes/context at those causal boundaries, persists hashes, and returns rendered_text that direct hosts must echo verbatim.",
     {
         "draft": {
             "type": "string",
@@ -10217,41 +14472,232 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
             "type": "array",
             "required": True,
             "desc": "one closed semantic coverage row per obligation from turn.output_context",
+            "items": {
+                "type": "object",
+                "properties": {
+                    **{
+                        field: {"type": ["string", "null"]}
+                        for field in sorted(
+                            coc_turn_finalization.COVERAGE_FIELDS
+                            - {
+                                "obligation_id",
+                                "realization",
+                                "player_input_handling",
+                            }
+                        )
+                    },
+                    "obligation_id": {"type": "string", "minLength": 1},
+                    "realization": {
+                        "type": "string",
+                        "enum": sorted(coc_turn_finalization.REALIZATION_VALUES),
+                    },
+                    "player_input_handling": {
+                        "type": "string",
+                        "enum": sorted(
+                            coc_turn_finalization.PLAYER_INPUT_HANDLING_VALUES
+                        ),
+                    },
+                },
+                "required": sorted(coc_turn_finalization.COVERAGE_FIELDS),
+                "additionalProperties": False,
+            },
+        },
+        "mechanics_placements": {
+            "type": "array",
+            "desc": "optional override rows {after_paragraph (zero-based), segment_type, source_ids}; omit for safe causal defaults, or supply every source exactly once when deliberate interleaving is needed",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "after_paragraph": {"type": "integer", "minimum": 0},
+                    "segment_type": {
+                        "type": "string",
+                        "enum": sorted(
+                            coc_turn_finalization.MECHANIC_SEGMENT_TYPES
+                        ),
+                    },
+                    "source_ids": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                    },
+                },
+                "required": sorted(
+                    coc_turn_finalization.MECHANICS_PLACEMENT_FIELDS
+                ),
+                "additionalProperties": False,
+            },
         },
         "decision_id": {
             "type": "string", "required": True, "desc": "idempotency key",
+        },
+        "repair_finalization_id": {
+            "type": "string",
+            "desc": "optional latest finalization id; permits a prose/placement-only replacement only while that exact output remains delivery-unconfirmed",
+        },
+        "validate_only": {
+            "type": "boolean",
+            "desc": "optional preflight: run the full finalize validation and return every violation at once (error.violations) without writing any receipt",
+        },
+        "advisory_uptake": {
+            "type": "object",
+            "desc": "optional proof that one actions.advise Storylet candidate actually shaped this finalized draft; omitted when ignored",
+            "properties": {
+                "advice_id": {"type": "string", "minLength": 1},
+                "disposition": {
+                    "type": "string", "enum": ["adopted", "modified"],
+                },
+                "reason": {"type": "string", "minLength": 1},
+                "adopted_fields": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1,
+                },
+                "storylet_candidate": {"type": "object"},
+                "exact_excerpt": {"type": "string", "minLength": 1},
+            },
+            "required_fields": [
+                "advice_id", "disposition", "reason", "adopted_fields",
+                "storylet_candidate", "exact_excerpt",
+            ],
+            "additionalProperties": False,
         },
     },
 )
 def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
     decision_id = str(args["decision_id"])
+    uptake = _normalize_finalized_advisory_uptake(
+        args.get("advisory_uptake"), draft=args.get("draft")
+    )
+
+    def record_uptake(
+        finalization: dict[str, Any],
+    ) -> tuple[list[str], list[str]]:
+        try:
+            return _record_finalized_advisory_uptake(
+                ctx, uptake=uptake, finalization=finalization
+            )
+        except (OSError, ValueError, ToolError) as exc:
+            return [
+                "finalized Storylet uptake evidence was not persisted; replay "
+                f"this exact turn.finalize call to recover it: {exc}"
+            ], []
+
     existing = coc_turn_finalization.finalization_by_decision(
         ctx.campaign_dir, decision_id
     )
     if existing is not None:
         if not coc_turn_finalization.replay_matches(
-            existing, draft=args.get("draft"), coverage=args.get("coverage")
+            existing,
+            draft=args.get("draft"),
+            coverage=args.get("coverage"),
+            mechanics_placements=args.get("mechanics_placements"),
         ):
             raise ToolError(
                 "idempotency_conflict",
                 f"decision_id '{decision_id}' already finalized different draft or coverage",
             )
+        _record_finalized_keeper_text(ctx, existing)
+        uptake_warnings, uptake_hints = record_uptake(existing)
         return deepcopy(existing), [
-            "duplicate decision_id: returning the immutable final turn output"
-        ], ["echo rendered_text exactly; do not prepend, append, or rewrite it"]
+            "duplicate decision_id: returning the immutable final turn output",
+            *uptake_warnings,
+        ], [
+            "echo rendered_text exactly; do not prepend, append, or rewrite it",
+            *uptake_hints,
+        ]
+    if args.get("validate_only"):
+        violations = coc_turn_finalization.collect_finalize_violations(
+            ctx.campaign_dir,
+            draft=args.get("draft"),
+            coverage=args.get("coverage"),
+            mechanics_placements=args.get("mechanics_placements"),
+        )
+        if violations:
+            first = violations[0]
+            raise ToolError(first["code"], first["message"], violations=violations)
+        return (
+            {"would_finalize": True, "violations": []},
+            [],
+            [
+                "validate_only preflight: no receipt was written; call "
+                "turn.finalize without validate_only to commit this exact payload",
+            ],
+        )
+    repair_finalization_id = str(
+        args.get("repair_finalization_id") or ""
+    ).strip()
+    if repair_finalization_id:
+        finalizations = coc_turn_finalization.load_finalizations(
+            ctx.campaign_dir
+        )
+        if (
+            not finalizations
+            or finalizations[-1].get("finalization_id")
+            != repair_finalization_id
+        ):
+            raise ToolError(
+                "repair_conflict",
+                "repair_finalization_id must name the latest canonical output",
+            )
+        checkpoint, checkpoint_warnings = (
+            coc_continuation.ensure_latest_checkpoint(ctx.campaign_dir)
+        )
+        if checkpoint is None:
+            raise ToolError(
+                "state_corrupt", "latest finalized output has no recovery checkpoint"
+            )
+        delivery = coc_continuation.delivery_projection(
+            ctx.campaign_dir, checkpoint
+        )
+        if (
+            delivery.get("finalization_id") != repair_finalization_id
+            or delivery.get("status") != "unconfirmed"
+        ):
+            raise ToolError(
+                "delivery_conflict",
+                "only the latest delivery-unconfirmed output may receive a narration repair",
+            )
+        try:
+            receipt = coc_turn_finalization.build_undelivered_repair_receipt(
+                ctx.campaign_dir,
+                source_receipt=finalizations[-1],
+                decision_id=decision_id,
+                draft=args.get("draft"),
+                coverage=args.get("coverage"),
+                mechanics_placements=args.get("mechanics_placements"),
+            )
+        except coc_turn_finalization.TurnContractError as exc:
+            raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
+        replacement = _replace_undelivered_finalization_artifacts(
+            ctx,
+            source_receipt=finalizations[-1],
+            replacement_receipt=receipt,
+        )
+        uptake_warnings, uptake_hints = record_uptake(receipt)
+        return receipt, [*checkpoint_warnings, *uptake_warnings], [
+            "undelivered narration repaired without rerunning rules, state, or the journal",
+            f"repair audit: logs/undelivered-output-repairs.jsonl#{replacement['repair']['repair_id']}",
+            "echo rendered_text exactly; direct-host output is contract-invalid if any text or number is changed",
+            *uptake_hints,
+        ]
     try:
         receipt = coc_turn_finalization.build_finalization_receipt(
             ctx.campaign_dir,
             decision_id=decision_id,
             draft=args.get("draft"),
             coverage=args.get("coverage"),
+            mechanics_placements=args.get("mechanics_placements"),
         )
         coc_turn_finalization.append_finalization(ctx.campaign_dir, receipt)
+        _record_finalized_keeper_text(ctx, receipt)
     except coc_turn_finalization.TurnContractError as exc:
-        raise ToolError(exc.code, str(exc)) from exc
-    return receipt, [], [
+        raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
+    uptake_warnings, uptake_hints = record_uptake(receipt)
+    return receipt, uptake_warnings, [
         "echo rendered_text exactly; direct-host output is contract-invalid if any text or number is changed",
         "a narration-only repair uses the same settled journal and never reruns rules or state",
+        *uptake_hints,
     ]
 
 
@@ -10736,6 +15182,7 @@ def _tool_state_end_session(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 _MUTATING_TOOLS = frozenset({
+    "session.delivery_ack",
     "npc.reaction",
     "rules.roll",
     "rules.push",
@@ -10754,6 +15201,7 @@ _MUTATING_TOOLS = frozenset({
     "sanity.execute",
     "development.settle",
     "evidence.record_adoption",
+    "evidence.table_opening",
     "narration.review",
     "state.personal_horror_add",
     "state.personal_horror_mark_woven",
@@ -10767,9 +15215,11 @@ _MUTATING_TOOLS = frozenset({
     "state.item_grant",
     "state.item_remove",
     "state.record_npc_engagement",
+    "state.npc_presence",
     "state.npc_update",
     "state.time_marker",
     "state.advance_time",
+    "state.clock_discontinuity",
     "state.mark_safe_rest",
     "state.exceptional_effect",
     "state.supersede_settlement",
@@ -10791,6 +15241,16 @@ def _describe(name: str) -> dict[str, Any]:
         "name": spec["name"],
         "summary": spec["summary"],
         "needs_campaign": spec["needs_campaign"],
+        "access": spec.get("access", "mutation"),
+        "read_domains": list(spec.get("read_domains") or ()),
+        "write_domains": list(spec.get("write_domains") or ()),
+        "recovery_domains": (
+            None
+            if spec.get("recovery_domains") is None
+            else list(spec.get("recovery_domains") or ())
+        ),
+        "response_mode": spec.get("response_mode", "full"),
+        "audit_mode": spec.get("audit_mode", "full"),
         "params": spec["params"],
     }
 

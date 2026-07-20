@@ -53,6 +53,9 @@ coc_investigator_guard = _load_sibling(
 coc_hazards = _load_sibling("coc_hazards_runtime_ops", "coc_hazards.py")
 coc_magic = _load_sibling("coc_magic_runtime_ops", "coc_magic.py")
 coc_mythos = _load_sibling("coc_mythos_runtime_ops", "coc_mythos.py")
+coc_module_assets = _load_sibling(
+    "coc_module_assets_runtime_ops", "coc_module_assets.py"
+)
 coc_pdf_bundle = _load_sibling("coc_pdf_bundle_runtime_ops", "coc_pdf_bundle.py")
 coc_roll = _load_sibling("coc_roll_runtime_ops", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules_runtime_ops", "coc_rules.py")
@@ -3486,6 +3489,15 @@ def execute_setup_operation(
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     if not campaign_dir.is_dir():
         raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+    source_cache = coc_module_assets.register_source_bundle(
+        root,
+        host_bundle,
+        asset_root_id=scenario_id,
+        module_identity={
+            "canonical_module_id": scenario_id,
+            "canonical_title": title.strip(),
+        },
+    )
     source = {
         **host_bundle["source"],
         "source_bundle_path": str(source_bundle_path),
@@ -3496,6 +3508,10 @@ def execute_setup_operation(
     scenario_path = campaign_dir / "scenario" / "scenario.json"
     scenario = _read_object(scenario_path)
     scenario["resolution_policy"] = "source_first"
+    # This locator only means the verified pages are reusable.  Cold compile
+    # remains valid; the progressive play marker is stamped later by the
+    # explicit skeleton projection path.
+    scenario["source_cache_asset_root_id"] = source_cache["asset_root_id"]
     coc_fileio.write_json_atomic(
         scenario_path, scenario, indent=2, ensure_ascii=False,
         trailing_newline=True,
@@ -3537,6 +3553,7 @@ def execute_setup_operation(
             "source": {
                 key: value for key, value in source.items() if key != "path"
             },
+            "source_cache": source_cache,
             "compile": hydration,
             "character_creation_briefing": briefing,
         },

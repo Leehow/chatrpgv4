@@ -6,6 +6,8 @@
     "name": "Leehow"
   },
   "skills": "./skills/",
+  "mcpServers": "./mcp-codex.json",
+  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "COC Keeper",
     "shortDescription": "Run Call of Cthulhu campaigns inside Codex.",

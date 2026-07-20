@@ -14,5 +14,6 @@
     "trpg",
     "keeper",
     "skills"
-  ]
+  ],
+  "hooks": "./hooks/hooks.json"
 }

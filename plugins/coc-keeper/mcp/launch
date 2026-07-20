@@ -3,6 +3,21 @@ set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Grok starts plugin MCP servers with the opened workspace as cwd, but does not
+# inject its hook-only workspace variables into MCP children. Resolve only a
+# directory that carries the repository runtime contract; never treat the
+# managed plugin cache as a campaign project.
+if [[ -z "${COC_PROJECT_ROOT:-}" || ! -d "${COC_PROJECT_ROOT}/runtime" ]]; then
+  unset COC_PROJECT_ROOT
+  if [[ -n "${GROK_WORKSPACE_ROOT:-}" && -d "${GROK_WORKSPACE_ROOT}/runtime" ]]; then
+    export COC_PROJECT_ROOT="$GROK_WORKSPACE_ROOT"
+  elif [[ -n "${CLAUDE_PROJECT_DIR:-}" && -d "${CLAUDE_PROJECT_DIR}/runtime" ]]; then
+    export COC_PROJECT_ROOT="$CLAUDE_PROJECT_DIR"
+  elif [[ -f "$PWD/uv.lock" && -d "$PWD/runtime" ]]; then
+    export COC_PROJECT_ROOT="$PWD"
+  fi
+fi
+
 # The plugin package owns keeper skills and toolbox behavior; the repository's
 # shared headless runtime remains the single compiler/runtime source. When the
 # host installs a managed plugin copy, pass the opened workspace runtime back

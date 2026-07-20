@@ -34,9 +34,10 @@ def _digest(value) -> str:
 def _receipt(
     *, fiction: str = "他把卷宗推到你面前。",
     exceptional: bool = False,
-    multi_context: bool = False,
 ) -> dict:
     roll_id = "roll-finalized-1"
+    setup = "他说明来意，把申请表推过柜台。"
+    draft = setup + "\n\n" + fiction
     coverage = [{
         "obligation_id": f"roll:{roll_id}",
         "realization": "fictional_beat",
@@ -53,10 +54,6 @@ def _receipt(
         "journal_decision_id": "journal-finalized-1",
         "public_check": [{"roll_id": roll_id}],
         "state_delta": [],
-        "context_effect": ([
-            {"effect_id": "context:first-a", "npc_id": "npc-a"},
-            {"effect_id": "context:first-b", "npc_id": "npc-b"},
-        ] if multi_context else []),
         "exceptional_effect": ([{
             "event_id": "exceptional-event-finalized-1",
             "player_visible_impact": "档案员额外写下一位可信引荐人的姓名。",
@@ -65,20 +62,15 @@ def _receipt(
     }
     roll_text = "【明骰】说服｜掷骰：12；基础值：50；门槛：普通（≤50）；达到：困难；通过"
     segments = [
-        {"segment_type": "fiction", "text": fiction, "source_ids": []},
+        {"segment_type": "fiction", "text": setup, "source_ids": []},
         {"segment_type": "public_check", "text": roll_text, "source_ids": [roll_id]},
+        {"segment_type": "fiction", "text": fiction, "source_ids": []},
     ]
     if exceptional:
         segments.append({
             "segment_type": "exceptional_effect",
             "text": "【特殊影响】收益·关系/时钟：档案员额外写下一位可信引荐人的姓名。",
             "source_ids": ["exceptional-event-finalized-1"],
-        })
-    if multi_context:
-        segments.append({
-            "segment_type": "context_effect",
-            "text": "【初次反应】露丝：她把椅子推近柜台。\n【初次反应】阿蒂：他递来登记簿。",
-            "source_ids": ["context:first-a", "context:first-b"],
         })
     rendered = "\n\n".join(segment["text"] for segment in segments)
     receipt = {
@@ -93,7 +85,7 @@ def _receipt(
         "source_roll_ids": [roll_id],
         "obligation_ids": [f"roll:{roll_id}"],
         "coverage_ids": [f"roll:{roll_id}"],
-        "draft_sha256": _digest(fiction),
+        "draft_sha256": _digest(draft),
         "coverage_sha256": _digest(coverage),
         "bundle_sha256": _digest(bundle),
         "rendered_sha256": _digest(rendered),
@@ -147,7 +139,7 @@ def test_valid_receipt_releases_exact_text_once_without_duplicate_roll(tmp_path)
     prior = _receipt(fiction="上一回合。")
     path.write_text(json.dumps(prior, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
     offset = path.stat().st_size
-    receipt = _receipt(exceptional=True, multi_context=True)
+    receipt = _receipt(exceptional=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
 
@@ -155,10 +147,10 @@ def test_valid_receipt_releases_exact_text_once_without_duplicate_roll(tmp_path)
 
     assert released["ok"] is True
     assert [row["segment_type"] for row in receipt["segments"]] == [
-        "fiction", "public_check", "exceptional_effect", "context_effect",
+        "fiction", "public_check", "fiction", "exceptional_effect",
     ]
     assert receipt["segments"][-1]["source_ids"] == [
-        "context:first-a", "context:first-b",
+        "exceptional-event-finalized-1",
     ]
     adapter = _load("runtime_keeper_finalization_adapter", "runtime/adapters/keeper/adapter.py")
     assert adapter.validate_finalization_receipt(receipt)["segments"] == receipt["segments"]

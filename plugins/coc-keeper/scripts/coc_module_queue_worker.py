@@ -31,7 +31,7 @@ WORKER_LOG_NAME = "queue-worker.log"
 HOST_WORK_DIR = "host-work"
 DEFAULT_PARALLEL = 4
 DEFAULT_IDLE_EXIT_S = 45.0
-DEFAULT_STALE_IN_FLIGHT_S = 300.0
+DEFAULT_STALE_IN_FLIGHT_S = 30.0
 DEFAULT_POLL_S = 0.4
 
 
@@ -46,6 +46,9 @@ def _load_sibling(name: str, filename: str):
 coc_fileio = _load_sibling("coc_fileio_queue_worker", "coc_fileio.py")
 coc_module_assets = _load_sibling("coc_module_assets_queue_worker", "coc_module_assets.py")
 coc_module_project = _load_sibling("coc_module_project_queue_worker", "coc_module_project.py")
+coc_compiled_archive = _load_sibling(
+    "coc_compiled_archive_queue_worker", "coc_compiled_archive.py"
+)
 coc_state = _load_sibling("coc_state_queue_worker", "coc_state.py")
 
 
@@ -170,6 +173,7 @@ def requeue_stale_in_flight(
                 job.pop("claimed_at_ts", None)
                 job["requeued_at"] = _now_iso()
                 job["requeue_reason"] = "stale_in_flight"
+                job["requeue_count"] = int(job.get("requeue_count") or 0) + 1
                 pending.append(job)
                 moved += 1
             else:
@@ -245,18 +249,40 @@ def _finish_job(
             j for j in (queue.get("in_flight") or [])
             if str(j.get("job_id") or "") != jid
         ]
-        done = list(queue.get("done") or [])
+        done = [
+            row for row in (queue.get("done") or [])
+            if str(row.get("job_id") or "") != jid
+        ]
+        completed_at = _now_iso()
         row = {
             **{k: v for k, v in job.items() if k not in {"worker_id", "claimed_at_ts"}},
-            "completed_at": _now_iso(),
+            "completed_at": completed_at,
             "result": result,
             "failed": bool(failed),
         }
+        try:
+            enqueued_at = datetime.fromisoformat(str(job.get("enqueued_at")))
+            completed_dt = datetime.fromisoformat(completed_at)
+            row["total_ms"] = max(
+                0, round((completed_dt - enqueued_at).total_seconds() * 1000)
+            )
+            if job.get("claimed_at"):
+                claimed_at = datetime.fromisoformat(str(job["claimed_at"]))
+                row["queue_wait_ms"] = max(
+                    0, round((claimed_at - enqueued_at).total_seconds() * 1000)
+                )
+                row["processing_ms"] = max(
+                    0, round((completed_dt - claimed_at).total_seconds() * 1000)
+                )
+        except (TypeError, ValueError):
+            # Legacy/manual jobs may not carry valid timestamps.  Completion
+            # still succeeds; unavailable timing stays explicitly absent.
+            pass
         if detail:
             row["detail"] = detail
         done.append(row)
         queue["in_flight"] = inflight
-        queue["done"] = done[-200:]
+        queue["done"] = coc_module_assets.dedupe_done_jobs(done, limit=200)
         _write_queue(workspace, asset_root_id, queue)
 
 
@@ -271,6 +297,87 @@ def _is_pack_ready(pack: dict[str, Any] | None, *, allow_partial: bool = False) 
     if allow_partial and state in {"partial", "body_parsed"}:
         return True
     return False
+
+
+def _target_source_scope(
+    workspace: Path,
+    asset_root_id: str,
+    skeleton: dict[str, Any],
+    entity_kind: str | None,
+    target_id: str,
+) -> dict[str, Any]:
+    collection_and_key = {
+        "location": ("locations", "location_id"),
+        "npc": ("npc_roster", "npc_id"),
+        "handout": ("handouts", "handout_id"),
+        "threat": ("threats", "threat_id"),
+    }.get(entity_kind or "")
+    scopes: list[dict[str, Any]] = []
+    if collection_and_key is not None:
+        collection, key = collection_and_key
+        for row in skeleton.get(collection) or []:
+            if isinstance(row, dict) and str(row.get(key) or "") == target_id:
+                scopes.append(row)
+                break
+
+    # The named-only entity is the canonical accumulation point for later
+    # structured mentions.  A skeleton profile page and scene-context pages
+    # are complementary evidence, so the host handoff must consume their
+    # exact union instead of stopping at the first skeleton match.
+    if entity_kind:
+        target_pack = coc_module_assets.get_entity(
+            workspace, asset_root_id, entity_kind, target_id,
+        )
+        if isinstance(target_pack, dict):
+            scopes.append(target_pack)
+
+    requested_indices: set[int] = set()
+    for position, scope in enumerate(scopes):
+        requested_indices.update(
+            coc_module_assets._source_indices(
+                scope,
+                field=f"host_work.{entity_kind or 'entity'}.scope[{position}]",
+            )
+        )
+    if not requested_indices:
+        return {}
+    # Keep disjoint evidence exact.  Reconstructing a min/max span here would
+    # silently request unrelated intervening PDF pages.
+    return {"source_page_indices": sorted(requested_indices)}
+
+
+def _cached_page_refs(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    requested_indices: list[int],
+) -> list[dict[str, Any]]:
+    module_root = coc_module_assets.assets_root(workspace) / asset_root_id
+    if requested_indices:
+        candidate_indices = requested_indices
+    else:
+        candidate_indices = sorted(
+            int(path.stem)
+            for path in (module_root / "pages").glob("*.md")
+            if path.stem.isdigit()
+        )[:64]
+    refs: list[dict[str, Any]] = []
+    for pdf_index in candidate_indices:
+        page = coc_module_assets.get_page(workspace, asset_root_id, pdf_index)
+        if page is None:
+            continue
+        meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+        refs.append({
+            "source_id": meta.get("source_id"),
+            "pdf_index": pdf_index,
+            "path": str(module_root / "pages" / f"{pdf_index:04d}.md"),
+            "text_sha256": meta.get("text_sha256"),
+            "bundle_sha256s": list(meta.get("bundle_sha256s") or []),
+            "review_state": meta.get("review_state"),
+            "parse_confidence": meta.get("parse_confidence"),
+            "grep_anchors": list(meta.get("grep_anchors") or []),
+        })
+    return refs
 
 
 def _write_host_work_request(
@@ -293,7 +400,29 @@ def _write_host_work_request(
             identity = {}
     skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id) or {}
     source = (skeleton.get("source") or {}) if isinstance(skeleton, dict) else {}
+    entity_kind = coc_module_assets._job_entity_kind(str(job.get("kind") or ""))
+    target_id = str(job.get("target_id") or "")
+    requested_scope = _target_source_scope(
+        workspace, asset_root_id, skeleton, entity_kind, target_id,
+    )
+    requested_indices = (
+        coc_module_assets._source_indices(
+            requested_scope,
+            field=f"host_work.{entity_kind or 'entity'}",
+        )
+        if requested_scope
+        else []
+    )
+    cached_page_refs = _cached_page_refs(
+        workspace,
+        asset_root_id,
+        requested_indices=requested_indices,
+    )
     pages = sorted((root / "pages").glob("*.md")) if (root / "pages").is_dir() else []
+    cached_indices = {int(row["pdf_index"]) for row in cached_page_refs}
+    scope_complete = (
+        set(requested_indices) <= cached_indices if requested_indices else None
+    )
     payload = {
         "schema_version": 1,
         "job_id": jid,
@@ -303,15 +432,33 @@ def _write_host_work_request(
         "priority": job.get("priority"),
         "reason": job.get("reason"),
         "created_at": _now_iso(),
-        "source_pdf": source.get("path") or identity.get("source_path"),
+        "source_pdf": source.get("path") or (identity.get("source") or {}).get("path"),
+        "source_id": source.get("source_id") or (identity.get("source") or {}).get("source_id"),
         "file_sha256": source.get("file_sha256") or identity.get("file_sha256"),
         "pages_cached": [p.name for p in pages[:64]],
+        "requested_source_scope": requested_scope,
+        "requested_pdf_indices": requested_indices,
+        "cached_page_refs": cached_page_refs,
+        "cached_scope_complete": scope_complete,
         "instruction": (
-            "Host PDF skill: deep-extract this entity from the source PDF "
-            "(or cached pages/), write entities/<kind>-<id>.json with "
-            "parse_state=deep and evidence_gap=false, then the background "
-            "worker will merge into progressive campaigns. Do not invent "
-            "handout/secret bodies without page evidence."
+            "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
+            "is true, do not reopen the PDF for this scope. Extract only a "
+            "reusable partial neighbor pack; register a new validated source "
+            "bundle window only for missing pdf_indices. Submit the semantic "
+            "pack through progressive.fulfill_host_work with parse_state=partial and "
+            "evidence_gap=false, source_page_indices, host_work_job_id equal "
+            "to this request's job_id, and host_timing."
+            if str(job.get("kind") or "") == "partial_neighbor"
+            else
+            "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
+            "is true, do not reopen the PDF for this scope. Register a new "
+            "validated source bundle window only for missing pdf_indices, then "
+            "deep-extract this entity once into a reusable entity pack. Submit it "
+            "through progressive.fulfill_host_work with parse_state=deep and "
+            "evidence_gap=false, source_page_indices, host_work_job_id equal "
+            "to this request's job_id, and host_timing; later "
+            "questions must query that pack rather than reopen the same PDF "
+            "scope. Do not invent handout/secret bodies without page evidence."
         ),
     }
     _write_json(path, payload)
@@ -341,11 +488,22 @@ def process_claimed_job(
                 for camp_id in camps:
                     try:
                         camp_dir = coc_state.coc_root(Path(workspace).resolve()) / "campaigns" / camp_id
-                        ir = coc_module_project.load_campaign_ir(camp_dir)
-                        ir = coc_module_project.merge_deep_location_into_ir(ir, pack)
-                        coc_module_project.write_ir_to_campaign(
-                            camp_dir, ir, asset_root_id=asset_root_id,
-                        )
+                        with coc_fileio.advisory_file_lock(
+                            camp_dir / ".progressive-ir.lock", wait_seconds=15.0,
+                        ):
+                            ir = coc_module_project.load_campaign_ir(camp_dir)
+                            ir = coc_module_project.merge_deep_location_into_ir(ir, pack)
+                            # IR write + archive publish; archive failure never
+                            # rolls back canonical IR (status recorded instead).
+                            coc_module_project.write_ir_to_campaign(
+                                camp_dir, ir, asset_root_id=asset_root_id,
+                            )
+                            archive = coc_compiled_archive.load_status(camp_dir) or {}
+                            detail.setdefault("archive_status", {})[camp_id] = {
+                                "status": archive.get("status"),
+                                "archive_revision": archive.get("archive_revision"),
+                                "error": archive.get("error"),
+                            }
                         merged_for.append(camp_id)
                     except Exception as exc:  # noqa: BLE001
                         detail.setdefault("campaign_errors", {})[camp_id] = str(exc)
@@ -371,29 +529,81 @@ def process_claimed_job(
             )
             return {"ok": True, "result": "awaiting_host_pack", **detail}
 
-        if kind in {"deepen_npc", "deepen_clue", "deepen_handout"}:
+        if kind in {
+            "deepen_npc", "deepen_clue", "deepen_handout", "deepen_threat",
+        }:
             entity_kind = {
                 "deepen_npc": "npc",
                 "deepen_clue": "clue",
                 "deepen_handout": "handout",
+                "deepen_threat": "threat",
             }[kind]
             pack = coc_module_assets.get_entity(
                 workspace, asset_root_id, entity_kind, tid,
             )
             if _is_pack_ready(pack):
+                # Handouts are delivered from the asset store by their normal
+                # consumer. NPCs, clues, and threats must enter the campaign
+                # IR used by live scene/NPC/Director queries.
+                if entity_kind == "handout":
+                    _finish_job(
+                        workspace, asset_root_id, job,
+                        result="entity_ready",
+                        detail={"entity_kind": entity_kind, "target_id": tid},
+                    )
+                    return {
+                        "ok": True,
+                        "result": "entity_ready",
+                        "target_id": tid,
+                    }
+                camps = campaigns_using_asset(workspace, asset_root_id)
+                merged_for: list[str] = []
+                for camp_id in camps:
+                    try:
+                        camp_dir = (
+                            coc_state.coc_root(Path(workspace).resolve())
+                            / "campaigns" / camp_id
+                        )
+                        with coc_fileio.advisory_file_lock(
+                            camp_dir / ".progressive-ir.lock", wait_seconds=15.0,
+                        ):
+                            ir = coc_module_project.load_campaign_ir(camp_dir)
+                            ir = coc_module_project.merge_deep_entity_into_ir(
+                                ir, entity_kind, pack,
+                            )
+                            coc_module_project.write_ir_to_campaign(
+                                camp_dir, ir, asset_root_id=asset_root_id,
+                            )
+                            archive = coc_compiled_archive.load_status(camp_dir) or {}
+                            detail.setdefault("archive_status", {})[camp_id] = {
+                                "status": archive.get("status"),
+                                "archive_revision": archive.get("archive_revision"),
+                                "error": archive.get("error"),
+                            }
+                        merged_for.append(camp_id)
+                    except Exception as exc:  # noqa: BLE001
+                        detail.setdefault("campaign_errors", {})[camp_id] = str(exc)
+                detail.update({
+                    "entity_kind": entity_kind,
+                    "merged_campaigns": merged_for,
+                    "parse_state": (pack or {}).get("parse_state"),
+                })
+                result_name = "merged" if merged_for else "pack_ready_no_campaign"
                 _finish_job(
                     workspace, asset_root_id, job,
-                    result="entity_ready",
-                    detail={"entity_kind": entity_kind, "target_id": tid},
+                    result=result_name,
+                    detail=detail,
                 )
-                return {"ok": True, "result": "entity_ready", "target_id": tid}
+                return {"ok": True, "result": result_name, **detail}
             req = _write_host_work_request(workspace, asset_root_id, job)
+            detail["entity_kind"] = entity_kind
+            detail["host_work_request"] = str(req)
             _finish_job(
                 workspace, asset_root_id, job,
                 result="awaiting_host_pack",
-                detail={"host_work_request": str(req)},
+                detail=detail,
             )
-            return {"ok": True, "result": "awaiting_host_pack", "target_id": tid}
+            return {"ok": True, "result": "awaiting_host_pack", **detail}
 
         # Unknown kinds: complete without blocking the queue forever.
         _finish_job(
@@ -421,12 +631,7 @@ def reenqueue_merge_for_entity(
     reason: str = "pack_ready",
 ) -> dict[str, Any]:
     """After host put_entity deep, enqueue a high-priority merge job and kick worker."""
-    job_kind = {
-        "location": "deepen_location",
-        "npc": "deepen_npc",
-        "clue": "deepen_clue",
-        "handout": "deepen_handout",
-    }.get(kind, "deepen_location")
+    job_kind = coc_module_assets.deepen_job_kind(kind)
     enq = coc_module_assets.enqueue_job(
         workspace,
         asset_root_id,

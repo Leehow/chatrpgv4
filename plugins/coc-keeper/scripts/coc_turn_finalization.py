@@ -3,8 +3,9 @@
 
 The Keeper still owns fictional meaning.  This module owns only structural
 closure: find the latest unfinalized journal, discover canonical receipts,
-require one semantic coverage row per obligation, and compose immutable public
-mechanics after the Keeper's fiction.
+require one semantic coverage row per obligation, and place immutable public
+mechanics at Keeper-selected paragraph boundaries without allowing their text
+or arithmetic to be edited.
 """
 from __future__ import annotations
 
@@ -15,8 +16,10 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import coc_first_impression
+import coc_language
 import coc_roll
 import coc_exceptional_effects
+import coc_turn_manifest
 
 
 FINALIZATION_SCHEMA_VERSION = 1
@@ -39,15 +42,22 @@ REALIZATION_VALUES = frozenset({
 PLAYER_INPUT_HANDLING_VALUES = frozenset({
     "abstract_completed", "specific_preserved", "not_applicable",
 })
-POST_JOURNAL_ALLOWED_TOOLS = frozenset({
-    "turn.output_context", "narration.brief", "narration.review",
+MECHANIC_SEGMENT_TYPES = frozenset({
+    "public_check", "state_delta", "exceptional_effect",
 })
-
-
+MECHANICS_PLACEMENT_FIELDS = frozenset({
+    "after_paragraph", "segment_type", "source_ids",
+})
 class TurnContractError(ValueError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        violations: list[dict[str, str]] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.violations = violations
 
 
 def canonical_digest(value: Any) -> str:
@@ -86,12 +96,48 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _campaign_play_language(campaign_dir: Path) -> str:
+    campaign_path = Path(campaign_dir) / "campaign.json"
+    try:
+        campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        campaign = {}
+    if isinstance(campaign, dict):
+        language = str(campaign.get("play_language") or "").strip()
+        if language:
+            return language
+    return coc_language.DEFAULT_PLAY_LANGUAGE
+
+
+def _infer_play_language_from_rendered(rendered_text: str) -> str:
+    """Best-effort language recovery for validating stored finalization receipts."""
+    if "【Public roll】" in rendered_text or "【Change】" in rendered_text:
+        return "en-US"
+    if "【公開ロール】" in rendered_text or "【変化】" in rendered_text:
+        return "ja-JP"
+    return coc_language.DEFAULT_PLAY_LANGUAGE
+
+
 def _structured_skill_labels(
     campaign_dir: Path, investigator_id: str, play_language: str
 ) -> dict[str, str]:
-    """Return exact character-card skill key/label pairs for display only."""
-    if play_language != "zh-Hans" or Path(investigator_id).name != investigator_id:
-        return {}
+    """Return skill key → player-facing display label for the campaign language.
+
+    Order: built-in `default_localized_terms(play_language)`, then any
+    investigator language-specific player-facing skill sheet overrides.
+    Machine skill keys stay English; only the display map is localized.
+    """
+    labels: dict[str, str] = {}
+    for key, label in coc_language.default_localized_terms(play_language).items():
+        if isinstance(key, str) and key.strip() and isinstance(label, str) and label.strip():
+            labels[key] = label
+    if Path(investigator_id).name != investigator_id:
+        return labels
+    sheet_candidates = [
+        f"player_facing_sheet_{play_language.replace('-', '_')}",
+    ]
+    if play_language == "zh-Hans":
+        sheet_candidates.append("player_facing_sheet_zh")
     character_path = (
         Path(campaign_dir).parent.parent
         / "investigators"
@@ -101,13 +147,16 @@ def _structured_skill_labels(
     try:
         character = json.loads(character_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return {}
-    sheet = (
-        character.get("player_facing_sheet_zh")
-        if isinstance(character, dict) else None
-    )
+        return labels
+    if not isinstance(character, dict):
+        return labels
+    sheet = None
+    for field in sheet_candidates:
+        candidate = character.get(field)
+        if isinstance(candidate, dict):
+            sheet = candidate
+            break
     rows = sheet.get("skills") if isinstance(sheet, dict) else None
-    labels: dict[str, str] = {}
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
@@ -124,30 +173,81 @@ def _structured_skill_labels(
 def _attach_structured_skill_labels(
     campaign_dir: Path, rolls: list[dict[str, Any]]
 ) -> None:
-    campaign_path = Path(campaign_dir) / "campaign.json"
-    try:
-        campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        campaign = {}
-    play_language = str(
-        campaign.get("play_language") or "zh-Hans"
-    ) if isinstance(campaign, dict) else "zh-Hans"
+    play_language = _campaign_play_language(campaign_dir)
     labels_by_investigator: dict[str, dict[str, str]] = {}
+    terms = coc_language.default_localized_terms(play_language)
+    chrome = coc_language.table_mechanics_labels(play_language)
     for raw in rolls:
-        skill = raw.get("skill")
-        investigator_id = raw.get("investigator_id") or raw.get("actor")
-        if not isinstance(skill, str) or not isinstance(investigator_id, str):
-            continue
-        if investigator_id not in labels_by_investigator:
-            labels_by_investigator[investigator_id] = _structured_skill_labels(
-                Path(campaign_dir), investigator_id, play_language
+        # Re-localize First Impression chrome so a frozen Chinese label is not
+        # forced onto a non-zh campaign (or vice versa).
+        if raw.get("kind") == "npc_first_impression" or raw.get("skill") in {
+            "First Impression", "初印象",
+        }:
+            raw["display_skill"] = chrome.get(
+                "first_impression_tag",
+                coc_language.player_facing_skill_label(
+                    "First Impression", play_language, terms=terms
+                ),
             )
-        display_skill = labels_by_investigator[investigator_id].get(skill)
+            continue
+        skill = raw.get("skill")
+        if not isinstance(skill, str):
+            continue
+        existing = raw.get("display_skill")
+        # Canonical English left in display_skill is not localization — resolve.
+        if (
+            isinstance(existing, str)
+            and existing.strip()
+            and existing.strip() != skill
+        ):
+            continue
+        investigator_id = raw.get("investigator_id") or raw.get("actor")
+        display_skill = None
+        if isinstance(investigator_id, str):
+            if investigator_id not in labels_by_investigator:
+                labels_by_investigator[investigator_id] = _structured_skill_labels(
+                    Path(campaign_dir), investigator_id, play_language
+                )
+            display_skill = labels_by_investigator[investigator_id].get(skill)
+        if not display_skill:
+            display_skill = coc_language.player_facing_skill_label(
+                skill, play_language, terms=terms
+            )
         if display_skill:
             raw["display_skill"] = display_skill
 
 
-def _valid_finalization(row: Any) -> bool:
+def _legacy_context_effect_sources(
+    bundle: dict[str, Any],
+) -> set[tuple[str, str]] | None:
+    """Return source identities from the retired player-visible context bundle.
+
+    Early schema-v1 receipts rendered NPC context effects as deterministic
+    mechanics. Current receipts keep that material Keeper-only. The historical
+    row's hashes remain authoritative, so stored reads need only recover and
+    validate the retired source identity set; new receipt validation never uses
+    this compatibility path.
+    """
+    effects = bundle.get("context_effect")
+    if effects is None:
+        return set()
+    if not isinstance(effects, list):
+        return None
+    identities: set[tuple[str, str]] = set()
+    for effect in effects:
+        effect_id = effect.get("effect_id") if isinstance(effect, dict) else None
+        if not isinstance(effect_id, str) or not effect_id:
+            return None
+        identity = ("context_effect", effect_id)
+        if identity in identities:
+            return None
+        identities.add(identity)
+    return identities
+
+
+def _valid_finalization_contract(
+    row: Any, *, allow_legacy_context_effect: bool = False
+) -> bool:
     if not isinstance(row, dict) or set(row) != FINALIZATION_FIELDS:
         return False
     if row.get("schema_version") != FINALIZATION_SCHEMA_VERSION:
@@ -169,8 +269,105 @@ def _valid_finalization(row: Any) -> bool:
             return False
     if not isinstance(row.get("bundle"), dict):
         return False
+    segments = row["segments"]
+    if not segments or not isinstance(segments[0], dict):
+        return False
+    seen_sources: set[tuple[str, str]] = set()
+    fiction_parts: list[str] = []
+    allowed_segment_types = {"fiction", *MECHANIC_SEGMENT_TYPES}
+    if allow_legacy_context_effect:
+        allowed_segment_types.add("context_effect")
+    for segment in segments:
+        if (
+            not isinstance(segment, dict)
+            or set(segment) != {"segment_type", "text", "source_ids"}
+            or segment.get("segment_type") not in allowed_segment_types
+            or not isinstance(segment.get("text"), str)
+            or not segment["text"].strip()
+            or not isinstance(segment.get("source_ids"), list)
+            or not all(isinstance(value, str) and value for value in segment["source_ids"])
+        ):
+            return False
+        segment_type = str(segment["segment_type"])
+        if segment_type == "fiction":
+            if segment["source_ids"]:
+                return False
+            fiction_parts.append(segment["text"])
+            continue
+        if not segment["source_ids"]:
+            return False
+        identities = {(segment_type, source_id) for source_id in segment["source_ids"]}
+        if len(identities) != len(segment["source_ids"]) or seen_sources & identities:
+            return False
+        seen_sources.update(identities)
+    if segments[0].get("segment_type") != "fiction":
+        return False
+    if canonical_digest("\n\n".join(fiction_parts)) != row["draft_sha256"]:
+        return False
+    if "\n\n".join(segment["text"] for segment in segments) != row["rendered_text"]:
+        return False
+    try:
+        play_language = _infer_play_language_from_rendered(
+            str(row.get("rendered_text") or "")
+        )
+        expected_sources = {
+            (segment_type, source_id)
+            for segment_type, values in _mechanic_source_lines(
+                row["bundle"], play_language=play_language
+            ).items()
+            for source_id in values
+        }
+    except (KeyError, TypeError, TurnContractError):
+        return False
+    if allow_legacy_context_effect:
+        legacy_sources = _legacy_context_effect_sources(row["bundle"])
+        if legacy_sources is None:
+            return False
+        expected_sources.update(legacy_sources)
+    if seen_sources != expected_sources:
+        return False
+    if (
+        row.get("coverage_sha256") != canonical_digest(row["coverage"])
+        or row.get("bundle_sha256") != canonical_digest(row["bundle"])
+        or row.get("rendered_sha256") != canonical_digest(row["rendered_text"])
+    ):
+        return False
     body = {key: deepcopy(value) for key, value in row.items() if key != "integrity_digest"}
     return row.get("integrity_digest") == canonical_digest(body)
+
+
+def _valid_finalization(row: Any) -> bool:
+    """Validate only the current receipt contract used for new appends."""
+    return _valid_finalization_contract(row)
+
+
+def _valid_legacy_context_finalization(row: Any) -> bool:
+    """Validate the retired schema-v1 context-mechanics receipt contract.
+
+    This read-only branch is intentionally unreachable from generation and
+    append validation. Historical rows must carry a non-empty context bundle,
+    matching context segments, every current hash, and their original complete
+    integrity digest.
+    """
+    if not isinstance(row, dict) or not isinstance(row.get("bundle"), dict):
+        return False
+    legacy_sources = _legacy_context_effect_sources(row["bundle"])
+    if not legacy_sources:
+        return False
+    segments = row.get("segments")
+    if not isinstance(segments, list) or not any(
+        isinstance(segment, dict)
+        and segment.get("segment_type") == "context_effect"
+        for segment in segments
+    ):
+        return False
+    return _valid_finalization_contract(
+        row, allow_legacy_context_effect=True
+    )
+
+
+def _valid_stored_finalization(row: Any) -> bool:
+    return _valid_finalization(row) or _valid_legacy_context_finalization(row)
 
 
 def load_finalizations(campaign_dir: Path) -> list[dict[str, Any]]:
@@ -178,7 +375,7 @@ def load_finalizations(campaign_dir: Path) -> list[dict[str, Any]]:
     seen_decisions: set[str] = set()
     seen_journals: set[str] = set()
     for row in rows:
-        if not _valid_finalization(row):
+        if not _valid_stored_finalization(row):
             raise TurnContractError("state_corrupt", "turn finalization receipt is invalid")
         if row["decision_id"] in seen_decisions or row["journal_decision_id"] in seen_journals:
             raise TurnContractError("state_corrupt", "turn finalization identity is duplicated")
@@ -197,52 +394,14 @@ def finalization_by_decision(
     return deepcopy(matches[0]) if matches else None
 
 
-def _successful_calls(campaign_dir: Path) -> list[dict[str, Any]]:
-    return _read_jsonl(Path(campaign_dir) / "logs" / "toolbox-calls.jsonl")
-
-
-def _source_window(
-    campaign_dir: Path,
-) -> tuple[list[dict[str, Any]], dict[str, Any], int, int, list[dict[str, Any]]]:
-    calls = _successful_calls(campaign_dir)
-    finalizations = load_finalizations(campaign_dir)
-    finalized_journals = {row["journal_decision_id"] for row in finalizations}
-    candidates: list[tuple[int, dict[str, Any]]] = []
-    for index, row in enumerate(calls):
-        args = row.get("args") if isinstance(row.get("args"), dict) else {}
-        decision_id = str(args.get("decision_id") or "").strip()
-        if (
-            row.get("ok") is True
-            and row.get("tool") == "state.journal"
-            and decision_id
-            and decision_id not in finalized_journals
-        ):
-            candidates.append((index, row))
-    if not candidates:
-        raise TurnContractError(
-            "no_unfinalized_journal",
-            "record one successful state.journal before requesting final output",
-        )
-    journal_index, journal = candidates[-1]
-    later = calls[journal_index + 1 :]
-    illegal = [
-        str(row.get("tool") or "")
-        for row in later
-        if row.get("ok") is True
-        and row.get("tool") not in POST_JOURNAL_ALLOWED_TOOLS
+def finalization_by_id(
+    campaign_dir: Path, finalization_id: str
+) -> dict[str, Any] | None:
+    matches = [
+        row for row in load_finalizations(campaign_dir)
+        if row["finalization_id"] == finalization_id
     ]
-    if illegal:
-        raise TurnContractError(
-            "settlement_after_journal",
-            "successful settlement occurred after state.journal: " + ", ".join(illegal),
-        )
-    start_index = (
-        int(finalizations[-1]["journal_call_index"]) + 1
-        if finalizations else 0
-    )
-    if start_index > journal_index:
-        raise TurnContractError("state_corrupt", "turn source window is inverted")
-    return calls[start_index : journal_index + 1], journal, start_index, journal_index, finalizations
+    return deepcopy(matches[0]) if matches else None
 
 
 def _walk_dicts(value: Any) -> Iterable[dict[str, Any]]:
@@ -503,17 +662,88 @@ def _project_state_deltas(
             )
             if effect:
                 _add_effect(effects, effect)
+        elif tool in {
+            "rules.first_aid",
+            "rules.medicine",
+            "rules.weekly_recovery",
+            "rules.dying_check",
+        } and investigator_id:
+            # Backward compatibility for healing receipts written before
+            # those tools emitted the shared player_state_receipt contract.
+            # New receipts are projected again below; _add_effect verifies
+            # that both views agree on the same deterministic effect id.
+            event = data.get("event") if isinstance(data.get("event"), dict) else {}
+            effect = _scalar_effect(
+                decision_id,
+                "HP",
+                event.get("hp_before"),
+                event.get("hp_after"),
+                investigator_id=investigator_id,
+            )
+            if effect:
+                _add_effect(effects, effect)
         elif tool == "state.advance_time":
             before, after = data.get("from_elapsed"), data.get("to_elapsed")
             if _exact_int(before) and _exact_int(after) and before != after:
+                previous_time = (
+                    data.get("previous_time")
+                    if isinstance(data.get("previous_time"), dict) else {}
+                )
+                current_time = (
+                    data.get("current_time")
+                    if isinstance(data.get("current_time"), dict) else {}
+                )
+                before_player = previous_time.get("player_time")
+                after_player = current_time.get("player_time")
+                def visible_time_key(value: Any) -> tuple[Any, Any, Any] | None:
+                    if not isinstance(value, dict):
+                        return None
+                    return (
+                        value.get("phase"),
+                        value.get("appearance_mode"),
+                        value.get("display_label"),
+                    )
+                # Exact elapsed time remains authoritative in state/time logs.
+                # The player mechanics block changes only when its broad
+                # semantic projection changes; repeating “still morning” for
+                # every five-minute action is noise, not useful information.
+                if (
+                    visible_time_key(before_player) is None
+                    or visible_time_key(before_player) != visible_time_key(after_player)
+                ):
+                    _add_effect(effects, {
+                        "schema_version": 1,
+                        "category": "state_delta",
+                        "effect_id": _stable_effect_id(decision_id, "time", "elapsed_minutes"),
+                        "effect_kind": "time",
+                        "before": before,
+                        "delta_minutes": after - before,
+                        "after": after,
+                        "player_time_before": deepcopy(before_player),
+                        "player_time_after": deepcopy(after_player),
+                        "source_decision_id": decision_id,
+                    })
+        elif tool == "state.time_appearance":
+            previous_time = (
+                data.get("previous_time")
+                if isinstance(data.get("previous_time"), dict) else {}
+            )
+            current_time = (
+                data.get("current_time")
+                if isinstance(data.get("current_time"), dict) else {}
+            )
+            before_projection = previous_time.get("player_time")
+            after_projection = current_time.get("player_time")
+            if before_projection != after_projection:
                 _add_effect(effects, {
                     "schema_version": 1,
                     "category": "state_delta",
-                    "effect_id": _stable_effect_id(decision_id, "time", "elapsed_minutes"),
-                    "effect_kind": "time",
-                    "before": before,
-                    "delta_minutes": after - before,
-                    "after": after,
+                    "effect_id": _stable_effect_id(
+                        decision_id, "time_appearance", "player_time"
+                    ),
+                    "effect_kind": "time_appearance",
+                    "player_time_before": deepcopy(before_projection),
+                    "player_time_after": deepcopy(after_projection),
                     "source_decision_id": decision_id,
                 })
         elif tool == "state.mark_safe_rest" and investigator_id:
@@ -637,7 +867,7 @@ def _project_exceptional_effects(
         data = call.get("data") if isinstance(call.get("data"), dict) else {}
         action = str(data.get("action") or "")
         effect = data.get("effect")
-        if action not in {"apply", "consume"} or not coc_exceptional_effects.valid_effect(effect):
+        if action not in {"apply", "consume", "resolve"} or not coc_exceptional_effects.valid_effect(effect):
             raise TurnContractError(
                 "state_corrupt", "exceptional effect call lacks a valid canonical effect"
             )
@@ -776,46 +1006,88 @@ def is_player_facing_roll(raw: dict[str, Any]) -> bool:
     return visibility in {value.casefold() for value in PLAYER_FACING_ROLL_VISIBILITIES}
 
 
-def _render_public_roll(raw: dict[str, Any]) -> str:
-    skill = str(
+def _render_public_roll(
+    raw: dict[str, Any], *, play_language: str | None = None
+) -> str:
+    language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
+    chrome = coc_language.table_mechanics_labels(language)
+    tag = chrome.get("public_check_tag", "Public roll")
+    explicit_skill = (
         raw.get("display_skill")
         or raw.get("skill")
         or raw.get("characteristic")
-        or raw.get("kind")
-        or "检定"
     )
+    if explicit_skill:
+        skill = str(explicit_skill)
+    elif str(raw.get("kind") or "").casefold() == "dice":
+        # ``kind`` is a machine enum, not table prose.  Falling through to
+        # raw["kind"] leaked the literal English word ``dice`` at zh/ja tables.
+        skill = str(chrome.get("die_fallback", "Die"))
+    else:
+        # Amount kinds such as ``hp_damage`` are machine enums too.  Render a
+        # play-language label when known, and a neutral check/die fallback for
+        # unknown enums; never put an internal identifier on the table.
+        kind = str(raw.get("kind") or "").casefold()
+        localized_kind = chrome.get(f"roll_kind_{kind}")
+        if localized_kind:
+            skill = str(localized_kind)
+        elif _roll_kind(raw) == "amount":
+            skill = str(chrome.get("die_fallback", "Die"))
+        else:
+            skill = str(chrome.get("check_fallback", "Check"))
     if _roll_kind(raw) == "check" and all(
         key in raw for key in (
             "roll", "base_target", "required_level", "required_target",
             "achieved_level", "passed", "surplus_levels", "outcome",
         )
     ):
-        detail = coc_roll.format_percentile_result(raw, compact=True)
+        detail = coc_roll.format_percentile_result(
+            raw, language=language, compact=True
+        )
         if all(_exact_int(raw.get(key)) for key in ("original_roll", "luck_spent", "adjusted_roll")):
-            detail = detail.replace(
-                f"掷骰：{raw['adjusted_roll']}；",
-                f"原始：{raw['original_roll']}；幸运 -{raw['luck_spent']}；调整：{raw['adjusted_roll']}；",
-                1,
-            )
+            # Rewrite luck-spend clause in the active play language.
+            if language == "zh-Hans" or language.startswith("zh"):
+                detail = detail.replace(
+                    f"掷骰：{raw['adjusted_roll']}；",
+                    (
+                        f"原始：{raw['original_roll']}；幸运 -{raw['luck_spent']}；"
+                        f"调整：{raw['adjusted_roll']}；"
+                    ),
+                    1,
+                )
+            else:
+                detail = detail.replace(
+                    f"roll: {raw['adjusted_roll']};",
+                    (
+                        f"raw: {raw['original_roll']}; luck -{raw['luck_spent']}; "
+                        f"adjusted: {raw['adjusted_roll']};"
+                    ),
+                    1,
+                )
         if raw.get("kind") == "npc_first_impression":
             governing = (
-                "信用评级"
+                chrome.get("credit_rating", "Credit Rating")
                 if raw.get("governing_attribute") == "credit_rating"
-                else "外貌"
+                else chrome.get("app", "APP")
             )
+            fi = chrome.get("first_impression_tag", "First impression")
+            person = raw.get("npc_display_name") or chrome.get("this_person", "this person")
+            app_l = chrome.get("app", "APP")
+            cr_l = chrome.get("credit_rating", "Credit Rating")
+            using = chrome.get("using", "using")
             return (
-                f"【明骰】初印象·{raw.get('npc_display_name', '这名人物')}｜"
-                f"外貌 {raw.get('app')} / 信用评级 {raw.get('credit_rating')}；"
-                f"采用{governing} {raw.get('governing_value')}｜{detail}"
+                f"【{tag}】{fi}·{person}｜"
+                f"{app_l} {raw.get('app')} / {cr_l} {raw.get('credit_rating')}；"
+                f"{using}{governing} {raw.get('governing_value')}｜{detail}"
             )
-        return f"【明骰】{skill}｜{detail}"
+        return f"【{tag}】{skill}｜{detail}"
     dice = raw.get("dice") if isinstance(raw.get("dice"), dict) else {}
     expression = str(
         dice.get("expression")
         or raw.get("die_expression")
         or raw.get("expression")
         or raw.get("die")
-        or "骰值"
+        or chrome.get("die_fallback", "Die")
     )
     faces = (
         dice.get("raw")
@@ -831,95 +1103,177 @@ def _render_public_roll(raw: dict[str, Any]) -> str:
         face_text = "+".join(str(value) for value in faces)
     elif _exact_int(total):
         # Single-total public amounts (e.g. 1D6 SAN reward) must not render an
-        # empty "骰面 — →" placeholder when component faces were not stored.
+        # empty "faces — →" placeholder when component faces were not stored.
         face_text = str(total)
     else:
         face_text = "—"
-    return f"【明骰】{skill}（{expression}）：骰面 {face_text} → 总值 {total}"
+    faces_l = chrome.get("die_faces", "faces")
+    total_l = chrome.get("total", "total")
+    rendered = f"【{tag}】{skill}（{expression}）：{faces_l} {face_text} → {total_l} {total}"
+    damage_receipt = raw.get("combat_damage_receipt")
+    if isinstance(damage_receipt, dict):
+        raw_damage = damage_receipt.get("raw_damage")
+        rolled_total = damage_receipt.get("rolled_total")
+        if (
+            _exact_int(raw_damage)
+            and _exact_int(rolled_total)
+            and raw_damage != rolled_total
+        ):
+            if language == "zh-Hans" or language.startswith("zh"):
+                rendered += f"；极难穿刺结算：{raw_damage} 点伤害"
+            else:
+                rendered += f"; extreme impale settlement: {raw_damage} damage"
+    return rendered
 
 
-def _render_state_delta(effect: dict[str, Any]) -> str:
+def _render_state_delta(
+    effect: dict[str, Any], *, play_language: str | None = None
+) -> str:
+    language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
+    chrome = coc_language.table_mechanics_labels(language)
+    tag = chrome.get("change_tag", "Change")
     kind = effect["effect_kind"]
     if kind == "scalar":
-        return f"【变化】{effect['resource']}：{effect['before']} → {effect['after']}（{effect['delta']:+d}）"
-    if kind == "time":
-        return f"【变化】时间：+{effect['delta_minutes']} 分钟（累计 {effect['after']} 分钟）"
+        return f"【{tag}】{effect['resource']}：{effect['before']} → {effect['after']}（{effect['delta']:+d}）"
+    if kind in {"time", "time_appearance"}:
+        phase_l = chrome.get("time_phase", "time of day")
+        label = coc_language.player_time_label(
+            effect.get("player_time_after"), language,
+        )
+        return f"【{tag}】{phase_l}：{label}"
     if kind == "rest":
-        reset = "；理智日计数已重置" if effect.get("sanity_day_reset") else ""
-        return f"【变化】休息：完成安全的整夜睡眠{reset}"
+        if language == "zh-Hans" or language.startswith("zh"):
+            reset = "；理智日计数已重置" if effect.get("sanity_day_reset") else ""
+            return f"【{tag}】休息：完成安全的整夜睡眠{reset}"
+        reset = "; SAN day counter reset" if effect.get("sanity_day_reset") else ""
+        return f"【{tag}】rest: completed a safe full sleep{reset}"
     if kind == "item":
-        action = "获得" if effect["action"] == "acquired" else "失去"
-        return f"【变化】物品：{action}「{effect['label']}」"
+        if language == "zh-Hans" or language.startswith("zh"):
+            action = "获得" if effect["action"] == "acquired" else "失去"
+            return f"【{tag}】物品：{action}「{effect['label']}」"
+        action = "gained" if effect["action"] == "acquired" else "lost"
+        return f"【{tag}】item: {action} “{effect['label']}”"
     if kind == "condition":
-        action = "新增" if effect["action"] == "added" else "解除"
-        return f"【变化】状态：{action}「{effect['condition']}」"
+        if language == "zh-Hans" or language.startswith("zh"):
+            action = "新增" if effect["action"] == "added" else "解除"
+            return f"【{tag}】状态：{action}「{effect['condition']}」"
+        action = "added" if effect["action"] == "added" else "cleared"
+        return f"【{tag}】condition: {action} “{effect['condition']}”"
     if kind == "loaded_ammunition":
         delta = effect["change"]
-        action = f"装填 {delta} 发" if delta > 0 else f"消耗 {-delta} 发"
+        if language == "zh-Hans" or language.startswith("zh"):
+            action = f"装填 {delta} 发" if delta > 0 else f"消耗 {-delta} 发"
+            return (
+                f"【{tag}】当前弹匣·{effect['weapon_label']}：{effect['before']} → "
+                f"{effect['after']}（{action}；不含未建账的备用弹药）"
+            )
+        action = f"load {delta}" if delta > 0 else f"expend {-delta}"
         return (
-            f"【变化】当前弹匣·{effect['weapon_label']}：{effect['before']} → "
-            f"{effect['after']}（{action}；不含未建账的备用弹药）"
+            f"【{tag}】magazine·{effect['weapon_label']}: {effect['before']} → "
+            f"{effect['after']} ({action}; excludes untracked spare ammo)"
         )
     raise TurnContractError("state_corrupt", f"unknown player state delta kind: {kind}")
 
 
-def _render_context_effect(effect: dict[str, Any]) -> str:
-    if effect.get("contract_version") == "public-roll-v2":
-        return (
-            f"【初次反应】{effect['npc_display_name']}：{effect['observable_manner']}｜"
-            f"因果：{effect['causal_explanation']}｜"
-            f"当下机会/摩擦：{effect['opportunity_or_friction']}｜"
-            f"边界仍在：{effect['boundary_preserved']}"
-        )
-    governing = "信用评级" if effect["governing_attribute"] == "credit_rating" else "外貌"
-    override = ""
-    if effect.get("context_basis") in {"既有关系", "既定立场"}:
-        override = f"；{effect['context_basis']}优先"
-    return (
-        f"【初印象】外貌 {effect['app']} / 信用评级 {effect['credit_rating']}"
-        f"（采用{governing} {effect['governing_value']}{override}）｜"
-        f"初次反应：{effect['observable_manner']}"
-    )
-
-
-def _render_exceptional_effect(effect: dict[str, Any]) -> str:
-    kind_labels = {
-        "bonus_die": "奖励骰",
-        "penalty_die": "惩罚骰",
-        "condition": "状态",
-        "restriction": "限制",
-        "relationship_or_clock": "关系/时钟",
-        "scene_event": "场景事件",
-        "resource_delta": "资源",
-    }
+def _render_exceptional_effect(
+    effect: dict[str, Any], *, play_language: str | None = None
+) -> str:
+    language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
+    chrome = coc_language.table_mechanics_labels(language)
+    zh = language == "zh-Hans" or language.startswith("zh")
+    if zh:
+        kind_labels = {
+            "bonus_die": "奖励骰",
+            "penalty_die": "惩罚骰",
+            "condition": "状态",
+            "restriction": "限制",
+            "relationship_or_clock": "关系/时钟",
+            "scene_event": "场景事件",
+            "resource_delta": "资源",
+        }
+    else:
+        kind_labels = {
+            "bonus_die": "bonus die",
+            "penalty_die": "penalty die",
+            "condition": "condition",
+            "restriction": "restriction",
+            "relationship_or_clock": "relationship/clock",
+            "scene_event": "scene event",
+            "resource_delta": "resource",
+        }
     boundary = effect["boundary"]
     boundary_kind = boundary["kind"]
+    if zh:
+        if boundary_kind == "immediate":
+            boundary_text = "立即生效"
+        elif boundary_kind == "until_consumed":
+            boundary_text = "下一次符合范围的检定（一次）"
+        elif boundary_kind == "until_scene_end":
+            boundary_text = "持续至本场景结束"
+        elif boundary_kind == "until_time_marker":
+            boundary_text = "持续至约定时限"
+        else:
+            boundary_text = f"持续至：{boundary['description']}"
+        if effect.get("status") == "consumed":
+            status = "；已用于本次检定"
+        elif effect.get("status") == "resolved":
+            status = "；解除条件已满足"
+        else:
+            status = ""
+        direction = "收益" if effect["direction"] == "benefit" else "代价"
+        relationship_reward = bool(
+            effect["direction"] == "benefit"
+            and effect["effect_kind"] == "bonus_die"
+            and (effect.get("mechanics") or {}).get("target_id")
+        )
+        heading = "关系/印象奖励" if relationship_reward else chrome.get(
+            "exceptional_tag", "特殊影响"
+        )
+        target = (
+            f"｜适用对象：{effect['mechanics']['target_display_name']}"
+            if relationship_reward else ""
+        )
+        return (
+            f"【{heading}】{direction}·{kind_labels[effect['effect_kind']]}："
+            f"{effect['player_visible_impact']}｜"
+            f"{chrome.get('cause', '因果')}：{effect['causal_link']}｜"
+            f"边界：{boundary_text}{target}{status}"
+        )
     if boundary_kind == "immediate":
-        boundary_text = "立即生效"
+        boundary_text = "immediate"
     elif boundary_kind == "until_consumed":
-        boundary_text = "下一次符合范围的检定（一次）"
+        boundary_text = "until next matching check (once)"
     elif boundary_kind == "until_scene_end":
-        boundary_text = f"持续至场景 {boundary['scene_id']} 结束"
+        boundary_text = "until the current scene ends"
     elif boundary_kind == "until_time_marker":
-        boundary_text = f"持续至时限 {boundary['marker_id']}"
+        boundary_text = "until the recorded time limit"
     else:
-        boundary_text = f"持续至：{boundary['description']}"
-    status = "；已用于本次检定" if effect.get("status") == "consumed" else ""
-    direction = "收益" if effect["direction"] == "benefit" else "代价"
+        boundary_text = f"until: {boundary['description']}"
+    if effect.get("status") == "consumed":
+        status = "; consumed this check"
+    elif effect.get("status") == "resolved":
+        status = "; end condition met"
+    else:
+        status = ""
+    direction = "benefit" if effect["direction"] == "benefit" else "cost"
     relationship_reward = bool(
         effect["direction"] == "benefit"
         and effect["effect_kind"] == "bonus_die"
         and (effect.get("mechanics") or {}).get("target_id")
     )
-    heading = "关系/印象奖励" if relationship_reward else "特殊影响"
+    heading = (
+        "Relationship/impression reward"
+        if relationship_reward
+        else chrome.get("exceptional_tag", "Exceptional")
+    )
     target = (
-        f"｜适用对象：{effect['mechanics']['target_display_name']}"
+        f"| applies to: {effect['mechanics']['target_display_name']}"
         if relationship_reward else ""
     )
     return (
-        f"【{heading}】{direction}·{kind_labels[effect['effect_kind']]}："
-        f"{effect['player_visible_impact']}｜因果：{effect['causal_link']}｜"
-        f"边界：{boundary_text}{target}{status}"
+        f"【{heading}】{direction}·{kind_labels[effect['effect_kind']]}: "
+        f"{effect['player_visible_impact']}|{chrome.get('cause', 'cause')}: "
+        f"{effect['causal_link']}|boundary: {boundary_text}{target}{status}"
     )
 
 
@@ -971,7 +1325,15 @@ def _pending_modifier_consumptions(
 
 
 def build_output_context(campaign_dir: Path) -> dict[str, Any]:
-    window, journal, start, end, finalizations = _source_window(campaign_dir)
+    try:
+        manifest, window, journal = coc_turn_manifest.refresh_pending_window(
+            campaign_dir
+        )
+    except coc_turn_manifest.TurnManifestError as exc:
+        raise TurnContractError(exc.code, str(exc)) from exc
+    finalizations = load_finalizations(campaign_dir)
+    start = int(manifest["source_start_index"])
+    end = int(manifest["journal_call_index"])
     rolls = _source_rolls(campaign_dir, window, finalizations)
     _attach_structured_skill_labels(campaign_dir, rolls)
     public_rolls = [raw for raw in rolls if is_player_facing_roll(raw)]
@@ -1017,13 +1379,15 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         "journal_decision_id": journal_decision_id,
         "public_check": deepcopy(public_rolls),
         "state_delta": state_deltas,
-        "context_effect": context_effects,
         "exceptional_effect": exceptional_events,
         "concealed_consequence": concealed,
     }
-    source_digest = canonical_digest(window)
+    source_digest = str(manifest["source_digest"])
     return {
         "schema_version": 1,
+        "turn_id": manifest["turn_id"],
+        "manifest_revision": manifest["revision"],
+        "repair_call_count": manifest["repair_call_count"],
         "journal_decision_id": journal_decision_id,
         "turn_number": (journal.get("data") or {}).get("turn_number"),
         "journal_call_index": end,
@@ -1035,13 +1399,15 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
         "required_obligation_ids": [row["obligation_id"] for row in obligations],
         "mechanics_bundle": bundle,
         "mechanics_bundle_sha256": canonical_digest(bundle),
+        # Keeper-only portrayal context. Keeping this outside mechanics_bundle
+        # prevents turn.finalize from printing NPC interpretation, expectations,
+        # reservations, or hidden limits as a player-facing rules block.
+        "npc_performance_constraints": deepcopy(context_effects),
         "candidate_factors": candidate_factors,
         "missing_substantive_effects": missing_effects,
         "pending_modifier_consumptions": pending_modifiers,
-        "output_order": [
-            "fiction", "public_check", "state_delta", "exceptional_effect",
-            "context_effect",
-        ],
+        "composition_mode": "causal_paragraph_placements",
+        "placement_segment_types": sorted(MECHANIC_SEGMENT_TYPES),
     }
 
 
@@ -1110,48 +1476,802 @@ def validate_coverage(
     return [seen[key] for key in sorted(seen)]
 
 
-def compose_segments(draft: str, bundle: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
-    segments: list[dict[str, Any]] = [{
-        "segment_type": "fiction",
-        "text": draft,
-        "source_ids": [],
-    }]
-    public_lines = [_render_public_roll(raw) for raw in bundle["public_check"]]
-    if public_lines:
-        segments.append({
-            "segment_type": "public_check",
-            "text": "\n".join(public_lines),
-            "source_ids": [str(raw["roll_id"]) for raw in bundle["public_check"]],
+def _draft_paragraphs(draft: str) -> list[str]:
+    paragraphs = draft.split("\n\n")
+    if not paragraphs or any(not paragraph.strip() for paragraph in paragraphs):
+        raise TurnContractError(
+            "invalid_draft",
+            "draft must contain non-empty paragraphs separated by one blank line",
+        )
+    return paragraphs
+
+
+def _mechanic_source_lines(
+    bundle: dict[str, Any], *, play_language: str | None = None
+) -> dict[str, dict[str, str]]:
+    language = play_language or coc_language.DEFAULT_PLAY_LANGUAGE
+    sources: dict[str, dict[str, str]] = {
+        segment_type: {} for segment_type in MECHANIC_SEGMENT_TYPES
+    }
+    for raw in bundle.get("public_check") or []:
+        sources["public_check"][str(raw["roll_id"])] = _render_public_roll(
+            raw, play_language=language
+        )
+    for effect in bundle.get("state_delta") or []:
+        sources["state_delta"][str(effect["effect_id"])] = _render_state_delta(
+            effect, play_language=language
+        )
+    for effect in bundle.get("exceptional_effect") or []:
+        sources["exceptional_effect"][str(effect["event_id"])] = (
+            _render_exceptional_effect(effect, play_language=language)
+        )
+    return sources
+
+
+def _reject_mechanics_in_draft(
+    draft: str,
+    sources: dict[str, dict[str, str]],
+) -> None:
+    """Keep deterministic public blocks out of Keeper-authored fiction.
+
+    The structured labels are part of the finalizer wire format, not prose
+    semantics.  Rejecting them here prevents an otherwise valid placement
+    from rendering the same authoritative roll or state delta twice.
+    """
+    for rows in sources.values():
+        for rendered in rows.values():
+            label = None
+            if rendered.startswith("【") and "】" in rendered:
+                label = rendered.split("】", 1)[0] + "】"
+            if rendered in draft or (label is not None and label in draft):
+                raise TurnContractError(
+                    "mechanics_text_in_draft",
+                    "draft contains a deterministic public mechanics block; "
+                    "remove it and let mechanics_placements render the source exactly once",
+                )
+
+
+def _normalize_mechanics_placements(
+    placements: Any,
+    *,
+    paragraph_count: int,
+    sources: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    if not isinstance(placements, list):
+        raise TurnContractError("invalid_param", "mechanics_placements must be an array")
+    normalized: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    previous_paragraph = -1
+    for index, row in enumerate(placements):
+        if not isinstance(row, dict) or set(row) != MECHANICS_PLACEMENT_FIELDS:
+            raise TurnContractError(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}] has an invalid shape",
+            )
+        after = row.get("after_paragraph")
+        segment_type = row.get("segment_type")
+        source_ids = row.get("source_ids")
+        if (
+            isinstance(after, bool) or not isinstance(after, int)
+            or after < 0 or after >= paragraph_count
+        ):
+            raise TurnContractError(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}].after_paragraph is out of range",
+            )
+        if after < previous_paragraph:
+            raise TurnContractError(
+                "invalid_mechanics_placement",
+                "mechanics_placements must be ordered by after_paragraph",
+            )
+        if segment_type not in MECHANIC_SEGMENT_TYPES:
+            raise TurnContractError(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}].segment_type is invalid",
+            )
+        if (
+            not isinstance(source_ids, list) or not source_ids
+            or not all(isinstance(value, str) and value for value in source_ids)
+            or len(source_ids) != len(set(source_ids))
+        ):
+            raise TurnContractError(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}].source_ids is invalid",
+            )
+        for source_id in source_ids:
+            identity = (str(segment_type), source_id)
+            if source_id not in sources[str(segment_type)]:
+                raise TurnContractError(
+                    "unknown_mechanics_source",
+                    f"{segment_type}:{source_id} is not in this turn's mechanics bundle",
+                )
+            if identity in seen:
+                raise TurnContractError(
+                    "duplicate_mechanics_source",
+                    f"{segment_type}:{source_id} is placed more than once",
+                )
+            seen.add(identity)
+        normalized.append({
+            "after_paragraph": after,
+            "segment_type": str(segment_type),
+            "source_ids": list(source_ids),
         })
-    delta_lines = [_render_state_delta(effect) for effect in bundle["state_delta"]]
-    if delta_lines:
-        segments.append({
-            "segment_type": "state_delta",
-            "text": "\n".join(delta_lines),
-            "source_ids": [str(effect["effect_id"]) for effect in bundle["state_delta"]],
-        })
-    exceptional_lines = [
-        _render_exceptional_effect(effect)
-        for effect in bundle.get("exceptional_effect") or []
+        previous_paragraph = after
+    expected = {
+        (segment_type, source_id)
+        for segment_type, rows in sources.items()
+        for source_id in rows
+    }
+    missing = sorted(expected - seen)
+    extra = sorted(seen - expected)
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append("missing=" + ",".join(f"{kind}:{source}" for kind, source in missing))
+        if extra:
+            detail.append("extra=" + ",".join(f"{kind}:{source}" for kind, source in extra))
+        raise TurnContractError(
+            "incomplete_mechanics_placement",
+            "every public mechanic must be placed exactly once (" + "; ".join(detail) + ")",
+        )
+    return normalized
+
+
+def _default_mechanics_placements(
+    *,
+    paragraphs: list[str],
+    sources: dict[str, dict[str, str]],
+    coverage: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Derive a safe causal layout without making a narrative decision.
+
+    Public checks are inserted immediately before the first paragraph that
+    contains their already-KP-authored causal excerpt.  Other authoritative
+    changes are grouped after the final fictional paragraph.  If a public
+    result begins in paragraph zero there is no representable safe boundary,
+    so the Keeper must provide an explicit placement instead of the runtime
+    guessing or rewriting prose.
+    """
+    coverage_by_id = {row["obligation_id"]: row for row in coverage}
+    grouped: dict[tuple[int, str], list[str]] = {}
+    for source_id in sources["public_check"]:
+        row = coverage_by_id.get(f"roll:{source_id}")
+        excerpt = str((row or {}).get("exact_excerpt") or "")
+        result_indices = [
+            index
+            for index, paragraph in enumerate(paragraphs)
+            if excerpt and excerpt in paragraph
+        ]
+        if not result_indices or result_indices[0] == 0:
+            raise TurnContractError(
+                "default_mechanics_placement_unavailable",
+                f"public roll {source_id} has no safe preceding paragraph; "
+                "provide mechanics_placements explicitly or split setup and result prose",
+            )
+        grouped.setdefault(
+            (result_indices[0] - 1, "public_check"), []
+        ).append(source_id)
+    final_paragraph = len(paragraphs) - 1
+    for segment_type in ("state_delta", "exceptional_effect"):
+        source_ids = list(sources[segment_type])
+        if source_ids:
+            grouped[(final_paragraph, segment_type)] = source_ids
+    segment_order = {
+        "public_check": 0,
+        "state_delta": 1,
+        "exceptional_effect": 2,
+    }
+    return [
+        {
+            "after_paragraph": after,
+            "segment_type": segment_type,
+            "source_ids": source_ids,
+        }
+        for (after, segment_type), source_ids in sorted(
+            grouped.items(),
+            key=lambda item: (item[0][0], segment_order[item[0][1]]),
+        )
     ]
-    if exceptional_lines:
-        segments.append({
-            "segment_type": "exceptional_effect",
-            "text": "\n".join(exceptional_lines),
-            "source_ids": [
-                str(effect["event_id"])
-                for effect in bundle.get("exceptional_effect") or []
-            ],
+
+
+def _placements_from_segments(receipt: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recover immutable placement intent for an idempotent replay."""
+    placements: list[dict[str, Any]] = []
+    paragraph_index = -1
+    for segment in receipt.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        segment_type = segment.get("segment_type")
+        if segment_type == "fiction":
+            paragraph_index += 1
+        elif segment_type in MECHANIC_SEGMENT_TYPES:
+            placements.append({
+                "after_paragraph": paragraph_index,
+                "segment_type": segment_type,
+                "source_ids": list(segment.get("source_ids") or []),
+            })
+    return placements
+
+
+def _validate_roll_result_placement(
+    *,
+    paragraphs: list[str],
+    placements: list[dict[str, Any]],
+    coverage: list[dict[str, Any]],
+) -> None:
+    roll_after: dict[str, int] = {}
+    for row in placements:
+        if row["segment_type"] == "public_check":
+            for source_id in row["source_ids"]:
+                roll_after[source_id] = row["after_paragraph"]
+    coverage_by_id = {row["obligation_id"]: row for row in coverage}
+    for roll_id, after in roll_after.items():
+        if after >= len(paragraphs) - 1:
+            raise TurnContractError(
+                "roll_after_consequence",
+                f"public roll {roll_id} must be followed by a fictional result paragraph",
+            )
+        row = coverage_by_id.get(f"roll:{roll_id}")
+        if row is None or row.get("realization") == "concealed_no_player_visible_beat":
+            continue
+        excerpt = str(row.get("exact_excerpt") or "")
+        result_paragraphs = [
+            index for index, paragraph in enumerate(paragraphs)
+            if excerpt and excerpt in paragraph
+        ]
+        if not any(index > after for index in result_paragraphs):
+            raise TurnContractError(
+                "roll_after_consequence",
+                f"public roll {roll_id} must appear before its coverage exact_excerpt",
+            )
+
+
+# --------------------------------------------------------------------------- #
+# Collect-all validation diagnostics
+#
+# The raising helpers above stay the single source of truth for the clean
+# path.  The collect variants below mirror them check-for-check and in the
+# same order, appending one violation per failure instead of raising the
+# first, so a Keeper submission sees every problem in one round trip.
+# --------------------------------------------------------------------------- #
+
+
+def _collect_coverage_violations(
+    obligations: list[dict[str, Any]], coverage: Any, draft: str
+) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    violations: list[dict[str, str]] = []
+
+    def add(code: str, message: str) -> None:
+        violations.append({"stage": "coverage", "code": code, "message": message})
+
+    best_rows: list[dict[str, Any]] = []
+    if not isinstance(coverage, list):
+        add("invalid_coverage", "coverage must be an array")
+        return violations, best_rows
+    required = {str(row["obligation_id"]): row for row in obligations}
+    seen: dict[str, dict[str, Any]] = {}
+    for index, row in enumerate(coverage):
+        if not isinstance(row, dict) or set(row) != COVERAGE_FIELDS:
+            add("invalid_coverage", f"coverage[{index}] must use the exact closed schema")
+            continue
+        obligation_id = str(row.get("obligation_id") or "").strip()
+        if not obligation_id or obligation_id in seen:
+            add("duplicate_obligation", f"duplicate coverage: {obligation_id}")
+            continue
+        if obligation_id not in required:
+            add("unknown_obligation", f"unknown coverage: {obligation_id}")
+            continue
+        realization = row.get("realization")
+        if realization not in REALIZATION_VALUES:
+            add("invalid_coverage", f"invalid realization for {obligation_id}")
+        handling = row.get("player_input_handling")
+        if handling not in PLAYER_INPUT_HANDLING_VALUES:
+            add("invalid_coverage", f"invalid player_input_handling for {obligation_id}")
+        if realization == "concealed_no_player_visible_beat":
+            if required[obligation_id]["source_kind"] != "concealed_roll":
+                add(
+                    "invalid_coverage",
+                    "only a concealed roll may close without a visible beat",
+                )
+            for key in (
+                "action_realization", "response", "causal_explanation",
+                "persona_fit", "exact_excerpt", "exceptional_beat",
+            ):
+                if row.get(key) not in (None, ""):
+                    add(
+                        "invalid_coverage",
+                        f"{obligation_id} hidden no-effect row must not cite player prose",
+                    )
+                    break
+        else:
+            for key in (
+                "action_realization", "response", "causal_explanation",
+                "persona_fit", "exact_excerpt",
+            ):
+                value = row.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    add("invalid_coverage", f"{obligation_id} lacks non-empty {key}")
+            excerpt = row.get("exact_excerpt")
+            if (
+                isinstance(excerpt, str) and excerpt.strip()
+                and excerpt not in draft
+            ):
+                add(
+                    "excerpt_mismatch",
+                    f"{obligation_id} exact_excerpt is not verbatim in draft",
+                )
+        if required[obligation_id].get("exceptional_required"):
+            beat = row.get("exceptional_beat")
+            if not isinstance(beat, str) or not beat.strip():
+                add("exceptional_beat_required", f"{obligation_id} is critical/fumble")
+        seen[obligation_id] = deepcopy(row)
+        best_rows.append(deepcopy(row))
+    missing = sorted(set(required) - set(seen))
+    if missing:
+        add("missing_obligation", "missing causal coverage: " + ", ".join(missing))
+    return violations, best_rows
+
+
+def _collect_mechanics_in_draft(
+    draft: str, sources: dict[str, dict[str, str]]
+) -> list[dict[str, str]]:
+    violations: list[dict[str, str]] = []
+    seen_labels: set[str] = set()
+    for rows in sources.values():
+        for rendered in rows.values():
+            label = None
+            if rendered.startswith("【") and "】" in rendered:
+                label = rendered.split("】", 1)[0] + "】"
+            if rendered in draft or (label is not None and label in draft):
+                marker = label or rendered[:40]
+                if marker in seen_labels:
+                    continue
+                seen_labels.add(marker)
+                violations.append({
+                    "stage": "mechanics_in_draft",
+                    "code": "mechanics_text_in_draft",
+                    "message": (
+                        f"draft contains a deterministic public mechanics block ({marker}); "
+                        "remove it and let mechanics_placements render the source exactly once"
+                    ),
+                })
+    return violations
+
+
+def _collect_default_placements(
+    *,
+    paragraphs: list[str],
+    sources: dict[str, dict[str, str]],
+    coverage: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    violations: list[dict[str, str]] = []
+    coverage_by_id = {row["obligation_id"]: row for row in coverage}
+    grouped: dict[tuple[int, str], list[str]] = {}
+    for source_id in sources["public_check"]:
+        row = coverage_by_id.get(f"roll:{source_id}")
+        excerpt = str((row or {}).get("exact_excerpt") or "")
+        result_indices = [
+            index
+            for index, paragraph in enumerate(paragraphs)
+            if excerpt and excerpt in paragraph
+        ]
+        if not result_indices or result_indices[0] == 0:
+            violations.append({
+                "stage": "mechanics_placements",
+                "code": "default_mechanics_placement_unavailable",
+                "message": (
+                    f"public roll {source_id} has no safe preceding paragraph; "
+                    "provide mechanics_placements explicitly or split setup and result prose"
+                ),
+            })
+            continue
+        grouped.setdefault(
+            (result_indices[0] - 1, "public_check"), []
+        ).append(source_id)
+    final_paragraph = len(paragraphs) - 1
+    for segment_type in ("state_delta", "exceptional_effect"):
+        source_ids = list(sources[segment_type])
+        if source_ids:
+            grouped[(final_paragraph, segment_type)] = source_ids
+    segment_order = {
+        "public_check": 0,
+        "state_delta": 1,
+        "exceptional_effect": 2,
+    }
+    requested = [
+        {
+            "after_paragraph": after,
+            "segment_type": segment_type,
+            "source_ids": source_ids,
+        }
+        for (after, segment_type), source_ids in sorted(
+            grouped.items(),
+            key=lambda item: (item[0][0], segment_order[item[0][1]]),
+        )
+    ]
+    return requested, violations
+
+
+def _collect_placements_violations(
+    placements: Any,
+    *,
+    paragraph_count: int,
+    sources: dict[str, dict[str, str]],
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    violations: list[dict[str, str]] = []
+
+    def add(code: str, message: str) -> None:
+        violations.append({"stage": "mechanics_placements", "code": code, "message": message})
+
+    normalized: list[dict[str, Any]] = []
+    if not isinstance(placements, list):
+        add("invalid_param", "mechanics_placements must be an array")
+        return normalized, violations
+    seen: set[tuple[str, str]] = set()
+    previous_paragraph = -1
+    for index, row in enumerate(placements):
+        if not isinstance(row, dict) or set(row) != MECHANICS_PLACEMENT_FIELDS:
+            add(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}] has an invalid shape",
+            )
+            continue
+        after = row.get("after_paragraph")
+        segment_type = row.get("segment_type")
+        source_ids = row.get("source_ids")
+        row_usable = True
+        if (
+            isinstance(after, bool) or not isinstance(after, int)
+            or after < 0 or after >= paragraph_count
+        ):
+            add(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}].after_paragraph is out of range",
+            )
+            row_usable = False
+        elif after < previous_paragraph:
+            add(
+                "invalid_mechanics_placement",
+                "mechanics_placements must be ordered by after_paragraph",
+            )
+            row_usable = False
+        if segment_type not in MECHANIC_SEGMENT_TYPES:
+            add(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}].segment_type is invalid",
+            )
+            row_usable = False
+        if (
+            not isinstance(source_ids, list) or not source_ids
+            or not all(isinstance(value, str) and value for value in source_ids)
+            or len(source_ids) != len(set(source_ids))
+        ):
+            add(
+                "invalid_mechanics_placement",
+                f"mechanics_placements[{index}].source_ids is invalid",
+            )
+            row_usable = False
+        if not row_usable:
+            continue
+        keep_ids: list[str] = []
+        for source_id in source_ids:
+            identity = (str(segment_type), source_id)
+            if source_id not in sources[str(segment_type)]:
+                add(
+                    "unknown_mechanics_source",
+                    f"{segment_type}:{source_id} is not in this turn's mechanics bundle",
+                )
+                continue
+            if identity in seen:
+                add(
+                    "duplicate_mechanics_source",
+                    f"{segment_type}:{source_id} is placed more than once",
+                )
+                continue
+            seen.add(identity)
+            keep_ids.append(source_id)
+        normalized.append({
+            "after_paragraph": after,
+            "segment_type": str(segment_type),
+            "source_ids": keep_ids,
         })
-    context_lines = [_render_context_effect(effect) for effect in bundle["context_effect"]]
-    if context_lines:
-        segments.append({
-            "segment_type": "context_effect",
-            "text": "\n".join(context_lines),
-            "source_ids": [str(effect["effect_id"]) for effect in bundle["context_effect"]],
+        previous_paragraph = after
+    expected = {
+        (segment_type, source_id)
+        for segment_type, rows in sources.items()
+        for source_id in rows
+    }
+    missing = sorted(expected - seen)
+    extra = sorted(seen - expected)
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append("missing=" + ",".join(f"{kind}:{source}" for kind, source in missing))
+        if extra:
+            detail.append("extra=" + ",".join(f"{kind}:{source}" for kind, source in extra))
+        add(
+            "incomplete_mechanics_placement",
+            "every public mechanic must be placed exactly once (" + "; ".join(detail) + ")",
+        )
+    return normalized, violations
+
+
+def _collect_roll_after_violations(
+    *,
+    paragraphs: list[str],
+    placements: list[dict[str, Any]],
+    coverage: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    violations: list[dict[str, str]] = []
+    roll_after: dict[str, int] = {}
+    for row in placements:
+        if row["segment_type"] == "public_check":
+            for source_id in row["source_ids"]:
+                roll_after[source_id] = row["after_paragraph"]
+    coverage_by_id = {row["obligation_id"]: row for row in coverage}
+    for roll_id, after in roll_after.items():
+        if after >= len(paragraphs) - 1:
+            violations.append({
+                "stage": "roll_after_consequence",
+                "code": "roll_after_consequence",
+                "message": f"public roll {roll_id} must be followed by a fictional result paragraph",
+            })
+            continue
+        row = coverage_by_id.get(f"roll:{roll_id}")
+        if row is None or row.get("realization") == "concealed_no_player_visible_beat":
+            continue
+        excerpt = str(row.get("exact_excerpt") or "")
+        result_paragraphs = [
+            index for index, paragraph in enumerate(paragraphs)
+            if excerpt and excerpt in paragraph
+        ]
+        if not result_paragraphs:
+            # An excerpt missing from the draft is already reported in the
+            # coverage stage; skip the derived placement-order noise here.
+            continue
+        if not any(index > after for index in result_paragraphs):
+            violations.append({
+                "stage": "roll_after_consequence",
+                "code": "roll_after_consequence",
+                "message": f"public roll {roll_id} must appear before its coverage exact_excerpt",
+            })
+    return violations
+
+
+def collect_finalize_violations(
+    campaign_dir: Path,
+    *,
+    draft: Any,
+    coverage: Any,
+    mechanics_placements: Any,
+) -> list[dict[str, str]]:
+    """Best-effort diagnostic sweep of every finalize validation stage.
+
+    Returns every violation in the same order the raising helpers would have
+    reported them one at a time.  An empty list means a real
+    ``build_finalization_receipt`` call with the same inputs succeeds.
+    Never writes state.
+    """
+    violations: list[dict[str, str]] = []
+    if not isinstance(draft, str) or not draft.strip():
+        return [{
+            "stage": "params",
+            "code": "invalid_param",
+            "message": "draft must be non-empty",
+        }]
+    try:
+        context = build_output_context(campaign_dir)
+    except TurnContractError as exc:
+        return [{"stage": "output_context", "code": exc.code, "message": str(exc)}]
+    if context["missing_substantive_effects"]:
+        missing = ", ".join(
+            row["obligation_id"] for row in context["missing_substantive_effects"]
+        )
+        violations.append({
+            "stage": "substantive_effects",
+            "code": "substantive_exceptional_effect_required",
+            "message": (
+                "critical/fumble/pushed-failure outcome lacks a source-bound "
+                f"applied effect: {missing}"
+            ),
         })
+    if context["pending_modifier_consumptions"]:
+        pending = ", ".join(
+            f"{row['effect_id']}->{row['roll_id']}"
+            for row in context["pending_modifier_consumptions"]
+        )
+        violations.append({
+            "stage": "substantive_effects",
+            "code": "exceptional_modifier_unconsumed",
+            "message": (
+                "an applicable one-shot exceptional modifier was not "
+                f"source-bound to its roll: {pending}"
+            ),
+        })
+    coverage_violations, coverage_rows = _collect_coverage_violations(
+        context["obligations"], coverage, draft
+    )
+    violations.extend(coverage_violations)
+    paragraphs: list[str] | None = None
+    try:
+        paragraphs = _draft_paragraphs(draft)
+    except TurnContractError as exc:
+        violations.append({"stage": "draft", "code": exc.code, "message": str(exc)})
+    play_language = _campaign_play_language(campaign_dir)
+    bundle = context["mechanics_bundle"]
+    sources = _mechanic_source_lines(bundle, play_language=play_language)
+    violations.extend(_collect_mechanics_in_draft(draft, sources))
+    normalized_placements: list[dict[str, Any]] = []
+    if paragraphs is not None:
+        requested = mechanics_placements
+        if requested is None:
+            requested, default_violations = _collect_default_placements(
+                paragraphs=paragraphs,
+                sources=sources,
+                coverage=coverage_rows,
+            )
+            violations.extend(default_violations)
+        normalized_placements, placement_violations = _collect_placements_violations(
+            requested,
+            paragraph_count=len(paragraphs),
+            sources=sources,
+        )
+        violations.extend(placement_violations)
+        violations.extend(_collect_roll_after_violations(
+            paragraphs=paragraphs,
+            placements=normalized_placements,
+            coverage=coverage_rows,
+        ))
+    return violations
+
+
+def compose_segments(
+    draft: str,
+    bundle: dict[str, Any],
+    mechanics_placements: Any,
+    *,
+    coverage: list[dict[str, Any]] | None = None,
+    play_language: str | None = None,
+) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
+    paragraphs = _draft_paragraphs(draft)
+    sources = _mechanic_source_lines(bundle, play_language=play_language)
+    _reject_mechanics_in_draft(draft, sources)
+    requested_placements = mechanics_placements
+    if requested_placements is None:
+        if coverage is None:
+            raise TurnContractError(
+                "invalid_param",
+                "coverage is required when mechanics_placements is omitted",
+            )
+        requested_placements = _default_mechanics_placements(
+            paragraphs=paragraphs,
+            sources=sources,
+            coverage=coverage,
+        )
+    placements = _normalize_mechanics_placements(
+        requested_placements,
+        paragraph_count=len(paragraphs),
+        sources=sources,
+    )
+    by_paragraph: dict[int, list[dict[str, Any]]] = {}
+    for placement in placements:
+        by_paragraph.setdefault(placement["after_paragraph"], []).append(placement)
+    segments: list[dict[str, Any]] = []
+    for index, paragraph in enumerate(paragraphs):
+        segments.append({
+            "segment_type": "fiction",
+            "text": paragraph,
+            "source_ids": [],
+        })
+        for placement in by_paragraph.get(index, []):
+            segment_type = placement["segment_type"]
+            source_ids = placement["source_ids"]
+            segments.append({
+                "segment_type": segment_type,
+                "text": "\n".join(sources[segment_type][source_id] for source_id in source_ids),
+                "source_ids": list(source_ids),
+            })
     rendered = "\n\n".join(segment["text"] for segment in segments)
-    return segments, rendered
+    return segments, rendered, placements
+
+
+def build_undelivered_repair_receipt(
+    campaign_dir: Path,
+    *,
+    source_receipt: dict[str, Any],
+    decision_id: str,
+    draft: str,
+    coverage: Any,
+    mechanics_placements: Any,
+) -> dict[str, Any]:
+    """Recompose only the latest, still-undelivered finalized narration.
+
+    Rules, state, journal identity, source window, obligations, coverage, and
+    mechanics bundle are frozen.  The caller separately proves that delivery
+    is still unconfirmed and atomically swaps the canonical tail while
+    preserving the rejected receipt in an audit log.
+    """
+    if not isinstance(decision_id, str) or not decision_id.strip():
+        raise TurnContractError("invalid_param", "decision_id must be non-empty")
+    if not isinstance(draft, str) or not draft.strip():
+        raise TurnContractError("invalid_param", "draft must be non-empty")
+    if not _valid_finalization(source_receipt):
+        raise TurnContractError(
+            "state_corrupt", "repair source is not a valid current finalization receipt"
+        )
+    finalizations = load_finalizations(campaign_dir)
+    if not finalizations or finalizations[-1] != source_receipt:
+        raise TurnContractError(
+            "repair_conflict", "only the latest canonical finalization may be repaired"
+        )
+    if not isinstance(coverage, list):
+        raise TurnContractError("invalid_coverage", "coverage must be an array")
+    if canonical_digest(coverage) != source_receipt["coverage_sha256"]:
+        raise TurnContractError(
+            "repair_scope_expanded",
+            "undelivered narration repair must reuse the exact settled coverage",
+        )
+    repair_obligations = [
+        {
+            "obligation_id": row["obligation_id"],
+            "source_kind": (
+                "concealed_roll"
+                if row.get("realization") == "concealed_no_player_visible_beat"
+                else "repair"
+            ),
+            "exceptional_required": bool(row.get("exceptional_beat")),
+        }
+        for row in source_receipt["coverage"]
+    ]
+    normalized_coverage = validate_coverage(
+        repair_obligations, coverage, draft
+    )
+    bundle = deepcopy(source_receipt["bundle"])
+    play_language = _campaign_play_language(campaign_dir)
+    segments, rendered, normalized_placements = compose_segments(
+        draft,
+        bundle,
+        mechanics_placements,
+        coverage=normalized_coverage,
+        play_language=play_language,
+    )
+    _validate_roll_result_placement(
+        paragraphs=_draft_paragraphs(draft),
+        placements=normalized_placements,
+        coverage=normalized_coverage,
+    )
+    finalization_id = _stable_effect_id(
+        decision_id,
+        "turn_finalization_repair",
+        source_receipt["journal_decision_id"],
+    )
+    record = {
+        "schema_version": FINALIZATION_SCHEMA_VERSION,
+        "finalization_id": finalization_id,
+        "decision_id": decision_id,
+        "journal_decision_id": source_receipt["journal_decision_id"],
+        "journal_call_index": source_receipt["journal_call_index"],
+        "source_start_index": source_receipt["source_start_index"],
+        "source_end_index": source_receipt["source_end_index"],
+        "source_digest": source_receipt["source_digest"],
+        "source_roll_ids": deepcopy(source_receipt["source_roll_ids"]),
+        "obligation_ids": deepcopy(source_receipt["obligation_ids"]),
+        "coverage_ids": deepcopy(source_receipt["coverage_ids"]),
+        "draft_sha256": canonical_digest(draft),
+        "coverage_sha256": canonical_digest(normalized_coverage),
+        "bundle_sha256": canonical_digest(bundle),
+        "rendered_sha256": canonical_digest(rendered),
+        "bundle": bundle,
+        "coverage": normalized_coverage,
+        "segments": segments,
+        "rendered_text": rendered,
+    }
+    record["integrity_digest"] = canonical_digest(record)
+    if not _valid_finalization(record):
+        raise TurnContractError(
+            "state_corrupt", "generated undelivered repair receipt is invalid"
+        )
+    return record
 
 
 def build_finalization_receipt(
@@ -1160,11 +2280,21 @@ def build_finalization_receipt(
     decision_id: str,
     draft: str,
     coverage: Any,
+    mechanics_placements: Any,
 ) -> dict[str, Any]:
     if not isinstance(decision_id, str) or not decision_id.strip():
         raise TurnContractError("invalid_param", "decision_id must be non-empty")
     if not isinstance(draft, str) or not draft.strip():
         raise TurnContractError("invalid_param", "draft must be non-empty")
+    violations = collect_finalize_violations(
+        campaign_dir,
+        draft=draft,
+        coverage=coverage,
+        mechanics_placements=mechanics_placements,
+    )
+    if violations:
+        first = violations[0]
+        raise TurnContractError(first["code"], first["message"], violations=violations)
     context = build_output_context(campaign_dir)
     if context["missing_substantive_effects"]:
         missing = ", ".join(
@@ -1187,7 +2317,19 @@ def build_finalization_receipt(
         )
     normalized_coverage = validate_coverage(context["obligations"], coverage, draft)
     bundle = context["mechanics_bundle"]
-    segments, rendered = compose_segments(draft, bundle)
+    play_language = _campaign_play_language(campaign_dir)
+    segments, rendered, normalized_placements = compose_segments(
+        draft,
+        bundle,
+        mechanics_placements,
+        coverage=normalized_coverage,
+        play_language=play_language,
+    )
+    _validate_roll_result_placement(
+        paragraphs=_draft_paragraphs(draft),
+        placements=normalized_placements,
+        coverage=normalized_coverage,
+    )
     finalization_id = _stable_effect_id(
         decision_id, "turn_finalization", context["journal_decision_id"]
     )
@@ -1219,7 +2361,7 @@ def build_finalization_receipt(
 
 
 def replay_matches(
-    receipt: dict[str, Any], *, draft: Any, coverage: Any
+    receipt: dict[str, Any], *, draft: Any, coverage: Any, mechanics_placements: Any
 ) -> bool:
     if not isinstance(draft, str) or not isinstance(coverage, list):
         return False
@@ -1230,9 +2372,27 @@ def replay_matches(
         )
     except (TypeError, AttributeError):
         return False
+    try:
+        play_language = _infer_play_language_from_rendered(
+            str(receipt.get("rendered_text") or "")
+        )
+        _segments, rendered, _placements = compose_segments(
+            draft,
+            receipt.get("bundle") or {},
+            (
+                _placements_from_segments(receipt)
+                if mechanics_placements is None
+                else mechanics_placements
+            ),
+            coverage=normalized,
+            play_language=play_language,
+        )
+    except TurnContractError:
+        return False
     return (
         receipt.get("draft_sha256") == canonical_digest(draft)
         and receipt.get("coverage_sha256") == canonical_digest(normalized)
+        and receipt.get("rendered_sha256") == canonical_digest(rendered)
     )
 
 

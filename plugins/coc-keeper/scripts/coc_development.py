@@ -1824,9 +1824,10 @@ def _apply_inventory_settlement(
     """Merge the campaign-local runtime inventory into the library sheet.
 
     Net-diff semantics: runtime weapon entries become sheet weapons, sheet
-    weapons recorded under ``lost_weapon_ids`` are removed, and gear entry
-    labels append to ``equipment`` (exact-string dedupe).  Each net change
-    appends one ``inventory_settled`` event to the investigator's
+    weapons recorded under ``lost_weapon_ids`` are removed, sheet equipment
+    recorded under ``lost_equipment_ids`` is removed, and gear entry labels
+    append to ``equipment`` (exact-string dedupe). Each net change appends one
+    ``inventory_settled`` event to the investigator's
     ``inventory-history.jsonl``; event ids embed the ending id so a replayed
     settlement is a no-op.  Returns a summary, or None when nothing changed.
     """
@@ -1844,8 +1845,9 @@ def _apply_inventory_settlement(
         inv_state if isinstance(inv_state, dict) else {}
     )
     lost = set(inventory["lost_weapon_ids"])
+    lost_equipment = set(inventory["lost_equipment_ids"])
     entries = inventory["entries"]
-    if not lost and not entries:
+    if not lost and not lost_equipment and not entries:
         return None
 
     weapons = sheet.get("weapons")
@@ -1856,6 +1858,23 @@ def _apply_inventory_settlement(
     if not isinstance(equipment, list):
         equipment = []
         sheet["equipment"] = equipment
+
+    projected_equipment = {
+        entry["item_id"]: entry
+        for entry in coc_inventory.sheet_equipment_entries(equipment)
+    }
+    removed_gear: list[str] = []
+    kept_equipment: list[Any] = []
+    removed_equipment_ids: list[str] = []
+    for row in equipment:
+        item_id = coc_inventory.sheet_equipment_item_id(row)
+        if item_id is not None and item_id in lost_equipment:
+            projected = projected_equipment.get(item_id) or {}
+            removed_gear.append(str(projected.get("label") or item_id))
+            removed_equipment_ids.append(item_id)
+            continue
+        kept_equipment.append(row)
+    sheet["equipment"] = equipment = kept_equipment
 
     removed_weapons: list[str] = []
     kept: list[Any] = []
@@ -1884,7 +1903,10 @@ def _apply_inventory_settlement(
         present.add(wid)
         added_weapons.append(wid)
 
-    have_labels = {str(value) for value in equipment if isinstance(value, str)}
+    have_labels = {
+        str(entry["label"])
+        for entry in coc_inventory.sheet_equipment_entries(equipment)
+    }
     added_gear: list[str] = []
     for entry in entries:
         if entry["kind"] != "gear":
@@ -1895,7 +1917,7 @@ def _apply_inventory_settlement(
             have_labels.add(label)
             added_gear.append(label)
 
-    if not (added_weapons or removed_weapons or added_gear):
+    if not (added_weapons or removed_weapons or added_gear or removed_gear):
         return None
     _write_character(campaign_dir, investigator_id, sheet)
 
@@ -1919,6 +1941,10 @@ def _apply_inventory_settlement(
         [("add", "weapon", wid) for wid in added_weapons]
         + [("remove", "weapon", wid) for wid in removed_weapons]
         + [("add", "gear", label) for label in added_gear]
+        + [
+            ("remove", "gear", item_id)
+            for item_id in removed_equipment_ids
+        ]
     )
     for change, kind, item_id in changes:
         event_id = f"{ending_id}:{change}-{kind}:{item_id}"
@@ -1940,7 +1966,8 @@ def _apply_inventory_settlement(
         "added_weapons": added_weapons,
         "removed_weapons": removed_weapons,
         "added_gear": added_gear,
-        "merge_policy": "inventory_net_diff_v1",
+        "removed_gear": removed_gear,
+        "merge_policy": "inventory_net_diff_v2",
     }
 
 
