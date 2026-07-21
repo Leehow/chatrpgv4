@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:cf56d5f39e1f4350c4731607aba3ce0465436c8c6e99e089b098c6927788c84e",
+  "content_sha256": "sha256:e9cb46f2247edfb68bfe31f7a025a3bd1c5031d1f9dcf9acd9f9f149622d57bb",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -764,7 +764,7 @@
     },
     "npc.query": {
       "canonical_operation": "npc.query",
-      "description": "NPC agendas plus live psych state and the requested investigator/NPC's bounded textual impression. 'secret'-marked fields are keeper-only reference — never reveal verbatim. Canonical operation `npc.query`; the result envelope is authoritative.",
+      "description": "NPC agendas, live psych state, and compact first-contact readiness for one requested NPC. 'secret'-marked fields are keeper-only reference — never reveal verbatim. Canonical operation `npc.query`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -795,7 +795,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "NPC agendas plus live psych state and the requested investigator/NPC's bounded textual impression. 'secret'-marked fields are keeper-only reference — never reveal verbatim."
+      "summary": "NPC agendas, live psych state, and compact first-contact readiness for one requested NPC. 'secret'-marked fields are keeper-only reference — never reveal verbatim."
     },
     "npc.reaction": {
       "canonical_operation": "npc.reaction",

@@ -215,12 +215,23 @@ The KP may ignore late advice and does not call every domain every turn.
 
 | Slice | Status | Acceptance |
 |---|---|---|
-| A. Correct host-work state classes and counters | In Progress | Empty/unknown scope cannot be `ready`; claim skips no runnable work; stranded ready is zero; awakening/superseding is atomic under the existing host-work lock. |
-| B. Durable L1/L2/L3 projection and wake policy | In Progress | Existing requests add one `work_level` plus exact L1 `dependency_ref`; detached worker restart/idle exit loses no work; L1 is not a global gate. |
-| C. First-contact readiness vertical | In Progress | Normal NPC query first exposes requested-pair readiness and an unrolled impression card; authored truth is the fast path. Improvised persona persistence remains `Partial` until canonical accept/freeze exists. |
-| D. Source coordinator manager-to-leaf vertical | Not Done | Grok-only experimental agent/closed packet/distinct capability is discoverable; main KP hands off one claim/fan-out; leaves remain least-privilege; unsupported hosts do not claim. |
+| A. Correct host-work state classes and counters | Done (component) | Empty/unknown scope cannot be `ready`; claim skips no runnable work; stranded ready is zero; awakening/superseding is atomic under the existing host-work lock. |
+| B. Durable L1/L2/L3 projection and wake policy | Done (component) | Existing requests add one `work_level` plus exact L1 `dependency_ref`; detached worker restart/idle exit loses no work; L1 is not a global gate. |
+| C. First-contact readiness vertical | Partial | Normal single-NPC query exposes requested-pair readiness and an unrolled impression card; authored truth is the fast path. Improvised persona persistence and plugin-native replay remain incomplete. |
+| D. Source coordinator manager-to-leaf vertical | Not Done | Rejected from `0.4.3a`: Grok 0.2.106 forbids subagent-to-subagent spawning, and the proposed closed packet had no canonical producer. Retain the existing top-level KP-to-leaf path. |
 | E. Bounded appendix consumers | Deferred/Partial | Existing roster/mechanics locator warming belongs to B. At most one typed `combat_damage_multiplier` current-region vertical may proceed; generic special-rule packs and NPC graph are deferred until a normal rules/Director consumer exists. |
 | F. Real plugin-native replay | Not Done | Fresh campaign reaches actionable opening within 180 s and replays the multi-NPC first-contact path without late parse/persona construction. Exact reaction rolls still occur at contact. |
+
+Integrated component evidence on `0.4.3a`:
+
+- Host-work lifecycle: `147 passed`; related toolbox/module-project selection:
+  `85 passed, 318 deselected`.
+- First-contact readiness: `337 passed` in the full toolbox file; metadata
+  gate `23 passed`.
+- Post-merge cross-domain regression: `568 passed`.
+- These results establish deterministic component contracts only. Slice F is
+  still required before claiming the three-minute opening or live-KP product
+  acceptance.
 
 ## Validation order
 
