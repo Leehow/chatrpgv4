@@ -48,6 +48,13 @@ JOB_KINDS = frozenset({
 FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
 MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
 MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
+HOST_WORK_CLOSED_STATUSES = frozenset({
+    "fulfilled", "cancelled", "superseded",
+})
+HOST_WORK_LEVELS = ("L1", "L2", "L3")
+HOST_WORK_OPEN_CLASSES = (
+    "runnable", "leased", "awaiting_scope", "awaiting_cache",
+)
 OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES = 96
 FULFILLED_PACK_RECEIPT_SCHEMA_VERSION = 1
 FULFILLED_PACK_DIGEST_KIND = "canonical_entity_pack"
@@ -331,41 +338,6 @@ def _host_request_still_current(
     updated_at = str((pack or {}).get("updated_at") or "")
     completed_at = str(row.get("completed_at") or "")
     return not updated_at or not completed_at or updated_at <= completed_at
-
-
-def _supersede_host_requests(
-    workspace: Path,
-    asset_root_id: str,
-    rows: list[dict[str, Any]],
-    *,
-    replacement_job_id: str,
-) -> list[str]:
-    """Close open handoffs whose exact entity evidence scope has changed."""
-    superseded: list[str] = []
-    for row in rows:
-        job_id = str(row.get("job_id") or "").strip()
-        if not job_id:
-            continue
-        path = _module_dir(workspace, asset_root_id) / "host-work" / f"{job_id}.json"
-        if not path.is_file():
-            continue
-        try:
-            request = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if str(request.get("status") or "") in {
-            "fulfilled", "cancelled", "superseded",
-        }:
-            continue
-        request.update({
-            "status": "superseded",
-            "dispatch_state": "superseded",
-            "superseded_at": _now_iso(),
-            "superseded_by_job_id": replacement_job_id,
-        })
-        _write_json(path, request)
-        superseded.append(job_id)
-    return superseded
 
 
 def _host_request_scope_is_covered(
@@ -3040,6 +3012,65 @@ def _refresh_host_work_cache(
     return changed
 
 
+def host_work_operational_class(request: dict[str, Any]) -> str:
+    """Return one disjoint lifecycle class without trusting legacy ``ready``."""
+    status = str(request.get("status") or "open")
+    if status == "fulfilled":
+        return "fulfilled"
+    if status in {"cancelled", "superseded"}:
+        return "stale"
+    if str(request.get("dispatch_state") or "") == "leased":
+        return "leased"
+    requested = request.get("requested_pdf_indices")
+    exact_scope = (
+        isinstance(requested, list)
+        and bool(requested)
+        and not any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in requested
+        )
+    )
+    if not exact_scope:
+        return "awaiting_scope"
+    if request.get("cached_scope_complete") is not True:
+        return "awaiting_cache"
+    return "runnable"
+
+
+def _sync_host_work_dispatch_state(request: dict[str, Any]) -> bool:
+    """Persist the dispatch state implied by exact scope/cache/lease facts."""
+    operational_class = host_work_operational_class(request)
+    expected = (
+        "ready" if operational_class == "runnable"
+        else str(request.get("status") or "superseded")
+        if operational_class == "stale"
+        else operational_class
+    )
+    changed = str(request.get("dispatch_state") or "") != expected
+    request["dispatch_state"] = expected
+    return changed
+
+
+def _refresh_host_work_lifecycle(
+    workspace: Path,
+    asset_root_id: str,
+    request: dict[str, Any],
+    *,
+    now: datetime,
+) -> bool:
+    """Refresh cache availability and recover an expired lease in place."""
+    changed = _refresh_host_work_cache(workspace, asset_root_id, request)
+    if _lease_is_expired(request, now):
+        request["last_lease_expired_at"] = now.isoformat()
+        request.pop("dispatch_state", None)
+        for key in (
+            "lease_id", "leased_at", "lease_expires_at", "executor_id",
+        ):
+            request.pop(key, None)
+        changed = True
+    return _sync_host_work_dispatch_state(request) or changed
+
+
 def _lease_is_expired(request: dict[str, Any], now: datetime) -> bool:
     if str(request.get("dispatch_state") or "ready") != "leased":
         return False
@@ -3084,9 +3115,16 @@ def claim_host_work_requests(
     module_root = _module_dir(workspace, asset_root_id)
     work_dir = module_root / "host-work"
     if not work_dir.is_dir():
-        return {"packets": [], "leased_group_count": 0, "ready_group_count": 0}
+        return {
+            "packets": [],
+            "leased_group_count": 0,
+            "ready_group_count": 0,
+            "cached_only": bool(cached_only),
+            "lifecycle": host_work_lifecycle_summary(
+                workspace, asset_root_id,
+            ),
+        }
     now = datetime.now(timezone.utc)
-    closed = {"fulfilled", "cancelled", "superseded"}
     rows: list[tuple[Path, dict[str, Any]]] = []
     with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
         for path in sorted(work_dir.glob("*.json")):
@@ -3096,27 +3134,14 @@ def claim_host_work_requests(
                 continue
             if not isinstance(request, dict):
                 continue
-            if str(request.get("status") or "open") in closed:
+            if str(request.get("status") or "open") in HOST_WORK_CLOSED_STATUSES:
                 continue
-            changed = _refresh_host_work_cache(
-                workspace, asset_root_id, request,
+            changed = _refresh_host_work_lifecycle(
+                workspace, asset_root_id, request, now=now,
             )
-            if _lease_is_expired(request, now):
-                request["dispatch_state"] = "ready"
-                request["last_lease_expired_at"] = now.isoformat()
-                for key in (
-                    "lease_id", "leased_at", "lease_expires_at", "executor_id",
-                ):
-                    request.pop(key, None)
-                changed = True
             if changed:
                 _write_json(path, request)
-            if str(request.get("dispatch_state") or "ready") != "ready":
-                continue
-            indices = request.get("requested_pdf_indices") or []
-            if not indices:
-                continue
-            if cached_only and request.get("cached_scope_complete") is not True:
+            if host_work_operational_class(request) != "runnable":
                 continue
             rows.append((path, request))
 
@@ -3160,6 +3185,7 @@ def claim_host_work_requests(
                         "cached_scope_complete", "batch_subjects",
                         "request_purpose", "requested_source_scope",
                         "source_scope_signature", "result_contract",
+                        "work_level", "consumer", "dependency",
                     )
                 })
             exemplar = members[0][1]
@@ -3189,6 +3215,17 @@ def claim_host_work_requests(
                         "idle_warm": 3,
                     }.get(value, 9),
                 ),
+                "work_level": min(
+                    (
+                        str(row[1].get("work_level") or "L2_near_term")
+                        for row in members
+                    ),
+                    key=lambda value: {
+                        "L1_current_dependency": 0,
+                        "L2_near_term": 1,
+                        "L3_bounded_warm": 2,
+                    }.get(value, 9),
+                ),
                 "requested_pdf_indices": list(
                     exemplar.get("requested_pdf_indices") or []
                 ),
@@ -3197,15 +3234,19 @@ def claim_host_work_requests(
                 ),
                 "requests": packet_requests,
             })
-    return {
+    result = {
         "packets": packets,
         "leased_group_count": len(packets),
         "ready_group_count": len(ordered_groups),
         "cached_only": bool(cached_only),
     }
+    result["lifecycle"] = host_work_lifecycle_summary(
+        workspace, asset_root_id,
+    )
+    return result
 
 
-def list_host_work_requests(
+def _list_host_work_requests_unlocked(
     workspace: Path,
     asset_root_id: str,
     *,
@@ -3221,8 +3262,8 @@ def list_host_work_requests(
     work_dir = _module_dir(workspace, asset_root_id) / "host-work"
     if not work_dir.is_dir():
         return []
-    closed = {"fulfilled", "cancelled", "superseded"}
     rows: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc)
     for path in sorted(work_dir.glob("*.json")):
         try:
             request = json.loads(path.read_text(encoding="utf-8"))
@@ -3231,10 +3272,20 @@ def list_host_work_requests(
         if not isinstance(request, dict):
             continue
         status = str(request.get("status") or "open")
-        if not include_closed and status in closed:
+        if status not in HOST_WORK_CLOSED_STATUSES and _refresh_host_work_lifecycle(
+            workspace, asset_root_id, request, now=now,
+        ):
+            _write_json(path, request)
+        if not include_closed and status in HOST_WORK_CLOSED_STATUSES:
             continue
         requested_indices = list(request.get("requested_pdf_indices") or [])
         source_scope_known = bool(requested_indices)
+        deadline_class = request.get("deadline_class") or "next_turn_hot"
+        work_level = request.get("work_level") or (
+            "L1_current_dependency" if deadline_class == "blocking_micro"
+            else "L3_bounded_warm" if deadline_class == "idle_warm"
+            else "L2_near_term"
+        )
         rows.append({
             "job_id": request.get("job_id"),
             "asset_root_id": request.get("asset_root_id"),
@@ -3262,9 +3313,21 @@ def list_host_work_requests(
             "cached_scope_complete": request.get("cached_scope_complete"),
             "batch_subjects": list(request.get("batch_subjects") or []),
             "source_aspect": request.get("source_aspect") or "body",
-            "deadline_class": request.get("deadline_class") or "next_turn_hot",
+            "deadline_class": deadline_class,
+            "work_level": work_level,
+            "consumer": (
+                json.loads(json.dumps(request.get("consumer")))
+                if isinstance(request.get("consumer"), dict)
+                else None
+            ),
+            "dependency": (
+                json.loads(json.dumps(request.get("dependency")))
+                if isinstance(request.get("dependency"), dict)
+                else None
+            ),
             "work_group_id": request.get("work_group_id"),
-            "dispatch_state": request.get("dispatch_state") or "ready",
+            "dispatch_state": request.get("dispatch_state") or "awaiting_scope",
+            "operational_class": host_work_operational_class(request),
             "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
             "executor_id": request.get("executor_id"),
             "lease_id": request.get("lease_id"),
@@ -3295,6 +3358,65 @@ def list_host_work_requests(
     if limit is None:
         return rows
     return rows[:max(0, int(limit))]
+
+
+def list_host_work_requests(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    include_closed: bool = False,
+    limit: int | None = 8,
+) -> list[dict[str, Any]]:
+    """Read and refresh host work under its canonical lifecycle lock."""
+    module_root = _module_dir(workspace, asset_root_id)
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        return _list_host_work_requests_unlocked(
+            workspace,
+            asset_root_id,
+            include_closed=include_closed,
+            limit=limit,
+        )
+
+
+def host_work_lifecycle_summary(
+    workspace: Path,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Return disjoint durable lifecycle counts, including per-level work."""
+    rows = list_host_work_requests(
+        workspace, asset_root_id, include_closed=True, limit=None,
+    )
+    classes = (*HOST_WORK_OPEN_CLASSES, "stale", "fulfilled")
+    counts = {
+        f"{name}_count": sum(
+            row.get("operational_class") == name for row in rows
+        )
+        for name in classes
+    }
+    by_work_level = {
+        level: {
+            name: sum(
+                str(row.get("work_level") or "L2").startswith(level)
+                and row.get("operational_class") == name
+                for row in rows
+            )
+            for name in HOST_WORK_OPEN_CLASSES
+        }
+        for level in HOST_WORK_LEVELS
+    }
+    open_host_work_count = sum(
+        counts[f"{name}_count"] for name in HOST_WORK_OPEN_CLASSES
+    )
+    return {
+        "open_host_work_count": open_host_work_count,
+        **counts,
+        "stranded_ready_count": sum(
+            row.get("dispatch_state") == "ready"
+            and row.get("operational_class") != "runnable"
+            for row in rows
+        ),
+        "by_work_level": by_work_level,
+    }
 
 
 def put_entity(
@@ -3811,6 +3933,16 @@ def enqueue_job(
                 "reason": str(reason or ""),
                 "enqueued_at": _now_iso(),
             }
+            pending_supersedes = sorted({
+                str(row.get("job_id") or "").strip()
+                for row in stale_host_rows
+                if str(row.get("job_id") or "").strip()
+            })
+            if pending_supersedes:
+                # The queue worker carries these exact row identities into the
+                # host-work lock, where replacement creation and stale closure
+                # happen as one visible lifecycle transition.
+                job["supersedes_host_job_ids"] = pending_supersedes
             if exact_source_scope is not None:
                 job.update({
                     "request_purpose": exact_request_purpose,
@@ -3829,16 +3961,7 @@ def enqueue_job(
             _write_json(path, queue)
         else:
             job = deduped_job
-    superseded_host_job_ids = (
-        _supersede_host_requests(
-            workspace,
-            asset_root_id,
-            stale_host_rows,
-            replacement_job_id=str(job.get("job_id") or ""),
-        )
-        if deduped_job is None and stale_host_rows
-        else []
-    )
+    pending_supersedes = list(job.get("supersedes_host_job_ids") or [])
     # Non-blocking: dig/enter must not wait on host PDF. Background worker
     # claims pending jobs in parallel and merges ready packs.
     kick: dict[str, Any] | None = None
@@ -3857,7 +3980,8 @@ def enqueue_job(
         "job": job,
         "deduped": deduped_job is not None,
         "dedupe_state": dedupe_state,
-        "superseded_host_job_ids": superseded_host_job_ids,
+        "superseded_host_job_ids": [],
+        "pending_supersede_host_job_ids": pending_supersedes,
         "worker_kick": kick,
     }
 
