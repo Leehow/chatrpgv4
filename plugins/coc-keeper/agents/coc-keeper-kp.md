@@ -154,15 +154,31 @@ NPC's profile is not ready. This is not for every NPC or every turn, and
 observation, positioning, parley, and other play that does not depend on the
 missing numbers may continue. If `combat.resolve` returns
 `mechanics_not_ready`, or `mechanics.ensure` returns `source_work_required`,
-immediately invoke `progressive.claim_host_work` and spawn the exact returned
-packet as the unqualified `coc-source-pack-worker` with `background=true`.
+immediately use the exact `background_takeover.coordinator_dispatch.packet`
+when `coc_source_coordinator_v1=true`; otherwise retain the separately
+advertised direct-leaf path below.
 Never bypass that authored-source lifecycle with `rules.roll`,
 `rules.opposed`, `rules.damage`, copied stub values, or a generic profile. The
 current mechanics-dependent settlement may remain pending under the existing
 `blocking_micro` semantics; this creates no new narrative or output gate, and
 non-dependent live play may continue.
 
-When capability discovery returns `coc_source_pack_worker_v1=true`, invoke
+When capability discovery returns `coc_source_coordinator_v1=true`, status
+`experimental`, adapter `manager_exact_forward`, and a positive
+`max_source_coordinator_leaves`, spawn exactly one custom
+`coc-source-coordinator` Task with `background=true`. Its entire prompt is the
+exact repository-produced `background_takeover.coordinator_dispatch.packet`;
+do not fill, rewrite, or surround it. The coordinator claims once, runs exact
+source-pack leaves, and forwards each valid result row through canonical
+fulfillment. Never wait for or retrieve its compact audit summary. One
+classified failure is allowed to remain transient; three observed occurrences
+of the same class on this adapter are a design issue, not model variance. This
+is advisory source work and never a player-action, narration, or output gate.
+Task support alone is not this capability. Never infer nested MCP access from
+the host brand, model name, or a successful generic child task.
+
+Only when that distinct coordinator capability is unavailable and capability
+discovery returns `coc_source_pack_worker_v1=true`, invoke
 `progressive.claim_host_work` once and actually spawn each returned exact packet
 as a `coc-source-pack-worker` Task with `background=true`, up to
 `max_background_source_workers`. The serialized claimed packet JSON is the
@@ -175,8 +191,9 @@ never module truth or campaign truth, then deliver the character confirmation
 text immediately without waiting. A claimed packet transfers its exact page
 read to the child: this main KP must not read those claimed packet pages,
 manually construct their pack, or fulfill the claim from its own source
-interpretation. If capability is absent, do not fake a Task, invent a task ID,
-or claim for an imaginary child. `coc-character` does not own this lifecycle.
+interpretation. If both applicable capabilities are absent, do not fake a Task,
+invent a task ID, or claim for an imaginary child. `coc-character` does not own
+this lifecycle.
 
 On Grok, the source child owns submission through its named submit-only MCP.
 The submit server validates and merges without the main KP. Treat the host

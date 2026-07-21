@@ -36,8 +36,10 @@
       "deadline_class",
       "requested_pdf_indices",
       "cached_scope_complete",
+      "result_delivery",
       "requests"
     ],
+    "result_delivery_values": ["named_submit", "return_to_parent"],
     "source_aspect_values": ["body", "mechanics"],
     "deadline_class_values": [
       "blocking_micro",

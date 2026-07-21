@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:e9cb46f2247edfb68bfe31f7a025a3bd1c5031d1f9dcf9acd9f9f149622d57bb",
+  "content_sha256": "sha256:d42cab0b5c6aac859cdd1c8f39202fd57e462b8826c8cce04fb58d5e7344b03a",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -903,6 +903,14 @@
             "maximum": 4,
             "minimum": 1,
             "type": "integer"
+          },
+          "result_delivery": {
+            "description": "worker result transport: direct named submit by default, or exact return to a lifecycle coordinator",
+            "enum": [
+              "named_submit",
+              "return_to_parent"
+            ],
+            "type": "string"
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",

@@ -9711,6 +9711,100 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 # flow.* — read-only queries (former gates surface as info)
 # --------------------------------------------------------------------------- #
 
+
+def _source_coordinator_dispatch(
+    *,
+    campaign_id: str,
+    asset_root_id: str,
+    ready_background: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the exact prompt packet for one host-native source coordinator.
+
+    This is projection only.  The repository queue remains authoritative and
+    no work is leased until the coordinator invokes the existing claim card.
+    Keeping construction here prevents the Keeper from synthesizing a packet
+    from prose or host-specific assumptions.
+    """
+    group_ids = sorted({
+        str(row.get("work_group_id") or row.get("job_id") or "")
+        for row in ready_background
+        if str(row.get("work_group_id") or row.get("job_id") or "")
+    })
+    max_leaves = min(4, len(group_ids))
+    packet_material = {
+        "campaign_id": campaign_id,
+        "asset_root_id": asset_root_id,
+        "groups": [
+            {
+                "work_group_id": group_id,
+                "jobs": sorted(
+                    str(row.get("job_id") or "")
+                    for row in ready_background
+                    if str(row.get("work_group_id") or row.get("job_id") or "")
+                    == group_id
+                ),
+            }
+            for group_id in group_ids
+        ],
+    }
+    packet_digest = hashlib.sha256(
+        json.dumps(
+            packet_material,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:20]
+    executor_digest = hashlib.sha256(
+        f"{campaign_id}:{asset_root_id}".encode("utf-8")
+    ).hexdigest()[:20]
+    packet = {
+        "schema_version": 1,
+        "contract_id": "coc.source-coordinator.v1",
+        "packet_id": f"source-coordinator-{packet_digest}",
+        "adapter_mode": "manager_exact_forward",
+        "campaign_id": campaign_id,
+        "asset_root_id": asset_root_id,
+        "claim_operation": {
+            "operation": "progressive.claim_host_work",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "executor_id": f"source-coordinator:{executor_digest}",
+                "limit": max_leaves,
+                "result_delivery": "return_to_parent",
+            },
+            "missing_arguments": [],
+            "authority": "advisory",
+            "hard_gate": False,
+        },
+        "max_leaves": max_leaves,
+        "leaf_worker": {
+            "agent_type": "coc-source-pack-worker",
+            "run_in_background": False,
+            "prompt_binding": "one exact returned packets[] value",
+            "result_binding": (
+                "forward every exact usable results[] value once through "
+                "progressive.fulfill_host_work"
+            ),
+        },
+        "failure_policy": {
+            "authority": "prompt_first_advisory",
+            "single_failure": "transient_allowed",
+            "same_failure_escalation_threshold": 3,
+            "threshold_outcome": "design_issue",
+            "same_task_retry": False,
+            "player_action_gate": False,
+            "narrative_gate": False,
+            "output_gate": False,
+        },
+    }
+    return {
+        "agent_type": "coc-source-coordinator",
+        "run_in_background": True,
+        "task_prompt": "one bare coordinator_dispatch.packet JSON object",
+        "packet": packet,
+    }
+
 @tool(
     "scene.context",
     "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time.",
@@ -10192,6 +10286,11 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                         "authority": "advisory",
                         "hard_gate": False,
                     },
+                    "coordinator_dispatch": _source_coordinator_dispatch(
+                        campaign_id=str(ctx.campaign_id),
+                        asset_root_id=asset_root_id,
+                        ready_background=ready_background,
+                    ),
                     "host_dispatch": {
                         "worker_profile": "coc-source-pack-worker",
                         "background": True,
@@ -12230,6 +12329,14 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
             "maximum": 3600,
             "desc": "crash-recovery lease duration (default 600 seconds)",
         },
+        "result_delivery": {
+            "type": "string",
+            "enum": ["named_submit", "return_to_parent"],
+            "desc": (
+                "worker result transport: direct named submit by default, or "
+                "exact return to a lifecycle coordinator"
+            ),
+        },
     },
 )
 def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
@@ -12247,16 +12354,17 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
             limit=args.get("limit", 1),
             lease_seconds=args.get("lease_seconds", 600),
             cached_only=True,
+            result_delivery=str(args.get("result_delivery") or "named_submit"),
         )
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
     hints = [
         "spawn one background source-pack child per returned packet and continue "
         "play; give the child that one bare packet without transcript or prose wrapper",
-        "when the host exposes direct submit, the child submits itself and the parent "
-        "never waits, polls, retrieves output, or calls progressive.fulfill_host_work; "
-        "only an adapter without direct submit inspects once later and forwards each "
-        "exact results[i] unchanged through that fallback operation",
+        "obey each packet's result_delivery exactly: named_submit lets the child "
+        "submit itself without parent polling, while return_to_parent is reserved "
+        "for a capability-advertised lifecycle coordinator that reads once and "
+        "forwards each exact results[i] through progressive.fulfill_host_work",
     ]
     if not result.get("packets"):
         hints.append(

@@ -36,12 +36,13 @@ or component tests with no normal host path consuming the feature.
 4. “Persistent background parsing” means durable work state plus reliable
    wake-up after enqueue, scope discovery, cache availability, lease expiry,
    or process loss. It does not require an immortal process.
-5. The first hierarchy is deliberately narrow: one source coordinator may
+5. The proposed hierarchy is deliberately narrow: one source coordinator may
    claim existing durable packets and fan them out to existing source-pack
-   leaves. Its first executable adapter is Grok `leaf_direct_submit`; Codex
-   exact-forward and Pi remain unproved and unavailable in this slice. It does
-   not select player actions, read campaign transcripts, compile packs itself,
-   or become a second KP.
+   leaves. No host currently advertises this capability. Grok cannot spawn the
+   required nested leaf, and Cursor's interactive nested Task cannot access the
+   configured COC MCP. The closed packet and agent definition therefore remain
+   `unintegrated`; they do not select player actions, read campaign transcripts,
+   compile packs themselves, or become a second KP.
 6. Rules orchestration is initially a compact deterministic readiness
    projection, not another LLM agent. Director remains optional, advisory, and
    nonblocking. This preserves domain separation without adding three new
@@ -67,11 +68,11 @@ Main KP -- compact cards --> source coordinator --> source-pack leaves
    +--> final semantic choice, causality, portrayal and player prose
 ```
 
-The coordinator reuses `progressive.claim_host_work`; it does not replace the
-repository queue, invent another work graph, or aggregate child prose back into
-the KP context. On direct-submit hosts, leaves write through the existing
-strict source-result boundary. On non-direct hosts the capability remains
-explicitly host-gated until an equivalent durable result path is proven.
+The coordinator contract reuses `progressive.claim_host_work`; it does not
+replace the repository queue, invent another work graph, or aggregate child
+prose back into the KP context. The repository emits its exact closed packet,
+but every host remains fail-closed until a real adapter proves Task nesting,
+MCP access, exact result forwarding, and durable fulfillment together.
 
 ## Three work levels
 
@@ -161,17 +162,15 @@ Rules:
 The source coordinator is a host-side lifecycle manager with one level of
 bounded fan-out.
 
-It may, on a host that explicitly advertises the coordinator/nested path:
+It may, only on a host that explicitly advertises the coordinator/nested path:
 
 - consume a compact takeover packet containing source identity, counts, claim
   operation, host adapter facts, and the current dependency identity;
 - call the existing claim operation with a bounded executor id;
 - spawn at most the host-declared maximum source-pack leaves from the exact
   returned packets;
-- in `leaf_direct_submit` mode, rely on child durable submit and never retrieve
-  child output;
-- in a future `manager_exact_forward` mode, retrieve each child result once and
-  forward it unchanged through the existing strict fulfillment operation;
+- in `manager_exact_forward` mode, retrieve each child result once and forward
+  it unchanged through the existing strict fulfillment operation;
 - return only a compact liveness/dispatch summary.
 
 It may not:
@@ -185,10 +184,13 @@ It may not:
 - wait for L2/L3 results before allowing the KP to answer.
 
 Maximum nesting depth is two (`KP -> source coordinator -> source-pack leaf`).
-Leaves remain unable to spawn. The first implementation targets Grok
-`leaf_direct_submit` only and stays `experimental/host-specific` until a real
-claim -> manager -> leaf -> durable fulfillment run proves it. Unsupported
-hosts do not claim work and must not pretend work was dispatched.
+Leaves remain unable to spawn. The contract is prompt-first: one classified
+failure may be treated as transient, but three observations of the same class
+on the same adapter are a design issue. That threshold was reached for
+Cursor's nested MCP access, so Cursor is `unavailable`, not `experimental`.
+Unsupported hosts do not claim work and must not pretend work was dispatched.
+This escalation changes the capability declaration; it never becomes a player
+input, narration, or output gate.
 
 ## Domain readiness presented to the KP
 
@@ -218,7 +220,7 @@ The KP may ignore late advice and does not call every domain every turn.
 | A. Correct host-work state classes and counters | Done (component) | Empty/unknown scope cannot be `ready`; claim skips no runnable work; stranded ready is zero; awakening/superseding is atomic under the existing host-work lock. |
 | B. Durable L1/L2/L3 projection and wake policy | Done (component) | Existing requests add one `work_level` plus exact L1 `dependency_ref`; detached worker restart/idle exit loses no work; L1 is not a global gate. |
 | C. First-contact readiness vertical | Partial | Normal single-NPC query exposes requested-pair readiness and an unrolled impression card; authored truth is the fast path. Improvised persona persistence and plugin-native replay remain incomplete. |
-| D. Source coordinator manager-to-leaf vertical | Not Done | Rejected from `0.4.3a`: Grok 0.2.106 forbids subagent-to-subagent spawning, and the proposed closed packet had no canonical producer. Retain the existing top-level KP-to-leaf path. |
+| D. Source coordinator manager-to-leaf vertical | Blocked / Unintegrated | The repository now has a canonical closed packet producer and exact `return_to_parent` transport contract. Grok cannot perform nested Task. Cursor 2026.07.17 with `cursor-grok-4.5-high` proves interactive background and nested Task, but nested custom agents cannot access the configured COC MCP. The same `capability_mismatch` class occurred three times, so Cursor remains disabled and no end-to-end claim/leaf/fulfill acceptance is claimed. |
 | E. Bounded appendix consumers | Deferred/Partial | Existing roster/mechanics locator warming belongs to B. At most one typed `combat_damage_multiplier` current-region vertical may proceed; generic special-rule packs and NPC graph are deferred until a normal rules/Director consumer exists. |
 | F. Real plugin-native replay | Not Done | Fresh campaign reaches actionable opening within 180 s and replays the multi-NPC first-contact path without late parse/persona construction. Exact reaction rolls still occur at contact. |
 
@@ -232,6 +234,21 @@ Integrated component evidence on `0.4.3a`:
 - These results establish deterministic component contracts only. Slice F is
   still required before claiming the three-minute opening or live-KP product
   acceptance.
+
+Cursor adapter evidence for the unintegrated coordinator slice:
+
+- Cursor CLI `2026.07.17-3e2a980` with `cursor-grok-4.5-high` completed a
+  top-level model probe, custom foreground agent probe, interactive background
+  Task, and nested generic Task.
+- Headless `--print` Task dispatch repeatedly failed to produce activation or
+  completion and is not an advertised background transport.
+- Two coordinator probes and one unrelated custom-agent control probe all
+  lacked nested access to the configured COC MCP. No claim occurred; the test
+  host-work row remained `ready` with zero dispatch attempts.
+- The fail-closed slice passes plugin metadata (`24 passed`), MCP wire
+  contracts (`35 passed`), and the full toolbox file (`338 passed`).
+- This is component/adapter evidence only. It is not a plugin-native playtest,
+  an opening-SLO run, or source-coordinator product acceptance.
 
 ## Validation order
 
@@ -282,4 +299,5 @@ tests support but do not establish the SLO or KP quality.
 - If the clean integration branch encounters concurrent edits in the same
   files, stop that lane rather than stashing or overwriting another worker.
 - If real host nested spawning or MCP inheritance cannot be proven, keep the
-  coordinator experimental and report the exact missing adapter evidence.
+  coordinator capability disabled and label its contract unintegrated. Task
+  support alone is not sufficient evidence.

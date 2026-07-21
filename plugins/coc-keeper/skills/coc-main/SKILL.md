@@ -114,9 +114,21 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    `run_terminal_command`, `find`, `ls`, `rg`, globbing, directory enumeration,
    repository search, speculative page reads, or any unselected/all-module body
    read. Then create the exact contiguous
-   1–3-page `partial_opening` request and make one host-work claim when the
-   advertised source-worker capability is available.
-   A claimed packet must launch a real `coc-source-pack-worker` with
+   1–3-page `partial_opening` request. When capabilities advertise the
+   experimental `coc_source_coordinator_v1=true` /
+   `manager_exact_forward` adapter, spawn exactly one custom
+   `coc-source-coordinator` with `background=true`; its entire prompt is the
+   exact `background_takeover.coordinator_dispatch.packet`. Do not construct,
+   fill, wait for, poll, or retrieve that packet/task. The manager claims once,
+   runs exact leaves, and forwards valid result rows through canonical
+   fulfillment. Its failure classes are audit evidence: one occurrence may be
+   transient, while three observed occurrences of the same class are a design
+   issue. None of this gates player input, narration, or unrelated play.
+   Task support alone is insufficient; never infer nested MCP access from a
+   host brand, model name, or successful generic child task.
+   Otherwise make one host-work claim only when the separately advertised
+   source-worker capability is available. A claimed packet must launch a real
+   `coc-source-pack-worker` with
    `background=true`; on Grok, use the focused unqualified user-agent projection
    of the installed definition because 0.2.106 suppresses MCPs on plugin
    subagents. Keep its narrow read plus named-submit profile without overriding
@@ -138,8 +150,9 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    through a later naturally needed canonical entity/mechanics or
    opening-projection query, never a reassurance query. Other hosts retain the
    exact unchanged-result fallback.
-   Unfinished work does not delay character flow. A host without the advertised
-   child capability must not fake a Task or claim work for an imaginary child.
+   Unfinished work does not delay character flow. A host without an applicable
+   coordinator or direct-child capability must not fake a Task or claim work
+   for an imaginary child.
 8. Route ordinary play to `coc-keeper-play`.
 9. Route rules questions and challenges to `coc-meta`.
 10. Route combat, chase, sanity, and spell events to their subsystem skills;

@@ -417,6 +417,24 @@ scene adviser and never a second Keeper. Use it only when host capabilities say
 `coc_source_pack_worker_v1=true`. The canonical machine contract is
 `plugins/coc-keeper/references/source-pack-worker-v1.json`.
 
+`coc.source-coordinator.v1` is the optional host-side manager contract at
+`plugins/coc-keeper/references/source-coordinator-v1.json`. Use it only when
+capabilities explicitly advertise `coc_source_coordinator_v1=true`, status
+`experimental`, adapter `manager_exact_forward`, and a positive leaf maximum.
+The main KP launches one custom `coc-source-coordinator` in the background with
+the exact `progressive.background_takeover.coordinator_dispatch.packet` as its
+entire prompt. The packet is produced by the canonical scene projection; the
+KP never builds or edits it. The manager calls claim once, invokes one exact
+source-pack leaf per returned packet, reads each leaf result once, and forwards
+every exact usable `results[]` row through `progressive.fulfill_host_work`.
+It cannot read source pages, repair output, retry in the same task, or make KP
+decisions. The KP continues immediately and never retrieves the manager's
+summary. Failure summaries use stable classes: one occurrence may be transient,
+but three observed occurrences of the same class on the same adapter require a
+design review. This escalation is observability, not a runtime or prose gate.
+Task support alone is insufficient; never infer nested MCP access from the host
+brand, model name, or a successful generic child Task.
+
 During fresh source-bundle setup, begin a pre-confirmation opening warm start
 after `scenario.bind_pdf` and before delivering the investigator card that is
 pending player confirmation. The main KP first performs the bounded
@@ -427,7 +445,9 @@ not background work. Do not read the full module, neighboring-location packets,
 or appendix/mechanics pages.
 
 After that setup request, or after an enter/dig/mechanics call exposes open host
-work, invoke `progressive.claim_host_work` with a stable host/session executor id
+work, prefer the exact coordinator dispatch above when its distinct capability
+is present. Otherwise invoke `progressive.claim_host_work` under the separately
+advertised direct-leaf capability with a stable host/session executor id
 and a limit no greater than `max_background_source_workers`. During the
 pre-confirmation warm start, claim once only. The operation coalesces exact page
 scopes, leases them for crash recovery, and returns one bare

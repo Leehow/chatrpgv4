@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.source-coordinator.v1",
+  "status": "unintegrated",
+  "product_complete": false,
+  "parity_claim": false,
+  "canonical_caller": {
+    "owner": "main_keeper",
+    "trigger": "progressive.background_takeover.coordinator_dispatch",
+    "dispatch_count": 1,
+    "agent_type": "coc-source-coordinator",
+    "background": true,
+    "task_prompt": "one_bare_coordinator_dispatch.packet_json_object",
+    "forbidden_context": [
+      "player_transcript",
+      "module_body",
+      "campaign_state",
+      "source_page_text",
+      "keeper_reasoning"
+    ]
+  },
+  "packet": {
+    "closed": true,
+    "allowed_fields": [
+      "schema_version",
+      "contract_id",
+      "packet_id",
+      "adapter_mode",
+      "campaign_id",
+      "asset_root_id",
+      "claim_operation",
+      "max_leaves",
+      "leaf_worker",
+      "failure_policy"
+    ],
+    "required_fields": [
+      "schema_version",
+      "contract_id",
+      "packet_id",
+      "adapter_mode",
+      "campaign_id",
+      "asset_root_id",
+      "claim_operation",
+      "max_leaves",
+      "leaf_worker",
+      "failure_policy"
+    ],
+    "fixed_fields": {
+      "schema_version": 1,
+      "contract_id": "coc.source-coordinator.v1",
+      "adapter_mode": "manager_exact_forward"
+    },
+    "producer": "scene.context progressive background takeover projection",
+    "main_keeper_mutation_allowed": false,
+    "claim_operation": {
+      "operation": "progressive.claim_host_work",
+      "invoke_via": "coc_invoke",
+      "missing_arguments": [],
+      "prefilled_arguments": [
+        "executor_id",
+        "limit",
+        "result_delivery"
+      ],
+      "result_delivery": "return_to_parent",
+      "limit_minimum": 1,
+      "limit_maximum": 4
+    },
+    "leaf_worker": {
+      "agent_type": "coc-source-pack-worker",
+      "run_in_background": false,
+      "prompt_binding": "one exact returned packets[] value",
+      "result_binding": "each exact usable results[] value through progressive.fulfill_host_work once"
+    }
+  },
+  "authority": {
+    "claim_calls": 1,
+    "may_read_source_pages": false,
+    "may_read_campaign_state": false,
+    "may_compile_or_repair_source_pack": false,
+    "may_choose_player_action_or_keeper_prose": false,
+    "may_spawn_agent_types": [
+      "coc-source-pack-worker"
+    ],
+    "leaf_packets_forwarded_unchanged": true,
+    "leaf_result_items_forwarded_unchanged": true,
+    "max_nesting_depth": 2
+  },
+  "lifecycle": {
+    "adapter_mode": "manager_exact_forward",
+    "leaf_agent_type": "coc-source-pack-worker",
+    "leaf_background": false,
+    "manager_background": true,
+    "manager_waits_for_each_leaf": true,
+    "manager_leaf_output_reads": 1,
+    "manager_calls_fulfill_host_work": true,
+    "manager_repairs_or_retries": false,
+    "main_keeper_waits": false,
+    "main_keeper_retrieves_result": false,
+    "manager_completion_meaning": "notification_and_audit_only"
+  },
+  "failure_policy": {
+    "authority": "prompt_first_advisory",
+    "single_failure": "transient_allowed",
+    "same_failure_escalation_threshold": 3,
+    "threshold_outcome": "design_issue",
+    "runtime_gate": false,
+    "player_output_gate": false,
+    "same_task_retry": false,
+    "required_failure_classes": [
+      "invalid_packet",
+      "capability_mismatch",
+      "claim_failed",
+      "leaf_dispatch_failed",
+      "leaf_result_not_bare",
+      "leaf_result_invalid",
+      "fulfill_rejected"
+    ],
+    "evidence_rule": "three observed occurrences of the same failure class and adapter path require design review; they must not be dismissed as model variance"
+  },
+  "host_adapters": {
+    "cursor": {
+      "status": "unavailable",
+      "adapter_mode": "nested_mcp_unavailable_2026_07_17",
+      "version_checked": "2026.07.17-3e2a980",
+      "model_checked": "cursor-grok-4.5-high",
+      "coordinator_agent": "coc-source-coordinator",
+      "coordinator_mcp_server": "coc-keeper",
+      "coordinator_can_task": true,
+      "coordinator_can_mcp": false,
+      "interactive_background_task": true,
+      "headless_print_task": false,
+      "observed_failure_class": "capability_mismatch",
+      "same_failure_observations": 3,
+      "threshold_outcome": "design_issue",
+      "leaf_agent": "coc-source-pack-worker",
+      "leaf_can_task": false
+    },
+    "default": {
+      "status": "unavailable",
+      "adapter_mode": "unsupported"
+    },
+    "codex": {
+      "status": "unavailable",
+      "adapter_mode": "adapter_not_integrated"
+    },
+    "grok": {
+      "status": "unavailable",
+      "adapter_mode": "nested_task_depth_unsupported"
+    },
+    "pi": {
+      "status": "unavailable",
+      "adapter_mode": "unsupported"
+    }
+  }
+}

@@ -3275,13 +3275,15 @@ def claim_host_work_requests(
     limit: int = 1,
     lease_seconds: int = 600,
     cached_only: bool = True,
+    result_delivery: str = "named_submit",
 ) -> dict[str, Any]:
     """Atomically lease bounded source-page work groups for host subagents.
 
     The repository still does not parse PDF content.  It only coalesces exact
     page scopes and returns contract packets.  A host-native child reads those
-    cached pages, while the parent Keeper remains the sole caller of the
-    canonical fulfillment operation.
+    cached pages. The packet's explicit result transport determines whether
+    the child submits directly or returns exact rows to a lifecycle manager;
+    the repository remains the sole canonical fulfillment boundary.
     """
     executor = str(executor_id or "").strip()
     if not executor or len(executor) > 128:
@@ -3297,6 +3299,10 @@ def claim_host_work_requests(
     if cached_only is not True:
         raise ModuleAssetsError(
             "cached_only=false is unsupported; only exact cached work is claimable"
+        )
+    if result_delivery not in {"named_submit", "return_to_parent"}:
+        raise ModuleAssetsError(
+            "result_delivery must be named_submit or return_to_parent"
         )
 
     module_root = _module_dir(workspace, asset_root_id)
@@ -3435,6 +3441,7 @@ def claim_host_work_requests(
                 "cached_scope_complete": all(
                     row[1].get("cached_scope_complete") is True for row in members
                 ),
+                "result_delivery": result_delivery,
                 "requests": packet_requests,
             })
     _requeue_invalid_host_work_jobs(

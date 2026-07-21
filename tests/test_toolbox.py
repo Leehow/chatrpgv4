@@ -10298,6 +10298,94 @@ def _opening_component_workspace(
     }
 
 
+def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
+    ready = [
+        {
+            "job_id": "job-b-2",
+            "work_group_id": "group-b",
+            "requested_pdf_indices": [2],
+        },
+        {
+            "job_id": "job-a-1",
+            "work_group_id": "group-a",
+            "requested_pdf_indices": [0],
+        },
+        {
+            "job_id": "job-b-1",
+            "work_group_id": "group-b",
+            "requested_pdf_indices": [1],
+        },
+    ]
+    first = coc_toolbox._source_coordinator_dispatch(
+        campaign_id="campaign-a",
+        asset_root_id="asset-a",
+        ready_background=ready,
+    )
+    second = coc_toolbox._source_coordinator_dispatch(
+        campaign_id="campaign-a",
+        asset_root_id="asset-a",
+        ready_background=list(reversed(ready)),
+    )
+    assert first == second
+    assert set(first) == {
+        "agent_type", "run_in_background", "task_prompt", "packet",
+    }
+    assert first["agent_type"] == "coc-source-coordinator"
+    assert first["run_in_background"] is True
+    packet = first["packet"]
+    assert set(packet) == {
+        "schema_version",
+        "contract_id",
+        "packet_id",
+        "adapter_mode",
+        "campaign_id",
+        "asset_root_id",
+        "claim_operation",
+        "max_leaves",
+        "leaf_worker",
+        "failure_policy",
+    }
+    assert packet["contract_id"] == "coc.source-coordinator.v1"
+    assert packet["adapter_mode"] == "manager_exact_forward"
+    assert packet["campaign_id"] == "campaign-a"
+    assert packet["asset_root_id"] == "asset-a"
+    assert packet["max_leaves"] == 2
+    claim = packet["claim_operation"]
+    assert claim["operation"] == "progressive.claim_host_work"
+    assert claim["invoke_via"] == "coc_invoke"
+    assert claim["missing_arguments"] == []
+    assert claim["prefilled_arguments"]["limit"] == 2
+    assert claim["prefilled_arguments"]["result_delivery"] == (
+        "return_to_parent"
+    )
+    assert claim["prefilled_arguments"]["executor_id"].startswith(
+        "source-coordinator:"
+    )
+    assert packet["leaf_worker"] == {
+        "agent_type": "coc-source-pack-worker",
+        "run_in_background": False,
+        "prompt_binding": "one exact returned packets[] value",
+        "result_binding": (
+            "forward every exact usable results[] value once through "
+            "progressive.fulfill_host_work"
+        ),
+    }
+    failure = packet["failure_policy"]
+    assert failure["authority"] == "prompt_first_advisory"
+    assert failure["single_failure"] == "transient_allowed"
+    assert failure["same_failure_escalation_threshold"] == 3
+    assert failure["threshold_outcome"] == "design_issue"
+    assert failure["same_task_retry"] is False
+    assert failure["player_action_gate"] is False
+    assert failure["narrative_gate"] is False
+    assert failure["output_gate"] is False
+    serialized = json.dumps(first, ensure_ascii=False, sort_keys=True)
+    for forbidden in (
+        "player_transcript", "source_page_text", "campaign_state",
+    ):
+        assert forbidden not in serialized
+
+
 def _opening_component_pack(**overrides) -> dict:
     pack = {
         "location_id": "opening",
@@ -10800,6 +10888,7 @@ def test_mechanics_locator_vertical_is_exact_nonblocking_and_reused(
     assert packet["requested_pdf_indices"] == [1, 2]
     assert packet["source_aspect"] == "mechanics"
     assert packet["deadline_class"] == "idle_warm"
+    assert packet["result_delivery"] == "named_submit"
     request = packet["requests"][0]
     assert request["result_contract"]["contract_id"] == (
         "coc.mechanics-locator-pack.v1"

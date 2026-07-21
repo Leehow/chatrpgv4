@@ -266,8 +266,9 @@ settled finalization.
    profile is not ready. This is not for every NPC or every turn; non-dependent
    observation, positioning, and parley continue. If `mechanics.ensure` returns
    `source_work_required`, or `combat.resolve` returns `mechanics_not_ready`,
-   immediately use `progressive.claim_host_work` and spawn the exact packet as
-   the unqualified `coc-source-pack-worker` with `background=true`. Never
+   immediately dispatch the exact repository-produced coordinator packet when
+   `coc_source_coordinator_v1=true`; otherwise use the separately advertised
+   direct-leaf claim path. Never
    substitute `rules.roll`, `rules.opposed`, copied stub values, or a generic
    profile. The existing `blocking_micro` semantics apply only to the current
    mechanics-dependent settlement. This adds no new narrative or output gate.

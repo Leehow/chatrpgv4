@@ -158,6 +158,12 @@ def test_grok_plugin_exposes_shared_mcp_and_safe_host_contract():
         "coc_advisory_sidecar_v1": True,
         "coc_source_pack_worker_v1": True,
         "max_background_source_workers": 4,
+        "coc_source_coordinator_v1": False,
+        "coc_source_coordinator_v1_status": "unavailable",
+        "coc_source_coordinator_v1_adapter": (
+            "nested_task_depth_unsupported"
+        ),
+        "max_source_coordinator_leaves": 0,
     }
 
     bootstrap = " ".join(
@@ -261,6 +267,9 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
     assert contract["authority"]["child_may_write_campaign_or_module_state"] is False
     assert contract["authority"]["codex_exact_read_command_only"] is True
     assert contract["packet"]["cached_pages_only_v1"] is True
+    assert contract["packet"]["result_delivery_values"] == [
+        "named_submit", "return_to_parent",
+    ]
     assert contract["lifecycle"]["max_parallel_packets"] == 4
     assert contract["lifecycle"]["grok_direct_submit_parent_waits"] is False
     assert contract["lifecycle"]["grok_direct_submit_parent_result_polls"] == 0
@@ -481,6 +490,7 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "- coc-source-submit",
         "mcpinheritance: none",
         "one bare `coc.source-pack-worker.v1` json packet",
+        "`result_delivery` must be exactly",
         "read only the exact absolute markdown paths",
         "never list directories",
         "open the original pdf",
@@ -492,6 +502,9 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "child-side audit evidence only",
         "grok parent does not retrieve or consume it",
         "never put the source pack in the final task output",
+        "`result_delivery=return_to_parent`",
+        "do not search for or invoke any mcp",
+        "never infer the transport from the host brand",
         "do not claim a wall clock",
         "/bin/cat -- <path>",
         "compile exactly one `coc.source-pack-worker.v1` json object",
@@ -539,6 +552,109 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "the child never writes `.coc`",
     ):
         assert phrase in play_compact, phrase
+
+
+def test_cursor_source_coordinator_is_prompt_first_bounded_and_fail_closed():
+    contract = _json(
+        PLUGIN_ROOT / "references" / "source-coordinator-v1.json"
+    )
+    assert contract["contract_id"] == "coc.source-coordinator.v1"
+    assert contract["status"] == "unintegrated"
+    assert contract["product_complete"] is False
+    assert contract["parity_claim"] is False
+    assert contract["canonical_caller"]["owner"] == "main_keeper"
+    assert contract["canonical_caller"]["background"] is True
+    assert contract["packet"]["closed"] is True
+    assert contract["packet"]["main_keeper_mutation_allowed"] is False
+    assert contract["lifecycle"]["manager_background"] is True
+    assert contract["lifecycle"]["leaf_background"] is False
+    assert contract["lifecycle"]["main_keeper_waits"] is False
+    assert contract["lifecycle"]["main_keeper_retrieves_result"] is False
+    assert contract["authority"]["max_nesting_depth"] == 2
+    failure = contract["failure_policy"]
+    assert failure["authority"] == "prompt_first_advisory"
+    assert failure["single_failure"] == "transient_allowed"
+    assert failure["same_failure_escalation_threshold"] == 3
+    assert failure["threshold_outcome"] == "design_issue"
+    assert failure["runtime_gate"] is False
+    assert failure["player_output_gate"] is False
+    assert failure["same_task_retry"] is False
+
+    cursor = contract["host_adapters"]["cursor"]
+    assert cursor["status"] == "unavailable"
+    assert cursor["adapter_mode"] == "nested_mcp_unavailable_2026_07_17"
+    assert cursor["version_checked"] == "2026.07.17-3e2a980"
+    assert cursor["model_checked"] == "cursor-grok-4.5-high"
+    assert cursor["coordinator_can_task"] is True
+    assert cursor["coordinator_can_mcp"] is False
+    assert cursor["interactive_background_task"] is True
+    assert cursor["headless_print_task"] is False
+    assert cursor["observed_failure_class"] == "capability_mismatch"
+    assert cursor["same_failure_observations"] == 3
+    assert cursor["threshold_outcome"] == "design_issue"
+    assert contract["host_adapters"]["grok"] == {
+        "status": "unavailable",
+        "adapter_mode": "nested_task_depth_unsupported",
+    }
+
+    capabilities = _json(
+        PLUGIN_ROOT / "references" / "host-capabilities.json"
+    )
+    assert capabilities["cursor"]["native_background_subagent"] is True
+    assert capabilities["cursor"]["coc_source_pack_worker_v1"] is False
+    assert capabilities["cursor"]["coc_source_coordinator_v1"] is False
+    assert capabilities["cursor"]["coc_source_coordinator_v1_status"] == (
+        "unavailable"
+    )
+    assert capabilities["cursor"]["coc_source_coordinator_v1_adapter"] == (
+        "nested_mcp_unavailable_2026_07_17"
+    )
+    assert capabilities["cursor"]["max_source_coordinator_leaves"] == 0
+    assert capabilities["grok"]["coc_source_coordinator_v1"] is False
+
+    agent = _text(PLUGIN_ROOT / "agents" / "coc-source-coordinator.md")
+    compact = " ".join(agent.split()).lower()
+    frontmatter = agent.split("---", 2)[1]
+    for phrase in (
+        "name: coc-source-coordinator",
+        "one bare `coc.source-coordinator.v1` json packet",
+        "invoke it exactly once",
+        "custom `coc-source-pack-worker`",
+        "`run_in_background=false`",
+        "`leaf_result_not_bare`",
+        "do not extract a json object",
+        "repair fields, retry, or ask the leaf again",
+        "`progressive.fulfill_host_work` exactly once",
+        "a single classified failure is allowed to remain transient",
+        "three observed occurrences of the same failure class",
+        "a design issue, not acceptable model variance",
+        "not a new product gate",
+        "an unintegrated contract",
+        "task support by itself is insufficient",
+    ):
+        assert phrase in compact, phrase
+    assert "  - Task\n" in frontmatter
+    assert "  - coc-keeper\n" in frontmatter
+    assert "mcpInheritance: none" in frontmatter
+
+    skill_text = " ".join(
+        (
+            _skill_package_text(PLUGIN_ROOT / "skills" / "coc-keeper-play")
+            + _text(PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md")
+            + _text(
+                PLUGIN_ROOT / "skills" / "coc-scenario-import" / "SKILL.md"
+            )
+        ).split()
+    ).lower()
+    for phrase in (
+        "`coc_source_coordinator_v1=true`",
+        "`background_takeover.coordinator_dispatch.packet`",
+        "`coc-source-coordinator` with `background=true`",
+        "three observed occurrences of the same class",
+        "a design issue",
+        "never gates player input",
+    ):
+        assert phrase in skill_text, phrase
 
 
 def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
@@ -698,8 +814,7 @@ def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
             "every npc or every turn",
             "`source_work_required`",
             "`mechanics_not_ready`",
-            "`progressive.claim_host_work`",
-            "unqualified `coc-source-pack-worker` with `background=true`",
+            "`coc_source_coordinator_v1=true`",
             "`rules.roll`",
             "`rules.opposed`",
             "copied stub values",
@@ -708,6 +823,9 @@ def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
             "no new narrative or output gate",
         ):
             assert phrase in surface, phrase
+
+    for surface in (profile, tooling, scenario):
+        assert "`progressive.claim_host_work`" in surface
 
     for surface in (profile, tooling, scenario, combat):
         for phrase in (

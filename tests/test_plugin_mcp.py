@@ -2240,6 +2240,14 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
                 "authority": "advisory",
                 "hard_gate": False,
             },
+            "coordinator_dispatch": server.toolbox._source_coordinator_dispatch(
+                campaign_id="scene-progressive",
+                asset_root_id="source-root",
+                ready_background=[{
+                    "job_id": "job-mechanics",
+                    "work_group_id": "source-work-mechanics",
+                }],
+            ),
             "host_dispatch": {
                 "worker_profile": "coc-source-pack-worker",
                 "background": True,
@@ -2378,6 +2386,23 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert claim["hard_gate"] is False
     assert claim["discovery_required"] is False
     assert claim["contract_ref"].startswith("progressive.claim_host_work@")
+    coordinator = returned["background_takeover"]["coordinator_dispatch"]
+    assert coordinator["agent_type"] == "coc-source-coordinator"
+    assert coordinator["run_in_background"] is True
+    assert coordinator["packet"]["contract_id"] == (
+        "coc.source-coordinator.v1"
+    )
+    coordinator_claim = coordinator["packet"]["claim_operation"]
+    assert coordinator_claim["operation"] == "progressive.claim_host_work"
+    assert coordinator_claim["missing_arguments"] == []
+    assert coordinator_claim["prefilled_arguments"]["limit"] == 1
+    assert coordinator_claim["prefilled_arguments"]["result_delivery"] == (
+        "return_to_parent"
+    )
+    assert coordinator_claim["discovery_required"] is False
+    assert coordinator_claim["contract_ref"].startswith(
+        "progressive.claim_host_work@"
+    )
     boundary = returned["background_takeover"]["play_boundary"]
     assert boundary["player_action_gate"] is False
     assert boundary["narrative_gate"] is False

@@ -125,8 +125,20 @@ does only this bounded setup work:
    `request_purpose=foreground_opening_slice` request over the exact accepted
    contiguous 1–3-page window. Do not read the full module, neighboring-location
    packets, or appendix/mechanics pages.
-3. If and only if host capabilities advertise
-   `coc_source_pack_worker_v1=true`, invoke `progressive.claim_host_work` once.
+3. If host capabilities advertise `coc_source_coordinator_v1=true`, status
+   `experimental`, adapter `manager_exact_forward`, and a positive leaf
+   maximum, spawn exactly one custom `coc-source-coordinator` with
+   `background=true`. Its entire prompt is the exact repository-produced
+   `background_takeover.coordinator_dispatch.packet`; do not construct, fill,
+   wait for, poll, or retrieve it. The manager owns one claim, exact leaves,
+   and exact-row fulfillment. Its classified failures are audit evidence: one
+   may be transient, while three observed occurrences of the same class are a
+   design issue rather than model variance. This never gates player input or
+   the opening. Task support alone is insufficient; never infer nested MCP
+   access from a host brand, model name, or successful generic child Task.
+   Otherwise, if and only if the separate host capability
+   advertises `coc_source_pack_worker_v1=true`, invoke
+   `progressive.claim_host_work` once.
    The serialized claimed packet JSON is the entire child task prompt: add no
    prefix, suffix, transcript, optional-row request, or schema hint. For each
    returned packet, actually spawn the existing
@@ -264,7 +276,10 @@ mentions. Until the host puts a deep pack, play continues with
 - After `put_entity` deep, merge is re-enqueued at priority 100 and the worker
   is kicked again.
 - The queue thread pool only performs repository scheduling/merge work. When
-  host capabilities expose `coc_source_pack_worker_v1`, the KP leases up to the
+  host capabilities expose `coc_source_coordinator_v1`, the KP dispatches the
+  exact projected packet to one background manager, which owns bounded claim,
+  leaf calls, and exact-row fulfillment. Otherwise, when capabilities expose
+  `coc_source_pack_worker_v1`, the KP leases up to the
   advertised bounded concurrency through `progressive.claim_host_work` and
   sends each returned exact cached-page packet to a native background
   subagent. On Grok direct submit, the child submits the complete outer result
@@ -285,8 +300,8 @@ conflict is semantically approaching, call `mechanics.ensure` early if its
 profile is not ready; this is not for every NPC or every turn, and
 non-dependent observation, positioning, or parley may continue. If it returns
 `source_work_required`, or `combat.resolve` returns `mechanics_not_ready`,
-immediately call `progressive.claim_host_work` and spawn the exact packet as
-the unqualified `coc-source-pack-worker` with `background=true`. Never bypass
+immediately use the exact coordinator dispatch when advertised; otherwise use
+the separately advertised direct-leaf claim path. Never bypass
 the exact source request with `rules.roll`, `rules.opposed`, copied stub values,
 or a generic profile. The current dependent settlement alone may remain
 pending under existing `blocking_micro` semantics; no new narrative or output
