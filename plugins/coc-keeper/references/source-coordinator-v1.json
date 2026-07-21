@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_id": "coc.source-coordinator.v1",
-  "status": "unintegrated",
+  "status": "experimental",
   "product_complete": false,
   "parity_claim": false,
   "canonical_caller": {
@@ -10,7 +10,7 @@
     "dispatch_count": 1,
     "agent_type": "coc-source-coordinator",
     "background": true,
-    "task_prompt": "one_bare_coordinator_dispatch.packet_json_object",
+    "task_prompt": "one_exact_host_dispatch_object_without_campaign_transcript",
     "forbidden_context": [
       "player_transcript",
       "module_body",
@@ -26,9 +26,13 @@
       "contract_id",
       "packet_id",
       "adapter_mode",
+      "workspace_root",
+      "python_executable",
+      "toolbox_script",
       "campaign_id",
       "asset_root_id",
       "claim_operation",
+      "fulfill_operation",
       "max_leaves",
       "leaf_worker",
       "failure_policy"
@@ -38,9 +42,13 @@
       "contract_id",
       "packet_id",
       "adapter_mode",
+      "workspace_root",
+      "python_executable",
+      "toolbox_script",
       "campaign_id",
       "asset_root_id",
       "claim_operation",
+      "fulfill_operation",
       "max_leaves",
       "leaf_worker",
       "failure_policy"
@@ -54,7 +62,7 @@
     "main_keeper_mutation_allowed": false,
     "claim_operation": {
       "operation": "progressive.claim_host_work",
-      "invoke_via": "coc_invoke",
+      "invoke_via": "canonical_typed_operation_gateway",
       "missing_arguments": [],
       "prefilled_arguments": [
         "executor_id",
@@ -64,6 +72,13 @@
       "result_delivery": "return_to_parent",
       "limit_minimum": 1,
       "limit_maximum": 4
+    },
+    "fulfill_operation": {
+      "operation": "progressive.fulfill_host_work",
+      "invoke_via": "canonical_typed_operation_gateway",
+      "fixed_arguments": {},
+      "missing_arguments": ["worker_result"],
+      "exact_forward_binding": "worker_result=one exact leaf results[] value"
     },
     "leaf_worker": {
       "agent_type": "coc-source-pack-worker",
@@ -118,6 +133,25 @@
     "evidence_rule": "three observed occurrences of the same failure class and adapter path require design review; they must not be dismissed as model variance"
   },
   "host_adapters": {
+    "codex": {
+      "status": "experimental",
+      "adapter_mode": "codex_nested_cli_exact_forward",
+      "coordinator_runner": "codex_collaboration_subagent",
+      "coordinator_fork_turns": "none",
+      "coordinator_task_contract": "coc.codex-source-coordinator-task.v1",
+      "coordinator_instruction_ref": "runtime_absolute_plugin_path",
+      "leaf_task_contract": "coc.codex-source-pack-task.v1",
+      "leaf_instruction_ref": "runtime_absolute_plugin_path",
+      "nested_task_proven": true,
+      "canonical_toolbox_cli_proven": true,
+      "json_transport": "stdin",
+      "coordinator_can_claim": true,
+      "coordinator_can_fulfill": true,
+      "end_to_end_claim_leaf_fulfill_proven": true,
+      "proof_scope": "one cached partial_opening work group",
+      "player_path_acceptance": false,
+      "same_failure_observations": 0
+    },
     "cursor": {
       "status": "unavailable",
       "adapter_mode": "nested_mcp_unavailable_2026_07_17",
@@ -138,10 +172,6 @@
     "default": {
       "status": "unavailable",
       "adapter_mode": "unsupported"
-    },
-    "codex": {
-      "status": "unavailable",
-      "adapter_mode": "adapter_not_integrated"
     },
     "grok": {
       "status": "unavailable",

@@ -270,6 +270,15 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
     assert contract["packet"]["result_delivery_values"] == [
         "named_submit", "return_to_parent",
     ]
+    codex_leaf = contract["host_adapters"]["codex"]
+    assert codex_leaf["coordinator_leaf_task_contract"] == (
+        "coc.codex-source-pack-task.v1"
+    )
+    assert codex_leaf["coordinator_leaf_instruction_ref"] == (
+        "runtime_absolute_plugin_path"
+    )
+    assert codex_leaf["coordinator_leaf_background"] is False
+    assert codex_leaf["coordinator_leaf_result_delivery"] == "return_to_parent"
     assert contract["lifecycle"]["max_parallel_packets"] == 4
     assert contract["lifecycle"]["grok_direct_submit_parent_waits"] is False
     assert contract["lifecycle"]["grok_direct_submit_parent_result_polls"] == 0
@@ -554,12 +563,12 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         assert phrase in play_compact, phrase
 
 
-def test_cursor_source_coordinator_is_prompt_first_bounded_and_fail_closed():
+def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed():
     contract = _json(
         PLUGIN_ROOT / "references" / "source-coordinator-v1.json"
     )
     assert contract["contract_id"] == "coc.source-coordinator.v1"
-    assert contract["status"] == "unintegrated"
+    assert contract["status"] == "experimental"
     assert contract["product_complete"] is False
     assert contract["parity_claim"] is False
     assert contract["canonical_caller"]["owner"] == "main_keeper"
@@ -579,6 +588,25 @@ def test_cursor_source_coordinator_is_prompt_first_bounded_and_fail_closed():
     assert failure["runtime_gate"] is False
     assert failure["player_output_gate"] is False
     assert failure["same_task_retry"] is False
+
+    codex = contract["host_adapters"]["codex"]
+    assert codex["status"] == "experimental"
+    assert codex["adapter_mode"] == "codex_nested_cli_exact_forward"
+    assert codex["coordinator_runner"] == "codex_collaboration_subagent"
+    assert codex["coordinator_fork_turns"] == "none"
+    assert codex["coordinator_instruction_ref"] == (
+        "runtime_absolute_plugin_path"
+    )
+    assert codex["leaf_instruction_ref"] == "runtime_absolute_plugin_path"
+    assert codex["nested_task_proven"] is True
+    assert codex["canonical_toolbox_cli_proven"] is True
+    assert codex["json_transport"] == "stdin"
+    assert codex["coordinator_can_claim"] is True
+    assert codex["coordinator_can_fulfill"] is True
+    assert codex["end_to_end_claim_leaf_fulfill_proven"] is True
+    assert codex["proof_scope"] == "one cached partial_opening work group"
+    assert codex["player_path_acceptance"] is False
+    assert codex["same_failure_observations"] == 0
 
     cursor = contract["host_adapters"]["cursor"]
     assert cursor["status"] == "unavailable"
@@ -610,6 +638,14 @@ def test_cursor_source_coordinator_is_prompt_first_bounded_and_fail_closed():
         "nested_mcp_unavailable_2026_07_17"
     )
     assert capabilities["cursor"]["max_source_coordinator_leaves"] == 0
+    assert capabilities["codex"]["coc_source_coordinator_v1"] is True
+    assert capabilities["codex"]["coc_source_coordinator_v1_status"] == (
+        "experimental"
+    )
+    assert capabilities["codex"]["coc_source_coordinator_v1_adapter"] == (
+        "codex_nested_cli_exact_forward"
+    )
+    assert capabilities["codex"]["max_source_coordinator_leaves"] == 4
     assert capabilities["grok"]["coc_source_coordinator_v1"] is False
 
     agent = _text(PLUGIN_ROOT / "agents" / "coc-source-coordinator.md")
@@ -617,19 +653,20 @@ def test_cursor_source_coordinator_is_prompt_first_bounded_and_fail_closed():
     frontmatter = agent.split("---", 2)[1]
     for phrase in (
         "name: coc-source-coordinator",
-        "one bare `coc.source-coordinator.v1` json packet",
+        "`coc.codex-source-coordinator-task.v1`",
         "invoke it exactly once",
-        "custom `coc-source-pack-worker`",
-        "`run_in_background=false`",
+        "context-free codex collaboration subagent",
+        "`fork_turns=none`",
+        "`--json-stdin`",
+        "never interpolate json into a shell command",
         "`leaf_result_not_bare`",
         "do not extract a json object",
         "repair fields, retry, or ask the leaf again",
-        "`progressive.fulfill_host_work` exactly once",
+        "`progressive.fulfill_host_work` operation exactly once",
         "a single classified failure is allowed to remain transient",
         "three observed occurrences of the same failure class",
         "a design issue, not acceptable model variance",
         "not a new product gate",
-        "an unintegrated contract",
         "task support by itself is insufficient",
     ):
         assert phrase in compact, phrase
@@ -648,8 +685,8 @@ def test_cursor_source_coordinator_is_prompt_first_bounded_and_fail_closed():
     ).lower()
     for phrase in (
         "`coc_source_coordinator_v1=true`",
-        "`background_takeover.coordinator_dispatch.packet`",
-        "`coc-source-coordinator` with `background=true`",
+        "`background_takeover.coordinator_dispatch.codex_task`",
+        "`fork_turns=none`",
         "three observed occurrences of the same class",
         "a design issue",
         "never gates player input",

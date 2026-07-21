@@ -115,11 +115,13 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    repository search, speculative page reads, or any unselected/all-module body
    read. Then create the exact contiguous
    1–3-page `partial_opening` request. When capabilities advertise the
-   experimental `coc_source_coordinator_v1=true` /
-   `manager_exact_forward` adapter, spawn exactly one custom
-   `coc-source-coordinator` with `background=true`; its entire prompt is the
-   exact `background_takeover.coordinator_dispatch.packet`. Do not construct,
-   fill, wait for, poll, or retrieve that packet/task. The manager claims once,
+   experimental `coc_source_coordinator_v1=true` exact-forward adapter, spawn
+   exactly one coordinator with `background=true`. On Codex use a context-free
+   collaboration subagent with `fork_turns=none`; its entire message is the
+   exact `background_takeover.coordinator_dispatch.codex_task`. On a supported
+   custom-agent host use `coc-source-coordinator` with the exact `packet`. Do
+   not construct, fill, add transcript context, wait for, poll, or retrieve
+   that task. The manager claims once,
    runs exact leaves, and forwards valid result rows through canonical
    fulfillment. Its failure classes are audit evidence: one occurrence may be
    transient, while three observed occurrences of the same class are a design

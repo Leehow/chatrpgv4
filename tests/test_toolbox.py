@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import io
 import json
 import random
 import subprocess
@@ -458,6 +459,30 @@ def test_describe_known_tool_returns_parameter_schema():
     assert "expression" in described["params"]
     assert described["params"]["expression"]["required"] is True
     assert described["params"]["expression"]["type"] == "string"
+
+
+def test_cli_json_stdin_accepts_one_object_without_shell_interpolation(
+    tmp_path: Path, monkeypatch, capsys,
+):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+    code = coc_toolbox.main([
+        "setup.inspect", "--root", str(tmp_path), "--json-stdin",
+    ])
+    assert code == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["ok"] is True
+    assert envelope["tool"] == "setup.inspect"
+
+
+def test_cli_json_stdin_rejects_non_object(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO("[]"))
+    code = coc_toolbox.main(["setup.inspect", "--json-stdin"])
+    assert code == 1
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["error"] == {
+        "code": "bad_json",
+        "message": "--json-stdin must be an object",
+    }
 
 
 def test_setup_tools_reuse_canonical_pre_session_gateway(tmp_path):
@@ -10317,11 +10342,13 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
         },
     ]
     first = coc_toolbox._source_coordinator_dispatch(
+        workspace_root="/workspace",
         campaign_id="campaign-a",
         asset_root_id="asset-a",
         ready_background=ready,
     )
     second = coc_toolbox._source_coordinator_dispatch(
+        workspace_root="/workspace",
         campaign_id="campaign-a",
         asset_root_id="asset-a",
         ready_background=list(reversed(ready)),
@@ -10329,6 +10356,7 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
     assert first == second
     assert set(first) == {
         "agent_type", "run_in_background", "task_prompt", "packet",
+        "codex_task",
     }
     assert first["agent_type"] == "coc-source-coordinator"
     assert first["run_in_background"] is True
@@ -10338,21 +10366,30 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
         "contract_id",
         "packet_id",
         "adapter_mode",
+        "workspace_root",
+        "python_executable",
+        "toolbox_script",
         "campaign_id",
         "asset_root_id",
         "claim_operation",
+        "fulfill_operation",
         "max_leaves",
         "leaf_worker",
         "failure_policy",
     }
     assert packet["contract_id"] == "coc.source-coordinator.v1"
     assert packet["adapter_mode"] == "manager_exact_forward"
+    assert packet["workspace_root"] == "/workspace"
+    assert Path(packet["python_executable"]).is_absolute()
+    assert packet["python_executable"] == sys.executable
+    assert Path(packet["toolbox_script"]).is_absolute()
+    assert Path(packet["toolbox_script"]) == TOOLBOX_SCRIPT.resolve()
     assert packet["campaign_id"] == "campaign-a"
     assert packet["asset_root_id"] == "asset-a"
     assert packet["max_leaves"] == 2
     claim = packet["claim_operation"]
     assert claim["operation"] == "progressive.claim_host_work"
-    assert claim["invoke_via"] == "coc_invoke"
+    assert claim["invoke_via"] == "canonical_typed_operation_gateway"
     assert claim["missing_arguments"] == []
     assert claim["prefilled_arguments"]["limit"] == 2
     assert claim["prefilled_arguments"]["result_delivery"] == (
@@ -10361,8 +10398,22 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
     assert claim["prefilled_arguments"]["executor_id"].startswith(
         "source-coordinator:"
     )
+    assert packet["fulfill_operation"] == {
+        "operation": "progressive.fulfill_host_work",
+        "invoke_via": "canonical_typed_operation_gateway",
+        "fixed_arguments": {},
+        "missing_arguments": ["worker_result"],
+        "exact_forward_binding": (
+            "worker_result=one exact leaf results[] value"
+        ),
+        "authority": "source_fulfillment",
+        "hard_gate": False,
+    }
     assert packet["leaf_worker"] == {
         "agent_type": "coc-source-pack-worker",
+        "instruction_ref": str(
+            (REPO / "plugins/coc-keeper/agents/coc-source-pack-worker.md").resolve()
+        ),
         "run_in_background": False,
         "prompt_binding": "one exact returned packets[] value",
         "result_binding": (
@@ -10384,6 +10435,14 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
         "player_transcript", "source_page_text", "campaign_state",
     ):
         assert forbidden not in serialized
+    codex_task = first["codex_task"]
+    assert codex_task["contract_id"] == (
+        "coc.codex-source-coordinator-task.v1"
+    )
+    assert Path(codex_task["instruction_ref"]) == (
+        REPO / "plugins/coc-keeper/agents/coc-source-coordinator.md"
+    ).resolve()
+    assert codex_task["packet"] == packet
 
 
 def _opening_component_pack(**overrides) -> dict:

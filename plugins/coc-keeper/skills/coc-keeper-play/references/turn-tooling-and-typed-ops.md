@@ -420,11 +420,14 @@ scene adviser and never a second Keeper. Use it only when host capabilities say
 `coc.source-coordinator.v1` is the optional host-side manager contract at
 `plugins/coc-keeper/references/source-coordinator-v1.json`. Use it only when
 capabilities explicitly advertise `coc_source_coordinator_v1=true`, status
-`experimental`, adapter `manager_exact_forward`, and a positive leaf maximum.
-The main KP launches one custom `coc-source-coordinator` in the background with
-the exact `progressive.background_takeover.coordinator_dispatch.packet` as its
-entire prompt. The packet is produced by the canonical scene projection; the
-KP never builds or edits it. The manager calls claim once, invokes one exact
+`experimental`, a supported exact-forward adapter, and a positive leaf maximum.
+On Codex the main KP launches one context-free collaboration subagent with
+`fork_turns=none` in the background and passes the exact
+`progressive.background_takeover.coordinator_dispatch.codex_task` as its entire
+message. A supported custom-agent host instead launches
+`coc-source-coordinator` with the exact `packet`. Both are produced by the
+canonical scene projection; the KP never builds or edits them. The manager
+calls claim once, invokes one exact
 source-pack leaf per returned packet, reads each leaf result once, and forwards
 every exact usable `results[]` row through `progressive.fulfill_host_work`.
 It cannot read source pages, repair output, retry in the same task, or make KP

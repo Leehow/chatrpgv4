@@ -126,11 +126,13 @@ does only this bounded setup work:
    contiguous 1–3-page window. Do not read the full module, neighboring-location
    packets, or appendix/mechanics pages.
 3. If host capabilities advertise `coc_source_coordinator_v1=true`, status
-   `experimental`, adapter `manager_exact_forward`, and a positive leaf
-   maximum, spawn exactly one custom `coc-source-coordinator` with
-   `background=true`. Its entire prompt is the exact repository-produced
-   `background_takeover.coordinator_dispatch.packet`; do not construct, fill,
-   wait for, poll, or retrieve it. The manager owns one claim, exact leaves,
+   `experimental`, a supported exact-forward adapter, and a positive leaf
+   maximum, spawn exactly one coordinator with `background=true`. On Codex use
+   a context-free collaboration subagent with `fork_turns=none` and the exact
+   repository-produced `background_takeover.coordinator_dispatch.codex_task`
+   as its entire message. On a supported custom-agent host use
+   `coc-source-coordinator` with the exact `packet`. Do not construct, fill, add
+   transcript context, wait for, poll, or retrieve it. The manager owns one claim, exact leaves,
    and exact-row fulfillment. Its classified failures are audit evidence: one
    may be transient, while three observed occurrences of the same class are a
    design issue rather than model variance. This never gates player input or

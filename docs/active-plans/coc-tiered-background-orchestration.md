@@ -38,11 +38,13 @@ or component tests with no normal host path consuming the feature.
    or process loss. It does not require an immortal process.
 5. The proposed hierarchy is deliberately narrow: one source coordinator may
    claim existing durable packets and fan them out to existing source-pack
-   leaves. No host currently advertises this capability. Grok cannot spawn the
-   required nested leaf, and Cursor's interactive nested Task cannot access the
-   configured COC MCP. The closed packet and agent definition therefore remain
-   `unintegrated`; they do not select player actions, read campaign transcripts,
-   compile packs themselves, or become a second KP.
+   leaves. Codex now advertises an experimental adapter after a real
+   claim -> nested leaf -> exact fulfillment run. It uses a context-free Codex
+   collaboration subagent and the canonical toolbox JSON-stdin gateway. Grok
+   still cannot spawn the required nested leaf, and Cursor's interactive nested
+   Task cannot access the configured COC MCP. The coordinator does not select
+   player actions, read campaign transcripts, compile packs itself, or become a
+   second KP.
 6. Rules orchestration is initially a compact deterministic readiness
    projection, not another LLM agent. Director remains optional, advisory, and
    nonblocking. This preserves domain separation without adding three new
@@ -70,9 +72,11 @@ Main KP -- compact cards --> source coordinator --> source-pack leaves
 
 The coordinator contract reuses `progressive.claim_host_work`; it does not
 replace the repository queue, invent another work graph, or aggregate child
-prose back into the KP context. The repository emits its exact closed packet,
-but every host remains fail-closed until a real adapter proves Task nesting,
-MCP access, exact result forwarding, and durable fulfillment together.
+prose back into the KP context. The repository emits its exact closed packet.
+Codex maps the canonical operation cards to the authoritative toolbox through
+JSON stdin, so source text is never interpolated into a shell command. Every
+other host remains fail-closed until its own adapter proves nesting, canonical
+gateway access, exact result forwarding, and durable fulfillment together.
 
 ## Three work levels
 
@@ -188,7 +192,9 @@ Leaves remain unable to spawn. The contract is prompt-first: one classified
 failure may be treated as transient, but three observations of the same class
 on the same adapter are a design issue. That threshold was reached for
 Cursor's nested MCP access, so Cursor is `unavailable`, not `experimental`.
-Unsupported hosts do not claim work and must not pretend work was dispatched.
+Codex is `experimental` because the bounded lifecycle vertical is proven but
+the full window-equivalent opening acceptance is not. Unsupported hosts do not
+claim work and must not pretend work was dispatched.
 This escalation changes the capability declaration; it never becomes a player
 input, narration, or output gate.
 
@@ -220,7 +226,7 @@ The KP may ignore late advice and does not call every domain every turn.
 | A. Correct host-work state classes and counters | Done (component) | Empty/unknown scope cannot be `ready`; claim skips no runnable work; stranded ready is zero; awakening/superseding is atomic under the existing host-work lock. |
 | B. Durable L1/L2/L3 projection and wake policy | Done (component) | Existing requests add one `work_level` plus exact L1 `dependency_ref`; detached worker restart/idle exit loses no work; L1 is not a global gate. |
 | C. First-contact readiness vertical | Partial | Normal single-NPC query exposes requested-pair readiness and an unrolled impression card; authored truth is the fast path. Improvised persona persistence and plugin-native replay remain incomplete. |
-| D. Source coordinator manager-to-leaf vertical | Blocked / Unintegrated | The repository now has a canonical closed packet producer and exact `return_to_parent` transport contract. Grok cannot perform nested Task. Cursor 2026.07.17 with `cursor-grok-4.5-high` proves interactive background and nested Task, but nested custom agents cannot access the configured COC MCP. The same `capability_mismatch` class occurred three times, so Cursor remains disabled and no end-to-end claim/leaf/fulfill acceptance is claimed. |
+| D. Source coordinator manager-to-leaf vertical | Done (Codex experimental) | The repository produces a closed Codex task and exact `return_to_parent` transport. A context-free Codex coordinator claimed one cached `partial_opening` group, spawned one nested source-pack leaf, forwarded one exact result, and canonically fulfilled it; status then reported zero open/ready/leased work. Cursor remains disabled after three nested-MCP `capability_mismatch` observations, and Grok cannot perform nested Task. |
 | E. Bounded appendix consumers | Deferred/Partial | Existing roster/mechanics locator warming belongs to B. At most one typed `combat_damage_multiplier` current-region vertical may proceed; generic special-rule packs and NPC graph are deferred until a normal rules/Director consumer exists. |
 | F. Real plugin-native replay | Not Done | Fresh campaign reaches actionable opening within 180 s and replays the multi-NPC first-contact path without late parse/persona construction. Exact reaction rolls still occur at contact. |
 
@@ -245,10 +251,22 @@ Cursor adapter evidence for the unintegrated coordinator slice:
 - Two coordinator probes and one unrelated custom-agent control probe all
   lacked nested access to the configured COC MCP. No claim occurred; the test
   host-work row remained `ready` with zero dispatch attempts.
-- The fail-closed slice passes plugin metadata (`24 passed`), MCP wire
-  contracts (`35 passed`), and the full toolbox file (`338 passed`).
 - This is component/adapter evidence only. It is not a plugin-native playtest,
   an opening-SLO run, or source-coordinator product acceptance.
+
+Codex adapter evidence:
+
+- A read-only capability probe proved coordinator -> nested Codex leaf and
+  canonical toolbox access without dirtying the repository.
+- The enabled vertical used one repository-produced
+  `coc.codex-source-coordinator-task.v1`: one claim, one context-free nested
+  source-pack leaf, one exact result forward, and one accepted fulfillment.
+- Canonical `progressive.status` then reported `open_count=0`,
+  `ready_for_background_count=0`, and `leased_count=0` for the fixture.
+- The combined slice passes plugin metadata (`24 passed`), MCP wire contracts
+  (`35 passed`), and the full toolbox file (`340 passed`).
+- This proves the bounded source lifecycle adapter, not the three-minute
+  opening SLO, multi-NPC first-contact quality, or whole-product acceptance.
 
 ## Validation order
 
@@ -298,6 +316,6 @@ tests support but do not establish the SLO or KP quality.
   expand the program.
 - If the clean integration branch encounters concurrent edits in the same
   files, stop that lane rather than stashing or overwriting another worker.
-- If real host nested spawning or MCP inheritance cannot be proven, keep the
-  coordinator capability disabled and label its contract unintegrated. Task
-  support alone is not sufficient evidence.
+- If real host nested spawning or canonical gateway access cannot be proven,
+  keep that host's coordinator capability disabled. Task support alone is not
+  sufficient evidence.

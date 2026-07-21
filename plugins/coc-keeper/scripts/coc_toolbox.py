@@ -22,7 +22,7 @@ Envelope: every tool returns ``{ok, tool, data, warnings, hints}``.
 CLI:
     uv run --frozen python coc_toolbox.py list [--json]
     uv run --frozen python coc_toolbox.py describe <tool>
-    uv run --frozen python coc_toolbox.py <tool> --root . --campaign <id> [--json '<args>']
+    uv run --frozen python coc_toolbox.py <tool> --root . --campaign <id> [--json '<args>' | --json-stdin]
 """
 from __future__ import annotations
 
@@ -9714,6 +9714,7 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 
 def _source_coordinator_dispatch(
     *,
+    workspace_root: str,
     campaign_id: str,
     asset_root_id: str,
     ready_background: list[dict[str, Any]],
@@ -9763,11 +9764,14 @@ def _source_coordinator_dispatch(
         "contract_id": "coc.source-coordinator.v1",
         "packet_id": f"source-coordinator-{packet_digest}",
         "adapter_mode": "manager_exact_forward",
+        "workspace_root": workspace_root,
+        "python_executable": sys.executable,
+        "toolbox_script": str((_HERE / "coc_toolbox.py").resolve()),
         "campaign_id": campaign_id,
         "asset_root_id": asset_root_id,
         "claim_operation": {
             "operation": "progressive.claim_host_work",
-            "invoke_via": "coc_invoke",
+            "invoke_via": "canonical_typed_operation_gateway",
             "prefilled_arguments": {
                 "executor_id": f"source-coordinator:{executor_digest}",
                 "limit": max_leaves,
@@ -9777,9 +9781,23 @@ def _source_coordinator_dispatch(
             "authority": "advisory",
             "hard_gate": False,
         },
+        "fulfill_operation": {
+            "operation": "progressive.fulfill_host_work",
+            "invoke_via": "canonical_typed_operation_gateway",
+            "fixed_arguments": {},
+            "missing_arguments": ["worker_result"],
+            "exact_forward_binding": (
+                "worker_result=one exact leaf results[] value"
+            ),
+            "authority": "source_fulfillment",
+            "hard_gate": False,
+        },
         "max_leaves": max_leaves,
         "leaf_worker": {
             "agent_type": "coc-source-pack-worker",
+            "instruction_ref": str(
+                (_HERE.parent / "agents" / "coc-source-pack-worker.md").resolve()
+            ),
             "run_in_background": False,
             "prompt_binding": "one exact returned packets[] value",
             "result_binding": (
@@ -9801,8 +9819,20 @@ def _source_coordinator_dispatch(
     return {
         "agent_type": "coc-source-coordinator",
         "run_in_background": True,
-        "task_prompt": "one bare coordinator_dispatch.packet JSON object",
+        "task_prompt": "one exact host dispatch object without campaign transcript",
         "packet": packet,
+        "codex_task": {
+            "schema_version": 1,
+            "contract_id": "coc.codex-source-coordinator-task.v1",
+            "instruction_ref": str(
+                (
+                    _HERE.parent
+                    / "agents"
+                    / "coc-source-coordinator.md"
+                ).resolve()
+            ),
+            "packet": packet,
+        },
     }
 
 @tool(
@@ -10287,6 +10317,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                         "hard_gate": False,
                     },
                     "coordinator_dispatch": _source_coordinator_dispatch(
+                        workspace_root=str(ctx.root),
                         campaign_id=str(ctx.campaign_id),
                         asset_root_id=asset_root_id,
                         ready_background=ready_background,
@@ -20477,15 +20508,31 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog=f"coc_toolbox.py {command}")
     parser.add_argument("--root", default=".", help="project root containing .coc/")
     parser.add_argument("--campaign", default=None, help="campaign id")
-    parser.add_argument("--json", default=None, help="tool arguments as a JSON object")
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        "--json", default=None, help="tool arguments as a JSON object",
+    )
+    input_group.add_argument(
+        "--json-stdin",
+        action="store_true",
+        help="read one tool-arguments JSON object from standard input",
+    )
     opts = parser.parse_args(argv[1:])
     try:
-        args = json.loads(opts.json) if opts.json else {}
+        raw_args = sys.stdin.read() if opts.json_stdin else opts.json
+        args = json.loads(raw_args) if raw_args else {}
     except json.JSONDecodeError as exc:
         print(json.dumps({"ok": False, "error": {"code": "bad_json", "message": str(exc)}}))
         return 1
     if not isinstance(args, dict):
-        print(json.dumps({"ok": False, "error": {"code": "bad_json", "message": "--json must be an object"}}))
+        source = "--json-stdin" if opts.json_stdin else "--json"
+        print(json.dumps({
+            "ok": False,
+            "error": {
+                "code": "bad_json",
+                "message": f"{source} must be an object",
+            },
+        }))
         return 1
 
     envelope = run_tool(command, Path(opts.root).resolve(), opts.campaign, args)

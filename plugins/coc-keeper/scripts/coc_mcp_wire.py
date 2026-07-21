@@ -1263,7 +1263,9 @@ def _decorate_cards(
     if (
         isinstance(operation, str)
         and operation
-        and decorated.get("invoke_via") == "coc_invoke"
+        and decorated.get("invoke_via") in {
+            "coc_invoke", "canonical_typed_operation_gateway",
+        }
     ):
         decorated.setdefault(
             "contract_ref",

@@ -22,10 +22,10 @@
     "coc_advisory_sidecar_v1": false,
     "coc_source_pack_worker_v1": true,
     "max_background_source_workers": 4,
-    "coc_source_coordinator_v1": false,
-    "coc_source_coordinator_v1_status": "unavailable",
-    "coc_source_coordinator_v1_adapter": "adapter_not_integrated",
-    "max_source_coordinator_leaves": 0
+    "coc_source_coordinator_v1": true,
+    "coc_source_coordinator_v1_status": "experimental",
+    "coc_source_coordinator_v1_adapter": "codex_nested_cli_exact_forward",
+    "max_source_coordinator_leaves": 4
   },
   "cursor": {
     "plugin_skills": true,

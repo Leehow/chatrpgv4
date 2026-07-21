@@ -2241,6 +2241,7 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
                 "hard_gate": False,
             },
             "coordinator_dispatch": server.toolbox._source_coordinator_dispatch(
+                workspace_root="/workspace",
                 campaign_id="scene-progressive",
                 asset_root_id="source-root",
                 ready_background=[{
@@ -2403,6 +2404,14 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert coordinator_claim["contract_ref"].startswith(
         "progressive.claim_host_work@"
     )
+    coordinator_fulfill = coordinator["packet"]["fulfill_operation"]
+    assert coordinator_fulfill["operation"] == "progressive.fulfill_host_work"
+    assert coordinator_fulfill["missing_arguments"] == ["worker_result"]
+    assert coordinator_fulfill["discovery_required"] is False
+    assert coordinator_fulfill["contract_ref"].startswith(
+        "progressive.fulfill_host_work@"
+    )
+    assert coordinator["codex_task"]["packet"] == coordinator["packet"]
     boundary = returned["background_takeover"]["play_boundary"]
     assert boundary["player_action_gate"] is False
     assert boundary["narrative_gate"] is False

@@ -164,11 +164,14 @@ current mechanics-dependent settlement may remain pending under the existing
 non-dependent live play may continue.
 
 When capability discovery returns `coc_source_coordinator_v1=true`, status
-`experimental`, adapter `manager_exact_forward`, and a positive
-`max_source_coordinator_leaves`, spawn exactly one custom
-`coc-source-coordinator` Task with `background=true`. Its entire prompt is the
-exact repository-produced `background_takeover.coordinator_dispatch.packet`;
-do not fill, rewrite, or surround it. The coordinator claims once, runs exact
+`experimental`, a supported exact-forward adapter, and a positive
+`max_source_coordinator_leaves`, spawn exactly one coordinator with
+`background=true`. On Codex use a context-free collaboration subagent with
+`fork_turns=none` and pass the exact repository-produced
+`background_takeover.coordinator_dispatch.codex_task` as its entire message.
+On a supported custom-agent host use `coc-source-coordinator` and the exact
+`packet`. Do not fill, rewrite, or add transcript context. The coordinator
+claims once, runs exact
 source-pack leaves, and forwards each valid result row through canonical
 fulfillment. Never wait for or retrieve its compact audit summary. One
 classified failure is allowed to remain transient; three observed occurrences
