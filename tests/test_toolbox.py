@@ -7076,12 +7076,21 @@ def test_first_contact_readiness_reuses_receipt_and_seed_stable_persona(campaign
 
 def test_npc_advise_preserves_authored_truth_over_canonical_support(campaign_ws):
     npc_id = "npc-steven-knott"
+    agendas_path = campaign_ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+    agendas = json.loads(agendas_path.read_text(encoding="utf-8"))
     authored = next(
-        npc for npc in json.loads((
-            campaign_ws["campaign_dir"] / "scenario" / "npc-agendas.json"
-        ).read_text(encoding="utf-8"))["npcs"]
+        npc for npc in agendas["npcs"]
         if npc["npc_id"] == npc_id
     )
+    story_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    active_scene = next(
+        scene for scene in story["scenes"]
+        if scene["scene_id"] == "commission-briefing"
+    )
+    active_scene["scene_tags"] = ["public_pressure"]
+    active_scene["authority_demands"] = ["scene_safety"]
+    _write_json(story_path, story)
     canonical = coc_toolbox.coc_npc_state.load_npc_state(
         campaign_ws["campaign_dir"]
     )
@@ -7093,7 +7102,7 @@ def test_npc_advise_preserves_authored_truth_over_canonical_support(campaign_ws)
         "voice": "Replace the authored voice.",
         "social_role": {"authority_scope": ["wrong_scope"]},
         "persona": {
-            "tags": ["voice.nervous_ramble", "habit.checks_exit"],
+            "tags": ["stress_response.panic", "temperament.secretive"],
         },
     }
     coc_toolbox.coc_npc_state.save_npc_state(campaign_ws["campaign_dir"], canonical)
@@ -7123,9 +7132,59 @@ def test_npc_advise_preserves_authored_truth_over_canonical_support(campaign_ws)
     assert card["agenda"] == authored["agenda"]
     assert card["voice"] == authored["voice"]
     assert card["social_role"] == authored["social_role"]
-    assert "habit.checks_exit" in card["persona"]["tags"]
-    assert "voice.nervous_ramble" not in card["persona"]["tags"]
-    assert "stress_response.freeze" not in card["persona"]["tags"]
+    assert card["persona"] == {}
+    assert "generation" not in card
+    assert advised["data"]["candidate_agency"]["npc_state_writes"] == []
+    move_ids = {
+        move["move_id"]
+        for move in advised["data"]["candidate_agency"]["by_npc"][npc_id][
+            "agency_moves"
+        ]
+    }
+    assert "take_command" in move_ids
+    assert not {"panic", "withhold"} & move_ids
+
+    authored["persona"] = {"tags": ["temperament.secretive"]}
+    _write_json(agendas_path, agendas)
+    authored_secretive = _run(campaign_ws, "npc.advise", {
+        "intent_evidence": {
+            "primary_intent": "talk",
+            "secondary_intents": [],
+            "risk_posture": "careful",
+            "target_entities": [npc_id],
+            "intent_tags": [],
+            "reason": "test explicit authored temperament",
+        },
+        "seed": 8,
+    })
+    secretive_row = authored_secretive["data"]["candidate_agency"]["by_npc"][
+        npc_id
+    ]
+    assert secretive_row["persona_card"]["persona"]["tags"] == [
+        "temperament.secretive"
+    ]
+    assert "withhold" in {
+        move["move_id"] for move in secretive_row["agency_moves"]
+    }
+
+    authored["persona"] = {"tags": ["stress_response.panic"]}
+    _write_json(agendas_path, agendas)
+    authored_panic = _run(campaign_ws, "npc.advise", {
+        "intent_evidence": {
+            "primary_intent": "talk",
+            "secondary_intents": [],
+            "risk_posture": "careful",
+            "target_entities": [npc_id],
+            "intent_tags": [],
+            "reason": "test explicit authored stress response",
+        },
+        "seed": 9,
+    })
+    panic_row = authored_panic["data"]["candidate_agency"]["by_npc"][npc_id]
+    assert panic_row["persona_card"]["persona"]["tags"] == [
+        "stress_response.panic"
+    ]
+    assert [move["move_id"] for move in panic_row["agency_moves"]] == ["panic"]
 
 
 @pytest.mark.parametrize("play_language", ["zh-Hans", "en"])

@@ -600,6 +600,43 @@ def _authored_over_stored_card(
     return merged
 
 
+def _source_authored_persona_card(
+    npc: dict[str, Any],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """Project source-authored portrayal without generic behavior tags."""
+    raw_social_role = npc.get("social_role")
+    role_label = npc.get("role_label")
+    if not role_label and isinstance(raw_social_role, str):
+        role_label = raw_social_role.strip() or None
+    persona = (
+        _json_clone(npc.get("persona"))
+        if isinstance(npc.get("persona"), dict)
+        else {}
+    )
+    if "surface_cues" not in persona and npc.get("surface_cues") is not None:
+        persona["surface_cues"] = [
+            str(item) for item in _as_list(npc.get("surface_cues")) if str(item)
+        ]
+    card = {
+        "schema_version": 1,
+        "npc_id": str(npc.get("npc_id") or ""),
+        "lifecycle": str(npc.get("lifecycle") or "persistent"),
+        "name": _name_record(npc, context),
+        "social_role": _normalize_social_role(raw_social_role),
+        "role_label": role_label,
+        "persona": persona,
+        "source": "npc-agendas.source",
+    }
+    for field in (
+        "origin", "agenda", "voice", "relationship_to_investigators",
+        "source_refs",
+    ):
+        if npc.get(field) is not None:
+            card[field] = _json_clone(npc[field])
+    return card
+
+
 def build_scene_npc_agency(
     scene: dict[str, Any] | None,
     npc_agendas: dict[str, Any] | None,
@@ -633,7 +670,9 @@ def build_scene_npc_agency(
             "name_context": npc.get("name_context") or {},
         }
         card = stored.get(npc_id)
-        if not isinstance(card, dict):
+        if npc.get("origin") == "source":
+            card = _source_authored_persona_card(npc, context)
+        elif not isinstance(card, dict):
             card = instantiate_npc(npc, context=context, seed_parts=[*seed_parts, npc_id])
             card = _authored_over_stored_card(npc, card, context)
             writes.append(card)
