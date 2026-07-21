@@ -1543,7 +1543,7 @@ def _npc_identity_contract(
 
 def _campaign_npc_projection_index(
     ctx: Ctx, npc_state: dict[str, Any]
-) -> tuple[set[str], dict[str, str], set[str]]:
+) -> tuple[set[str], dict[str, str], set[str], dict[str, Any], dict[str, str]]:
     """Index campaign-local NPC ids and their player-safe stable names.
 
     Both npc.query and scene.context consume this same projection so an
@@ -1559,6 +1559,7 @@ def _campaign_npc_projection_index(
         raise ToolError("state_corrupt", str(exc)) from exc
 
     campaign_names: dict[str, str] = {}
+    accepted_table_names: dict[str, str] = {}
     name_conflicts: set[str] = set()
     receipt_npc_ids: set[str] = set()
     for pair in sorted((impression_document.get("receipts") or {})):
@@ -1570,6 +1571,7 @@ def _campaign_npc_projection_index(
         display_name = str(receipt.get("npc_display_name") or "").strip()
         if not display_name:
             continue
+        accepted_table_names.setdefault(npc_id, display_name)
         prior_name = campaign_names.setdefault(npc_id, display_name)
         if prior_name != display_name:
             name_conflicts.add(npc_id)
@@ -1597,13 +1599,19 @@ def _campaign_npc_projection_index(
         name = str(raw_name or "").strip()
         if name:
             campaign_names[str(npc_id)] = name
-    return campaign_npc_ids, campaign_names, name_conflicts
+    return (
+        campaign_npc_ids,
+        campaign_names,
+        name_conflicts,
+        impression_document,
+        accepted_table_names,
+    )
 
 
 def _first_contact_localized_name(
     npc: dict[str, Any] | None,
     stored_card: dict[str, Any] | None,
-    campaign_name: str | None,
+    accepted_table_name: str | None,
     play_language: str,
 ) -> str | None:
     """Use only an explicitly localized or campaign-accepted table name."""
@@ -1624,12 +1632,14 @@ def _first_contact_localized_name(
             )
             if value:
                 return value.strip()
-    if campaign_name:
-        return str(campaign_name)
+    if accepted_table_name:
+        return str(accepted_table_name)
     if npc is not None or not isinstance(stored_card, dict):
         return None
     name = stored_card.get("name")
     if isinstance(name, dict):
+        if name.get("source") == "scenario_data":
+            return None
         name = name.get("value")
     return str(name).strip() if isinstance(name, str) and name.strip() else None
 
@@ -1640,8 +1650,10 @@ def _first_contact_readiness(
     npc_id: str,
     authored_npc: dict[str, Any] | None,
     npc_state: dict[str, Any],
-    campaign_name: str | None,
+    accepted_table_name: str | None,
     active_scene_id: str | None,
+    investigator_id: str | None,
+    impression_document: dict[str, Any],
 ) -> dict[str, Any]:
     """Build one compact, read-only readiness row for the normal NPC query."""
     stored_cards = npc_state.get("npcs")
@@ -1649,7 +1661,7 @@ def _first_contact_readiness(
     stored_card = stored_card if isinstance(stored_card, dict) else None
     authored = authored_npc if isinstance(authored_npc, dict) else None
     localized_name = _first_contact_localized_name(
-        authored, stored_card, campaign_name, _campaign_play_language(ctx),
+        authored, stored_card, accepted_table_name, _campaign_play_language(ctx),
     )
 
     if authored is not None:
@@ -1664,11 +1676,17 @@ def _first_contact_readiness(
             else "authored_incomplete"
         )
         persona = {
-            "source_status": persona_status, "voice": voice, "tags": tags,
+            "source_status": persona_status,
+            "authority": "authored",
+            "keeper_only": True,
+            "voice": voice,
+            "tags": tags,
         }
     elif stored_card is not None and isinstance(stored_card.get("persona"), dict):
         persona = {
             "source_status": "campaign_persisted",
+            "authority": "campaign_state",
+            "keeper_only": True,
             "tags": list(stored_card["persona"].get("tags") or [])[:6],
         }
     else:
@@ -1679,6 +1697,8 @@ def _first_contact_readiness(
         )
         persona = {
             "source_status": "seed_stable_proposal",
+            "authority": "advisory",
+            "keeper_only": True,
             "seed": (candidate.get("generation") or {}).get("seed"),
             "tags": list((candidate.get("persona") or {}).get("tags") or [])[:6],
         }
@@ -1720,40 +1740,41 @@ def _first_contact_readiness(
         and mechanics_source_status != "not_authored" else None
     )
 
-    try:
-        campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
-        impression_document = coc_first_impression.load_document(
-            ctx.campaign_dir, campaign_id,
-        )
-    except ValueError as exc:
-        raise ToolError("state_corrupt", str(exc)) from exc
-    first_impression_pairs: list[dict[str, Any]] = []
     next_operation_cards: list[dict[str, Any]] = []
-    for investigator_id in ctx.party_ids():
+    requested_pair: dict[str, Any]
+    if investigator_id is None:
+        requested_pair = {
+            "status": "investigator_selection_required",
+            "investigator_id": None,
+            "receipt_exists": None,
+            "first_impression_ref": None,
+        }
+    else:
         receipt = coc_first_impression.find_by_pair(
             impression_document, investigator_id, npc_id,
         )
         exists = isinstance(receipt, dict)
-        first_impression_pairs.append({
-            "investigator_id": investigator_id, "receipt_exists": exists,
+        requested_pair = {
+            "status": "settled" if exists else "missing",
+            "investigator_id": investigator_id,
+            "receipt_exists": exists,
             "first_impression_ref": receipt.get("receipt_id") if exists else None,
-        })
-        if exists:
-            continue
-        prefilled = {"npc_id": npc_id, "investigator": investigator_id}
-        missing = ["run_id", "context", "decision_id"]
-        if localized_name is not None:
-            prefilled["npc_display_name"] = localized_name
-        else:
-            missing.insert(0, "npc_display_name")
-        next_operation_cards.append({
-            "operation": "npc.reaction",
-            "invoke_via": "coc_invoke",
-            "prefilled_arguments": prefilled,
-            "missing_arguments": missing,
-            "fresh_decision_id_required": True,
-            "roll_created": False,
-        })
+        }
+        if not exists:
+            prefilled = {"npc_id": npc_id, "investigator": investigator_id}
+            missing = ["run_id", "context", "decision_id"]
+            if localized_name is not None:
+                prefilled["npc_display_name"] = localized_name
+            else:
+                missing.insert(0, "npc_display_name")
+            next_operation_cards.append({
+                "operation": "npc.reaction",
+                "invoke_via": "coc_invoke",
+                "prefilled_arguments": prefilled,
+                "missing_arguments": missing,
+                "fresh_decision_id_required": True,
+                "roll_created": False,
+            })
 
     if not mechanics_ready:
         mechanics_missing = ["purpose", "decision_id"]
@@ -1782,12 +1803,15 @@ def _first_contact_readiness(
             and isinstance(authored.get("agenda"), str)
             and authored.get("agenda", "").strip()
         ),
-        "persona_ready": persona["source_status"] != "authored_incomplete",
+        "persona_ready": persona["source_status"] in {
+            "authored", "campaign_persisted",
+        },
+        "persona_candidate_ready": persona["source_status"] == "seed_stable_proposal",
         "persona": persona,
         "mechanics_ready": mechanics_ready,
         "mechanics_source_status": mechanics_source_status,
         "pending_source_dependency": pending_source_dependency,
-        "first_impression_pairs": first_impression_pairs,
+        "requested_pair_first_impression": requested_pair,
         "next_operation_cards": next_operation_cards,
     }
 
@@ -1958,37 +1982,40 @@ def _npc_engagement_advisory_hints(
 
 
 def _first_impression_hint(
-    ctx: Ctx, npc_id: str, authored_npc: dict[str, Any] | None
+    ctx: Ctx,
+    npc_id: str,
+    investigator_id: str | None,
+    impression_document: dict[str, Any],
 ) -> str | None:
     """Advisory pointer for the pair's one public first-impression check."""
     stats: tuple[str, int, int] | None = None
-    try:
-        investigator_id = _resolve_investigator(ctx, {})
-        sheet = ctx.sheet(investigator_id)
-        chars = sheet.get("characteristics") or {}
-        skills = sheet.get("skills") or {}
-        app_raw = chars.get("APP", 50)
-        cr_raw = skills.get("Credit Rating", 0)
-        stats = (
-            investigator_id,
-            int(app_raw) if app_raw is not None else 50,
-            int(cr_raw) if cr_raw is not None else 0,
-        )
-    except ToolError:
-        stats = None
+    if investigator_id is not None:
+        try:
+            sheet = ctx.sheet(investigator_id)
+            chars = sheet.get("characteristics") or {}
+            skills = sheet.get("skills") or {}
+            app_raw = chars.get("APP", 50)
+            cr_raw = skills.get("Credit Rating", 0)
+            stats = (
+                investigator_id,
+                int(app_raw) if app_raw is not None else 50,
+                int(cr_raw) if cr_raw is not None else 0,
+            )
+        except ToolError:
+            stats = None
     if stats is None:
         return (
             f"first impression: call npc.reaction once before the first substantive "
             f"engagement with '{npc_id}'; the APP/Credit Rating D100 is public"
         )
     investigator_id, app, credit_rating = stats
-    try:
-        campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
-        document = coc_first_impression.load_document(ctx.campaign_dir, campaign_id)
-        if coc_first_impression.find_by_pair(document, investigator_id, npc_id) is not None:
-            return None
-    except ValueError as exc:
-        raise ToolError("state_corrupt", str(exc)) from exc
+    if (
+        coc_first_impression.find_by_pair(
+            impression_document, investigator_id, npc_id
+        )
+        is not None
+    ):
+        return None
     return (
         f"first impression: call npc.reaction once for {investigator_id}/'{npc_id}' "
         f"before their first substantive engagement; public D100 uses max(APP {app}, "
@@ -9310,9 +9337,13 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
     presence_document = _load_npc_presence_document(ctx)
     live_presence = presence_document["presence"]
-    _campaign_npc_ids, campaign_names, name_conflicts = (
-        _campaign_npc_projection_index(ctx, npc_state)
-    )
+    (
+        _campaign_npc_ids,
+        campaign_names,
+        name_conflicts,
+        _impression_document,
+        _accepted_table_names,
+    ) = _campaign_npc_projection_index(ctx, npc_state)
     party_ids = ctx.party_ids()
     impression_investigator: str | None = None
     if args.get("investigator") is not None:
@@ -13089,9 +13120,13 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
     psych_by_id = (
         npc_state.get("psych") if isinstance(npc_state.get("psych"), dict) else {}
     )
-    campaign_npc_ids, campaign_names, name_conflicts = (
-        _campaign_npc_projection_index(ctx, npc_state)
-    )
+    (
+        campaign_npc_ids,
+        campaign_names,
+        name_conflicts,
+        impression_document,
+        accepted_table_names,
+    ) = _campaign_npc_projection_index(ctx, npc_state)
 
     out = []
     requested_id = str(args.get("npc_id") or "").strip()
@@ -13187,10 +13222,12 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
                         npc_id=npc_id,
                         authored_npc=npc,
                         npc_state=npc_state,
-                        campaign_name=campaign_name,
+                        accepted_table_name=accepted_table_names.get(npc_id),
                         active_scene_id=(
                             str(active_scene_id) if active_scene_id else None
                         ),
+                        investigator_id=impression_investigator,
+                        impression_document=impression_document,
                     )
                 }
                 if canonical_requested_id
@@ -13225,7 +13262,10 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
         )
     if canonical_requested_id:
         first_impression = _first_impression_hint(
-            ctx, canonical_requested_id, requested_npc
+            ctx,
+            canonical_requested_id,
+            impression_investigator,
+            impression_document,
         )
         if first_impression:
             hints.append(first_impression)
