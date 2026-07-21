@@ -48,6 +48,19 @@ JOB_KINDS = frozenset({
 FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
 MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
 MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
+HOST_WORK_SCHEMA_VERSION = 2
+HOST_WORK_CLOSED_STATUSES = frozenset({
+    "fulfilled", "cancelled", "superseded",
+})
+HOST_WORK_LEVELS = ("current_dependency", "near_term", "bounded_warm")
+HOST_WORK_OPEN_CLASSES = (
+    "runnable", "leased", "awaiting_scope", "awaiting_cache",
+)
+HOST_WORK_DEPENDENCY_FIELDS = frozenset({
+    "operation", "subject", "settlement_id", "decision_id",
+    "source_scope_signature",
+})
+HOST_WORK_DEPENDENCY_SUBJECT_FIELDS = frozenset({"kind", "id"})
 OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES = 96
 FULFILLED_PACK_RECEIPT_SCHEMA_VERSION = 1
 FULFILLED_PACK_DIGEST_KIND = "canonical_entity_pack"
@@ -177,6 +190,92 @@ def _job_aspect(job_kind: str) -> str:
         if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
         else "body"
     )
+
+
+def _default_host_work_level(job_kind: str) -> str:
+    """Return advisory urgency only; never infer an exact current dependency."""
+    return "bounded_warm" if job_kind == "locate_mechanics_index" else "near_term"
+
+
+def validate_host_work_dependency_ref(value: Any) -> dict[str, Any]:
+    """Validate the one exact consumer reference allowed on current work."""
+    if not isinstance(value, dict) or set(value) - HOST_WORK_DEPENDENCY_FIELDS:
+        raise ModuleAssetsError("dependency_ref has unsupported fields")
+    operation = _require_id(value.get("operation"), "dependency_ref.operation")
+    subject = value.get("subject")
+    if (
+        not isinstance(subject, dict)
+        or set(subject) != HOST_WORK_DEPENDENCY_SUBJECT_FIELDS
+    ):
+        raise ModuleAssetsError(
+            "dependency_ref.subject must contain exactly kind and id"
+        )
+    subject_kind = _require_id(subject.get("kind"), "dependency_ref.subject.kind")
+    subject_id = _require_id(subject.get("id"), "dependency_ref.subject.id")
+    identities = [
+        field for field in (
+            "settlement_id", "decision_id", "source_scope_signature",
+        )
+        if str(value.get(field) or "").strip()
+    ]
+    if len(identities) != 1:
+        raise ModuleAssetsError(
+            "dependency_ref requires exactly one settlement_id, decision_id, "
+            "or source_scope_signature"
+        )
+    identity_field = identities[0]
+    identity = _require_id(
+        value.get(identity_field), f"dependency_ref.{identity_field}",
+    )
+    return {
+        "operation": operation,
+        "subject": {"kind": subject_kind, "id": subject_id},
+        identity_field: identity,
+    }
+
+
+def validate_host_work_contract(
+    work_level: Any,
+    dependency_ref: Any = None,
+) -> tuple[str, dict[str, Any] | None]:
+    level = str(work_level or "").strip()
+    if level not in HOST_WORK_LEVELS:
+        raise ModuleAssetsError(
+            f"work_level must be one of {list(HOST_WORK_LEVELS)}"
+        )
+    if level == "current_dependency":
+        return level, validate_host_work_dependency_ref(dependency_ref)
+    if dependency_ref is not None:
+        raise ModuleAssetsError(
+            "dependency_ref is allowed only for work_level=current_dependency"
+        )
+    return level, None
+
+
+def validate_host_work_request_shape(request: Any) -> None:
+    """Reject non-current durable rows instead of inferring contract fields."""
+    if not isinstance(request, dict):
+        raise ModuleAssetsError("host-work request must be an object")
+    if request.get("schema_version") != HOST_WORK_SCHEMA_VERSION:
+        raise ModuleAssetsError("host-work request schema_version is not current")
+    if "consumer" in request or "dependency" in request:
+        raise ModuleAssetsError(
+            "host-work request contains removed dependency projection fields"
+        )
+    _require_id(request.get("job_id"), "host-work.job_id")
+    kind = str(request.get("kind") or "")
+    if kind not in JOB_KINDS:
+        raise ModuleAssetsError("host-work kind is invalid")
+    _require_id(request.get("target_id"), "host-work.target_id")
+    level, dependency_ref = validate_host_work_contract(
+        request.get("work_level"), request.get("dependency_ref"),
+    )
+    if level != "current_dependency" and "dependency_ref" in request:
+        raise ModuleAssetsError(
+            "non-current host-work request must omit dependency_ref"
+        )
+    if level == "current_dependency" and dependency_ref is None:
+        raise ModuleAssetsError("current host-work request requires dependency_ref")
 
 
 def _same_entity_work(row: dict[str, Any], job_kind: str, target_id: str) -> bool:
@@ -331,41 +430,6 @@ def _host_request_still_current(
     updated_at = str((pack or {}).get("updated_at") or "")
     completed_at = str(row.get("completed_at") or "")
     return not updated_at or not completed_at or updated_at <= completed_at
-
-
-def _supersede_host_requests(
-    workspace: Path,
-    asset_root_id: str,
-    rows: list[dict[str, Any]],
-    *,
-    replacement_job_id: str,
-) -> list[str]:
-    """Close open handoffs whose exact entity evidence scope has changed."""
-    superseded: list[str] = []
-    for row in rows:
-        job_id = str(row.get("job_id") or "").strip()
-        if not job_id:
-            continue
-        path = _module_dir(workspace, asset_root_id) / "host-work" / f"{job_id}.json"
-        if not path.is_file():
-            continue
-        try:
-            request = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if str(request.get("status") or "") in {
-            "fulfilled", "cancelled", "superseded",
-        }:
-            continue
-        request.update({
-            "status": "superseded",
-            "dispatch_state": "superseded",
-            "superseded_at": _now_iso(),
-            "superseded_by_job_id": replacement_job_id,
-        })
-        _write_json(path, request)
-        superseded.append(job_id)
-    return superseded
 
 
 def _host_request_scope_is_covered(
@@ -2753,6 +2817,12 @@ def _host_ingest_timing(
                 continue
             if not isinstance(request, dict) or request.get("fulfilled_at"):
                 continue
+            try:
+                validate_host_work_request_shape(request)
+            except ModuleAssetsError:
+                if requested_job_id and path.stem == requested_job_id:
+                    raise
+                continue
             job_id = str(request.get("job_id") or "")
             request_status = str(request.get("status") or "")
             if (
@@ -2929,7 +2999,7 @@ def _semantic_pack_digest(doc: dict[str, Any]) -> str:
     return canonical_fulfilled_pack_digest(doc)
 
 
-def _mark_host_work_fulfilled(
+def _mark_host_work_fulfilled_unlocked(
     workspace: Path,
     asset_root_id: str,
     *,
@@ -2942,33 +3012,42 @@ def _mark_host_work_fulfilled(
 ) -> None:
     if not host_work_job_id:
         return
-    work_dir = _module_dir(workspace, asset_root_id) / "host-work"
-    if not work_dir.is_dir():
-        return
-    for path in work_dir.glob("*.json"):
-        try:
-            request = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if str(request.get("job_id") or "") != host_work_job_id:
-            continue
-        request["status"] = "fulfilled"
-        request["dispatch_state"] = "fulfilled"
-        request["fulfilled_at"] = fulfilled_at
-        request["fulfilled_entity"] = json.loads(json.dumps(fulfilled_entity))
-        request["repository_put_ms"] = repository_put_ms
-        _write_json(path, request)
-        return
+    path = (
+        _module_dir(workspace, asset_root_id)
+        / "host-work"
+        / f"{_require_id(host_work_job_id, 'host_work_job_id')}.json"
+    )
+    if not path.is_file():
+        raise ModuleAssetsError("host-work request is missing")
+    request = json.loads(path.read_text(encoding="utf-8"))
+    validate_host_work_request_shape(request)
+    status = str(request.get("status") or "open")
+    if status in HOST_WORK_CLOSED_STATUSES:
+        raise ModuleAssetsError(
+            f"host_work_job_id {host_work_job_id!r} is {status}; "
+            "fulfill the replacement request"
+        )
+    if (
+        str(request.get("target_id") or "") != entity_id
+        or _job_entity_kind(str(request.get("kind") or "")) != kind
+    ):
+        raise ModuleAssetsError("host-work request does not match the entity pack")
+    request["status"] = "fulfilled"
+    request["dispatch_state"] = "fulfilled"
+    request["fulfilled_at"] = fulfilled_at
+    request["fulfilled_entity"] = json.loads(json.dumps(fulfilled_entity))
+    request["repository_put_ms"] = repository_put_ms
+    _write_json(path, request)
 
 
-def mark_locator_host_work_fulfilled(
+def put_skeleton_and_fulfill_locator_host_work(
     workspace: Path,
     asset_root_id: str,
     *,
     host_work_job_id: str,
-    repository_put_ms: int,
-) -> None:
-    """Close one validated locator request after its skeleton delta is stored."""
+    skeleton: dict[str, Any],
+) -> dict[str, Any]:
+    """Store one locator delta and close its exact request atomically."""
     path = (
         _module_dir(workspace, asset_root_id)
         / "host-work"
@@ -2980,12 +3059,18 @@ def mark_locator_host_work_fulfilled(
         _module_dir(workspace, asset_root_id) / "host-work.lock"
     ):
         request = json.loads(path.read_text(encoding="utf-8"))
+        validate_host_work_request_shape(request)
         if request.get("kind") != "locate_mechanics_index":
             raise ModuleAssetsError("host-work request is not a mechanics locator pass")
         if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
             raise ModuleAssetsError(
                 f"locator host-work request is already {request.get('status')}"
             )
+        started = time.perf_counter()
+        put_result = put_skeleton(workspace, asset_root_id, skeleton)
+        repository_put_ms = max(
+            0, round((time.perf_counter() - started) * 1000),
+        )
         request.update({
             "status": "fulfilled",
             "dispatch_state": "fulfilled",
@@ -2993,6 +3078,7 @@ def mark_locator_host_work_fulfilled(
             "repository_put_ms": max(0, int(repository_put_ms)),
         })
         _write_json(path, request)
+    return {"put": put_result, "repository_put_ms": repository_put_ms}
 
 
 def _refresh_host_work_cache(
@@ -3040,6 +3126,65 @@ def _refresh_host_work_cache(
     return changed
 
 
+def host_work_operational_class(request: dict[str, Any]) -> str:
+    """Return one disjoint lifecycle class without trusting legacy ``ready``."""
+    status = str(request.get("status") or "open")
+    if status == "fulfilled":
+        return "fulfilled"
+    if status in {"cancelled", "superseded"}:
+        return "stale"
+    if str(request.get("dispatch_state") or "") == "leased":
+        return "leased"
+    requested = request.get("requested_pdf_indices")
+    exact_scope = (
+        isinstance(requested, list)
+        and bool(requested)
+        and not any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in requested
+        )
+    )
+    if not exact_scope:
+        return "awaiting_scope"
+    if request.get("cached_scope_complete") is not True:
+        return "awaiting_cache"
+    return "runnable"
+
+
+def _sync_host_work_dispatch_state(request: dict[str, Any]) -> bool:
+    """Persist the dispatch state implied by exact scope/cache/lease facts."""
+    operational_class = host_work_operational_class(request)
+    expected = (
+        "ready" if operational_class == "runnable"
+        else str(request.get("status") or "superseded")
+        if operational_class == "stale"
+        else operational_class
+    )
+    changed = str(request.get("dispatch_state") or "") != expected
+    request["dispatch_state"] = expected
+    return changed
+
+
+def _refresh_host_work_lifecycle(
+    workspace: Path,
+    asset_root_id: str,
+    request: dict[str, Any],
+    *,
+    now: datetime,
+) -> bool:
+    """Refresh cache availability and recover an expired lease in place."""
+    changed = _refresh_host_work_cache(workspace, asset_root_id, request)
+    if _lease_is_expired(request, now):
+        request["last_lease_expired_at"] = now.isoformat()
+        request.pop("dispatch_state", None)
+        for key in (
+            "lease_id", "leased_at", "lease_expires_at", "executor_id",
+        ):
+            request.pop(key, None)
+        changed = True
+    return _sync_host_work_dispatch_state(request) or changed
+
+
 def _lease_is_expired(request: dict[str, Any], now: datetime) -> bool:
     if str(request.get("dispatch_state") or "ready") != "leased":
         return False
@@ -3051,6 +3196,75 @@ def _lease_is_expired(request: dict[str, Any], now: datetime) -> bool:
     if expiry.tzinfo is None:
         expiry = expiry.replace(tzinfo=timezone.utc)
     return expiry <= now
+
+
+def _requeue_invalid_host_work_jobs(
+    workspace: Path,
+    asset_root_id: str,
+    job_ids: list[str],
+) -> None:
+    """Rebuild rejected open handoffs only from their authoritative queue rows."""
+    wanted = {str(value).strip() for value in job_ids if str(value).strip()}
+    if not wanted:
+        return
+    module_root = _module_dir(workspace, asset_root_id)
+    queue_path = module_root / "parse-queue.json"
+    if not queue_path.is_file():
+        return
+    requeued: list[str] = []
+    with coc_fileio.advisory_file_lock(module_root / "parse-queue.lock"):
+        queue = json.loads(queue_path.read_text(encoding="utf-8"))
+        pending = list(queue.get("pending") or [])
+        in_flight = list(queue.get("in_flight") or [])
+        done = list(queue.get("done") or [])
+        indexed = {str(row.get("job_id") or ""): row for row in [*in_flight, *done]}
+        for job_id in sorted(wanted):
+            source = indexed.get(job_id)
+            if source is None:
+                continue
+            kind = str(source.get("kind") or "")
+            if kind not in JOB_KINDS:
+                continue
+            fresh = {
+                key: source[key] for key in (
+                    "job_id", "kind", "target_id", "priority", "reason",
+                    "enqueued_at", "request_purpose", "requested_source_scope",
+                    "source_scope_signature", "supersedes_host_job_ids",
+                )
+                if key in source
+            }
+            try:
+                level, dependency_ref = validate_host_work_contract(
+                    source.get("work_level")
+                    or _default_host_work_level(kind),
+                    source.get("dependency_ref"),
+                )
+            except ModuleAssetsError:
+                # A legacy request may describe urgency, but it cannot become
+                # an exact current dependency without an authoritative caller.
+                level, dependency_ref = _default_host_work_level(kind), None
+            fresh["work_level"] = level
+            if dependency_ref is not None:
+                fresh["dependency_ref"] = dependency_ref
+            if all(str(row.get("job_id") or "") != job_id for row in pending):
+                pending.append(fresh)
+            requeued.append(job_id)
+        if requeued:
+            queue["pending"] = sorted(
+                pending,
+                key=lambda row: (
+                    -int(row.get("priority") or 0),
+                    str(row.get("enqueued_at") or ""),
+                ),
+            )
+            moved = set(requeued)
+            queue["in_flight"] = [
+                row for row in in_flight if str(row.get("job_id") or "") not in moved
+            ]
+            queue["done"] = [
+                row for row in done if str(row.get("job_id") or "") not in moved
+            ]
+            _write_json(queue_path, queue)
 
 
 def claim_host_work_requests(
@@ -3080,14 +3294,26 @@ def claim_host_work_requests(
         or not 30 <= lease_seconds <= 3600
     ):
         raise ModuleAssetsError("lease_seconds must be an integer from 30 through 3600")
+    if cached_only is not True:
+        raise ModuleAssetsError(
+            "cached_only=false is unsupported; only exact cached work is claimable"
+        )
 
     module_root = _module_dir(workspace, asset_root_id)
     work_dir = module_root / "host-work"
     if not work_dir.is_dir():
-        return {"packets": [], "leased_group_count": 0, "ready_group_count": 0}
+        return {
+            "packets": [],
+            "leased_group_count": 0,
+            "ready_group_count": 0,
+            "cached_only": bool(cached_only),
+            "lifecycle": host_work_lifecycle_summary(
+                workspace, asset_root_id,
+            ),
+        }
     now = datetime.now(timezone.utc)
-    closed = {"fulfilled", "cancelled", "superseded"}
     rows: list[tuple[Path, dict[str, Any]]] = []
+    invalid_job_ids: list[str] = []
     with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
         for path in sorted(work_dir.glob("*.json")):
             try:
@@ -3096,27 +3322,20 @@ def claim_host_work_requests(
                 continue
             if not isinstance(request, dict):
                 continue
-            if str(request.get("status") or "open") in closed:
+            if str(request.get("status") or "open") in HOST_WORK_CLOSED_STATUSES:
                 continue
-            changed = _refresh_host_work_cache(
-                workspace, asset_root_id, request,
+            try:
+                validate_host_work_request_shape(request)
+            except ModuleAssetsError:
+                invalid_job_ids.append(str(request.get("job_id") or path.stem))
+                path.unlink(missing_ok=True)
+                continue
+            changed = _refresh_host_work_lifecycle(
+                workspace, asset_root_id, request, now=now,
             )
-            if _lease_is_expired(request, now):
-                request["dispatch_state"] = "ready"
-                request["last_lease_expired_at"] = now.isoformat()
-                for key in (
-                    "lease_id", "leased_at", "lease_expires_at", "executor_id",
-                ):
-                    request.pop(key, None)
-                changed = True
             if changed:
                 _write_json(path, request)
-            if str(request.get("dispatch_state") or "ready") != "ready":
-                continue
-            indices = request.get("requested_pdf_indices") or []
-            if not indices:
-                continue
-            if cached_only and request.get("cached_scope_complete") is not True:
+            if host_work_operational_class(request) != "runnable":
                 continue
             rows.append((path, request))
 
@@ -3127,6 +3346,10 @@ def claim_host_work_requests(
         ordered_groups = sorted(
             grouped.items(),
             key=lambda item: (
+                min(
+                    HOST_WORK_LEVELS.index(str(row[1].get("work_level")))
+                    for row in item[1]
+                ),
                 -max(int(row[1].get("priority") or 0) for row in item[1]),
                 min(str(row[1].get("created_at") or "") for row in item[1]),
                 item[0],
@@ -3152,7 +3375,7 @@ def claim_host_work_requests(
                 request["leased_at"] = now.isoformat()
                 request["lease_expires_at"] = expires_at.isoformat()
                 _write_json(path, request)
-                packet_requests.append({
+                packet_request = {
                     key: request.get(key)
                     for key in (
                         "job_id", "kind", "target_id", "priority", "reason",
@@ -3160,8 +3383,14 @@ def claim_host_work_requests(
                         "cached_scope_complete", "batch_subjects",
                         "request_purpose", "requested_source_scope",
                         "source_scope_signature", "result_contract",
+                        "work_level",
                     )
-                })
+                }
+                if request["work_level"] == "current_dependency":
+                    packet_request["dependency_ref"] = json.loads(
+                        json.dumps(request["dependency_ref"])
+                    )
+                packet_requests.append(packet_request)
             exemplar = members[0][1]
             packets.append({
                 "schema_version": 1,
@@ -3189,6 +3418,17 @@ def claim_host_work_requests(
                         "idle_warm": 3,
                     }.get(value, 9),
                 ),
+                "work_level": min(
+                    (
+                        str(row[1].get("work_level") or "near_term")
+                        for row in members
+                    ),
+                    key=lambda value: {
+                        "current_dependency": 0,
+                        "near_term": 1,
+                        "bounded_warm": 2,
+                    }.get(value, 9),
+                ),
                 "requested_pdf_indices": list(
                     exemplar.get("requested_pdf_indices") or []
                 ),
@@ -3197,20 +3437,28 @@ def claim_host_work_requests(
                 ),
                 "requests": packet_requests,
             })
-    return {
+    _requeue_invalid_host_work_jobs(
+        workspace, asset_root_id, invalid_job_ids,
+    )
+    result = {
         "packets": packets,
         "leased_group_count": len(packets),
         "ready_group_count": len(ordered_groups),
         "cached_only": bool(cached_only),
     }
+    result["lifecycle"] = host_work_lifecycle_summary(
+        workspace, asset_root_id,
+    )
+    return result
 
 
-def list_host_work_requests(
+def _list_host_work_requests_unlocked(
     workspace: Path,
     asset_root_id: str,
     *,
     include_closed: bool = False,
     limit: int | None = 8,
+    invalid_job_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return a bounded, deterministic projection of durable host handoffs.
 
@@ -3221,8 +3469,8 @@ def list_host_work_requests(
     work_dir = _module_dir(workspace, asset_root_id) / "host-work"
     if not work_dir.is_dir():
         return []
-    closed = {"fulfilled", "cancelled", "superseded"}
     rows: list[dict[str, Any]] = []
+    now = datetime.now(timezone.utc)
     for path in sorted(work_dir.glob("*.json")):
         try:
             request = json.loads(path.read_text(encoding="utf-8"))
@@ -3231,11 +3479,27 @@ def list_host_work_requests(
         if not isinstance(request, dict):
             continue
         status = str(request.get("status") or "open")
-        if not include_closed and status in closed:
+        try:
+            validate_host_work_request_shape(request)
+        except ModuleAssetsError:
+            path.unlink(missing_ok=True)
+            if (
+                status not in HOST_WORK_CLOSED_STATUSES
+                and invalid_job_ids is not None
+            ):
+                invalid_job_ids.append(str(request.get("job_id") or path.stem))
+            continue
+        if status not in HOST_WORK_CLOSED_STATUSES and _refresh_host_work_lifecycle(
+            workspace, asset_root_id, request, now=now,
+        ):
+            _write_json(path, request)
+        if not include_closed and status in HOST_WORK_CLOSED_STATUSES:
             continue
         requested_indices = list(request.get("requested_pdf_indices") or [])
         source_scope_known = bool(requested_indices)
-        rows.append({
+        deadline_class = request.get("deadline_class") or "next_turn_hot"
+        work_level = request["work_level"]
+        projected = {
             "job_id": request.get("job_id"),
             "asset_root_id": request.get("asset_root_id"),
             "kind": request.get("kind"),
@@ -3262,9 +3526,11 @@ def list_host_work_requests(
             "cached_scope_complete": request.get("cached_scope_complete"),
             "batch_subjects": list(request.get("batch_subjects") or []),
             "source_aspect": request.get("source_aspect") or "body",
-            "deadline_class": request.get("deadline_class") or "next_turn_hot",
+            "deadline_class": deadline_class,
+            "work_level": work_level,
             "work_group_id": request.get("work_group_id"),
-            "dispatch_state": request.get("dispatch_state") or "ready",
+            "dispatch_state": request.get("dispatch_state") or "awaiting_scope",
+            "operational_class": host_work_operational_class(request),
             "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
             "executor_id": request.get("executor_id"),
             "lease_id": request.get("lease_id"),
@@ -3284,7 +3550,12 @@ def list_host_work_requests(
                 },
             },
             "path": str(path),
-        })
+        }
+        if work_level == "current_dependency":
+            projected["dependency_ref"] = json.loads(
+                json.dumps(request["dependency_ref"])
+            )
+        rows.append(projected)
     rows.sort(
         key=lambda row: (
             -int(row.get("priority") or 0),
@@ -3295,6 +3566,71 @@ def list_host_work_requests(
     if limit is None:
         return rows
     return rows[:max(0, int(limit))]
+
+
+def list_host_work_requests(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    include_closed: bool = False,
+    limit: int | None = 8,
+) -> list[dict[str, Any]]:
+    """Read and refresh host work under its canonical lifecycle lock."""
+    module_root = _module_dir(workspace, asset_root_id)
+    invalid_job_ids: list[str] = []
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        rows = _list_host_work_requests_unlocked(
+            workspace,
+            asset_root_id,
+            include_closed=include_closed,
+            limit=limit,
+            invalid_job_ids=invalid_job_ids,
+        )
+    _requeue_invalid_host_work_jobs(
+        workspace, asset_root_id, invalid_job_ids,
+    )
+    return rows
+
+
+def host_work_lifecycle_summary(
+    workspace: Path,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Return disjoint durable lifecycle counts, including per-level work."""
+    rows = list_host_work_requests(
+        workspace, asset_root_id, include_closed=True, limit=None,
+    )
+    classes = (*HOST_WORK_OPEN_CLASSES, "stale", "fulfilled")
+    counts = {
+        f"{name}_count": sum(
+            row.get("operational_class") == name for row in rows
+        )
+        for name in classes
+    }
+    by_work_level = {
+        level: {
+            name: sum(
+                row.get("work_level") == level
+                and row.get("operational_class") == name
+                for row in rows
+            )
+            for name in HOST_WORK_OPEN_CLASSES
+        }
+        for level in HOST_WORK_LEVELS
+    }
+    open_host_work_count = sum(
+        counts[f"{name}_count"] for name in HOST_WORK_OPEN_CLASSES
+    )
+    return {
+        "open_host_work_count": open_host_work_count,
+        **counts,
+        "stranded_ready_count": sum(
+            row.get("dispatch_state") == "ready"
+            and row.get("operational_class") != "runnable"
+            for row in rows
+        ),
+        "by_work_level": by_work_level,
+    }
 
 
 def put_entity(
@@ -3314,11 +3650,6 @@ def put_entity(
     if not (mod / "identity.json").is_file():
         raise ModuleAssetsError("init_module_root before put_entity")
     path = mod / "entities" / f"{kind}-{eid}.json"
-    previous = (
-        json.loads(path.read_text(encoding="utf-8"))
-        if path.is_file()
-        else None
-    )
     doc = json.loads(json.dumps(payload))
     # The worker/request ID selects one live fulfillment transaction. It is
     # converted into the canonical ingest receipt below and never persisted as
@@ -3341,51 +3672,80 @@ def put_entity(
         kind, eid, doc,
     )
     matched_host_work_job_id: str | None = None
-    # Validate after source canonicalization so PDF refs are concrete, and pass
-    # workspace context so not_authored can bind to the skeleton locator row.
-    if (
+    needs_host_work_boundary = (
         doc["parse_state"] in {"partial", "body_parsed", "deep"}
         or bool(str(transient_host_work_job_id or "").strip())
-    ):
-        fresh_timing, matched_host_work_job_id = _host_ingest_timing(
+    )
+
+    def commit_entity() -> int:
+        nonlocal matched_host_work_job_id
+        previous = (
+            json.loads(path.read_text(encoding="utf-8"))
+            if path.is_file()
+            else None
+        )
+        if needs_host_work_boundary:
+            fresh_timing, matched_host_work_job_id = _host_ingest_timing(
+                workspace,
+                asset_root_id,
+                kind,
+                eid,
+                received_at=received_at,
+                host_timing=doc.get("host_timing"),
+                host_work_job_id=transient_host_work_job_id,
+            )
+            if (
+                isinstance(previous, dict)
+                and isinstance(previous.get("ingest_timing"), dict)
+                and matched_host_work_job_id is None
+                and _semantic_pack_digest(previous) == _semantic_pack_digest(doc)
+            ):
+                doc["ingest_timing"] = json.loads(
+                    json.dumps(previous["ingest_timing"])
+                )
+                doc["ingest_timing"].pop("host_work_job_id", None)
+                doc["ingest_timing"]["last_pack_received_at"] = received_at
+                doc["ingest_timing"]["pack_reuse_count"] = (
+                    int(doc["ingest_timing"].get("pack_reuse_count") or 0) + 1
+                )
+            else:
+                if matched_host_work_job_id is not None:
+                    fresh_timing[FULFILLED_PACK_INGEST_FIELD] = (
+                        canonical_ingest_fulfillment_receipt(
+                            matched_host_work_job_id, kind, eid, doc,
+                        )
+                    )
+                doc["ingest_timing"] = fresh_timing
+        # Validate after source canonicalization so PDF refs are concrete, and
+        # pass workspace context so not_authored can bind to the locator row.
+        _validate_entity_pack(
+            kind,
+            doc,
+            workspace=workspace,
+            asset_root_id=asset_root_id,
+            entity_id=eid,
+        )
+        _write_json(path, doc)
+        repository_put_ms = max(
+            0, round((time.perf_counter() - started) * 1000),
+        )
+        _mark_host_work_fulfilled_unlocked(
             workspace,
             asset_root_id,
-            kind,
-            eid,
-            received_at=received_at,
-            host_timing=doc.get("host_timing"),
-            host_work_job_id=transient_host_work_job_id,
+            host_work_job_id=matched_host_work_job_id,
+            kind=kind,
+            entity_id=eid,
+            fulfilled_entity=fulfilled_entity_receipt,
+            fulfilled_at=received_at,
+            repository_put_ms=repository_put_ms,
         )
-        if (
-            isinstance(previous, dict)
-            and isinstance(previous.get("ingest_timing"), dict)
-            and matched_host_work_job_id is None
-            and _semantic_pack_digest(previous) == _semantic_pack_digest(doc)
-        ):
-            doc["ingest_timing"] = json.loads(
-                json.dumps(previous["ingest_timing"])
-            )
-            doc["ingest_timing"].pop("host_work_job_id", None)
-            doc["ingest_timing"]["last_pack_received_at"] = received_at
-            doc["ingest_timing"]["pack_reuse_count"] = (
-                int(doc["ingest_timing"].get("pack_reuse_count") or 0) + 1
-            )
-        else:
-            if matched_host_work_job_id is not None:
-                fresh_timing[FULFILLED_PACK_INGEST_FIELD] = (
-                    canonical_ingest_fulfillment_receipt(
-                        matched_host_work_job_id, kind, eid, doc,
-                    )
-                )
-            doc["ingest_timing"] = fresh_timing
-    _validate_entity_pack(
-        kind,
-        doc,
-        workspace=workspace,
-        asset_root_id=asset_root_id,
-        entity_id=eid,
-    )
-    _write_json(path, doc)
+        return repository_put_ms
+
+    if needs_host_work_boundary:
+        with coc_fileio.advisory_file_lock(mod / "host-work.lock"):
+            repository_put_ms = commit_entity()
+    else:
+        repository_put_ms = commit_entity()
     out: dict[str, Any] = {
         "path": str(path),
         "kind": kind,
@@ -3410,19 +3770,7 @@ def put_entity(
             )
         except Exception:  # noqa: BLE001
             out["worker"] = {"error": "reenqueue_kick_failed"}
-    out["repository_put_ms"] = max(
-        0, round((time.perf_counter() - started) * 1000)
-    )
-    _mark_host_work_fulfilled(
-        workspace,
-        asset_root_id,
-        host_work_job_id=matched_host_work_job_id,
-        kind=kind,
-        entity_id=eid,
-        fulfilled_entity=fulfilled_entity_receipt,
-        fulfilled_at=received_at,
-        repository_put_ms=out["repository_put_ms"],
-    )
+    out["repository_put_ms"] = repository_put_ms
     if parse_state == "deep" and not doc.get("evidence_gap"):
         fulfillment = current_ingest_fulfillment_receipt(doc) or {}
         out["superseded_host_job_ids"] = _supersede_covered_entity_host_requests(
@@ -3641,10 +3989,15 @@ def enqueue_job(
     reason: str = "",
     request_purpose: str | None = None,
     requested_source_scope: dict[str, Any] | None = None,
+    work_level: str | None = None,
+    dependency_ref: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if kind not in JOB_KINDS:
         raise ModuleAssetsError(f"unknown job kind {kind!r}")
     tid = _require_id(target_id, "target_id")
+    canonical_work_level, canonical_dependency_ref = validate_host_work_contract(
+        work_level or _default_host_work_level(kind), dependency_ref,
+    )
     exact_source_scope: dict[str, Any] | None = None
     exact_source_signature: str | None = None
     exact_request_purpose: str | None = None
@@ -3705,6 +4058,14 @@ def enqueue_job(
         except ModuleAssetsError:
             return False
 
+    def exact_dependency_matches(row: dict[str, Any]) -> bool:
+        if canonical_work_level != "current_dependency":
+            return True
+        return (
+            str(row.get("work_level") or "") == canonical_work_level
+            and row.get("dependency_ref") == canonical_dependency_ref
+        )
+
     def raise_exact_scope_conflict() -> None:
         label = (
             "opening_source_scope_conflict"
@@ -3723,11 +4084,32 @@ def enqueue_job(
                 continue
             if exact_source_scope is not None and not exact_scoped_row_matches(job):
                 raise_exact_scope_conflict()
+            pending_changed = False
+            existing_level = str(
+                job.get("work_level") or _default_host_work_level(
+                    str(job.get("kind") or "")
+                )
+            )
+            if canonical_work_level == "current_dependency":
+                if existing_level == "current_dependency":
+                    if job.get("dependency_ref") != canonical_dependency_ref:
+                        raise ModuleAssetsError(
+                            "host_work_dependency_conflict: pending work is bound "
+                            "to another exact consumer"
+                        )
+                else:
+                    job["work_level"] = canonical_work_level
+                    job["dependency_ref"] = json.loads(
+                        json.dumps(canonical_dependency_ref)
+                    )
+                    pending_changed = True
             if _job_depth(str(job.get("kind") or "")) < _job_depth(kind):
                 job["promoted_from"] = job.get("kind")
                 job["kind"] = kind
                 job["priority"] = max(int(job.get("priority") or 0), int(priority))
                 job["reason"] = str(reason or job.get("reason") or "")
+                pending_changed = True
+            if pending_changed:
                 pending.sort(
                     key=lambda item: (
                         -int(item.get("priority") or 0),
@@ -3744,6 +4126,7 @@ def enqueue_job(
                 if (
                     _same_entity_work(job, kind, tid)
                     and _job_depth(str(job.get("kind") or "")) >= _job_depth(kind)
+                    and exact_dependency_matches(job)
                 ):
                     if exact_source_scope is not None and not exact_scoped_row_matches(job):
                         raise_exact_scope_conflict()
@@ -3775,6 +4158,8 @@ def enqueue_job(
                     if str(request.get("status") or "open") not in {
                         "fulfilled", "cancelled", "superseded",
                     }:
+                        if not exact_dependency_matches(request):
+                            continue
                         if not exact_scoped_row_matches(request):
                             raise_exact_scope_conflict()
                         deduped_job = row
@@ -3789,6 +4174,8 @@ def enqueue_job(
                     target_id=tid,
                 )
                 if still_current:
+                    if not exact_dependency_matches(row):
+                        continue
                     deduped_job = row
                     dedupe_state = "awaiting_host_pack"
                     break
@@ -3810,7 +4197,22 @@ def enqueue_job(
                 "priority": int(priority),
                 "reason": str(reason or ""),
                 "enqueued_at": _now_iso(),
+                "work_level": canonical_work_level,
             }
+            if canonical_dependency_ref is not None:
+                job["dependency_ref"] = json.loads(
+                    json.dumps(canonical_dependency_ref)
+                )
+            pending_supersedes = sorted({
+                str(row.get("job_id") or "").strip()
+                for row in stale_host_rows
+                if str(row.get("job_id") or "").strip()
+            })
+            if pending_supersedes:
+                # The queue worker carries these exact row identities into the
+                # host-work lock, where replacement creation and stale closure
+                # happen as one visible lifecycle transition.
+                job["supersedes_host_job_ids"] = pending_supersedes
             if exact_source_scope is not None:
                 job.update({
                     "request_purpose": exact_request_purpose,
@@ -3829,16 +4231,7 @@ def enqueue_job(
             _write_json(path, queue)
         else:
             job = deduped_job
-    superseded_host_job_ids = (
-        _supersede_host_requests(
-            workspace,
-            asset_root_id,
-            stale_host_rows,
-            replacement_job_id=str(job.get("job_id") or ""),
-        )
-        if deduped_job is None and stale_host_rows
-        else []
-    )
+    pending_supersedes = list(job.get("supersedes_host_job_ids") or [])
     # Non-blocking: dig/enter must not wait on host PDF. Background worker
     # claims pending jobs in parallel and merges ready packs.
     kick: dict[str, Any] | None = None
@@ -3857,7 +4250,8 @@ def enqueue_job(
         "job": job,
         "deduped": deduped_job is not None,
         "dedupe_state": dedupe_state,
-        "superseded_host_job_ids": superseded_host_job_ids,
+        "superseded_host_job_ids": [],
+        "pending_supersede_host_job_ids": pending_supersedes,
         "worker_kick": kick,
     }
 

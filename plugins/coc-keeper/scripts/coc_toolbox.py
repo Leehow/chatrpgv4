@@ -11586,6 +11586,14 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
             reason="foreground_opening_slice",
             request_purpose=assets_mod.FOREGROUND_OPENING_PURPOSE,
             requested_source_scope=window["scope"],
+            work_level="current_dependency",
+            dependency_ref={
+                "operation": "progressive.project_opening",
+                "subject": {"kind": "location", "id": selected},
+                "source_scope_signature": (
+                    assets_mod.opening_source_scope_signature(window["scope"])
+                ),
+            },
         )
     except assets_mod.ModuleAssetsError as exc:
         code = (
@@ -12550,18 +12558,15 @@ def _fulfill_host_work_for_asset_unlocked(
             "pdf_indices": sorted(accumulated_indices),
             "source_file_sha256": exact_scope["file_sha256"],
         }
-        started_put = time.perf_counter()
         try:
-            put_result = assets_mod.put_skeleton(ctx.root, root_id, merged)
-            repository_put_ms = max(
-                0, round((time.perf_counter() - started_put) * 1000),
-            )
-            assets_mod.mark_locator_host_work_fulfilled(
+            commit_result = assets_mod.put_skeleton_and_fulfill_locator_host_work(
                 ctx.root,
                 root_id,
                 host_work_job_id=job_id,
-                repository_put_ms=repository_put_ms,
+                skeleton=merged,
             )
+            put_result = commit_result["put"]
+            repository_put_ms = commit_result["repository_put_ms"]
         except assets_mod.ModuleAssetsError as exc:
             raise ToolError("invalid_param", str(exc)) from exc
         return {

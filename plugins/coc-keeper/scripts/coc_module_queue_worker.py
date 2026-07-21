@@ -969,15 +969,6 @@ def _write_host_work_request(
         if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
         else "body"
     )
-    deadline_class = (
-        "blocking_micro"
-        if job_kind.startswith("resolve_") or job_kind == "partial_opening"
-        else "idle_warm"
-        if job_kind == "locate_mechanics_index"
-        else "hot_ring"
-        if job_kind == "partial_neighbor"
-        else "next_turn_hot"
-    )
     group_material = json.dumps(
         {
             "file_sha256": source.get("file_sha256") or identity.get("file_sha256"),
@@ -994,8 +985,29 @@ def _write_host_work_request(
         separators=(",", ":"),
     ).encode("utf-8")
     work_group_id = "source-work-" + hashlib.sha256(group_material).hexdigest()[:16]
+    work_level, dependency_ref = coc_module_assets.validate_host_work_contract(
+        job.get("work_level")
+        or coc_module_assets._default_host_work_level(job_kind),
+        job.get("dependency_ref"),
+    )
+    deadline_class = (
+        "blocking_micro"
+        if work_level == "current_dependency"
+        else "idle_warm"
+        if work_level == "bounded_warm"
+        else "hot_ring"
+        if job_kind == "partial_neighbor"
+        else "next_turn_hot"
+    )
+    dispatch_state = (
+        "awaiting_scope"
+        if not requested_indices
+        else "ready"
+        if scope_complete is True
+        else "awaiting_cache"
+    )
     payload = {
-        "schema_version": 1,
+        "schema_version": coc_module_assets.HOST_WORK_SCHEMA_VERSION,
         "job_id": jid,
         "asset_root_id": asset_root_id,
         "kind": job.get("kind"),
@@ -1017,8 +1029,9 @@ def _write_host_work_request(
         "batch_subjects": batch_subjects,
         "source_aspect": source_aspect,
         "deadline_class": deadline_class,
+        "work_level": work_level,
         "work_group_id": work_group_id,
-        "dispatch_state": "ready",
+        "dispatch_state": dispatch_state,
         "dispatch_attempts": 0,
         "instruction": (
             "Source scope is unknown. Do not open or scan the PDF and do not "
@@ -1104,6 +1117,9 @@ def _write_host_work_request(
             "scope. Do not invent handout/secret bodies without page evidence."
         ),
     }
+    if dependency_ref is not None:
+        payload["dependency_ref"] = dependency_ref
+    coc_module_assets.validate_host_work_request_shape(payload)
     if job_kind == "partial_opening":
         payload["result_contract"] = _foreground_opening_result_contract()
     elif job_kind == "locate_mechanics_index":
@@ -1119,7 +1135,50 @@ def _write_host_work_request(
             cached_page_refs=cached_page_refs,
             batch_subjects=batch_subjects,
         )
-    _write_json(path, payload)
+    pending_supersedes = sorted({
+        str(value).strip()
+        for value in job.get("supersedes_host_job_ids") or []
+        if str(value).strip() and str(value).strip() != jid
+    })
+    superseded: list[str] = []
+    with coc_fileio.advisory_file_lock(root / "host-work.lock"):
+        candidates: list[tuple[Path, dict[str, Any]]] = []
+        for old_job_id in pending_supersedes:
+            old_path = work_dir / f"{old_job_id}.json"
+            if not old_path.is_file():
+                continue
+            try:
+                old_request = json.loads(old_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if str(old_request.get("status") or "open") in (
+                coc_module_assets.HOST_WORK_CLOSED_STATUSES
+            ):
+                continue
+            if not coc_module_assets._same_entity_work(
+                old_request, job_kind, target_id,
+            ):
+                raise QueueWorkerError(
+                    "supersede candidate does not match the replacement target"
+                )
+            candidates.append((old_path, old_request))
+
+        # Readers also take host-work.lock, so they see either the old open row
+        # or this replacement plus stale predecessors, never a stranded gap.
+        _write_json(path, payload)
+        for old_path, old_request in candidates:
+            old_job_id = str(old_request.get("job_id") or "")
+            old_request.update({
+                "status": "superseded",
+                "dispatch_state": "superseded",
+                "superseded_at": _now_iso(),
+                "superseded_by_job_id": jid,
+            })
+            _write_json(old_path, old_request)
+            superseded.append(old_job_id)
+        if superseded:
+            payload["superseded_host_job_ids"] = superseded
+            _write_json(path, payload)
     return path
 
 

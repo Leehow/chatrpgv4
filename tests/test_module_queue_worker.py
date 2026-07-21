@@ -6,6 +6,7 @@ import importlib.util
 import hashlib
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -219,6 +220,31 @@ def _clear_queue(tmp_path: Path, asset_root: str = "qw-demo") -> None:
     )
 
 
+def _accepted_scope(tmp_path: Path, pdf_index: int) -> tuple[dict, dict]:
+    identity = json.loads(
+        (tmp_path / ".coc/module-assets/qw-demo/identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    scope = assets.validate_opening_source_window(
+        tmp_path,
+        "qw-demo",
+        bundle_sha256=identity["source_bundles"][0]["bundle_sha256"],
+        pdf_indices=[pdf_index],
+    )
+    return identity, scope
+
+
+def _produce_host_request(
+    tmp_path: Path, *, kind: str, target_id: str, **enqueue_args,
+) -> tuple[dict, Path]:
+    queued = assets.enqueue_job(
+        tmp_path, "qw-demo", kind=kind, target_id=target_id, **enqueue_args,
+    )
+    produced = worker.run_worker_once(tmp_path, parallel=1)
+    return queued, Path(produced["results"][0]["host_work_request"])
+
+
 def test_claim_jobs_moves_to_in_flight(tmp_path: Path):
     _campaign(tmp_path)
     _clear_queue(tmp_path)
@@ -408,6 +434,12 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
         target_id="opening",
         request_purpose=assets.FOREGROUND_OPENING_PURPOSE,
         requested_source_scope=scope,
+        work_level="current_dependency",
+        dependency_ref={
+            "operation": "progressive.project_opening",
+            "subject": {"kind": "location", "id": "opening"},
+            "source_scope_signature": assets.opening_source_scope_signature(scope),
+        },
     )
 
     result = worker.run_worker_once(tmp_path, parallel=1)
@@ -419,6 +451,12 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
     assert request["request_purpose"] == "foreground_opening_slice"
     assert request["requested_source_scope"] == scope
     assert request["requested_pdf_indices"] == [0]
+    assert request["work_level"] == "current_dependency"
+    assert request["dependency_ref"] == {
+        "operation": "progressive.project_opening",
+        "subject": {"kind": "location", "id": "opening"},
+        "source_scope_signature": assets.opening_source_scope_signature(scope),
+    }
     assert [row["pdf_index"] for row in request["cached_page_refs"]] == [0]
     assert "parse_state=partial" in request["instruction"]
     assert "named source transport" in request["instruction"]
@@ -630,8 +668,21 @@ def test_unknown_source_scope_never_expands_to_all_cached_pages(tmp_path: Path):
     assert request["pages_cached"] == []
     assert request["cached_scope_complete"] is None
     assert request["source_scope_status"] == "unknown"
+    assert request["dispatch_state"] == "awaiting_scope"
+    assert request["work_level"] == "near_term"
+    assert "dependency_ref" not in request
     assert "Do not open or scan the PDF" in request["instruction"]
     assert "do not scan unrelated cached pages" in request["instruction"]
+    lifecycle = assets.host_work_lifecycle_summary(tmp_path, "qw-demo")
+    assert lifecycle["open_host_work_count"] == 1
+    assert lifecycle["awaiting_scope_count"] == 1
+    assert lifecycle["runnable_count"] == 0
+    assert lifecycle["stranded_ready_count"] == 0
+    assert assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="unknown-scope-test",
+    )["packets"] == []
 
     # A legacy no-scope request that embedded the whole cache is invalidated
     # and replaced rather than reused as a negative-cache hit.
@@ -651,7 +702,8 @@ def test_unknown_source_scope_never_expands_to_all_cached_pages(tmp_path: Path):
         reason="replace unsafe legacy no-scope handoff",
     )
     assert repeated["enqueued"] is True
-    assert repeated["superseded_host_job_ids"] == [legacy["job_id"]]
+    assert repeated["superseded_host_job_ids"] == []
+    assert repeated["pending_supersede_host_job_ids"] == [legacy["job_id"]]
     replacement = worker.run_worker_once(tmp_path, parallel=1)
     replacement_request = json.loads(
         Path(replacement["results"][0]["host_work_request"]).read_text(
@@ -659,6 +711,97 @@ def test_unknown_source_scope_never_expands_to_all_cached_pages(tmp_path: Path):
         )
     )
     assert replacement_request["cached_page_refs"] == []
+    assert json.loads(request_path.read_text(encoding="utf-8"))["status"] == (
+        "superseded"
+    )
+
+
+def test_exact_scope_waits_for_cache_then_becomes_runnable(tmp_path: Path):
+    _campaign(tmp_path)
+    skeleton = assets.get_skeleton(tmp_path, "qw-demo")
+    skeleton["locations"].append({
+        "location_id": "chapel",
+        "title": "Chapel",
+        "parse_state": "named_only",
+        "source_page_indices": [3],
+    })
+    assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    _clear_queue(tmp_path)
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="chapel",
+        reason="known scope whose accepted page is not cached yet",
+    )
+    produced = worker.run_worker_once(tmp_path, parallel=1)
+    request_path = Path(produced["results"][0]["host_work_request"])
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+
+    assert request["requested_pdf_indices"] == [3]
+    assert request["cached_scope_complete"] is False
+    assert request["dispatch_state"] == "awaiting_cache"
+    lifecycle = assets.host_work_lifecycle_summary(tmp_path, "qw-demo")
+    assert lifecycle["open_host_work_count"] == 1
+    assert lifecycle["awaiting_cache_count"] == 1
+    assert lifecycle["runnable_count"] == 0
+    assert lifecycle["stranded_ready_count"] == 0
+    assert lifecycle["by_work_level"]["near_term"]["awaiting_cache"] == 1
+    with pytest.raises(assets.ModuleAssetsError, match="cached_only=false"):
+        assets.claim_host_work_requests(
+            tmp_path,
+            "qw-demo",
+            executor_id="cache-miss-test",
+            cached_only=False,
+        )
+
+    _register_qw_source_pages(tmp_path, {3: "# Chapel\n\nAccepted late page.\n"})
+    refreshed = assets.list_host_work_requests(tmp_path, "qw-demo")
+    assert refreshed[0]["dispatch_state"] == "ready"
+    assert refreshed[0]["operational_class"] == "runnable"
+    claimed = assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="cache-ready-test",
+    )
+    assert claimed["leased_group_count"] == 1
+    assert claimed["lifecycle"]["leased_count"] == 1
+    assert claimed["lifecycle"]["stranded_ready_count"] == 0
+
+
+def test_locator_request_persists_bounded_warm_dependency(tmp_path: Path):
+    _campaign(tmp_path)
+    identity = json.loads(
+        (tmp_path / ".coc/module-assets/qw-demo/identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    bundle_sha = identity["source_bundles"][0]["bundle_sha256"]
+    scope = assets.validate_opening_source_window(
+        tmp_path,
+        "qw-demo",
+        bundle_sha256=bundle_sha,
+        pdf_indices=[1],
+    )
+    _clear_queue(tmp_path)
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="locate_mechanics_index",
+        target_id=assets.MECHANICS_LOCATOR_TARGET_ID,
+        request_purpose=assets.MECHANICS_LOCATOR_PURPOSE,
+        requested_source_scope=scope,
+    )
+    produced = worker.run_worker_once(tmp_path, parallel=1)
+    request = json.loads(
+        Path(produced["results"][0]["host_work_request"]).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert request["work_level"] == "bounded_warm"
+    assert "dependency_ref" not in request
+    assert request["deadline_class"] == "idle_warm"
 
 
 def test_same_source_scope_dedupes_after_stub_dig_metadata_update(
@@ -750,10 +893,9 @@ def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):
         reason="later contextual mention",
     )
     assert repeated["enqueued"] is True
-    assert repeated["superseded_host_job_ids"] == [first_request["job_id"]]
-    superseded = json.loads(first_request_path.read_text(encoding="utf-8"))
-    assert superseded["status"] == "superseded"
-    assert superseded["superseded_by_job_id"] == repeated["job"]["job_id"]
+    assert repeated["pending_supersede_host_job_ids"] == [
+        first_request["job_id"],
+    ]
 
     second = worker.run_worker_once(tmp_path, parallel=1)
     second_request = json.loads(
@@ -761,6 +903,13 @@ def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):
     )
     assert second_request["requested_pdf_indices"] == [1, 2]
     assert second_request.get("status") is None
+    assert second_request["superseded_host_job_ids"] == [first_request["job_id"]]
+    superseded = json.loads(first_request_path.read_text(encoding="utf-8"))
+    assert superseded["status"] == "superseded"
+    assert superseded["superseded_by_job_id"] == repeated["job"]["job_id"]
+    lifecycle = assets.host_work_lifecycle_summary(tmp_path, "qw-demo")
+    assert lifecycle["open_host_work_count"] == 1
+    assert lifecycle["stale_count"] == 1
 
 
 def test_deep_job_supersedes_open_partial_neighbor_request(tmp_path: Path):
@@ -794,8 +943,19 @@ def test_deep_job_supersedes_open_partial_neighbor_request(tmp_path: Path):
     )
 
     assert deep["enqueued"] is True
-    assert deep["superseded_host_job_ids"] == [first_request["job_id"]]
-    assert json.loads(first_request_path.read_text(encoding="utf-8"))["status"] == "superseded"
+    assert deep["pending_supersede_host_job_ids"] == [first_request["job_id"]]
+    replacement = worker.run_worker_once(tmp_path, parallel=1)
+    replacement_request = json.loads(
+        Path(replacement["results"][0]["host_work_request"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert replacement_request["superseded_host_job_ids"] == [
+        first_request["job_id"],
+    ]
+    assert json.loads(first_request_path.read_text(encoding="utf-8"))["status"] == (
+        "superseded"
+    )
 
 
 def test_complete_deep_pack_reconciles_covered_stale_partial_request(
@@ -1137,6 +1297,206 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
     assert {row["executor_id"] for row in refreshed} == {"host-b"}
 
 
+def test_claim_orders_current_dependency_before_higher_priority_near_term(
+    tmp_path: Path,
+):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    _identity, scope = _accepted_scope(tmp_path, 0)
+    signature = assets.opening_source_scope_signature(scope)
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="cellar",
+        priority=999,
+        reason="high priority near-term",
+    )
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="partial_opening",
+        target_id="opening",
+        priority=1,
+        reason="exact opening dependency",
+        request_purpose=assets.FOREGROUND_OPENING_PURPOSE,
+        requested_source_scope=scope,
+        work_level="current_dependency",
+        dependency_ref={
+            "operation": "progressive.project_opening",
+            "subject": {"kind": "location", "id": "opening"},
+            "source_scope_signature": signature,
+        },
+    )
+    assert worker.run_worker_once(tmp_path, parallel=2)["claimed"] == 2
+
+    claimed = assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="tier-order",
+        limit=1,
+    )
+    assert claimed["packets"][0]["work_level"] == "current_dependency"
+    assert claimed["packets"][0]["requests"][0]["dependency_ref"] == {
+        "operation": "progressive.project_opening",
+        "subject": {"kind": "location", "id": "opening"},
+        "source_scope_signature": signature,
+    }
+
+
+def test_legacy_host_work_is_deleted_and_requeued_without_l1_inference(
+    tmp_path: Path,
+):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued, request_path = _produce_host_request(
+        tmp_path,
+        kind="deepen_location",
+        target_id="cellar",
+        reason="legacy clean-slate fixture",
+    )
+    legacy = json.loads(request_path.read_text(encoding="utf-8"))
+    legacy["schema_version"] = 1
+    legacy["work_level"] = "current_dependency"
+    legacy.pop("dependency_ref", None)
+    request_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    assert assets.list_host_work_requests(tmp_path, "qw-demo") == []
+    assert not request_path.exists()
+    queue = assets.list_queue(tmp_path, "qw-demo")
+    replacement = next(
+        row for row in queue["pending"]
+        if row["job_id"] == queued["job"]["job_id"]
+    )
+    assert replacement["work_level"] == "near_term"
+    assert "dependency_ref" not in replacement
+
+
+def test_superseded_entity_request_cannot_write_pack_after_lock_wait(
+    tmp_path: Path,
+):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued, request_path = _produce_host_request(
+        tmp_path,
+        kind="partial_neighbor",
+        target_id="cellar",
+        reason="stale interleaving",
+    )
+    job_id = queued["job"]["job_id"]
+    started = threading.Event()
+    finished = threading.Event()
+    errors: list[BaseException] = []
+
+    def fulfill() -> None:
+        started.set()
+        try:
+            assets.put_entity(tmp_path, "qw-demo", "location", "cellar", {
+                "location_id": "cellar",
+                "parse_state": "partial",
+                "evidence_gap": False,
+                "source_page_indices": [1],
+                "player_safe_summary": "A bounded cellar description.",
+                "host_work_job_id": job_id,
+            })
+        except BaseException as exc:  # noqa: BLE001 - captured across thread
+            errors.append(exc)
+        finally:
+            finished.set()
+
+    lock_path = tmp_path / ".coc/module-assets/qw-demo/host-work.lock"
+    with assets.coc_fileio.advisory_file_lock(lock_path):
+        thread = threading.Thread(target=fulfill)
+        thread.start()
+        assert started.wait(1)
+        assert not finished.wait(0.05)
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        request.update({
+            "status": "superseded",
+            "dispatch_state": "superseded",
+            "superseded_by_job_id": "job-replacement",
+        })
+        assets._write_json(request_path, request)
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert len(errors) == 1
+    assert "superseded" in str(errors[0])
+    assert assets.get_entity(tmp_path, "qw-demo", "location", "cellar") is None
+
+
+def test_claim_then_fulfillment_cannot_resurrect_leased_state(
+    tmp_path: Path,
+    monkeypatch,
+):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    queued, request_path = _produce_host_request(
+        tmp_path,
+        kind="partial_neighbor",
+        target_id="cellar",
+        reason="claim fulfillment interleaving",
+    )
+    job_id = queued["job"]["job_id"]
+    claim_paused = threading.Event()
+    release_claim = threading.Event()
+    fulfillment_done = threading.Event()
+    failures: list[BaseException] = []
+    real_write = assets._write_json
+
+    def pausing_write(path: Path, payload: dict) -> None:
+        if (
+            Path(path) == request_path
+            and payload.get("dispatch_state") == "leased"
+        ):
+            claim_paused.set()
+            assert release_claim.wait(2)
+        real_write(path, payload)
+
+    monkeypatch.setattr(assets, "_write_json", pausing_write)
+
+    def claim() -> None:
+        try:
+            assets.claim_host_work_requests(
+                tmp_path, "qw-demo", executor_id="race-claim",
+            )
+        except BaseException as exc:  # noqa: BLE001
+            failures.append(exc)
+
+    def fulfill() -> None:
+        try:
+            assets.put_entity(tmp_path, "qw-demo", "location", "cellar", {
+                "location_id": "cellar",
+                "parse_state": "partial",
+                "evidence_gap": False,
+                "source_page_indices": [1],
+                "player_safe_summary": "A claimed then fulfilled cellar.",
+                "host_work_job_id": job_id,
+            })
+        except BaseException as exc:  # noqa: BLE001
+            failures.append(exc)
+        finally:
+            fulfillment_done.set()
+
+    claim_thread = threading.Thread(target=claim)
+    claim_thread.start()
+    assert claim_paused.wait(1)
+    fulfill_thread = threading.Thread(target=fulfill)
+    fulfill_thread.start()
+    assert not fulfillment_done.wait(0.05)
+    release_claim.set()
+    claim_thread.join(timeout=2)
+    fulfill_thread.join(timeout=2)
+
+    assert failures == []
+    assert not claim_thread.is_alive()
+    assert not fulfill_thread.is_alive()
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request["status"] == "fulfilled"
+    assert request["dispatch_state"] == "fulfilled"
+    assert request["dispatch_attempts"] == 1
+
+
 def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
     tmp_path: Path,
 ):
@@ -1209,11 +1569,13 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
     worker_result = worker.run_worker_once(tmp_path, parallel=1)
     request_path = Path(worker_result["results"][0]["host_work_request"])
     request = json.loads(request_path.read_text(encoding="utf-8"))
-    # Lucas's narrative/profile page is 1; blocking mechanics must stay on the
+    # Lucas's narrative/profile page is 1; mechanics must stay on the
     # appendix locator instead of inheriting that body scope.
     assert request["requested_pdf_indices"] == [2]
     assert request["source_aspect"] == "mechanics"
-    assert request["deadline_class"] == "blocking_micro"
+    assert request["deadline_class"] == "next_turn_hot"
+    assert request["work_level"] == "near_term"
+    assert "dependency_ref" not in request
     assert "equal to this packet's file_sha256" in request["instruction"]
     assert "registered accepted cached_page_refs" in request["instruction"]
     assert {
@@ -1231,7 +1593,7 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
     ]["handler"](toolbox.Ctx(tmp_path, cid), {})
     progressive = scene_context["progressive"]
     assert progressive["ready_for_background_count"] == 1
-    assert progressive["blocking_micro_ready_count"] == 1
+    assert progressive["blocking_micro_ready_count"] == 0
     assert progressive["ready_background_requests"] == [{
         "job_id": request["job_id"],
         "kind": "resolve_npc_mechanics",
@@ -1239,7 +1601,7 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
         "priority": request["priority"],
         "requested_pdf_indices": [2],
         "source_aspect": "mechanics",
-        "deadline_class": "blocking_micro",
+        "deadline_class": "next_turn_hot",
         "work_group_id": request["work_group_id"],
         "dispatch_state": "ready",
         "dispatch_attempts": 0,
