@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
 
 import coc_fileio
 
@@ -353,6 +353,135 @@ def _count_rows(path: Path, start_offset: int, end_offset: int) -> int:
     return len(rows)
 
 
+def _earliest_table_opening_boundary(
+    campaign_dir: Path,
+    *,
+    decision_id: str | None = None,
+    run_id: str | None = None,
+    observed_end_offset: int | None = None,
+) -> tuple[int, int] | None:
+    """Locate the first successful current-contract opening toolbox row."""
+    rows, _ = _slice_rows(
+        _toolbox_path(campaign_dir),
+        0,
+        end_offset=observed_end_offset,
+    )
+    for position, (row, row_end) in enumerate(rows):
+        if row.get("ok") is not True or row.get("tool") != "evidence.table_opening":
+            continue
+        args = row.get("args") if isinstance(row.get("args"), dict) else {}
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        row_decision_id = str(args.get("decision_id") or "")
+        row_run_id = str(args.get("run_id") or "")
+        presented_roll_ids = data.get("presented_roll_ids")
+        if (
+            not row_decision_id
+            or not row_run_id
+            or not isinstance(presented_roll_ids, list)
+            or any(
+                not isinstance(value, str) or not value or value != value.strip()
+                for value in presented_roll_ids
+            )
+            or len(set(presented_roll_ids)) != len(presented_roll_ids)
+            or args.get("presented_roll_ids") != presented_roll_ids
+            or data.get("source_id") != row_decision_id
+            or data.get("run_id") != row_run_id
+            or data.get("role") != "keeper"
+            or not isinstance(data.get("text_sha256"), str)
+            or not data["text_sha256"]
+        ):
+            continue
+        if decision_id is not None and row_decision_id != decision_id:
+            continue
+        if run_id is not None and row_run_id != run_id:
+            continue
+        return row_end, position + 1
+    return None
+
+
+def _advance_table_opening_boundary(
+    campaign_dir: Path,
+    *,
+    decision_id: str | None = None,
+    run_id: str | None = None,
+    observed_end_offset: int | None = None,
+) -> bool:
+    """Close only the fresh campaign's setup/opening source prefix.
+
+    The first successful structured opening row is the immutable boundary.
+    Replays after later player work therefore never advance the cursor again.
+    """
+    campaign_dir = Path(campaign_dir)
+    if _pending_path(campaign_dir).is_file():
+        return False
+    cursor_path = _cursor_path(campaign_dir)
+    cursor = (
+        _validate_cursor(
+            _read_object(cursor_path, code="state_corrupt"), campaign_dir.name
+        )
+        if cursor_path.is_file()
+        else None
+    )
+    if cursor is not None:
+        if cursor["last_finalized_turn_id"] is not None or cursor[
+            "last_finalization_id"
+        ] is not None:
+            return False
+        offset_started = cursor["next_source_offset"] != 0
+        index_started = cursor["next_source_index"] != 0
+        if offset_started != index_started:
+            raise TurnManifestError(
+                "state_corrupt", "turn source cursor has inconsistent opening position"
+            )
+        if offset_started:
+            return False
+
+    boundary = _earliest_table_opening_boundary(
+        campaign_dir,
+        decision_id=decision_id,
+        run_id=run_id,
+        observed_end_offset=observed_end_offset,
+    )
+    if boundary is None:
+        if decision_id is not None or run_id is not None:
+            raise TurnManifestError(
+                "opening_boundary_pending",
+                "the durable opening evidence has no matching successful toolbox row yet",
+            )
+        return False
+    completed_end_offset, completed_next_index = boundary
+    cursor = cursor or load_or_create_cursor(campaign_dir)
+    next_cursor = deepcopy(cursor)
+    next_cursor.update({
+        "next_source_offset": completed_end_offset,
+        "next_source_index": completed_next_index,
+    })
+    _validate_cursor(next_cursor, campaign_dir.name)
+    coc_fileio.write_json_atomic(cursor_path, next_cursor)
+    return True
+
+
+def complete_table_opening_boundary(
+    campaign_dir: Path,
+    *,
+    decision_id: str,
+    run_id: str,
+    completed_end_offset: int,
+) -> bool:
+    """Advance to the earliest matching opening row after its actual log append."""
+    return _advance_table_opening_boundary(
+        campaign_dir,
+        decision_id=decision_id,
+        run_id=run_id,
+        observed_end_offset=completed_end_offset,
+    )
+
+
+def recover_table_opening_boundary(campaign_dir: Path) -> bool:
+    """Recover a logged opening whose post-log cursor write was interrupted."""
+    return _advance_table_opening_boundary(campaign_dir)
+
+
 def _load_pending_raw(campaign_dir: Path) -> dict[str, Any] | None:
     campaign_dir = Path(campaign_dir)
     pointer_path = _pending_path(campaign_dir)
@@ -538,7 +667,11 @@ def _resume_row_projection(row: dict[str, Any], call_index: int) -> dict[str, An
     return projected
 
 
-def resume_window(campaign_dir: Path) -> dict[str, Any]:
+def resume_window(
+    campaign_dir: Path,
+    *,
+    meaningful_tools: Collection[str],
+) -> dict[str, Any]:
     """Return a bounded projection of the current unfinalized source window.
 
     This is recovery evidence, not a second rules/state ledger.  Authoritative
@@ -549,10 +682,12 @@ def resume_window(campaign_dir: Path) -> dict[str, Any]:
     rows, observed_end = _slice_rows(
         _toolbox_path(campaign_dir), cursor["next_source_offset"]
     )
+    meaningful_tool_ids = frozenset(str(value) for value in meaningful_tools)
     meaningful = [
         (row, row_end)
         for row, row_end in rows
-        if row.get("tool") not in {"session.resume", "session.delivery_ack"}
+        if row.get("ok") is True
+        and str(row.get("tool") or "") in meaningful_tool_ids
     ]
     selected_pairs = meaningful
     omitted_for_count = 0

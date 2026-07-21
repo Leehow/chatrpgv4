@@ -664,7 +664,7 @@ def main() -> int:
     ap.add_argument("--md", default="checks/ocr-cached/monsters-ch14.md")
     ap.add_argument(
         "--monsters",
-        default="plugins/coc-keeper/references/rules-json/monsters.json",
+        default="plugins/coc-keeper/rulesets/coc7/rules-json/monsters.json",
     )
     args = ap.parse_args()
 

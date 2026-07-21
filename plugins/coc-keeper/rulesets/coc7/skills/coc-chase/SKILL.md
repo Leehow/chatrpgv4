@@ -5,7 +5,7 @@ description: Resolve Call of Cthulhu chase scenes during COC mode using the full
 
 # COC Chase
 
-A chase is not a single speed contest. Per Keeper Rulebook Chapter 7 (p.130-145), play runs through five parts: establish whether a chase is needed, cut to the exciting range, resolve movement through hazards and barriers, handle same-location conflict, then optionally embellish with Part 5 rules. Every chase scene drives a `ChaseSession` (`../../scripts/coc_chase.py`) that owns positions and the location chain, and persists `save/chase.json`.
+A chase is not a single speed contest. Per Keeper Rulebook Chapter 7 (p.130-145), play runs through five parts: establish whether a chase is needed, cut to the exciting range, resolve movement through hazards and barriers, handle same-location conflict, then optionally embellish with Part 5 rules. Every chase scene drives a `ChaseSession` (`../../../../scripts/coc_chase.py`) that owns positions and the location chain, and persists `save/chase.json`.
 
 **Canonical entrypoint:** inspect `chase.context`, then submit one exact
 `chase_start`, `chase_move`, `chase_hazard`, `chase_barrier`,
@@ -14,7 +14,7 @@ A chase is not a single speed contest. Per Keeper Rulebook Chapter 7 (p.130-145)
 to the existing subsystem executor and `ChaseSession`; do not instantiate or
 save a parallel session from the host.
 
-**Boundary:** chase owns positions / movement economy / location chain. Same-location melee delegates to `CombatSession` (`../../scripts/coc_combat.py`) — combat owns the exchange. Do not invent a second combat resolver inside chase.
+**Boundary:** chase owns positions / movement economy / location chain. Same-location melee delegates to `CombatSession` (`../../../../scripts/coc_combat.py`) — combat owns the exchange. Do not invent a second combat resolver inside chase.
 
 ## Part 1 — Establishing the Chase (p.132)
 
@@ -168,7 +168,7 @@ Luck success → caller places a Regular hazard; failure → the other side plac
 | `motorcycle_light` | 13 | 1 | 0 | 1 |
 | `motorcycle_heavy` | 16 | 3 | 0 | 1 |
 
-Aliases: `motorcycle` → light; `truck` → 6-ton. Data lives in `references/rules-json/chase.json`.
+Aliases: `motorcycle` → light; `truck` → 6-ton. Data lives in `../../rules-json/chase.json`.
 
 ## Keeper checklist (not a fixed turn pipeline)
 

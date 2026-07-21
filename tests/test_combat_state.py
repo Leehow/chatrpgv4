@@ -743,7 +743,7 @@ def test_the_haunting_module_defines_ritual_dagger():
     """The Haunting module json defines corbitt-ritual-dagger extending knife_medium."""
     import json
     from pathlib import Path
-    haunting = json.loads(Path("plugins/coc-keeper/references/rules-json/the-haunting.json").read_text())
+    haunting = json.loads(Path("plugins/coc-keeper/rulesets/coc7/rules-json/the-haunting.json").read_text())
     weapons = haunting.get("weapons", [])
     ritual = next((w for w in weapons if w.get("weapon_id") == "corbitt-ritual-dagger"), None)
     assert ritual is not None

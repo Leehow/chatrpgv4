@@ -30,7 +30,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 OCR_PATH = Path("checks/ocr-cached/tomes-table.md")
 
 # Our JSON field names <-> OCR column roles.

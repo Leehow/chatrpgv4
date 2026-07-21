@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -54,9 +56,21 @@ def _default_runner() -> Path:
     return _adapter_dir() / "run_epistemic_compile.mjs"
 
 
+def _contract_path() -> Path:
+    # Import-time binding: no workspace context exists here, so this resolves
+    # the default plugin root through the single locator (Phase 1 seam 4).
+    locator_path = _adapter_dir().parents[1] / "engine" / "plugin_locator.py"
+    spec = importlib.util.spec_from_file_location(
+        "runtime_plugin_locator_epistemic", locator_path
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod.plugin_scripts_dir() / "epistemic-contract.json"
+
+
 def _load_contract() -> dict[str, Any]:
-    path = _adapter_dir().parents[2] / "plugins/coc-keeper/scripts/epistemic-contract.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(_contract_path().read_text(encoding="utf-8"))
 
 
 _CONTRACT = _load_contract()
@@ -198,6 +212,8 @@ def _invoke_runner(
             text=True,
             timeout=timeout_s,
             cwd=str(_adapter_dir()),
+            # Keep the Node runner on the same locator-resolved contract.
+            env={**os.environ, "COC_EPISTEMIC_CONTRACT_PATH": str(_contract_path())},
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"epistemic compiler timed out after {timeout_s}s") from exc

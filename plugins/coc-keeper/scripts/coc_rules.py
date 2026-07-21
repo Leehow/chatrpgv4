@@ -8,12 +8,17 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = SCRIPT_DIR.parent
-RULES_DIR = PLUGIN_ROOT / "references" / "rules-json"
 
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_cache  # noqa: E402
+import coc_rulesets  # noqa: E402
+
+# The coc7 ruleset package owns the rule tables (docs/ruleset-contract.md).
+# Resolution goes through the ruleset registry; per-campaign ids arrive in a
+# later seam, so campaign-less lookups bind the default package.
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 def rules_dir() -> Path:

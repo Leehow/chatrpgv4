@@ -19,7 +19,21 @@ import coc_first_impression
 import coc_language
 import coc_roll
 import coc_exceptional_effects
+import coc_rulesets
 import coc_turn_manifest
+
+
+# Resource registry (docs/ruleset-contract.md §6): display names and their
+# player-visible order come from the active ruleset manifest, never from
+# kernel literals. Tool→resource bindings below stay keyed on the stable
+# machine ``key``; only displays/enumeration are manifest-derived.
+_RULESET_RESOURCES = coc_rulesets.ruleset_resources(coc_rulesets.DEFAULT_RULESET_ID)
+_RESOURCE_PROJECTION_ORDER = tuple(
+    (str(resource["display"]), str(resource["key"]))
+    for resource in _RULESET_RESOURCES
+    if isinstance(resource.get("display"), str) and isinstance(resource.get("key"), str)
+)
+_RESOURCE_DISPLAY = {key: display for display, key in _RESOURCE_PROJECTION_ORDER}
 
 
 FINALIZATION_SCHEMA_VERSION = 1
@@ -558,7 +572,7 @@ def _project_player_state_receipt(
     investigator_id = str(receipt.get("investigator_id") or "").strip()
     if not investigator_id:
         return
-    for resource, key in (("HP", "hp"), ("SAN", "san"), ("MP", "mp"), ("Luck", "luck")):
+    for resource, key in _RESOURCE_PROJECTION_ORDER:
         values = receipt.get(key)
         if isinstance(values, dict):
             effect = _scalar_effect(
@@ -636,7 +650,7 @@ def _project_state_deltas(
             ):
                 continue
             effect = _scalar_effect(
-                decision_id, "HP", data.get("hp_before"), data.get("hp_after"),
+                decision_id, _RESOURCE_DISPLAY["hp"], data.get("hp_before"), data.get("hp_after"),
                 investigator_id=investigator_id,
             )
             if effect:
@@ -650,14 +664,14 @@ def _project_state_deltas(
             )
         elif tool == "rules.sanity_check" and investigator_id:
             effect = _scalar_effect(
-                decision_id, "SAN", data.get("san_before"), data.get("san_after"),
+                decision_id, _RESOURCE_DISPLAY["san"], data.get("san_before"), data.get("san_after"),
                 investigator_id=investigator_id,
             )
             if effect:
                 _add_effect(effects, effect)
         elif tool == "rules.luck_spend" and investigator_id:
             effect = _scalar_effect(
-                decision_id, "Luck", data.get("luck_before"), data.get("luck_after"),
+                decision_id, _RESOURCE_DISPLAY["luck"], data.get("luck_before"), data.get("luck_after"),
                 investigator_id=investigator_id,
             )
             if effect:
@@ -675,7 +689,7 @@ def _project_state_deltas(
             event = data.get("event") if isinstance(data.get("event"), dict) else {}
             effect = _scalar_effect(
                 decision_id,
-                "HP",
+                _RESOURCE_DISPLAY["hp"],
                 event.get("hp_before"),
                 event.get("hp_after"),
                 investigator_id=investigator_id,
@@ -1134,7 +1148,10 @@ def _render_state_delta(
     tag = chrome.get("change_tag", "Change")
     kind = effect["effect_kind"]
     if kind == "scalar":
-        return f"【{tag}】{effect['resource']}：{effect['before']} → {effect['after']}（{effect['delta']:+d}）"
+        resource = effect["resource"]
+        if resource == _RESOURCE_DISPLAY["luck"]:
+            resource = chrome.get("luck", resource)
+        return f"【{tag}】{resource}：{effect['before']} → {effect['after']}（{effect['delta']:+d}）"
     if kind in {"time", "time_appearance"}:
         phase_l = chrome.get("time_phase", "time of day")
         label = coc_language.player_time_label(
@@ -1145,7 +1162,10 @@ def _render_state_delta(
         if language == "zh-Hans" or language.startswith("zh"):
             reset = "；理智日计数已重置" if effect.get("sanity_day_reset") else ""
             return f"【{tag}】休息：完成安全的整夜睡眠{reset}"
-        reset = "; SAN day counter reset" if effect.get("sanity_day_reset") else ""
+        reset = (
+            f"; {_RESOURCE_DISPLAY['san']} day counter reset"
+            if effect.get("sanity_day_reset") else ""
+        )
         return f"【{tag}】rest: completed a safe full sleep{reset}"
     if kind == "item":
         if language == "zh-Hans" or language.startswith("zh"):

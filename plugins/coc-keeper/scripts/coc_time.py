@@ -946,7 +946,8 @@ def _handler_apply_treatment(campaign_dir: Path, investigator_id: str,
 def _load_time_costs(rules_dir: Path | None = None) -> dict[str, Any]:
     """Load time-costs.json from the rules directory."""
     if rules_dir is None:
-        rules_dir = Path(__file__).resolve().parent.parent / "references" / "rules-json"
+        coc_rulesets = _load_sibling_script("coc_rulesets", "coc_rulesets.py")
+        rules_dir = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
     path = rules_dir / "time-costs.json"
     if not path.exists():
         return {"categories": {}}

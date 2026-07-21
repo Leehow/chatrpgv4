@@ -9,7 +9,7 @@ Spell learning and casting are typed state-changing operations. Never settle
 them from memory or host-side prose.
 
 For Codex, Cursor, and Claude Code, call
-`../../scripts/coc_runtime_ops.py` / `execute_operation(...)`. The standalone
+`../../../../scripts/coc_runtime_ops.py` / `execute_operation(...)`. The standalone
 Pi interface calls the exact same implementation through
 `runtime.sdk.api.operate(...)`.
 

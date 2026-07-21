@@ -13,9 +13,10 @@ also returns current operation opportunities and the stable narrative
 opportunity when present, so a compacted host continues the attempt instead of
 re-confirming tool parameters or rolling again. Resume runs once per host
 context epoch, not once per played turn. Its entire data projection has a fixed
-40 KiB budget; oversized values become canonical refs plus typed exact-read
-cards, while the per-turn checkpoint stores transcript hashes/lengths/refs
-rather than duplicating delivered prose.
+40 KiB canonical budget; the MCP coding-host envelope is separately projected
+below 16 KiB. Oversized values become canonical refs plus typed exact-read
+cards such as `session.continuation_detail`, while the per-turn checkpoint
+stores transcript hashes/lengths/refs rather than duplicating delivered prose.
 
 ## Layout
 ```

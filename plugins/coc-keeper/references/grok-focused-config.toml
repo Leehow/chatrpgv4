@@ -1,0 +1,47 @@
+# Dedicated Grok Build host profile for a live COC Keeper window.
+#
+# Grok 0.2.106 merges every enabled user/plugin MCP into a primary custom
+# agent even when that agent declares mcpInheritance: none.  The focused
+# launcher therefore uses a persistent, isolated GROK_HOME containing only
+# this canonical plugin. Account-managed MCP/gateway injection is controlled
+# by the launcher's supported GROK_MANAGED_* process switches because it is
+# absent from `grok inspect`. The user's normal Grok config and plugins remain
+# untouched; authentication is linked by the installer rather than copied.
+
+[cli]
+auto_update = false
+use_leader = false
+
+[memory]
+enabled = false
+
+[subagents]
+enabled = true
+
+[plugins]
+enabled = ["coc-keeper"]
+
+[compat.cursor]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
+
+[compat.claude]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
+
+[compat.codex]
+sessions = false
+
+# The installer replaces this marker with disabled native MCP overrides for
+# every enabled non-COC server reported by `grok inspect --json`. Native
+# overrides win even when Grok discovers a Claude-compatible plugin outside
+# this focused GROK_HOME.
+# __COC_DISABLED_MCP_OVERRIDES__

@@ -13,7 +13,7 @@ scenario ending or conclusion identifier. Never infer an ending from narration,
 player prose, or keyword matching.
 
 Use the canonical `development.settle` operation exposed by the Keeper toolbox
-and implemented in `../../scripts/coc_runtime_ops.py`. Do not reproduce its
+and implemented in `../../../../scripts/coc_runtime_ops.py`. Do not reproduce its
 arithmetic in the host. A successful `state.end_session` synchronously composes
 this operation for linked investigators; the first-class operation remains
 available to replay a structured pending settlement.

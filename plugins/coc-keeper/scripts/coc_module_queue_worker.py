@@ -14,6 +14,7 @@ See docs/active-plans/coc-on-demand-module-skeleton.md slice 7–8.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -35,6 +36,471 @@ DEFAULT_STALE_IN_FLIGHT_S = 30.0
 DEFAULT_POLL_S = 0.4
 
 
+def _foreground_opening_result_contract() -> dict[str, Any]:
+    """Return the compact closed result shape carried by opening host work."""
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.foreground-opening-pack.v1",
+        "closed": True,
+        "parse_state": "partial",
+        "evidence_gap": False,
+        "required_location_fields": [
+            "location_id",
+            "player_safe_summary",
+            "source_page_indices",
+            "source_refs",
+        ],
+        "exact_source_scope": True,
+        "location_pack": {
+            "fixed_fields": {
+                "parse_state": "partial",
+                "evidence_gap": False,
+                "origin": "source",
+            },
+            "copy_from_request": {
+                "location_id": "target_id",
+                "host_work_job_id": "job_id",
+                "source_page_indices": "requested_pdf_indices",
+                "source_refs": {
+                    "from": "cached_page_refs",
+                    "select_fields": [
+                        "source_id", "pdf_index", "text_sha256",
+                    ],
+                    "scope": "exact",
+                },
+            },
+            "required_semantic_fields": ["title", "player_safe_summary"],
+            "empty_defaults": {
+                "available_clue_ids": [],
+                "npc_ids": [],
+                "clues": [],
+                "npcs": [],
+                "scene_edges": [],
+                "affordances": [],
+                "keeper_secret_refs": [],
+                "pressure_moves": [],
+                "tone": [],
+                "mentions": [],
+            },
+            "source_ref": {
+                "required_fields": [
+                    "source_id", "pdf_index", "text_sha256",
+                ],
+                "field_types": {
+                    "source_id": "string",
+                    "pdf_index": "non_negative_integer",
+                    "text_sha256": "64_hex_string",
+                },
+                "scope": "exact_cached_page_or_fact_subset",
+            },
+            "row_contracts": {
+                "scene_edge": {
+                    "required_fields": ["to"],
+                    "template": {
+                        "to": "<source-grounded-location-id>",
+                        "kind": "travel",
+                        "when": {"kind": "always"},
+                    },
+                    "when_optional": True,
+                    "when_kind_values": sorted(
+                        coc_module_assets._EXIT_CONDITION_KINDS
+                    ),
+                    "when_required_fields_by_kind": {
+                        "clue_discovered": ["clue_id"],
+                        "clock_reaches": ["threshold"],
+                        "flag_set": ["flag_id"],
+                    },
+                    "forbidden_fields": ["when.type"],
+                },
+                "affordance": {
+                    "required_fields": ["id", "cue", "route_type", "status"],
+                    "template": {
+                        "id": "<source-grounded-affordance-id>",
+                        "cue": "<player-facing-action-cue>",
+                        "route_type": "<semantic-route-type>",
+                        "status": "open",
+                    },
+                    "forbidden_fields": ["affordance_id"],
+                },
+                "clue": {
+                    "required_fields": [
+                        "clue_id",
+                        "player_safe_summary",
+                        "discovery",
+                        "provenance",
+                        "source_refs",
+                    ],
+                    "template": {
+                        "clue_id": "<source-grounded-clue-id>",
+                        "player_safe_summary": "<source-grounded-player-text>",
+                        "discovery": {
+                            "mode": "automatic",
+                            "skill": None,
+                            "difficulty": None,
+                            "condition": None,
+                        },
+                        "provenance": {
+                            "authority": "source_authored",
+                            "basis": "host_pack",
+                        },
+                        "source_refs": [{
+                            "source_id": "<request-source-id>",
+                            "pdf_index": "<cached-page-index-integer>",
+                            "text_sha256": "<cached-page-text-sha256>",
+                        }],
+                    },
+                    "discovery_mode_values": sorted(
+                        coc_module_assets.CLUE_DISCOVERY_MODES
+                    ),
+                    "discovery_difficulty_values": sorted(
+                        coc_module_assets.CLUE_CHECK_DIFFICULTIES
+                    ),
+                    "discovery_templates_by_mode": {
+                        "automatic": {
+                            "skill": None,
+                            "difficulty": None,
+                            "condition": None,
+                        },
+                        "check": {
+                            "skill": "<non-empty-skill>",
+                            "difficulty": "<difficulty-enum>",
+                            "condition": None,
+                        },
+                        "conditional_check": {
+                            "skill": "<non-empty-skill>",
+                            "difficulty": "<difficulty-enum>",
+                            "condition": {
+                                "kind": "<source-grounded-condition-kind>",
+                            },
+                        },
+                        "keeper_judgment": {
+                            "skill": None,
+                            "difficulty": None,
+                            "condition": None,
+                        },
+                    },
+                    "forbidden_fields": ["summary"],
+                },
+                "npc": {
+                    "required_fields": ["npc_id", "agenda"],
+                    "template": {
+                        "npc_id": "<source-grounded-npc-id>",
+                        "name": "<source-grounded-name>",
+                        "parse_state": "partial",
+                        "player_safe_summary": "<source-grounded-player-text>",
+                        "agenda": "<source-bounded-immediate-agenda>",
+                    },
+                    "source_refs_policy": (
+                        "omit_to_inherit_location_scope_or_use_exact_subset"
+                    ),
+                },
+                "provenance": {
+                    "allowed_fields": sorted(
+                        coc_module_assets.FACT_PROVENANCE_FIELDS
+                    ),
+                    "authority_values": sorted(
+                        coc_module_assets.FACT_PROVENANCE_AUTHORITIES
+                    ),
+                    "source_authored_template": {
+                        "authority": "source_authored",
+                        "basis": "host_pack",
+                    },
+                    "source_refs_policy": (
+                        "omit_or_match_record_source_refs_exactly"
+                    ),
+                },
+            },
+        },
+        "first_submission_guidance": {
+            "authority": "advisory",
+            "hard_gate": False,
+            "copy_contract_values": [
+                "location_pack.fixed_fields",
+                "location_pack.copy_from_request",
+                "location_pack.empty_defaults",
+            ],
+            "required_semantics_only": {
+                "location_fields": ["title", "player_safe_summary"],
+                "materially_present_npc_fields": ["npc_id", "agenda"],
+                "npc_policy": "source_supported_and_materially_present_only",
+            },
+            "forced_empty_fields": {
+                "scene_edges": [],
+                "affordances": [],
+            },
+            "infer_structured_clock_or_routes_from_prose": False,
+            "self_check_before_status_usable": True,
+            "unsatisfied_required_fields_result": {
+                "status": "abstain",
+                "results": [],
+            },
+            "parent_repair_allowed": False,
+        },
+        "materially_present_npc": {
+            "same_pack": True,
+            "required_fields": ["npc_id", "agenda"],
+            "agenda_scope": "source_bounded_immediate",
+        },
+        "missing_agenda_disposition": "soft_deferred",
+        "replacement_before_opening": False,
+    }
+
+
+def _mechanics_locator_result_contract(
+    *,
+    file_sha256: str,
+    requested_pdf_indices: list[int],
+) -> dict[str, Any]:
+    """Return the closed partial locator delta accepted by the parent."""
+    scope = {
+        "scope_kind": "explicit_pdf_indices",
+        "pdf_indices": list(requested_pdf_indices),
+        "source_file_sha256": file_sha256,
+    }
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.mechanics-locator-pack.v1",
+        "closed": True,
+        "related_packs": "must_be_empty",
+        "pack": {
+            "allowed_fields": [
+                "mechanics_locator_pass_status",
+                "mechanics_locator_scope",
+                "npc_roster",
+                "item_roster",
+                "mechanics_index",
+            ],
+            "required_fields": [
+                "mechanics_locator_pass_status",
+                "mechanics_locator_scope",
+                "npc_roster",
+                "item_roster",
+                "mechanics_index",
+            ],
+            "fixed_fields": {
+                "mechanics_locator_pass_status": "pending",
+                "mechanics_locator_scope": scope,
+            },
+            "empty_defaults": {
+                "npc_roster": [], "item_roster": [], "mechanics_index": [],
+            },
+            "npc_roster_row": {
+                "allowed_fields": [
+                    "npc_id", "names", "parse_state",
+                    "source_page_indices", "source_refs",
+                ],
+                "required_fields": [
+                    "npc_id", "names", "parse_state",
+                    "source_page_indices", "source_refs",
+                ],
+                "fixed_fields": {"parse_state": "named_only"},
+                "names": "non_empty_array_of_non_empty_strings",
+                "names_semantics": "aliases_for_one_subject_only",
+                "shared_stat_block_policy": {
+                    "distinct_named_people": "separate_stable_npc_ids",
+                    "required_rows_per_person": [
+                        "npc_roster", "mechanics_index",
+                    ],
+                    "may_reuse_exact_fields": [
+                        "source_page_indices", "source_refs", "locator_scope",
+                    ],
+                    "merge_identity_into_compound_subject": False,
+                },
+                "source_scope": "exact_subset_of_requested_cached_refs",
+                "eligibility": "same_subject_has_a_mechanics_index_row",
+            },
+            "item_roster_row": {
+                "allowed_fields": [
+                    "item_id", "label", "parse_state",
+                    "source_page_indices", "source_refs",
+                ],
+                "required_fields": [
+                    "item_id", "label", "parse_state",
+                    "source_page_indices", "source_refs",
+                ],
+                "fixed_fields": {"parse_state": "named_only"},
+                "label": "non_empty_string",
+                "source_scope": "exact_subset_of_requested_cached_refs",
+                "eligibility": "same_subject_has_a_mechanics_index_row",
+            },
+            "mechanics_index_row": {
+                "allowed_fields": [
+                    "subject_kind", "subject_id", "status",
+                    "locator_pass_status", "locator_scope",
+                    "source_page_indices", "source_refs",
+                ],
+                "required_fields": [
+                    "subject_kind", "subject_id", "status",
+                    "locator_pass_status", "locator_scope",
+                    "source_page_indices", "source_refs",
+                ],
+                "fixed_fields": {
+                    "status": "located",
+                    "locator_pass_status": "complete",
+                    "locator_scope": scope,
+                },
+                "source_page_indices": "non_empty_subset_of_requested_pdf_indices",
+                "source_refs": "exact_cached_refs_for_source_page_indices",
+                "subject_kind_values": ["npc", "item"],
+                "located_requires": "the reviewed page actually contains subject-specific authored numeric rules, parameters, or a stat block",
+                "does_not_establish_located": [
+                    "name_or_heading_only",
+                    "description_or_plot_role_only",
+                    "roster_or_dramatis_personae_entry_only",
+                ],
+            },
+        },
+        "no_located_subject_result": {
+            "status": "usable",
+            "copy_pack_fixed_fields": True,
+            "npc_roster": [],
+            "item_roster": [],
+            "mechanics_index": [],
+            "related_packs": [],
+        },
+        "rules": [
+            "review only requested cached refs; never widen or scan the bundle",
+            "global pass stays pending for this bounded partial locator window",
+            "emit only source-supported named_only roster additions for subjects that also receive located rows",
+            "emit one stable npc subject plus matching roster and index row for every distinct named person, even when multiple people share one authored stat block",
+            "names are aliases for one subject only; shared stats may reuse exact source page indices, source refs, and locator scope but never merge distinct identities into a compound subject",
+            "a name, description, roster, or dramatis-personae entry is not mechanics evidence; located requires actual subject-specific numeric rules, parameters, or a stat block on the reviewed page",
+            "an exact reviewed window with no supported subject returns status=usable with empty rosters and mechanics_index so this request can close; it is not abstain",
+            "do not emit mechanics profiles or eager related packs",
+        ],
+    }
+
+
+def _mechanics_resolution_result_contract(
+    *,
+    job_id: str,
+    job_kind: str,
+    target_id: str,
+    cached_page_refs: list[dict[str, Any]],
+    batch_subjects: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return the closed entity-wrapper shape for one mechanics extraction."""
+    allowed_canonical_extends_ids = list(coc_mechanics.canonical_weapon_ids())
+    subject_kind = {
+        "resolve_npc_mechanics": "npc",
+        "resolve_item_mechanics": "item",
+    }[job_kind]
+    exact_refs = [
+        {
+            "source_id": str(ref.get("source_id") or ""),
+            "pdf_index": int(ref["pdf_index"]),
+            "text_sha256": str(ref.get("text_sha256") or ""),
+        }
+        for ref in cached_page_refs
+        if isinstance(ref, dict) and isinstance(ref.get("pdf_index"), int)
+    ]
+    eligible_related = [
+        {
+            "subject_kind": str(row.get("subject_kind") or ""),
+            "subject_id": str(row.get("subject_id") or ""),
+        }
+        for row in batch_subjects
+        if isinstance(row, dict)
+        and (
+            str(row.get("subject_kind") or ""),
+            str(row.get("subject_id") or ""),
+        ) != (subject_kind, target_id)
+    ]
+    pack_contract = {
+        "allowed_fields": ["mechanics"],
+        "required_fields": ["mechanics"],
+        "forbidden_fields": ["parse_state"],
+        "mechanics_nested_only": True,
+        "mechanics": {
+            "status_values": ["authored", "not_authored"],
+            "authored": {
+                "allowed_fields": [
+                    "status", "profile", "source_refs",
+                    "fields_observed", "fields_extracted",
+                    "fields_not_authored", "provenance",
+                ],
+                "required_fields": [
+                    "status", "profile", "source_refs",
+                    "fields_observed", "fields_extracted",
+                    "fields_not_authored", "provenance",
+                ],
+                "fixed_fields": {
+                    "status": "authored",
+                    "provenance.authority": "source_authored",
+                },
+                "source_refs": {
+                    "allowed_exact_refs": exact_refs,
+                    "scope": "non_empty_subject_subset",
+                    "select_fields": [
+                        "source_id", "pdf_index", "text_sha256",
+                    ],
+                },
+                "profile_kind_by_subject_kind": {
+                    "npc": "actor",
+                    "item": "non_actor",
+                },
+                "canonical_profile_self_check": {
+                    "required": True,
+                    "allowed_canonical_extends_ids": allowed_canonical_extends_ids,
+                    "weapon_entry": (
+                        "weapon_id plus extends from allowed_canonical_extends_ids, "
+                        "or omit extends and provide every canonical full-weapon "
+                        "field required by the validator"
+                    ),
+                },
+            },
+            "not_authored": {
+                "allowed_fields": [
+                    "status", "source_page_indices", "source_refs",
+                    "locator_pass_status", "locator_scope",
+                    "absence_receipt", "provenance",
+                ],
+                "required_fields": [
+                    "status", "locator_pass_status", "locator_scope",
+                    "absence_receipt",
+                ],
+                "fixed_fields": {
+                    "status": "not_authored",
+                    "locator_pass_status": "complete",
+                },
+                "scope": "exact_matching_skeleton_locator_scope",
+            },
+        },
+    }
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.mechanics-entity-pack.v1",
+        "closed": True,
+        "result_item": {
+            "allowed_fields": ["job_id", "pack", "related_packs"],
+            "required_fields": ["job_id", "pack", "related_packs"],
+            "fixed_fields": {"job_id": job_id},
+        },
+        "primary_subject": {
+            "subject_kind": subject_kind,
+            "subject_id": target_id,
+        },
+        "pack": pack_contract,
+        "related_packs": {
+            "wrapper_allowed_fields": ["subject_kind", "subject_id", "pack"],
+            "wrapper_required_fields": ["subject_kind", "subject_id", "pack"],
+            "eligible_subjects": eligible_related,
+            "pack_contract": "same_as_primary_pack",
+            "duplicate_subjects": "forbidden",
+        },
+        "rules": [
+            "copy result_item.fixed_fields before extraction",
+            "put status/profile/source_refs/fields/provenance inside pack.mechanics, never at pack root",
+            "pack must not claim narrative parse_state=deep; parent preserves body depth",
+            "authored source_refs must be a non-empty exact subset of this request's accepted cached refs",
+            "self-check canonical profiles before usable, including every weapon entry",
+            "related_packs use only the closed wrapper and eligible same-page subjects",
+            "Grok submits the complete outer result through its named source server; "
+            "fallback parents forward child packs unchanged; neither path repairs or normalizes",
+        ],
+    }
+
+
 def _load_sibling(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
     module = importlib.util.module_from_spec(spec)
@@ -44,6 +510,7 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_fileio = _load_sibling("coc_fileio_queue_worker", "coc_fileio.py")
+coc_mechanics = _load_sibling("coc_mechanics_queue_worker", "coc_mechanics.py")
 coc_module_assets = _load_sibling("coc_module_assets_queue_worker", "coc_module_assets.py")
 coc_module_project = _load_sibling("coc_module_project_queue_worker", "coc_module_project.py")
 coc_compiled_archive = _load_sibling(
@@ -305,26 +772,43 @@ def _target_source_scope(
     skeleton: dict[str, Any],
     entity_kind: str | None,
     target_id: str,
+    *,
+    job_kind: str,
 ) -> dict[str, Any]:
     collection_and_key = {
         "location": ("locations", "location_id"),
         "npc": ("npc_roster", "npc_id"),
+        "item": ("item_roster", "item_id"),
         "handout": ("handouts", "handout_id"),
         "threat": ("threats", "threat_id"),
     }.get(entity_kind or "")
     scopes: list[dict[str, Any]] = []
-    if collection_and_key is not None:
+    mechanics_job = str(job_kind or "").startswith("resolve_")
+    # Mechanics lookup is intentionally narrower than entity-body deepening.
+    # Appendix/chapter-end locators are the authoritative source for authored
+    # parameters; profile/appearance/body pages must not inflate a blocking
+    # mechanics request merely because they describe the same person or item.
+    if collection_and_key is not None and not mechanics_job:
         collection, key = collection_and_key
         for row in skeleton.get(collection) or []:
             if isinstance(row, dict) and str(row.get(key) or "") == target_id:
                 scopes.append(row)
+                break
+    if mechanics_job:
+        for locator in skeleton.get("mechanics_index") or []:
+            if (
+                isinstance(locator, dict)
+                and str(locator.get("subject_kind") or "") == str(entity_kind or "")
+                and str(locator.get("subject_id") or "") == target_id
+            ):
+                scopes.append(locator)
                 break
 
     # The named-only entity is the canonical accumulation point for later
     # structured mentions.  A skeleton profile page and scene-context pages
     # are complementary evidence, so the host handoff must consume their
     # exact union instead of stopping at the first skeleton match.
-    if entity_kind:
+    if entity_kind and not mechanics_job:
         target_pack = coc_module_assets.get_entity(
             workspace, asset_root_id, entity_kind, target_id,
         )
@@ -353,14 +837,12 @@ def _cached_page_refs(
     requested_indices: list[int],
 ) -> list[dict[str, Any]]:
     module_root = coc_module_assets.assets_root(workspace) / asset_root_id
-    if requested_indices:
-        candidate_indices = requested_indices
-    else:
-        candidate_indices = sorted(
-            int(path.stem)
-            for path in (module_root / "pages").glob("*.md")
-            if path.stem.isdigit()
-        )[:64]
+    # An absent exact source scope is not permission to scan the whole cache.
+    # Keep the handoff open until a structured skeleton/mention supplies page
+    # indices instead of turning one vague neighbor into an all-module read.
+    if not requested_indices:
+        return []
+    candidate_indices = requested_indices
     refs: list[dict[str, Any]] = []
     for pdf_index in candidate_indices:
         page = coc_module_assets.get_page(workspace, asset_root_id, pdf_index)
@@ -399,30 +881,119 @@ def _write_host_work_request(
         except (OSError, json.JSONDecodeError):
             identity = {}
     skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id) or {}
-    source = (skeleton.get("source") or {}) if isinstance(skeleton, dict) else {}
+    identity_source = (
+        identity.get("source") if isinstance(identity.get("source"), dict) else {}
+    )
+    source = (
+        (skeleton.get("source") or {})
+        if isinstance(skeleton, dict)
+        else {}
+    )
+    if not source:
+        source = identity_source
     entity_kind = coc_module_assets._job_entity_kind(str(job.get("kind") or ""))
     target_id = str(job.get("target_id") or "")
-    requested_scope = _target_source_scope(
-        workspace, asset_root_id, skeleton, entity_kind, target_id,
-    )
-    requested_indices = (
-        coc_module_assets._source_indices(
-            requested_scope,
-            field=f"host_work.{entity_kind or 'entity'}",
+    job_kind = str(job.get("kind") or "")
+    if job_kind in {"partial_opening", "locate_mechanics_index"}:
+        expected_purpose = (
+            coc_module_assets.FOREGROUND_OPENING_PURPOSE
+            if job_kind == "partial_opening"
+            else coc_module_assets.MECHANICS_LOCATOR_PURPOSE
         )
-        if requested_scope
-        else []
-    )
+        if (
+            str(job.get("request_purpose") or "")
+            != expected_purpose
+        ):
+            raise QueueWorkerError(
+                f"{job_kind} job has an invalid request purpose"
+            )
+        requested_scope = coc_module_assets.validate_opening_source_scope(
+            workspace,
+            asset_root_id,
+            job.get("requested_source_scope"),
+        )
+        expected_signature = coc_module_assets.opening_source_scope_signature(
+            requested_scope
+        )
+        if str(job.get("source_scope_signature") or "") != expected_signature:
+            raise QueueWorkerError(
+                f"{job_kind} job source scope signature is stale"
+            )
+        requested_indices = list(requested_scope["pdf_indices"])
+    else:
+        requested_scope = _target_source_scope(
+            workspace,
+            asset_root_id,
+            skeleton,
+            entity_kind,
+            target_id,
+            job_kind=job_kind,
+        )
+        requested_indices = (
+            coc_module_assets._source_indices(
+                requested_scope,
+                field=f"host_work.{entity_kind or 'entity'}",
+            )
+            if requested_scope
+            else []
+        )
     cached_page_refs = _cached_page_refs(
         workspace,
         asset_root_id,
         requested_indices=requested_indices,
     )
-    pages = sorted((root / "pages").glob("*.md")) if (root / "pages").is_dir() else []
     cached_indices = {int(row["pdf_index"]) for row in cached_page_refs}
     scope_complete = (
         set(requested_indices) <= cached_indices if requested_indices else None
     )
+    batch_subjects: list[dict[str, Any]] = []
+    requested_set = set(requested_indices)
+    if requested_set and str(job.get("kind") or "").startswith("resolve_"):
+        for locator in skeleton.get("mechanics_index") or []:
+            if not isinstance(locator, dict):
+                continue
+            locator_indices = set(
+                coc_module_assets._source_indices(
+                    locator, field="host_work.batch_subject",
+                )
+            )
+            if not locator_indices or not locator_indices.issubset(requested_set):
+                continue
+            batch_subjects.append({
+                "subject_kind": locator.get("subject_kind"),
+                "subject_id": locator.get("subject_id"),
+                "source_page_indices": sorted(locator_indices),
+            })
+    source_aspect = (
+        "mechanics"
+        if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
+        else "body"
+    )
+    deadline_class = (
+        "blocking_micro"
+        if job_kind.startswith("resolve_") or job_kind == "partial_opening"
+        else "idle_warm"
+        if job_kind == "locate_mechanics_index"
+        else "hot_ring"
+        if job_kind == "partial_neighbor"
+        else "next_turn_hot"
+    )
+    group_material = json.dumps(
+        {
+            "file_sha256": source.get("file_sha256") or identity.get("file_sha256"),
+            "source_aspect": source_aspect,
+            "request_purpose": job.get("request_purpose"),
+            "bundle_sha256": (
+                requested_scope.get("bundle_sha256")
+                if job_kind in {"partial_opening", "locate_mechanics_index"}
+                else None
+            ),
+            "requested_pdf_indices": requested_indices,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    work_group_id = "source-work-" + hashlib.sha256(group_material).hexdigest()[:16]
     payload = {
         "schema_version": 1,
         "job_id": jid,
@@ -435,32 +1006,119 @@ def _write_host_work_request(
         "source_pdf": source.get("path") or (identity.get("source") or {}).get("path"),
         "source_id": source.get("source_id") or (identity.get("source") or {}).get("source_id"),
         "file_sha256": source.get("file_sha256") or identity.get("file_sha256"),
-        "pages_cached": [p.name for p in pages[:64]],
+        "pages_cached": [f"{pdf_index:04d}.md" for pdf_index in sorted(cached_indices)],
+        "source_scope_status": "known" if requested_indices else "unknown",
         "requested_source_scope": requested_scope,
+        "request_purpose": job.get("request_purpose"),
+        "source_scope_signature": job.get("source_scope_signature"),
         "requested_pdf_indices": requested_indices,
         "cached_page_refs": cached_page_refs,
         "cached_scope_complete": scope_complete,
+        "batch_subjects": batch_subjects,
+        "source_aspect": source_aspect,
+        "deadline_class": deadline_class,
+        "work_group_id": work_group_id,
+        "dispatch_state": "ready",
+        "dispatch_attempts": 0,
         "instruction": (
+            "Source scope is unknown. Do not open or scan the PDF and do not "
+            "scan unrelated cached pages. Leave this request unresolved until "
+            "a structured skeleton, mention, or entity update supplies exact "
+            "pdf_indices; then enqueue the target again."
+            if not requested_indices
+            else
+            "Host source worker: review exactly cached_page_refs for this "
+            "bounded mechanics locator pass. Return the closed locator delta "
+            "from result_contract unchanged: global pass remains pending; emit "
+            "only source-bound named_only roster additions and complete+located "
+            "mechanics_index rows whose pages are inside this exact request. "
+            "For every distinct named person, emit a separate stable npc_id "
+            "plus roster and mechanics_index row; a shared stat block may reuse "
+            "exact source_page_indices, source_refs, and locator_scope across "
+            "those rows, while names holds aliases for one subject only and "
+            "never forms a compound identity. "
+            "Do not emit mechanics profiles, related_packs, not_authored claims, "
+            "or inspect any other cached/PDF page. Submit the complete outer "
+            "result through the named source transport, or return it unchanged "
+            "to the exact fallback parent."
+            if job_kind == "locate_mechanics_index"
+            else
+            "Host PDF skill: review exactly cached_page_refs and only the "
+            "requested_pdf_indices for request_purpose=foreground_opening_slice. "
+            "Return one reusable location pack with parse_state=partial, "
+            "evidence_gap=false and exact source_page_indices/source_refs. Follow "
+            "the closed result_contract: include player_safe_summary and, for each "
+            "materially present NPC, same-pack npc_id plus a source-bounded immediate "
+            "agenda. Missing agenda is soft_deferred and must not cause replacement "
+            "before opening. "
+            "Do not claim deep "
+            "or inspect pages outside this exact accepted scope. Submit the complete "
+            "outer result through the named source transport, or return it unchanged "
+            "to the exact fallback parent; the strict receiver binds this "
+            "request transiently and persists only the canonical fulfillment receipt."
+            if job_kind == "partial_opening"
+            else
+            "Host PDF skill: resolve authored mechanics for this structured subject. "
+            "Read cached_page_refs first and visually review only requested_pdf_indices. "
+            "batch_subjects sharing those pages should be extracted in the same host pass. "
+            "Follow the closed result_contract. Return an entity pack with exactly one "
+            "nested mechanics object; status, profile, source_refs, fields accounting, "
+            "and provenance belong inside pack.mechanics, never at pack root. Do not "
+            "emit parse_state=deep. For authored mechanics use status=authored with "
+            "profile, source_refs, "
+            "fields_observed==fields_extracted, fields_not_authored, provenance.authority="
+            "source_authored, and attacks_per_round when the source authors it; or "
+            "status=not_authored with locator_pass_status=complete, locator_scope, and "
+            "absence_receipt.checked_scope bound exactly to that locator_scope "
+            "(structured object with scope_kind, pdf_indices, source_file_sha256 equal "
+            "to this packet's file_sha256); every selected page must be one of this "
+            "packet's registered accepted cached_page_refs and every source_ref source_id "
+            "must equal this packet's source_id. "
+            "Do not emit flat characteristics/weapons/spells under located/unresolved/"
+            "not_authored. Do not claim not_authored without a completed appendix scan. "
+            "Submit the complete outer result, including primary pack and optional "
+            "related_packs, through the named source transport, or return it unchanged "
+            "to the exact fallback parent; later mechanics questions must reuse those "
+            "durable packs."
+            if job_kind.startswith("resolve_")
+            else
             "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
             "is true, do not reopen the PDF for this scope. Extract only a "
             "reusable partial neighbor pack; register a new validated source "
-            "bundle window only for missing pdf_indices. Submit the semantic "
-            "pack through progressive.fulfill_host_work with parse_state=partial and "
-            "evidence_gap=false, source_page_indices, host_work_job_id equal "
-            "to this request's job_id, and host_timing."
+            "bundle window only for missing pdf_indices. Submit the complete outer "
+            "result through the named source transport, or return it unchanged to the "
+            "exact fallback parent, with parse_state=partial and "
+            "evidence_gap=false, source_page_indices, and host_timing; the "
+            "fulfillment operation binds the request transiently."
             if str(job.get("kind") or "") == "partial_neighbor"
             else
             "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
             "is true, do not reopen the PDF for this scope. Register a new "
             "validated source bundle window only for missing pdf_indices, then "
-            "deep-extract this entity once into a reusable entity pack. Submit it "
-            "through progressive.fulfill_host_work with parse_state=deep and "
-            "evidence_gap=false, source_page_indices, host_work_job_id equal "
-            "to this request's job_id, and host_timing; later "
+            "deep-extract this entity once into a reusable entity pack. Submit the "
+            "complete outer result through the named source transport, or return it "
+            "unchanged to the exact fallback parent, with parse_state=deep and "
+            "evidence_gap=false, source_page_indices, and host_timing; the "
+            "fulfillment operation binds the request transiently, and later "
             "questions must query that pack rather than reopen the same PDF "
             "scope. Do not invent handout/secret bodies without page evidence."
         ),
     }
+    if job_kind == "partial_opening":
+        payload["result_contract"] = _foreground_opening_result_contract()
+    elif job_kind == "locate_mechanics_index":
+        payload["result_contract"] = _mechanics_locator_result_contract(
+            file_sha256=str(payload.get("file_sha256") or ""),
+            requested_pdf_indices=requested_indices,
+        )
+    elif job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+        payload["result_contract"] = _mechanics_resolution_result_contract(
+            job_id=jid,
+            job_kind=job_kind,
+            target_id=str(job.get("target_id") or ""),
+            cached_page_refs=cached_page_refs,
+            batch_subjects=batch_subjects,
+        )
     _write_json(path, payload)
     return path
 
@@ -475,12 +1133,80 @@ def process_claimed_job(
     tid = str(job.get("target_id") or "")
     detail: dict[str, Any] = {"kind": kind, "target_id": tid}
     try:
-        if kind in {"deepen_location", "partial_neighbor"}:
+        if kind == "locate_mechanics_index":
+            req = _write_host_work_request(workspace, asset_root_id, job)
+            detail["host_work_request"] = str(req)
+            _finish_job(
+                workspace,
+                asset_root_id,
+                job,
+                result="awaiting_host_pack",
+                detail=detail,
+            )
+            return {"ok": True, "result": "awaiting_host_pack", **detail}
+
+        if kind in {"deepen_location", "partial_neighbor", "partial_opening"}:
             pack = coc_module_assets.get_entity(
                 workspace, asset_root_id, "location", tid,
             )
-            allow_partial = kind == "partial_neighbor"
-            if _is_pack_ready(pack, allow_partial=allow_partial):
+            allow_partial = kind in {"partial_neighbor", "partial_opening"}
+            if kind == "partial_opening" and _is_pack_ready(
+                pack, allow_partial=True,
+            ):
+                expected_scope = coc_module_assets.validate_opening_source_scope(
+                    workspace,
+                    asset_root_id,
+                    job.get("requested_source_scope"),
+                )
+                pack_indices = coc_module_assets._source_indices(
+                    pack or {}, field="partial_opening.pack",
+                )
+                expected_signature = coc_module_assets.opening_source_scope_signature(
+                    expected_scope
+                )
+                fulfilled_request = next(
+                    (
+                        row for row in coc_module_assets.list_host_work_requests(
+                            workspace, asset_root_id, include_closed=True, limit=None,
+                        )
+                        if str(row.get("job_id") or "")
+                        == str(job.get("job_id") or "")
+                    ),
+                    None,
+                )
+                if (
+                    pack_indices == expected_scope["pdf_indices"]
+                    and isinstance(fulfilled_request, dict)
+                    and fulfilled_request.get("kind") == "partial_opening"
+                    and fulfilled_request.get("target_id") == tid
+                    and fulfilled_request.get("request_purpose")
+                    == coc_module_assets.FOREGROUND_OPENING_PURPOSE
+                    and fulfilled_request.get("requested_source_scope")
+                    == expected_scope
+                    and str(fulfilled_request.get("source_scope_signature") or "")
+                    == expected_signature
+                    and coc_module_assets.fulfilled_request_matches_current_pack(
+                        fulfilled_request,
+                        pack or {},
+                        kind="location",
+                        entity_id=tid,
+                    )
+                ):
+                    detail["parse_state"] = (pack or {}).get("parse_state")
+                    detail["request_purpose"] = (
+                        coc_module_assets.FOREGROUND_OPENING_PURPOSE
+                    )
+                    _finish_job(
+                        workspace,
+                        asset_root_id,
+                        job,
+                        result="entity_ready",
+                        detail=detail,
+                    )
+                    return {"ok": True, "result": "entity_ready", **detail}
+            if kind != "partial_opening" and _is_pack_ready(
+                pack, allow_partial=allow_partial,
+            ):
                 # Merge directly — job is in_flight, not pending, so
                 # process_ready_deepens (pending-only) would miss it.
                 camps = campaigns_using_asset(workspace, asset_root_id)
@@ -530,18 +1256,29 @@ def process_claimed_job(
             return {"ok": True, "result": "awaiting_host_pack", **detail}
 
         if kind in {
-            "deepen_npc", "deepen_clue", "deepen_handout", "deepen_threat",
+            "deepen_npc", "deepen_item", "deepen_clue", "deepen_handout", "deepen_threat",
+            "resolve_npc_mechanics", "resolve_item_mechanics",
         }:
             entity_kind = {
                 "deepen_npc": "npc",
+                "deepen_item": "item",
                 "deepen_clue": "clue",
                 "deepen_handout": "handout",
                 "deepen_threat": "threat",
+                "resolve_npc_mechanics": "npc",
+                "resolve_item_mechanics": "item",
             }[kind]
             pack = coc_module_assets.get_entity(
                 workspace, asset_root_id, entity_kind, tid,
             )
-            if _is_pack_ready(pack):
+            mechanics_job = kind.startswith("resolve_")
+            mechanics_ready = (
+                mechanics_job
+                and isinstance((pack or {}).get("mechanics"), dict)
+                and (pack or {})["mechanics"].get("status")
+                in {"authored", "not_authored"}
+            )
+            if mechanics_ready or (not mechanics_job and _is_pack_ready(pack)):
                 # Handouts are delivered from the asset store by their normal
                 # consumer. NPCs, clues, and threats must enter the campaign
                 # IR used by live scene/NPC/Director queries.

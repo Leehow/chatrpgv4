@@ -1,0 +1,73 @@
+{
+  "ruleset_id": "coc7",
+  "name": "Call of Cthulhu 7th Edition",
+  "version": "1.0.0",
+  "resolution_model": "percentile",
+  "schema_versions": {
+    "campaign": 2,
+    "world": 2,
+    "pacing": 1,
+    "investigator": 1
+  },
+  "entry_points": {
+    "resolver": "resolver.py",
+    "skills": "skills/",
+    "data": "rules-json/"
+  },
+  "resources": [
+    {
+      "key": "hp",
+      "display": "HP",
+      "kind": "pool",
+      "reset": "session",
+      "projected": true,
+      "recovery_rule": "No automatic refill; recovers via First Aid +1 HP (Keeper Rulebook p.119), Medicine +1D3 (p.120), and the weekly natural recovery roll (p.121)."
+    },
+    {
+      "key": "san",
+      "display": "SAN",
+      "kind": "pool",
+      "reset": "never",
+      "projected": true,
+      "recovery_rule": "No automatic recovery; regained only through development-phase awards (e.g. +2D6 when a skill reaches 90%%, p.94), Keeper scenario awards, or treatment (p.164)."
+    },
+    {
+      "key": "mp",
+      "display": "MP",
+      "kind": "pool",
+      "reset": "daily",
+      "projected": true,
+      "recovery_rule": "Regenerates 1 point per hour (2 per hour if POW over 100) per spell mechanics (Keeper Rulebook pp.176-179)."
+    },
+    {
+      "key": "luck",
+      "display": "Luck",
+      "kind": "pool",
+      "reset": "session",
+      "projected": false,
+      "recovery_rule": "Session-end recovery roll (optional rule, p.99): roll 1D100 over current Luck to gain 1D10, capped at 99."
+    }
+  ],
+  "state_dirs": [
+    {
+      "name": "investigator-state",
+      "create_on_init": true
+    },
+    {
+      "name": "sanity-state",
+      "create_on_init": false
+    }
+  ],
+  "boundary_terms": [
+    "STR",
+    "CON",
+    "SIZ",
+    "DEX",
+    "APP",
+    "INT",
+    "POW",
+    "EDU",
+    "SAN",
+    "LUCK"
+  ]
+}

@@ -56,7 +56,7 @@ EXPECTED_RULE_IDS = {
 
 
 def _load_table(root: Path, name: str) -> dict | list:
-    path = root / "references" / "rules-json" / f"{name}.json"
+    path = root / "rulesets" / "coc7" / "rules-json" / f"{name}.json"
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -418,7 +418,7 @@ def audit_monster_attacks(root: Path, project: Path) -> list[str]:
 
 def audit_plugin_integrity(keeper: Path) -> list[str]:
     """Confirm the single plugin track still has a readable rule index."""
-    if not (keeper / "references" / "rules-json" / "rule-index.json").exists():
+    if not (keeper / "rulesets" / "coc7" / "rules-json" / "rule-index.json").exists():
         return [f"[C] rule-index missing under {keeper}"]
     return []
 

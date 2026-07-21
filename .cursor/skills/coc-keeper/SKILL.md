@@ -248,7 +248,7 @@ present the run as craft-parity or prose-parity evidence.
 
 Investigator portraits use **host-native** image tools
 (`HOST_NATIVE_IMAGEGEN` in
-`plugins/coc-keeper/skills/coc-character/SKILL.md`). Cursor has no built-in
+`plugins/coc-keeper/rulesets/coc7/skills/coc-character/SKILL.md`). Cursor has no built-in
 image tool, so **skip portrait generation** and continue character creation.
 Do not call Codex `imagegen` from Cursor. Grok Build uses its own `image_gen`.
 

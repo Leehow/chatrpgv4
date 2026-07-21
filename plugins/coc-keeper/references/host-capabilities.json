@@ -3,36 +3,60 @@
     "plugin_skills": true,
     "plugin_mcp": false,
     "native_imagegen": false,
-    "isolated_player_agent": false
+    "isolated_player_agent": false,
+    "native_background_subagent": false,
+    "coc_advisory_sidecar_v1": false,
+    "coc_source_pack_worker_v1": false,
+    "max_background_source_workers": 0
   },
   "codex": {
     "plugin_skills": true,
     "plugin_mcp": true,
     "native_imagegen": true,
-    "isolated_player_agent": true
+    "isolated_player_agent": true,
+    "native_background_subagent": true,
+    "coc_advisory_sidecar_v1": false,
+    "coc_source_pack_worker_v1": true,
+    "max_background_source_workers": 4
   },
   "cursor": {
     "plugin_skills": true,
     "plugin_mcp": true,
     "native_imagegen": false,
-    "isolated_player_agent": true
+    "isolated_player_agent": true,
+    "native_background_subagent": false,
+    "coc_advisory_sidecar_v1": false,
+    "coc_source_pack_worker_v1": false,
+    "max_background_source_workers": 0
   },
   "grok": {
     "plugin_skills": true,
     "plugin_mcp": true,
     "native_imagegen": true,
-    "isolated_player_agent": true
+    "isolated_player_agent": true,
+    "native_background_subagent": true,
+    "coc_advisory_sidecar_v1": true,
+    "coc_source_pack_worker_v1": true,
+    "max_background_source_workers": 4
   },
   "kimi": {
     "plugin_skills": true,
     "plugin_mcp": true,
     "native_imagegen": false,
-    "isolated_player_agent": true
+    "isolated_player_agent": true,
+    "native_background_subagent": false,
+    "coc_advisory_sidecar_v1": false,
+    "coc_source_pack_worker_v1": false,
+    "max_background_source_workers": 0
   },
   "zcode": {
     "plugin_skills": true,
     "plugin_mcp": true,
     "native_imagegen": false,
-    "isolated_player_agent": true
+    "isolated_player_agent": true,
+    "native_background_subagent": false,
+    "coc_advisory_sidecar_v1": false,
+    "coc_source_pack_worker_v1": false,
+    "max_background_source_workers": 0
   }
 }

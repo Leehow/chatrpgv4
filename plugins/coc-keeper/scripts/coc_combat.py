@@ -44,20 +44,21 @@ def _load_sibling(name: str, filename: str):
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 
 
 # --------------------------------------------------------------------------- #
 # Weapon catalog + module weapon extension
 # --------------------------------------------------------------------------- #
 def load_weapon_catalog(rules_dir: Path | None = None) -> dict[str, dict[str, Any]]:
-    """Load the canonical weapon catalog from references/rules-json/weapons.json.
+    """Load the canonical weapon catalog from rulesets/coc7/rules-json/weapons.json.
 
     Returns a weapon_id → weapon dict map. Each entry has skill, damage,
     adds_damage_bonus, impales, base_range_yards, category (and optional
     ammo_per_reload / note). The damage expression EXCLUDES DB — the engine
     appends the attacker's DB at roll time when adds_damage_bonus is true.
     """
-    rd = rules_dir or (SCRIPT_DIR.parent / "references" / "rules-json")
+    rd = rules_dir or coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
     catalog_path = rd / "weapons.json"
     if not catalog_path.exists():
         return {}
@@ -1198,7 +1199,25 @@ class CombatSession:
                         full_expr = f"{die_expr}{half_val:+d}"
                 else:
                     full_expr = f"{die_expr}{db}"
-        raw, die_rolls, breakdown = self._roll_damage_expr(full_expr)
+        rolled_total, die_rolls, breakdown = self._roll_damage_expr(full_expr)
+        weapon_meta: dict[str, Any] = {}
+        try:
+            weapon_meta = self._weapon(source_actor_id, weapon_id)
+        except (KeyError, ValueError):
+            weapon_meta = {}
+        multiplier = weapon_meta.get("active_damage_multiplier", 1)
+        if (
+            isinstance(multiplier, bool)
+            or not isinstance(multiplier, int)
+            or not 1 <= multiplier <= 10
+        ):
+            raise ValueError("active weapon damage multiplier is invalid")
+        effect_ids = weapon_meta.get("active_weapon_effect_ids") or []
+        if not isinstance(effect_ids, list) or any(
+            not isinstance(value, str) or not value for value in effect_ids
+        ):
+            raise ValueError("active weapon effect ids are invalid")
+        raw = rolled_total * multiplier
         roll_id = self._roll_id()
         target = self.participants[target_actor_id]
         hp_before = target["hp_current"]
@@ -1229,8 +1248,10 @@ class CombatSession:
             "weapon_id": weapon_id,
             "die": full_expr,
             "die_rolls": die_rolls,
-            "rolled_total": raw,
+            "rolled_total": rolled_total,
             "raw_damage": raw,
+            "damage_multiplier": multiplier,
+            "weapon_effect_ids": list(effect_ids),
             "hp_before": hp_before,
             "hp_delta": hp_delta,
             "hp_after": hp_after,
@@ -1240,7 +1261,11 @@ class CombatSession:
             "rulebook_exception": rulebook_exception,
             "bypass_armor": bypass_armor,
             "half_damage_bonus": half_db_meta,
-            "marker": f"[roll]{die_expr}:{breakdown}->{raw}:damage[/roll]",
+            "marker": (
+                f"[roll]{die_expr}:{breakdown}"
+                f"{'x' + str(multiplier) if multiplier != 1 else ''}"
+                f"->{raw}:damage[/roll]"
+            ),
         }
         self.damage_chain.append(record)
         self.pending_rolls.append({
@@ -1251,7 +1276,10 @@ class CombatSession:
             "goal": f"damage {target_actor_id} with {weapon_id}",
             "target_actor_id": target_actor_id,
             "die": full_expr,
-            "rolled_total": raw,
+            "rolled_total": rolled_total,
+            "effect_total": raw,
+            "damage_multiplier": multiplier,
+            "weapon_effect_ids": list(effect_ids),
             "dice": {
                 "expression": full_expr,
                 "raw": list(die_rolls),
@@ -1332,14 +1360,17 @@ class CombatSession:
         is_impale = weapon.get("impales", False)
 
         # Base extreme damage: max weapon + max DB.
-        extreme_raw = weapon_max + db_max
+        multiplier = int(weapon.get("active_damage_multiplier", 1) or 1)
+        extreme_raw = (weapon_max + db_max) * multiplier
         breakdown = f"extreme: max_weapon({weapon_max})+max_db({db_max})"
+        if multiplier != 1:
+            breakdown += f"*effect_multiplier({multiplier})"
 
         # Impale: add one extra weapon-damage roll (p.119 example).
         extra_roll = 0
         if is_impale:
             extra_raw, extra_dice, _ = self._roll_damage_expr(weapon["damage"])
-            extreme_raw += extra_raw
+            extreme_raw += extra_raw * multiplier
             breakdown += f"+impale_extra_roll({extra_raw})"
 
         # Re-apply armor to the new raw damage.
@@ -3021,6 +3052,7 @@ class CombatSession:
             "rolled_total", "raw_damage", "hp_before", "hp_delta", "hp_after",
             "armor_absorbed", "armor_before", "armor_after",
             "rulebook_exception", "bypass_armor", "half_damage_bonus",
+            "damage_multiplier", "weapon_effect_ids",
             "marker", "status_after", "provenance",
         }
         extreme_damage_keys = {
@@ -3078,7 +3110,7 @@ class CombatSession:
                 raise ValueError("combat damage provenance diverges from its turn")
             integer_fields = (
                 "rolled_total", "raw_damage", "hp_before", "hp_delta", "hp_after",
-                "armor_absorbed", "armor_before", "armor_after",
+                "armor_absorbed", "armor_before", "armor_after", "damage_multiplier",
             )
             if any(
                 isinstance(damage.get(field), bool)
@@ -3095,7 +3127,21 @@ class CombatSession:
                 != damage["rolled_total"]
             ):
                 raise ValueError("combat damage chain roll evidence diverges from total")
-            if not damage.get("extreme_damage") and damage["rolled_total"] != raw_damage:
+            if (
+                damage["damage_multiplier"] < 1
+                or damage["damage_multiplier"] > 10
+                or not isinstance(damage.get("weapon_effect_ids"), list)
+                or any(
+                    not isinstance(value, str) or not value
+                    for value in damage["weapon_effect_ids"]
+                )
+            ):
+                raise ValueError("combat damage effect evidence is invalid")
+            if (
+                not damage.get("extreme_damage")
+                and damage["rolled_total"] * damage["damage_multiplier"]
+                != raw_damage
+            ):
                 raise ValueError(
                     "combat damage chain roll evidence diverges from its rolled total"
                 )

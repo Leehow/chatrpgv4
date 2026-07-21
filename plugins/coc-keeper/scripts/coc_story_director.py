@@ -53,6 +53,7 @@ coc_director_strategies = _load_sibling("coc_director_strategies", "coc_director
 coc_epistemic_policy = _load_sibling("coc_epistemic_policy", "coc_epistemic_policy.py")
 coc_belief_state = _load_sibling("coc_belief_state", "coc_belief_state.py")
 coc_rules = _load_sibling("coc_story_director_rules", "coc_rules.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 coc_keeper_planner = _load_sibling("coc_keeper_planner", "coc_keeper_planner.py")
 coc_inventory = _load_sibling("coc_inventory", "coc_inventory.py")
 
@@ -929,7 +930,7 @@ def write_director_plan(plan: dict[str, Any], artifacts_dir: Path) -> Path:
 # Historical spec retired; see tombstone index docs/status/DIAGNOSIS-LEDGER.md
 # =============================================================================
 
-RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 def _load_structure_weights() -> dict[str, Any]:

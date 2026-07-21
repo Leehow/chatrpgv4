@@ -28,6 +28,18 @@ Combat in Call of Cthulhu is **not** a single roll that decides a fight. Per Kee
    tools. Audit reads them to machine-verify compliance — **never replace the
    session with transcript prose or generic dice/damage tools**.
 
+If `combat.resolve` returns `mechanics_not_ready`, do not substitute
+`rules.roll`, `rules.opposed`, copied stub values, or a generic profile. Follow
+the canonical source-first path: call `mechanics.ensure`; on
+`source_work_required`, immediately call `progressive.claim_host_work` and
+spawn the exact packet as the unqualified `coc-source-pack-worker` with
+`background=true`. Existing `blocking_micro` semantics may delay only this
+mechanics-dependent settlement while non-dependent play continues. On Grok
+direct submit, never retrieve child output; retry only the same current or a
+later naturally needed `mechanics.ensure` / `combat.resolve` so the canonical
+operation consumes the durable profile. This adds no new narrative or output
+gate.
+
 Module weapons may override the inherited weapon `skill` with another
 structured check source. For example, Corbitt's floating knife inherits the
 medium-knife damage profile but rolls `POW` against Dodge; report the emitted
@@ -147,7 +159,7 @@ Melee weapon damage expressions in the rulebook **exclude** DB (e.g. medium knif
 
 - Each weapon carries `adds_damage_bonus: true|false`. Melee weapons and natural weapons (claws) set this true; firearms set it false (bullets don't get stronger from the shooter's muscles).
 - The attacker's `damage_bonus` field (e.g. `"+1D4"`, `"-2"`, `"none"`, derived from STR+SIZ via `damage-bonus-build.json`) is appended to the die expression when `adds_damage_bonus` is true.
-- The canonical weapon catalog lives in `references/rules-json/weapons.json` (unarmed, knife_medium, knife_small, club_small, club_large, revolver_38, revolver_45, shotgun, rifle_22, claws, etc.). Each entry has `skill`, `damage` (excluding DB), `adds_damage_bonus`, `impales`, `base_range_yards`, `category`.
+- The canonical weapon catalog lives in `../../rules-json/weapons.json` (unarmed, knife_medium, knife_small, club_small, club_large, revolver_38, revolver_45, shotgun, rifle_22, claws, etc.). Each entry has `skill`, `damage` (excluding DB), `adds_damage_bonus`, `impales`, `base_range_yards`, `category`.
 
 Never write a melee weapon's damage as `1D4+2` without DB — that under-counts damage. Always let the engine append DB via `adds_damage_bonus`.
 
@@ -284,7 +296,7 @@ standalone `rules.luck_spend` after a combat turn has already applied damage.
 Weapon combat stays in the canonical combat subsystem. Falls, fire, drowning,
 poison, and similar non-weapon harm use the shared `hazard.apply`,
 `hazard.suffocation.start/tick/end`, and `hazard.poison` operations in
-`../../scripts/coc_runtime_ops.py`; Pi uses the same operations through
+`../../../../scripts/coc_runtime_ops.py`; Pi uses the same operations through
 `runtime.sdk.api.operate(...)`. Rules data remains in `hazards.json` and
 `poisons.json`:
 

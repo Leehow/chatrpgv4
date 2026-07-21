@@ -1,12 +1,48 @@
 """Canonical identifiers and filesystem containment for the runtime boundary."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 from pathlib import Path
 
 
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _default_ruleset_state_dirs() -> tuple[str, ...]:
+    """Package-owned save dir names from the default ruleset's manifest.
+
+    Workspace-less import-time binding resolves the built-in plugin layout —
+    the same rule ``plugin_locator`` documents for import-time call sites.
+    Loading the locator by path is cycle-safe: its module top level never
+    calls back into this module.
+    """
+    locator = _load_module(
+        "runtime_plugin_locator_paths",
+        Path(__file__).resolve().parent / "plugin_locator.py",
+    )
+    scripts = locator.plugin_scripts_dir()
+    rulesets = _load_module("runtime_coc_rulesets_paths", scripts / "coc_rulesets.py")
+    return tuple(rulesets.ruleset_state_dirs(rulesets.DEFAULT_RULESET_ID))
+
+
+# Phase 1 seam 3: ruleset-owned save package directory names are read from
+# the active ruleset manifest ``state_dirs`` (docs/ruleset-contract.md §6)
+# instead of a kernel literal. The two DIRNAME constants stay declared as the
+# named anchors ``campaign_save_paths`` builds concrete per-subsystem files
+# under; for coc7 they are exactly the manifest dirs, in manifest order.
+INVESTIGATOR_STATE_DIRNAME = "investigator-state"
+SANITY_STATE_DIRNAME = "sanity-state"
+SAVE_PACKAGE_DIRNAMES = _default_ruleset_state_dirs()
 
 
 def validate_id(value: str, field: str) -> str:
@@ -97,8 +133,8 @@ def campaign_save_paths(campaign: Path | str, investigator_id: str) -> dict[str,
     investigator_id = validate_id(investigator_id, "investigator_id")
     resolved_campaign = Path(campaign).resolve(strict=False)
     save = contained_path(resolved_campaign, resolved_campaign / "save")
-    inv_dir = contained_path(save, save / "investigator-state")
-    sanity_dir = contained_path(save, save / "sanity-state")
+    inv_dir = contained_path(save, save / INVESTIGATOR_STATE_DIRNAME)
+    sanity_dir = contained_path(save, save / SANITY_STATE_DIRNAME)
     canonical_sanity = contained_path(
         sanity_dir, sanity_dir / f"{investigator_id}.json"
     )

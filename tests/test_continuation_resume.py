@@ -207,6 +207,14 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     assert "semantic_capsule" not in resumed["checkpoint"]
     assert "transcript_tail" not in resumed["checkpoint"]
     assert resumed["semantic_capsule"]["threads"][0]["thread_id"] == "scratch-route"
+    thread_detail = _call(ws, "session.continuation_detail", {
+        "section": "threads",
+        "ids": ["scratch-route"],
+    })["data"]
+    assert thread_detail["section"] == "threads"
+    assert thread_detail["rows"] == resumed["semantic_capsule"]["threads"]
+    assert thread_detail["next_offset"] is None
+    assert thread_detail["section_sha256"].startswith("sha256:")
     exact_delivery = _call(ws, "session.delivery_text", {
         "finalization_id": resumed["delivery"]["finalization_id"],
         "rendered_sha256": resumed["delivery"]["rendered_sha256"],
@@ -223,6 +231,12 @@ def test_finalize_publishes_checkpoint_and_player_reply_confirms_delivery(
     )
     assert wrong_hash["ok"] is False
     assert wrong_hash["error"]["code"] == "delivery_conflict"
+
+    _call(ws, "scene.context")
+    after_reference_reads = _call(ws, "session.resume")["data"]
+    assert after_reference_reads["mode"] == "awaiting_player"
+    assert after_reference_reads["current_turn"]["meaningful_row_count"] == 0
+    assert after_reference_reads["current_turn"]["rows"] == []
 
     _journal(
         ws,

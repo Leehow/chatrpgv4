@@ -62,6 +62,7 @@ coc_flag_state = _load_sibling("coc_flag_state_toolbox", "coc_flag_state.py")
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_language = _load_sibling("coc_language", "coc_language.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 coc_rule_signals = _load_sibling("coc_rule_signals", "coc_rule_signals.py")
 coc_scene_graph = _load_sibling("coc_scene_graph", "coc_scene_graph.py")
 coc_npc_state = _load_sibling("coc_npc_state", "coc_npc_state.py")
@@ -77,7 +78,8 @@ coc_async_recorder = _load_sibling(
 )
 coc_time = _load_sibling("coc_time", "coc_time.py")
 coc_storylets = _load_sibling("coc_storylets", "coc_storylets.py")
-coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
+# NOTE: coc_sanity is no longer imported here directly — rules.* handlers
+# obtain SAN mechanics through _rules_resolver (contract §4 seam 2).
 coc_chase = _load_sibling("coc_chase_toolbox", "coc_chase.py")
 coc_story_director = _load_sibling(
     "coc_story_director_toolbox", "coc_story_director.py"
@@ -115,6 +117,7 @@ coc_subsystem_executor = _load_sibling(
     "coc_subsystem_executor_toolbox", "coc_subsystem_executor.py"
 )
 coc_inventory = _load_sibling("coc_inventory", "coc_inventory.py")
+coc_mechanics = _load_sibling("coc_mechanics_toolbox", "coc_mechanics.py")
 coc_action_resolver = _load_sibling(
     "coc_action_resolver_toolbox", "coc_action_resolver.py"
 )
@@ -169,11 +172,13 @@ class ToolError(ValueError):
         message: str,
         *,
         violations: list[dict[str, str]] | None = None,
+        details: dict[str, Any] | None = None,
     ):
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
         self.violations = violations
+        self.details = deepcopy(details) if isinstance(details, dict) else None
 
 
 # --------------------------------------------------------------------------- #
@@ -225,6 +230,10 @@ class Ctx:
     @property
     def npc_agendas(self) -> dict[str, Any]:
         return self.scenario("npc-agendas.json")
+
+    @property
+    def module_meta(self) -> dict[str, Any]:
+        return self.scenario("module-meta.json")
 
     def world(self) -> dict[str, Any]:
         return coc_state.load_world_state(self.campaign_dir)
@@ -403,6 +412,32 @@ class Ctx:
     def save_inv_state(self, investigator_id: str, state: dict[str, Any]) -> None:
         coc_state.write_json_atomic(self.inv_state_path(investigator_id), state)
 
+    def campaign_mechanics(self) -> dict[str, Any]:
+        path = self.campaign_dir / "save" / "campaign-mechanics.json"
+        if not path.is_file():
+            return {"schema_version": 1, "items": {}}
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ToolError(
+                "state_corrupt", "save/campaign-mechanics.json is unreadable",
+            ) from exc
+        if (
+            not isinstance(document, dict)
+            or document.get("schema_version") != 1
+            or not isinstance(document.get("items"), dict)
+        ):
+            raise ToolError(
+                "state_corrupt",
+                "save/campaign-mechanics.json does not match schema version 1",
+            )
+        return document
+
+    def save_campaign_mechanics(self, document: dict[str, Any]) -> None:
+        coc_state.write_json_atomic(
+            self.campaign_dir / "save" / "campaign-mechanics.json", document,
+        )
+
     # -- idempotency ledger ---------------------------------------------------
 
     def _ledger_path(self) -> Path:
@@ -520,6 +555,23 @@ def _rng(args: dict[str, Any]) -> random.Random:
     return random.Random(seed) if seed is not None else random.Random()
 
 
+def _rules_resolver(ctx: Ctx):
+    """Resolver of the ruleset bound to the active campaign (contract §4).
+
+    Phase 1 seam 2: ``rules.*`` handlers obtain every ruleset behavior
+    (dice, checks, SAN/damage arithmetic, lookups, healing-chain requests)
+    through this one registry lookup instead of importing
+    ``coc_rules``/``coc_roll``/``coc_sanity`` directly. Campaign-less tools
+    resolve the default ruleset. Direct module imports that remain below are
+    kernel receipt-integrity validation (dice evidence re-derivation) or
+    non-``rules.*`` subsystem code (combat profile, npc.reaction).
+    """
+    campaign = None
+    if ctx.campaign_dir is not None:
+        campaign = coc_state.load_campaign_state(ctx.campaign_dir)
+    return coc_rulesets.get_resolver(campaign)
+
+
 # --------------------------------------------------------------------------- #
 # Registry
 # --------------------------------------------------------------------------- #
@@ -540,6 +592,7 @@ def _working_set_domain_paths(
         "clues": (scenario / "clue-graph.json",),
         "npc": (
             scenario / "npc-agendas.json",
+            scenario / "module-meta.json",
             save / "npc-state.json",
             save / coc_first_impression.FILENAME,
         ),
@@ -561,6 +614,12 @@ def _working_set_domain_paths(
         "module_archive": (
             save / coc_compiled_archive.ARCHIVE_DIRNAME / coc_compiled_archive.MANIFEST_NAME,
             save / coc_compiled_archive.ARCHIVE_DIRNAME / coc_compiled_archive.STATUS_NAME,
+        ),
+        "mechanics": (
+            scenario / "module-meta.json",
+            scenario / "npc-agendas.json",
+            save / "npc-state.json",
+            save / "campaign-mechanics.json",
         ),
     }
     party_paths: list[Path] = [campaign / "party.json"]
@@ -677,7 +736,7 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
                 "campaign_id", "active_scene_id", "scene", "npcs_present",
                 "exits", "party", "party_investigators", "time",
                 "tension_level", "turn_number", "action_routes",
-                "operation_opportunities", "drilldown_refs",
+                "operation_opportunities", "progressive", "drilldown_refs",
             )
             if key in scene
         }
@@ -715,7 +774,8 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
             key: deepcopy(scene.get(key))
             for key in (
                 "campaign_id", "active_scene_id", "scene", "party", "time",
-                "operation_opportunities", "full_projection_operation",
+                "operation_opportunities", "progressive",
+                "full_projection_operation",
             )
             if key in scene
         }
@@ -831,9 +891,21 @@ def tool(
     recovery_domains: tuple[str, ...] | None = None,
     response_mode: str = "full",
     audit_mode: str = "full",
+    strict_read_only: bool = False,
 ):
     if access not in {"query", "mutation"}:
         raise ValueError(f"invalid tool access mode: {access}")
+    if strict_read_only and not (
+        access == "query"
+        and not write_domains
+        and recovery_domains == ()
+        and response_mode == "full"
+        and audit_mode == "reference"
+    ):
+        raise ValueError(
+            "strict_read_only requires query access, empty write/recovery "
+            "domains, full response mode, and reference audit mode"
+        )
     def deco(fn: Callable[[Ctx, dict[str, Any]], tuple[Any, list[str], list[str]]]):
         TOOLS[name] = {
             "name": name,
@@ -848,6 +920,7 @@ def tool(
             ),
             "response_mode": response_mode,
             "audit_mode": audit_mode,
+            "strict_read_only": bool(strict_read_only),
             "handler": fn,
         }
         return fn
@@ -939,6 +1012,9 @@ def _error_recovery_hints(code: str) -> list[str]:
         "invalid_param": [
             "call describe for the tool schema, then retry with corrected structured arguments"
         ],
+        "invalid_source_worker_pack": [
+            "reject this child result unchanged; the parent must not repair or rewrite the pack, call describe/discover, retry fulfillment, or poll the same task again; leave the request unfulfilled for existing lease recovery"
+        ],
         "treatment_already_used": [
             "the attempted treatment remains spent; consider another rules-valid treatment or natural recovery"
         ],
@@ -978,13 +1054,18 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
     spec = TOOLS.get(name)
     if spec is None:
         return {"ok": False, "tool": name, "error": {"code": "unknown_tool", "message": f"unknown tool: {name}"}}
-    def failure(code: str, message: str) -> dict[str, Any]:
-        return {
+    def failure(
+        code: str, message: str, *, details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        envelope = {
             "ok": False,
             "tool": name,
             "error": {"code": code, "message": message},
             "hints": _error_recovery_hints(code),
         }
+        if isinstance(details, dict):
+            envelope["error"]["details"] = deepcopy(details)
+        return envelope
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
@@ -1166,6 +1247,8 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             error = {"code": exc.code, "message": exc.message}
             if exc.violations:
                 error["violations"] = exc.violations
+            if exc.details is not None:
+                error["details"] = deepcopy(exc.details)
             envelope = {
                 "ok": False,
                 "tool": name,
@@ -1213,7 +1296,15 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             if pspec.get("required") and args.get(pname) in (None, ""):
                 raise ToolError("missing_param", f"required parameter: {pname}")
     except ToolError as exc:
-        envelope = failure(exc.code, exc.message)
+        details = exc.details
+        if details is None and name == "progressive.publish_skeleton":
+            details = {
+                "status": "validation_failed",
+                "complete": False,
+                "stored": False,
+                "projected": False,
+            }
+        envelope = failure(exc.code, exc.message, details=details)
         envelope.update({
             "attempts": 1,
             "max_attempts": 1,
@@ -1254,9 +1345,15 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
                 ):
                     try:
-                        coc_runtime_ops.recover_development_transactions(
-                            ctx.campaign_dir
-                        )
+                        if not spec.get("strict_read_only"):
+                            coc_turn_manifest.recover_table_opening_boundary(
+                                ctx.campaign_dir
+                            )
+                            coc_runtime_ops.recover_development_transactions(
+                                ctx.campaign_dir
+                            )
+                    except coc_turn_manifest.TurnManifestError as exc:
+                        envelope = failure(exc.code, str(exc))
                     except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
                         envelope = failure("recovery_conflict", str(exc))
                         envelope["recovery"] = {
@@ -1295,6 +1392,32 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 recovered_after_retry=recovered,
                 will_retry=will_retry,
             )
+        if (
+            ctx is not None
+            and ctx.campaign_dir is not None
+            and envelope.get("ok") is True
+            and name == "evidence.table_opening"
+            and log_end_offset is not None
+        ):
+            try:
+                with coc_fileio.campaign_lock(
+                    ctx.campaign_dir,
+                    wait_seconds=_TOOL_TRANSACTION_WAIT_SECONDS,
+                ):
+                    coc_turn_manifest.complete_table_opening_boundary(
+                        ctx.campaign_dir,
+                        decision_id=str(args.get("decision_id") or ""),
+                        run_id=str(args.get("run_id") or ""),
+                        completed_end_offset=log_end_offset,
+                    )
+            except (
+                coc_fileio.CampaignLockError,
+                coc_turn_manifest.TurnManifestError,
+            ) as exc:
+                envelope.setdefault("warnings", []).append(
+                    "opening evidence is durable, but its pre-turn source boundary will recover on the next mutating campaign call: "
+                    + str(exc)
+                )
         if (
             ctx is not None
             and ctx.campaign_dir is not None
@@ -1484,14 +1607,31 @@ def _campaign_npc_projection_index(
 # Structured delivery markers that make a clue roll-gated by module design.
 # Free text (clue prose, roll reasons, narration) is never inspected.
 _ROLL_GATED_DELIVERY_KINDS = frozenset({"skill_check", "characteristic_check"})
+_ROLL_GATED_DISCOVERY_MODES = frozenset({"check", "conditional_check"})
+
+
+def _clue_is_roll_gated(clue: dict[str, Any]) -> bool:
+    """Return True only for explicit check modes or starter check delivery."""
+    discovery = clue.get("discovery")
+    if isinstance(discovery, dict):
+        mode = str(discovery.get("mode") or "")
+        return mode in _ROLL_GATED_DISCOVERY_MODES
+    return str(clue.get("delivery_kind") or "") in _ROLL_GATED_DELIVERY_KINDS
 
 
 def _clue_roll_gate_skills(clue: dict[str, Any]) -> list[str]:
     """Structured skill labels the module binds to a roll-gated clue."""
     skills: list[str] = []
+    discovery = clue.get("discovery")
+    if isinstance(discovery, dict):
+        primary = discovery.get("skill")
+        if isinstance(primary, str) and primary.strip():
+            skills.append(primary.strip())
     primary = clue.get("skill")
     if isinstance(primary, str) and primary.strip():
-        skills.append(primary.strip())
+        label = primary.strip()
+        if label.casefold() not in {skill.casefold() for skill in skills}:
+            skills.append(label)
     affordance = clue.get("affordance")
     if isinstance(affordance, dict):
         for value in affordance.get("skills") or []:
@@ -1547,17 +1687,16 @@ def _skill_check_clues_missing_roll_evidence(
     missing: list[dict[str, Any]] = []
     for clue_id in clue_ids:
         clue = _clue_by_id(ctx.clue_graph, str(clue_id))
-        if (
-            clue is None
-            or str(clue.get("delivery_kind") or "") not in _ROLL_GATED_DELIVERY_KINDS
-        ):
+        if clue is None or not _clue_is_roll_gated(clue):
             continue
         gate_skills = _clue_roll_gate_skills(clue)
         if any(skill.casefold() in logged for skill in gate_skills):
             continue
+        discovery = clue.get("discovery") if isinstance(clue.get("discovery"), dict) else {}
         missing.append({
             "clue_id": str(clue.get("clue_id")),
             "delivery_kind": clue.get("delivery_kind"),
+            "discovery_mode": discovery.get("mode"),
             "gate_skills": gate_skills,
         })
     return missing
@@ -1671,7 +1810,10 @@ def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
     global _SKILL_BASES_CACHE
     if _SKILL_BASES_CACHE is None:
         _SKILL_BASES_CACHE = {}
-        path = _HERE.parent / "references" / "rules-json" / "skills.json"
+        path = (
+            coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
+            / "skills.json"
+        )
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -1924,6 +2066,17 @@ def _reconcile_all_npc_source_receipts(ctx: Ctx) -> dict[str, Any]:
             )
         if receipt.get("producer") == "state.record_npc_engagement":
             decision_id = str(receipt["decision_id"])
+            route_completion = (receipt.get("operation") or {}).get(
+                "route_completion"
+            )
+            _settle_engagement_route_completion(
+                ctx,
+                route_completion,
+                decision_id=decision_id,
+                evidence_ref=(
+                    f"logs/events.jsonl#{receipt['event_id']}"
+                ),
+            )
             data = deepcopy(receipt["event"])
             prior = ctx.ledger_lookup("state.record_npc_engagement", decision_id)
             if prior is None or prior.get("data") != data:
@@ -2242,11 +2395,17 @@ def _luck_spend_data(
     *,
     points: int,
     luck_before: int,
+    resolver: Any | None = None,
 ) -> dict[str, Any]:
     source_data = deepcopy(source_receipt["data"])
     skill = str(source_data.get("skill") or "")
     roll_kind = "luck" if skill == "LUCK" else "sanity" if skill == "SAN" else "skill"
-    adjusted = coc_roll.spend_luck(
+    if resolver is None:
+        # Receipt re-validation has no campaign in scope; canonical receipts do
+        # not record a ruleset_id, so the default ruleset re-derives the same
+        # arithmetic the settle path computed.
+        resolver = coc_rulesets.get_resolver(None)
+    adjusted = resolver.luck_spend(
         source_data,
         points,
         luck_before,
@@ -5315,25 +5474,22 @@ def _compile_new_percentile_invocation(
             tool_name="rules.roll",
             decision_id=original_check_decision_id,
         )
-        if original["data"].get("outcome") != "failure":
-            raise ToolError(
-                "invalid_push",
-                "only an ordinary failed original check may be pushed; fumbles are final",
-            )
         existing_pushes = (
             document.get("receipts", {}).get("rules.push") or {}
         )
-        for existing in existing_pushes.values():
-            if (
-                isinstance(existing, dict)
-                and existing.get("operation", {}).get(
-                    "original_check_decision_id"
-                )
-                == original_check_decision_id
-            ):
-                raise ToolError(
-                    "invalid_push", "the original check has already been pushed"
-                )
+        already_pushed = any(
+            isinstance(existing, dict)
+            and existing.get("operation", {}).get(
+                "original_check_decision_id"
+            )
+            == original_check_decision_id
+            for existing in existing_pushes.values()
+        )
+        push_verdict = _rules_resolver(ctx).push_policy(
+            original["data"].get("outcome"), already_pushed
+        )
+        if push_verdict is not None:
+            raise ToolError("invalid_push", push_verdict)
         operation = _normalize_percentile_invocation(
             args,
             pushed=True,
@@ -5677,10 +5833,16 @@ def _settle_contextual_route(
         for value in route.get("requires_completed_route_ids") or []
         if str(value or "").strip()
     }
+    semantic_completion = context.get("semantic_completion") is True
+    route_warnings: list[str] = []
     if not required.issubset(completed):
-        return None, [
-            f"route '{route_id}' prerequisites are not yet settled; kept the result but left the route open"
-        ]
+        if not semantic_completion:
+            return None, [
+                f"route '{route_id}' prerequisites are not yet settled; kept the result but left the route open"
+            ]
+        route_warnings.append(
+            f"route '{route_id}' was completed by explicit KP semantic judgment despite unmet authored route prerequisites"
+        )
     grants = coc_action_resolver._affordance_clue_ids(route)
     discovered = {
         str(value) for value in world.get("discovered_clue_ids") or [] if value
@@ -5691,9 +5853,15 @@ def _settle_contextual_route(
     if grants:
         complete = set(grants).issubset(discovered)
     else:
-        complete = bool(successful and isinstance(route.get("roll_gate"), dict))
+        complete = bool(
+            successful
+            and (
+                isinstance(route.get("roll_gate"), dict)
+                or semantic_completion
+            )
+        )
     if not complete:
-        return None, []
+        return None, route_warnings
     completion = {
         "schema_version": 1,
         "route_id": route_id,
@@ -5705,11 +5873,20 @@ def _settle_contextual_route(
         "rule_request_ids": [],
         "rule_outcomes": ["success"] if successful else [],
         "success": bool(successful or grants),
-        "completion_quality": "clean",
+        "completion_quality": (
+            "keeper_judgment" if semantic_completion else "clean"
+        ),
         "decision_id": str(decision_id),
         "source": f"toolbox_context:{source_tool}",
         "ts": _now_iso(),
     }
+    if semantic_completion:
+        completion.update({
+            "authority": "keeper_semantic_judgment",
+            "hard_gate": False,
+            "semantic_reason": str(context.get("semantic_reason") or ""),
+            "evidence_ref": str(context.get("evidence_ref") or ""),
+        })
     receipts.append(completion)
     world["route_completion_receipts"] = receipts[-256:]
     ctx.save_world(world)
@@ -5721,13 +5898,15 @@ def _settle_contextual_route(
         "committed_clue_ids": list(completion["committed_clue_ids"]),
         "status": "completed",
         "success": completion["success"],
-        "completion_quality": "clean",
+        "completion_quality": completion["completion_quality"],
+        "semantic_reason": completion.get("semantic_reason"),
+        "evidence_ref": completion.get("evidence_ref"),
         "player_visible_goal": str(route.get("cue") or ""),
         "player_visible_outcome": str(route.get("player_visible_outcome") or ""),
         "source": completion["source"],
         "summary": f"structured route completed: {route_id}",
     })
-    return completion, []
+    return completion, route_warnings
 
 
 def _push_operation_opportunity(
@@ -5969,7 +6148,7 @@ def _roll_common(
             ),
             None,
         )
-    result = coc_roll.percentile_check(target, difficulty, bonus, penalty, rng=_rng(args))
+    result = _rules_resolver(ctx).check(target, difficulty, bonus, penalty, rng=_rng(args))
     result["investigator_id"] = investigator_id
     result["skill"] = label
     result["target_source"] = target_source
@@ -6137,6 +6316,242 @@ def _roll_common(
 
 
 # --------------------------------------------------------------------------- #
+# setup.* — canonical pre-session onboarding gateway
+# --------------------------------------------------------------------------- #
+
+_CUSTOM_SETUP_OPERATION_KINDS = (
+    "campaign.create",
+    "investigator.create",
+    "campaign.link_investigator",
+    "scenario.bind_pdf",
+    "campaign.render_briefing",
+    "investigator.render_card",
+)
+
+
+@tool(
+    "setup.inspect",
+    "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files.",
+    {},
+    needs_campaign=False,
+    access="query",
+)
+def _tool_setup_inspect(ctx: Ctx, args: dict[str, Any]):
+    if args:
+        raise ToolError("invalid_param", "setup.inspect takes no arguments")
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": "onboarding.inspect",
+                "payload": {},
+            },
+        )
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        raise ToolError("setup_failed", str(exc)) from exc
+    return receipt, [], [
+        "use the returned exact scenario_id and pregen_id with setup.quick_start; do not search plugin or campaign files",
+    ]
+
+
+@tool(
+    "setup.quick_start",
+    "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans.",
+    {
+        "scenario_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact built-in scenario_id returned by setup.inspect",
+        },
+        "pregen_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact pregen_id returned by setup.inspect for that scenario",
+        },
+        "campaign_id": {
+            "type": "string",
+            "desc": "optional stable campaign id; omit to let the canonical starter choose one",
+        },
+        "title": {
+            "type": "string",
+            "desc": "optional campaign title",
+        },
+    },
+    needs_campaign=False,
+    access="mutation",
+    write_domains=("setup",),
+)
+def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
+    allowed = {"scenario_id", "pregen_id", "campaign_id", "title"}
+    unsupported = sorted(set(args) - allowed)
+    if unsupported:
+        raise ToolError(
+            "invalid_param",
+            "setup.quick_start has unsupported fields: "
+            + ", ".join(unsupported),
+        )
+    payload = {
+        key: args[key]
+        for key in ("scenario_id", "pregen_id", "campaign_id", "title")
+        if args.get(key) is not None
+    }
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": "campaign.quick_start",
+                "payload": payload,
+            },
+        )
+    except coc_runtime_ops.RuntimeOperationError as exc:
+        raise ToolError("setup_failed", str(exc)) from exc
+    campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
+    return receipt, [], [
+        "call session.resume once with the returned campaign_id, then continue from its bounded working set",
+        "do not pass play_language to setup.quick_start; the canonical built-in starter already defaults to zh-Hans",
+    ] if campaign_id else []
+
+
+@tool(
+    "setup.invoke",
+    "Invoke one existing canonical custom-campaign setup operation. This thin "
+    "MCP-facing gateway delegates schema, source-bundle, path, and state "
+    "validation to the shared pre-session setup runtime.",
+    {
+        "kind": {
+            "type": "string",
+            "required": True,
+            "enum": list(_CUSTOM_SETUP_OPERATION_KINDS),
+            "desc": "exact custom setup operation kind",
+        },
+        "payload": {
+            "type": "object",
+            "required": True,
+            "desc": (
+                "exact payload for the selected kind: campaign.create requires "
+                "campaign_id/title and optionally era/play_language/start_clock; "
+                "investigator.create requires investigator_id/sheet and optionally "
+                "creation; campaign.link_investigator requires exactly "
+                "campaign_id/investigator_ids; scenario.bind_pdf requires "
+                "campaign_id/scenario_id/title/source_bundle_path and optionally "
+                "compile_now; campaign.render_briefing requires campaign_id and "
+                "optionally language; investigator.render_card requires "
+                "campaign_id/investigator_id and optionally language/html_mode. "
+                "Per-kind allowed fields are enforced by the canonical setup runtime. "
+                "For installed-host progressive binding, omit compile_now or "
+                "pass false; true requires the repository cold compiler runtime "
+                "and is not part of the opening critical path"
+            ),
+            "properties": {
+                "campaign_id": {"type": "string"},
+                "title": {"type": "string"},
+                "era": {"type": "string"},
+                "play_language": {"type": "string"},
+                "start_clock": {
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+                "investigator_id": {"type": "string"},
+                "sheet": {
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+                "creation": {
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+                "investigator_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": True,
+                    "items": {"type": "string"},
+                },
+                "scenario_id": {"type": "string"},
+                "source_bundle_path": {"type": "string"},
+                "language": {"type": "string"},
+                "html_mode": {
+                    "type": "string",
+                    "enum": ["never", "auto", "always"],
+                    "desc": "character-card HTML rendering mode",
+                },
+                "compile_now": {
+                    "type": "boolean",
+                    "desc": (
+                        "optional cold full-module compile request; omit or pass "
+                        "false for installed-host progressive import. true is "
+                        "accepted only when the repository compiler runtime is "
+                        "available and must not block the playable opening"
+                    ),
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    needs_campaign=False,
+    access="mutation",
+    write_domains=("setup",),
+)
+def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
+    unsupported = sorted(set(args) - {"kind", "payload"})
+    if unsupported:
+        raise ToolError(
+            "invalid_param",
+            "setup.invoke has unsupported fields: " + ", ".join(unsupported),
+        )
+    kind = args.get("kind")
+    if kind not in _CUSTOM_SETUP_OPERATION_KINDS:
+        raise ToolError(
+            "invalid_param",
+            "setup.invoke kind must be one of: "
+            + ", ".join(_CUSTOM_SETUP_OPERATION_KINDS),
+        )
+    payload = args.get("payload")
+    if not isinstance(payload, dict):
+        raise ToolError("invalid_param", "setup.invoke payload must be an object")
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": kind,
+                "payload": deepcopy(payload),
+            },
+        )
+    except (
+        coc_runtime_ops.RuntimeOperationError,
+        FileExistsError,
+        FileNotFoundError,
+    ) as exc:
+        raise ToolError("setup_failed", str(exc)) from exc
+    hints = [
+        "complete only the remaining canonical setup steps, then call "
+        "session.resume with the campaign_id used in those setup payloads",
+    ]
+    if kind == "scenario.bind_pdf" and receipt.get("status") == "PASS":
+        briefing = (receipt.get("result") or {}).get(
+            "character_creation_briefing"
+        )
+        briefing_path = (
+            briefing.get("briefing_path") if isinstance(briefing, dict) else None
+        )
+        if isinstance(briefing_path, str) and briefing_path:
+            hints.extend(
+                [
+                    "consume the exact result.character_creation_briefing."
+                    "briefing_path directly from this receipt, rooted at the "
+                    "current workspace; do not rerender it or rediscover it "
+                    "through campaign.json, find, ls, glob, or directory listing "
+                    "under .coc",
+                    "call campaign.render_briefing only if a bind receipt lacks "
+                    "that path or player-safe public setup metadata later changes",
+                ]
+            )
+    return receipt, [], hints
+
+
+# --------------------------------------------------------------------------- #
 # rules.* — hard parameter rules
 # --------------------------------------------------------------------------- #
 
@@ -6160,9 +6575,8 @@ def _roll_common(
     needs_campaign=False,
 )
 def _tool_rules_skill_describe(ctx: Ctx, args: dict[str, Any]):
-    path = _HERE.parent / "references" / "rules-json" / "skill-descriptions.json"
     try:
-        catalog = json.loads(path.read_text(encoding="utf-8"))
+        catalog = _rules_resolver(ctx).skill_describe()
     except (OSError, json.JSONDecodeError) as exc:
         raise ToolError("state_corrupt", f"skill-descriptions.json unreadable: {exc}") from exc
     if not isinstance(catalog, dict):
@@ -6252,7 +6666,7 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "credit_rating must be an integer")
     period = str(args.get("period") or "1920s").strip() or "1920s"
     try:
-        data = coc_rules.cash_and_assets(credit_rating, period=period)
+        data = _rules_resolver(ctx).cash_assets(credit_rating, period=period)
     except ValueError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
     return data, [], [
@@ -6287,11 +6701,9 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "actor_build and target_build must be given together")
     if build is None and actor_build is None:
         raise ToolError("invalid_param", "provide build, or actor_build and target_build")
-    data: dict[str, Any] = {}
-    if build is not None:
-        data["scale"] = coc_rules.build_scale_row(build)
-    if actor_build is not None:
-        data["comparison"] = coc_rules.compare_builds(actor_build, target_build)
+    data = _rules_resolver(ctx).build_scale(
+        build, actor_build=actor_build, target_build=target_build
+    )
     return data, [], [
         "build derives from STR+SIZ via the damage-bonus-build table (p.33); this lookup never rolls",
         "a fighting maneuver against a target 3+ builds larger is physically impossible — narrate the impossibility instead of rolling (p.105)",
@@ -6381,7 +6793,7 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
     )
     if receipt is not None:
         return _replay_roll_receipt(ctx, document, receipt)
-    result = coc_roll.roll_expression(str(args["expression"]), rng=_rng(args))
+    result = _rules_resolver(ctx).roll_dice(str(args["expression"]), rng=_rng(args))
     if args.get("reason"):
         result["reason"] = str(args["reason"])
     payload = {
@@ -6454,17 +6866,10 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
     target, label, target_source = _resolve_target_value(ctx, investigator_id, args)
     rng = _rng(args)
-    mine = coc_roll.percentile_check(target, "regular", 0, 0, rng=rng)
-    theirs = coc_roll.percentile_check(int(args["opponent_value"]), "regular", 0, 0, rng=rng)
-    levels = {"fumble": 0, "failure": 0, "regular": 1, "hard": 2, "extreme": 3, "critical": 4}
-    my_level = levels.get(str(mine["outcome"]), 0)
-    their_level = levels.get(str(theirs["outcome"]), 0)
-    if my_level != their_level:
-        winner = "investigator" if my_level > their_level else "opponent"
-    elif my_level == 0:
-        winner = "none"
-    else:
-        winner = "investigator" if target >= int(args["opponent_value"]) else "opponent"
+    settled = _rules_resolver(ctx).opposed(target, int(args["opponent_value"]), rng=rng)
+    mine = settled["investigator_roll"]
+    theirs = settled["opponent_roll"]
+    winner = settled["winner"]
     data = {
         "investigator_id": investigator_id,
         "skill": label,
@@ -6501,20 +6906,6 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 
-def _parse_loss(expression: Any, rng: random.Random) -> tuple[int, dict[str, Any]]:
-    text = str(expression if expression is not None else "0").strip()
-    if text in ("0", ""):
-        return 0, {"kind": "constant", "value": 0}
-    spec = coc_sanity.validate_san_loss_expression(text)
-    if spec["kind"] == "constant":
-        return int(spec["value"]), spec
-    rolled = coc_roll.roll_expression(
-        f"{spec['count']}D{spec['sides']}" + (f"+{spec['modifier']}" if spec.get("modifier") else ""),
-        rng=rng,
-    )
-    return int(rolled["total"]), {**spec, "rolls": rolled["rolls"], "total": rolled["total"]}
-
-
 @tool(
     "rules.sanity_check",
     "SAN check with success/failure loss expressions (e.g. '0' / '1D6'). Applies the loss to the investigator.",
@@ -6539,12 +6930,17 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     rng = _rng(args)
     state = ctx.inv_state(investigator_id)
     current_san = int(state.get("current_san", 0))
-    check = coc_roll.percentile_check(current_san, "regular", 0, 0, rng=rng)
-    success = check["outcome"] in ("regular", "hard", "extreme", "critical")
-    loss, loss_detail = _parse_loss(
-        args.get("loss_success", "0") if success else args["loss_failure"], rng
+    settled = _rules_resolver(ctx).sanity_check(
+        current_san,
+        args.get("loss_success", "0"),
+        args["loss_failure"],
+        rng=rng,
     )
-    new_san = max(0, current_san - loss)
+    check = settled["check"]
+    success = settled["success"]
+    loss = settled["san_loss"]
+    loss_detail = settled["loss_detail"]
+    new_san = settled["san_after"]
     state["current_san"] = new_san
     ctx.save_inv_state(investigator_id, state)
 
@@ -6907,20 +7303,16 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
     kind = str(args.get("kind") or "damage")
     if kind not in ("damage", "heal"):
         raise ToolError("invalid_param", "kind must be damage or heal")
-    raw = str(args["amount"]).strip()
-    detail: dict[str, Any] | None = None
-    if raw.lstrip("+-").isdigit():
-        amount = abs(int(raw))
-    else:
-        rolled = coc_roll.roll_expression(raw, rng=_rng(args))
-        amount = max(0, int(rolled["total"]))
-        detail = rolled
-
     state = ctx.inv_state(investigator_id)
     sheet = ctx.sheet(investigator_id)
     max_hp = int((sheet.get("derived") or {}).get("HP") or 10)
     before = int(state.get("current_hp", max_hp))
-    after = min(max_hp, before + amount) if kind == "heal" else max(0, before - amount)
+    settled = _rules_resolver(ctx).damage(
+        args["amount"], before, max_hp, kind=kind, rng=_rng(args)
+    )
+    amount = settled["amount"]
+    detail = settled["roll_detail"]
+    after = settled["hp_after"]
     state["current_hp"] = after
     conditions_before = list(state.get("conditions") or [])
     conditions = list(conditions_before)
@@ -7147,6 +7539,26 @@ def _tool_rules_luck_spend(ctx: Ctx, args: dict[str, Any]):
     source = _luck_source_receipt_by_roll_id(ctx, document, source_roll_id)
     if source.get("resolution", {}).get("investigator_id") != investigator_id:
         raise ToolError("invalid_param", "source roll belongs to another investigator")
+    try:
+        finalized_by = next(
+            (
+                receipt
+                for receipt in coc_turn_finalization.load_finalizations(
+                    ctx.campaign_dir
+                )
+                if source_roll_id in (receipt.get("source_roll_ids") or [])
+            ),
+            None,
+        )
+    except coc_turn_finalization.TurnContractError as exc:
+        raise ToolError(exc.code, str(exc)) from exc
+    if finalized_by is not None:
+        raise ToolError(
+            "invalid_state",
+            "source roll is already frozen in a turn finalization; offer Luck "
+            "before turn.finalize, or use state.supersede_settlement for an "
+            "explicit correction",
+        )
     state = ctx.inv_state(investigator_id)
     current_luck = state.get("current_luck")
     if not _is_exact_int(current_luck) or current_luck < 0:
@@ -7156,6 +7568,7 @@ def _tool_rules_luck_spend(ctx: Ctx, args: dict[str, Any]):
             source,
             points=points,
             luck_before=current_luck,
+            resolver=_rules_resolver(ctx),
         )
     except ValueError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
@@ -7446,17 +7859,18 @@ def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
                     "missing_param",
                     f"pushed First Aid requires non-empty {field}",
                 )
-    request = {
-        "kind": "stabilize",
-        "command_id": f"{decision_id}-first-aid",
-        "method": "first_aid",
-        "skill_value": int(args["skill_value"]),
-        "rescuer_id": rescuer_id,
-        "pushed": pushed,
-    }
-    if pushed:
-        request["changed_method"] = str(args["changed_method"]).strip()
-        request["failure_consequence"] = str(args["failure_consequence"]).strip()
+    request = _rules_resolver(ctx).first_aid(
+        decision_id,
+        int(args["skill_value"]),
+        rescuer_id,
+        pushed=pushed,
+        changed_method=(
+            str(args["changed_method"]).strip() if pushed else None
+        ),
+        failure_consequence=(
+            str(args["failure_consequence"]).strip() if pushed else None
+        ),
+    )
     results, events = _execute_subsystem_requests(
         ctx,
         investigator_id=investigator_id,
@@ -7521,13 +7935,11 @@ def _tool_rules_medicine(ctx: Ctx, args: dict[str, Any]):
         ctx,
         investigator_id=investigator_id,
         decision_id=decision_id,
-        requests=[{
-            "kind": "stabilize",
-            "command_id": f"{decision_id}-medicine",
-            "method": "medicine",
-            "skill_value": int(args["skill_value"]),
-            "rescuer_id": rescuer_id,
-        }],
+        requests=[_rules_resolver(ctx).medicine(
+            decision_id,
+            int(args["skill_value"]),
+            rescuer_id,
+        )],
         seed=args.get("seed"),
         tool_name="rules.medicine",
     )
@@ -7601,21 +8013,24 @@ def _tool_rules_weekly_recovery(ctx: Ctx, args: dict[str, Any]):
             "invalid_param",
             "complete_rest and poor_environment are mutually exclusive",
         )
-    request: dict[str, Any] = {
-        "kind": "weekly_recovery",
-        "command_id": f"{decision_id}-weekly-recovery",
-        "complete_rest": complete_rest,
-        "poor_environment": poor_environment,
-    }
-    if args.get("medicine_skill_value") is not None:
-        request["medicine_skill_value"] = int(args["medicine_skill_value"])
-        request["caregiver_id"] = str(
-            args.get("caregiver_id") or investigator_id
-        )
-    elif args.get("caregiver_id") is not None:
+    has_medicine = args.get("medicine_skill_value") is not None
+    if not has_medicine and args.get("caregiver_id") is not None:
         raise ToolError(
             "invalid_param", "caregiver_id requires medicine_skill_value"
         )
+    request = _rules_resolver(ctx).weekly_recovery(
+        decision_id,
+        complete_rest,
+        poor_environment,
+        medicine_skill_value=(
+            int(args["medicine_skill_value"]) if has_medicine else None
+        ),
+        caregiver_id=(
+            str(args.get("caregiver_id") or investigator_id)
+            if has_medicine
+            else None
+        ),
+    )
     results, events = _execute_subsystem_requests(
         ctx,
         investigator_id=investigator_id,
@@ -7682,11 +8097,7 @@ def _tool_rules_dying_check(ctx: Ctx, args: dict[str, Any]):
         ctx,
         investigator_id=investigator_id,
         decision_id=decision_id,
-        requests=[{
-            "kind": "dying_tick",
-            "command_id": f"{decision_id}-dying-{clock_kind}",
-            "clock_kind": clock_kind,
-        }],
+        requests=[_rules_resolver(ctx).dying_check(decision_id, clock_kind)],
         seed=args.get("seed"),
         tool_name="rules.dying_check",
     )
@@ -7720,6 +8131,404 @@ def _tool_rules_dying_check(ctx: Ctx, args: dict[str, Any]):
 # --------------------------------------------------------------------------- #
 
 
+def _module_item(ctx: Ctx, item_id: str) -> dict[str, Any] | None:
+    root = ctx.module_meta.get("module_mechanics")
+    items = root.get("items") if isinstance(root, dict) else None
+    row = items.get(str(item_id)) if isinstance(items, dict) else None
+    return row if isinstance(row, dict) else None
+
+
+def _runtime_generated_npc_mechanics(ctx: Ctx, npc_id: str) -> dict[str, Any] | None:
+    document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+    card = (document.get("npcs") or {}).get(str(npc_id))
+    mechanics = card.get("mechanics") if isinstance(card, dict) else None
+    if isinstance(mechanics, dict) and mechanics.get("status") == "generated":
+        return mechanics
+    return None
+
+
+def _with_mechanics_locator_discovery(
+    ctx: Ctx,
+    source_work: dict[str, Any],
+    *,
+    subject_kind: str,
+    subject_id: str,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Expose the existing read-only locator planner for unknown source scope."""
+    subject_kind = str(subject_kind or "").strip()
+    subject_id = str(subject_id or "").strip()
+    result = deepcopy(source_work)
+    if not result.get("progressive") or result.get("ready"):
+        return result, None
+    root_id = str(result.get("asset_root_id") or "").strip()
+    if not root_id:
+        return result, None
+    skeleton = coc_module_project.coc_module_assets.get_skeleton(
+        ctx.root, root_id,
+    ) or {}
+    if str(skeleton.get("mechanics_locator_pass_status") or "") != "pending":
+        return result, None
+    locator = next(
+        (
+            row for row in (skeleton.get("mechanics_index") or [])
+            if isinstance(row, dict)
+            and str(row.get("subject_kind") or "") == subject_kind
+            and str(row.get("subject_id") or "") == subject_id
+        ),
+        None,
+    )
+    locator_ready = (
+        isinstance(locator, dict)
+        and str(locator.get("locator_pass_status") or "") == "complete"
+        and str(locator.get("status") or "") in {"located", "not_authored"}
+    )
+    if locator_ready:
+        return result, None
+
+    stub = result.get("stub") if isinstance(result.get("stub"), dict) else {}
+    entity = stub.get("entity") if isinstance(stub.get("entity"), dict) else {}
+    result["mechanics_locator_state"] = {
+        "global_pass_status": "pending",
+        "subject_locator_status": (
+            "incomplete" if isinstance(locator, dict) else "missing"
+        ),
+        "narrative_body_refs_present": bool(
+            entity.get("source_page_indices")
+            or entity.get("source_refs")
+            or entity.get("source_span")
+        ),
+        "narrative_body_refs_are_mechanics_locator": False,
+    }
+    card = _opening_card("progressive.prepare_opening", {}, [])
+    card.update({
+        "authority": "advisory",
+        "hard_gate": False,
+        "read_only": True,
+        "required_for_opening": False,
+        "purpose": "discover_mechanics_locator_window",
+    })
+    result["locator_discovery_operation"] = card
+    return result, card
+
+
+@tool(
+    "mechanics.ensure",
+    "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused.",
+    {
+        "subject_kind": {
+            "type": "string", "required": True, "desc": "npc | item",
+        },
+        "subject_id": {
+            "type": "string", "required": True, "desc": "stable NPC/item id",
+        },
+        "purpose": {
+            "type": "string", "required": True,
+            "desc": "combat | check | item_use",
+        },
+        "fallback_archetype_id": {
+            "type": "string",
+            "desc": "KP-selected ordinary_adult | capable_adult | dangerous_actor; only when fallback is source-authorized",
+        },
+        "base_weapon_id": {
+            "type": "string",
+            "desc": "KP-selected comparable core weapon for a campaign-improvised item",
+        },
+        "label": {"type": "string", "desc": "table-language item/NPC label"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)
+def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "mechanics.ensure"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously resolved mechanics profile"
+        ], []
+    subject_kind = str(args["subject_kind"] or "").strip()
+    subject_id = str(args["subject_id"] or "").strip()
+    purpose = str(args["purpose"] or "").strip()
+    if subject_kind not in {"npc", "item"}:
+        raise ToolError("invalid_param", "subject_kind must be npc or item")
+    if not subject_id:
+        raise ToolError("invalid_param", "subject_id must be non-empty")
+    if purpose not in {"combat", "check", "item_use"}:
+        raise ToolError("invalid_param", "purpose must be combat, check, or item_use")
+
+    if subject_kind == "npc":
+        subject = _npc_by_id(ctx.npc_agendas, subject_id)
+        generated = _runtime_generated_npc_mechanics(ctx, subject_id)
+        if generated is not None:
+            source_mechanics = (
+                subject.get("mechanics") if isinstance(subject, dict) else None
+            )
+            conflict = None
+            warnings = ["the frozen campaign profile was reused"]
+            if (
+                isinstance(source_mechanics, dict)
+                and source_mechanics.get("status") == "authored"
+            ):
+                conflict = {
+                    "kind": "continuity_contradiction",
+                    "generated_decision_id": generated.get("decision_id"),
+                    "authored_source_refs": deepcopy(
+                        source_mechanics.get("source_refs") or []
+                    ),
+                    "disposition": "generated_profile_remains_campaign_canon_pending_kp_resolution",
+                }
+                document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+                card = (document.get("npcs") or {}).get(subject_id)
+                if isinstance(card, dict):
+                    card["mechanics_source_conflict"] = deepcopy(conflict)
+                    coc_npc_state.save_npc_state(ctx.campaign_dir, document)
+                ctx.log_event({
+                    "event_type": "mechanics_source_conflict_observed",
+                    "subject_kind": subject_kind,
+                    "subject_id": subject_id,
+                    "decision_id": decision_id,
+                    **conflict,
+                })
+                warnings.append(
+                    "later authored mechanics conflict was recorded; campaign canon was not silently overwritten"
+                )
+            data = {
+                "status": "ready",
+                "authority": "campaign_generated",
+                "subject_kind": subject_kind,
+                "subject_id": subject_id,
+                "profile": deepcopy(generated["profile"]),
+                "combat_participant": coc_mechanics.actor_combat_participant(
+                    subject_id, generated["profile"], side="npc",
+                ),
+                "reused": True,
+            }
+            if conflict is not None:
+                data["source_conflict"] = conflict
+            ctx.ledger_record(decision_id, tool_name, data)
+            return data, warnings, []
+    else:
+        subject = _module_item(ctx, subject_id)
+        campaign_doc = ctx.campaign_mechanics()
+        generated = campaign_doc["items"].get(subject_id)
+        if isinstance(generated, dict):
+            source_mechanics = (
+                subject.get("mechanics") if isinstance(subject, dict) else None
+            )
+            conflict = None
+            warnings = ["the frozen campaign item profile was reused"]
+            if (
+                isinstance(source_mechanics, dict)
+                and source_mechanics.get("status") == "authored"
+            ):
+                conflict = {
+                    "kind": "continuity_contradiction",
+                    "generated_decision_id": generated.get("decision_id"),
+                    "authored_source_refs": deepcopy(
+                        source_mechanics.get("source_refs") or []
+                    ),
+                    "disposition": "generated_profile_remains_campaign_canon_pending_kp_resolution",
+                }
+                generated["source_conflict"] = deepcopy(conflict)
+                ctx.save_campaign_mechanics(campaign_doc)
+                ctx.log_event({
+                    "event_type": "mechanics_source_conflict_observed",
+                    "subject_kind": subject_kind,
+                    "subject_id": subject_id,
+                    "decision_id": decision_id,
+                    **conflict,
+                })
+                warnings.append(
+                    "later authored mechanics conflict was recorded; campaign canon was not silently overwritten"
+                )
+            data = {
+                "status": "ready",
+                "authority": "campaign_generated",
+                "subject_kind": subject_kind,
+                "subject_id": subject_id,
+                "profile": deepcopy(generated["profile"]),
+                "mechanics_ref": f"campaign-item:{subject_id}",
+                "reused": True,
+            }
+            if conflict is not None:
+                data["source_conflict"] = conflict
+            ctx.ledger_record(decision_id, tool_name, data)
+            return data, warnings, []
+
+    subject = subject if isinstance(subject, dict) else {
+        ("npc_id" if subject_kind == "npc" else "item_id"): subject_id,
+        "origin": "improvised",
+        "label": str(args.get("label") or subject_id),
+    }
+    mechanics = subject.get("mechanics")
+    mechanics = mechanics if isinstance(mechanics, dict) else {"status": "unresolved"}
+    source_status = str(mechanics.get("status") or "unresolved")
+    if source_status == "authored":
+        try:
+            coc_mechanics.validate_mechanics_record(
+                mechanics, subject_kind=subject_kind,
+            )
+        except coc_mechanics.MechanicsError as exc:
+            raise ToolError("invalid_scenario", str(exc)) from exc
+        profile = deepcopy(mechanics["profile"])
+        data = {
+            "status": "ready",
+            "authority": "authored",
+            "subject_kind": subject_kind,
+            "subject_id": subject_id,
+            "profile": profile,
+            "source_refs": deepcopy(
+                mechanics.get("source_refs") or subject.get("source_refs") or []
+            ),
+            "reused": True,
+        }
+        if subject_kind == "npc":
+            data["combat_participant"] = coc_mechanics.actor_combat_participant(
+                subject_id, profile, side="npc",
+            )
+        else:
+            data["mechanics_ref"] = f"module-item:{subject_id}"
+        ctx.ledger_record(decision_id, tool_name, data)
+        return data, [], ["authored mechanics were selected over campaign fallback"]
+
+    if source_status == "not_authored":
+        try:
+            coc_mechanics.validate_mechanics_record(
+                mechanics, subject_kind=subject_kind,
+            )
+        except coc_mechanics.MechanicsError as exc:
+            raise ToolError("invalid_scenario", str(exc)) from exc
+
+    if not coc_mechanics.fallback_allowed(subject):
+        try:
+            source_work = coc_module_project.request_mechanics(
+                ctx.root,
+                ctx.campaign_id,
+                kind=subject_kind,
+                target_id=subject_id,
+                title=str(args.get("label") or subject.get("name") or subject.get("label") or subject_id),
+                reason=f"{purpose}_requires_mechanics",
+            )
+        except coc_module_project.ModuleProjectError as exc:
+            raise ToolError("progressive_error", str(exc)) from exc
+        source_work, locator_discovery = _with_mechanics_locator_discovery(
+            ctx,
+            source_work,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+        )
+        data = {
+            "status": "source_work_required",
+            "authority": "source_unresolved",
+            "subject_kind": subject_kind,
+            "subject_id": subject_id,
+            "source_status": source_status,
+            "source_work": source_work,
+        }
+        hints = [
+            "do not generate over a possible authored appendix profile; fulfill the one source-bound mechanics request, then retry"
+        ]
+        if locator_discovery is not None:
+            data["next_operation"] = deepcopy(locator_discovery)
+            hints.append(
+                "narrative/body source refs are not mechanics locator pages; "
+                "use the read-only locator discovery operation without guessing pages"
+            )
+        return data, [], hints
+
+    if subject_kind == "npc":
+        archetype_id = str(args.get("fallback_archetype_id") or "").strip()
+        if not archetype_id:
+            raise ToolError(
+                "fallback_choice_required",
+                "KP must choose fallback_archetype_id after source fallback is authorized",
+            )
+        try:
+            profile, generation_log = coc_mechanics.generate_actor_profile(
+                npc_id=subject_id,
+                archetype_id=archetype_id,
+                campaign_id=str(ctx.campaign_id),
+                reason=f"{purpose}: {args.get('label') or subject_id}",
+            )
+        except (coc_mechanics.MechanicsError, ValueError) as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        document = coc_npc_state.load_npc_state(ctx.campaign_dir)
+        card = (document.get("npcs") or {}).get(subject_id)
+        card = deepcopy(card) if isinstance(card, dict) else {
+            "npc_id": subject_id,
+            "name": str(args.get("label") or subject.get("name") or subject_id),
+            "origin": subject.get("origin") or "improvised",
+        }
+        card["mechanics"] = {
+            "status": "generated",
+            "profile": profile,
+            "decision_id": decision_id,
+            "source_status": source_status,
+        }
+        document["npcs"][subject_id] = card
+        coc_npc_state.save_npc_state(ctx.campaign_dir, document)
+        ctx.log_event({
+            **generation_log,
+            "decision_id": decision_id,
+            "authority": "campaign_generated",
+            "source_status": source_status,
+        })
+        data = {
+            "status": "ready",
+            "authority": "campaign_generated",
+            "subject_kind": subject_kind,
+            "subject_id": subject_id,
+            "profile": profile,
+            "combat_participant": coc_mechanics.actor_combat_participant(
+                subject_id, profile, side="npc",
+            ),
+            "reused": False,
+        }
+    else:
+        base_weapon_id = str(args.get("base_weapon_id") or "").strip()
+        label = str(args.get("label") or subject.get("label") or subject_id)
+        if base_weapon_id:
+            catalog = coc_subsystem_executor.coc_combat.load_weapon_catalog()
+            if base_weapon_id not in catalog:
+                raise ToolError(
+                    "invalid_param", f"unknown core base_weapon_id {base_weapon_id!r}",
+                )
+            profile = {
+                "profile_kind": "weapon",
+                "weapon_id": f"campaign:{subject_id}",
+                "extends": base_weapon_id,
+                "name": label,
+                "authority": "keeper_improvisation",
+            }
+            coc_mechanics.validate_weapon_profile(profile)
+        else:
+            profile = {
+                "profile_kind": "gear",
+                "name": label,
+                "effects": [],
+                "authority": "keeper_improvisation",
+            }
+        campaign_doc["items"][subject_id] = {
+            "profile": profile,
+            "decision_id": decision_id,
+            "source_status": source_status,
+        }
+        ctx.save_campaign_mechanics(campaign_doc)
+        data = {
+            "status": "ready",
+            "authority": "campaign_generated",
+            "subject_kind": subject_kind,
+            "subject_id": subject_id,
+            "profile": profile,
+            "mechanics_ref": f"campaign-item:{subject_id}",
+            "reused": False,
+        }
+
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, [], [
+        "fallback was frozen in campaign state and will be reused; later authored conflict must be recorded, never silently overwritten"
+    ]
+
+
 @tool(
     "combat.context",
     "Read the canonical combat snapshot, initiative cursor, and pending defense choice.",
@@ -7741,17 +8550,24 @@ def _tool_combat_context(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "combat.resolve",
-    "Execute one authored combat beat through CombatSession, including reaction-specific ties (Dodge tie: defender; Fight Back tie: attacker), combat.json, and canonical roll evidence.",
+    "Execute one authored or KP-selected emergent combat beat through CombatSession, including reaction-specific ties, combat.json, and canonical roll evidence.",
     {
         "affordance_id": {
             "type": "string",
-            "required": True,
             "desc": "current-scene affordance whose rules_operation is combat_engagement",
+        },
+        "target_npc_id": {
+            "type": "string",
+            "desc": "present stable NPC id for an emergent attack (alternative to affordance_id)",
         },
         "investigator": {"type": "string", "desc": "investigator id"},
         "weapon_id": {
             "type": "string",
             "desc": "stable owned weapon id for a structured_player_selection route",
+        },
+        "weapon_effect_ids": {
+            "type": "array",
+            "desc": "authored weapon effect IDs whose applicability the KP has semantically established for this attack",
         },
         "defense_kind": {
             "type": "string",
@@ -7789,22 +8605,152 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
     player_state_before = _player_mechanical_snapshot(ctx, investigator_id)
     world = ctx.world()
     scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id"))
-    affordance_id = str(args["affordance_id"])
-    affordance = _affordance_by_id(scene, affordance_id)
-    operation = (
-        affordance.get("rules_operation") if isinstance(affordance, dict) else None
-    )
-    if not isinstance(operation, dict) or operation.get("kind") != "combat_engagement":
+    affordance_id = str(args.get("affordance_id") or "").strip()
+    target_npc_id = str(args.get("target_npc_id") or "").strip()
+    if bool(affordance_id) == bool(target_npc_id):
         raise ToolError(
-            "unknown_combat_affordance",
-            f"'{affordance_id}' has no authored combat_engagement operation in the active scene",
+            "invalid_param", "provide exactly one of affordance_id or target_npc_id",
         )
+    if target_npc_id:
+        presence_document = _load_npc_presence_document(ctx)
+        live_presence = presence_document["presence"]
+        active_scene_id = str(world.get("active_scene_id") or "")
+        authored_ids = {
+            str(value) for value in ((scene or {}).get("npc_ids") or []) if value
+        }
+        live = live_presence.get(target_npc_id)
+        present = (
+            (
+                target_npc_id in authored_ids
+                and not (
+                    isinstance(live, dict)
+                    and (
+                        live.get("status") != "present"
+                        or str(live.get("scene_id") or "") != active_scene_id
+                    )
+                )
+            )
+            or (
+                isinstance(live, dict)
+                and live.get("status") == "present"
+                and str(live.get("scene_id") or "") == active_scene_id
+            )
+        )
+        if not present:
+            raise ToolError(
+                "npc_not_present",
+                f"NPC {target_npc_id!r} is not present in the active scene",
+            )
+        generated = _runtime_generated_npc_mechanics(ctx, target_npc_id)
+        agenda = _npc_by_id(ctx.npc_agendas, target_npc_id) or {}
+        source_mechanics = agenda.get("mechanics") if isinstance(agenda, dict) else None
+        if generated is not None:
+            profile = generated.get("profile")
+        elif (
+            isinstance(source_mechanics, dict)
+            and source_mechanics.get("status") == "authored"
+        ):
+            profile = source_mechanics.get("profile")
+        else:
+            raise ToolError(
+                "mechanics_not_ready",
+                f"NPC {target_npc_id!r} has no ready mechanics profile; call mechanics.ensure first",
+            )
+        if not isinstance(profile, dict):
+            raise ToolError("invalid_scenario", "ready NPC mechanics profile is malformed")
+        module_weapons: list[dict[str, Any]] = []
+        module_items = (
+            ((ctx.module_meta.get("module_mechanics") or {}).get("items") or {})
+            if isinstance(ctx.module_meta.get("module_mechanics"), dict) else {}
+        )
+        for item in module_items.values() if isinstance(module_items, dict) else []:
+            mechanics = item.get("mechanics") if isinstance(item, dict) else None
+            item_profile = mechanics.get("profile") if isinstance(mechanics, dict) else None
+            if isinstance(item_profile, dict) and item_profile.get("profile_kind") == "weapon":
+                weapon = deepcopy(item_profile)
+                weapon.pop("profile_kind", None)
+                module_weapons.append(weapon)
+        route_id = f"campaign-combat:{target_npc_id}"
+        opponent_weapons = list(profile.get("weapons") or [{"weapon_id": "unarmed"}])
+        first_weapon = opponent_weapons[0]
+        opponent_weapon_id = (
+            str(first_weapon.get("weapon_id"))
+            if isinstance(first_weapon, dict) else str(first_weapon)
+        )
+        operation = {
+            "kind": "combat_engagement",
+            "opponent": {
+                "actor_id": target_npc_id,
+                "side": "npc",
+                "mechanics_profile": deepcopy(profile),
+            },
+            "module_weapons": module_weapons + [
+                {key: deepcopy(value) for key, value in weapon.items()}
+                for weapon in opponent_weapons
+                if isinstance(weapon, dict) and weapon.get("weapon_id")
+            ],
+            "opponent_defense": "dodge",
+            "opponent_weapon_id": opponent_weapon_id or "unarmed",
+            "resolution_hint": "opposed_melee",
+        }
+        affordance_id = route_id
+        affordance = {"id": route_id, "rules_operation": operation}
+        scene = deepcopy(scene or {"scene_id": active_scene_id})
+        scene.setdefault("affordances", []).append(affordance)
+    else:
+        affordance = _affordance_by_id(scene, affordance_id)
+        operation = (
+            affordance.get("rules_operation") if isinstance(affordance, dict) else None
+        )
+        if not isinstance(operation, dict) or operation.get("kind") != "combat_engagement":
+            raise ToolError(
+                "unknown_combat_affordance",
+                f"'{affordance_id}' has no authored combat_engagement operation in the active scene",
+            )
 
     warnings: list[str] = []
+    selected_effect_ids = args.get("weapon_effect_ids") or []
+    if not isinstance(selected_effect_ids, list) or any(
+        not isinstance(value, str) or not value for value in selected_effect_ids
+    ):
+        raise ToolError("invalid_param", "weapon_effect_ids must be non-empty strings")
+    if len(selected_effect_ids) != len(set(selected_effect_ids)):
+        raise ToolError("invalid_param", "weapon_effect_ids must be unique")
+    if selected_effect_ids:
+        selected_weapon_id = str(args.get("weapon_id") or "").strip()
+        selected_weapon = next(
+            (
+                weapon for weapon in investigator_profile.get("weapons") or []
+                if isinstance(weapon, dict)
+                and str(weapon.get("weapon_id") or "") == selected_weapon_id
+            ),
+            None,
+        )
+        effect_map = {
+            str(effect.get("effect_id")): effect
+            for effect in ((selected_weapon or {}).get("effects") or [])
+            if isinstance(effect, dict) and effect.get("effect_id")
+        }
+        if not selected_weapon_id or any(
+            effect_id not in effect_map for effect_id in selected_effect_ids
+        ):
+            raise ToolError(
+                "invalid_param",
+                "weapon_effect_ids must belong to the selected owned weapon",
+            )
+        if any(
+            effect_map[effect_id].get("resolution")
+            != "combat_damage_multiplier"
+            for effect_id in selected_effect_ids
+        ):
+            raise ToolError(
+                "invalid_param",
+                "only combat_damage_multiplier effects can be activated by combat.resolve",
+            )
     discovered = {str(value) for value in world.get("discovered_clue_ids") or []}
     missing = [
         str(value)
-        for value in (affordance.get("requires_discovered_clue_ids") or [])
+        for value in ((affordance or {}).get("requires_discovered_clue_ids") or [])
         if str(value) not in discovered
     ]
     if missing:
@@ -7850,7 +8796,10 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
             }
         }
         if args.get("weapon_id"):
-            rich["combat_action"] = {"weapon_id": str(args["weapon_id"])}
+            rich["combat_action"] = {
+                "weapon_id": str(args["weapon_id"]),
+                "weapon_effect_ids": list(selected_effect_ids),
+            }
         requests = coc_narrative_enrichment.build_route_operation_requests({
             "active_scene": scene or {},
             "combat_state": combat,
@@ -8023,6 +8972,7 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
     read_domains=(
         "scene", "world", "pacing", "clues", "npc_presence", "npc", "time",
         "active_effects", "flags", "party", "module_archive", "module_progressive",
+        "mechanics",
     ),
     recovery_domains=("flags", "time_markers", "npc", "npc_presence"),
     response_mode="full_or_not_modified",
@@ -8121,6 +9071,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                     # as canonical IR; omitting it made scene.context and
                     # npc.query disagree about one authored NPC.
                     "agenda": keeper_npc.get("agenda"),
+                    "mechanics": deepcopy(keeper_npc.get("mechanics")),
                     "source_refs": deepcopy(
                         (npc_shard.get("provenance") or {}).get("source_refs") or []
                     ),
@@ -8198,6 +9149,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             present_npc_ids.append(str(npc_id))
 
     npcs = []
+    current_npc_mechanics: dict[str, Any] = {}
     for npc_id in present_npc_ids:
         agenda = static_npcs.get(str(npc_id)) or _npc_by_id(ctx.npc_agendas, npc_id) or {}
         psych = (npc_state.get("psych") or {}).get(str(npc_id)) or {}
@@ -8212,6 +9164,10 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             if agenda
             else None
         )
+        mechanics = agenda.get("mechanics") if isinstance(agenda.get("mechanics"), dict) else {}
+        mechanics_status = str(mechanics.get("status") or "unresolved")
+        if mechanics_status == "authored" and isinstance(mechanics.get("profile"), dict):
+            current_npc_mechanics[str(npc_id)] = deepcopy(mechanics["profile"])
         npcs.append({
             "npc_id": npc_id,
             "name": agenda.get("name") or campaign_names.get(str(npc_id)),
@@ -8243,6 +9199,8 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "presence_source": (
                 "live" if str(npc_id) in live_presence else "authored_initial"
             ),
+            "mechanics_status": mechanics_status,
+            "mechanics_ref": f"npc:{npc_id}",
         })
     if name_conflicts & set(present_npc_ids):
         warnings.append(
@@ -8363,6 +9321,13 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             madness["phobia"] = san_signal["phobia"]
         if san_signal.get("mania"):
             madness["mania"] = san_signal["mania"]
+        member_luck = member_derived.get("Luck", member_chars.get("LUCK"))
+        try:
+            live_luck = ctx.inv_state(member_id).get("current_luck")
+        except ToolError:
+            live_luck = None
+        if _is_exact_int(live_luck) and live_luck >= 0:
+            member_luck = live_luck
         party_investigators.append({
             "investigator_id": member_id,
             "name": member_sheet.get("name"),
@@ -8373,7 +9338,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "credit_tier": coc_rule_signals.read_credit_tier(member_cr),
             "build": member_derived.get("BUILD"),
             "mov": member_derived.get("MOV"),
-            "luck": member_derived.get("Luck", member_chars.get("LUCK")),
+            "luck": member_luck,
             "san": {
                 "current": san_signal.get("current_san"),
                 "max": san_signal.get("max_san"),
@@ -8406,14 +9371,88 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         asset_root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
         if asset_root_id:
             assets_mod = coc_module_project.coc_module_assets
-            open_host_work = assets_mod.list_host_work_requests(
-                ctx.root, asset_root_id, limit=3,
+            all_open_host_work = assets_mod.list_host_work_requests(
+                ctx.root, asset_root_id, limit=None,
             )
+            host_work_fields = (
+                "job_id", "kind", "target_id", "priority",
+                "requested_pdf_indices", "source_aspect", "deadline_class",
+                "work_group_id", "dispatch_state", "dispatch_attempts",
+                "cached_scope_complete",
+            )
+            compact_host_work = [
+                {
+                    key: deepcopy(row.get(key))
+                    for key in host_work_fields
+                    if key in row
+                }
+                for row in all_open_host_work
+            ]
+            ready_background = [
+                compact
+                for row, compact in zip(
+                    all_open_host_work, compact_host_work, strict=True,
+                )
+                if row.get("dispatch_state") == "ready"
+                and row.get("cached_scope_complete") is True
+                and bool(row.get("requested_pdf_indices"))
+            ]
             progressive_projection = {
                 "asset_root_id": asset_root_id,
-                "open_host_work_count": len(open_host_work),
-                "open_host_work": open_host_work,
+                "open_host_work_count": len(all_open_host_work),
+                "open_host_work": compact_host_work[:3],
+                "ready_for_background_count": len(ready_background),
+                "blocking_micro_ready_count": sum(
+                    row.get("deadline_class") == "blocking_micro"
+                    for row in ready_background
+                ),
+                "leased_count": sum(
+                    row.get("dispatch_state") == "leased"
+                    for row in all_open_host_work
+                ),
+                "ready_background_requests": ready_background[:4],
             }
+            if ready_background:
+                ready_group_count = len({
+                    str(row.get("work_group_id") or row.get("job_id"))
+                    for row in ready_background
+                })
+                progressive_projection["background_takeover"] = {
+                    "schema_version": 1,
+                    "kind": "ready_background_source_work",
+                    "authority": "advisory",
+                    "hard_gate": False,
+                    "claim_operation": {
+                        "operation": "progressive.claim_host_work",
+                        "invoke_via": "coc_invoke",
+                        "prefilled_arguments": {
+                            "limit": min(4, ready_group_count),
+                        },
+                        "missing_arguments": ["executor_id"],
+                        "authority": "advisory",
+                        "hard_gate": False,
+                    },
+                    "host_dispatch": {
+                        "worker_profile": "coc-source-pack-worker",
+                        "background": True,
+                        "packet_binding": "one exact returned packets[] value per child",
+                        "direct_submit_parent_waits": False,
+                        "direct_submit_parent_result_polls": 0,
+                        "direct_submit_parent_output_retrieval": False,
+                        "direct_submit_parent_calls_fulfill_host_work": False,
+                        "fallback_without_direct_submit": (
+                            "forward exact completed results[i] once through "
+                            "progressive.fulfill_host_work"
+                        ),
+                    },
+                    "play_boundary": {
+                        "player_action_gate": False,
+                        "narrative_gate": False,
+                        "output_gate": False,
+                        "nondependent_play_may_continue": True,
+                        "blocking_micro_applies_only_to_current_dependent_settlement": True,
+                    },
+                }
     data = {
         "campaign_id": ctx.campaign_id,
         "active_scene_id": active_id,
@@ -8450,6 +9489,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "keeper_mechanics": {
             "secret": True,
             "affordance_operations": affordance_operations,
+            "npc_profiles": current_npc_mechanics,
         },
         "action_routes": _project_action_route_cards(
             ctx, include_operation_opportunities=False
@@ -8499,11 +9539,23 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "active_time_markers are bookkeeping facts only; report their structured "
             "remaining/overdue values, but do not auto-trigger a rescue or block play"
         )
-    if progressive_projection and progressive_projection["open_host_work"]:
+    if progressive_projection and progressive_projection.get(
+        "background_takeover"
+    ):
+        hints.append(
+            "progressive.background_takeover exposes exact cached source work for "
+            "the existing progressive.claim_host_work operation; claim and dispatch "
+            "it in the background. This is advisory and never gates player input, "
+            "narration, or unrelated play; only a current settlement that depends on "
+            "listed blocking_micro source may wait for that source result"
+        )
+    elif progressive_projection and progressive_projection["open_host_work"]:
         hints.append(
             "progressive.open_host_work is an unresolved host parsing boundary, not a "
-            "completed parse; read cached_page_refs first and close it through "
-            "progressive.fulfill_host_work before claiming deep detail"
+            "completed parse; claim exact cached work for a source child. On a "
+            "direct-submit host the parent does not wait, retrieve, poll, or call "
+            "progressive.fulfill_host_work; only a host without direct submit uses "
+            "the exact-forward fallback"
         )
     if active_exceptional_effects:
         hints.append(
@@ -8531,6 +9583,23 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         "optional enrichment support: call storylets.suggest when a personal callback or atmospheric beat would help; absence of a fitting storylet never blocks play"
     )
     return data, warnings, hints
+
+
+_TURN_RECOVERY_MEANINGFUL_QUERIES = frozenset({"actions.advise"})
+_TURN_RECOVERY_NON_TURN_MUTATIONS = frozenset({"session.delivery_ack"})
+
+
+def _turn_recovery_meaningful_tools() -> frozenset[str]:
+    """Classify recoverable turn work from registered structured authority."""
+    return frozenset(
+        name
+        for name, spec in TOOLS.items()
+        if (
+            spec.get("access") == "mutation"
+            and name not in _TURN_RECOVERY_NON_TURN_MUTATIONS
+        )
+        or name in _TURN_RECOVERY_MEANINGFUL_QUERIES
+    )
 
 
 @tool(
@@ -8623,7 +9692,10 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         revision_vector=revision_vector,
         revision_token=revision_token,
     )
-    current_window = coc_turn_manifest.resume_window(ctx.campaign_dir)
+    current_window = coc_turn_manifest.resume_window(
+        ctx.campaign_dir,
+        meaningful_tools=_turn_recovery_meaningful_tools(),
+    )
     delivery = coc_continuation.delivery_projection(
         ctx.campaign_dir, checkpoint
     )
@@ -8797,6 +9869,135 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "session.continuation_detail",
+    "Read one exact paged section omitted from the compact session.resume working set. Use only a returned detail_operation card; never scan save files or logs.",
+    {
+        "section": {
+            "type": "string",
+            "required": True,
+            "enum": [
+                "recent_summaries",
+                "threads",
+                "confirmed_decisions",
+                "do_not_repeat",
+                "style_commitments",
+                "current_turn",
+            ],
+            "desc": "exact continuation section named by session.resume",
+        },
+        "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "desc": "zero-based row offset (default 0)",
+        },
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8,
+            "desc": "maximum exact rows to return (default 4, max 8)",
+        },
+        "ids": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "maxItems": 16,
+            "desc": "optional exact structured ids; no prose or keyword search",
+        },
+    },
+    access="query",
+    read_domains=_CONTINUATION_DOMAINS,
+    audit_mode="reference",
+)
+def _tool_session_continuation_detail(ctx: Ctx, args: dict[str, Any]):
+    section = str(args.get("section") or "").strip()
+    allowed = {
+        "recent_summaries": "turn_number",
+        "threads": "thread_id",
+        "confirmed_decisions": "decision_id",
+        "do_not_repeat": "item_id",
+        "style_commitments": None,
+        "current_turn": "call_index",
+    }
+    if section not in allowed:
+        raise ToolError("invalid_param", "unknown continuation detail section")
+    offset = int(args.get("offset") or 0)
+    limit = int(args.get("limit") or 4)
+    if offset < 0 or not 1 <= limit <= 8:
+        raise ToolError(
+            "invalid_param", "offset must be non-negative and limit must be 1..8"
+        )
+    requested_ids = args.get("ids") or []
+    if (
+        not isinstance(requested_ids, list)
+        or len(requested_ids) > 16
+        or any(not isinstance(value, str) or not value for value in requested_ids)
+    ):
+        raise ToolError("invalid_param", "ids must contain at most 16 exact strings")
+
+    if section == "current_turn":
+        source = coc_turn_manifest.resume_window(
+            ctx.campaign_dir,
+            meaningful_tools=_turn_recovery_meaningful_tools(),
+        )
+        rows = deepcopy(source.get("rows") or [])
+        source_identity = source.get("source_digest")
+    else:
+        checkpoint = coc_continuation.load_latest_checkpoint(ctx.campaign_dir)
+        capsule = (
+            checkpoint.get("semantic_capsule")
+            if isinstance(checkpoint, dict)
+            else coc_continuation.empty_semantic_capsule()
+        )
+        rows = deepcopy(capsule.get(section) or [])
+        source_identity = (
+            checkpoint.get("content_sha256")
+            if isinstance(checkpoint, dict)
+            else None
+        )
+    id_field = allowed[section]
+    if requested_ids:
+        wanted = {str(value) for value in requested_ids}
+        if id_field is None:
+            rows = [row for row in rows if str(row) in wanted]
+        else:
+            rows = [
+                row for row in rows
+                if isinstance(row, dict) and str(row.get(id_field)) in wanted
+            ]
+    total = len(rows)
+    page = rows[offset : offset + limit]
+    next_offset = offset + len(page)
+    data = {
+        "schema_version": 1,
+        "campaign_id": ctx.campaign_id,
+        "section": section,
+        "source_identity": source_identity,
+        "section_sha256": _canonical_digest(rows),
+        "offset": offset,
+        "returned": len(page),
+        "total": total,
+        "rows": page,
+        "next_offset": next_offset if next_offset < total else None,
+    }
+    if data["next_offset"] is not None:
+        data["next_page_operation"] = {
+            "operation": "session.continuation_detail",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "section": section,
+                "offset": data["next_offset"],
+                "limit": limit,
+                **({"ids": requested_ids} if requested_ids else {}),
+            },
+            "missing_arguments": [],
+            "authority": "advisory",
+            "hard_gate": False,
+        }
+    return data, [], [
+        "this is an exact paged continuation projection; use only facts relevant to the current semantic decision and retain the compact working set",
+    ]
+
+
+@tool(
     "session.delivery_text",
     "Read the latest hash-bound immutable Keeper output when session.resume externalized it to stay inside the recovery byte budget.",
     {
@@ -8916,6 +10117,1159 @@ def _tool_scene_map(ctx: Ctx, args: dict[str, Any]):
     return data, [], []
 
 
+_OPENING_INPUT_FIELDS = frozenset({
+    "start_location_id", "opening_pdf_indices",
+    "mechanics_locator_pdf_indices",
+    "opening_required_npc_ids", "opening_required_secret_ids",
+})
+_OPENING_RESULT_CAPS = {
+    "start_candidates": 64,
+    "blocking": 16,
+    "hard_work": 16,
+    "soft_work": 32,
+    "deferred": 32,
+    "mutation_cards": 5,
+}
+_OPENING_PREPARATION_DATA_MAX_BYTES = 12 * 1024
+# MCP decorates each returned mutation card with a short contract reference.
+# Keep the handler payload below its public budget so the real gateway result
+# remains bounded after that transport-only metadata is added.
+_OPENING_PREPARATION_MCP_RESERVE_BYTES = 1024
+_OPENING_SAFE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+
+
+def _opening_start_selector(value: Any, *, required: bool) -> str | None:
+    try:
+        return coc_module_project.parse_opening_start_selector(
+            value,
+            required=required,
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError("invalid_param", exc.message) from exc
+
+
+def _opening_id_list(value: Any, field: str, *, maximum: int = 32) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not value:
+        raise ToolError("invalid_param", f"{field} must be a non-empty array")
+    if len(value) > maximum:
+        raise ToolError("invalid_param", f"{field} accepts at most {maximum} ids")
+    rows: list[str] = []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, str) or not raw.strip():
+            raise ToolError(
+                "invalid_param", f"{field}[{index}] must be a non-empty string",
+            )
+        text = raw.strip()
+        try:
+            coc_module_project.coc_module_assets._require_id(
+                text, f"{field}[{index}]",
+            )
+        except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        if text in rows:
+            raise ToolError("invalid_param", f"{field} must contain unique ids")
+        rows.append(text)
+    return rows
+
+
+def _opening_page_list(
+    value: Any,
+    *,
+    field: str = "opening_pdf_indices",
+) -> list[int] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or not value:
+        raise ToolError(
+            "invalid_param", f"{field} must contain 1..3 pages"
+        )
+    if len(value) > 3:
+        raise ToolError(
+            "invalid_param", f"{field} must contain 1..3 pages"
+        )
+    if any(
+        isinstance(row, bool) or not isinstance(row, int) or row < 0
+        for row in value
+    ):
+        raise ToolError(
+            "invalid_param",
+            f"{field} must be non-negative integers",
+        )
+    if len(value) != len(set(value)):
+        raise ToolError(
+            "invalid_param", f"{field} must not contain duplicates"
+        )
+    return list(value)
+
+
+def _opening_card(
+    operation: str,
+    prefilled_arguments: dict[str, Any],
+    missing_arguments: list[str],
+) -> dict[str, Any]:
+    return {
+        "operation": operation,
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": deepcopy(prefilled_arguments),
+        "missing_arguments": list(missing_arguments),
+    }
+
+
+def _opening_activation_card(start_location_id: str) -> dict[str, Any]:
+    """Return the explicit, advisory initial scene activation card."""
+    card = _opening_card(
+        "state.move_scene",
+        {
+            "scene_id": start_location_id,
+            "defer_initial_progressive_on_enter": True,
+        },
+        ["decision_id"],
+    )
+    card.update({"authority": "advisory", "hard_gate": False})
+    return card
+
+
+def _opening_skeleton_argument_contract(
+    root_info: dict[str, Any],
+) -> dict[str, Any]:
+    """Describe the smallest source-bound Tier-1 skeleton the host must judge."""
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.progressive-opening-skeleton-argument.v1",
+        "closed": True,
+        "semantic_scope": "small_accepted_source_window_only",
+        "guessing_allowed": False,
+        "full_module_scan_allowed": False,
+        "prefilled_template": {
+            "schema_version": 1,
+            "parse_tier": 1,
+            "source": {
+                key: root_info[key]
+                for key in ("source_id", "file_sha256", "page_count", "producer")
+            },
+            "start_candidates": ["<source-grounded-location-id>"],
+            "locations": [{
+                "location_id": "<same-start-location-id>",
+                "title": "<source-grounded-title>",
+                "parse_state": "toc_only",
+            }],
+            "mechanics_locator_pass_status": "pending",
+            "mechanics_index": [],
+            "start_clock_status": "unresolved",
+        },
+        "first_submission_guidance": {
+            "authority": "advisory",
+            "hard_gate": False,
+            "copy_prefilled_template": True,
+            "replace_placeholders_only": True,
+            "omit_optional_source_evidenced_fields": True,
+        },
+        "required_fields": [
+            "schema_version",
+            "parse_tier",
+            "source",
+            "start_candidates",
+            "locations",
+            "mechanics_locator_pass_status",
+            "start_clock_status",
+        ],
+        "source_required_fields": [
+            "source_id", "file_sha256", "page_count", "producer",
+        ],
+        "location_required_fields": [
+            "location_id", "title", "parse_state",
+        ],
+        "location_parse_state_enum": sorted(
+            coc_module_project.coc_module_assets.PARSE_STATES
+        ),
+        "optional_source_evidenced_fields": [
+            "edges_provisional",
+            "npc_roster",
+            "item_roster",
+            "start_clock",
+            "start_clock_source_refs",
+        ],
+        "rules": [
+            "start_candidates must be non-empty and each id must match a locations[].location_id",
+            "mechanics_index=[] is valid while mechanics_locator_pass_status=pending",
+            "for the first submission, copy the prefilled template, replace only its placeholders, and omit every optional source-evidenced field",
+            "add optional roster, edges, mechanics locators, or start_clock only when supported by accepted source evidence",
+            "do not guess unresolved facts or scan the full module",
+        ],
+    }
+
+
+def _cap_opening_rows(
+    data: dict[str, Any], key: str, rows: list[dict[str, Any]],
+) -> None:
+    cap = _OPENING_RESULT_CAPS[key]
+    data[key] = rows[:cap]
+    data[f"{key}_total"] = len(rows)
+    data[f"{key}_returned_count"] = len(data[key])
+    data[f"{key}_omitted_count"] = max(0, len(rows) - len(data[key]))
+
+
+def _opening_encoded_data_bytes(data: dict[str, Any]) -> int:
+    for _ in range(8):
+        encoded_size = len(json.dumps(
+            data, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8"))
+        if data.get("encoded_data_bytes") == encoded_size:
+            return encoded_size
+        data["encoded_data_bytes"] = encoded_size
+    return len(json.dumps(
+        data, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8"))
+
+
+def _fit_opening_data_budget(
+    data: dict[str, Any],
+    *,
+    selected_start_location_id: str | None,
+) -> None:
+    """Shrink optional rows in one stable order after their static caps."""
+    collection_keys = (
+        "start_candidates", "deferred", "soft_work", "hard_work",
+        "blocking", "mutation_cards",
+    )
+    total_keys = {
+        "start_candidates": "start_candidate_total",
+        "deferred": "deferred_total",
+        "soft_work": "soft_work_total",
+        "hard_work": "hard_work_total",
+        "blocking": "blocking_total",
+        "mutation_cards": "mutation_cards_total",
+    }
+
+    def refresh_counts(key: str) -> None:
+        returned = len(data.get(key) or [])
+        total = int(data.get(total_keys[key]) or 0)
+        prefix = "start_candidate" if key == "start_candidates" else key
+        data[f"{prefix}_returned_count"] = returned
+        data[f"{prefix}_omitted_count"] = max(0, total - returned)
+
+    for key in collection_keys:
+        refresh_counts(key)
+    build_budget = (
+        _OPENING_PREPARATION_DATA_MAX_BYTES
+        - _OPENING_PREPARATION_MCP_RESERVE_BYTES
+    )
+    while _opening_encoded_data_bytes(data) > build_budget:
+        removed = False
+        for key in collection_keys:
+            rows = data.get(key)
+            if not isinstance(rows, list) or not rows:
+                continue
+            if key == "start_candidates" and selected_start_location_id:
+                removable_index = next(
+                    (
+                        index for index in range(len(rows) - 1, -1, -1)
+                        if str((rows[index] or {}).get("location_id") or "")
+                        != selected_start_location_id
+                    ),
+                    None,
+                )
+                if removable_index is None:
+                    continue
+                rows.pop(removable_index)
+            else:
+                rows.pop()
+            refresh_counts(key)
+            removed = True
+            break
+        if not removed:
+            code = (
+                "opening_selected_candidate_too_large"
+                if selected_start_location_id
+                else "opening_result_too_large"
+            )
+            raise ToolError(
+                code,
+                "mandatory opening preparation data exceeds the 12 KiB budget",
+            )
+    _opening_encoded_data_bytes(data)
+
+
+@tool(
+    "progressive.prepare_opening",
+    "Experimental strict read-only planner for one source-authored opening. "
+    "It validates an accepted 1..3-page window and returns bounded readiness "
+    "plus optional mutation cards; it never parses, queues, projects, moves, "
+    "narrates, supervises background work, or gates player actions.",
+    {
+        "start_location_id": {
+            "type": ["string", "null"], "maxLength": 128,
+            "pattern": _OPENING_SAFE_ID_PATTERN,
+            "desc": "optional exact structured start candidate id",
+        },
+        "opening_pdf_indices": {
+            "type": "array", "minItems": 1, "maxItems": 3,
+            "uniqueItems": True, "items": {"type": "integer", "minimum": 0},
+            "desc": "optional exact host-selected contiguous accepted pages",
+        },
+        "mechanics_locator_pdf_indices": {
+            "type": "array", "minItems": 1, "maxItems": 3,
+            "uniqueItems": True, "items": {"type": "integer", "minimum": 0},
+            "desc": "optional exact host-selected appendix/roster candidate pages; never required for opening",
+        },
+        "opening_required_npc_ids": {
+            "type": "array", "minItems": 1, "maxItems": 32,
+            "uniqueItems": True, "items": {"type": "string", "maxLength": 128},
+            "desc": "optional present-NPC opening construction prerequisites",
+        },
+        "opening_required_secret_ids": {
+            "type": "array", "minItems": 1, "maxItems": 32,
+            "uniqueItems": True, "items": {"type": "string", "maxLength": 128},
+            "desc": "optional keeper-secret opening construction prerequisites",
+        },
+    },
+    access="query",
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+)
+def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    extras = set(args) - _OPENING_INPUT_FIELDS
+    if extras:
+        raise ToolError(
+            "invalid_param",
+            "progressive.prepare_opening accepts only structured opening selectors",
+        )
+    start_arg = _opening_start_selector(
+        args.get("start_location_id"),
+        required=False,
+    )
+    pages_arg = _opening_page_list(args.get("opening_pdf_indices"))
+    locator_pages_arg = _opening_page_list(
+        args.get("mechanics_locator_pdf_indices"),
+        field="mechanics_locator_pdf_indices",
+    )
+    required_npcs = _opening_id_list(
+        args.get("opening_required_npc_ids"), "opening_required_npc_ids",
+    )
+    required_secrets = _opening_id_list(
+        args.get("opening_required_secret_ids"), "opening_required_secret_ids",
+    )
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            ctx.root, str(ctx.campaign_id),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    assets_mod = coc_module_project.coc_module_assets
+    root_id = str(root_info["asset_root_id"])
+    skeleton = assets_mod.get_skeleton(ctx.root, root_id)
+    data: dict[str, Any] = {
+        "schema_version": 1,
+        "experimental": True,
+        "component_ready": True,
+        "asset_root_id": root_id,
+        "source": {
+            key: root_info[key]
+            for key in ("source_id", "file_sha256", "bundle_sha256", "page_count", "producer")
+        },
+        "link_state": root_info["link_state"],
+        "source_window_ready": False,
+        "skeleton_ready": isinstance(skeleton, dict),
+        "selected_start_pack_ready": False,
+        "projection_inputs_ready": False,
+        "projected_selected_start_ready": False,
+        "ready_to_activate": False,
+        "active_scene_ready": False,
+        "opening_ready": False,
+        "selected_start_location_id": None,
+        "source_window": None,
+        "cached_page_refs": [],
+        "window_origin": None,
+        "ownership": {
+            "kind": "diagnostic_work_planner",
+            "narrator": False,
+            "compiler": False,
+            "semantic_model": False,
+            "player_action_gate": False,
+            "background_supervisor": False,
+        },
+        "limitations": [
+            "component-ready experimental setup surface only",
+            "no automatic source extraction, host callback, queue drain, or deferred-work resume",
+        ],
+        "contract_refs": [
+            "coc.source-pack-worker.v1",
+            "progressive.fulfill_host_work",
+        ],
+    }
+    blocking: list[dict[str, Any]] = []
+    hard_work: list[dict[str, Any]] = []
+    soft_work: list[dict[str, Any]] = []
+    deferred: list[dict[str, Any]] = []
+    cards: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    selected: str | None = None
+    window: dict[str, Any] | None = None
+    readiness: dict[str, Any] | None = None
+
+    if not isinstance(skeleton, dict):
+        blocking.append({"code": "opening_skeleton_missing", "entity_id": root_id})
+        if pages_arg is None:
+            try:
+                data.update(assets_mod.opening_page_candidate_catalog(
+                    ctx.root,
+                    root_id,
+                    bundle_sha256=str(root_info["bundle_sha256"]),
+                ))
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError(
+                    "opening_source_catalog_invalid", str(exc),
+                ) from exc
+        else:
+            try:
+                scope = assets_mod.validate_opening_source_window(
+                    ctx.root,
+                    root_id,
+                    bundle_sha256=str(root_info["bundle_sha256"]),
+                    pdf_indices=pages_arg,
+                )
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError(
+                    "opening_source_window_invalid", str(exc),
+                ) from exc
+            module_root = assets_mod._module_dir(ctx.root, root_id)
+            data["source_window_ready"] = True
+            data["source_window"] = list(scope["pdf_indices"])
+            data["window_origin"] = "host_selected_pre_skeleton"
+            data["cached_page_refs"] = [
+                {
+                    **deepcopy(ref),
+                    "path": str(
+                        module_root / "pages" / f"{int(ref['pdf_index']):04d}.md"
+                    ),
+                }
+                for ref in scope["page_refs"]
+            ]
+        publish_card = _opening_card(
+            "progressive.publish_skeleton",
+            {"asset_root_id": root_id, "source_file_sha256": root_info["file_sha256"]},
+            ["skeleton"],
+        )
+        publish_card["skeleton_argument_contract"] = (
+            _opening_skeleton_argument_contract(root_info)
+        )
+        cards.append(publish_card)
+    else:
+        candidates = coc_module_project.opening_start_candidates(skeleton)
+        try:
+            selected = coc_module_project.select_opening_start(
+                ctx.campaign_dir, skeleton, start_arg,
+            )
+        except coc_module_project.OpeningPreparationError as exc:
+            if exc.code == "opening_start_selection_required":
+                blocking.append({"code": exc.code})
+            else:
+                raise ToolError(exc.code, exc.message) from exc
+        if selected is not None:
+            data["selected_start_location_id"] = selected
+            try:
+                binding_result = coc_module_project.resolve_selected_opening_binding(
+                    ctx.root,
+                    root_info,
+                    skeleton,
+                    selected,
+                    pages_arg,
+                    required_npc_ids=required_npcs,
+                    required_secret_ids=required_secrets,
+                )
+                window = {
+                    "window_origin": binding_result["window_origin"],
+                    "scope": binding_result["scope"],
+                }
+                readiness = binding_result["readiness"]
+            except coc_module_project.OpeningPreparationError as exc:
+                if exc.code == "opening_source_window_required":
+                    blocking.append({"code": exc.code, "entity_id": selected})
+                else:
+                    raise ToolError(exc.code, exc.message) from exc
+            if window is not None:
+                scope = window["scope"]
+                data["source_window_ready"] = True
+                data["window_origin"] = window["window_origin"]
+                data["source_window"] = list(scope["pdf_indices"])
+                data["cached_page_refs"] = deepcopy(scope["page_refs"][:3])
+                data["selected_start_pack_ready"] = bool(readiness["ready"])
+                data["projection_inputs_ready"] = bool(readiness["ready"])
+                data["present_npc_ids"] = list(readiness["present_npc_ids"][:32])
+                data["required_secret_status"] = list(
+                    readiness["required_secret_status"][:32]
+                )
+                blocking.extend(deepcopy(readiness["blocking"]))
+                for advisory in readiness.get("advisories") or []:
+                    if (
+                        not isinstance(advisory, dict)
+                        or advisory.get("code") != "opening_npc_agenda_missing"
+                    ):
+                        continue
+                    soft_work.append(deepcopy(advisory))
+                    deferred.append({
+                        "code": "opening_npc_agenda_deferred",
+                        "entity_id": str(advisory.get("entity_id") or "")[:128],
+                        "reason": "not_required_for_opening",
+                    })
+
+                all_requests = assets_mod.list_host_work_requests(
+                    ctx.root, root_id, include_closed=True, limit=None,
+                )
+                exact_requests = [
+                    row for row in all_requests
+                    if row.get("kind") == "partial_opening"
+                    and row.get("request_purpose") == assets_mod.FOREGROUND_OPENING_PURPOSE
+                    and str(row.get("target_id") or "") == selected
+                    and row.get("requested_source_scope") == scope
+                ]
+                open_exact = next(
+                    (
+                        row for row in exact_requests
+                        if row.get("status") not in {"fulfilled", "cancelled", "superseded"}
+                    ),
+                    None,
+                )
+                if not readiness["ready"]:
+                    hard_work.append({
+                        "code": "opening_pack_required",
+                        "entity_kind": "location",
+                        "entity_id": selected,
+                        "job_id": (open_exact or {}).get("job_id"),
+                        "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+                    })
+                if open_exact is not None:
+                    cards.append(_opening_card(
+                        "progressive.fulfill_host_work",
+                        {},
+                        ["worker_result", "host_task_timing"],
+                    ))
+                elif not readiness["ready"]:
+                    cards.append(_opening_card(
+                        "progressive.request_opening_pack",
+                        {
+                            "asset_root_id": root_id,
+                            "source_file_sha256": root_info["file_sha256"],
+                            "start_location_id": selected,
+                            "opening_pdf_indices": list(scope["pdf_indices"]),
+                            "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+                        },
+                        [],
+                    ))
+                if readiness["ready"]:
+                    projected_ready = (
+                        coc_module_project.opening_projection_state_is_fresh(
+                            ctx.root,
+                            ctx.campaign_dir,
+                            root_id,
+                            selected,
+                            scope,
+                        )
+                    )
+                    data["projected_selected_start_ready"] = projected_ready
+                    if not projected_ready:
+                        blocking.append({
+                            "code": "opening_projection_required",
+                            "entity_id": selected,
+                        })
+                        cards.append(_opening_card(
+                            "progressive.project_opening",
+                            {
+                                "asset_root_id": root_id,
+                                "source_file_sha256": root_info["file_sha256"],
+                                "start_location_id": selected,
+                                "opening_pdf_indices": list(scope["pdf_indices"]),
+                            },
+                            [],
+                        ))
+                    world = ctx.world()
+                    active_ready = (
+                        projected_ready
+                        and str(world.get("active_scene_id") or "") == selected
+                    )
+                    data["active_scene_ready"] = active_ready
+                    data["ready_to_activate"] = (
+                        projected_ready
+                        and coc_module_project.campaign_is_pristine_for_opening(
+                            ctx.campaign_dir
+                        )
+                    )
+                    data["opening_ready"] = active_ready
+                    if data["ready_to_activate"]:
+                        cards.append(_opening_activation_card(selected))
+
+                selected_job_ids = {
+                    str(row.get("job_id") or "") for row in exact_requests
+                }
+                for row in all_requests:
+                    job_id = str(row.get("job_id") or "")
+                    if not job_id or job_id in selected_job_ids:
+                        continue
+                    soft_work.append({
+                        "code": "deferred_host_work",
+                        "job_id": job_id,
+                        "entity_id": str(row.get("target_id") or "")[:128],
+                    })
+                    deferred.append({
+                        "code": "not_required_for_opening",
+                        "job_id": job_id,
+                        "entity_id": str(row.get("target_id") or "")[:128],
+                    })
+
+        if str(skeleton.get("mechanics_locator_pass_status") or "") == "pending":
+            soft_work.append({
+                "code": "mechanics_locator_pass_pending",
+                "required_for_opening": False,
+                "hard_gate": False,
+            })
+            deferred.append({
+                "code": "mechanics_locator_pass_deferred",
+                "reason": "idle_warm_not_required_for_opening",
+            })
+            locator_prefill: dict[str, Any] = {
+                "asset_root_id": root_id,
+                "source_file_sha256": root_info["file_sha256"],
+                "request_purpose": assets_mod.MECHANICS_LOCATOR_PURPOSE,
+            }
+            locator_missing = ["mechanics_locator_pdf_indices"]
+            if locator_pages_arg is None:
+                try:
+                    catalog = assets_mod.opening_page_candidate_catalog(
+                        ctx.root,
+                        root_id,
+                        bundle_sha256=str(root_info["bundle_sha256"]),
+                    )
+                except assets_mod.ModuleAssetsError as exc:
+                    raise ToolError(
+                        "mechanics_locator_source_catalog_invalid", str(exc),
+                    ) from exc
+                data["mechanics_locator_page_candidates"] = deepcopy(
+                    catalog["opening_page_candidates"]
+                )
+                data["mechanics_locator_page_candidate_total"] = int(
+                    catalog["opening_page_candidate_total"]
+                )
+                data["mechanics_locator_page_candidate_complete"] = True
+                data["mechanics_locator_page_candidate_role"] = (
+                    "selection_hint_only_not_provenance"
+                )
+            else:
+                try:
+                    locator_scope = assets_mod.validate_opening_source_window(
+                        ctx.root,
+                        root_id,
+                        bundle_sha256=str(root_info["bundle_sha256"]),
+                        pdf_indices=locator_pages_arg,
+                    )
+                except assets_mod.ModuleAssetsError as exc:
+                    raise ToolError(
+                        "mechanics_locator_source_window_invalid", str(exc),
+                    ) from exc
+                locator_prefill["mechanics_locator_pdf_indices"] = list(
+                    locator_scope["pdf_indices"]
+                )
+                locator_missing = []
+                data["mechanics_locator_source_window"] = list(
+                    locator_scope["pdf_indices"]
+                )
+            locator_card = _opening_card(
+                "progressive.request_locator_pass",
+                locator_prefill,
+                locator_missing,
+            )
+            locator_card.update({
+                "authority": "advisory",
+                "hard_gate": False,
+                "required_for_opening": False,
+                "deadline_class": "idle_warm",
+            })
+            cards.append(locator_card)
+
+    selected_candidate = next(
+        (row for row in candidates if row.get("location_id") == selected), None,
+    )
+    bounded_candidates = [
+        {"location_id": str(row.get("location_id") or "")[:128],
+         "title": str(row.get("title") or "")[:160]}
+        for row in candidates[:_OPENING_RESULT_CAPS["start_candidates"]]
+    ]
+    if selected_candidate is not None and all(
+        row["location_id"] != selected for row in bounded_candidates
+    ):
+        bounded_candidates[-1:] = [{
+            "location_id": str(selected_candidate.get("location_id") or "")[:128],
+            "title": str(selected_candidate.get("title") or "")[:160],
+        }]
+    data["start_candidates"] = bounded_candidates
+    data["start_candidate_total"] = len(candidates)
+    data["start_candidate_returned_count"] = len(bounded_candidates)
+    data["start_candidate_omitted_count"] = max(0, len(candidates) - len(bounded_candidates))
+    _cap_opening_rows(data, "blocking", blocking)
+    _cap_opening_rows(data, "hard_work", hard_work)
+    _cap_opening_rows(data, "soft_work", soft_work)
+    _cap_opening_rows(data, "deferred", deferred)
+    _cap_opening_rows(data, "mutation_cards", cards)
+    data["encoded_data_budget_bytes"] = _OPENING_PREPARATION_DATA_MAX_BYTES
+    data["encoded_data_bytes"] = 0
+    _fit_opening_data_budget(
+        data,
+        selected_start_location_id=selected,
+    )
+    return data, [], [
+        "use only the mutation cards whose prerequisites fit the current setup; "
+        "this diagnostic does not impose a Keeper call sequence or gate play",
+    ]
+
+
+@tool(
+    "progressive.publish_skeleton",
+    "Experimental canonical publication of one structured source-bound skeleton. "
+    "Stores validated shared module truth, then projects sparse campaign IR as a "
+    "separate non-atomic phase; it never parses free prose or source pages.",
+    {
+        "asset_root_id": {"type": "string", "required": True, "maxLength": 128},
+        "source_file_sha256": {"type": "string", "required": True, "minLength": 64, "maxLength": 64},
+        "skeleton": {"type": "object", "required": True},
+    },
+)
+def _tool_progressive_publish_skeleton(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            ctx.root, str(ctx.campaign_id),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(
+            exc.code,
+            exc.message,
+            details={
+                "status": "validation_failed", "complete": False,
+                "stored": False, "projected": False,
+            },
+        ) from exc
+    root_id = str(args.get("asset_root_id") or "").strip()
+    source_sha = str(args.get("source_file_sha256") or "").strip()
+    if root_id != root_info["asset_root_id"] or source_sha != root_info["file_sha256"]:
+        raise ToolError(
+            "opening_source_identity_mismatch",
+            "publish arguments do not match the campaign-bound source root",
+            details={
+                "status": "validation_failed", "complete": False,
+                "stored": False, "projected": False,
+            },
+        )
+    skeleton = deepcopy(args.get("skeleton"))
+    if not isinstance(skeleton, dict):
+        raise ToolError(
+            "invalid_param",
+            "skeleton must be an object",
+            details={
+                "status": "validation_failed", "complete": False,
+                "stored": False, "projected": False,
+            },
+        )
+    assets_mod = coc_module_project.coc_module_assets
+    try:
+        stored = assets_mod.put_skeleton(ctx.root, root_id, skeleton)
+    except assets_mod.SkeletonStorePhaseError as exc:
+        return {
+            "status": "stored_metadata_failed",
+            "complete": False,
+            "stored": True,
+            "projected": False,
+            "asset_root_id": root_id,
+            "store": exc.store_result,
+            "pending_phase": "parse_tier_registry_identity",
+            "metadata_error": exc.metadata_error,
+            "retry_card": _opening_card(
+                "progressive.publish_skeleton",
+                {"asset_root_id": root_id, "source_file_sha256": source_sha},
+                ["skeleton"],
+            ),
+        }, [
+            "skeleton.json committed but parse-tier registry identity did not; "
+            "retry the same publication before sparse projection"
+        ], []
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError(
+            "invalid_param",
+            str(exc),
+            details={
+                "status": "validation_failed", "complete": False,
+                "stored": False, "projected": False,
+            },
+        ) from exc
+    try:
+        projected = coc_module_project.project_skeleton_to_campaign(
+            ctx.root, str(ctx.campaign_id), root_id,
+        )
+    except Exception as exc:  # store truth is intentionally not rolled back
+        return {
+            "status": "stored_projection_failed",
+            "complete": False,
+            "stored": True,
+            "projected": False,
+            "asset_root_id": root_id,
+            "store": stored,
+            "projection_error": {
+                "type": type(exc).__name__[:80],
+                "message": str(exc)[:320],
+            },
+            "retry_card": _opening_card(
+                "progressive.publish_skeleton",
+                {"asset_root_id": root_id, "source_file_sha256": source_sha},
+                ["skeleton"],
+            ),
+        }, [
+            "skeleton storage completed but sparse projection failed; source truth was not rolled back"
+        ], []
+    return {
+        "status": "complete",
+        "complete": True,
+        "stored": True,
+        "projected": True,
+        "asset_root_id": root_id,
+        "store": stored,
+        "projection": projected,
+    }, [], [
+        "skeleton and sparse projection are available; selected opening depth remains a separate explicit step"
+    ]
+
+
+@tool(
+    "progressive.request_opening_pack",
+    "Experimental mutation that enqueues exactly one selected-start partial opening "
+    "slice over a validated 1..3-page accepted window. The queue kick only "
+    "materializes host work; it does not perform semantic extraction.",
+    {
+        "asset_root_id": {"type": "string", "required": True, "maxLength": 128},
+        "source_file_sha256": {"type": "string", "required": True, "minLength": 64, "maxLength": 64},
+        "start_location_id": {
+            "type": "string", "required": True,
+            "minLength": 1, "maxLength": 128,
+            "pattern": _OPENING_SAFE_ID_PATTERN,
+        },
+        "opening_pdf_indices": {
+            "type": "array", "required": True, "minItems": 1, "maxItems": 3,
+            "uniqueItems": True, "items": {"type": "integer", "minimum": 0},
+        },
+        "request_purpose": {
+            "type": "string", "required": True,
+            "enum": ["foreground_opening_slice"],
+        },
+    },
+)
+def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    selected_arg = _opening_start_selector(
+        args.get("start_location_id"),
+        required=True,
+    )
+    assets_mod = coc_module_project.coc_module_assets
+    if args.get("request_purpose") != assets_mod.FOREGROUND_OPENING_PURPOSE:
+        raise ToolError(
+            "invalid_param",
+            "request_purpose must equal foreground_opening_slice",
+        )
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            ctx.root, str(ctx.campaign_id),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    root_id = str(args.get("asset_root_id") or "").strip()
+    source_sha = str(args.get("source_file_sha256") or "").strip()
+    if root_id != root_info["asset_root_id"] or source_sha != root_info["file_sha256"]:
+        raise ToolError(
+            "opening_source_identity_mismatch",
+            "request arguments do not match the campaign-bound source root",
+        )
+    skeleton = assets_mod.get_skeleton(ctx.root, root_id)
+    if not isinstance(skeleton, dict):
+        raise ToolError("opening_skeleton_missing", "publish the skeleton first")
+    try:
+        selected = coc_module_project.select_opening_start(
+            ctx.campaign_dir,
+            skeleton,
+            selected_arg,
+        )
+        binding_result = coc_module_project.resolve_selected_opening_binding(
+            ctx.root,
+            root_info,
+            skeleton,
+            selected,
+            _opening_page_list(args.get("opening_pdf_indices")),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    window = {
+        "window_origin": binding_result["window_origin"],
+        "scope": binding_result["scope"],
+    }
+    readiness = binding_result["readiness"]
+    if readiness["ready"]:
+        ingest_receipt = assets_mod.current_ingest_fulfillment_receipt(
+            readiness.get("pack") or {}
+        )
+        return {
+            "status": "current",
+            "idempotent": True,
+            "asset_root_id": root_id,
+            "start_location_id": selected,
+            "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+            "source_scope_signature": assets_mod.opening_source_scope_signature(
+                window["scope"]
+            ),
+            "job_id": str((ingest_receipt or {}).get("job_id") or "") or None,
+            "worker_kick": {"started": False, "reason": "opening_pack_already_ready"},
+        }, [], []
+    try:
+        stub = assets_mod.ensure_stub(
+            ctx.root,
+            root_id,
+            "location",
+            selected,
+            reason="foreground_opening_slice",
+        )
+        queued = assets_mod.enqueue_job(
+            ctx.root,
+            root_id,
+            kind="partial_opening",
+            target_id=selected,
+            priority=100,
+            reason="foreground_opening_slice",
+            request_purpose=assets_mod.FOREGROUND_OPENING_PURPOSE,
+            requested_source_scope=window["scope"],
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        code = (
+            "opening_source_scope_conflict"
+            if "opening_source_scope_conflict" in str(exc)
+            else "invalid_param"
+        )
+        raise ToolError(code, str(exc)) from exc
+    job_id = str((queued.get("job") or {}).get("job_id") or "")
+    open_request = next(
+        (
+            row
+            for row in assets_mod.list_host_work_requests(
+                ctx.root, root_id, include_closed=True, limit=None,
+            )
+            if str(row.get("job_id") or "") == job_id
+        ),
+        None,
+    )
+    return {
+        "status": "queued" if queued.get("enqueued") else "coalesced",
+        "idempotent": bool(queued.get("deduped")),
+        "asset_root_id": root_id,
+        "start_location_id": selected,
+        "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+        "source_scope_signature": assets_mod.opening_source_scope_signature(
+            window["scope"]
+        ),
+        "requested_source_scope": window["scope"],
+        "job_id": job_id,
+        "dedupe_state": queued.get("dedupe_state"),
+        "worker_kick": queued.get("worker_kick"),
+        "host_request_id": (
+            str((open_request or {}).get("job_id") or "") or None
+        ),
+        "stub_created": bool(stub.get("created")),
+    }, [], [
+        "the queue kick may materialize a host request; a host source worker must still return the exact partial pack"
+    ]
+
+
+@tool(
+    "progressive.request_locator_pass",
+    "Enqueue one nonblocking mechanics-locator pass over an exact host-selected "
+    "contiguous 1..3-page accepted window. It never selects pages, scans the "
+    "bundle, blocks opening readiness, or extracts mechanics profiles.",
+    {
+        "asset_root_id": {"type": "string", "required": True, "maxLength": 128},
+        "source_file_sha256": {
+            "type": "string", "required": True,
+            "minLength": 64, "maxLength": 64,
+        },
+        "mechanics_locator_pdf_indices": {
+            "type": "array", "required": True, "minItems": 1, "maxItems": 3,
+            "uniqueItems": True, "items": {"type": "integer", "minimum": 0},
+        },
+        "request_purpose": {
+            "type": "string", "required": True,
+            "enum": ["mechanics_locator_pass"],
+        },
+    },
+)
+def _tool_progressive_request_locator_pass(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    assets_mod = coc_module_project.coc_module_assets
+    if args.get("request_purpose") != assets_mod.MECHANICS_LOCATOR_PURPOSE:
+        raise ToolError(
+            "invalid_param", "request_purpose must equal mechanics_locator_pass",
+        )
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            ctx.root, str(ctx.campaign_id),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    root_id = str(args.get("asset_root_id") or "").strip()
+    source_sha = str(args.get("source_file_sha256") or "").strip()
+    if root_id != root_info["asset_root_id"] or source_sha != root_info["file_sha256"]:
+        raise ToolError(
+            "mechanics_locator_source_identity_mismatch",
+            "request arguments do not match the campaign-bound source root",
+        )
+    skeleton = assets_mod.get_skeleton(ctx.root, root_id)
+    if not isinstance(skeleton, dict):
+        raise ToolError("opening_skeleton_missing", "publish the skeleton first")
+    if skeleton.get("mechanics_locator_pass_status") == "complete":
+        return {
+            "status": "current",
+            "idempotent": True,
+            "asset_root_id": root_id,
+            "worker_kick": {"started": False, "reason": "locator_pass_complete"},
+        }, [], []
+    pages = _opening_page_list(
+        args.get("mechanics_locator_pdf_indices"),
+        field="mechanics_locator_pdf_indices",
+    )
+    try:
+        scope = assets_mod.validate_opening_source_window(
+            ctx.root,
+            root_id,
+            bundle_sha256=str(root_info["bundle_sha256"]),
+            pdf_indices=pages,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError(
+            "mechanics_locator_source_window_invalid", str(exc),
+        ) from exc
+    checked_scope = skeleton.get("mechanics_locator_scope")
+    if (
+        isinstance(checked_scope, dict)
+        and str(checked_scope.get("source_file_sha256") or "").lower()
+        == str(scope["file_sha256"]).lower()
+        and set(scope["pdf_indices"]).issubset(
+            set(checked_scope.get("pdf_indices") or [])
+        )
+    ):
+        return {
+            "status": "current",
+            "idempotent": True,
+            "asset_root_id": root_id,
+            "request_purpose": assets_mod.MECHANICS_LOCATOR_PURPOSE,
+            "requested_source_scope": scope,
+            "source_scope_signature": assets_mod.opening_source_scope_signature(scope),
+            "job_id": None,
+            "worker_kick": {
+                "started": False,
+                "reason": "locator_window_already_reviewed",
+            },
+            "required_for_opening": False,
+            "hard_gate": False,
+            "deadline_class": "idle_warm",
+        }, [], []
+    try:
+        queued = assets_mod.enqueue_job(
+            ctx.root,
+            root_id,
+            kind="locate_mechanics_index",
+            target_id=assets_mod.MECHANICS_LOCATOR_TARGET_ID,
+            priority=20,
+            reason=assets_mod.MECHANICS_LOCATOR_PURPOSE,
+            request_purpose=assets_mod.MECHANICS_LOCATOR_PURPOSE,
+            requested_source_scope=scope,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        code = (
+            "mechanics_locator_source_scope_conflict"
+            if "mechanics_locator_source_scope_conflict" in str(exc)
+            else "mechanics_locator_source_window_invalid"
+        )
+        raise ToolError(code, str(exc)) from exc
+    job_id = str((queued.get("job") or {}).get("job_id") or "")
+    return {
+        "status": "queued" if queued.get("enqueued") else "coalesced",
+        "idempotent": bool(queued.get("deduped")),
+        "asset_root_id": root_id,
+        "request_purpose": assets_mod.MECHANICS_LOCATOR_PURPOSE,
+        "requested_source_scope": scope,
+        "source_scope_signature": assets_mod.opening_source_scope_signature(scope),
+        "job_id": job_id,
+        "dedupe_state": queued.get("dedupe_state"),
+        "worker_kick": queued.get("worker_kick"),
+        "required_for_opening": False,
+        "hard_gate": False,
+        "deadline_class": "idle_warm",
+    }, [], [
+        "claim/spawn/forward this exact packet opportunistically; opening and ordinary play remain available",
+    ]
+
+
+@tool(
+    "progressive.project_opening",
+    "Experimental selected-only projection of one durable, current opening pack. "
+    "Accepts no pack payload, never compiles alternate starts, and refuses stale "
+    "projection writes after play has begun.",
+    {
+        "asset_root_id": {"type": "string", "required": True, "maxLength": 128},
+        "source_file_sha256": {"type": "string", "required": True, "minLength": 64, "maxLength": 64},
+        "start_location_id": {
+            "type": "string", "required": True,
+            "minLength": 1, "maxLength": 128,
+            "pattern": _OPENING_SAFE_ID_PATTERN,
+        },
+        "opening_pdf_indices": {
+            "type": "array", "minItems": 1, "maxItems": 3,
+            "uniqueItems": True,
+            "items": {"type": "integer", "minimum": 0},
+            "desc": "optional exact qualified selected opening page window",
+        },
+    },
+)
+def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    selected_arg = _opening_start_selector(
+        args.get("start_location_id"),
+        required=True,
+    )
+    pages_arg = _opening_page_list(args.get("opening_pdf_indices"))
+    try:
+        result = coc_module_project.project_selected_opening(
+            ctx.root,
+            str(ctx.campaign_id),
+            str(args.get("asset_root_id") or ""),
+            str(args.get("source_file_sha256") or ""),
+            selected_arg,
+            pages_arg,
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("opening_projection_failed", str(exc)) from exc
+    if coc_module_project.campaign_is_pristine_for_opening(ctx.campaign_dir):
+        result["activation_operation"] = _opening_activation_card(
+            str(result.get("start_location_id") or selected_arg)
+        )
+    return result, [], [
+        "selected authored opening projection is current; activation remains an explicit scene mutation"
+    ]
+
+
 @tool(
     "progressive.request_deepen",
     "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, "
@@ -8976,6 +11330,39 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "progressive.request_mechanics",
+    "Request one source-first NPC/item mechanics lookup without reparsing its narrative body. Exact appendix/chapter pages are cached and same-page subjects are batched.",
+    {
+        "kind": {"type": "string", "required": True, "desc": "npc | item"},
+        "target_id": {"type": "string", "required": True, "desc": "stable subject id"},
+        "title": {"type": "string", "desc": "optional table-language label"},
+        "reason": {"type": "string", "desc": "structured reason for the source lookup"},
+    },
+)
+def _tool_progressive_request_mechanics(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    try:
+        result = coc_module_project.request_mechanics(
+            ctx.root,
+            ctx.campaign_id,
+            kind=str(args["kind"]),
+            target_id=str(args["target_id"]),
+            title=str(args.get("title") or "") or None,
+            reason=str(args.get("reason") or "mechanics_required"),
+        )
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    result, _locator_discovery = _with_mechanics_locator_discovery(
+        ctx,
+        result,
+        subject_kind=str(args["kind"]),
+        subject_id=str(args["target_id"]),
+    )
+    return result, [], list(result.get("host_hints") or [])
+
+
+@tool(
     "progressive.follow_mentions",
     "Enqueue deepen jobs from a structured mentions list "
     "[{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, "
@@ -9013,18 +11400,148 @@ def _tool_progressive_follow_mentions(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "progressive.register_source_bundle",
+    "Validate and register one later host-PDF page window for the campaign's "
+    "existing progressive asset root. This caches reviewed pages only; it does "
+    "not parse PDF bytes or compile semantic entity packs.",
+    {
+        "source_bundle_path": {
+            "type": "string",
+            "required": True,
+            "desc": "absolute path to one host-produced source-bundle directory",
+        },
+    },
+)
+def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+    if not root_id:
+        raise ToolError("invalid_param", "campaign is not progressive")
+    assets_mod = coc_module_project.coc_module_assets
+    try:
+        result = assets_mod.register_source_bundle(
+            ctx.root,
+            Path(str(args.get("source_bundle_path") or "")).expanduser().resolve(),
+            asset_root_id=root_id,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    if str(result.get("asset_root_id") or "") != root_id:
+        raise ToolError(
+            "source_identity_mismatch",
+            "source bundle resolved to a different progressive asset root",
+        )
+    return result, [], [
+        "reviewed pages are now cached; claim background host work again so its "
+        "exact cached_page_refs refresh without reopening the PDF",
+    ]
+
+
+@tool(
+    "progressive.claim_host_work",
+    "Atomically lease up to four exact cached-page work groups for bounded "
+    "host-native source-pack subagents. Returns bare coc.source-pack-worker.v1 "
+    "packets; children never write campaign/module state and the parent Keeper "
+    "must submit accepted packs through progressive.fulfill_host_work.",
+    {
+        "executor_id": {
+            "type": "string",
+            "required": True,
+            "desc": "stable host/session executor id used for leases and recovery",
+        },
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4,
+            "desc": "maximum independent exact-page work groups to lease (default 1)",
+        },
+        "lease_seconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600,
+            "desc": "crash-recovery lease duration (default 600 seconds)",
+        },
+    },
+)
+def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
+    if not root_id:
+        raise ToolError("invalid_param", "campaign is not progressive")
+    assets_mod = coc_module_project.coc_module_assets
+    try:
+        result = assets_mod.claim_host_work_requests(
+            ctx.root,
+            root_id,
+            executor_id=str(args.get("executor_id") or ""),
+            limit=args.get("limit", 1),
+            lease_seconds=args.get("lease_seconds", 600),
+            cached_only=True,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    hints = [
+        "spawn one background source-pack child per returned packet and continue "
+        "play; give the child that one bare packet without transcript or prose wrapper",
+        "when the host exposes direct submit, the child submits itself and the parent "
+        "never waits, polls, retrieves output, or calls progressive.fulfill_host_work; "
+        "only an adapter without direct submit inspects once later and forwards each "
+        "exact results[i] unchanged through that fallback operation",
+    ]
+    if not result.get("packets"):
+        hints.append(
+            "no exact cached-page group is ready; unresolved or uncached requests "
+            "remain visible in progressive.status for a bounded host PDF window"
+        )
+    return result, [], hints
+
+
+@tool(
     "progressive.fulfill_host_work",
-    "Submit one host-PDF semantic pack for an open progressive parsing request. "
+    "Submit one exact source-worker result for an open progressive parsing request. "
     "This is the canonical closure path: it validates the request/entity binding, "
     "marks the handoff fulfilled, and re-enqueues campaign merge work.",
     {
+        "worker_result": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "pack": {"type": "object"},
+                "related_packs": {"type": "array"},
+            },
+            "required_fields": ["job_id", "pack", "related_packs"],
+            "additionalProperties": False,
+            "desc": (
+                "preferred exact child results[i] object; pass it unchanged as "
+                "one value and never combine it with legacy job_id/pack/related_packs"
+            ),
+        },
         "job_id": {
-            "type": "string", "required": True,
-            "desc": "open job_id returned by progressive.status or scene.context",
+            "type": "string",
+            "desc": "legacy explicit job id; mutually exclusive with worker_result",
         },
         "pack": {
-            "type": "object", "required": True,
-            "desc": "source-bound semantic entity pack produced by the host PDF capability",
+            "type": "object",
+            "desc": "legacy explicit pack; mutually exclusive with worker_result",
+        },
+        "related_packs": {
+            "type": "array",
+            "desc": "legacy optional same-page batch; mutually exclusive with worker_result",
+        },
+        "host_task_timing": {
+            "type": "object",
+            "properties": {
+                "started_at": {"type": "string"},
+                "completed_at": {"type": "string"},
+                "duration_ms": {"type": "integer", "minimum": 0},
+                "task_id": {"type": "string"},
+            },
+            "required_fields": [
+                "started_at", "completed_at", "duration_ms", "task_id",
+            ],
+            "desc": "optional exact host-runtime metadata from the completed background task; never model-authored",
         },
     },
 )
@@ -9034,7 +11551,73 @@ def _tool_progressive_fulfill_host_work(ctx: Ctx, args: dict[str, Any]):
     root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
     if not root_id:
         raise ToolError("invalid_param", "campaign is not progressive")
+    return _fulfill_host_work_for_asset(ctx, args, root_id=root_id)
+
+
+def _source_submit_lock_path(ctx: Ctx) -> Path:
     assets_mod = coc_module_project.coc_module_assets
+    return assets_mod.assets_root(ctx.root) / ".source-submit.lock"
+
+
+def _fulfill_host_work_for_asset(
+    ctx: Ctx, args: dict[str, Any], *, root_id: str,
+):
+    """Serialize both parent and source-scoped calls through one strict core."""
+    try:
+        with coc_fileio.advisory_file_lock(_source_submit_lock_path(ctx)):
+            return _fulfill_host_work_for_asset_unlocked(
+                ctx, args, root_id=root_id,
+            )
+    except coc_fileio.CampaignLockError as exc:
+        raise ToolError("campaign_busy", str(exc)) from exc
+
+
+def _fulfill_host_work_for_asset_unlocked(
+    ctx: Ctx, args: dict[str, Any], *, root_id: str,
+):
+    assets_mod = coc_module_project.coc_module_assets
+
+    # The preferred path keeps the source child's closed result item intact at
+    # the host boundary.  Unwrap it once here, then run the unchanged strict
+    # locator/mechanics/body validation below.  Legacy explicit arguments stay
+    # available for older callers but may never be merged with this envelope.
+    if "worker_result" in args:
+        mixed_fields = [
+            field for field in ("job_id", "pack", "related_packs")
+            if field in args
+        ]
+        if mixed_fields:
+            raise ToolError(
+                "invalid_param",
+                "worker_result is mutually exclusive with legacy "
+                "job_id/pack/related_packs arguments",
+            )
+        worker_result = args.get("worker_result")
+        if not isinstance(worker_result, dict):
+            raise ToolError("invalid_param", "worker_result must be an object")
+        if set(worker_result) != {"job_id", "pack", "related_packs"}:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "worker_result must contain exactly job_id, pack, and related_packs",
+            )
+        exact_result = deepcopy(worker_result)
+        if not str(exact_result.get("job_id") or "").strip():
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "worker_result.job_id must be a non-empty string",
+            )
+        effective_args = exact_result
+        if "host_task_timing" in args:
+            effective_args["host_task_timing"] = deepcopy(
+                args.get("host_task_timing")
+            )
+        args = effective_args
+    elif "job_id" not in args or "pack" not in args:
+        raise ToolError(
+            "invalid_param",
+            "provide worker_result or the legacy job_id and pack arguments",
+        )
+
     job_id = str(args.get("job_id") or "").strip()
     requests = assets_mod.list_host_work_requests(
         ctx.root, root_id, include_closed=True, limit=512,
@@ -9051,40 +11634,1070 @@ def _tool_progressive_fulfill_host_work(ctx: Ctx, args: dict[str, Any]):
             f"host-work job {job_id!r} is already {request.get('status')}",
         )
     job_kind = str(request.get("kind") or "")
+    mechanics_job = job_kind in {
+        "resolve_npc_mechanics", "resolve_item_mechanics",
+    }
     entity_kind = assets_mod._job_entity_kind(job_kind)
     target_id = str(request.get("target_id") or "").strip()
-    if not entity_kind or not target_id:
+    if job_kind != "locate_mechanics_index" and (not entity_kind or not target_id):
         raise ToolError("invalid_state", "host-work request has no entity binding")
     pack = deepcopy(args.get("pack"))
     if not isinstance(pack, dict):
-        raise ToolError("invalid_param", "pack must be an object")
-    expected_state = "partial" if job_kind == "partial_neighbor" else "deep"
-    supplied_state = str(pack.get("parse_state") or expected_state)
-    if supplied_state != expected_state:
         raise ToolError(
-            "invalid_param",
-            f"{job_kind} requires parse_state={expected_state!r}",
+            "invalid_source_worker_pack"
+            if job_kind == "locate_mechanics_index" or mechanics_job
+            else "invalid_param",
+            "pack must be an object",
         )
-    pack["parse_state"] = expected_state
-    pack["host_work_job_id"] = job_id
+    measured_host_timing = None
+    leased_at = str(request.get("leased_at") or "").strip()
+    if leased_at:
+        completed_dt = datetime.now(timezone.utc)
+        try:
+            started_dt = datetime.fromisoformat(leased_at)
+        except ValueError as exc:
+            raise ToolError(
+                "invalid_state", "leased host-work has an invalid leased_at timestamp",
+            ) from exc
+        if started_dt.tzinfo is None:
+            started_dt = started_dt.replace(tzinfo=timezone.utc)
+        supplied_timing = args.get("host_task_timing")
+        if supplied_timing is not None:
+            if not isinstance(supplied_timing, dict):
+                raise ToolError("invalid_param", "host_task_timing must be an object")
+            try:
+                task_started = datetime.fromisoformat(
+                    str(supplied_timing.get("started_at") or "")
+                )
+                task_completed = datetime.fromisoformat(
+                    str(supplied_timing.get("completed_at") or "")
+                )
+            except ValueError as exc:
+                raise ToolError(
+                    "invalid_param",
+                    "host_task_timing started_at/completed_at must be ISO datetimes",
+                ) from exc
+            if task_started.tzinfo is None:
+                task_started = task_started.replace(tzinfo=timezone.utc)
+            if task_completed.tzinfo is None:
+                task_completed = task_completed.replace(tzinfo=timezone.utc)
+            duration_ms = supplied_timing.get("duration_ms")
+            task_id = str(supplied_timing.get("task_id") or "").strip()
+            if (
+                isinstance(duration_ms, bool)
+                or not isinstance(duration_ms, int)
+                or duration_ms < 0
+                or not task_id
+            ):
+                raise ToolError(
+                    "invalid_param",
+                    "host_task_timing requires non-negative duration_ms and task_id",
+                )
+            derived_ms = round(
+                (task_completed - task_started).total_seconds() * 1000
+            )
+            if derived_ms < 0 or abs(derived_ms - duration_ms) > 1500:
+                raise ToolError(
+                    "invalid_param",
+                    "host_task_timing duration does not match start/end metadata",
+                )
+            if task_started < started_dt - timedelta(seconds=5):
+                raise ToolError(
+                    "invalid_param",
+                    "host task started before its source-work lease",
+                )
+            if task_completed > completed_dt + timedelta(seconds=5):
+                raise ToolError(
+                    "invalid_param",
+                    "host task completion is in the future",
+                )
+            measured_host_timing = {
+                "started_at": task_started.isoformat(),
+                "completed_at": task_completed.isoformat(),
+                "duration_ms": duration_ms,
+                "producer": "host_background_subagent",
+                "measurement": "exact_host_task_runtime",
+                "task_id": task_id,
+            }
+        else:
+            measured_host_timing = {
+                "started_at": started_dt.isoformat(),
+                "completed_at": completed_dt.isoformat(),
+                "duration_ms": max(
+                    0, round((completed_dt - started_dt).total_seconds() * 1000),
+                ),
+                "producer": "host_background_subagent",
+                "measurement": "lease_to_fulfill_upper_bound",
+            }
+        # Timing is host/repository evidence. A language model must not invent
+        # or override its own wall-clock receipt.
+        pack["host_timing"] = measured_host_timing
+
+    if job_kind == "locate_mechanics_index":
+        if args.get("related_packs") not in (None, []):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "locator fulfillment requires related_packs=[]",
+            )
+        if request.get("request_purpose") != assets_mod.MECHANICS_LOCATOR_PURPOSE:
+            raise ToolError(
+                "invalid_state", "locator request purpose is not mechanics_locator_pass",
+            )
+        try:
+            exact_scope = assets_mod.validate_opening_source_scope(
+                ctx.root, root_id, request.get("requested_source_scope"),
+            )
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("invalid_state", str(exc)) from exc
+        expected_signature = assets_mod.opening_source_scope_signature(exact_scope)
+        if (
+            request.get("requested_pdf_indices") != exact_scope["pdf_indices"]
+            or str(request.get("source_scope_signature") or "")
+            != expected_signature
+        ):
+            raise ToolError(
+                "mechanics_locator_source_scope_mismatch",
+                "locator request no longer matches its exact accepted source scope",
+            )
+        expected_locator_scope = {
+            "scope_kind": "explicit_pdf_indices",
+            "pdf_indices": list(exact_scope["pdf_indices"]),
+            "source_file_sha256": exact_scope["file_sha256"],
+        }
+        allowed_pack_fields = {
+            "mechanics_locator_pass_status",
+            "mechanics_locator_scope",
+            "npc_roster",
+            "item_roster",
+            "mechanics_index",
+            "host_timing",
+        }
+        required_pack_fields = allowed_pack_fields - {"host_timing"}
+        if set(pack) - allowed_pack_fields:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "locator pack contains unsupported fields",
+            )
+        if not required_pack_fields <= set(pack):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "locator pack is missing required fields",
+            )
+        if pack.get("mechanics_locator_pass_status") != "pending":
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "bounded locator pack must keep global pass pending",
+            )
+        if pack.get("mechanics_locator_scope") != expected_locator_scope:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "locator pack scope must equal the leased exact page window",
+            )
+        for collection in ("npc_roster", "item_roster", "mechanics_index"):
+            if not isinstance(pack.get(collection), list):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"locator pack {collection} must be an array",
+                )
+        requested_indices = set(exact_scope["pdf_indices"])
+        request_refs = {
+            int(ref["pdf_index"]): {
+                "source_id": str(ref.get("source_id") or ""),
+                "pdf_index": int(ref["pdf_index"]),
+                "text_sha256": str(ref.get("text_sha256") or ""),
+            }
+            for ref in (request.get("cached_page_refs") or [])
+            if isinstance(ref, dict) and isinstance(ref.get("pdf_index"), int)
+        }
+        if set(request_refs) != requested_indices:
+            raise ToolError(
+                "invalid_state", "locator request lacks its complete leased cache refs",
+            )
+
+        def locator_source_bound_row(
+            incoming: Any,
+            *,
+            field: str,
+            allowed_fields: set[str],
+        ) -> dict[str, Any]:
+            if not isinstance(incoming, dict) or set(incoming) != allowed_fields:
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field} must contain exactly its allowed and required fields",
+                )
+            try:
+                indices = assets_mod._source_indices(incoming, field=field)
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError("invalid_source_worker_pack", str(exc)) from exc
+            if not indices or not set(indices) <= requested_indices:
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field} must stay inside the leased exact page window",
+                )
+            expected_refs = [request_refs[index] for index in indices]
+            supplied_refs = incoming.get("source_refs")
+            if (
+                not isinstance(supplied_refs, list)
+                or len(supplied_refs) != len(indices)
+                or not all(isinstance(ref, dict) for ref in supplied_refs)
+            ):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field}.source_refs must exactly match its page indices",
+                )
+            supplied_minimal = [
+                {
+                    "source_id": str(ref.get("source_id") or ""),
+                    "pdf_index": ref.get("pdf_index"),
+                    "text_sha256": str(ref.get("text_sha256") or ""),
+                }
+                for ref in supplied_refs if isinstance(ref, dict)
+            ]
+            if supplied_minimal != expected_refs:
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field}.source_refs must match the selected cached refs",
+                )
+            result = deepcopy(incoming)
+            result["source_page_indices"] = list(indices)
+            result["source_refs"] = expected_refs
+            return result
+
+        npc_additions: list[dict[str, Any]] = []
+        for index, incoming in enumerate(pack.get("npc_roster") or []):
+            row = locator_source_bound_row(
+                incoming,
+                field=f"locator.npc_roster[{index}]",
+                allowed_fields={
+                    "npc_id", "names", "parse_state",
+                    "source_page_indices", "source_refs",
+                },
+            )
+            try:
+                assets_mod._require_id(row.get("npc_id"), f"npc_roster[{index}].npc_id")
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError("invalid_source_worker_pack", str(exc)) from exc
+            if row.get("parse_state") != "named_only":
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    "locator npc roster additions must be named_only",
+                )
+            if not isinstance(row.get("names"), list) or not row["names"] or not all(
+                isinstance(name, str) and name.strip() for name in row["names"]
+            ):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    "locator npc roster additions require names",
+                )
+            npc_additions.append(row)
+
+        item_additions: list[dict[str, Any]] = []
+        for index, incoming in enumerate(pack.get("item_roster") or []):
+            row = locator_source_bound_row(
+                incoming,
+                field=f"locator.item_roster[{index}]",
+                allowed_fields={
+                    "item_id", "label", "parse_state",
+                    "source_page_indices", "source_refs",
+                },
+            )
+            try:
+                assets_mod._require_id(row.get("item_id"), f"item_roster[{index}].item_id")
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError("invalid_source_worker_pack", str(exc)) from exc
+            if row.get("parse_state") != "named_only" or not str(
+                row.get("label") or ""
+            ).strip():
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    "locator item roster additions require label and parse_state=named_only",
+                )
+            item_additions.append(row)
+
+        locator_rows: list[dict[str, Any]] = []
+        locator_keys: set[tuple[str, str]] = set()
+        for index, incoming in enumerate(pack.get("mechanics_index") or []):
+            row = locator_source_bound_row(
+                incoming,
+                field=f"locator.mechanics_index[{index}]",
+                allowed_fields={
+                    "subject_kind", "subject_id", "status",
+                    "locator_pass_status", "locator_scope",
+                    "source_page_indices", "source_refs",
+                },
+            )
+            subject_kind = str(row.get("subject_kind") or "")
+            subject_id = str(row.get("subject_id") or "").strip()
+            try:
+                assets_mod._require_id(subject_id, f"mechanics_index[{index}].subject_id")
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError("invalid_source_worker_pack", str(exc)) from exc
+            key = (subject_kind, subject_id)
+            if subject_kind not in {"npc", "item"} or key in locator_keys:
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    "locator rows require unique npc/item subjects",
+                )
+            if (
+                row.get("status") != "located"
+                or row.get("locator_pass_status") != "complete"
+                or row.get("locator_scope") != expected_locator_scope
+            ):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    "bounded locator rows must be complete+located in the exact leased scope",
+                )
+            locator_keys.add(key)
+            locator_rows.append(row)
+        addition_keys = [
+            *(('npc', str(row.get("npc_id") or "")) for row in npc_additions),
+            *(('item', str(row.get("item_id") or "")) for row in item_additions),
+        ]
+        if len(addition_keys) != len(set(addition_keys)):
+            raise ToolError(
+                "invalid_source_worker_pack", "locator roster additions must be unique",
+            )
+        if not set(addition_keys) <= locator_keys:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "locator roster additions require a matching located row",
+            )
+        current = assets_mod.get_skeleton(ctx.root, root_id)
+        if not isinstance(current, dict):
+            raise ToolError("invalid_state", "canonical skeleton is missing")
+        if current.get("mechanics_locator_pass_status") == "complete":
+            raise ToolError("invalid_state", "canonical locator pass is already complete")
+        merged = deepcopy(current)
+        for collection, id_field, additions in (
+            ("npc_roster", "npc_id", npc_additions),
+            ("item_roster", "item_id", item_additions),
+        ):
+            existing_rows = list(merged.get(collection) or [])
+            existing_ids = {
+                str(row.get(id_field) or "")
+                for row in existing_rows if isinstance(row, dict)
+            }
+            existing_rows.extend(
+                deepcopy(row) for row in additions
+                if str(row.get(id_field) or "") not in existing_ids
+            )
+            merged[collection] = existing_rows
+        roster_keys = {
+            ("npc", str(row.get("npc_id") or ""))
+            for row in merged.get("npc_roster") or [] if isinstance(row, dict)
+        } | {
+            ("item", str(row.get("item_id") or ""))
+            for row in merged.get("item_roster") or [] if isinstance(row, dict)
+        }
+        if not locator_keys <= roster_keys:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                "each locator row must bind to the merged roster",
+            )
+        existing_locators = [
+            deepcopy(row) for row in merged.get("mechanics_index") or []
+            if isinstance(row, dict)
+            and (
+                str(row.get("subject_kind") or ""),
+                str(row.get("subject_id") or ""),
+            ) not in locator_keys
+        ]
+        merged["mechanics_index"] = [*existing_locators, *deepcopy(locator_rows)]
+        merged["mechanics_locator_pass_status"] = "pending"
+        prior_scope = merged.get("mechanics_locator_scope")
+        accumulated_indices = set(exact_scope["pdf_indices"])
+        if isinstance(prior_scope, dict):
+            accumulated_indices.update(prior_scope.get("pdf_indices") or [])
+        merged["mechanics_locator_scope"] = {
+            "scope_kind": "explicit_pdf_indices",
+            "pdf_indices": sorted(accumulated_indices),
+            "source_file_sha256": exact_scope["file_sha256"],
+        }
+        started_put = time.perf_counter()
+        try:
+            put_result = assets_mod.put_skeleton(ctx.root, root_id, merged)
+            repository_put_ms = max(
+                0, round((time.perf_counter() - started_put) * 1000),
+            )
+            assets_mod.mark_locator_host_work_fulfilled(
+                ctx.root,
+                root_id,
+                host_work_job_id=job_id,
+                repository_put_ms=repository_put_ms,
+            )
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        return {
+            "asset_root_id": root_id,
+            "job_id": job_id,
+            "request_status": "fulfilled",
+            "locator_rows_merged": len(locator_rows),
+            "npc_roster_additions": len(npc_additions),
+            "item_roster_additions": len(item_additions),
+            "global_locator_pass_status": "pending",
+            "put": put_result,
+            "measured_host_timing": measured_host_timing,
+        }, [], [
+            "locator rows are durable; later mechanics.ensure can request the exact indexed page without blocking ordinary play",
+        ]
+
+    validated_mechanics_related: list[dict[str, Any]] | None = None
+    if mechanics_job:
+        requested_indices = set(request.get("requested_pdf_indices") or [])
+        raw_request_refs = request.get("cached_page_refs")
+        if (
+            not requested_indices
+            or not isinstance(raw_request_refs, list)
+            or len(raw_request_refs) != len(requested_indices)
+            or any(
+                not isinstance(ref, dict)
+                or isinstance(ref.get("pdf_index"), bool)
+                or not isinstance(ref.get("pdf_index"), int)
+                or not str(ref.get("source_id") or "")
+                or len(str(ref.get("text_sha256") or "")) != 64
+                for ref in raw_request_refs
+            )
+            or {int(ref["pdf_index"]) for ref in raw_request_refs}
+            != requested_indices
+        ):
+            raise ToolError(
+                "invalid_state",
+                "mechanics request lacks its complete leased exact cache refs",
+            )
+        request_ref_signatures = {
+            (
+                str(ref.get("source_id") or ""),
+                int(ref["pdf_index"]),
+                str(ref.get("text_sha256") or ""),
+            )
+            for ref in raw_request_refs
+            if isinstance(ref, dict) and isinstance(ref.get("pdf_index"), int)
+        }
+
+        def validate_mechanics_worker_pack(
+            incoming: Any,
+            *,
+            field: str,
+            subject_kind: str,
+            subject_id: str,
+        ) -> None:
+            """Reject malformed child output before any durable entity write."""
+            if not isinstance(incoming, dict) or set(incoming) != {"mechanics"}:
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field} must contain exactly one nested mechanics object",
+                )
+            mechanics_payload = incoming.get("mechanics")
+            if not isinstance(mechanics_payload, dict):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field}.mechanics must be an object",
+                )
+            status = str(mechanics_payload.get("status") or "")
+            if status == "authored":
+                authored_fields = {
+                    "status", "profile", "source_refs",
+                    "fields_observed", "fields_extracted",
+                    "fields_not_authored", "provenance",
+                }
+                if set(mechanics_payload) != authored_fields:
+                    raise ToolError(
+                        "invalid_source_worker_pack",
+                        f"{field}.mechanics status=authored must contain exactly "
+                        "status/profile/source_refs/fields_*/provenance",
+                    )
+                refs = mechanics_payload.get("source_refs")
+                if not isinstance(refs, list) or not refs:
+                    raise ToolError(
+                        "invalid_source_worker_pack",
+                        f"{field}.mechanics.source_refs must be a non-empty exact "
+                        "request-cache subset",
+                    )
+                supplied_signatures: list[tuple[str, int, str]] = []
+                for index, ref in enumerate(refs):
+                    if (
+                        not isinstance(ref, dict)
+                        or set(ref) != {"source_id", "pdf_index", "text_sha256"}
+                        or isinstance(ref.get("pdf_index"), bool)
+                        or not isinstance(ref.get("pdf_index"), int)
+                    ):
+                        raise ToolError(
+                            "invalid_source_worker_pack",
+                            f"{field}.mechanics.source_refs[{index}] must be one "
+                            "exact source_id/pdf_index/text_sha256 ref",
+                        )
+                    supplied_signatures.append((
+                        str(ref.get("source_id") or ""),
+                        int(ref["pdf_index"]),
+                        str(ref.get("text_sha256") or ""),
+                    ))
+                if (
+                    len(supplied_signatures) != len(set(supplied_signatures))
+                    or not set(supplied_signatures) <= request_ref_signatures
+                ):
+                    raise ToolError(
+                        "invalid_source_worker_pack",
+                        f"{field}.mechanics.source_refs must be unique exact refs "
+                        "from this leased request",
+                    )
+            elif status == "not_authored":
+                allowed_fields = set(coc_mechanics.NOT_AUTHORED_KEYS)
+                required_fields = {
+                    "status", "locator_pass_status", "locator_scope",
+                    "absence_receipt",
+                }
+                if (
+                    set(mechanics_payload) - allowed_fields
+                    or not required_fields <= set(mechanics_payload)
+                ):
+                    raise ToolError(
+                        "invalid_source_worker_pack",
+                        f"{field}.mechanics status=not_authored violates the "
+                        "closed receipt-only shape",
+                    )
+            else:
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field}.mechanics.status must be authored or not_authored",
+                )
+            expected_locator_scope = None
+            if status == "not_authored":
+                locator = assets_mod._skeleton_mechanics_row(
+                    ctx.root, root_id, subject_kind, subject_id,
+                )
+                if not isinstance(locator, dict) or not isinstance(
+                    locator.get("locator_scope"), dict,
+                ):
+                    raise ToolError(
+                        "invalid_source_worker_pack",
+                        f"{field}.mechanics not_authored has no matching complete "
+                        "skeleton locator scope",
+                    )
+                expected_locator_scope = locator["locator_scope"]
+            try:
+                coc_mechanics.validate_mechanics_record(
+                    mechanics_payload,
+                    subject_kind=subject_kind,
+                    expected_locator_scope=expected_locator_scope,
+                )
+            except coc_mechanics.MechanicsError as exc:
+                raise ToolError("invalid_source_worker_pack", str(exc)) from exc
+
+        validate_mechanics_worker_pack(
+            args.get("pack"),
+            field="pack",
+            subject_kind=entity_kind,
+            subject_id=target_id,
+        )
+        raw_related = args.get("related_packs")
+        if raw_related is None:
+            raw_related = []
+        if not isinstance(raw_related, list):
+            raise ToolError(
+                "invalid_source_worker_pack", "related_packs must be an array",
+            )
+        allowed_batch = {
+            (str(row.get("subject_kind") or ""), str(row.get("subject_id") or ""))
+            for row in (request.get("batch_subjects") or [])
+            if isinstance(row, dict)
+        }
+        primary_subject = (entity_kind, target_id)
+        seen_related: set[tuple[str, str]] = set()
+        validated_mechanics_related = []
+        for index, related in enumerate(raw_related):
+            field = f"related_packs[{index}]"
+            if (
+                not isinstance(related, dict)
+                or set(related) != {"subject_kind", "subject_id", "pack"}
+            ):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field} must contain exactly subject_kind/subject_id/pack",
+                )
+            related_kind = str(related.get("subject_kind") or "")
+            related_id = str(related.get("subject_id") or "")
+            related_subject = (related_kind, related_id)
+            if (
+                related_subject == primary_subject
+                or related_subject in seen_related
+                or related_subject not in allowed_batch
+            ):
+                raise ToolError(
+                    "invalid_source_worker_pack",
+                    f"{field} must name one unique eligible non-primary batch subject",
+                )
+            validate_mechanics_worker_pack(
+                related.get("pack"),
+                field=f"{field}.pack",
+                subject_kind=related_kind,
+                subject_id=related_id,
+            )
+            seen_related.add(related_subject)
+            validated_mechanics_related.append(deepcopy(related))
+
+    def _apply_mechanics_only_fulfill(
+        *,
+        kind: str,
+        entity_id: str,
+        incoming: dict[str, Any],
+        force_host_job: bool,
+    ) -> dict[str, Any]:
+        """Merge only mechanics; never force narrative parse_state=deep."""
+        mechanics_payload = incoming.get("mechanics")
+        if not isinstance(mechanics_payload, dict):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"{job_kind} pack requires a mechanics object",
+            )
+        existing = assets_mod.get_entity(ctx.root, root_id, kind, entity_id)
+        if existing is not None:
+            merged = deepcopy(existing)
+            merged["mechanics"] = deepcopy(mechanics_payload)
+            # Preserve existing narrative parse_state; mechanics readiness is
+            # independent of body depth.
+            if force_host_job:
+                merged["host_work_job_id"] = job_id
+            else:
+                merged.pop("host_work_job_id", None)
+            if measured_host_timing and not merged.get("host_timing"):
+                merged["host_timing"] = deepcopy(measured_host_timing)
+            return merged
+        id_key = assets_mod._ENTITY_ID_KEY[kind]
+        shell: dict[str, Any] = {
+            id_key: entity_id,
+            "parse_state": "named_only",
+            "origin": incoming.get("origin") or "source",
+            "mechanics": deepcopy(mechanics_payload),
+        }
+        for key in (
+            "name", "display_name", "label", "source_page_indices",
+            "source_refs", "provenance",
+        ):
+            if key in incoming and incoming[key] is not None:
+                shell[key] = deepcopy(incoming[key])
+        if kind == "npc":
+            shell.setdefault("name", entity_id)
+            shell.setdefault("display_name", shell["name"])
+        elif kind == "item":
+            shell.setdefault("label", entity_id)
+        # Mechanics-only entities must not claim deep narration.
+        shell["parse_state"] = "named_only"
+        if force_host_job:
+            shell["host_work_job_id"] = job_id
+        if measured_host_timing:
+            shell["host_timing"] = deepcopy(measured_host_timing)
+        return shell
+
+    if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+        pack = _apply_mechanics_only_fulfill(
+            kind=entity_kind,
+            entity_id=target_id,
+            incoming=pack,
+            force_host_job=True,
+        )
+    else:
+        expected_state = (
+            "partial"
+            if job_kind in {"partial_neighbor", "partial_opening"}
+            else "deep"
+        )
+        supplied_state = str(pack.get("parse_state") or expected_state)
+        if supplied_state != expected_state:
+            raise ToolError(
+                "invalid_param",
+                f"{job_kind} requires parse_state={expected_state!r}",
+            )
+        pack["parse_state"] = expected_state
+        pack["host_work_job_id"] = job_id
+        if job_kind == "partial_opening":
+            if (
+                request.get("request_purpose")
+                != assets_mod.FOREGROUND_OPENING_PURPOSE
+            ):
+                raise ToolError(
+                    "invalid_state",
+                    "partial_opening request purpose is not foreground_opening_slice",
+                )
+            try:
+                exact_scope = assets_mod.validate_opening_source_scope(
+                    ctx.root,
+                    root_id,
+                    request.get("requested_source_scope"),
+                )
+                expected_signature = assets_mod.opening_source_scope_signature(
+                    exact_scope
+                )
+                incoming_indices = assets_mod._source_indices(
+                    pack, field="partial_opening.pack",
+                )
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError("invalid_param", str(exc)) from exc
+            if (
+                str(request.get("source_scope_signature") or "")
+                != expected_signature
+                or incoming_indices != exact_scope["pdf_indices"]
+            ):
+                raise ToolError(
+                    "opening_source_scope_mismatch",
+                    "partial opening pack source scope must equal the exact request",
+                )
     try:
         result = assets_mod.put_entity(
             ctx.root, root_id, entity_kind, target_id, pack,
         )
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
+    stored_primary = assets_mod.get_entity(
+        ctx.root, root_id, entity_kind, target_id,
+    )
+    refreshed_request = next(
+        (
+            row
+            for row in assets_mod.list_host_work_requests(
+                ctx.root, root_id, include_closed=True, limit=None,
+            )
+            if str(row.get("job_id") or "") == job_id
+        ),
+        None,
+    )
+    if (
+        not isinstance(stored_primary, dict)
+        or not isinstance(refreshed_request, dict)
+        or not assets_mod.fulfilled_request_matches_current_pack(
+            refreshed_request,
+            stored_primary,
+            kind=entity_kind,
+            entity_id=target_id,
+        )
+    ):
+        raise ToolError(
+            "invalid_state",
+            "canonical host-work fulfillment receipt does not match the current primary pack",
+        )
+    related_results = []
+    allowed_batch = {
+        (str(row.get("subject_kind") or ""), str(row.get("subject_id") or ""))
+        for row in (request.get("batch_subjects") or [])
+        if isinstance(row, dict)
+    }
+    related_subjects: list[tuple[str, str]] = []
+    related_input = (
+        validated_mechanics_related
+        if mechanics_job and validated_mechanics_related is not None
+        else args.get("related_packs") or []
+    )
+    for index, related in enumerate(related_input):
+        if not isinstance(related, dict):
+            raise ToolError(
+                "invalid_source_worker_pack" if mechanics_job else "invalid_param",
+                f"related_packs[{index}] must be an object",
+            )
+        related_kind = str(related.get("subject_kind") or "")
+        related_id = str(related.get("subject_id") or "")
+        if (related_kind, related_id) not in allowed_batch:
+            raise ToolError(
+                "invalid_source_worker_pack" if mechanics_job else "invalid_param",
+                f"related_packs[{index}] is not in this request's batch_subjects",
+            )
+        related_pack = deepcopy(related.get("pack"))
+        if not isinstance(related_pack, dict):
+            raise ToolError(
+                "invalid_source_worker_pack" if mechanics_job else "invalid_param",
+                f"related_packs[{index}].pack must be an object",
+            )
+        if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+            related_pack = _apply_mechanics_only_fulfill(
+                kind=related_kind,
+                entity_id=related_id,
+                incoming=related_pack,
+                force_host_job=False,
+            )
+        else:
+            related_pack["parse_state"] = "deep"
+            related_pack.pop("host_work_job_id", None)
+            if pack.get("host_timing") and not related_pack.get("host_timing"):
+                related_pack["host_timing"] = deepcopy(pack["host_timing"])
+        try:
+            related_results.append(
+                assets_mod.put_entity(
+                    ctx.root, root_id, related_kind, related_id, related_pack,
+                )
+            )
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("invalid_param", str(exc)) from exc
+        related_subjects.append((related_kind, related_id))
+
+    # Mechanics-only packs stay narrative-shallow, so put_entity's deep-only
+    # reenqueue path does not fire. Re-queue resolve_* merge jobs so durable
+    # authored/not_authored mechanics still project into campaign IR.
+    if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+        merge_jobs = [(entity_kind, target_id), *related_subjects]
+        for subject_kind, subject_id in merge_jobs:
+            resolve_kind = (
+                "resolve_npc_mechanics" if subject_kind == "npc"
+                else "resolve_item_mechanics" if subject_kind == "item"
+                else None
+            )
+            if resolve_kind is None:
+                continue
+            assets_mod.enqueue_job(
+                ctx.root,
+                root_id,
+                kind=resolve_kind,
+                target_id=subject_id,
+                priority=100,
+                reason="mechanics_pack_ready",
+            )
+
+    if job_kind == "partial_opening":
+        success_hints = [
+            "the exact reusable partial opening pack is durable; call "
+            "progressive.prepare_opening and use its returned mutation card",
+        ]
+    elif job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+        success_hints = [
+            "the reusable mechanics pack is durable and its mechanics merge "
+            "job was re-enqueued",
+        ]
+    elif isinstance(result.get("worker"), dict) and not result["worker"].get("error"):
+        success_hints = [
+            "the reusable deep pack is durable and merge was re-enqueued; "
+            "continue play from the pack instead of reopening the same PDF scope",
+        ]
+    else:
+        success_hints = [
+            "the reusable pack is durable; inspect progressive status before "
+            "claiming a campaign merge was scheduled",
+        ]
+
     return {
         "asset_root_id": root_id,
         "job_id": job_id,
-        "request_status": "fulfilled",
+        "request_status": refreshed_request["status"],
         "entity": coc_module_project._entity_status(
             ctx.root, root_id, entity_kind, target_id,
         ),
         "put": result,
-    }, [], [
-        "the reusable pack is durable and merge was re-enqueued; continue play from "
-        "the pack instead of reopening the same PDF scope",
-    ]
+        "related_puts": related_results,
+        "measured_host_timing": measured_host_timing,
+    }, [], success_hints
+
+
+_SOURCE_RESULT_FIELDS = {
+    "schema_version", "contract_id", "packet_id", "work_group_id",
+    "status", "results",
+}
+_SOURCE_RESULT_ITEM_FIELDS = {"job_id", "pack", "related_packs"}
+_SOURCE_RESULT_CONTRACT = "coc.source-pack-worker.v1"
+_SOURCE_SUBMIT_RECEIPT_CONTRACT = "coc.source-submit-receipt.v1"
+
+
+def _source_result_id(value: Any, *, field: str) -> str:
+    text = str(value or "").strip()
+    if not text or len(text) > 256:
+        raise ToolError(
+            "invalid_source_submission",
+            f"{field} must be a non-empty string of at most 256 characters",
+        )
+    return text
+
+
+def _validate_source_result_submission(
+    payload: dict[str, Any],
+) -> tuple[str, str, str, list[dict[str, Any]]]:
+    if set(payload) != _SOURCE_RESULT_FIELDS:
+        raise ToolError(
+            "invalid_source_submission",
+            "source submission must contain exactly schema_version, contract_id, "
+            "packet_id, work_group_id, status, and results",
+        )
+    if type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
+        raise ToolError(
+            "invalid_source_submission", "source submission requires schema_version=1",
+        )
+    if payload.get("contract_id") != _SOURCE_RESULT_CONTRACT:
+        raise ToolError(
+            "invalid_source_submission",
+            f"source submission requires contract_id={_SOURCE_RESULT_CONTRACT}",
+        )
+    packet_id = _source_result_id(payload.get("packet_id"), field="packet_id")
+    work_group_id = _source_result_id(
+        payload.get("work_group_id"), field="work_group_id",
+    )
+    status = str(payload.get("status") or "").strip()
+    if status not in {"usable", "abstain", "failed"}:
+        raise ToolError(
+            "invalid_source_submission",
+            "source submission status must be usable, abstain, or failed",
+        )
+    raw_results = payload.get("results")
+    if not isinstance(raw_results, list) or len(raw_results) > 128:
+        raise ToolError(
+            "invalid_source_submission", "source submission results must be an array",
+        )
+    if status != "usable" and raw_results:
+        raise ToolError(
+            "invalid_source_submission",
+            "abstain/failed source submissions require results=[]",
+        )
+    if status == "usable" and not raw_results:
+        raise ToolError(
+            "invalid_source_submission", "usable source submission requires results",
+        )
+    results: list[dict[str, Any]] = []
+    job_ids: set[str] = set()
+    for index, raw in enumerate(raw_results):
+        if not isinstance(raw, dict) or set(raw) != _SOURCE_RESULT_ITEM_FIELDS:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"results[{index}] must contain exactly job_id, pack, and related_packs",
+            )
+        job_id = _source_result_id(raw.get("job_id"), field=f"results[{index}].job_id")
+        if job_id in job_ids:
+            raise ToolError(
+                "invalid_source_submission", "source submission job ids must be unique",
+            )
+        job_ids.add(job_id)
+        results.append(deepcopy(raw))
+    return packet_id, work_group_id, status, results
+
+
+def _leased_source_packet_binding(
+    root: Path,
+    *,
+    packet_id: str,
+    work_group_id: str,
+) -> tuple[str, list[dict[str, Any]]]:
+    assets_mod = coc_module_project.coc_module_assets
+    store = assets_mod.assets_root(root)
+    matches: list[tuple[str, dict[str, Any]]] = []
+    if store.is_dir():
+        for module_dir in sorted(path for path in store.iterdir() if path.is_dir()):
+            work_dir = module_dir / "host-work"
+            if not work_dir.is_dir():
+                continue
+            for path in sorted(work_dir.glob("*.json")):
+                try:
+                    request = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(request, dict) or request.get("lease_id") != packet_id:
+                    continue
+                matches.append((module_dir.name, request))
+    if not matches:
+        raise ToolError(
+            "invalid_source_lease", "packet_id does not bind an existing host-work lease",
+        )
+    asset_root_ids = {asset_root_id for asset_root_id, _request in matches}
+    if len(asset_root_ids) != 1:
+        raise ToolError(
+            "invalid_source_lease", "packet_id ambiguously binds multiple asset roots",
+        )
+    asset_root_id = next(iter(asset_root_ids))
+    now = datetime.now(timezone.utc)
+    for bound_root_id, request in matches:
+        if (
+            bound_root_id != asset_root_id
+            or str(request.get("asset_root_id") or "") != asset_root_id
+            or str(request.get("work_group_id") or "") != work_group_id
+            or str(request.get("dispatch_state") or "") != "leased"
+            or assets_mod._lease_is_expired(request, now)
+            or str(request.get("status") or "open")
+            in {"fulfilled", "cancelled", "superseded"}
+        ):
+            raise ToolError(
+                "invalid_source_lease",
+                "source submission does not match one active leased packet",
+            )
+    requests = [deepcopy(request) for _asset_root_id, request in matches]
+    requests.sort(key=lambda row: str(row.get("job_id") or ""))
+    return asset_root_id, requests
+
+
+def submit_source_worker_result(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """Bind one child result to its lease and reuse strict fulfillment serially."""
+    if not isinstance(payload, dict):
+        raise ToolError("invalid_source_submission", "source submission must be an object")
+    packet_id, work_group_id, status, results = (
+        _validate_source_result_submission(payload)
+    )
+    ctx = Ctx(Path(root).resolve(), None)
+    try:
+        with coc_fileio.advisory_file_lock(_source_submit_lock_path(ctx)):
+            asset_root_id, requests = _leased_source_packet_binding(
+                ctx.root,
+                packet_id=packet_id,
+                work_group_id=work_group_id,
+            )
+            leased_job_ids = {
+                str(request.get("job_id") or "") for request in requests
+            }
+            result_job_ids = {str(result.get("job_id") or "") for result in results}
+            if status == "usable" and result_job_ids != leased_job_ids:
+                raise ToolError(
+                    "invalid_source_lease",
+                    "usable source submission job set must equal the leased packet job set",
+                )
+
+            receipt: dict[str, Any] = {
+                "schema_version": 1,
+                "contract_id": _SOURCE_SUBMIT_RECEIPT_CONTRACT,
+                "packet_id": packet_id,
+                "lease_id": packet_id,
+                "work_group_id": work_group_id,
+                "asset_root_id": asset_root_id,
+                "ok": status == "usable",
+                "submission_status": status,
+                "submission_digest": _canonical_digest(payload),
+                "job_receipts": [],
+            }
+            if status != "usable":
+                receipt["error"] = {
+                    "code": "source_result_not_usable",
+                    "message": f"source worker returned status={status}",
+                }
+                for request in requests:
+                    receipt["job_receipts"].append({
+                        "job_id": request.get("job_id"),
+                        "ok": False,
+                        "request_status": str(request.get("status") or "open"),
+                        "error": deepcopy(receipt["error"]),
+                    })
+                return receipt
+
+            request_by_job = {
+                str(request.get("job_id") or ""): request for request in requests
+            }
+            for result in results:
+                job_id = str(result["job_id"])
+                try:
+                    data, _warnings, _hints = _fulfill_host_work_for_asset_unlocked(
+                        ctx,
+                        {"worker_result": result},
+                        root_id=asset_root_id,
+                    )
+                except ToolError as exc:
+                    failure = {
+                        "job_id": job_id,
+                        "ok": False,
+                        "request_status": str(
+                            request_by_job[job_id].get("status") or "open"
+                        ),
+                        "error": {"code": exc.code, "message": exc.message},
+                    }
+                    receipt["ok"] = False
+                    receipt["error"] = deepcopy(failure["error"])
+                    receipt["job_receipts"].append(failure)
+                    return receipt
+                receipt["job_receipts"].append({
+                    "job_id": job_id,
+                    "ok": True,
+                    "request_status": data.get("request_status"),
+                    "fulfillment_digest": _canonical_digest(data),
+                })
+            return receipt
+    except coc_fileio.CampaignLockError as exc:
+        raise ToolError("source_submit_busy", str(exc)) from exc
 
 
 @tool(
@@ -9122,11 +12735,15 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
     module_root = assets_mod.assets_root(ctx.root) / root_id
     identity = _read_optional_json(module_root / "identity.json", {})
     skeleton = assets_mod.get_skeleton(ctx.root, root_id) or {}
-    host_work = assets_mod.list_host_work_requests(ctx.root, root_id, limit=8)
+    all_host_work = assets_mod.list_host_work_requests(
+        ctx.root, root_id, limit=None,
+    )
     data: dict[str, Any] = {
         "progressive": True,
         "asset_root_id": root_id,
-        "queue": coc_module_project._compact_queue_snapshot(queue),
+        "queue": coc_module_project._compact_queue_snapshot(
+            queue, open_host_work=all_host_work,
+        ),
         "worker": worker_mod.worker_status(ctx.root),
         "source_cache": {
             "source_id": (identity.get("source") or {}).get("source_id"),
@@ -9140,8 +12757,29 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         },
         "start_clock_status": skeleton.get("start_clock_status") or "unbound",
         "host_work": {
-            "open_count": len(host_work),
-            "requests": host_work,
+            "open_count": len(all_host_work),
+            "requests": all_host_work[:8],
+            "ready_for_background_count": sum(
+                row.get("dispatch_state") == "ready"
+                and row.get("cached_scope_complete") is True
+                and bool(row.get("requested_pdf_indices"))
+                for row in all_host_work
+            ),
+            "leased_count": sum(
+                row.get("dispatch_state") == "leased" for row in all_host_work
+            ),
+            "needs_source_window_count": sum(
+                bool(row.get("requested_pdf_indices"))
+                and row.get("cached_scope_complete") is False
+                for row in all_host_work
+            ),
+            "claim_operation": {
+                "tool": "progressive.claim_host_work",
+                "args": {
+                    "executor_id": "<stable host/session id>",
+                    "limit": 1,
+                },
+            },
         },
     }
     kind = str(args.get("kind") or "").strip()
@@ -9156,10 +12794,12 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
         "queue is non-blocking: dig only enqueues; parallel worker merges ready packs "
         "and writes host-work requests for missing deep bodies",
     ]
-    if host_work:
+    if all_host_work:
         hints.append(
-            "open host_work requests are not completed parses: use cached_page_refs first, "
-            "then submit one source-bound pack through progressive.fulfill_host_work"
+            "open host_work requests are not completed parses: claim exact cached "
+            "work for a source child. On a direct-submit host the parent does not "
+            "wait, retrieve, poll, or call progressive.fulfill_host_work; only a "
+            "host without direct submit uses the exact-forward fallback"
         )
     return data, [], hints
 
@@ -9445,6 +13085,29 @@ def _first_impression_display_skill(ctx: Ctx) -> str:
     )
 
 
+def _first_impression_engagement_card(
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    """Carry the normal first-contact write without forcing rediscovery."""
+    return {
+        "operation": "state.record_npc_engagement",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": {
+            "npc_id": str(receipt["npc_id"]),
+            "investigator": str(receipt["investigator_id"]),
+            "first_impression_ref": str(receipt["receipt_id"]),
+            "run_id": str(receipt["run_id"]),
+        },
+        "missing_arguments": [
+            "interaction_kind",
+            "decision_id",
+            "first_impression_realization",
+        ],
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+
+
 @tool(
     "npc.reaction",
     "Settle exactly one public first-impression D100 for an investigator/NPC pair against max(APP, Credit Rating). Returns the frozen achieved level and reaction tier; the KP supplies the context-sensitive causal realization when recording the first engagement.",
@@ -9508,6 +13171,9 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
             _ensure_first_impression_roll(ctx, pair_receipt)
         data = deepcopy(pair_receipt)
         data["first_impression_ref"] = pair_receipt["receipt_id"]
+        data["record_engagement_operation"] = (
+            _first_impression_engagement_card(pair_receipt)
+        )
         return data, [
             "first impression already settled for this investigator/NPC pair; returned the frozen receipt without rerolling"
         ], [
@@ -9591,6 +13257,9 @@ def _tool_npc_reaction(ctx: Ctx, args: dict[str, Any]):
     _ensure_first_impression_roll(ctx, receipt)
     data = deepcopy(receipt)
     data["first_impression_ref"] = receipt["receipt_id"]
+    data["record_engagement_operation"] = (
+        _first_impression_engagement_card(receipt)
+    )
     hints = [
         "the D100 is public and frozen; do not alter it with authored hostility, relationship state, scene constraints, or bonus/penalty dice",
         "the reaction_tier changes immediate opportunity or friction, not the NPC's agenda, allegiance, safety policy, authority, or established relationship",
@@ -9856,7 +13525,69 @@ def _tool_actions_list(ctx: Ctx, args: dict[str, Any]):
         "player_text": {"type": "string", "desc": "optional exact player message for combined Director/Storylet advice"},
         "intent_evidence": {
             "type": "object",
-            "desc": "optional KP semantic result with primary_intent, reason, and matched_affordance_ids/selected_affordance_ids",
+            "desc": (
+                "optional KP semantic result; bind authored routes only with "
+                "matched_affordance_ids or selected_affordance_ids from the "
+                "current action_routes index"
+            ),
+            "properties": {
+                "primary_intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "desc": "KP semantic label for the player's main intent",
+                },
+                "semantic_reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "desc": "why this structured interpretation fits the actual player action",
+                },
+                "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "desc": "backward-compatible alias for semantic_reason",
+                },
+                "matched_affordance_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "uniqueItems": True,
+                    "desc": "preferred exact route IDs from scene.context.action_routes",
+                },
+                "selected_affordance_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "uniqueItems": True,
+                    "desc": "accepted alias for matched_affordance_ids",
+                },
+                "method": {
+                    "type": "string",
+                    "desc": "optional semantic description of the attempted method",
+                },
+                "target": {
+                    "type": "string",
+                    "desc": "optional semantic target of the action",
+                },
+                "precautions": {
+                    "type": "string",
+                    "desc": "optional precautions explicitly established by the player",
+                },
+                "normalized_action_atoms": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                    "desc": "optional structured atoms from a semantic host resolver",
+                },
+                "action_resolution": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "desc": "optional structured semantic-router result",
+                },
+            },
+            "required_fields": ["primary_intent"],
+            "additionalProperties": True,
+            "examples": [{
+                "primary_intent": "search_clippings",
+                "semantic_reason": "the player asks the clerk to retrieve the house file",
+                "matched_affordance_ids": ["search-clippings"],
+            }],
         },
     },
 )
@@ -9992,11 +13723,15 @@ def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
             )
             if storylet_data["candidates"]:
                 candidate = storylet_data["candidates"][0]
+                candidate_ref = _storylet_candidate_ref(
+                    storylet_data["advice_id"], candidate
+                )
                 data["narrative_opportunity"] = {
                     "schema_version": 1,
                     "authority": "advisory",
                     "hard_gate": False,
                     "advice_id": storylet_data["advice_id"],
+                    "candidate_ref": candidate_ref,
                     "candidate": candidate,
                     "reason": (
                         "A stable existing Storylet candidate is available for this "
@@ -10008,7 +13743,7 @@ def _tool_actions_advise(ctx: Ctx, args: dict[str, Any]):
                         "invoke_via": "coc_invoke",
                         "prefilled_arguments": {
                             "advice_id": storylet_data["advice_id"],
-                            "storylet_candidate": candidate,
+                            "candidate_ref": candidate_ref,
                         },
                         "missing_arguments": [
                             "decision_id", "disposition", "reason", "adopted_fields",
@@ -10081,6 +13816,76 @@ def _storylet_advice_matches_candidate(
     ).hexdigest()[:20]
     parts = str(advice_id or "").split(":")
     return len(parts) == 3 and parts[0] == "storylets" and parts[2] == digest
+
+
+def _storylet_candidate_ref(
+    advice_id: Any, candidate: dict[str, Any]
+) -> str:
+    material = {
+        "advice_id": str(advice_id or ""),
+        "candidate": _project_storylet_candidate(candidate),
+    }
+    digest = hashlib.sha256(json.dumps(
+        material,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()[:32]
+    return f"storylet-candidate-v1:{digest}"
+
+
+def _resolve_storylet_candidate_ref(
+    ctx: Ctx,
+    *,
+    advice_id: Any,
+    candidate_ref: Any,
+) -> dict[str, Any]:
+    """Resolve one stable Storylet reference from canonical advisory evidence."""
+    expected_ref = str(candidate_ref or "").strip()
+    expected_advice = str(advice_id or "").strip()
+    if not expected_ref.startswith("storylet-candidate-v1:"):
+        raise ToolError("invalid_param", "candidate_ref is not a Storylet candidate reference")
+    if not expected_advice:
+        raise ToolError("invalid_param", "advice_id is required with candidate_ref")
+    rows = _read_jsonl_records(
+        ctx.campaign_dir / "logs" / "toolbox-calls.jsonl"
+    )
+    for row in reversed(rows):
+        if row.get("ok") is not True:
+            continue
+        tool_name = str(row.get("tool") or "")
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        candidates: list[dict[str, Any]] = []
+        row_advice_id: Any = None
+        if tool_name == "actions.advise":
+            opportunity = data.get("narrative_opportunity")
+            if isinstance(opportunity, dict):
+                row_advice_id = opportunity.get("advice_id")
+                candidate = opportunity.get("candidate")
+                if isinstance(candidate, dict):
+                    candidates = [candidate]
+        elif tool_name == "storylets.suggest":
+            row_advice_id = data.get("advice_id")
+            candidates = [
+                candidate
+                for candidate in data.get("candidates") or []
+                if isinstance(candidate, dict)
+            ]
+        if str(row_advice_id or "") != expected_advice:
+            continue
+        for candidate in candidates:
+            if _storylet_candidate_ref(expected_advice, candidate) != expected_ref:
+                continue
+            if not _storylet_advice_matches_candidate(expected_advice, candidate):
+                raise ToolError(
+                    "state_corrupt",
+                    "candidate_ref resolved to advisory evidence with a mismatched advice digest",
+                )
+            return deepcopy(candidate)
+    raise ToolError(
+        "invalid_param",
+        "candidate_ref was not found in canonical Storylet advisory evidence",
+    )
 
 
 def _active_scene(ctx: Ctx) -> dict[str, Any]:
@@ -10712,7 +14517,11 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
         "emotional_tone_adoption": {"type": "array", "desc": "per-NPC first-impression follow-through for each npc_moves[].emotional_tone in the referenced plan: {npc_id, emotional_tone, adoption: adopted|modified|ignored}"},
         "storylet_candidate": {
             "type": "object",
-            "desc": "optional exact candidate returned by actions.advise/storylets.suggest; adopted or modified candidates update the existing anti-repeat ledger",
+            "desc": "legacy optional exact candidate returned by actions.advise/storylets.suggest; prefer candidate_ref",
+        },
+        "candidate_ref": {
+            "type": "string",
+            "desc": "optional stable candidate_ref returned by actions.advise; the canonical candidate is resolved from advisory evidence",
         },
         "finalization_id": {
             "type": "string",
@@ -10783,6 +14592,26 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
         data["emotional_tone_adoption"] = normalized_tones
     warnings: list[str] = []
     storylet_candidate = args.get("storylet_candidate")
+    candidate_ref = str(args.get("candidate_ref") or "").strip()
+    if storylet_candidate is not None and candidate_ref:
+        warnings.append(
+            "both candidate_ref and storylet_candidate were supplied; the stable candidate_ref was used"
+        )
+        storylet_candidate = None
+    if candidate_ref:
+        data["candidate_ref"] = candidate_ref
+        try:
+            storylet_candidate = _resolve_storylet_candidate_ref(
+                ctx,
+                advice_id=args.get("advice_id"),
+                candidate_ref=candidate_ref,
+            )
+        except ToolError as exc:
+            storylet_candidate = None
+            warnings.append(
+                "candidate_ref could not be resolved; adoption evidence was kept "
+                f"but the anti-repeat ledger was not changed: {exc.message}"
+            )
     if storylet_candidate is not None:
         if not isinstance(storylet_candidate, dict):
             warnings.append(
@@ -11229,16 +15058,14 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         here = {str(c) for c in scene.get("available_clues") or []}
         if clue_id not in here:
             warnings.append(f"clue '{clue_id}' is not authored for scene '{active}' — fine if you moved it deliberately")
-    if (
-        clue is not None
-        and str(clue.get("delivery_kind") or "") in _ROLL_GATED_DELIVERY_KINDS
-    ):
+    if clue is not None and _clue_is_roll_gated(clue):
         missing = _skill_check_clues_missing_roll_evidence(ctx, [clue_id])
         if missing:
             gate = missing[0]
             skills = "/".join(gate["gate_skills"]) or "the authored gate skill"
+            mode = gate.get("discovery_mode") or gate.get("delivery_kind")
             warnings.append(
-                f"clue '{clue_id}' is authored with delivery_kind={gate['delivery_kind']} "
+                f"clue '{clue_id}' is authored with roll gate {mode} "
                 f"({skills}) but no matching skill roll is logged — if the player "
                 "simply declared this fact, run rules.roll before confirming it, "
                 "or consciously rule a free reveal"
@@ -11337,12 +15164,39 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "exhaust_previous": {"type": "boolean", "desc": "mark the departed scene exhausted (done with it)"},
         "reason": {"type": "string", "desc": "why the story moves (logged)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
+        "defer_initial_progressive_on_enter": {
+            "type": "boolean",
+            "desc": "experimental initial-only deferral of the complete progressive on-enter hook",
+        },
     },
 )
 def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     target = str(args["scene_id"])
+    if (
+        "defer_initial_progressive_on_enter" in args
+        and not isinstance(args.get("defer_initial_progressive_on_enter"), bool)
+    ):
+        raise ToolError(
+            "invalid_param", "defer_initial_progressive_on_enter must be boolean"
+        )
+    defer_initial = args.get("defer_initial_progressive_on_enter") is True
     prior = ctx.ledger_lookup("state.move_scene", args.get("decision_id"))
     if prior is not None:
+        prior_data = prior.get("data") if isinstance(prior.get("data"), dict) else {}
+        prior_progressive = (
+            prior_data.get("progressive")
+            if isinstance(prior_data.get("progressive"), dict)
+            else {}
+        )
+        prior_deferred = prior_progressive.get("on_enter_deferred") is True
+        if (defer_initial or prior_deferred) and (
+            defer_initial != prior_deferred
+            or str(prior_data.get("to_scene_id") or "") != target
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                "decision_id already settled a different initial scene deferral",
+            )
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     world = ctx.world()
     sg = ctx.story_graph
@@ -11350,6 +15204,110 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     active = world.get("active_scene_id")
     warnings: list[str] = []
     scene = _scene_by_id(sg, target)
+    if defer_initial:
+        decision_id = str(args.get("decision_id") or "").strip()
+        if not decision_id:
+            raise ToolError(
+                "initial_progressive_deferral_invalid",
+                "initial progressive deferral requires a nonempty decision_id",
+            )
+        if ctx.campaign_dir is None or not coc_module_project.campaign_is_pristine_for_opening(
+            ctx.campaign_dir
+        ):
+            raise ToolError(
+                "initial_progressive_deferral_invalid",
+                "initial progressive deferral is legal only before any played scene evidence",
+            )
+        try:
+            root_info = coc_module_project.resolve_opening_preparation_root(
+                ctx.root, str(ctx.campaign_id),
+            )
+            skeleton = coc_module_project.coc_module_assets.get_skeleton(
+                ctx.root, str(root_info["asset_root_id"]),
+            )
+            if not isinstance(skeleton, dict):
+                raise coc_module_project.OpeningPreparationError(
+                    "opening_skeleton_missing", "opening skeleton is missing",
+                )
+            selected = coc_module_project.select_opening_start(
+                ctx.campaign_dir, skeleton, target,
+            )
+            persisted_binding = (
+                coc_module_project.current_opening_projection_source_binding(
+                    ctx.campaign_dir
+                )
+            )
+            if not isinstance(persisted_binding, dict):
+                raise coc_module_project.OpeningPreparationError(
+                    "opening_projection_binding_missing",
+                    "the projected opening has no durable source binding",
+                )
+            persisted_scope = persisted_binding.get("source_scope")
+            if not (
+                persisted_binding.get("schema_version") == 1
+                and persisted_binding.get("authority") == "source_authored"
+                and persisted_binding.get("asset_root_id")
+                == str(root_info["asset_root_id"])
+                and persisted_binding.get("start_location_id") == selected
+                and isinstance(persisted_scope, dict)
+            ):
+                raise coc_module_project.OpeningPreparationError(
+                    "opening_projection_binding_invalid",
+                    "the durable opening source binding does not match this target",
+                )
+            binding_result = coc_module_project.resolve_selected_opening_binding(
+                ctx.root,
+                root_info,
+                skeleton,
+                selected,
+                persisted_scope.get("pdf_indices"),
+            )
+            readiness = binding_result["readiness"]
+            if not readiness["ready"]:
+                raise coc_module_project.OpeningPreparationError(
+                    "opening_pack_not_ready", "selected opening pack is not ready",
+                )
+            if readiness.get("source_binding") != persisted_binding:
+                raise coc_module_project.OpeningPreparationError(
+                    "opening_projection_binding_invalid",
+                    "the durable opening source binding no longer matches repository evidence",
+                )
+            payload = coc_module_project.build_opening_projection_payload(
+                ctx.root,
+                str(root_info["asset_root_id"]),
+                selected,
+                binding_result["scope"],
+            )
+            expected_receipt = coc_module_project.opening_projection_receipt(
+                str(root_info["asset_root_id"]), selected, payload,
+            )
+        except coc_module_project.OpeningPreparationError as exc:
+            raise ToolError(
+                "initial_progressive_deferral_invalid", exc.message,
+            ) from exc
+        except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+            raise ToolError(
+                "initial_progressive_deferral_invalid", str(exc),
+            ) from exc
+        except coc_module_project.ModuleProjectError as exc:
+            raise ToolError(
+                "initial_progressive_deferral_invalid", str(exc),
+            ) from exc
+        if (
+            coc_module_project.current_opening_projection_receipt(ctx.campaign_dir)
+            != expected_receipt
+            or not coc_module_project.opening_projection_state_is_fresh(
+                ctx.root,
+                ctx.campaign_dir,
+                str(root_info["asset_root_id"]),
+                selected,
+                binding_result["scope"],
+            )
+        ):
+            raise ToolError(
+                "initial_progressive_deferral_invalid",
+                "target is not the current receipt-bound authored start projection",
+            )
     if scene is None:
         warnings.append(f"scene '{target}' is not in the story graph — moving anyway (improvised location)")
     else:
@@ -11430,10 +15388,21 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     # Progressive on-demand track: hot-ring enqueue + merge ready deep packs.
     # Never blocks travel; failures become warnings only.
     try:
-        progressive_info = coc_module_project.on_enter_scene(
-            ctx.root, str(ctx.campaign_id or ""), target,
+        progressive_info = (
+            {"deferred": True}
+            if defer_initial
+            else coc_module_project.on_enter_scene(
+                ctx.root, str(ctx.campaign_id or ""), target,
+            )
         )
-        if progressive_info and progressive_info.get("progressive"):
+        if defer_initial:
+            data["progressive"] = {
+                "on_enter_deferred": True,
+                "deferred_operation": "progressive.on_enter_scene",
+                "resume_available": False,
+                "scope": "entire_initial_progressive_on_enter_hook",
+            }
+        elif progressive_info and progressive_info.get("progressive"):
             data["progressive"] = {
                 "merged_active": progressive_info.get("merged_active"),
                 "neighbors": progressive_info.get("neighbors") or [],
@@ -11739,6 +15708,7 @@ def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
         "item_id": {"type": "string", "desc": "stable item id (defaults to weapon_id for weapons)"},
         "weapon_id": {"type": "string", "desc": "catalog/module weapon id (kind=weapon)"},
         "weapon": {"type": "object", "desc": "full custom weapon spec with weapon_id (kind=weapon)"},
+        "mechanics_ref": {"type": "string", "desc": "campaign-item:<id> or module-item:<id> returned by mechanics.ensure"},
         "note": {"type": "string", "desc": "where/how the item was obtained"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
     },
@@ -11763,7 +15733,31 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
     weapon_spec: dict[str, Any] | None = None
     if kind == "weapon":
         raw_weapon = args.get("weapon")
-        if raw_weapon is not None:
+        mechanics_ref = str(args.get("mechanics_ref") or "").strip()
+        if mechanics_ref:
+            if mechanics_ref.startswith("campaign-item:"):
+                ref_id = mechanics_ref.split(":", 1)[1]
+                row = ctx.campaign_mechanics()["items"].get(ref_id)
+                profile = row.get("profile") if isinstance(row, dict) else None
+            elif mechanics_ref.startswith("module-item:"):
+                ref_id = mechanics_ref.split(":", 1)[1]
+                source_item = _module_item(ctx, ref_id) or {}
+                source_mechanics = source_item.get("mechanics")
+                profile = (
+                    source_mechanics.get("profile")
+                    if isinstance(source_mechanics, dict)
+                    and source_mechanics.get("status") == "authored"
+                    else None
+                )
+            else:
+                raise ToolError(
+                    "invalid_param", "mechanics_ref must start with campaign-item: or module-item:",
+                )
+            if not isinstance(profile, dict) or profile.get("profile_kind") != "weapon":
+                raise ToolError("invalid_param", "mechanics_ref does not resolve to a weapon profile")
+            weapon_spec = deepcopy(profile)
+            weapon_spec.pop("profile_kind", None)
+        elif raw_weapon is not None:
             if not isinstance(raw_weapon, dict):
                 raise ToolError("invalid_param", "weapon must be an object")
             weapon_spec = deepcopy(raw_weapon)
@@ -11783,7 +15777,11 @@ def _tool_state_item_grant(ctx: Ctx, args: dict[str, Any]):
             or coc_inventory.weapon_ref_id(weapon_spec)
         )
     else:
-        if args.get("weapon") is not None or str(args.get("weapon_id") or "").strip():
+        if (
+            args.get("weapon") is not None
+            or str(args.get("weapon_id") or "").strip()
+            or str(args.get("mechanics_ref") or "").strip()
+        ):
             raise ToolError(
                 "invalid_param", "kind=gear must not carry weapon_id/weapon"
             )
@@ -12024,6 +16022,62 @@ def _tool_state_item_remove(ctx: Ctx, args: dict[str, Any]):
     return data, warnings, hints
 
 
+def _normalize_engagement_route_completion(
+    ctx: Ctx, value: Any,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {
+        "scene_id", "route_id", "semantic_reason",
+    }:
+        raise ToolError(
+            "invalid_param",
+            "route_completion must contain exactly scene_id, route_id, semantic_reason",
+        )
+    normalized = {
+        key: str(value.get(key) or "").strip()
+        for key in ("scene_id", "route_id", "semantic_reason")
+    }
+    if not all(normalized.values()):
+        raise ToolError(
+            "invalid_param", "route_completion fields must be non-empty strings",
+        )
+    scene = _scene_by_id(ctx.story_graph, normalized["scene_id"])
+    route = _affordance_by_id(scene, normalized["route_id"])
+    if scene is None or route is None:
+        raise ToolError(
+            "invalid_param",
+            "route_completion must name an exact authored scene/route pair",
+        )
+    return normalized
+
+
+def _settle_engagement_route_completion(
+    ctx: Ctx,
+    route_completion: Any,
+    *,
+    decision_id: str,
+    evidence_ref: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    if not isinstance(route_completion, dict):
+        return None, []
+    return _settle_contextual_route(
+        ctx,
+        {
+            "schema_version": 1,
+            "hard_gate": False,
+            "scene_id": route_completion["scene_id"],
+            "route_id": route_completion["route_id"],
+            "semantic_completion": True,
+            "semantic_reason": route_completion["semantic_reason"],
+            "evidence_ref": evidence_ref,
+        },
+        decision_id=decision_id,
+        source_tool="state.record_npc_engagement",
+        successful=True,
+    )
+
+
 def _npc_engagement_operation(
     ctx: Ctx, args: dict[str, Any]
 ) -> tuple[str, str, str, str, dict[str, Any]]:
@@ -12048,6 +16102,11 @@ def _npc_engagement_operation(
         "first_impression_ref": supplied_first_impression_ref or None,
         "first_impression_realization": supplied_realization,
     }
+    route_completion = _normalize_engagement_route_completion(
+        ctx, args.get("route_completion")
+    )
+    if route_completion is not None:
+        operation["route_completion"] = route_completion
     return (
         decision_id,
         requested_npc_id,
@@ -12152,6 +16211,10 @@ def _pending_npc_engagement_exact_replay(
             "type": "object",
             "desc": "required for a new schema-v2 receipt: exactly {observable_manner, causal_explanation, boundary_preserved, opportunity_or_friction}; semantic KP judgment grounded in persona/agenda/relationship/scene/conduct",
         },
+        "route_completion": {
+            "type": "object",
+            "desc": "optional exact {scene_id, route_id, semantic_reason}; include only when this engagement causally completes that authored route by KP semantic judgment, never by prose matching",
+        },
         "run_id": {
             "type": "string",
             "desc": "current play/report segment run id; live play hosts supply this automatically",
@@ -12168,6 +16231,7 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         run_id,
         operation,
     ) = _npc_engagement_operation(ctx, args)
+    supplied_route_completion = deepcopy(operation.get("route_completion"))
     supplied_identity_ref = str(args.get("identity_ref") or "").strip()
     supplied_first_impression_ref = str(
         args.get("first_impression_ref") or ""
@@ -12220,10 +16284,22 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
                 decision_id=decision_id,
             )
         _ensure_npc_receipt_event(ctx, receipt)
+        route_receipt, route_warnings = _settle_engagement_route_completion(
+            ctx,
+            (receipt.get("operation") or {}).get("route_completion"),
+            decision_id=decision_id,
+            evidence_ref=f"logs/events.jsonl#{receipt['event_id']}",
+        )
+        replay_hints = []
+        if route_receipt is not None:
+            replay_hints.append(
+                f"the engagement also completed authored route '{route_receipt['route_id']}' by recorded KP semantic judgment"
+            )
         return deepcopy(receipt["event"]), [
             *_npc_receipt_warnings(receipt),
+            *route_warnings,
             "duplicate decision_id: recovered the source-owned NPC engagement receipt",
-        ], []
+        ], replay_hints
 
     prior = ctx.ledger_lookup(tool_name, decision_id)
     if prior is not None:
@@ -12354,6 +16430,8 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
         "identity_contract": identity_contract,
         "identity_binding": identity_binding,
     }
+    if supplied_route_completion is not None:
+        event["route_completion"] = deepcopy(supplied_route_completion)
     warnings: list[str] = []
     if authored_npc is None:
         warnings.append(
@@ -12418,14 +16496,104 @@ def _tool_state_record_npc_engagement(ctx: Ctx, args: dict[str, Any]):
     # mutating tool, even if the host chooses a different decision id.
     _save_npc_receipt_document(ctx, document)
     _ensure_npc_receipt_event(ctx, receipt)
+    route_receipt, route_warnings = _settle_engagement_route_completion(
+        ctx,
+        supplied_route_completion,
+        decision_id=decision_id,
+        evidence_ref=f"logs/events.jsonl#{event_id}",
+    )
+    warnings.extend(route_warnings)
     hints = _npc_engagement_advisory_hints(authored_npc, npc_id)
     if first_contact:
         hints.append(
             "first contact settled exactly once for this pair: realize its observable manner, cause, and bounded opportunity/friction in the same fictional beat; other NPC pairs in this journal remain independent"
         )
+    if route_receipt is not None:
+        hints.append(
+            f"this engagement completed authored route '{route_receipt['route_id']}' by explicit KP semantic judgment; dependent route cards are now discoverable without replaying its authored roll gate"
+        )
     data = deepcopy(event)
     ctx.ledger_record(decision_id, tool_name, data)
     return data, warnings, hints
+
+
+@tool(
+    "state.record_route_completion",
+    "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth.",
+    {
+        "scene_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact authored scene id owning the route",
+        },
+        "route_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact authored route/affordance id",
+        },
+        "semantic_reason": {
+            "type": "string",
+            "required": True,
+            "desc": "KP semantic explanation of how established fiction completed the route",
+        },
+        "evidence_ref": {
+            "type": "string",
+            "required": True,
+            "desc": "exact canonical receipt/event/state reference grounding that judgment",
+        },
+        "decision_id": {"type": "string", "desc": "idempotency key"},
+    },
+)
+def _tool_state_record_route_completion(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "state.record_route_completion"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously recorded route completion"
+        ], []
+    normalized = _normalize_engagement_route_completion(ctx, {
+        "scene_id": args.get("scene_id"),
+        "route_id": args.get("route_id"),
+        "semantic_reason": args.get("semantic_reason"),
+    })
+    evidence_ref = str(args.get("evidence_ref") or "").strip()
+    if not evidence_ref:
+        raise ToolError("invalid_param", "evidence_ref must be non-empty")
+    completion, warnings = _settle_engagement_route_completion(
+        ctx,
+        normalized,
+        decision_id=decision_id,
+        evidence_ref=evidence_ref,
+    )
+    data = {
+        "completed": completion is not None,
+        "route_completion": deepcopy(completion),
+        "authority": "keeper_semantic_judgment",
+        "hard_gate": False,
+        "next_operation": {
+            "operation": "scene.context",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {},
+            "missing_arguments": [],
+            "reason": (
+                "Refresh the bounded active-scene route index after recording "
+                "this campaign-local semantic completion."
+            ),
+            "hard_gate": False,
+        },
+    }
+    if completion is None:
+        warnings.append(
+            "the semantic route judgment was preserved as advice but did not yet satisfy the structured completion contract; clue-granting routes complete through state.record_clue route_ref"
+        )
+        return data, warnings, [
+            "keep play moving; use the authored route's returned clue/state cards when their facts are actually delivered"
+        ]
+    ctx.ledger_record(decision_id, tool_name, data)
+    return data, warnings, [
+        "dependent authored routes are now visible through scene.context/actions.advise; this receipt does not force the player's next action"
+    ]
 
 
 @tool(
@@ -13894,6 +18062,7 @@ def _record_table_transcript_entry(
     source_id: str,
     speaker: str,
     finalization_id: str | None = None,
+    presented_roll_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     clean_text = str(text)
     if not clean_text.strip():
@@ -13920,6 +18089,8 @@ def _record_table_transcript_entry(
         ),
         "finalization_id": finalization_id,
     }
+    if presented_roll_ids is not None:
+        stable["presented_roll_ids"] = list(presented_roll_ids)
     matches = [
         row for row in _table_transcript_rows(ctx)
         if row.get("entry_id") == entry_id
@@ -13940,32 +18111,126 @@ def _record_table_transcript_entry(
     return entry
 
 
+def _opening_first_impression_lines(
+    ctx: Ctx,
+    *,
+    run_id: str,
+    presented_roll_ids: Any,
+) -> tuple[list[str], list[str]]:
+    if not isinstance(presented_roll_ids, list):
+        raise ToolError("invalid_param", "presented_roll_ids must be an ordered list")
+    roll_ids = list(presented_roll_ids)
+    if any(
+        not isinstance(value, str) or not value or value != value.strip()
+        for value in roll_ids
+    ):
+        raise ToolError(
+            "invalid_param", "presented_roll_ids must contain non-empty roll_id strings"
+        )
+    if len(set(roll_ids)) != len(roll_ids):
+        raise ToolError("invalid_param", "presented_roll_ids must not contain duplicates")
+    campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+    try:
+        document = coc_first_impression.load_document(ctx.campaign_dir, campaign_id)
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    receipts_by_roll_id = {
+        str(receipt.get("roll_id")): receipt
+        for receipt in document.get("receipts", {}).values()
+        if isinstance(receipt, dict) and receipt.get("schema_version") == 2
+    }
+    rendered: list[str] = []
+    for roll_id in roll_ids:
+        receipt = receipts_by_roll_id.get(roll_id)
+        if receipt is None:
+            raise ToolError(
+                "invalid_param",
+                f"presented roll_id '{roll_id}' is not a current public NPC first impression",
+            )
+        record = receipt.get("roll_record")
+        if (
+            receipt.get("campaign_id") != campaign_id
+            or receipt.get("run_id") != run_id
+            or not isinstance(record, dict)
+            or record.get("roll_id") != roll_id
+            or record.get("kind") != "npc_first_impression"
+            or record.get("visibility") != "public"
+        ):
+            raise ToolError(
+                "invalid_param",
+                f"presented roll_id '{roll_id}' does not belong to this campaign opening run",
+            )
+        _ensure_first_impression_roll(ctx, receipt)
+        rendered.append(
+            coc_turn_finalization._render_public_roll(
+                record,
+                play_language=_campaign_play_language(ctx),
+            )
+        )
+    return roll_ids, rendered
+
+
+def _opening_text_with_public_rolls(text: str, rendered_lines: list[str]) -> str:
+    if not rendered_lines:
+        return text
+    mechanics_block = "[roll]\n" + "\n".join(rendered_lines) + "\n[/roll]"
+    closing_marker = "[/in_game]"
+    marker_index = text.rfind(closing_marker)
+    if marker_index < 0:
+        return text.rstrip() + "\n\n" + mechanics_block
+    before = text[:marker_index].rstrip()
+    after = text[marker_index:]
+    prefix = before + "\n\n" if before else ""
+    return prefix + mechanics_block + "\n" + after
+
+
 @tool(
     "evidence.table_opening",
-    "Record the exact player-visible Keeper opening that precedes the first player message, so the readable transcript starts where play actually started.",
+    "Record the exact player-visible Keeper opening before the first player message, canonical-render its explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix.",
     {
-        "text": {"type": "string", "required": True, "desc": "exact opening text delivered to the player"},
+        "text": {"type": "string", "required": True, "desc": "Keeper-authored opening narrative; deterministic first-impression lines are inserted by the tool before a final [/in_game] marker when present, otherwise appended"},
         "run_id": {"type": "string", "required": True, "desc": "current play/report segment id"},
+        "presented_roll_ids": {
+            "type": "array",
+            "required": True,
+            "items": {"type": "string"},
+            "uniqueItems": True,
+            "desc": "ordered public npc_first_impression roll_ids from this campaign/run; [] is valid",
+        },
         "speaker": {"type": "string", "desc": "player-facing Keeper speaker label"},
-        "decision_id": {"type": "string", "desc": "idempotency key"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
-    decision_id = str(args.get("decision_id") or "").strip()
-    if not decision_id:
+    raw_decision_id = str(args.get("decision_id") or "")
+    decision_id = raw_decision_id.strip()
+    if not decision_id or decision_id != raw_decision_id:
         raise ToolError("invalid_param", "evidence.table_opening requires a stable decision_id")
+    raw_run_id = str(args.get("run_id") or "")
+    run_id = raw_run_id.strip()
+    if not run_id or run_id != raw_run_id:
+        raise ToolError("invalid_param", "evidence.table_opening requires a stable run_id")
+    presented_roll_ids, rendered_lines = _opening_first_impression_lines(
+        ctx,
+        run_id=run_id,
+        presented_roll_ids=args.get("presented_roll_ids"),
+    )
+    exact_text = _opening_text_with_public_rolls(
+        str(args.get("text") or ""), rendered_lines
+    )
     prior = ctx.ledger_lookup("evidence.table_opening", decision_id)
     if prior is not None:
         entry = _record_table_transcript_entry(
             ctx,
             role="keeper",
-            text=str(args.get("text") or ""),
-            run_id=str(args.get("run_id") or ""),
+            text=exact_text,
+            run_id=run_id,
             turn_number=0,
-            turn_id=f"opening:{args.get('run_id')}",
+            turn_id=f"opening:{run_id}",
             journal_decision_id="",
             source_id=decision_id,
             speaker=str(args.get("speaker") or "KP"),
+            presented_roll_ids=presented_roll_ids,
         )
         return entry, ["duplicate decision_id: returning the immutable opening transcript row"], []
     if _table_transcript_rows(ctx):
@@ -13976,16 +18241,19 @@ def _tool_evidence_table_opening(ctx: Ctx, args: dict[str, Any]):
     entry = _record_table_transcript_entry(
         ctx,
         role="keeper",
-        text=str(args.get("text") or ""),
-        run_id=str(args.get("run_id") or ""),
+        text=exact_text,
+        run_id=run_id,
         turn_number=0,
-        turn_id=f"opening:{args.get('run_id')}",
+        turn_id=f"opening:{run_id}",
         journal_decision_id="",
         source_id=decision_id,
         speaker=str(args.get("speaker") or "KP"),
+        presented_roll_ids=presented_roll_ids,
     )
     ctx.ledger_record(decision_id, "evidence.table_opening", entry)
-    return entry, [], ["deliver this exact opening text to the player"]
+    return entry, [], [
+        "deliver data.text exactly; its deterministic public first-impression block is canonical and must not be recomputed, rewritten, or duplicated"
+    ]
 
 
 def _record_finalized_keeper_text(ctx: Ctx, receipt: dict[str, Any]) -> dict[str, Any]:
@@ -14353,6 +18621,7 @@ def _latest_narrative_opportunity(
 
 
 def _normalize_finalized_advisory_uptake(
+    ctx: Ctx,
     raw: Any,
     *,
     draft: Any,
@@ -14361,13 +18630,22 @@ def _normalize_finalized_advisory_uptake(
         return None
     if not isinstance(raw, dict):
         raise ToolError("invalid_param", "advisory_uptake must be an object")
-    expected = {
+    common = {
         "advice_id", "disposition", "reason", "adopted_fields",
-        "storylet_candidate", "exact_excerpt",
+        "exact_excerpt",
     }
-    if set(raw) != expected:
+    candidate_fields = {"candidate_ref", "storylet_candidate"}
+    if not common.issubset(raw) or not set(raw).issubset(common | candidate_fields):
         raise ToolError(
             "invalid_param", "advisory_uptake must use the exact closed schema"
+        )
+    present_candidate_fields = [
+        field for field in candidate_fields if raw.get(field) is not None
+    ]
+    if len(present_candidate_fields) != 1:
+        raise ToolError(
+            "invalid_param",
+            "advisory_uptake requires exactly one of candidate_ref or legacy storylet_candidate",
         )
     disposition = str(raw.get("disposition") or "").strip()
     if disposition not in {"adopted", "modified"}:
@@ -14375,13 +18653,22 @@ def _normalize_finalized_advisory_uptake(
             "invalid_param",
             "turn.finalize advisory_uptake records only adopted or modified candidates; ignored advice stays optional evidence.record_adoption",
         )
-    candidate = raw.get("storylet_candidate")
-    if not isinstance(candidate, dict) or not str(
-        candidate.get("storylet_id") or ""
-    ).strip():
-        raise ToolError(
-            "invalid_param", "advisory_uptake requires the exact Storylet candidate"
+    candidate_ref = str(raw.get("candidate_ref") or "").strip()
+    if candidate_ref:
+        candidate = _resolve_storylet_candidate_ref(
+            ctx,
+            advice_id=raw.get("advice_id"),
+            candidate_ref=candidate_ref,
         )
+    else:
+        candidate = raw.get("storylet_candidate")
+        if not isinstance(candidate, dict) or not str(
+            candidate.get("storylet_id") or ""
+        ).strip():
+            raise ToolError(
+                "invalid_param", "advisory_uptake requires the exact Storylet candidate"
+            )
+        candidate_ref = _storylet_candidate_ref(raw.get("advice_id"), candidate)
     if not _storylet_advice_matches_candidate(raw.get("advice_id"), candidate):
         raise ToolError(
             "invalid_param", "advisory_uptake advice_id does not bind this candidate"
@@ -14408,6 +18695,7 @@ def _normalize_finalized_advisory_uptake(
         "disposition": disposition,
         "reason": reason,
         "adopted_fields": [str(value).strip() for value in fields],
+        "candidate_ref": candidate_ref,
         "storylet_candidate": deepcopy(candidate),
         "exact_excerpt": excerpt,
     }
@@ -14427,7 +18715,7 @@ def _record_finalized_advisory_uptake(
         "disposition": uptake["disposition"],
         "reason": uptake["reason"],
         "adopted_fields": uptake["adopted_fields"],
-        "storylet_candidate": uptake["storylet_candidate"],
+        "candidate_ref": uptake["candidate_ref"],
         "finalization_id": finalization["finalization_id"],
         "exact_excerpt": uptake["exact_excerpt"],
     })
@@ -14445,7 +18733,10 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         data = coc_turn_finalization.build_output_context(ctx.campaign_dir)
     except coc_turn_finalization.TurnContractError as exc:
         raise ToolError(exc.code, str(exc)) from exc
-    current_window = coc_turn_manifest.resume_window(ctx.campaign_dir)
+    current_window = coc_turn_manifest.resume_window(
+        ctx.campaign_dir,
+        meaningful_tools=_turn_recovery_meaningful_tools(),
+    )
     data["narrative_opportunity"] = _latest_narrative_opportunity(
         current_window
     )
@@ -14541,7 +18832,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
         },
         "advisory_uptake": {
             "type": "object",
-            "desc": "optional proof that one actions.advise Storylet candidate actually shaped this finalized draft; omitted when ignored",
+            "desc": "optional proof that one actions.advise Storylet candidate actually shaped this finalized draft; use candidate_ref, while storylet_candidate remains a legacy compatibility input",
             "properties": {
                 "advice_id": {"type": "string", "minLength": 1},
                 "disposition": {
@@ -14553,12 +18844,13 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
                     "items": {"type": "string", "minLength": 1},
                     "minItems": 1,
                 },
+                "candidate_ref": {"type": "string", "minLength": 1},
                 "storylet_candidate": {"type": "object"},
                 "exact_excerpt": {"type": "string", "minLength": 1},
             },
             "required_fields": [
                 "advice_id", "disposition", "reason", "adopted_fields",
-                "storylet_candidate", "exact_excerpt",
+                "exact_excerpt",
             ],
             "additionalProperties": False,
         },
@@ -14567,6 +18859,7 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
 def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
     decision_id = str(args["decision_id"])
     uptake = _normalize_finalized_advisory_uptake(
+        ctx,
         args.get("advisory_uptake"), draft=args.get("draft")
     )
 
@@ -15215,6 +19508,7 @@ _MUTATING_TOOLS = frozenset({
     "state.item_grant",
     "state.item_remove",
     "state.record_npc_engagement",
+    "state.record_route_completion",
     "state.npc_presence",
     "state.npc_update",
     "state.time_marker",

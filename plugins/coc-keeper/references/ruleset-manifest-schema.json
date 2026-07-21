@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ruleset package manifest (docs/ruleset-contract.md §2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ruleset_id",
+    "name",
+    "version",
+    "resolution_model",
+    "schema_versions",
+    "entry_points",
+    "resources"
+  ],
+  "properties": {
+    "ruleset_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "description": "Lowercase ASCII package id; must equal the package directory name under plugins/coc-keeper/rulesets/."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resolution_model": {
+      "enum": [
+        "percentile",
+        "additive-vs-target",
+        "d20-style",
+        "narrative-light"
+      ]
+    },
+    "schema_versions": {
+      "type": "object",
+      "description": "Campaign/actor state schema versions this package supports (exact-match only, no migrations).",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "entry_points": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolver", "skills", "data"],
+      "properties": {
+        "resolver": {"type": "string", "minLength": 1},
+        "skills": {"type": "string", "minLength": 1},
+        "data": {"type": "string", "minLength": 1}
+      }
+    },
+    "resources": {
+      "type": "array",
+      "description": "Resource registry (contract §6): declared package-owned state such as HP/SAN/MP/Luck.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "display", "kind", "reset", "recovery_rule"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "display": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["pool", "score", "clock"]},
+          "reset": {"enum": ["daily", "session", "never"]},
+          "projected": {
+            "type": "boolean",
+            "description": "When true, the kernel projects current_<key> into the runtime player-safe investigator surface. Optional; defaults to false when absent."
+          },
+          "recovery_rule": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "state_dirs": {
+      "type": "array",
+      "description": "Package-owned campaign state directories (contract §6), placed directly under the campaign save/ directory. Optional; defaults to no package dirs when absent.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "create_on_init": {
+            "type": "boolean",
+            "description": "When true, the kernel creates save/<name> at campaign creation; otherwise the owning subsystem creates it lazily. Optional; defaults to false when absent."
+          }
+        }
+      }
+    },
+    "boundary_terms": {
+      "type": "array",
+      "description": "ASCII machine-facing terms (characteristics, resource labels) that table-language localization rewrites only on ASCII token boundaries (contract §6). Optional; defaults to an empty set when absent.",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9]+$"
+      },
+      "uniqueItems": true
+    }
+  }
+}

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "plugins" / "coc-keeper"
-RULES_DIR = PLUGIN_ROOT / "references" / "rules-json"
+RULES_DIR = PLUGIN_ROOT / "rulesets" / "coc7" / "rules-json"
 
 
 @pytest.fixture()

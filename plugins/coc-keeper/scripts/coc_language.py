@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import importlib.util
 import re
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_rulesets = _load_sibling("coc_rulesets_language", "coc_rulesets.py")
 
 DEFAULT_PLAY_LANGUAGE = "zh-Hans"
 
 # These machine-facing abbreviations are valid visible labels on their own,
 # but ordinary prose may contain the same byte sequence inside a larger word.
 # ASCII boundaries keep table-label localization exact without classifying prose.
-BOUNDARY_SAFE_ASCII_TERMS = frozenset({
-    "STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "SAN", "LUCK",
-})
+# The term set is package-owned: it is read from the active ruleset manifest
+# ``boundary_terms`` (docs/ruleset-contract.md §6), never from kernel literals.
+BOUNDARY_SAFE_ASCII_TERMS = coc_rulesets.ruleset_boundary_terms(
+    coc_rulesets.DEFAULT_RULESET_ID
+)
 
 _LANGUAGE_ALIASES = {
     "de": "german",

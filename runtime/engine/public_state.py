@@ -15,13 +15,28 @@ def _load_config_module():
     return mod
 
 
-def _load_subsystem_executor():
-    path = Path(__file__).resolve().parents[2] / "plugins" / "coc-keeper" / "scripts" / "coc_subsystem_executor.py"
-    spec = importlib.util.spec_from_file_location("runtime_subsystem_executor", path)
+def _load_plugin_locator():
+    path = Path(__file__).resolve().parent / "plugin_locator.py"
+    spec = importlib.util.spec_from_file_location("runtime_plugin_locator_public_state", path)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
+
+
+def _load_plugin_script(name: str, filename: str, workspace: Path | str | None):
+    path = _load_plugin_locator().plugin_scripts_dir(workspace) / filename
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_subsystem_executor(workspace: Path | str | None = None):
+    return _load_plugin_script(
+        "runtime_subsystem_executor", "coc_subsystem_executor.py", workspace
+    )
 
 
 def _load_state_gateway():
@@ -42,34 +57,20 @@ def _load_paths():
     return mod
 
 
-def _load_scene_graph():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "plugins" / "coc-keeper" / "scripts" / "coc_scene_graph.py"
+def _load_scene_graph(workspace: Path | str | None = None):
+    return _load_plugin_script(
+        "runtime_public_scene_graph", "coc_scene_graph.py", workspace
     )
-    spec = importlib.util.spec_from_file_location("runtime_public_scene_graph", path)
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
 
 
-def _load_scenario_validator():
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "plugins" / "coc-keeper" / "scripts" / "coc_scenario_compile.py"
+def _load_scenario_validator(workspace: Path | str | None = None):
+    return _load_plugin_script(
+        "runtime_public_scenario_validator", "coc_scenario_compile.py", workspace
     )
-    spec = importlib.util.spec_from_file_location(
-        "runtime_public_scenario_validator", path
-    )
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def _terminal_evidence(
-    campaign_dir: Path, world: dict[str, Any]
+    campaign_dir: Path, world: dict[str, Any], workspace: Path | str | None = None
 ) -> tuple[dict[str, Any], bool]:
     """Project canonical structured ending facts without source/narration prose."""
     path_mod = _load_paths()
@@ -86,7 +87,7 @@ def _terminal_evidence(
         return empty, False
     story: dict[str, Any] = {}
     try:
-        validation = _load_scenario_validator().validate_scenario(scenario)
+        validation = _load_scenario_validator(workspace).validate_scenario(scenario)
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         return empty, True
     if not isinstance(validation, dict) or validation.get("errors"):
@@ -130,7 +131,7 @@ def _terminal_evidence(
                     events.append({"event_type": "session_ending"})
         except (OSError, UnicodeError, json.JSONDecodeError):
             return empty, True
-    evidence = _load_scene_graph().terminal_evidence(story, world, events)
+    evidence = _load_scene_graph(workspace).terminal_evidence(story, world, events)
     return {
         "reached_terminal": evidence["reached_terminal"],
         "active_scene_id": evidence["active_scene_id"],
@@ -139,7 +140,9 @@ def _terminal_evidence(
     }, False
 
 
-def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str, Any] | None]:
+def _canonical_player_pending_choice(
+    campaign_dir: Path, workspace: Path | str | None = None
+) -> tuple[bool, dict[str, Any] | None]:
     # The caller has already validated the campaign tree; re-resolve the exact
     # consumed file immediately before handing the campaign to the projector.
     path_mod = _load_paths()
@@ -148,7 +151,7 @@ def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str
     if not path.exists():
         return False, None
     try:
-        choice = _load_subsystem_executor().project_player_pending_choice(campaign_dir)
+        choice = _load_subsystem_executor(workspace).project_player_pending_choice(campaign_dir)
     except (OSError, UnicodeError, ValueError, RuntimeError):
         return True, None
     return True, choice
@@ -157,6 +160,7 @@ def _canonical_player_pending_choice(campaign_dir: Path) -> tuple[bool, dict[str
 def _combat_defense_choice(
     campaign_dir: Path,
     investigator_id: str | None,
+    workspace: Path | str | None = None,
 ) -> dict[str, Any] | None:
     if not investigator_id:
         return None
@@ -166,7 +170,7 @@ def _combat_defense_choice(
     if not path.exists():
         return None
     try:
-        return _load_subsystem_executor().project_player_combat_defense(
+        return _load_subsystem_executor(workspace).project_player_combat_defense(
             campaign_dir, investigator_id
         )
     except (OSError, UnicodeError, ValueError, RuntimeError):
@@ -227,15 +231,17 @@ def build_public_state(
     if "subsystem" in blocking_aux:
         _has_canonical_pending_state, pending = True, None
     else:
-        _has_canonical_pending_state, pending = _canonical_player_pending_choice(campaign_dir)
+        _has_canonical_pending_state, pending = _canonical_player_pending_choice(
+            campaign_dir, gateway.workspace
+        )
     if (pending is None and "subsystem" not in blocking_aux
             and "combat" not in blocking_aux):
-        pending = _combat_defense_choice(campaign_dir, investigator_id)
+        pending = _combat_defense_choice(campaign_dir, investigator_id, gateway.workspace)
 
     cfg = _load_config_module().load_runtime_config(gateway.workspace)
 
     terminal_evidence, invalid_terminal_evidence = _terminal_evidence(
-        campaign_dir, world
+        campaign_dir, world, gateway.workspace
     )
     if invalid_terminal_evidence:
         gateway.record_invalid_fields("terminal")

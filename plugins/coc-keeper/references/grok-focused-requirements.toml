@@ -1,0 +1,27 @@
+# Pinned compatibility boundary for the dedicated live-KP Grok home.
+#
+# Grok Build 0.2.106 can refresh remote settings after authentication and
+# re-enable compatibility MCP discovery that was disabled in config.toml or
+# the launch environment. Requirements are the documented higher-priority
+# layer, so the focused host pins only these two compatibility surfaces. The
+# user's normal Grok, Cursor, and Claude configuration is not modified.
+
+[compat.cursor]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+
+[compat.claude]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+
+[skills]
+# The installer replaces this marker with a pinned name list discovered from
+# the focused host. Canonical coc-keeper skills and Grok's imagine skill stay
+# enabled; unrelated skills never enter the live-KP reminder/catalog.
+# __COC_DISABLED_SKILL_OVERRIDES__

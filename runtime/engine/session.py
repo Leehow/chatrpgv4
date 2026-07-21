@@ -472,6 +472,10 @@ def _load_paths():
     return _load_module("runtime_paths", _engine_dir() / "paths.py")
 
 
+def _load_plugin_locator():
+    return _load_module("runtime_plugin_locator", _engine_dir() / "plugin_locator.py")
+
+
 def _load_public_state():
     return _load_module("runtime_public_state", _engine_dir() / "public_state.py")
 
@@ -507,14 +511,8 @@ def _load_telemetry_module():
     return _load_module("runtime_session_telemetry", path)
 
 
-def _load_runtime_ops_module():
-    path = (
-        _repo_root()
-        / "plugins"
-        / "coc-keeper"
-        / "scripts"
-        / "coc_runtime_ops.py"
-    )
+def _load_runtime_ops_module(workspace: Path | str | None = None):
+    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_runtime_ops.py"
     return _load_module("runtime_session_coc_runtime_ops", path)
 
 
@@ -529,7 +527,7 @@ def setup_workspace_operation(
 ) -> dict[str, Any]:
     """Execute canonical onboarding before a runtime session exists."""
     root = _load_paths().workspace_root(workspace)
-    return _load_runtime_ops_module().execute_setup_operation(
+    return _load_runtime_ops_module(root).execute_setup_operation(
         root, operation=operation
     )
 
@@ -1055,7 +1053,7 @@ def interact(
     if not isinstance(player_input, str) or not player_input.strip():
         raise ValueError("player_input must be non-empty")
     record = get_session(session_id)
-    ops = _load_runtime_ops_module()
+    ops = _load_runtime_ops_module(record["workspace"])
     provenance: dict[str, Any] = {"source": "host_semantic_evidence"}
     if semantic_route is None:
         pipeline = record["resolved_config"]
@@ -1123,7 +1121,7 @@ def operate(
     Codex, Cursor, and Claude plugin hosts.
     """
     record = get_session(session_id)
-    return _load_runtime_ops_module().execute_operation(
+    return _load_runtime_ops_module(record["workspace"]).execute_operation(
         record["workspace"],
         campaign_id=record["campaign_id"],
         investigator_id=record["investigator_id"],

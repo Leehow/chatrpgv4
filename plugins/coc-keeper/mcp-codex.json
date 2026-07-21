@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "coc-keeper": {
-      "command": "${PLUGIN_ROOT}/mcp/launch",
+      "command": "./mcp/launch",
+      "cwd": ".",
       "env": {
         "COC_HOST": "codex"
       }

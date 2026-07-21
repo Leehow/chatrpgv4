@@ -9,7 +9,7 @@ OCR source: checks/ocr-cached/occupations.md
         Credit Rating: <lo>-<hi>
         Occupation Skill Points: <formula>
 
-Our data: plugins/coc-keeper/references/rules-json/occupations.json
+Our data: plugins/coc-keeper/rulesets/coc7/rules-json/occupations.json
   occupations[name] = {tags, occupational_skills, credit_rating_range[lo,hi],
                        skill_point_formula}
 
@@ -39,7 +39,7 @@ import re
 import sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD_PATH = Path("checks/ocr-cached/occupations.md")
 
 

@@ -38,6 +38,8 @@ coc_storylets = _load_optional_sibling("coc_storylets", "coc_storylets.py")
 coc_language = _load_optional_sibling("coc_language", "coc_language.py")
 coc_rules = _load_optional_sibling("coc_narrative_rules", "coc_rules.py")
 coc_combat = _load_optional_sibling("coc_narrative_combat", "coc_combat.py")
+coc_rulesets = _load_optional_sibling("coc_rulesets", "coc_rulesets.py")
+coc_mechanics = _load_optional_sibling("coc_narrative_mechanics", "coc_mechanics.py")
 
 _SCHEMA_VERSION = 1
 _CHARACTERISTICS = {"STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU", "LUCK"}
@@ -942,7 +944,10 @@ def build_action_chain_requests(
 
 
 def _module_rule_table(scenario_id: str) -> dict[str, Any]:
-    path = SCRIPT_DIR.parent / "references" / "rules-json" / f"{scenario_id}.json"
+    path = (
+        coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
+        / f"{scenario_id}.json"
+    )
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -951,7 +956,10 @@ def _module_rule_table(scenario_id: str) -> dict[str, Any]:
 
 
 def _monster_profile(monster_ref: str) -> dict[str, Any]:
-    path = SCRIPT_DIR.parent / "references" / "rules-json" / "monsters.json"
+    path = (
+        coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
+        / "monsters.json"
+    )
     try:
         root = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -965,6 +973,20 @@ def _combat_participant_from_operation(
     operation: dict[str, Any],
 ) -> dict[str, Any] | None:
     actor_id = _non_empty_str(operation.get("actor_id"))
+    mechanics_profile = operation.get("mechanics_profile")
+    if (
+        actor_id is not None
+        and isinstance(mechanics_profile, dict)
+        and coc_mechanics is not None
+    ):
+        try:
+            return coc_mechanics.actor_combat_participant(
+                actor_id,
+                mechanics_profile,
+                side=str(operation.get("side") or "npc"),
+            )
+        except (ValueError, TypeError):
+            return None
     monster_ref = _non_empty_str(operation.get("monster_ref"))
     if actor_id is None or monster_ref is None or coc_rules is None:
         return None
@@ -1097,18 +1119,61 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     opponent_id = str(opponent["actor_id"])
     scenario_id = str(operation.get("module_rules_id") or "")
     module = _module_rule_table(scenario_id)
-    module_weapons = module.get("weapons") if isinstance(module, dict) else []
+    module_weapons = list(module.get("weapons") or []) if isinstance(module, dict) else []
+    module_weapons.extend(
+        deepcopy(operation.get("module_weapons") or [])
+        if isinstance(operation.get("module_weapons"), list) else []
+    )
     route_id = str(operation["route_id"])
     weapon_id = _structured_route_weapon_id(ctx, operation, route_id)
     if coc_combat is not None:
         merged_weapons = coc_combat.resolve_module_weapons(module_weapons)
         weapon = merged_weapons.get(weapon_id)
-        owned_weapon_ids = {
-            str(row.get("weapon_id"))
+        owned_weapons = {
+            str(row.get("weapon_id")): deepcopy(row)
             for row in investigator.get("weapons", []) or []
             if isinstance(row, dict) and row.get("weapon_id")
         }
+        owned_weapon_ids = set(owned_weapons)
         fixed_weapon = operation.get("investigator_weapon_id") == weapon_id
+        owned_weapon = owned_weapons.get(weapon_id)
+        if owned_weapon is not None:
+            parent_id = str(owned_weapon.get("extends") or "")
+            parent = merged_weapons.get(parent_id) if parent_id else weapon
+            weapon = {
+                **(deepcopy(parent) if isinstance(parent, dict) else {}),
+                **owned_weapon,
+                "weapon_id": weapon_id,
+            }
+        rich = ctx.get("player_intent_rich") or {}
+        combat_action = rich.get("combat_action") if isinstance(rich, dict) else None
+        selected_effect_ids = (
+            list(combat_action.get("weapon_effect_ids") or [])
+            if isinstance(combat_action, dict) else []
+        )
+        if selected_effect_ids:
+            effects = {
+                str(effect.get("effect_id")): effect
+                for effect in ((weapon or {}).get("effects") or [])
+                if isinstance(effect, dict) and effect.get("effect_id")
+            }
+            selected_effects = [effects.get(effect_id) for effect_id in selected_effect_ids]
+            if any(effect is None for effect in selected_effects):
+                return []
+            multipliers = [
+                int(effect["multiplier"])
+                for effect in selected_effects
+                if effect.get("resolution") == "combat_damage_multiplier"
+            ]
+            if len(multipliers) != len(selected_effects):
+                return []
+            multiplier = 1
+            for value in multipliers:
+                multiplier *= value
+            if multiplier > 10:
+                return []
+            weapon["active_damage_multiplier"] = multiplier
+            weapon["active_weapon_effect_ids"] = selected_effect_ids
         if isinstance(weapon, dict) and (fixed_weapon or weapon_id in owned_weapon_ids):
             investigator["weapons"] = [{"weapon_id": weapon_id, **deepcopy(weapon)}]
             if weapon.get("magazine") is not None:
@@ -1128,6 +1193,13 @@ def build_route_operation_requests(ctx: dict[str, Any]) -> list[dict[str, Any]]:
         for ref in opponent.get("weapons") or []:
             ref_id = ref.get("weapon_id") if isinstance(ref, dict) else ref
             resolved = merged_weapons.get(str(ref_id))
+            if not isinstance(resolved, dict) and isinstance(ref, dict):
+                parent_id = _non_empty_str(ref.get("extends"))
+                parent = merged_weapons.get(parent_id) if parent_id else None
+                resolved = {
+                    **(deepcopy(parent) if isinstance(parent, dict) else {}),
+                    **deepcopy(ref),
+                }
             resolved_opponent_weapons.append(
                 {"weapon_id": str(ref_id), **deepcopy(resolved)}
                 if isinstance(resolved, dict) else deepcopy(ref)

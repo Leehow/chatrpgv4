@@ -64,10 +64,15 @@ coc_starter = _load_sibling("coc_starter_scenario_hydration", "coc_starter.py")
 coc_epistemic_compile = _load_sibling(
     "coc_epistemic_compile_scenario_hydration", "coc_epistemic_compile.py"
 )
-compiler_adapter = _load_path("runtime_scenario_compiler_adapter", COMPILER_ADAPTER_PATH)
-epistemic_adapter = _load_path(
-    "runtime_epistemic_compiler_adapter", EPISTEMIC_ADAPTER_PATH
-)
+
+# The compiler adapters belong to the optional cold source-compilation path.
+# Coding-host plugin installs can legitimately open an ordinary campaign in a
+# workspace that does not contain the repository's headless runtime.  Loading
+# these adapters at module import time used to kill the entire MCP server in
+# that case, even for built-in starters and already-compiled campaigns that do
+# not need a compiler.  Keep one process-local cache and resolve each adapter
+# only when that exact cold path is selected.
+_RUNTIME_ADAPTERS: dict[str, Any] = {}
 
 REQUIRED_FILES = tuple(coc_scenario_compile.REQUIRED_FILES)
 EPISTEMIC_FILES = tuple(coc_epistemic_compile.SIDECAR_FILES)
@@ -101,6 +106,34 @@ class ScenarioHydrationError(RuntimeError):
     def __init__(self, message: str, *, validation: dict[str, Any] | None = None):
         super().__init__(message)
         self.validation = validation
+
+
+def _runtime_adapter(kind: str, path: Path) -> Any:
+    cached = _RUNTIME_ADAPTERS.get(kind)
+    if cached is not None:
+        return cached
+    if not path.is_file():
+        raise ScenarioHydrationError(
+            "scenario compiler runtime is unavailable for cold source "
+            f"compilation ({kind})"
+        )
+    module = _load_path(f"runtime_scenario_{kind}_adapter", path)
+    _RUNTIME_ADAPTERS[kind] = module
+    return module
+
+
+def _compiler_adapter() -> Any:
+    return _runtime_adapter("compiler", COMPILER_ADAPTER_PATH)
+
+
+def _epistemic_adapter() -> Any:
+    return _runtime_adapter("epistemic", EPISTEMIC_ADAPTER_PATH)
+
+
+def _is_epistemic_adapter_error(exc: Exception, class_name: str) -> bool:
+    adapter = _RUNTIME_ADAPTERS.get("epistemic")
+    error_type = getattr(adapter, class_name, None) if adapter is not None else None
+    return isinstance(error_type, type) and isinstance(exc, error_type)
 
 
 def _now() -> str:
@@ -1064,9 +1097,9 @@ def _publish_validated_sidecars(staging: Path, scenario_dir: Path) -> dict[str, 
 
 def _safe_epistemic_failure(exc: Exception) -> dict[str, Any]:
     """Return bounded failure evidence without persisting exception prose."""
-    if isinstance(exc, epistemic_adapter.EpistemicCompileRejected):
+    if _is_epistemic_adapter_error(exc, "EpistemicCompileRejected"):
         reason = "compile_result_rejected"
-    elif isinstance(exc, epistemic_adapter.EpistemicCompilerProtocolError):
+    elif _is_epistemic_adapter_error(exc, "EpistemicCompilerProtocolError"):
         reason = "compiler_protocol_failed"
     elif isinstance(exc, ScenarioHydrationError):
         reason = "sidecar_validation_failed"
@@ -1189,7 +1222,8 @@ def ensure_scenario_ready(
     _write_json(campaign / "logs" / "scenario-resolution" / f"{request_digest}.json", request_artifact)
     invoke = compiler
     if invoke is None:
-        invoke = lambda payload: compiler_adapter.compile_scenario(
+        compiler_runtime = _compiler_adapter()
+        invoke = lambda payload: compiler_runtime.compile_scenario(
             payload, runner_path=runner_path, timeout_s=compiler_timeout_s
         )
     attempts = min(
@@ -1385,7 +1419,8 @@ def ensure_scenario_ready(
         if compile_epistemic_sidecars:
             invoke_epistemic = epistemic_compiler
             if invoke_epistemic is None:
-                invoke_epistemic = lambda payload: epistemic_adapter.compile_epistemic(
+                epistemic_runtime = _epistemic_adapter()
+                invoke_epistemic = lambda payload: epistemic_runtime.compile_epistemic(
                     payload,
                     runner_path=epistemic_runner_path,
                     timeout_s=compiler_timeout_s,
@@ -1403,7 +1438,7 @@ def ensure_scenario_ready(
                 final = _publish_validated_sidecars(staging, scenario_dir)
             except Exception as exc:
                 epistemic_receipt = _safe_epistemic_failure(exc)
-                if isinstance(exc, epistemic_adapter.EpistemicCompileRejected):
+                if _is_epistemic_adapter_error(exc, "EpistemicCompileRejected"):
                     try:
                         _record_epistemic_rejections(
                             campaign, request_digest, exc.diagnostics

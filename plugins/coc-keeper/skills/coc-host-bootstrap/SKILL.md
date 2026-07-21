@@ -25,6 +25,19 @@ round-trips. If MCP is unavailable, use the equivalent operations from
 `scripts/coc_toolbox.py` as a fallback. Do not mix MCP and shell execution for
 the same state mutation or retry.
 
+Read `coc_capabilities` once when establishing the plugin session and retain
+that result for the host context epoch; do not probe host features every turn.
+If the host lazily searches MCP tools, make one narrow search for the exact
+gateway trio `coc_capabilities`, `coc_discover`, and `coc_invoke`; retain those
+three schemas for the host context epoch. The returned `mcp_wire` profile and
+operation cards are the reusable working contract. A card carrying
+`discovery_required=false` is invoked through the already-known `coc_invoke`
+schema without another discovery or schema-confirmation pass.
+`coc_advisory_sidecar_v1=true` means only that the Grok v1 optional background
+adviser adapter is available. It never changes core KP behavior, and other
+hosts must not imitate it until their own adapter maps the same canonical
+contract.
+
 During ordinary play, never use host file reads/searches over scenario JSON,
 module assets, character files, tool logs, transcripts, or prior finalization
 examples to prepare a turn. Use the typed working set and exact invocation
@@ -40,7 +53,9 @@ or asking the player to repeat established facts. If it returns
 state writes. If delivery is unconfirmed, replay only the returned exact Keeper
 text byte-for-byte when the player cannot see it. A continuation checkpoint is
 a hash-bound, rebuildable projection; rules receipts and canonical state remain
-the truth.
+the truth. MCP hosts receive the `keeper_hot_v1` complete-envelope projection
+under 16 KiB; use `session.continuation_detail` only from a returned exact
+detail card, never as a reassurance read.
 
 Preserve the player's exact delivered message as the authoritative turn input;
 do not paraphrase, normalize, translate, or repair it in evidence. Never edit

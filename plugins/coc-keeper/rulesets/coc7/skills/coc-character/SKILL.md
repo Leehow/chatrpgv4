@@ -17,24 +17,56 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
 - Quick creation: ask for a concept, generate a valid investigator, then ask for confirmation.
 - If the campaign has a bound scenario or PDF module, show the player-safe
   character creation briefing before rolling characteristics or choosing an
-  occupation. Use the existing `campaign.character_creation.briefing_path` when
-  present; otherwise call the shared `campaign.render_briefing` setup
-  operation. The briefing gives module
-  mood and investigator-fit guidance without Keeper-only spoilers.
+  occupation. Prefer the exact
+  `result.character_creation_briefing.briefing_path` from the
+  `scenario.bind_pdf` receipt; otherwise use the existing
+  `campaign.character_creation.briefing_path` when present. Read that exact
+  workspace-rooted path once, without `find`, `ls`, glob, or directory listing.
+  Only call the shared `campaign.render_briefing` setup operation when neither
+  path exists or player-safe public setup metadata later changes. The briefing
+  gives module mood and investigator-fit guidance without Keeper-only spoilers.
 - Before rolling or assigning characteristics, ask the player to choose the
   characteristic generation method. Supported methods are the rules JSON
-  entries in `references/rules-json/characteristic-dice.json`: roll in fixed
+  entries in `../../rules-json/characteristic-dice.json`: roll in fixed
   order, roll a pool then assign results, point-buy 460, or Quick Fire array.
   Record the selected method in the creation draft and validate fixed/point-buy
-  values with `../../scripts/coc_character.py`.
-- After the player confirms the final parameters, persist the reusable machine
-  sheet through the shared `investigator.create` setup operation and attach it
-  with `campaign.link_investigator`. Pi calls the same setup gateway. Then call
-  the shared `investigator.render_card` setup operation
-  to render the confirmed `player_facing_sheet_<language>` data into Markdown,
-  including an existing portrait asset when present. The shared operation
-  defaults to Markdown only for host parity; explicitly set `html_mode` to
-  `auto` or `always` when a browser/print artifact is wanted.
+  values with `../../../../scripts/coc_character.py`.
+- **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
+  `operation="rules.roll_dice"`, the current campaign, and `arguments`
+  containing exactly `expression="3D6"`, a stable creation-scoped
+  `decision_id`, and `reason="Quick-Fire investigator Luck"`. Reuse the same
+  `decision_id` value on retry. Apply the COC7 creation formula to the
+  authoritative returned total (`Luck = total × 5`). Do not call `rules.roll`,
+  invent `rules.roll_expression`, browse the `setup` or `rules` catalogs, omit
+  `decision_id`, or send the unsupported expression `3D6*5`. This exact dice
+  recipe preserves deterministic rolls; investigator concept, characteristic
+  assignment, occupation, backstory, and final character craft remain live
+  semantic Keeper work.
+- After the player confirms the final parameters, reuse the canonical
+  `setup.invoke` card already returned by setup inspection; do not rediscover
+  or guess a second setup shape. Invoke `investigator.create` once with a JSON
+  object (never a JSON-encoded string) whose payload contains only
+  `investigator_id`, `sheet`, and optional sibling `creation`. Before sending,
+  ensure the machine `sheet` itself contains `id` equal to that same
+  `investigator_id`, a non-empty `name`, and all eight `characteristics`
+  (`STR`, `CON`, `SIZ`, `DEX`, `APP`, `INT`, `POW`, `EDU`), while preserving
+  the rest of the confirmed sheet. After its PASS receipt, attach it with the
+  exact `campaign.link_investigator` payload (`campaign_id` and the
+  `investigator_ids` array), then call `investigator.render_card` with
+  `campaign_id`, `investigator_id`, and only its optional `language` /
+  `html_mode` fields. Do not repeat a successful setup step. Pi calls the same
+  setup gateway. The render operation turns confirmed
+  `player_facing_sheet_<language>` data into Markdown, including an existing
+  portrait asset when present; it defaults to Markdown only for host parity,
+  so set `html_mode` to `auto` or `always` only when a browser/print artifact
+  is wanted.
+- A possession established in the confirmed backstory or character sheet is
+  creation data, not a new runtime grant. Keep a letter, heirloom, notebook,
+  or similar narrative hook in the sheet's backstory/equipment representation;
+  do not also call `state.item_grant` merely because the player confirms they
+  already carry it. Reserve runtime inventory operations for an effective item
+  newly gained or lost during play, and then follow that operation's returned
+  canonical card instead of guessing its arguments.
 - Import: validate JSON before linking it to a campaign.
 - Personal horror hooks: at the end of creation, once backstory is confirmed,
   derive 1-2 initial hooks from the strongest backstory entries (a missing
@@ -99,10 +131,13 @@ When generating:
 
 ## Scripts
 
-Use `../../scripts/coc_character.py` for derived values and validation. Use
-`../../scripts/coc_state.py` to create or link investigator files. Use the
-shared `campaign.render_briefing` setup operation before guided creation when a
-scenario is already bound. Use `investigator.render_card` after confirmation
-to render localized Markdown character cards, with optional auto-detected HTML
-enhancement. The underlying renderer scripts remain available for isolated
-diagnostics.
+Use `../../../../scripts/coc_character.py` for derived values and validation. Use
+`../../../../scripts/coc_state.py` to create or link investigator files. Use the
+exact `result.character_creation_briefing.briefing_path` from the
+`scenario.bind_pdf` receipt before guided creation when it is present; do not
+rerender or rediscover that path. Use the shared `campaign.render_briefing`
+setup operation only when the path is absent or player-safe public setup
+metadata later changes. Use
+`investigator.render_card` after confirmation to render localized Markdown
+character cards, with optional auto-detected HTML enhancement. The underlying
+renderer scripts remain available for isolated diagnostics.

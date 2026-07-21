@@ -11,6 +11,7 @@ only).
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -326,12 +327,21 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def default_skills_dir() -> Path:
-    return _repo_root() / "plugins" / "coc-keeper" / "skills"
+def _load_plugin_locator():
+    path = _repo_root() / "runtime" / "engine" / "plugin_locator.py"
+    spec = importlib.util.spec_from_file_location("runtime_plugin_locator_keeper", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def default_toolbox_path() -> Path:
-    return _repo_root() / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py"
+def default_skills_dir(workspace: Path | str | None = None) -> Path:
+    return _load_plugin_locator().plugin_skills_dir(workspace)
+
+
+def default_toolbox_path(workspace: Path | str | None = None) -> Path:
+    return _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_toolbox.py"
 
 
 def _runner_cmd(runner_path: Path) -> list[str]:
@@ -366,8 +376,8 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     if run_policy not in {"single_session", "continue_until_scenario_terminal"}:
         raise ValueError("run_policy must be single_session or continue_until_scenario_terminal")
     prepared["run_policy"] = run_policy
-    prepared.setdefault("skills_dir", str(default_skills_dir()))
-    prepared.setdefault("toolbox_path", str(default_toolbox_path()))
+    prepared.setdefault("skills_dir", str(default_skills_dir(prepared["workspace"])))
+    prepared.setdefault("toolbox_path", str(default_toolbox_path(prepared["workspace"])))
     tail = prepared.get("transcript_tail")
     if tail is None:
         prepared["transcript_tail"] = []

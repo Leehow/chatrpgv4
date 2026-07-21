@@ -17,6 +17,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import coc_fileio
+import coc_rulesets
 
 STRUCTURE_LABELS_ZH = {
     "linear_investigation": "线性调查",
@@ -38,7 +39,10 @@ CONTENT_FLAG_LABELS_ZH = {
     "colonial-era themes": "殖民时代主题",
 }
 
-CHARACTERISTIC_RULES_PATH = SCRIPT_DIR.parent / "references" / "rules-json" / "characteristic-dice.json"
+CHARACTERISTIC_RULES_PATH = (
+    coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
+    / "characteristic-dice.json"
+)
 
 DEFAULT_RECOMMENDED_SKILLS = [
     ("图书馆使用", "查档、旧报、书信和机构记录。"),

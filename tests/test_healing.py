@@ -407,7 +407,7 @@ def test_reset_daily_treatments():
 # --------------------------------------------------------------------------- #
 def test_treatment_json_monthly_roll_and_quality_tiers():
     """treatment.json exposes private-care monthly roll + asylum quality tiers."""
-    path = PLUGIN_ROOT / "references" / "rules-json" / "treatment.json"
+    path = PLUGIN_ROOT / "rulesets" / "coc7" / "rules-json" / "treatment.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     monthly = data["psychoanalysis"]["monthly_roll"]
     assert monthly["success_range"] == [1, 95]

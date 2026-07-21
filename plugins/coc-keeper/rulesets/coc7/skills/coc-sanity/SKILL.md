@@ -74,5 +74,5 @@ Beyond that core, already wired:
   (`development_san_reward` / `scenario_san_reward`).
 
 The asylum / private-care monthly tables and key-connection self-help exist
-in `scripts/coc_healing.py` (`PsychotherapySession`) but are not yet exposed
+in `../../../../scripts/coc_healing.py` (`PsychotherapySession`) but are not yet exposed
 as toolbox operations.

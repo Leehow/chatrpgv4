@@ -15,7 +15,7 @@ import importlib.util
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -37,15 +37,26 @@ EDGE_CONFIDENCE = frozenset({"low", "med", "high"})
 EDGE_EVIDENCE = frozenset({
     "toc_adjacency", "map", "body_mention", "clue", "handout", "npc_dialogue",
 })
-ENTITY_KINDS = frozenset({"location", "npc", "clue", "handout", "threat"})
+ENTITY_KINDS = frozenset({"location", "npc", "item", "clue", "handout", "threat"})
 JOB_KINDS = frozenset({
     "deepen_location", "deepen_npc", "deepen_clue", "deepen_handout",
-    "deepen_threat",
-    "partial_neighbor", "ensure_stub",
+    "deepen_threat", "deepen_item",
+    "resolve_npc_mechanics", "resolve_item_mechanics",
+    "locate_mechanics_index",
+    "partial_neighbor", "partial_opening", "ensure_stub",
 })
+FOREGROUND_OPENING_PURPOSE = "foreground_opening_slice"
+MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
+MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
+OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES = 96
+FULFILLED_PACK_RECEIPT_SCHEMA_VERSION = 1
+FULFILLED_PACK_DIGEST_KIND = "canonical_entity_pack"
+FULFILLED_PACK_DIGEST_VERSION = 1
+FULFILLED_PACK_INGEST_FIELD = "host_work_fulfillment"
 JOB_KIND_FOR_ENTITY = {
     "location": "deepen_location",
     "npc": "deepen_npc",
+    "item": "deepen_item",
     "clue": "deepen_clue",
     "handout": "deepen_handout",
     "threat": "deepen_threat",
@@ -53,6 +64,7 @@ JOB_KIND_FOR_ENTITY = {
 _ENTITY_ID_KEY = {
     "location": "location_id",
     "npc": "npc_id",
+    "item": "item_id",
     "clue": "clue_id",
     "handout": "handout_id",
     "threat": "threat_id",
@@ -62,10 +74,72 @@ _HEX = frozenset("0123456789abcdef")
 _EXIT_CONDITION_KINDS = frozenset({
     "always", "clue_discovered", "clock_reaches", "flag_set", "narrative",
 })
+LOCATOR_PASS_STATUSES = frozenset({"pending", "complete"})
+SKELETON_MECHANICS_STATUSES = frozenset({"unresolved", "located", "not_authored"})
+CLUE_DISCOVERY_MODES = frozenset({
+    "automatic", "check", "conditional_check", "keeper_judgment",
+})
+CLUE_CHECK_DIFFICULTIES = frozenset({"regular", "hard", "extreme"})
+# Starter IR continues to use these delivery kinds without discovery blocks.
+STARTER_CHECK_DELIVERY_KINDS = frozenset({"skill_check", "characteristic_check"})
+FACT_PROVENANCE_AUTHORITIES = frozenset({
+    "source_authored", "campaign_improvised", "campaign_generated",
+})
+FACT_PROVENANCE_FIELDS = frozenset({"authority", "source_refs", "basis"})
+FACT_RECORD_CANONICAL_SOURCE_FIELDS = frozenset({
+    "source_refs",
+    "source_page_indices",
+    "source_span",
+    "page_text_sha256",
+    "source_evidence",
+})
+FACT_RECORD_PARALLEL_SOURCE_FIELDS = frozenset({
+    "source_id",
+    "file_sha256",
+    "source_file_sha256",
+    "bundle_sha256",
+    "bundle_sha256s",
+    "pdf_index",
+    "pdf_indices",
+    "text_sha256",
+    "cached_page_refs",
+})
+_FULFILLED_PACK_OPERATIONAL_FIELDS = frozenset({
+    # Repository/write timing and transient host measurements.
+    "updated_at",
+    "ingest_timing",
+    "host_timing",
+    # This is a host request selector, never authored content or authority.
+    "host_work_job_id",
+    # Queue/cache bookkeeping may change while semantic source content does not.
+    "dig_pending",
+    "queue_state",
+    "merge_state",
+    "cache_state",
+})
 
 
 class ModuleAssetsError(ValueError):
     """Module-assets store contract violation."""
+
+
+class SkeletonStorePhaseError(ModuleAssetsError):
+    """Skeleton committed, but its registry metadata phase did not finish."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        store_result: dict[str, Any],
+        metadata_error: BaseException,
+    ) -> None:
+        super().__init__(message)
+        self.stored = True
+        self.store_result = json.loads(json.dumps(store_result))
+        self.metadata_error = {
+            "type": type(metadata_error).__name__[:80],
+            "message": str(metadata_error)[:320],
+        }
 
 
 def deepen_job_kind(entity_kind: str) -> str:
@@ -77,8 +151,12 @@ def deepen_job_kind(entity_kind: str) -> str:
 
 
 def _job_entity_kind(job_kind: str) -> str | None:
-    if job_kind in {"deepen_location", "partial_neighbor"}:
+    if job_kind in {"deepen_location", "partial_neighbor", "partial_opening"}:
         return "location"
+    if job_kind == "resolve_npc_mechanics":
+        return "npc"
+    if job_kind == "resolve_item_mechanics":
+        return "item"
     for entity_kind, deepen_kind in JOB_KIND_FOR_ENTITY.items():
         if job_kind == deepen_kind:
             return entity_kind
@@ -86,18 +164,32 @@ def _job_entity_kind(job_kind: str) -> str | None:
 
 
 def _job_depth(job_kind: str) -> int:
-    if job_kind == "partial_neighbor":
+    if job_kind in {"partial_neighbor", "partial_opening"}:
         return 1
     if job_kind.startswith("deepen_"):
         return 2
     return 0
 
 
+def _job_aspect(job_kind: str) -> str:
+    return (
+        "mechanics"
+        if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
+        else "body"
+    )
+
+
 def _same_entity_work(row: dict[str, Any], job_kind: str, target_id: str) -> bool:
+    row_kind = str(row.get("kind") or "")
+    if "locate_mechanics_index" in {row_kind, job_kind}:
+        return row_kind == job_kind and str(row.get("target_id") or "") == target_id
+    if "partial_opening" in {row_kind, job_kind} and row_kind != job_kind:
+        return False
     return (
         str(row.get("target_id") or "") == target_id
-        and _job_entity_kind(str(row.get("kind") or ""))
+        and _job_entity_kind(row_kind)
         == _job_entity_kind(job_kind)
+        and _job_aspect(str(row.get("kind") or "")) == _job_aspect(job_kind)
     )
 
 
@@ -134,7 +226,7 @@ def _host_request_scope_matches_pack(
     invalidate the negative cache and returns ``False``.
     """
     job_id = str(row.get("job_id") or "").strip()
-    if not job_id or pack is None:
+    if not job_id:
         return None
     request_path = (
         _module_dir(workspace, asset_root_id) / "host-work" / f"{job_id}.json"
@@ -149,6 +241,17 @@ def _host_request_scope_matches_pack(
         "fulfilled", "cancelled", "superseded",
     }:
         return False
+
+    # Older workers attached the entire cached corpus when no exact page scope
+    # existed.  Never reuse that unsafe negative-cache row: the replacement
+    # request will carry zero page refs and an explicit defer instruction.
+    if (
+        not request.get("requested_pdf_indices")
+        and request.get("cached_page_refs")
+    ):
+        return False
+    if pack is None:
+        return None
 
     requested_refs = _source_ref_signature(request.get("cached_page_refs"))
     pack_refs = _source_ref_signature(pack.get("source_refs"))
@@ -194,6 +297,28 @@ def _host_request_still_current(
     if _job_depth(str(row.get("kind") or "")) < _job_depth(job_kind):
         return False
     entity_kind = _job_entity_kind(job_kind)
+    if job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
+        request_path = (
+            _module_dir(workspace, asset_root_id)
+            / "host-work"
+            / f"{str(row.get('job_id') or '')}.json"
+        )
+        try:
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            request = {}
+        if not request.get("requested_pdf_indices"):
+            skeleton = get_skeleton(workspace, asset_root_id) or {}
+            locator_now_known = any(
+                isinstance(locator, dict)
+                and str(locator.get("subject_kind") or "") == str(entity_kind or "")
+                and str(locator.get("subject_id") or "") == target_id
+                and bool(_source_indices(locator, field="mechanics locator"))
+                for locator in skeleton.get("mechanics_index") or []
+            )
+            # One unresolved unknown-scope request is the negative cache until
+            # a validated locator row makes an exact replacement possible.
+            return not locator_now_known
     pack = (
         get_entity(workspace, asset_root_id, entity_kind, target_id)
         if entity_kind else None
@@ -234,6 +359,7 @@ def _supersede_host_requests(
             continue
         request.update({
             "status": "superseded",
+            "dispatch_state": "superseded",
             "superseded_at": _now_iso(),
             "superseded_by_job_id": replacement_job_id,
         })
@@ -242,12 +368,435 @@ def _supersede_host_requests(
     return superseded
 
 
-def _validate_entity_pack(kind: str, doc: dict[str, Any]) -> None:
+def _host_request_scope_is_covered(
+    request: dict[str, Any], pack: dict[str, Any],
+) -> bool:
+    """Return whether one complete deep pack covers an older host request.
+
+    A deep entity may replace an earlier partial-neighbor handoff, but only
+    when it actually contains every requested source page.  This keeps an
+    unrelated or wider open request visible instead of closing it merely
+    because the entity ids match.
+    """
+    if str(pack.get("parse_state") or "") != "deep" or pack.get("evidence_gap"):
+        return False
+    requested = request.get("requested_pdf_indices")
+    supplied = pack.get("source_page_indices")
+    if not isinstance(requested, list) or not isinstance(supplied, list):
+        return False
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in requested):
+        return False
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in supplied):
+        return False
+    request_sha = str(request.get("file_sha256") or "")
+    evidence = (
+        pack.get("source_evidence")
+        if isinstance(pack.get("source_evidence"), dict)
+        else {}
+    )
+    pack_sha = str(evidence.get("file_sha256") or "")
+    return (
+        (not request_sha or not pack_sha or request_sha == pack_sha)
+        and set(requested).issubset(set(supplied))
+    )
+
+
+def _supersede_covered_entity_host_requests(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    kind: str,
+    entity_id: str,
+    pack: dict[str, Any],
+    fulfilled_job_id: str | None,
+) -> list[str]:
+    """Close obsolete partial/deep handoffs covered by a complete deep pack."""
+    work_dir = _module_dir(workspace, asset_root_id) / "host-work"
+    if not work_dir.is_dir():
+        return []
+    replacement = fulfilled_job_id or f"entity:{kind}:{entity_id}"
+    superseded: list[str] = []
+    for path in sorted(work_dir.glob("*.json")):
+        try:
+            request = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        job_id = str(request.get("job_id") or "").strip()
+        if not job_id or job_id == fulfilled_job_id:
+            continue
+        if str(request.get("status") or "") in {
+            "fulfilled", "cancelled", "superseded",
+        }:
+            continue
+        request_kind = str(request.get("kind") or "")
+        if (
+            str(request.get("target_id") or "") != entity_id
+            or _job_entity_kind(request_kind) != kind
+            or not _host_request_scope_is_covered(request, pack)
+        ):
+            continue
+        request.update({
+            "status": "superseded",
+            "dispatch_state": "superseded",
+            "superseded_at": _now_iso(),
+            "superseded_by_job_id": replacement,
+            "superseded_by_entity": {"kind": kind, "entity_id": entity_id},
+        })
+        _write_json(path, request)
+        superseded.append(job_id)
+    return superseded
+
+
+def _validate_locator_scope_object(
+    scope: Any,
+    *,
+    field: str,
+    expected_file_sha256: str | None = None,
+    page_count: int | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(scope, dict) or not scope:
+        return [f"{field} must be a non-empty object"]
+    if not str(scope.get("scope_kind") or "").strip():
+        errors.append(f"{field}.scope_kind is required")
+    pdf_indices = scope.get("pdf_indices")
+    if (
+        not isinstance(pdf_indices, list)
+        or not pdf_indices
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in pdf_indices
+        )
+    ):
+        errors.append(f"{field}.pdf_indices must be a non-empty int list")
+    elif len(pdf_indices) != len(set(pdf_indices)):
+        errors.append(f"{field}.pdf_indices must not contain duplicates")
+    elif page_count is not None and any(value >= page_count for value in pdf_indices):
+        errors.append(
+            f"{field}.pdf_indices must be within declared source.page_count"
+        )
+    digest = str(scope.get("source_file_sha256") or "").strip().lower()
+    if len(digest) != 64 or any(ch not in _HEX for ch in digest):
+        errors.append(f"{field}.source_file_sha256 must be a 64-char hex digest")
+    elif expected_file_sha256 is not None and digest != expected_file_sha256:
+        errors.append(
+            f"{field}.source_file_sha256 must match source.file_sha256"
+        )
+    return errors
+
+
+def _validated_fact_ref_signature(
+    rows: Any, *, field: str,
+) -> tuple[tuple[str, int, str], ...]:
+    """Validate and normalize one fact's exact source-id/page/text identity."""
+    if not isinstance(rows, list) or not rows:
+        raise ModuleAssetsError(f"{field} must be a non-empty list")
+    normalized: list[tuple[str, int, str]] = []
+    seen_indices: set[int] = set()
+    for position, ref in enumerate(rows):
+        if not isinstance(ref, dict):
+            raise ModuleAssetsError(f"{field}[{position}] must be an object")
+        pdf_index = ref.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise ModuleAssetsError(
+                f"{field}[{position}].pdf_index must be a non-negative integer"
+            )
+        if pdf_index in seen_indices:
+            raise ModuleAssetsError(
+                f"{field} contains duplicate pdf_index {pdf_index}"
+            )
+        seen_indices.add(pdf_index)
+        source_id = str(ref.get("source_id") or "")
+        text_sha256 = str(ref.get("text_sha256") or "").lower()
+        if text_sha256 and (
+            len(text_sha256) != 64 or any(ch not in _HEX for ch in text_sha256)
+        ):
+            raise ModuleAssetsError(
+                f"{field}[{position}].text_sha256 must be a 64-char hex digest"
+            )
+        normalized.append((source_id, pdf_index, text_sha256))
+    return tuple(sorted(normalized))
+
+
+def _validate_closed_fact_provenance_fields(
+    provenance: dict[str, Any], *, field: str,
+) -> None:
+    """Keep fact provenance closed around one optional source selector."""
+    unsupported = sorted(set(provenance) - FACT_PROVENANCE_FIELDS)
+    if unsupported:
+        raise ModuleAssetsError(
+            f"{field} rejects unsupported fields: {', '.join(unsupported)}; "
+            "source_refs is the only source-bearing provenance field"
+        )
+    if "basis" in provenance:
+        basis = provenance["basis"]
+        if not isinstance(basis, str) or not basis.strip():
+            raise ModuleAssetsError(
+                f"{field}.basis must be a non-empty string"
+            )
+
+
+def _reject_parallel_record_source_fields(
+    container: dict[str, Any], *, field: str,
+) -> None:
+    unsupported = sorted(
+        set(container).intersection(FACT_RECORD_PARALLEL_SOURCE_FIELDS)
+    )
+    if unsupported:
+        raise ModuleAssetsError(
+            f"{field} rejects parallel record source fields: "
+            f"{', '.join(unsupported)}"
+        )
+
+
+def _validate_fact_provenance(
+    container: dict[str, Any],
+    *,
+    field: str,
+    require: bool = True,
+    require_authority: str | None = None,
+) -> None:
+    provenance = container.get("provenance")
+    if provenance is None:
+        if require:
+            raise ModuleAssetsError(f"{field} is required")
+        return
+    if not isinstance(provenance, dict):
+        raise ModuleAssetsError(f"{field} must be an object")
+    _validate_closed_fact_provenance_fields(provenance, field=field)
+    authority = str(provenance.get("authority") or "")
+    if authority not in FACT_PROVENANCE_AUTHORITIES:
+        raise ModuleAssetsError(
+            f"{field}.authority must be one of "
+            f"{sorted(FACT_PROVENANCE_AUTHORITIES)}"
+        )
+    if require_authority is not None and authority != require_authority:
+        raise ModuleAssetsError(
+            f"{field}.authority must be {require_authority!r}"
+        )
+    refs = provenance.get("source_refs")
+    if refs is None:
+        refs = []
+    if not isinstance(refs, list):
+        raise ModuleAssetsError(f"{field}.source_refs must be a list when present")
+    record_refs = container.get("source_refs")
+    if authority == "source_authored":
+        _reject_parallel_record_source_fields(container, field=field)
+        if "source_refs" in provenance and not refs:
+            raise ModuleAssetsError(
+                f"{field}.source_refs must be omitted or a non-empty exact fact scope"
+            )
+        effective = refs or record_refs
+        if not isinstance(effective, list) or not effective:
+            raise ModuleAssetsError(
+                f"{field}: source_authored requires non-empty source_refs"
+            )
+        effective_signature = _validated_fact_ref_signature(
+            effective, field=f"{field}.source_refs",
+        )
+        if refs and isinstance(record_refs, list) and record_refs:
+            record_signature = _validated_fact_ref_signature(
+                record_refs, field="source_refs",
+            )
+            if effective_signature != record_signature:
+                raise ModuleAssetsError(
+                    f"{field}.source_refs must bind exactly to record source_refs"
+                )
+    else:
+        if "source_refs" in provenance:
+            raise ModuleAssetsError(
+                f"{field}: {authority} must not borrow PDF source_refs"
+            )
+        record_source_fields = sorted(
+            set(container).intersection(
+                FACT_RECORD_CANONICAL_SOURCE_FIELDS
+                | FACT_RECORD_PARALLEL_SOURCE_FIELDS
+            )
+        )
+        if record_source_fields:
+            raise ModuleAssetsError(
+                f"{field}: {authority} must not borrow record-level PDF source "
+                f"fields: {', '.join(record_source_fields)}"
+            )
+
+
+def _validate_clue_discovery(clue: dict[str, Any], *, prefix: str) -> None:
+    """Validate progressive clue discovery; never invent skill difficulty.
+
+    Module-assets put_entity is the progressive/source-worker path. Every clue
+    accepted here requires canonical ``discovery``. Starter IR
+    ``delivery_kind=skill_check|characteristic_check`` without discovery is
+    valid only at the explicit non-progressive scenario loader boundary, not
+    here.
+    """
+    if "summary" in clue:
+        raise ModuleAssetsError(
+            f"{prefix} uses non-canonical summary; use player_safe_summary"
+        )
+    discovery = clue.get("discovery")
+    delivery_kind = str(clue.get("delivery_kind") or "").strip()
+    if discovery is None:
+        if delivery_kind == "skill":
+            raise ModuleAssetsError(
+                f"{prefix}.delivery_kind=skill is non-canonical; "
+                "use discovery.mode=check"
+            )
+        if delivery_kind in STARTER_CHECK_DELIVERY_KINDS:
+            raise ModuleAssetsError(
+                f"{prefix} progressive clue with delivery_kind={delivery_kind} "
+                "requires discovery; starter skill_check without discovery is "
+                "only valid at the non-progressive loader boundary"
+            )
+        if clue.get("skill") is not None:
+            raise ModuleAssetsError(
+                f"{prefix} has skill without discovery; use discovery.mode"
+            )
+        raise ModuleAssetsError(
+            f"{prefix} requires discovery "
+            f"(automatic|check|conditional_check|keeper_judgment)"
+        )
+
+    if not isinstance(discovery, dict):
+        raise ModuleAssetsError(f"{prefix}.discovery must be an object")
+    mode = str(discovery.get("mode") or "").strip()
+    if mode not in CLUE_DISCOVERY_MODES:
+        raise ModuleAssetsError(
+            f"{prefix}.discovery.mode must be one of "
+            f"{sorted(CLUE_DISCOVERY_MODES)}"
+        )
+    skill = discovery.get("skill")
+    difficulty = discovery.get("difficulty")
+    condition = discovery.get("condition")
+    if mode == "automatic":
+        if skill is not None or difficulty is not None:
+            raise ModuleAssetsError(
+                f"{prefix}.discovery.mode=automatic requires skill and "
+                "difficulty to be null"
+            )
+    elif mode in {"check", "conditional_check"}:
+        if not isinstance(skill, str) or not skill.strip():
+            raise ModuleAssetsError(
+                f"{prefix}.discovery.mode={mode} requires non-empty skill"
+            )
+        if str(difficulty or "") not in CLUE_CHECK_DIFFICULTIES:
+            raise ModuleAssetsError(
+                f"{prefix}.discovery.mode={mode} requires difficulty "
+                "regular|hard|extreme"
+            )
+        if mode == "conditional_check" and (
+            not isinstance(condition, dict) or not condition
+        ):
+            raise ModuleAssetsError(
+                f"{prefix}.discovery.mode=conditional_check requires condition"
+            )
+    elif mode == "keeper_judgment":
+        if difficulty is not None and str(difficulty) not in CLUE_CHECK_DIFFICULTIES:
+            raise ModuleAssetsError(
+                f"{prefix}.discovery.difficulty must be regular|hard|extreme "
+                "when present"
+            )
+    # Campaign-local clues remain legal, but their authority may not borrow
+    # PDF evidence. Source-worker rows use source_authored and are cache-bound
+    # before this validator runs.
+    _validate_fact_provenance(
+        clue,
+        field=f"{prefix}.provenance",
+        require=True,
+    )
+
+
+def _skeleton_mechanics_row(
+    workspace: Path,
+    asset_root_id: str,
+    kind: str,
+    entity_id: str,
+) -> dict[str, Any] | None:
+    """Return the matching mechanics_index row for a subject, if any."""
+    skeleton = get_skeleton(workspace, asset_root_id) or {}
+    for locator in skeleton.get("mechanics_index") or []:
+        if not isinstance(locator, dict):
+            continue
+        if (
+            str(locator.get("subject_kind") or "") == kind
+            and str(locator.get("subject_id") or "").strip() == str(entity_id)
+        ):
+            return locator
+    return None
+
+
+def _validate_entity_pack(
+    kind: str,
+    doc: dict[str, Any],
+    *,
+    workspace: Path | None = None,
+    asset_root_id: str | None = None,
+    entity_id: str | None = None,
+) -> None:
     """Validate meaning-bearing structures before a host pack becomes durable."""
+    if doc.get("mechanics") is not None:
+        mechanics_mod = _load_sibling(
+            "coc_mechanics_module_assets", "coc_mechanics.py",
+        )
+        expected_scope = None
+        mechanics = doc["mechanics"]
+        if (
+            isinstance(mechanics, dict)
+            and str(mechanics.get("status") or "") == "not_authored"
+        ):
+            if workspace is None or asset_root_id is None or entity_id is None:
+                raise ModuleAssetsError(
+                    "not_authored fulfillment requires workspace entity context"
+                )
+            if kind not in {"npc", "item"}:
+                raise ModuleAssetsError(
+                    f"not_authored mechanics only valid for npc/item, not {kind!r}"
+                )
+            row = _skeleton_mechanics_row(
+                workspace, asset_root_id, kind, entity_id,
+            )
+            if not isinstance(row, dict):
+                raise ModuleAssetsError(
+                    "not_authored requires a matching skeleton mechanics_index row "
+                    f"for {kind}:{entity_id}"
+                )
+            if str(row.get("locator_pass_status") or "") != "complete":
+                raise ModuleAssetsError(
+                    "not_authored requires skeleton mechanics_index row with "
+                    "locator_pass_status=complete"
+                )
+            expected_scope = row.get("locator_scope")
+            if not isinstance(expected_scope, dict):
+                raise ModuleAssetsError(
+                    "not_authored requires skeleton mechanics_index.locator_scope"
+                )
+        try:
+            mechanics_mod.validate_mechanics_record(
+                doc["mechanics"],
+                subject_kind=kind,
+                expected_locator_scope=expected_scope,
+            )
+        except mechanics_mod.MechanicsError as exc:
+            raise ModuleAssetsError(str(exc)) from exc
+    if kind == "clue":
+        # named_only dig stubs are placeholders without delivery semantics yet.
+        # Any delivery claim or deeper parse state requires canonical discovery.
+        parse_state = str(doc.get("parse_state") or "")
+        claims_delivery = (
+            doc.get("discovery") is not None
+            or bool(str(doc.get("delivery_kind") or "").strip())
+            or doc.get("skill") is not None
+        )
+        if parse_state not in {"named_only", "toc_only"} or claims_delivery:
+            _validate_clue_discovery(doc, prefix="clue")
     if kind == "location":
         for index, clue in enumerate(doc.get("clues") or []):
             if not isinstance(clue, dict):
                 continue
+            _validate_clue_discovery(clue, prefix=f"location clues[{index}]")
             if str(clue.get("delivery_kind") or "") != "npc_dialogue":
                 continue
             source_npc_ids = clue.get("source_npc_ids")
@@ -572,15 +1121,28 @@ def validate_skeleton(skeleton: dict[str, Any]) -> list[str]:
     if skeleton.get("parse_tier") not in (0, 1, 2, 3, 4, 5):
         errors.append("parse_tier must be an integer 0..5")
     source = skeleton.get("source")
+    source_file_sha256: str | None = None
+    source_page_count: int | None = None
     if not isinstance(source, dict):
         errors.append("source must be an object")
     else:
         try:
-            _require_sha256(source.get("file_sha256"), "source.file_sha256")
+            source_file_sha256 = _require_sha256(
+                source.get("file_sha256"), "source.file_sha256",
+            )
         except ModuleAssetsError as exc:
             errors.append(str(exc))
         if not str(source.get("source_id") or "").strip():
             errors.append("source.source_id is required")
+        page_count = source.get("page_count")
+        if (
+            isinstance(page_count, bool)
+            or not isinstance(page_count, int)
+            or page_count <= 0
+        ):
+            errors.append("source.page_count must be a positive integer")
+        else:
+            source_page_count = page_count
     starts = skeleton.get("start_candidates")
     if not isinstance(starts, list) or not starts or not all(
         isinstance(x, str) and x.strip() for x in starts
@@ -650,7 +1212,281 @@ def validate_skeleton(skeleton: dict[str, Any]) -> list[str]:
         seen_npc.add(nid)
         if npc.get("parse_state") not in PARSE_STATES:
             errors.append(f"{prefix}.parse_state invalid")
+
+    seen_item: set[str] = set()
+    for i, item in enumerate(skeleton.get("item_roster") or []):
+        prefix = f"item_roster[{i}]"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix} must be an object")
+            continue
+        try:
+            item_id = _require_id(item.get("item_id"), f"{prefix}.item_id")
+        except ModuleAssetsError as exc:
+            errors.append(str(exc))
+            continue
+        if item_id in seen_item:
+            errors.append(f"duplicate item_id {item_id!r}")
+        seen_item.add(item_id)
+        if item.get("parse_state") not in PARSE_STATES:
+            errors.append(f"{prefix}.parse_state invalid")
+
+    # Skeleton-level locator pass: empty index must never look complete.
+    global_pass = str(skeleton.get("mechanics_locator_pass_status") or "").strip()
+    if global_pass not in LOCATOR_PASS_STATUSES:
+        errors.append(
+            "mechanics_locator_pass_status must be pending or complete"
+        )
+    global_scope = skeleton.get("mechanics_locator_scope")
+    global_scope_errors: list[str] = []
+    if global_pass == "complete":
+        global_scope_errors = _validate_locator_scope_object(
+            global_scope,
+            field="mechanics_locator_scope",
+            expected_file_sha256=source_file_sha256,
+            page_count=source_page_count,
+        )
+        errors.extend(global_scope_errors)
+    elif global_scope is not None:
+        # Partial scope is allowed while pending; if present, shape must be valid.
+        errors.extend(
+            _validate_locator_scope_object(
+                global_scope,
+                field="mechanics_locator_scope",
+                expected_file_sha256=source_file_sha256,
+                page_count=source_page_count,
+            )
+        )
+
+    mechanic_subjects: set[tuple[str, str]] = set()
+    pending_or_invalid_rows = 0
+    for i, locator in enumerate(skeleton.get("mechanics_index") or []):
+        prefix = f"mechanics_index[{i}]"
+        if not isinstance(locator, dict):
+            errors.append(f"{prefix} must be an object")
+            pending_or_invalid_rows += 1
+            continue
+        subject_kind = str(locator.get("subject_kind") or "")
+        subject_id = str(locator.get("subject_id") or "").strip()
+        if subject_kind not in {"npc", "item"}:
+            errors.append(f"{prefix}.subject_kind must be npc or item")
+        if not subject_id:
+            errors.append(f"{prefix}.subject_id is required")
+        subject_key = (subject_kind, subject_id)
+        if subject_key in mechanic_subjects:
+            errors.append(f"duplicate mechanics locator {subject_key!r}")
+        mechanic_subjects.add(subject_key)
+        status = str(locator.get("status") or "")
+        if status not in SKELETON_MECHANICS_STATUSES:
+            errors.append(f"{prefix}.status invalid")
+        locator_pass = str(locator.get("locator_pass_status") or "")
+        if locator_pass not in LOCATOR_PASS_STATUSES:
+            errors.append(
+                f"{prefix}.locator_pass_status must be pending or complete"
+            )
+            pending_or_invalid_rows += 1
+        elif locator_pass == "pending" and status != "unresolved":
+            errors.append(
+                f"{prefix}: locator_pass_status=pending may only use "
+                "status=unresolved"
+            )
+            pending_or_invalid_rows += 1
+        elif locator_pass == "complete" and status not in {"located", "not_authored"}:
+            errors.append(
+                f"{prefix}: locator_pass_status=complete requires "
+                "status located or not_authored"
+            )
+            pending_or_invalid_rows += 1
+        if locator_pass == "pending":
+            pending_or_invalid_rows += 1
+        row_scope = locator.get("locator_scope")
+        if locator_pass == "complete":
+            scope_errors = _validate_locator_scope_object(
+                row_scope,
+                field=f"{prefix}.locator_scope",
+                expected_file_sha256=source_file_sha256,
+                page_count=source_page_count,
+            )
+            errors.extend(scope_errors)
+            if (
+                not scope_errors
+                and global_pass == "complete"
+                and not global_scope_errors
+                and isinstance(global_scope, dict)
+                and isinstance(row_scope, dict)
+            ):
+                global_indices = set(global_scope.get("pdf_indices") or [])
+                row_indices = set(row_scope.get("pdf_indices") or [])
+                if not row_indices.issubset(global_indices):
+                    errors.append(
+                        f"{prefix}.locator_scope.pdf_indices must be contained "
+                        "in mechanics_locator_scope"
+                    )
+                if (
+                    str(row_scope.get("source_file_sha256") or "").lower()
+                    != str(global_scope.get("source_file_sha256") or "").lower()
+                ):
+                    errors.append(
+                        f"{prefix}.locator_scope.source_file_sha256 must match "
+                        "mechanics_locator_scope"
+                    )
+                if (
+                    str(row_scope.get("scope_kind") or "").strip()
+                    != str(global_scope.get("scope_kind") or "").strip()
+                ):
+                    errors.append(
+                        f"{prefix}.locator_scope.scope_kind must match "
+                        "mechanics_locator_scope.scope_kind"
+                    )
+        elif row_scope is not None:
+            errors.extend(
+                _validate_locator_scope_object(
+                    row_scope,
+                    field=f"{prefix}.locator_scope",
+                    expected_file_sha256=source_file_sha256,
+                    page_count=source_page_count,
+                )
+            )
+        indices = locator.get("source_page_indices")
+        if status == "located":
+            indices_valid = (
+                isinstance(indices, list)
+                and bool(indices)
+                and not any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value < 0
+                    for value in indices
+                )
+            )
+            if not indices_valid:
+                errors.append(f"{prefix}.source_page_indices required when located")
+            else:
+                if len(indices) != len(set(indices)):
+                    errors.append(
+                        f"{prefix}.source_page_indices must not contain duplicates"
+                    )
+                if source_page_count is not None and any(
+                    value >= source_page_count for value in indices
+                ):
+                    errors.append(
+                        f"{prefix}.source_page_indices must be within declared "
+                        "source.page_count"
+                    )
+                if isinstance(row_scope, dict) and not set(indices).issubset(
+                    set(row_scope.get("pdf_indices") or [])
+                ):
+                    errors.append(
+                        f"{prefix}.source_page_indices must be contained in "
+                        "locator_scope.pdf_indices"
+                    )
+        # Empty/unscanned indices cannot claim not_authored or complete absence.
+        if status == "not_authored":
+            if locator_pass != "complete":
+                errors.append(
+                    f"{prefix}: not_authored requires locator_pass_status=complete"
+                )
+            receipt = locator.get("absence_receipt")
+            if not isinstance(receipt, dict):
+                errors.append(
+                    f"{prefix}: not_authored requires mechanics-grade absence_receipt"
+                )
+            else:
+                if receipt.get("review_state") not in {
+                    "manual_accepted", "auto_accepted",
+                }:
+                    errors.append(
+                        f"{prefix}.absence_receipt.review_state must be "
+                        "manual_accepted or auto_accepted"
+                    )
+                checked = receipt.get("checked_scope")
+                checked_errors = _validate_locator_scope_object(
+                    checked,
+                    field=f"{prefix}.absence_receipt.checked_scope",
+                    expected_file_sha256=source_file_sha256,
+                    page_count=source_page_count,
+                )
+                errors.extend(checked_errors)
+                digest = str(receipt.get("source_file_sha256") or "").strip().lower()
+                if len(digest) != 64 or any(ch not in _HEX for ch in digest):
+                    errors.append(
+                        f"{prefix}.absence_receipt.source_file_sha256 must be "
+                        "a 64-char hex digest"
+                    )
+                elif source_file_sha256 is not None and digest != source_file_sha256:
+                    errors.append(
+                        f"{prefix}.absence_receipt.source_file_sha256 must match "
+                        "source.file_sha256"
+                    )
+                locator_scope = locator.get("locator_scope")
+                if not checked_errors and isinstance(locator_scope, dict) and isinstance(checked, dict):
+                    if (
+                        str(locator_scope.get("scope_kind") or "").strip()
+                        != str(checked.get("scope_kind") or "").strip()
+                        or sorted(locator_scope.get("pdf_indices") or [])
+                        != sorted(checked.get("pdf_indices") or [])
+                        or str(locator_scope.get("source_file_sha256") or "").lower()
+                        != digest
+                        or str(checked.get("source_file_sha256") or "").lower()
+                        != digest
+                    ):
+                        errors.append(
+                            f"{prefix}: absence_receipt scope/hash must bind "
+                            "exactly to locator_scope"
+                        )
+                elif not checked_errors:
+                    errors.append(
+                        f"{prefix}: absence_receipt.checked_scope must bind "
+                        "exactly to locator_scope"
+                    )
+
+    roster_subjects: set[tuple[str, str]] = (
+        {("npc", nid) for nid in seen_npc}
+        | {("item", iid) for iid in seen_item}
+    )
+    if global_pass == "complete":
+        if roster_subjects and not mechanic_subjects:
+            errors.append(
+                "mechanics_locator_pass_status=complete cannot have empty "
+                "mechanics_index when npc_roster/item_roster is non-empty"
+            )
+        missing_subjects = sorted(roster_subjects - mechanic_subjects)
+        for subject_kind, subject_id in missing_subjects:
+            errors.append(
+                "mechanics_locator_pass_status=complete missing mechanics_index "
+                f"coverage for {subject_kind}:{subject_id}"
+            )
+        if pending_or_invalid_rows:
+            errors.append(
+                "mechanics_locator_pass_status=complete requires every "
+                "mechanics_index row to be locator_pass_status=complete "
+                "(located or not_authored)"
+            )
     return errors
+
+
+def _validate_source_bound_skeleton_locator_evidence(
+    workspace: Path,
+    asset_root_id: str,
+    skeleton: dict[str, Any],
+) -> None:
+    """Bind every declared locator scope to registered accepted cached pages."""
+    scopes: list[tuple[str, dict[str, Any]]] = []
+    global_scope = skeleton.get("mechanics_locator_scope")
+    if isinstance(global_scope, dict):
+        scopes.append(("mechanics_locator_scope", global_scope))
+    for index, row in enumerate(skeleton.get("mechanics_index") or []):
+        if not isinstance(row, dict):
+            continue
+        row_scope = row.get("locator_scope")
+        if isinstance(row_scope, dict):
+            scopes.append((f"mechanics_index[{index}].locator_scope", row_scope))
+    for field, scope in scopes:
+        _cached_source_refs(
+            workspace,
+            asset_root_id,
+            {"source_page_indices": list(scope.get("pdf_indices") or [])},
+            field=field,
+        )
 
 
 def put_skeleton(
@@ -703,11 +1539,28 @@ def put_skeleton(
     errors = validate_skeleton(doc)
     if errors:
         raise ModuleAssetsError("skeleton invalid: " + "; ".join(errors))
+    if identity.get("source_bundles"):
+        _validate_source_bound_skeleton_locator_evidence(
+            workspace, asset_root_id, doc,
+        )
     doc["schema_version"] = SCHEMA_VERSION
     path = mod / "skeleton.json"
     _write_json(path, doc)
-    _bump_parse_tier(workspace, asset_root_id, int(doc.get("parse_tier") or 1))
-    return {"path": str(path), "location_count": len(doc.get("locations") or [])}
+    store_result = {
+        "path": str(path),
+        "location_count": len(doc.get("locations") or []),
+    }
+    try:
+        _bump_parse_tier(
+            workspace, asset_root_id, int(doc.get("parse_tier") or 1),
+        )
+    except Exception as exc:
+        raise SkeletonStorePhaseError(
+            "skeleton.json committed but parse-tier registry metadata failed",
+            store_result=store_result,
+            metadata_error=exc,
+        ) from exc
+    return store_result
 
 
 def get_skeleton(workspace: Path, asset_root_id: str) -> dict[str, Any] | None:
@@ -927,11 +1780,12 @@ def register_source_bundle(
 
 
 def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
-    indices: set[int] = set()
+    declared_scopes: list[tuple[str, set[int]]] = []
     refs = value.get("source_refs")
     if refs is not None:
         if not isinstance(refs, list):
             raise ModuleAssetsError(f"{field}.source_refs must be a list")
+        ref_indices: list[int] = []
         for position, ref in enumerate(refs):
             if not isinstance(ref, dict):
                 raise ModuleAssetsError(
@@ -947,7 +1801,13 @@ def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
                     f"{field}.source_refs[{position}].pdf_index must be a "
                     "non-negative integer"
                 )
-            indices.add(pdf_index)
+            ref_indices.append(pdf_index)
+        if len(ref_indices) != len(set(ref_indices)):
+            raise ModuleAssetsError(
+                f"{field}.source_refs must not repeat a pdf_index"
+            )
+        if ref_indices:
+            declared_scopes.append(("source_refs", set(ref_indices)))
     explicit = value.get("source_page_indices")
     if explicit is not None:
         if not isinstance(explicit, list) or any(
@@ -957,7 +1817,12 @@ def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
             raise ModuleAssetsError(
                 f"{field}.source_page_indices must be non-negative integers"
             )
-        indices.update(explicit)
+        if len(explicit) != len(set(explicit)):
+            raise ModuleAssetsError(
+                f"{field}.source_page_indices must not contain duplicates"
+            )
+        if explicit:
+            declared_scopes.append(("source_page_indices", set(explicit)))
     span = value.get("source_span")
     if span is not None:
         if not isinstance(span, dict):
@@ -975,8 +1840,17 @@ def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
             raise ModuleAssetsError(
                 f"{field}.source_span requires 0 <= pdf_index_start <= pdf_index_end"
             )
-        indices.update(range(start, end + 1))
-    return sorted(indices)
+        declared_scopes.append(("source_span", set(range(start, end + 1))))
+    if declared_scopes:
+        canonical_name, canonical = declared_scopes[0]
+        for other_name, other in declared_scopes[1:]:
+            if other != canonical:
+                raise ModuleAssetsError(
+                    f"{field}.{other_name} must select exactly the same pages as "
+                    f"{field}.{canonical_name}; source scopes must not widen silently"
+                )
+        return sorted(canonical)
+    return []
 
 
 def _cached_source_refs(
@@ -991,6 +1865,25 @@ def _cached_source_refs(
     identity = json.loads((mod / "identity.json").read_text(encoding="utf-8"))
     source = identity.get("source") if isinstance(identity.get("source"), dict) else {}
     source_id = str(source.get("source_id") or "").strip()
+    file_sha256 = str(identity.get("file_sha256") or "").strip().lower()
+    source_file_sha256 = str(source.get("file_sha256") or "").strip().lower()
+    if not file_sha256 or source_file_sha256 != file_sha256:
+        raise ModuleAssetsError(
+            f"{field} cannot bind evidence: asset root source identity is inconsistent"
+        )
+    bundle_rows = [
+        row for row in (identity.get("source_bundles") or [])
+        if isinstance(row, dict)
+    ]
+    registered_page_bundles: dict[int, set[str]] = {}
+    for bundle_row in bundle_rows:
+        bundle_sha256 = str(bundle_row.get("bundle_sha256") or "").strip()
+        if not bundle_sha256:
+            continue
+        for raw_index in bundle_row.get("pdf_indices") or []:
+            if isinstance(raw_index, bool) or not isinstance(raw_index, int):
+                continue
+            registered_page_bundles.setdefault(raw_index, set()).add(bundle_sha256)
     indices = _source_indices(value, field=field)
     if not indices and inherited_indices:
         indices = list(inherited_indices)
@@ -1014,7 +1907,42 @@ def _cached_source_refs(
             raise ModuleAssetsError(
                 f"{field}.source_refs for pdf_index {pdf_index} use a different source_id"
             )
-        cached_digest = str(meta.get("text_sha256") or "")
+        if str(meta.get("source_id") or "").strip() != source_id:
+            raise ModuleAssetsError(
+                f"{field} cached pdf_index {pdf_index} has a different source_id"
+            )
+        if str(meta.get("file_sha256") or "").strip().lower() != file_sha256:
+            raise ModuleAssetsError(
+                f"{field} cached pdf_index {pdf_index} has a different source file identity"
+            )
+        if meta.get("review_state") not in coc_pdf_bundle.ACCEPTED_REVIEW_STATES:
+            raise ModuleAssetsError(
+                f"{field} cached pdf_index {pdf_index} is not in an accepted review state"
+            )
+        actual_digest = hashlib.sha256(page["text"].encode("utf-8")).hexdigest()
+        cached_digest = str(meta.get("text_sha256") or "").lower()
+        if cached_digest != actual_digest:
+            raise ModuleAssetsError(
+                f"{field} cached pdf_index {pdf_index} content hash drift"
+            )
+        registered = registered_page_bundles.get(pdf_index) or set()
+        cached_bundle_hashes = {
+            str(value)
+            for value in (meta.get("bundle_sha256s") or [])
+            if isinstance(value, str) and value
+        }
+        unregistered_bundle_hashes = cached_bundle_hashes - registered
+        if unregistered_bundle_hashes:
+            raise ModuleAssetsError(
+                f"{field} cached pdf_index {pdf_index} claims unregistered "
+                "source bundle coverage"
+            )
+        canonical_bundle_hashes = sorted(registered & cached_bundle_hashes)
+        if not canonical_bundle_hashes:
+            raise ModuleAssetsError(
+                f"{field} cached pdf_index {pdf_index} is not covered by a "
+                "registered accepted source bundle"
+            )
         if supplied.get("text_sha256") not in (None, cached_digest):
             raise ModuleAssetsError(
                 f"{field}.source_refs for pdf_index {pdf_index} do not match cached text"
@@ -1023,7 +1951,7 @@ def _cached_source_refs(
             "source_id": source_id,
             "pdf_index": pdf_index,
             "text_sha256": cached_digest,
-            "bundle_sha256s": list(meta.get("bundle_sha256s") or []),
+            "bundle_sha256s": canonical_bundle_hashes,
             "review_state": meta.get("review_state"),
             "parse_confidence": meta.get("parse_confidence"),
             "grep_anchors": list(meta.get("grep_anchors") or []),
@@ -1041,6 +1969,340 @@ def _cached_source_refs(
             ref["grep_anchor"] = anchor
         refs.append(ref)
     return refs
+
+
+def opening_page_candidate_catalog(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    bundle_sha256: str,
+) -> dict[str, Any]:
+    """Return the bound bundle's complete meta-only page selection hints.
+
+    ``progressive.prepare_opening`` reuses this one catalog for foreground
+    opening and deferred mechanics-locator selection.  The live Keeper chooses
+    each exact window semantically.  Rows are hints, never source provenance;
+    page bodies are deliberately not read here.
+    """
+    bundle_digest = _require_sha256(bundle_sha256, "bundle_sha256")
+    module_root = _module_dir(workspace, asset_root_id)
+    identity_path = module_root / "identity.json"
+    if not identity_path.is_file():
+        raise ModuleAssetsError("unknown module assets root")
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ModuleAssetsError("module asset identity is unreadable") from exc
+    if (
+        not isinstance(identity, dict)
+        or identity.get("schema_version") != SCHEMA_VERSION
+        or str(identity.get("asset_root_id") or "") != asset_root_id
+    ):
+        raise ModuleAssetsError("module asset identity is invalid")
+    source = identity.get("source") if isinstance(identity.get("source"), dict) else {}
+    source_id = str(source.get("source_id") or "").strip()
+    file_sha256 = _require_sha256(
+        identity.get("file_sha256"), "identity.file_sha256",
+    )
+    if (
+        not source_id
+        or str(source.get("file_sha256") or "").strip().lower() != file_sha256
+    ):
+        raise ModuleAssetsError(
+            "opening page catalog source identity is inconsistent"
+        )
+    page_count = source.get("page_count")
+    if (
+        isinstance(page_count, bool)
+        or not isinstance(page_count, int)
+        or page_count <= 0
+    ):
+        raise ModuleAssetsError("opening page catalog source page_count is invalid")
+
+    bundle_rows = [
+        row for row in (identity.get("source_bundles") or [])
+        if isinstance(row, dict)
+    ]
+    selected_rows = [
+        row for row in bundle_rows
+        if str(row.get("bundle_sha256") or "") == bundle_digest
+    ]
+    if len(selected_rows) != 1:
+        raise ModuleAssetsError(
+            "opening source bundle is not uniquely registered for this asset root"
+        )
+    raw_indices = selected_rows[0].get("pdf_indices")
+    if not isinstance(raw_indices, list) or not raw_indices:
+        raise ModuleAssetsError("opening source bundle has no registered pages")
+    if len(raw_indices) > coc_pdf_bundle.MAX_PAGES:
+        raise ModuleAssetsError(
+            "opening source bundle exceeds the bounded page-candidate limit"
+        )
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value < page_count
+        for value in raw_indices
+    ):
+        raise ModuleAssetsError("opening source bundle has invalid pdf_indices")
+    if len(raw_indices) != len(set(raw_indices)):
+        raise ModuleAssetsError("opening source bundle repeats a pdf_index")
+    pdf_indices = sorted(raw_indices)
+
+    registered_page_bundles: dict[int, set[str]] = {}
+    for row in bundle_rows:
+        digest = str(row.get("bundle_sha256") or "").strip()
+        if len(digest) != 64 or any(char not in _HEX for char in digest):
+            continue
+        indices = row.get("pdf_indices")
+        if not isinstance(indices, list):
+            continue
+        for pdf_index in indices:
+            if isinstance(pdf_index, bool) or not isinstance(pdf_index, int):
+                continue
+            registered_page_bundles.setdefault(pdf_index, set()).add(digest)
+
+    def bounded_preview(anchors: list[str]) -> str:
+        text = " | ".join(anchor.strip() for anchor in anchors)
+        encoded = text.encode("utf-8")
+        limit = OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES
+        if len(encoded) <= limit:
+            return text
+        prefix = encoded[: limit - 3]
+        while prefix:
+            try:
+                return prefix.decode("utf-8").rstrip() + "..."
+            except UnicodeDecodeError:
+                prefix = prefix[:-1]
+        return "..."
+
+    candidates: list[dict[str, Any]] = []
+    for pdf_index in pdf_indices:
+        meta_path = module_root / "pages" / f"{pdf_index:04d}.meta.json"
+        if not meta_path.is_file():
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} metadata is missing"
+            )
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} metadata is unreadable"
+            ) from exc
+        if (
+            not isinstance(meta, dict)
+            or meta.get("schema_version") != SCHEMA_VERSION
+            or meta.get("pdf_index") != pdf_index
+        ):
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} metadata is invalid"
+            )
+        if str(meta.get("source_id") or "").strip() != source_id:
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} has a different source_id"
+            )
+        if str(meta.get("file_sha256") or "").strip().lower() != file_sha256:
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} has a different source file identity"
+            )
+        review_state = meta.get("review_state")
+        if review_state not in coc_pdf_bundle.ACCEPTED_REVIEW_STATES:
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} is not in an accepted review state"
+            )
+        parse_confidence = meta.get("parse_confidence")
+        if (
+            isinstance(parse_confidence, bool)
+            or not isinstance(parse_confidence, (int, float))
+            or not 0 <= parse_confidence <= 1
+        ):
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} parse_confidence is invalid"
+            )
+        anchors = meta.get("grep_anchors")
+        if not isinstance(anchors, list) or any(
+            not isinstance(anchor, str) or not anchor.strip()
+            for anchor in anchors
+        ):
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} grep_anchors are invalid"
+            )
+        cached_bundle_hashes = {
+            str(value)
+            for value in (meta.get("bundle_sha256s") or [])
+            if isinstance(value, str) and value
+        }
+        if isinstance(meta.get("bundle_sha256"), str) and meta["bundle_sha256"]:
+            cached_bundle_hashes.add(str(meta["bundle_sha256"]))
+        registered = registered_page_bundles.get(pdf_index) or set()
+        if bundle_digest not in cached_bundle_hashes or bundle_digest not in registered:
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} is not bound to the selected source bundle"
+            )
+        if cached_bundle_hashes - registered:
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} claims unregistered source bundle coverage"
+            )
+        candidates.append({
+            "pdf_index": pdf_index,
+            "review_state": review_state,
+            "parse_confidence": parse_confidence,
+            "grep_anchor_preview": bounded_preview(list(anchors)),
+        })
+    return {
+        "opening_page_candidates": candidates,
+        "opening_page_candidate_total": len(candidates),
+        "opening_page_candidate_complete": True,
+        "opening_page_candidate_role": "selection_hint_only_not_provenance",
+    }
+
+
+def validate_opening_source_window(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    bundle_sha256: str,
+    pdf_indices: list[int],
+) -> dict[str, Any]:
+    """Validate one exact, accepted 1..3-page foreground source window.
+
+    This is a read-only evidence operation.  It never creates a cache row or
+    repairs page metadata; callers must register the host-reviewed bundle
+    before selecting the window.
+    """
+    bundle_digest = _require_sha256(bundle_sha256, "bundle_sha256")
+    if not isinstance(pdf_indices, list) or not pdf_indices:
+        raise ModuleAssetsError("opening pdf_indices must contain 1..3 pages")
+    if len(pdf_indices) > 3:
+        raise ModuleAssetsError("opening pdf_indices must contain 1..3 pages")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
+        for value in pdf_indices
+    ):
+        raise ModuleAssetsError(
+            "opening pdf_indices must be non-negative integers"
+        )
+    if len(pdf_indices) != len(set(pdf_indices)):
+        raise ModuleAssetsError("opening pdf_indices must not contain duplicates")
+    canonical_indices = sorted(pdf_indices)
+    if canonical_indices != list(
+        range(canonical_indices[0], canonical_indices[-1] + 1)
+    ):
+        raise ModuleAssetsError("opening pdf_indices must be contiguous")
+
+    module_root = _module_dir(workspace, asset_root_id)
+    identity_path = module_root / "identity.json"
+    if not identity_path.is_file():
+        raise ModuleAssetsError("unknown module assets root")
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    source = identity.get("source") if isinstance(identity.get("source"), dict) else {}
+    bundle_row = next(
+        (
+            row
+            for row in (identity.get("source_bundles") or [])
+            if isinstance(row, dict)
+            and str(row.get("bundle_sha256") or "") == bundle_digest
+        ),
+        None,
+    )
+    if bundle_row is None:
+        raise ModuleAssetsError(
+            "opening source bundle is not registered for this asset root"
+        )
+    covered = {
+        value
+        for value in (bundle_row.get("pdf_indices") or [])
+        if isinstance(value, int) and not isinstance(value, bool)
+    }
+    if not set(canonical_indices) <= covered:
+        raise ModuleAssetsError(
+            "opening pdf_indices are not covered by the campaign-bound source bundle"
+        )
+    refs = _cached_source_refs(
+        workspace,
+        asset_root_id,
+        {"source_page_indices": canonical_indices},
+        field="opening_source_window",
+    )
+    for ref in refs:
+        if bundle_digest not in set(ref.get("bundle_sha256s") or []):
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {ref.get('pdf_index')} is not bound "
+                "to the selected source bundle"
+            )
+    page_refs = [
+        {
+            "source_id": str(ref.get("source_id") or ""),
+            "pdf_index": int(ref["pdf_index"]),
+            "text_sha256": str(ref.get("text_sha256") or ""),
+            "review_state": ref.get("review_state"),
+            "parse_confidence": ref.get("parse_confidence"),
+        }
+        for ref in refs
+    ]
+    return {
+        "source_id": str(source.get("source_id") or ""),
+        "file_sha256": _require_sha256(
+            identity.get("file_sha256"), "identity.file_sha256"
+        ),
+        "bundle_sha256": bundle_digest,
+        "pdf_indices": canonical_indices,
+        "page_refs": page_refs,
+    }
+
+
+def validate_opening_source_scope(
+    workspace: Path,
+    asset_root_id: str,
+    scope: Any,
+) -> dict[str, Any]:
+    """Revalidate a durable exact opening job scope without widening it."""
+    if not isinstance(scope, dict):
+        raise ModuleAssetsError("requested_source_scope must be an object")
+    allowed = {
+        "source_id", "file_sha256", "bundle_sha256", "pdf_indices", "page_refs",
+    }
+    if set(scope) - allowed:
+        raise ModuleAssetsError(
+            "requested_source_scope contains unsupported fields"
+        )
+    canonical = validate_opening_source_window(
+        workspace,
+        asset_root_id,
+        bundle_sha256=str(scope.get("bundle_sha256") or ""),
+        pdf_indices=scope.get("pdf_indices"),
+    )
+    if scope.get("pdf_indices") != canonical["pdf_indices"]:
+        raise ModuleAssetsError(
+            "requested_source_scope.pdf_indices must be in canonical ascending order"
+        )
+    for field in ("source_id", "file_sha256"):
+        if scope.get(field) != canonical[field]:
+            raise ModuleAssetsError(
+                f"requested_source_scope.{field} differs from the bound source"
+            )
+    if scope.get("page_refs") != canonical["page_refs"]:
+        raise ModuleAssetsError(
+            "requested_source_scope.page_refs differ from current accepted pages"
+        )
+    return canonical
+
+
+def opening_source_scope_signature(scope: dict[str, Any]) -> str:
+    """Content identity used only for exact opening request dedupe."""
+    material = json.dumps(
+        {
+            "source_id": scope.get("source_id"),
+            "file_sha256": scope.get("file_sha256"),
+            "bundle_sha256": scope.get("bundle_sha256"),
+            "pdf_indices": list(scope.get("pdf_indices") or []),
+            "page_refs": list(scope.get("page_refs") or []),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
 
 
 def _apply_canonical_source_scope(
@@ -1069,6 +2331,166 @@ def _apply_canonical_source_scope(
         target.pop("source_span", None)
 
 
+def _canonical_fact_source_evidence(
+    workspace: Path,
+    asset_root_id: str,
+    refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the one repository-owned evidence object for a source fact."""
+    identity = json.loads(
+        (_module_dir(workspace, asset_root_id) / "identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = identity.get("source") if isinstance(identity.get("source"), dict) else {}
+    return {
+        "schema_version": 1,
+        "source_id": source.get("source_id"),
+        "file_sha256": identity.get("file_sha256"),
+        "bundle_sha256s": sorted({
+            bundle_hash
+            for ref in refs
+            for bundle_hash in (ref.get("bundle_sha256s") or [])
+            if isinstance(bundle_hash, str) and bundle_hash
+        }),
+        "pdf_indices": [int(ref["pdf_index"]) for ref in refs],
+        "page_text_sha256": [str(ref["text_sha256"]) for ref in refs],
+    }
+
+
+def _canonicalize_source_authored_fact(
+    workspace: Path,
+    asset_root_id: str,
+    container: dict[str, Any],
+    *,
+    field: str,
+    inherited_indices: list[int] | None = None,
+) -> None:
+    """Canonicalize one source-authored fact and bind provenance to its scope.
+
+    Record refs are the canonical semantic page selection. Provenance refs may
+    be omitted; when supplied they must independently resolve through the same
+    accepted cache and match the record source-id/page/text signature exactly.
+    """
+    provenance = container.get("provenance")
+    if not isinstance(provenance, dict):
+        return
+    if str(provenance.get("authority") or "") != "source_authored":
+        return
+    identity = json.loads(
+        (_module_dir(workspace, asset_root_id) / "identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    if not identity.get("source_bundles"):
+        raise ModuleAssetsError(
+            f"{field} source_authored fact requires a registered accepted "
+            "source bundle"
+        )
+    _validate_closed_fact_provenance_fields(
+        provenance, field=f"{field}.provenance",
+    )
+    _reject_parallel_record_source_fields(container, field=field)
+    if "source_refs" in container and not container.get("source_refs"):
+        raise ModuleAssetsError(
+            f"{field}.source_refs must be omitted for parent inheritance or "
+            "contain a non-empty exact fact scope"
+        )
+    supplied_page_digests = json.loads(json.dumps(
+        container.get("page_text_sha256")
+    )) if "page_text_sha256" in container else None
+    supplied_source_evidence = json.loads(json.dumps(
+        container.get("source_evidence")
+    )) if "source_evidence" in container else None
+    record_refs = _cached_source_refs(
+        workspace,
+        asset_root_id,
+        container,
+        field=field,
+        inherited_indices=inherited_indices,
+    )
+    if not record_refs:
+        raise ModuleAssetsError(
+            f"{field} source_authored fact requires an exact cached source scope"
+        )
+    canonical_page_digests = [str(ref["text_sha256"]) for ref in record_refs]
+    if (
+        "page_text_sha256" in container
+        and supplied_page_digests != canonical_page_digests
+    ):
+        raise ModuleAssetsError(
+            f"{field}.page_text_sha256 must exactly match the accepted cached pages"
+        )
+    canonical_evidence = _canonical_fact_source_evidence(
+        workspace, asset_root_id, record_refs,
+    )
+    if (
+        "source_evidence" in container
+        and supplied_source_evidence != canonical_evidence
+    ):
+        raise ModuleAssetsError(
+            f"{field}.source_evidence must exactly match repository-derived "
+            "accepted source evidence"
+        )
+    _apply_canonical_source_scope(container, record_refs)
+    container["source_evidence"] = canonical_evidence
+
+    if "source_refs" not in provenance:
+        return
+    raw_provenance_refs = provenance.get("source_refs")
+    if not isinstance(raw_provenance_refs, list) or not raw_provenance_refs:
+        raise ModuleAssetsError(
+            f"{field}.provenance.source_refs must be omitted or a non-empty "
+            "exact fact scope"
+        )
+    provenance_refs = _cached_source_refs(
+        workspace,
+        asset_root_id,
+        {"source_refs": raw_provenance_refs},
+        field=f"{field}.provenance",
+    )
+    if _source_ref_signature(provenance_refs) != _source_ref_signature(record_refs):
+        raise ModuleAssetsError(
+            f"{field}.provenance.source_refs must bind exactly to record source_refs"
+        )
+    provenance["source_refs"] = json.loads(json.dumps(provenance_refs))
+
+
+def _validate_source_bound_locator_scope(
+    workspace: Path,
+    asset_root_id: str,
+    scope: Any,
+    *,
+    field: str,
+) -> None:
+    """Prove one entity locator scope belongs to the bound source/cache."""
+    identity = json.loads(
+        (_module_dir(workspace, asset_root_id) / "identity.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = identity.get("source") if isinstance(identity.get("source"), dict) else {}
+    errors = _validate_locator_scope_object(
+        scope,
+        field=field,
+        expected_file_sha256=str(identity.get("file_sha256") or "").lower(),
+        page_count=(
+            source.get("page_count")
+            if isinstance(source.get("page_count"), int)
+            and not isinstance(source.get("page_count"), bool)
+            else None
+        ),
+    )
+    if errors:
+        raise ModuleAssetsError("; ".join(errors))
+    _cached_source_refs(
+        workspace,
+        asset_root_id,
+        {"source_page_indices": list(scope.get("pdf_indices") or [])},
+        field=field,
+    )
+
+
 def _canonicalize_entity_source_evidence(
     workspace: Path,
     asset_root_id: str,
@@ -1079,12 +2501,70 @@ def _canonicalize_entity_source_evidence(
     identity = json.loads(identity_path.read_text(encoding="utf-8"))
     source_bound = bool(identity.get("source_bundles"))
     parse_state = str(doc.get("parse_state") or "")
+    provenance = doc.get("provenance") if isinstance(doc.get("provenance"), dict) else {}
+    fact_authority = str(provenance.get("authority") or "")
+    campaign_authority = fact_authority in {
+        "campaign_improvised", "campaign_generated",
+    }
     requires_evidence = (
         source_bound
         and parse_state in {"partial", "body_parsed", "deep"}
         and not bool(doc.get("evidence_gap"))
+        and not campaign_authority
     )
+
+    # Mechanics appendix evidence is independent from narrative/body depth.
+    # A named_only NPC may still carry a fully authored, accepted mechanics
+    # pack, and that nested fact must prove its own source scope.
+    mechanics = doc.get("mechanics")
+    if isinstance(mechanics, dict):
+        mechanics_status = str(mechanics.get("status") or "")
+        if source_bound and mechanics_status in {"located", "not_authored"}:
+            _validate_source_bound_locator_scope(
+                workspace,
+                asset_root_id,
+                mechanics.get("locator_scope"),
+                field=f"{kind}.mechanics.locator_scope",
+            )
+        mechanics_provenance = (
+            mechanics.get("provenance")
+            if isinstance(mechanics.get("provenance"), dict)
+            else {}
+        )
+        if str(mechanics_provenance.get("authority") or "") == "source_authored":
+            _canonicalize_source_authored_fact(
+                workspace,
+                asset_root_id,
+                mechanics,
+                field=f"{kind}.mechanics",
+            )
+
     indices = _source_indices(doc, field=kind)
+    if kind == "clue" and fact_authority == "source_authored":
+        _canonicalize_source_authored_fact(
+            workspace,
+            asset_root_id,
+            doc,
+            field="clue",
+        )
+        indices = _source_indices(doc, field=kind)
+    if kind == "location":
+        for position, clue in enumerate(doc.get("clues") or []):
+            if not isinstance(clue, dict):
+                continue
+            clue_provenance = (
+                clue.get("provenance")
+                if isinstance(clue.get("provenance"), dict)
+                else {}
+            )
+            if str(clue_provenance.get("authority") or "") == "source_authored":
+                _canonicalize_source_authored_fact(
+                    workspace,
+                    asset_root_id,
+                    clue,
+                    field=f"location.clues[{position}]",
+                    inherited_indices=(list(indices) if indices else None),
+                )
     if requires_evidence and not indices:
         raise ModuleAssetsError(
             f"source-bound {kind} pack with parse_state={parse_state} requires "
@@ -1158,17 +2638,42 @@ def _canonicalize_entity_source_evidence(
             for position, row in enumerate(doc.get(collection) or []):
                 if not isinstance(row, dict):
                     continue
-                child_refs = _cached_source_refs(
-                    workspace,
-                    asset_root_id,
-                    row,
-                    field=f"location.{collection}[{position}]",
-                    inherited_indices=list(doc["source_page_indices"]),
+                child_field = f"location.{collection}[{position}]"
+                child_provenance = (
+                    row.get("provenance")
+                    if isinstance(row.get("provenance"), dict)
+                    else {}
                 )
-                _apply_canonical_source_scope(row, child_refs)
-                row.setdefault("origin", "source")
+                child_authority = str(child_provenance.get("authority") or "")
+                if collection == "clues" and child_authority in {
+                    "campaign_improvised", "campaign_generated",
+                }:
+                    # Campaign facts deliberately do not inherit parent PDF refs.
+                    child_refs = []
+                elif collection == "clues" and child_authority == "source_authored":
+                    _canonicalize_source_authored_fact(
+                        workspace,
+                        asset_root_id,
+                        row,
+                        field=child_field,
+                        inherited_indices=list(doc["source_page_indices"]),
+                    )
+                    child_refs = list(row.get("source_refs") or [])
+                    row.setdefault("origin", "source")
+                else:
+                    child_refs = _cached_source_refs(
+                        workspace,
+                        asset_root_id,
+                        row,
+                        field=child_field,
+                        inherited_indices=list(doc["source_page_indices"]),
+                    )
+                    _apply_canonical_source_scope(row, child_refs)
+                    row.setdefault("origin", "source")
                 for mention_position, mention in enumerate(row.get("mentions") or []):
                     if not isinstance(mention, dict):
+                        continue
+                    if not child_refs:
                         continue
                     mention_refs = _cached_source_refs(
                         workspace,
@@ -1207,7 +2712,7 @@ def _host_ingest_timing(
     received_at: str,
     host_timing: Any,
     host_work_job_id: Any = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str | None]:
     timing: dict[str, Any] = {
         "pack_received_at": received_at,
         "host_timing_status": "missing",
@@ -1233,6 +2738,10 @@ def _host_ingest_timing(
             "source_compile_completed_at": host_timing["completed_at"],
             "producer": host_timing.get("producer") or "host_pdf_skill",
         })
+        if host_timing.get("measurement"):
+            timing["source_timing_measurement"] = host_timing.get("measurement")
+        if host_timing.get("task_id"):
+            timing["source_task_id"] = host_timing.get("task_id")
     requested_job_id = str(host_work_job_id or "").strip()
     work_dir = _module_dir(workspace, asset_root_id) / "host-work"
     matching: list[tuple[Path, dict[str, Any]]] = []
@@ -1264,12 +2773,22 @@ def _host_ingest_timing(
                 and _job_entity_kind(str(request.get("kind") or "")) == kind
             ):
                 matching.append((path, request))
+    matched_job_id: str | None = None
     if matching:
         _path, latest = max(
             matching, key=lambda row: str(row[1].get("created_at") or "")
         )
         requested_at = str(latest.get("created_at") or "")
-        timing["host_work_job_id"] = str(latest.get("job_id") or "")
+        matched_job_id = str(latest.get("job_id") or "").strip() or None
+        timing["source_work_group_id"] = latest.get("work_group_id")
+        timing["source_deadline_class"] = latest.get("deadline_class")
+        timing["source_dispatch_attempts"] = int(
+            latest.get("dispatch_attempts") or 0
+        )
+        if latest.get("executor_id"):
+            timing["source_executor_id"] = latest.get("executor_id")
+        if latest.get("lease_id"):
+            timing["source_lease_id"] = latest.get("lease_id")
         if requested_at:
             timing["host_request_created_at"] = requested_at
             try:
@@ -1285,19 +2804,129 @@ def _host_ingest_timing(
                 )
             except ValueError:
                 pass
-    return timing
+        dispatched_at = str(latest.get("leased_at") or "")
+        if dispatched_at:
+            timing["source_dispatched_at"] = dispatched_at
+            try:
+                timing["source_dispatch_to_pack_ms"] = max(
+                    0,
+                    round(
+                        (
+                            datetime.fromisoformat(received_at)
+                            - datetime.fromisoformat(dispatched_at)
+                        ).total_seconds()
+                        * 1000
+                    ),
+                )
+            except ValueError:
+                pass
+    return timing, matched_job_id
 
 
-def _semantic_pack_digest(doc: dict[str, Any]) -> str:
+def _compact_canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def canonical_fulfilled_pack_digest(doc: dict[str, Any]) -> str:
+    """Hash canonical semantic/source content, never host-work bookkeeping.
+
+    The digest is intentionally computed after repository source
+    canonicalization.  Top-level operational fields are excluded explicitly;
+    nested authored fields with similar names remain semantic content.
+    """
     semantic = {
         key: value
         for key, value in doc.items()
-        if key not in {"updated_at", "ingest_timing"}
+        if key not in _FULFILLED_PACK_OPERATIONAL_FIELDS
     }
-    encoded = json.dumps(
-        semantic, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return _compact_canonical_sha256(semantic)
+
+
+def canonical_source_evidence_digest(doc: dict[str, Any]) -> str:
+    evidence = (
+        doc.get("source_evidence")
+        if isinstance(doc.get("source_evidence"), dict)
+        else {}
+    )
+    return _compact_canonical_sha256(evidence)
+
+
+def canonical_fulfilled_entity_receipt(
+    kind: str,
+    entity_id: str,
+    doc: dict[str, Any],
+) -> dict[str, Any]:
+    """Versioned content/evidence identity shared by put and readiness."""
+    return {
+        "schema_version": FULFILLED_PACK_RECEIPT_SCHEMA_VERSION,
+        "kind": kind,
+        "entity_id": entity_id,
+        "digest_kind": FULFILLED_PACK_DIGEST_KIND,
+        "digest_version": FULFILLED_PACK_DIGEST_VERSION,
+        "fulfilled_pack_sha256": canonical_fulfilled_pack_digest(doc),
+        "source_evidence_sha256": canonical_source_evidence_digest(doc),
+    }
+
+
+def canonical_ingest_fulfillment_receipt(
+    job_id: str,
+    kind: str,
+    entity_id: str,
+    doc: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "job_id": job_id,
+        **canonical_fulfilled_entity_receipt(kind, entity_id, doc),
+    }
+
+
+def current_ingest_fulfillment_receipt(
+    doc: dict[str, Any],
+) -> dict[str, Any] | None:
+    timing = (
+        doc.get("ingest_timing")
+        if isinstance(doc.get("ingest_timing"), dict)
+        else {}
+    )
+    receipt = timing.get(FULFILLED_PACK_INGEST_FIELD)
+    return (
+        json.loads(json.dumps(receipt))
+        if isinstance(receipt, dict)
+        else None
+    )
+
+
+def fulfilled_request_matches_current_pack(
+    request: dict[str, Any],
+    pack: dict[str, Any],
+    *,
+    kind: str,
+    entity_id: str,
+) -> bool:
+    """Prove one fulfilled request is for exactly this canonical pack."""
+    current = current_ingest_fulfillment_receipt(pack)
+    if not isinstance(current, dict):
+        return False
+    job_id = str(current.get("job_id") or "").strip()
+    if not job_id or str(request.get("job_id") or "") != job_id:
+        return False
+    expected_entity = canonical_fulfilled_entity_receipt(
+        kind, entity_id, pack,
+    )
+    expected_current = {"job_id": job_id, **expected_entity}
+    return bool(
+        request.get("status") == "fulfilled"
+        and request.get("fulfilled_entity") == expected_entity
+        and current == expected_current
+    )
+
+
+def _semantic_pack_digest(doc: dict[str, Any]) -> str:
+    """Backward-compatible name for unchanged-pack reuse detection."""
+    return canonical_fulfilled_pack_digest(doc)
 
 
 def _mark_host_work_fulfilled(
@@ -1307,6 +2936,7 @@ def _mark_host_work_fulfilled(
     host_work_job_id: str | None,
     kind: str,
     entity_id: str,
+    fulfilled_entity: dict[str, Any],
     fulfilled_at: str,
     repository_put_ms: int,
 ) -> None:
@@ -1323,14 +2953,256 @@ def _mark_host_work_fulfilled(
         if str(request.get("job_id") or "") != host_work_job_id:
             continue
         request["status"] = "fulfilled"
+        request["dispatch_state"] = "fulfilled"
         request["fulfilled_at"] = fulfilled_at
-        request["fulfilled_entity"] = {
-            "kind": kind,
-            "entity_id": entity_id,
-        }
+        request["fulfilled_entity"] = json.loads(json.dumps(fulfilled_entity))
         request["repository_put_ms"] = repository_put_ms
         _write_json(path, request)
         return
+
+
+def mark_locator_host_work_fulfilled(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    host_work_job_id: str,
+    repository_put_ms: int,
+) -> None:
+    """Close one validated locator request after its skeleton delta is stored."""
+    path = (
+        _module_dir(workspace, asset_root_id)
+        / "host-work"
+        / f"{_require_id(host_work_job_id, 'host_work_job_id')}.json"
+    )
+    if not path.is_file():
+        raise ModuleAssetsError("locator host-work request is missing")
+    with coc_fileio.advisory_file_lock(
+        _module_dir(workspace, asset_root_id) / "host-work.lock"
+    ):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        if request.get("kind") != "locate_mechanics_index":
+            raise ModuleAssetsError("host-work request is not a mechanics locator pass")
+        if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
+            raise ModuleAssetsError(
+                f"locator host-work request is already {request.get('status')}"
+            )
+        request.update({
+            "status": "fulfilled",
+            "dispatch_state": "fulfilled",
+            "fulfilled_at": _now_iso(),
+            "repository_put_ms": max(0, int(repository_put_ms)),
+        })
+        _write_json(path, request)
+
+
+def _refresh_host_work_cache(
+    workspace: Path,
+    asset_root_id: str,
+    request: dict[str, Any],
+) -> bool:
+    """Refresh one request's exact cached-page projection in place.
+
+    A later host PDF window may land after the request was created.  Claims
+    must observe those newly cached pages without rebuilding or broadening the
+    semantic request.
+    """
+    requested = request.get("requested_pdf_indices")
+    if not isinstance(requested, list) or any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in requested
+    ):
+        return False
+    module_root = _module_dir(workspace, asset_root_id)
+    refs: list[dict[str, Any]] = []
+    for pdf_index in sorted(set(requested)):
+        page = get_page(workspace, asset_root_id, pdf_index)
+        if page is None:
+            continue
+        meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+        refs.append({
+            "source_id": meta.get("source_id"),
+            "pdf_index": pdf_index,
+            "path": str(module_root / "pages" / f"{pdf_index:04d}.md"),
+            "text_sha256": meta.get("text_sha256"),
+            "bundle_sha256s": list(meta.get("bundle_sha256s") or []),
+            "review_state": meta.get("review_state"),
+            "parse_confidence": meta.get("parse_confidence"),
+            "grep_anchors": list(meta.get("grep_anchors") or []),
+        })
+    changed = refs != list(request.get("cached_page_refs") or [])
+    request["cached_page_refs"] = refs
+    request["pages_cached"] = [f"{row['pdf_index']:04d}.md" for row in refs]
+    request["cached_scope_complete"] = (
+        set(requested) <= {int(row["pdf_index"]) for row in refs}
+        if requested
+        else None
+    )
+    return changed
+
+
+def _lease_is_expired(request: dict[str, Any], now: datetime) -> bool:
+    if str(request.get("dispatch_state") or "ready") != "leased":
+        return False
+    expires_at = str(request.get("lease_expires_at") or "")
+    try:
+        expiry = datetime.fromisoformat(expires_at)
+    except ValueError:
+        return True
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    return expiry <= now
+
+
+def claim_host_work_requests(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    executor_id: str,
+    limit: int = 1,
+    lease_seconds: int = 600,
+    cached_only: bool = True,
+) -> dict[str, Any]:
+    """Atomically lease bounded source-page work groups for host subagents.
+
+    The repository still does not parse PDF content.  It only coalesces exact
+    page scopes and returns contract packets.  A host-native child reads those
+    cached pages, while the parent Keeper remains the sole caller of the
+    canonical fulfillment operation.
+    """
+    executor = str(executor_id or "").strip()
+    if not executor or len(executor) > 128:
+        raise ModuleAssetsError("executor_id must be 1..128 characters")
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 4:
+        raise ModuleAssetsError("limit must be an integer from 1 through 4")
+    if (
+        isinstance(lease_seconds, bool)
+        or not isinstance(lease_seconds, int)
+        or not 30 <= lease_seconds <= 3600
+    ):
+        raise ModuleAssetsError("lease_seconds must be an integer from 30 through 3600")
+
+    module_root = _module_dir(workspace, asset_root_id)
+    work_dir = module_root / "host-work"
+    if not work_dir.is_dir():
+        return {"packets": [], "leased_group_count": 0, "ready_group_count": 0}
+    now = datetime.now(timezone.utc)
+    closed = {"fulfilled", "cancelled", "superseded"}
+    rows: list[tuple[Path, dict[str, Any]]] = []
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        for path in sorted(work_dir.glob("*.json")):
+            try:
+                request = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(request, dict):
+                continue
+            if str(request.get("status") or "open") in closed:
+                continue
+            changed = _refresh_host_work_cache(
+                workspace, asset_root_id, request,
+            )
+            if _lease_is_expired(request, now):
+                request["dispatch_state"] = "ready"
+                request["last_lease_expired_at"] = now.isoformat()
+                for key in (
+                    "lease_id", "leased_at", "lease_expires_at", "executor_id",
+                ):
+                    request.pop(key, None)
+                changed = True
+            if changed:
+                _write_json(path, request)
+            if str(request.get("dispatch_state") or "ready") != "ready":
+                continue
+            indices = request.get("requested_pdf_indices") or []
+            if not indices:
+                continue
+            if cached_only and request.get("cached_scope_complete") is not True:
+                continue
+            rows.append((path, request))
+
+        grouped: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
+        for path, request in rows:
+            group_id = str(request.get("work_group_id") or request.get("job_id") or "")
+            grouped.setdefault(group_id, []).append((path, request))
+        ordered_groups = sorted(
+            grouped.items(),
+            key=lambda item: (
+                -max(int(row[1].get("priority") or 0) for row in item[1]),
+                min(str(row[1].get("created_at") or "") for row in item[1]),
+                item[0],
+            ),
+        )
+
+        packets: list[dict[str, Any]] = []
+        for group_id, members in ordered_groups[:limit]:
+            lease_material = (
+                f"{executor}:{group_id}:{now.isoformat()}:"
+                + ",".join(str(row[1].get("job_id") or "") for row in members)
+            ).encode("utf-8")
+            lease_id = "source-lease-" + hashlib.sha256(lease_material).hexdigest()[:20]
+            expires_at = now + timedelta(seconds=lease_seconds)
+            packet_requests: list[dict[str, Any]] = []
+            for path, request in members:
+                request["dispatch_state"] = "leased"
+                request["dispatch_attempts"] = int(
+                    request.get("dispatch_attempts") or 0
+                ) + 1
+                request["executor_id"] = executor
+                request["lease_id"] = lease_id
+                request["leased_at"] = now.isoformat()
+                request["lease_expires_at"] = expires_at.isoformat()
+                _write_json(path, request)
+                packet_requests.append({
+                    key: request.get(key)
+                    for key in (
+                        "job_id", "kind", "target_id", "priority", "reason",
+                        "instruction", "requested_pdf_indices", "cached_page_refs",
+                        "cached_scope_complete", "batch_subjects",
+                        "request_purpose", "requested_source_scope",
+                        "source_scope_signature", "result_contract",
+                    )
+                })
+            exemplar = members[0][1]
+            packets.append({
+                "schema_version": 1,
+                "contract_id": "coc.source-pack-worker.v1",
+                "packet_id": lease_id,
+                "asset_root_id": asset_root_id,
+                "work_group_id": group_id,
+                "lease_expires_at": expires_at.isoformat(),
+                "source_pdf": exemplar.get("source_pdf"),
+                "source_id": exemplar.get("source_id"),
+                "file_sha256": exemplar.get("file_sha256"),
+                "source_aspect": exemplar.get("source_aspect") or "body",
+                "request_purpose": exemplar.get("request_purpose"),
+                "requested_source_scope": exemplar.get("requested_source_scope"),
+                "source_scope_signature": exemplar.get("source_scope_signature"),
+                "deadline_class": min(
+                    (
+                        str(row[1].get("deadline_class") or "next_turn_hot")
+                        for row in members
+                    ),
+                    key=lambda value: {
+                        "blocking_micro": 0,
+                        "next_turn_hot": 1,
+                        "hot_ring": 2,
+                        "idle_warm": 3,
+                    }.get(value, 9),
+                ),
+                "requested_pdf_indices": list(
+                    exemplar.get("requested_pdf_indices") or []
+                ),
+                "cached_scope_complete": all(
+                    row[1].get("cached_scope_complete") is True for row in members
+                ),
+                "requests": packet_requests,
+            })
+    return {
+        "packets": packets,
+        "leased_group_count": len(packets),
+        "ready_group_count": len(ordered_groups),
+        "cached_only": bool(cached_only),
+    }
 
 
 def list_host_work_requests(
@@ -1338,7 +3210,7 @@ def list_host_work_requests(
     asset_root_id: str,
     *,
     include_closed: bool = False,
-    limit: int = 8,
+    limit: int | None = 8,
 ) -> list[dict[str, Any]]:
     """Return a bounded, deterministic projection of durable host handoffs.
 
@@ -1361,6 +3233,8 @@ def list_host_work_requests(
         status = str(request.get("status") or "open")
         if not include_closed and status in closed:
             continue
+        requested_indices = list(request.get("requested_pdf_indices") or [])
+        source_scope_known = bool(requested_indices)
         rows.append({
             "job_id": request.get("job_id"),
             "asset_root_id": request.get("asset_root_id"),
@@ -1373,14 +3247,41 @@ def list_host_work_requests(
             "source_pdf": request.get("source_pdf"),
             "source_id": request.get("source_id"),
             "file_sha256": request.get("file_sha256"),
-            "requested_pdf_indices": list(
-                request.get("requested_pdf_indices") or []
+            "requested_pdf_indices": requested_indices,
+            "request_purpose": request.get("request_purpose"),
+            "requested_source_scope": request.get("requested_source_scope"),
+            "source_scope_signature": request.get("source_scope_signature"),
+            "cached_page_refs": (
+                list(request.get("cached_page_refs") or [])
+                if source_scope_known else []
             ),
-            "cached_page_refs": list(request.get("cached_page_refs") or []),
+            "source_scope_status": (
+                request.get("source_scope_status")
+                or ("known" if source_scope_known else "unknown")
+            ),
             "cached_scope_complete": request.get("cached_scope_complete"),
+            "batch_subjects": list(request.get("batch_subjects") or []),
+            "source_aspect": request.get("source_aspect") or "body",
+            "deadline_class": request.get("deadline_class") or "next_turn_hot",
+            "work_group_id": request.get("work_group_id"),
+            "dispatch_state": request.get("dispatch_state") or "ready",
+            "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
+            "executor_id": request.get("executor_id"),
+            "lease_id": request.get("lease_id"),
+            "leased_at": request.get("leased_at"),
+            "lease_expires_at": request.get("lease_expires_at"),
+            "fulfilled_at": request.get("fulfilled_at"),
+            "fulfilled_entity": (
+                json.loads(json.dumps(request.get("fulfilled_entity")))
+                if isinstance(request.get("fulfilled_entity"), dict)
+                else None
+            ),
             "fulfillment_operation": {
                 "tool": "progressive.fulfill_host_work",
-                "args": {"job_id": request.get("job_id"), "pack": "<host PDF semantic pack>"},
+                "args": {
+                    "worker_result": "<exact completed child results[i] object>",
+                    "host_task_timing": "<exact host task metadata when available>",
+                },
             },
             "path": str(path),
         })
@@ -1391,6 +3292,8 @@ def list_host_work_requests(
             str(row.get("job_id") or ""),
         )
     )
+    if limit is None:
+        return rows
     return rows[:max(0, int(limit))]
 
 
@@ -1417,6 +3320,10 @@ def put_entity(
         else None
     )
     doc = json.loads(json.dumps(payload))
+    # The worker/request ID selects one live fulfillment transaction. It is
+    # converted into the canonical ingest receipt below and never persisted as
+    # a second top-level authority.
+    transient_host_work_job_id = doc.pop("host_work_job_id", None)
     doc["schema_version"] = SCHEMA_VERSION
     doc.setdefault("parse_state", "named_only")
     if doc["parse_state"] not in PARSE_STATES:
@@ -1430,32 +3337,54 @@ def put_entity(
         kind,
         doc,
     )
-    if doc["parse_state"] in {"partial", "body_parsed", "deep"}:
-        fresh_timing = _host_ingest_timing(
+    fulfilled_entity_receipt = canonical_fulfilled_entity_receipt(
+        kind, eid, doc,
+    )
+    matched_host_work_job_id: str | None = None
+    # Validate after source canonicalization so PDF refs are concrete, and pass
+    # workspace context so not_authored can bind to the skeleton locator row.
+    if (
+        doc["parse_state"] in {"partial", "body_parsed", "deep"}
+        or bool(str(transient_host_work_job_id or "").strip())
+    ):
+        fresh_timing, matched_host_work_job_id = _host_ingest_timing(
             workspace,
             asset_root_id,
             kind,
             eid,
             received_at=received_at,
             host_timing=doc.get("host_timing"),
-            host_work_job_id=doc.get("host_work_job_id"),
+            host_work_job_id=transient_host_work_job_id,
         )
         if (
             isinstance(previous, dict)
             and isinstance(previous.get("ingest_timing"), dict)
-            and not fresh_timing.get("host_work_job_id")
+            and matched_host_work_job_id is None
             and _semantic_pack_digest(previous) == _semantic_pack_digest(doc)
         ):
             doc["ingest_timing"] = json.loads(
                 json.dumps(previous["ingest_timing"])
             )
+            doc["ingest_timing"].pop("host_work_job_id", None)
             doc["ingest_timing"]["last_pack_received_at"] = received_at
             doc["ingest_timing"]["pack_reuse_count"] = (
                 int(doc["ingest_timing"].get("pack_reuse_count") or 0) + 1
             )
         else:
+            if matched_host_work_job_id is not None:
+                fresh_timing[FULFILLED_PACK_INGEST_FIELD] = (
+                    canonical_ingest_fulfillment_receipt(
+                        matched_host_work_job_id, kind, eid, doc,
+                    )
+                )
             doc["ingest_timing"] = fresh_timing
-    _validate_entity_pack(kind, doc)
+    _validate_entity_pack(
+        kind,
+        doc,
+        workspace=workspace,
+        asset_root_id=asset_root_id,
+        entity_id=eid,
+    )
     _write_json(path, doc)
     out: dict[str, Any] = {
         "path": str(path),
@@ -1487,12 +3416,23 @@ def put_entity(
     _mark_host_work_fulfilled(
         workspace,
         asset_root_id,
-        host_work_job_id=(doc.get("ingest_timing") or {}).get("host_work_job_id"),
+        host_work_job_id=matched_host_work_job_id,
         kind=kind,
         entity_id=eid,
+        fulfilled_entity=fulfilled_entity_receipt,
         fulfilled_at=received_at,
         repository_put_ms=out["repository_put_ms"],
     )
+    if parse_state == "deep" and not doc.get("evidence_gap"):
+        fulfillment = current_ingest_fulfillment_receipt(doc) or {}
+        out["superseded_host_job_ids"] = _supersede_covered_entity_host_requests(
+            workspace,
+            asset_root_id,
+            kind=kind,
+            entity_id=eid,
+            pack=doc,
+            fulfilled_job_id=str(fulfillment.get("job_id") or "") or None,
+        )
     return out
 
 
@@ -1509,6 +3449,30 @@ def get_entity(
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def revalidate_entity_pack(
+    workspace: Path,
+    asset_root_id: str,
+    kind: str,
+    entity_id: str,
+) -> dict[str, Any] | None:
+    """Read and revalidate one durable pack against current accepted evidence."""
+    stored = get_entity(workspace, asset_root_id, kind, entity_id)
+    if stored is None:
+        return None
+    doc = json.loads(json.dumps(stored))
+    _canonicalize_entity_source_evidence(
+        workspace, asset_root_id, kind, doc,
+    )
+    _validate_entity_pack(
+        kind,
+        doc,
+        workspace=workspace,
+        asset_root_id=asset_root_id,
+        entity_id=entity_id,
+    )
+    return doc
+
+
 def _skeleton_entity_source_scope(
     workspace: Path,
     asset_root_id: str,
@@ -1518,30 +3482,72 @@ def _skeleton_entity_source_scope(
     """Return exact Tier-1 evidence for an entity, when the skeleton has it.
 
     A later scene mention contributes contextual pages; it must not replace a
-    character/location profile page already named by the skeleton.  Only the
-    two skeleton collections with stable entity identities participate here.
+    character/location profile page already named by the skeleton.  A roster
+    row and mechanics locator may bind the same accepted page, which remains
+    one exact source reference in the aggregate scope.
     """
     collection, id_field = {
         "location": ("locations", "location_id"),
         "npc": ("npc_roster", "npc_id"),
+        "item": ("item_roster", "item_id"),
     }.get(kind, (None, None))
-    if collection is None or id_field is None:
-        return None
     skeleton = get_skeleton(workspace, asset_root_id) or {}
-    for row in skeleton.get(collection) or []:
+    scopes: list[dict[str, Any]] = []
+    if collection is not None and id_field is not None:
+        for row in skeleton.get(collection) or []:
+            if (
+                isinstance(row, dict)
+                and str(row.get(id_field) or "").strip() == str(entity_id)
+            ):
+                scopes.append(row)
+                break
+    for locator in skeleton.get("mechanics_index") or []:
         if (
-            isinstance(row, dict)
-            and str(row.get(id_field) or "").strip() == str(entity_id)
+            isinstance(locator, dict)
+            and str(locator.get("subject_kind") or "") == kind
+            and str(locator.get("subject_id") or "").strip() == str(entity_id)
         ):
-            return {
-                field: json.loads(json.dumps(row[field]))
-                for field in (
-                    "source_refs", "source_span", "source_page_indices",
-                    "page_text_sha256",
-                )
-                if row.get(field) is not None
-            }
-    return None
+            scopes.append(locator)
+            break
+    if not scopes:
+        return None
+    indices: set[int] = set()
+    refs_by_index: dict[int, dict[str, Any]] = {}
+    for position, scope in enumerate(scopes):
+        indices.update(_source_indices(scope, field=f"skeleton scope[{position}]"))
+        scope_refs = (
+            scope.get("source_refs")
+            if isinstance(scope.get("source_refs"), list) else []
+        )
+        for ref in scope_refs:
+            copied_ref = json.loads(json.dumps(ref))
+            pdf_index = int(copied_ref["pdf_index"])
+            previous = refs_by_index.get(pdf_index)
+            if previous is None:
+                refs_by_index[pdf_index] = copied_ref
+                continue
+            for identity_field in ("source_id", "text_sha256"):
+                previous_value = str(previous.get(identity_field) or "")
+                incoming_value = str(copied_ref.get(identity_field) or "")
+                if (
+                    previous_value
+                    and incoming_value
+                    and previous_value != incoming_value
+                ):
+                    raise ModuleAssetsError(
+                        "skeleton scopes conflict for pdf_index "
+                        f"{pdf_index}: {identity_field} differs"
+                    )
+                if not previous_value and incoming_value:
+                    previous[identity_field] = copied_ref[identity_field]
+    result: dict[str, Any] = {}
+    if indices:
+        result["source_page_indices"] = sorted(indices)
+    if refs_by_index and set(refs_by_index) == indices:
+        result["source_refs"] = [
+            refs_by_index[pdf_index] for pdf_index in sorted(refs_by_index)
+        ]
+    return result or None
 
 
 def ensure_stub(
@@ -1611,6 +3617,8 @@ def ensure_stub(
         payload["title"] = title
     elif kind == "npc":
         payload["names"] = [title] if title else [entity_id]
+    elif kind == "item":
+        payload["label"] = title or entity_id
     elif title:
         payload["label"] = title
     put_entity(workspace, asset_root_id, kind, entity_id, payload)
@@ -1631,10 +3639,47 @@ def enqueue_job(
     target_id: str,
     priority: int = 50,
     reason: str = "",
+    request_purpose: str | None = None,
+    requested_source_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if kind not in JOB_KINDS:
         raise ModuleAssetsError(f"unknown job kind {kind!r}")
     tid = _require_id(target_id, "target_id")
+    exact_source_scope: dict[str, Any] | None = None
+    exact_source_signature: str | None = None
+    exact_request_purpose: str | None = None
+    if kind == "partial_opening":
+        if request_purpose != FOREGROUND_OPENING_PURPOSE:
+            raise ModuleAssetsError(
+                "partial_opening requires request_purpose="
+                f"{FOREGROUND_OPENING_PURPOSE!r}"
+            )
+        exact_source_scope = validate_opening_source_scope(
+            workspace, asset_root_id, requested_source_scope,
+        )
+        exact_source_signature = opening_source_scope_signature(
+            exact_source_scope
+        )
+        exact_request_purpose = FOREGROUND_OPENING_PURPOSE
+        priority = 100
+    elif kind == "locate_mechanics_index":
+        if request_purpose != MECHANICS_LOCATOR_PURPOSE:
+            raise ModuleAssetsError(
+                "locate_mechanics_index requires request_purpose="
+                f"{MECHANICS_LOCATOR_PURPOSE!r}"
+            )
+        exact_source_scope = validate_opening_source_scope(
+            workspace, asset_root_id, requested_source_scope,
+        )
+        exact_source_signature = opening_source_scope_signature(
+            exact_source_scope
+        )
+        exact_request_purpose = MECHANICS_LOCATOR_PURPOSE
+    elif request_purpose is not None or requested_source_scope is not None:
+        raise ModuleAssetsError(
+            "explicit request purpose/source scope is only valid for "
+            "partial_opening or locate_mechanics_index"
+        )
     path = _module_dir(workspace, asset_root_id) / "parse-queue.json"
     if not path.is_file():
         raise ModuleAssetsError("init_module_root before enqueue_job")
@@ -1642,12 +3687,42 @@ def enqueue_job(
     deduped_job: dict[str, Any] | None = None
     dedupe_state: str | None = None
     stale_host_rows: list[dict[str, Any]] = []
+
+    def exact_scoped_row_matches(row: dict[str, Any]) -> bool:
+        if exact_source_scope is None:
+            return True
+        if (
+            str(row.get("request_purpose") or "")
+            != exact_request_purpose
+            or str(row.get("source_scope_signature") or "")
+            != exact_source_signature
+        ):
+            return False
+        try:
+            return validate_opening_source_scope(
+                workspace, asset_root_id, row.get("requested_source_scope"),
+            ) == exact_source_scope
+        except ModuleAssetsError:
+            return False
+
+    def raise_exact_scope_conflict() -> None:
+        label = (
+            "opening_source_scope_conflict"
+            if kind == "partial_opening"
+            else "mechanics_locator_source_scope_conflict"
+        )
+        raise ModuleAssetsError(
+            f"{label}: another unresolved exact source scope exists"
+        )
+
     with coc_fileio.advisory_file_lock(lock_path):
         queue = json.loads(path.read_text(encoding="utf-8"))
         pending = list(queue.get("pending") or [])
         for job in pending:
             if not _same_entity_work(job, kind, tid):
                 continue
+            if exact_source_scope is not None and not exact_scoped_row_matches(job):
+                raise_exact_scope_conflict()
             if _job_depth(str(job.get("kind") or "")) < _job_depth(kind):
                 job["promoted_from"] = job.get("kind")
                 job["kind"] = kind
@@ -1670,11 +3745,42 @@ def enqueue_job(
                     _same_entity_work(job, kind, tid)
                     and _job_depth(str(job.get("kind") or "")) >= _job_depth(kind)
                 ):
+                    if exact_source_scope is not None and not exact_scoped_row_matches(job):
+                        raise_exact_scope_conflict()
                     deduped_job = job
                     dedupe_state = "in_flight"
                     break
         if deduped_job is None and reason != "put_entity_deep":
             for row in reversed(queue.get("done") or []):
+                if (
+                    kind in {"partial_opening", "locate_mechanics_index"}
+                    and _same_entity_work(row, kind, tid)
+                ):
+                    job_id = str(row.get("job_id") or "")
+                    request_path = (
+                        _module_dir(workspace, asset_root_id)
+                        / "host-work"
+                        / f"{job_id}.json"
+                    )
+                    request: dict[str, Any] = {}
+                    if request_path.is_file():
+                        try:
+                            loaded_request = json.loads(
+                                request_path.read_text(encoding="utf-8")
+                            )
+                            if isinstance(loaded_request, dict):
+                                request = loaded_request
+                        except (OSError, json.JSONDecodeError):
+                            request = {}
+                    if str(request.get("status") or "open") not in {
+                        "fulfilled", "cancelled", "superseded",
+                    }:
+                        if not exact_scoped_row_matches(request):
+                            raise_exact_scope_conflict()
+                        deduped_job = row
+                        dedupe_state = "awaiting_host_pack"
+                        break
+                    continue
                 still_current = _host_request_still_current(
                     workspace,
                     asset_root_id,
@@ -1689,8 +3795,6 @@ def enqueue_job(
                 if (
                     row.get("result") == "awaiting_host_pack"
                     and _same_entity_work(row, kind, tid)
-                    and _job_depth(str(row.get("kind") or ""))
-                    >= _job_depth(kind)
                 ):
                     stale_host_rows.append(row)
         if deduped_job is None:
@@ -1707,6 +3811,12 @@ def enqueue_job(
                 "reason": str(reason or ""),
                 "enqueued_at": _now_iso(),
             }
+            if exact_source_scope is not None:
+                job.update({
+                    "request_purpose": exact_request_purpose,
+                    "requested_source_scope": exact_source_scope,
+                    "source_scope_signature": exact_source_signature,
+                })
             pending.append(job)
             pending.sort(
                 key=lambda item: (

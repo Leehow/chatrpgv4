@@ -17,6 +17,9 @@ from typing import Any
 
 CURRENT_SCHEMA_VERSION = 2
 _PIPELINE_KEYS = ("schema_version", "planner", "rules", "narrator", "player")
+# Optional keys accepted alongside the exact pipeline shape. ``plugin_root``
+# relocates the canonical plugin (see runtime/engine/plugin_locator.py).
+_OPTIONAL_KEYS = ("plugin_root",)
 _COMPONENT_KINDS = {
     "planner": frozenset({"deterministic"}),
     "rules": frozenset({"deterministic"}),
@@ -60,17 +63,24 @@ def _validate_component(name: str, value: Any) -> dict[str, str]:
 
 
 def _validate_v2(raw: dict[str, Any]) -> dict[str, Any]:
-    if set(raw) != set(_PIPELINE_KEYS):
+    if set(raw) - set(_OPTIONAL_KEYS) != set(_PIPELINE_KEYS):
         raise ValueError(
             "runtime.json v2 keys must be exactly " + ", ".join(_PIPELINE_KEYS)
+            + " (optional: " + ", ".join(_OPTIONAL_KEYS) + ")"
         )
     schema_version = raw.get("schema_version")
     if isinstance(schema_version, bool) or schema_version != CURRENT_SCHEMA_VERSION:
         raise ValueError("runtime.json schema_version must be integer 2")
-    return {
+    resolved = {
         "schema_version": CURRENT_SCHEMA_VERSION,
         **{name: _validate_component(name, raw[name]) for name in _COMPONENT_KINDS},
     }
+    plugin_root = raw.get("plugin_root")
+    if plugin_root is not None:
+        if not isinstance(plugin_root, str) or not plugin_root.strip():
+            raise ValueError("runtime.json plugin_root must be a non-empty path string")
+        resolved["plugin_root"] = plugin_root
+    return resolved
 
 
 def migrate_legacy_brain(raw: dict[str, Any]) -> dict[str, Any]:

@@ -645,7 +645,7 @@ def test_shipped_library_has_opening_briefing_storylet():
     scene can trigger a beat on entry."""
     import json
     from pathlib import Path
-    lib_path = Path("plugins/coc-keeper/references/rules-json/storylet-library.json")
+    lib_path = Path("plugins/coc-keeper/rulesets/coc7/rules-json/storylet-library.json")
     lib = json.loads(lib_path.read_text())
     opening = [s for s in lib["storylets"] if "opening_briefing" in (s.get("scene_tags") or [])]
     assert opening, "shipped library lacks any opening_briefing storylet"

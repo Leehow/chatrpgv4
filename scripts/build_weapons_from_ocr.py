@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD_PATH = Path("pdf/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen)_mineru/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen)/auto/Call Of Cthulhu Keeper Rulebook 40th Anniversary (Sandy Petersen).md")
 
 
@@ -199,7 +199,7 @@ def main() -> int:
     print(f"Total now: {len(existing_weapons)}")
 
     if apply:
-        path = Path("plugins/coc-keeper") / "references" / "rules-json" / "weapons.json"
+        path = Path("plugins/coc-keeper") / "rulesets" / "coc7" / "rules-json" / "weapons.json"
         data = json.loads(path.read_text())
         data["weapons"] = existing_weapons
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")

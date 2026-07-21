@@ -69,7 +69,7 @@ through play.
 
 Investigator portraits use **host-native** image tools
 (`HOST_NATIVE_IMAGEGEN` in
-`plugins/coc-keeper/skills/coc-character/SKILL.md`). Kimi has no built-in image
+`plugins/coc-keeper/rulesets/coc7/skills/coc-character/SKILL.md`). Kimi has no built-in image
 tool, so **skip portrait generation** and continue character creation. Do not
 call Codex `imagegen` from Kimi. Grok Build uses its own `image_gen`.
 

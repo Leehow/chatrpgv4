@@ -10,7 +10,7 @@ mutates every turn; tests rely on fresh reads).
 
 Callers receive a ``deepcopy`` of the cached object so mutations cannot
 poison the module-level store. Prefer this helper only for static reference
-tables under ``plugins/coc-keeper/references/``, not campaign scenario/save
+tables under ``plugins/coc-keeper/rulesets/``, not campaign scenario/save
 JSON.
 """
 from __future__ import annotations

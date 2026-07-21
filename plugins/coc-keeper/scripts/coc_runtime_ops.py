@@ -3489,6 +3489,17 @@ def execute_setup_operation(
     campaign_dir = root / ".coc" / "campaigns" / campaign_id
     if not campaign_dir.is_dir():
         raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+    # Explicit cold compilation must fail before the progressive source cache,
+    # scenario skeleton, or campaign metadata is mutated.
+    if (
+        payload.get("compile_now") is True
+        and not coc_scenario_hydration.COMPILER_ADAPTER_PATH.is_file()
+    ):
+        raise RuntimeOperationError(
+            "scenario.bind_pdf compile_now=true requires the cold scenario "
+            "compiler runtime; omit compile_now or pass false for progressive "
+            "source-bundle binding"
+        )
     source_cache = coc_module_assets.register_source_bundle(
         root,
         host_bundle,
@@ -3528,7 +3539,12 @@ def execute_setup_operation(
     )
     hydration: dict[str, Any] | None = None
     if payload.get("compile_now") is True:
-        hydration = coc_scenario_hydration.ensure_scenario_ready(campaign_dir)
+        try:
+            hydration = coc_scenario_hydration.ensure_scenario_ready(campaign_dir)
+        except coc_scenario_hydration.ScenarioHydrationError as exc:
+            raise RuntimeOperationError(
+                f"scenario.bind_pdf cold compilation failed: {exc}"
+            ) from exc
         if hydration.get("status") == "PASS":
             campaign = _read_object(campaign_path)
             campaign["status"] = "active"

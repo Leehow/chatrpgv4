@@ -8,6 +8,12 @@ Brain selection is project-level only: `.coc/runtime.json` with
 bound when you call `create_session`; changing `runtime.json` later does not
 affect an open session (takes effect on the next `create_session`).
 
+Plugin location resolves from one point (`runtime/engine/plugin_locator.py`):
+the canonical plugin defaults to `<repo>/plugins/coc-keeper`, and every
+runtime module derives its scripts/skills paths from that locator. A
+workspace may relocate the plugin with the optional `"plugin_root"` key in
+`.coc/runtime.json` (absolute, or relative to the repository root).
+
 ## Usage (no install required)
 
 From the repository root (so `runtime/` is importable):

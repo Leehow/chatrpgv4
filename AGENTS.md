@@ -196,6 +196,17 @@ This repository maintains one plugin track:
 Do not recreate a parallel host-specific plugin copy. Shared runtime behavior
 lives only in `plugins/coc-keeper/`.
 
+The single track is now multi-ruleset: rule systems enter as **ruleset
+packages** under `plugins/coc-keeper/rulesets/<id>/` per
+`docs/ruleset-contract.md` (`coc7` is the reference package). Kernel
+machinery (state, toolbox dispatch, director/narration advisory, module
+pipeline, runtime) stays ruleset-agnostic; a new rule system must never
+become a second plugin tree, a parallel toolbox, or a forked orchestration
+path. CoC-specific product-constitution clauses (SAN craft, Mythos secrecy,
+CoC dice contracts) bind the `coc7` package and CoC campaigns; the
+architecture-level clauses (KP-is-the-product, semantic decisions, advisory
+authority, acceptance contract, no fake-KP) bind every ruleset.
+
 Platform-specific capabilities must stay explicitly gated inside that single
 tree. Investigator portrait generation uses the **current host's built-in
 image tool** when one exists (Codex `imagegen` / `image_gen`, Grok Build
@@ -203,7 +214,7 @@ image tool** when one exists (Codex `imagegen` / `image_gen`, Grok Build
 built-in image tool skip portraits and continue character creation. Do not
 route a non-Codex host through Codex imagegen, and do not invent a second
 plugin tree for portraits. The gate lives in `HOST_NATIVE_IMAGEGEN` markers in
-`skills/coc-character/SKILL.md`.
+`rulesets/coc7/skills/coc-character/SKILL.md`.
 
 Before finishing plugin work, run at minimum:
 
@@ -211,7 +222,7 @@ Before finishing plugin work, run at minimum:
 PYTHONDONTWRITEBYTECODE=1 uv run --frozen python -m pytest tests/test_plugin_metadata.py -q -p no:cacheprovider
 ```
 
-Changes to rule tables (`references/rules-json/`) must additionally pass the
+Changes to rule tables (`rulesets/coc7/rules-json/`) must additionally pass the
 offline rulebook audit (JSON-vs-JSON against the committed
 `checks/rulebook-*-ref.json` snapshots; no OCR cache needed):
 
@@ -456,6 +467,56 @@ zero-call evidence also cannot prove that the method is integrated.
   plugin skill tree rather than a second product track.
 - Component tests prove component contracts only. They never prove that the
   canonical KP can discover or use the component.
+
+### Thin Code, No Paper Loops, And Actual-Play-First Repair
+
+- Production code must stay as thin as the product permits. Repository code
+  owns deterministic mechanics, transactional state, task boundaries,
+  canonical schemas, evidence/provenance, and content-addressed cache or
+  delivery bookkeeping. Semantic understanding, scene direction, NPC craft,
+  clue interpretation, pacing, and final table prose remain with the live KP.
+  Do not add a second orchestration engine, fixed semantic pipeline, or durable
+  lifecycle machinery whose main purpose is to compensate for complexity that
+  the same change introduced.
+- Every new helper, state field, receipt, cursor, phase, queue, adapter, or
+  abstraction must name its canonical caller and consumer, the observed
+  product failure it fixes, why an existing path cannot carry the same duty,
+  and the real plugin-native play that will exercise it. If those answers are
+  missing, simplify or delete the mechanism before implementation.
+- **Prompt, plan, schema, and review artifacts are preparation, not progress by
+  themselves.** Do not enter prompt-only or review-only revision loops. After
+  one design pass and one independent adversarial review, unresolved complexity
+  is a signal to shrink the design or implement the smallest testable vertical
+  slice—not to add more lanes, receipts, states, or another giant prompt. Two
+  consecutive cycles that produce only revised plans/prompts/reviews and no
+  runnable product evidence are a mandatory stop-and-simplify point; a third
+  such cycle requires explicit current-turn user authorization.
+- Start with the smallest end-to-end repair that reaches the canonical plugin
+  path. As soon as that vertical slice passes the narrow deterministic safety
+  checks needed to avoid corrupting state or evidence, return to normal
+  window-equivalent play. Do not wait for adjacent entities, exhaustive
+  coverage, background enrichment, perfect schemas, or a broad refactor before
+  learning whether the player-visible problem is actually fixed.
+- The default repair loop is:
+  **observe in real play -> identify the smallest systemic failure -> implement
+  the thin fix -> run proportional deterministic checks -> replay the same path
+  through the real plugin**. Repeat from new play evidence. Do not replace this
+  loop with architecture theater, test-count growth, synthetic transcripts, or
+  status artifacts.
+- Whole-product, UX, latency, Keeper-quality, integration, and acceptance
+  claims must be based primarily on window-equivalent plugin play: the main
+  session is the live KP and a human or protocol-isolated Agent supplies one
+  real player reply at a time. Component tests are supporting evidence only,
+  appropriate for deterministic arithmetic, schemas, transactions, path
+  safety, source/provenance integrity, and other mechanically decidable
+  contracts. Hundreds of passing component tests with zero qualifying actual
+  play remain zero product-acceptance runs.
+- A repair discovered during play must return to actual play promptly. If work
+  expands beyond the minimal vertical slice, stop and state the concrete
+  blocker, added mechanism, code-size/complexity cost, and why play cannot yet
+  resume. Do not silently self-authorize a broader architecture program. The
+  existing bans on fake-KP shortcuts, scripted players, automated match
+  drivers, and alternate harnesses remain fully binding.
 
 ### System Gap Before Instance Patch (修/补/fix 先看全局)
 

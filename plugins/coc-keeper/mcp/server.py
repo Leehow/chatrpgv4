@@ -14,6 +14,7 @@ returned on demand via ``coc_discover``; long-tail execution goes through
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from contextlib import contextmanager
 import importlib.util
 import json
@@ -55,8 +56,16 @@ def _load_contract_archive_module():
     )
 
 
+def _load_wire_projection_module():
+    return _load_module(
+        "coc_mcp_wire_mcp",
+        SCRIPTS_ROOT / "coc_mcp_wire.py",
+    )
+
+
 toolbox = _load_toolbox()
 contract_archive = _load_contract_archive_module()
+wire_projection = _load_wire_projection_module()
 
 try:
     CONTRACTS = contract_archive.load_and_validate(CONTRACT_ARCHIVE_PATH, toolbox)
@@ -67,6 +76,53 @@ except contract_archive.ContractArchiveError as exc:
     ) from exc
 
 MCP_LISTED_HOTSET: tuple[str, ...] = tuple(contract_archive.MCP_LISTED_HOTSET)
+SOURCE_SUBMIT_PROFILE = "source-submit"
+SOURCE_SUBMIT_TOOL = "submit_source_result"
+SOURCE_RESULT_CONTRACT = "coc.source-pack-worker.v1"
+
+
+def _invoke_arguments_schema(operation: str) -> dict[str, Any]:
+    """Project a direct MCP schema into ``coc_invoke.arguments`` shape."""
+    schema = deepcopy(CONTRACTS["operations"][operation]["inputSchema"])
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        properties.pop("root", None)
+        properties.pop("campaign", None)
+    required = schema.get("required")
+    if isinstance(required, list):
+        schema["required"] = [
+            field for field in required if field not in {"root", "campaign"}
+        ]
+    return schema
+
+
+INVOKE_ARGUMENT_SCHEMAS: dict[str, dict[str, Any]] = {
+    operation: _invoke_arguments_schema(operation)
+    for operation in CONTRACTS["operations"]
+}
+
+
+def _invoke_card(
+    operation: str,
+    *,
+    prefilled_arguments: dict[str, Any] | None = None,
+    missing_arguments: list[str] | None = None,
+) -> dict[str, Any]:
+    contract_suffix = CONTRACTS["content_sha256"].removeprefix("sha256:")[:16]
+    schema = deepcopy(INVOKE_ARGUMENT_SCHEMAS[operation])
+    return {
+        "operation": operation,
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": deepcopy(prefilled_arguments or {}),
+        "missing_arguments": list(
+            schema.get("required", [])
+            if missing_arguments is None
+            else missing_arguments
+        ),
+        "arguments_schema": schema,
+        "contract_ref": f"{operation}@{contract_suffix}",
+        "discovery_required": False,
+    }
 
 _GROK_TO_CANONICAL = {
     operation.replace(".", "_"): operation for operation in toolbox.TOOLS
@@ -146,6 +202,10 @@ def _host_name() -> str:
     return os.environ.get("COC_HOST", "unknown").strip() or "unknown"
 
 
+def _mcp_profile() -> str:
+    return os.environ.get("COC_MCP_PROFILE", "keeper").strip() or "keeper"
+
+
 def _default_root() -> Path:
     value = (
         os.environ.get("COC_PROJECT_ROOT")
@@ -162,10 +222,60 @@ def _capabilities() -> dict[str, Any]:
         data = json.loads(CAPABILITIES_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         data = {}
+    contract_suffix = CONTRACTS["content_sha256"].removeprefix("sha256:")[:16]
+
+    def setup_card(
+        operation: str,
+        *,
+        missing_arguments: list[str],
+        optional_arguments: list[str] | None = None,
+    ) -> dict[str, Any]:
+        card = _invoke_card(
+            operation,
+            missing_arguments=missing_arguments,
+        )
+        card["optional_arguments"] = list(optional_arguments or [])
+        return card
+
     return {
         "host": _host_name(),
         "capabilities": data.get(_host_name(), data.get("default", {})),
         "source": "plugins/coc-keeper/references/host-capabilities.json",
+        "mcp_wire": {
+            "profile": wire_projection.PROFILE_ID,
+            "max_inline_bytes": wire_projection.MAX_INLINE_BYTES,
+            "contract_archive_sha256": CONTRACTS["content_sha256"],
+            "progressive_discovery": True,
+            "tool_surface": (
+                "gateway_only_v1" if _host_name() == "grok" else "hotset_v1"
+            ),
+            "gateway_tools": [
+                "coc_capabilities", "coc_discover", "coc_invoke",
+            ],
+        },
+        "cold_start": {
+            "empty_or_unknown_workspace": setup_card(
+                "setup.inspect",
+                missing_arguments=[],
+            ),
+            "built_in_quick_start": setup_card(
+                "setup.quick_start",
+                missing_arguments=["scenario_id", "pregen_id"],
+                optional_arguments=["campaign_id", "title"],
+            ),
+            "custom_campaign_setup": setup_card(
+                "setup.invoke",
+                missing_arguments=["kind", "payload"],
+            ),
+            "campaign_resume": {
+                "operation": "session.resume",
+                "invoke_via": "coc_invoke",
+                "prefilled_arguments": {},
+                "missing_arguments": ["campaign"],
+                "contract_ref": f"session.resume@{contract_suffix}",
+                "discovery_required": False,
+            },
+        },
     }
 
 
@@ -187,6 +297,7 @@ def _discover(
             "operation": contract_archive.mcp_tool_from_contract(
                 contract, mcp_name=_mcp_tool_name(operation)
             ),
+            "invoke_card": _invoke_card(operation),
         }
 
     try:
@@ -305,7 +416,19 @@ def _run_canonical_operation(
             "save files or rediscover the full catalog"
         )
         envelope["context_rehydration"] = rehydration_advisory
-    return envelope
+    if canonical_name == "setup.inspect" and envelope.get("ok") is True:
+        result = ((envelope.get("data") or {}).get("result") or {})
+        if isinstance(result, dict):
+            result["custom_campaign_setup"] = _invoke_card(
+                "setup.invoke",
+                missing_arguments=["kind", "payload"],
+            )
+    return wire_projection.project_envelope(
+        canonical_name,
+        envelope,
+        contract_digest=CONTRACTS["content_sha256"],
+        argument_schemas=INVOKE_ARGUMENT_SCHEMAS,
+    )
 
 
 def _invoke(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -344,6 +467,45 @@ def _invoke(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if _mcp_profile() == SOURCE_SUBMIT_PROFILE:
+        if name != SOURCE_SUBMIT_TOOL:
+            return {
+                "ok": False,
+                "tool": name,
+                "error": {
+                    "code": "unknown_tool",
+                    "message": "source-submit profile exposes only submit_source_result",
+                },
+            }
+        root = _default_root()
+        if not root.is_dir():
+            return {
+                "ok": False,
+                "tool": name,
+                "error": {
+                    "code": "invalid_root",
+                    "message": f"project root is not a directory: {root}",
+                },
+            }
+        try:
+            receipt = toolbox.submit_source_worker_result(root, arguments)
+        except toolbox.ToolError as exc:
+            return {
+                "ok": False,
+                "tool": name,
+                "error": {"code": exc.code, "message": exc.message},
+            }
+        envelope = {
+            "ok": bool(receipt.get("ok")),
+            "tool": name,
+            "data": receipt,
+        }
+        if not envelope["ok"]:
+            envelope["error"] = deepcopy(receipt.get("error") or {
+                "code": "source_submit_failed",
+                "message": "source result was not fulfilled",
+            })
+        return envelope
     if name == "coc_capabilities":
         return {
             "ok": True,
@@ -439,9 +601,9 @@ def _meta_tools() -> list[dict[str, Any]]:
             "name": "coc_invoke",
             "description": (
                 "Invoke any canonical COC Keeper toolbox operation by exact "
-                "dotted id through the shared toolbox.run_tool gateway. Use "
-                "after coc_discover when the operation is not in the listed "
-                "hotset."
+                "dotted id through the shared toolbox.run_tool gateway. "
+                "Invoke a returned operation card directly; use coc_discover "
+                "only when no exact card is available."
             ),
             "inputSchema": {
                 "type": "object",
@@ -483,8 +645,65 @@ def _meta_tools() -> list[dict[str, Any]]:
     ]
 
 
+def _source_submit_tools() -> list[dict[str, Any]]:
+    return [{
+        "name": SOURCE_SUBMIT_TOOL,
+        "description": (
+            "Submit this source worker's complete coc.source-pack-worker.v1 "
+            "result. The server binds packet/work-group/jobs to the active lease, "
+            "runs the existing strict fulfillment path once per result, and returns "
+            "only a compact receipt. Never repair or retry a rejected submission."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "schema_version": {"type": "integer", "enum": [1]},
+                "contract_id": {
+                    "type": "string", "enum": [SOURCE_RESULT_CONTRACT],
+                },
+                "packet_id": {"type": "string", "minLength": 1},
+                "work_group_id": {"type": "string", "minLength": 1},
+                "status": {
+                    "type": "string", "enum": ["usable", "abstain", "failed"],
+                },
+                "results": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "job_id": {"type": "string", "minLength": 1},
+                            "pack": {
+                                "type": "object", "additionalProperties": True,
+                            },
+                            "related_packs": {"type": "array"},
+                        },
+                        "required": ["job_id", "pack", "related_packs"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": [
+                "schema_version", "contract_id", "packet_id",
+                "work_group_id", "status", "results",
+            ],
+            "additionalProperties": False,
+        },
+    }]
+
+
 def _listed_tools() -> list[dict[str, Any]]:
+    if _mcp_profile() == SOURCE_SUBMIT_PROFILE:
+        return _source_submit_tools()
     tools = _meta_tools()
+    # Grok Build places every MCP tool behind search_tool/use_tool even when a
+    # custom primary agent names the MCP server. Listing the direct hotset
+    # there therefore causes one schema-search cycle per operation. Keep one
+    # stable gateway schema for all canonical operations; exact cards and the
+    # hash-bound archive preserve progressive discovery. Other hosts retain
+    # the direct hotset when their native tool surfaces benefit from it.
+    if _host_name() == "grok":
+        return tools
     for operation in MCP_LISTED_HOTSET:
         tools.append(_archived_tool_schema(operation))
     return tools
@@ -515,13 +734,18 @@ def _handle(message: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if method == "initialize":
         requested = (message.get("params") or {}).get("protocolVersion")
+        server_name = (
+            "coc-source-submit"
+            if _mcp_profile() == SOURCE_SUBMIT_PROFILE
+            else "coc-keeper"
+        )
         return _result(
             request_id,
             {
                 "protocolVersion": requested or "2024-11-05",
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {
-                    "name": "coc-keeper",
+                    "name": server_name,
                     "version": "0.4.0-alpha.0",
                 },
             },
@@ -547,7 +771,11 @@ def _handle(message: dict[str, Any]) -> dict[str, Any] | None:
                 "content": [
                     {
                         "type": "text",
-                        "text": json.dumps(envelope, ensure_ascii=False),
+                        "text": json.dumps(
+                            envelope,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
                     }
                 ],
                 "structuredContent": envelope,
@@ -569,7 +797,11 @@ def main() -> int:
         except (ValueError, json.JSONDecodeError) as exc:
             response = _error(None, -32700, str(exc))
         if response is not None:
-            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+            sys.stdout.write(json.dumps(
+                response,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ) + "\n")
             sys.stdout.flush()
     return 0
 

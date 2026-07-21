@@ -68,6 +68,8 @@ Campaigns store temporary and scenario-specific state:
 │   │                               # + "psych" namespace: per-NPC trust/fear/suspicion,
 │   │                               #   known_facts / lies_told / promises (coc_npc_state)
 │   │                               # + receipt-backed "presence" live scene overlay
+│   │                               # + frozen campaign-local mechanics on NPC cards
+│   ├── campaign-mechanics.json     # frozen campaign-local item profiles
 │   ├── storylet-ledger.json        # storylet anti-repeat signatures + usage ledger
 │   ├── time-state.json             # in-fiction world clock
 │   ├── time-triggers.json          # scheduled time-based triggers
@@ -129,6 +131,13 @@ Campaigns store temporary and scenario-specific state:
 
 `party.json` references reusable investigator ids. Campaign-specific HP, SAN, conditions, and scene position live under `save/`.
 
+`save/investigator-state/` and `save/sanity-state/` are **package-owned**
+directories, declared by the active ruleset's `manifest.json` `state_dirs`
+(docs/ruleset-contract.md §6) rather than by kernel literals: the kernel
+creates `save/investigator-state/` at campaign init because coc7 flags it
+`create_on_init`, while `save/sanity-state/` is created lazily by the sanity
+subsystem that owns it.
+
 Subsystem session files (`combat.json`, `chase.json`, and
 `sanity-state/<investigator-id>.json`) are owned by the corresponding session
 classes; do not hand-edit them mid-session. A matching legacy `sanity.json` is
@@ -137,7 +146,10 @@ compatibility mirror. It is never overwritten by another linked party member.
 `pacing-state.json`,
 `threat-state.json`, `npc-state.json`, and `storylet-ledger.json` are written
 by the director apply layer each turn — treat `run_live_turn(...)` as their
-single writer during live play.
+single ordinary-turn writer during live play. Typed `mechanics.ensure` is the
+narrow exception: it transactionally promotes one NPC card or writes one
+campaign-item profile with a `decision_id`, then every later use reuses that
+frozen record.
 
 `save/npc-state.json["psych"][npc_id]` is the canonical A20/A21 conversation
 state. Its closed fields are `trust`, `fear`, `suspicion` (-5..5),
@@ -164,6 +176,14 @@ combat seeds `current_weapons` from the authored opponent spec; disarm
 transfers at combat end, `state.item_grant`, and `state.item_remove` mutate
 it afterwards. An absent/`null` `current_weapons` means "no runtime override
 recorded" and authored module weapons apply.
+
+`save/npc-state.json["npcs"][npc_id]["mechanics"]` stores a generated actor
+profile only for campaign/improvised NPCs or source NPCs carrying a reviewed
+`not_authored` receipt. `save/campaign-mechanics.json["items"][item_id]`
+stores the equivalent generated weapon/gear profile. These are campaign canon,
+not module truth: authored source profiles stay in scenario IR, and a later
+source conflict is surfaced as continuity evidence rather than silently
+replacing either assertion.
 
 Inventory during play is campaign-local. An investigator's effective weapon
 set is (character-sheet weapons minus `inventory.lost_weapon_ids`) merged
@@ -193,7 +213,7 @@ written by the apply layer when a plan carries memory_write intents.
 strategy payload: `generic`, `time_loop` (non-negative loop number plus unique
 memory IDs), or `multi_faction` (unique ranked faction IDs). Malformed roots,
 versions, unknown fields, and duplicate IDs are not persisted.
-`create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, scene unlock/visit/history (`unlocked_scene_ids`, `visited_scene_ids`, `exhausted_scene_ids`, `scene_history`), decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, spoiler-reveal flags, and a structured `flags` map (truthy keys feed `flag_set` exit/unlock conditions). `campaign.json` persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
+`create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, scene unlock/visit/history (`unlocked_scene_ids`, `visited_scene_ids`, `exhausted_scene_ids`, `scene_history`), decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, spoiler-reveal flags, and a structured `flags` map (truthy keys feed `flag_set` exit/unlock conditions). `campaign.json` (current `schema_version: 2`) persists `ruleset_id` — the ruleset package the campaign binds from creation (default `coc7`, resolved through `coc_rulesets`; older generations are rejected, never migrated) — plus `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
 
 `pending_choices` is Keeper-facing resume state, not a player menu. It may record
 latent affordances, unresolved pressures, or rules choices for continuity, but
@@ -217,11 +237,15 @@ campaign ledger. The runtime retains the newest 16 checkpoint files as a ring;
 older cache files may be pruned only after the new pointer has been reloaded and
 hash-validated. Canonical finalization, transcript, state, and summary evidence
 remains append-only, so any pruned checkpoint can be rebuilt.
-The complete `session.resume.data` wire projection is capped at 40 KiB. When
+The canonical direct-runtime `session.resume.data` projection is capped at
+40 KiB. Coding hosts using the plugin MCP additionally receive a
+`keeper_hot_v1` projection whose **complete envelope** is capped below 16 KiB,
+leaving headroom under a 20,000-byte host ceiling. When
 inline host input, finalized delivery text, current-turn receipts, scene detail,
 or output context would cross that budget, resume replaces it with canonical
 hash-bound refs and exact typed read cards (`session.delivery_text`,
-`turn.output_context`, or `scene.context`) rather than generating a summary.
+`session.continuation_detail`, `turn.output_context`, or `scene.context`) rather
+than generating a guessed summary.
 If its shape, hash, pointer, or source identity is invalid, `session.resume`
 ignores it and rebuilds from `turn-finalizations.jsonl`, `table-transcript.jsonl`,
 canonical save state, and the current turn cursor.

@@ -15,7 +15,7 @@ question out of play).
 
 ## Rule Authority
 
-Load `../../references/rules-json-guide.md` when explaining rule data. Use `../../references/rules-json/` as the runtime authority for common calculations.
+Load `../../../../references/rules-json-guide.md` when explaining rule data. Use `../../rules-json/` as the runtime authority for common calculations.
 
 Do not use ad hoc PDF lookup for frequent V1 calculations when a JSON table exists.
 
@@ -23,13 +23,13 @@ Do not use ad hoc PDF lookup for frequent V1 calculations when a JSON table exis
 
 Use these scripts for deterministic rule work:
 
-- `../../scripts/coc_rules.py`
-- `../../scripts/coc_roll.py` — call `public_api_index()` when unsure which
+- `../../../../scripts/coc_rules.py`
+- `../../../../scripts/coc_roll.py` — call `public_api_index()` when unsure which
   helper name to use. `roll_percentile(...)` is a supported alias for
   `percentile_check(...)`; use `format_percentile_result(...)` for
   player-facing bonus/penalty dice summaries.
-- `../../scripts/coc_validate.py`
-- `../../scripts/coc_hazards.py` — Table III other-forms damage, suffocation/
+- `../../../../scripts/coc_validate.py`
+- `../../../../scripts/coc_hazards.py` — Table III other-forms damage, suffocation/
   drowning, and poison (p.124 / p.129). Data: `hazards.json`, `poisons.json`.
   Environmental sources always set `bypass_armor: true`.
 

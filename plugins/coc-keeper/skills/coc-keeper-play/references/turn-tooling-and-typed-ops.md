@@ -231,8 +231,11 @@ contract above still applies. This is the natural rhythm:
    the same type. Every public-roll coverage `exact_excerpt` must occur in a
    later paragraph than that roll's placement. Also supply one closed coverage
    row per obligation, then call `turn.finalize`. Send only its exact
-   `rendered_text`. Never put all of a turn's rolls at the end after their
-   consequences have already been narrated. Invoke
+   `rendered_text`. `turn.finalize.advisory_uptake` is only for a candidate
+   actually adopted or modified in this draft; when advice is ignored, omit
+   `advisory_uptake` entirely (an optional `evidence.record_adoption` call may
+   record the ignored disposition). Never put all of a turn's rolls at the end
+   after their consequences have already been narrated. Invoke
    authoritative mutating tool calls in the decided order, never in parallel.
    Dice, resources, critical state, journal, ending, and development
    settlement and finalization are never background work; only append-only audit or mirror
@@ -313,3 +316,192 @@ fiction actually ends one (for example, the investigator stands after being
 `prone`), call `state.clear_transient_condition` with that narrated reason.
 Never use it for `major_wound`, `dying`, `unconscious`, or `dead`; their rules
 tools own those transitions.
+
+### Source-first NPC and item mechanics
+
+When a source NPC with armed or combat potential is materially present and
+conflict is semantically approaching, call `mechanics.ensure` early if its
+profile is not ready. This is a semantic judgment, not a quota for every NPC or
+every turn. Observation, positioning, parley, and other play that does not
+depend on the missing numbers may continue. A source/special item still calls
+`mechanics.ensure` when it first needs rules parameters.
+
+Authored appendix or chapter-end data always wins. If `mechanics.ensure`
+returns `source_work_required`, or `combat.resolve` returns
+`mechanics_not_ready`, immediately invoke `progressive.claim_host_work` and
+spawn its exact packet as the focused unqualified `coc-source-pack-worker` with
+`background=true`. Never bypass the request with `rules.roll`,
+`rules.opposed`, `rules.damage`, copied stub values, or a generic profile. The
+current mechanics-dependent settlement may remain pending under the existing
+`blocking_micro` semantics; this adds no new narrative or output gate, and
+non-dependent live play may continue. Fulfill the exact cached pages and every
+listed same-page `batch_subject` once; never generate over a possible authored
+profile or reopen the same PDF scope for each later question.
+
+On Grok direct submit, retain the source-child rule below: never call
+`get_task_output` or `get_command_or_subagent_output`, wait, poll, retrieve a
+receipt, or call `progressive.fulfill_host_work` in the parent. After direct
+submission, only the same current action or a later naturally needed action
+may retry canonical `mechanics.ensure` or `combat.resolve` to consume the
+durable profile. Do not spin, issue a reassurance query, or recreate child
+values in the parent.
+
+Fallback generation is legal only for a genuinely improvised/campaign-local
+subject or a source subject with an accepted `not_authored` absence receipt.
+The KP chooses the semantically fitting archetype or comparable base weapon;
+the tool freezes that profile in campaign state and reuses it. If authored
+data later conflicts, preserve both as continuity contradiction evidence—no
+silent replacement. Pre-7e 3–18 source characteristics must be host-normalized
+to runtime percentile values while preserving their original scale and values.
+
+`combat.resolve(target_npc_id=...)` attacks a present non-affordance NPC using
+the same CombatSession as authored encounters. A special weapon's typed effect
+may be passed as `weapon_effect_ids` only after the KP semantically establishes
+its structured applicability to the current target. The combat damage receipt
+then binds the effect IDs and deterministic multiplier. Applicability is never
+inferred by keyword matching names, tags in prose, or the player's wording;
+unsupported special rules stay `keeper_advisory` until the KP settles them
+through an appropriate canonical rules/state operation.
+
+## Optional background scene adviser
+
+**Normative when routed.** `coc.advisory-sidecar.v1` is an optional cognitive
+sidecar, not a second Keeper, turn pipeline, quality gate, or reason to weaken
+the main KP. Its machine contract is
+`plugins/coc-keeper/references/advisory-sidecar-v1.json`.
+
+Use at most one when a genuinely complex beat benefits from a second look—for
+example several acting NPCs, a compound declaration, exceptional result, major
+transition, continuity contradiction, or difficult character-specific Table
+Wit. Never spawn by quota or merely because the host supports subagents. The
+main KP must complete the turn if the child is unavailable, late, malformed,
+stale, ignored, or rejected.
+
+Build the packet only from facts already in the bounded working set; do not
+call tools to fill it. Stay within the contract's 6144-byte budget and never
+include the whole transcript/module, raw tool envelopes, filesystem paths, or
+hidden chain-of-thought. Required fields include contract/packet and campaign/
+turn/scene/language identities, exact `player_action`, and bounded
+`scene_facts`, `npc_facts`, `continuity_facts`, and `requested_lenses`.
+
+On Grok v1, only when capability discovery returned
+`coc_advisory_sidecar_v1=true`, spawn `coc-keeper:coc-scene-adviser` with
+`background=true` and `capability_mode=read-only`. The task prompt is **one bare
+`coc.advisory-sidecar.v1` JSON object**—no prose wrapper, roll question,
+transcript, raw receipt, or alternate output contract. Continue the main KP's
+work immediately; **never wait for the child**. Before final prose, inspect at
+most once with `get_command_or_subagent_output` and no timeout; discard
+unfinished, failed, malformed, mismatched, or stale output and cancel unfinished
+work when practical. Other hosts keep this craft inline until a same-contract
+adapter exists; never emulate it with a new headless process.
+
+The child never decides player intent, epistemic boundaries, rolls, stakes,
+clue authority, source truth, mutations, finalization, or final prose. If a
+completed suggestion was actually considered, record its `suggestion_id` with
+`evidence.record_adoption` and the concise semantic disposition. Agreement with
+a decision already made **must not be back-claimed** as adoption. Bind a
+finalization ID and exact excerpt only when adopted content reached delivered
+text. If inspection happens after `state.journal`, finalize first and record
+adoption before display; **never insert an adoption mutation** between journal
+and finalization.
+
+Do not save raw packets, child transcripts, or unused suggestions. If adopted
+advice changes durable meaning, project only that meaning through
+`state.journal.continuation`; immediate scene texture needs no checkpoint row.
+This preserves bounded checkpoint and continuation budgets.
+
+## Background progressive source packs
+
+`coc.source-pack-worker.v1` is a separate source-compilation contract, not the
+scene adviser and never a second Keeper. Use it only when host capabilities say
+`coc_source_pack_worker_v1=true`. The canonical machine contract is
+`plugins/coc-keeper/references/source-pack-worker-v1.json`.
+
+During fresh source-bundle setup, begin a pre-confirmation opening warm start
+after `scenario.bind_pdf` and before delivering the investigator card that is
+pending player confirmation. The main KP first performs the bounded
+pre-skeleton semantics itself: use `progressive.prepare_opening` to publish only
+the minimum grounded skeleton, then create its exact accepted contiguous
+1–3-page `partial_opening` request. This minimum-skeleton step is intentionally
+not background work. Do not read the full module, neighboring-location packets,
+or appendix/mechanics pages.
+
+After that setup request, or after an enter/dig/mechanics call exposes open host
+work, invoke `progressive.claim_host_work` with a stable host/session executor id
+and a limit no greater than `max_background_source_workers`. During the
+pre-confirmation warm start, claim once only. The operation coalesces exact page
+scopes, leases them for crash recovery, and returns one bare
+`coc.source-pack-worker.v1` packet per independent page group. It only leases
+fully cached scopes in v1. If a request needs uncached pages, the main host PDF
+skill creates the smallest exact source-bundle window, registers it through
+`progressive.register_source_bundle`, and claims again; never let repository
+code or the child parse the original PDF.
+
+The serialized claimed packet JSON is the entire child task prompt: add no
+prefix, suffix, transcript, optional-row request, or schema hint. On Grok,
+actually spawn the focused unqualified `coc-source-pack-worker` with
+`background=true` and its installed-plugin projection's narrow read plus
+named-submit profile; do not use the plugin-qualified agent (Grok 0.2.106
+suppresses plugin-subagent MCPs) or override it with
+`capability_mode=read-only`. Use one bare packet per task. On Codex, use the native
+background-subagent adapter with the identical packet and workspace-read-only
+authority. Because Codex has no direct text-read tool, its child may use only
+`/bin/cat -- <exact cached_page_refs.path>` as the read transport—no search,
+pipe, redirect, second command, PDF open, or write. Retain each real task ID only
+in volatile host-session context, never module truth, campaign truth, or the
+packet. Once a packet is claimed, the main KP must not read those exact packet
+pages itself, manually construct their pack, or fulfill the claim from its own
+source interpretation.
+
+Continue the live KP turn immediately for `next_turn_hot` and `hot_ring` work.
+For the pre-confirmation `partial_opening`, deliver the character confirmation
+text immediately after spawning and never wait for the child. An unfinished
+opening packet may become a current `blocking_micro` dependency only after
+final character confirmation; otherwise a `blocking_micro` packet may delay
+only when the current action cannot be resolved honestly without that exact
+authored parameter, handout, or secret. Do not expand its page group while
+waiting.
+
+On Grok, the source child submits the complete outer result itself through its
+named submit-only MCP, whose server validates and merges without the main KP.
+Treat the host completion reminder as notification/liveness only. The main KP
+must not call `get_task_output` or `get_command_or_subagent_output`, wait, poll,
+inspect the task, retrieve the pack or compact receipt, or call
+`progressive.fulfill_host_work` for that child. The child retains its compact
+`coc.source-submit-receipt.v1` final output for audit only. Never claim source
+success to the player. A failed submission stays open or leased for existing
+recovery; do not repair or retry it. Consume durable availability only through
+a later naturally needed canonical entity or mechanics query (including the
+required opening projection), never a reassurance query or poll.
+
+For a host adapter without the named direct-submit transport, retain the exact
+R28 fallback. On a later real player turn inspect a completed child at most
+once without blocking, then pass each child-owned `results[i]` unchanged as
+`worker_result=result` plus exact host runtime timing to
+`progressive.fulfill_host_work`. Never extract or retype `job_id`, `pack`, or
+`related_packs`, combine legacy explicit fields, rebuild the object, add
+defaults, repair, or retry. Trust fallback success only when `ok=true` and
+durable `request_status=fulfilled`.
+
+The child never writes
+`.coc`, invokes rules/state, or produces player-facing text. The child never
+supplies timestamps. When a host has no exact task-runtime metadata, the
+repository labels lease-to-fulfillment time as an upper bound instead of
+pretending it is pure parse time. Lease expiry makes abandoned work claimable
+again. Subsequent questions must consume the durable pack instead of dispatching
+another page read.
+
+During character setup, unfinished work simply continues while the character
+flow proceeds. If the opening pack is durable at final confirmation, invoke its
+projection and initial-move cards directly and open play. If the host does not
+advertise `coc_source_pack_worker_v1=true`, do not claim for an imaginary child,
+fake a Task, or invent a task ID; keep the exact request durable for honest
+foreground handling. This source lifecycle remains owned by scenario import
+and the main KP, not `coc-character`.
+
+Real Grok acceptance uses the focused Keeper launcher and records the host task
+ID, background start/completion metadata, and child-side source-submit receipt
+without parent task-output retrieval (or the exact fallback fulfillment
+receipt on a non-direct adapter). A
+pack's `producer` label or lease-to-fulfillment timing is not proof that a real
+subagent ran.

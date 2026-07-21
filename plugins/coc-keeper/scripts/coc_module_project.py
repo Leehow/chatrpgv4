@@ -10,6 +10,7 @@ Does not run host PDF extraction. Does not claim full coc_scenario_compile green
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 from datetime import datetime, timezone
@@ -54,10 +55,24 @@ coc_compiled_archive = _load_sibling(
     "coc_compiled_archive_module_project", "coc_compiled_archive.py"
 )
 coc_npc_roles = _load_sibling("coc_npc_roles_module_project", "coc_npc_roles.py")
+coc_rulesets = _load_sibling("coc_rulesets_module_project", "coc_rulesets.py")
 
 
 class ModuleProjectError(ValueError):
     """Progressive IR projection failed."""
+
+
+class OpeningPreparationError(ModuleProjectError):
+    """Typed source/start/readiness failure for the opening bridge."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class OpeningStructuredCollisionError(ModuleProjectError):
+    """One structured row aliases multiple authored opening identities."""
 
 
 def _now_iso() -> str:
@@ -149,6 +164,25 @@ def edges_from_skeleton(skeleton: dict[str, Any]) -> dict[str, list[dict[str, An
     return by_from
 
 
+def _project_locator_mechanics(locator: dict[str, Any]) -> dict[str, Any]:
+    """Project a skeleton mechanics_index row without dropping locator proof."""
+    status = str(locator.get("status") or "unresolved")
+    if status not in {"located", "not_authored", "unresolved"}:
+        status = "unresolved"
+    mechanics: dict[str, Any] = {"status": status}
+    for key in (
+        "locator_pass_status",
+        "locator_scope",
+        "source_page_indices",
+        "source_refs",
+        "absence_receipt",
+        "provenance",
+    ):
+        if locator.get(key) is not None:
+            mechanics[key] = json.loads(json.dumps(locator[key]))
+    return mechanics
+
+
 def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
     """Build sparse seven-file IR objects from Tier-1 skeleton."""
     errors = coc_module_assets.validate_skeleton(skeleton)
@@ -175,6 +209,9 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
 
     identity = skeleton.get("module_identity") or {}
     source = skeleton.get("source") or {}
+    mechanics_locators = json.loads(
+        json.dumps(skeleton.get("mechanics_index") or [])
+    )
     meta = {
         "schema_version": 1,
         "scenario_id": str(
@@ -204,6 +241,15 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
         ),
         "progressive": True,
         "parse_tier": skeleton.get("parse_tier") or 1,
+        "module_mechanics": {
+            "schema_version": 1,
+            "locators": mechanics_locators,
+            "locator_pass_status": skeleton.get("mechanics_locator_pass_status"),
+            "locator_scope": json.loads(
+                json.dumps(skeleton.get("mechanics_locator_scope"))
+            ) if skeleton.get("mechanics_locator_scope") is not None else None,
+            "items": {},
+        },
         "player_safe_summary": str(
             skeleton.get("player_safe_summary")
             or "Progressive import: skeleton topology; deep packs fill in on demand."
@@ -216,6 +262,11 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
         ),
     }
 
+    locator_by_subject = {
+        (str(row.get("subject_kind") or ""), str(row.get("subject_id") or "")): row
+        for row in mechanics_locators
+        if isinstance(row, dict)
+    }
     npc_rows = []
     for npc in skeleton.get("npc_roster") or []:
         if not isinstance(npc, dict):
@@ -225,7 +276,7 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             continue
         names = npc.get("names") if isinstance(npc.get("names"), list) else []
         display = str(names[0] if names else nid)
-        npc_rows.append({
+        npc_row = {
             "npc_id": nid,
             "name": display,
             "display_name": display,
@@ -235,7 +286,32 @@ def project_skeleton_to_ir(skeleton: dict[str, Any]) -> dict[str, Any]:
             ),
             "parse_state": npc.get("parse_state") or "named_only",
             "origin": "source",
-        })
+        }
+        locator = locator_by_subject.get(("npc", nid))
+        if isinstance(locator, dict):
+            npc_row["mechanics"] = _project_locator_mechanics(locator)
+        npc_rows.append(npc_row)
+
+    for item in skeleton.get("item_roster") or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        locator = locator_by_subject.get(("item", item_id))
+        row = {
+            "item_id": item_id,
+            "label": str(item.get("label") or item.get("title") or item_id),
+            "parse_state": item.get("parse_state") or "named_only",
+            "origin": "source",
+            "source_page_indices": list(item.get("source_page_indices") or []),
+            "mechanics": (
+                _project_locator_mechanics(locator)
+                if isinstance(locator, dict)
+                else {"status": "unresolved"}
+            ),
+        }
+        meta["module_mechanics"]["items"][item_id] = row
 
     threat_fronts = []
     for threat in skeleton.get("threats") or []:
@@ -357,34 +433,27 @@ def merge_deep_location_into_ir(
     if pack.get("display_name") or pack.get("title"):
         scene["display_name"] = pack.get("display_name") or pack.get("title")
     for key in (
-        "available_clues", "npc_ids", "pressure_moves", "affordances",
+        "available_clues", "npc_ids", "pressure_moves",
         "tone", "storylet_tags", "allowed_improvisation", "exit_conditions",
     ):
         pack_key = "available_clue_ids" if key == "available_clues" else key
         if pack.get(pack_key) is not None:
             scene[key] = list(pack.get(pack_key) or [])
+    if pack.get("affordances") is not None:
+        scene["affordances"] = _opening_reconcile_structured_rows(
+            pack.get("affordances") or [],
+            scene.get("affordances") or [],
+            kind="affordance",
+        )
     if pack.get("scene_edges") is not None:
         # Deep edges replace Tier-1 provisional topology, but must not erase
         # campaign-local routes created when a player materially digs a named
         # place. Those routes are part of the growing live map, not PDF guesses.
-        deep_edges = json.loads(json.dumps(pack.get("scene_edges") or []))
-        deep_targets = {
-            (str(edge.get("to") or ""), str(edge.get("kind") or ""))
-            for edge in deep_edges
-            if isinstance(edge, dict)
-        }
-        for edge in scene.get("scene_edges") or []:
-            if not isinstance(edge, dict) or edge.get("origin") != (
-                "campaign_progressive_dig"
-            ):
-                continue
-            identity = (
-                str(edge.get("to") or ""), str(edge.get("kind") or ""),
-            )
-            if identity not in deep_targets:
-                deep_edges.append(json.loads(json.dumps(edge)))
-                deep_targets.add(identity)
-        scene["scene_edges"] = deep_edges
+        scene["scene_edges"] = _opening_reconcile_structured_rows(
+            pack.get("scene_edges") or [],
+            scene.get("scene_edges") or [],
+            kind="edge",
+        )
     if pack.get("san_triggers") is not None:
         # Authored horror beats must reach the same canonical scene contract
         # consumed by scene.context and rules.sanity_check.  Without this
@@ -437,18 +506,25 @@ def merge_deep_location_into_ir(
         row.setdefault("delivery_kind", "obvious")
         row.setdefault("visibility", "player-safe")
         row.setdefault("origin", "source")
-        row["player_safe_summary"] = str(
-            clue.get("player_safe_summary") or clue.get("summary") or ""
-        )
+        # Canonical player text only. Bare summary is rejected at put_entity;
+        # never invent difficulty from skill presence.
+        if clue.get("player_safe_summary") is not None:
+            row["player_safe_summary"] = str(clue.get("player_safe_summary") or "")
+        elif "player_safe_summary" not in row:
+            row["player_safe_summary"] = ""
+        row.pop("summary", None)
         row.setdefault("parse_state", "deep")
-        if row.get("skill"):
-            row.setdefault("difficulty", "regular")
+        if isinstance(clue.get("discovery"), dict):
+            # Pass structured discovery through untouched — no inference.
+            row["discovery"] = json.loads(json.dumps(clue["discovery"]))
         # Structured follow-ups only (never free-prose keyword mentions).
         if clue.get("mentions"):
             row["mentions"] = [
                 m for m in clue["mentions"]
                 if isinstance(m, dict) and m.get("kind") and m.get("ref_id")
             ]
+        if clue.get("provenance") is not None:
+            row["provenance"] = json.loads(json.dumps(clue["provenance"]))
         clues_by_id[row["clue_id"]] = row
         if row["clue_id"] not in scene["available_clues"]:
             scene["available_clues"].append(row["clue_id"])
@@ -518,17 +594,14 @@ def merge_deep_location_into_ir(
         })
 
     secrets = out["improvisation-boundaries.json"].setdefault("keeper_secrets", [])
-    existing_ids = {s.get("id") for s in secrets if isinstance(s, dict)}
     scene_secret_refs = list(scene.get("keeper_secret_refs") or [])
-    scene_secret_ids = {
-        str(ref.get("id") if isinstance(ref, dict) else ref)
-        for ref in scene_secret_refs
-        if ref
-    }
+    canonical_secret_links: list[dict[str, Any]] = []
     for sec in pack.get("keeper_secret_refs") or []:
-        if not isinstance(sec, dict) or not sec.get("id"):
+        if not isinstance(sec, dict):
             continue
-        secret_id = str(sec["id"])
+        secret_id = str(sec.get("id") or sec.get("secret_id") or "").strip()
+        if not secret_id:
+            continue
         existing = next(
             (row for row in secrets if isinstance(row, dict) and row.get("id") == secret_id),
             None,
@@ -546,11 +619,16 @@ def merge_deep_location_into_ir(
         secret_row["scene_ids"] = sorted(linked_scenes)
         if existing is None:
             secrets.append(secret_row)
-            existing_ids.add(secret_id)
-        if secret_id not in scene_secret_ids:
-            scene_secret_refs.append({"id": secret_id, "category": secret_row["category"]})
-            scene_secret_ids.add(secret_id)
-    scene["keeper_secret_refs"] = scene_secret_refs
+        canonical_secret_links.append({
+            "id": secret_id,
+            "category": secret_row["category"],
+        })
+    if pack.get("keeper_secret_refs") is not None:
+        scene["keeper_secret_refs"] = _opening_reconcile_structured_rows(
+            canonical_secret_links,
+            scene_secret_refs,
+            kind="secret_link",
+        )
 
     return out
 
@@ -615,6 +693,34 @@ def merge_deep_npc_into_ir(
             ids = scene.setdefault("npc_ids", [])
             if nid not in ids:
                 ids.append(nid)
+    return out
+
+
+def merge_deep_item_into_ir(
+    ir: dict[str, Any],
+    pack: dict[str, Any],
+) -> dict[str, Any]:
+    """Upsert one source item and its mechanics into canonical module metadata."""
+    out = {k: json.loads(json.dumps(v)) for k, v in ir.items()}
+    item_id = str(pack.get("item_id") or "").strip()
+    if not item_id:
+        raise ModuleProjectError("deep item pack missing item_id")
+    meta = out["module-meta.json"]
+    mechanics_root = meta.setdefault(
+        "module_mechanics", {"schema_version": 1, "locators": [], "items": {}}
+    )
+    items = mechanics_root.setdefault("items", {})
+    row = items.setdefault(item_id, {"item_id": item_id, "origin": "source"})
+    for key, value in pack.items():
+        if key not in {
+            "schema_version", "updated_at", "host_timing", "ingest_timing",
+            "host_work_job_id",
+        }:
+            row[key] = json.loads(json.dumps(value))
+    row["item_id"] = item_id
+    row.setdefault("label", item_id)
+    row["parse_state"] = pack.get("parse_state") or "deep"
+    row["origin"] = pack.get("origin") or "source"
     return out
 
 
@@ -716,6 +822,7 @@ def merge_deep_entity_into_ir(
     mergers = {
         "location": merge_deep_location_into_ir,
         "npc": merge_deep_npc_into_ir,
+        "item": merge_deep_item_into_ir,
         "clue": merge_deep_clue_into_ir,
         "threat": merge_deep_threat_into_ir,
     }
@@ -880,7 +987,7 @@ def write_ir_to_campaign(
     ir = dict(ir)
     npc_agendas = ir.get("npc-agendas.json")
     if isinstance(npc_agendas, dict):
-        rules_dir = SCRIPT_DIR.parent / "references" / "rules-json"
+        rules_dir = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
         ir["npc-agendas.json"] = coc_npc_roles.expand_npc_social_roles(
             npc_agendas,
             coc_npc_roles.load_role_templates(rules_dir),
@@ -956,6 +1063,305 @@ def campaign_asset_root_id(campaign_dir: Path) -> str | None:
     return None
 
 
+def resolve_opening_preparation_root(
+    workspace: Path,
+    campaign_id: str,
+) -> dict[str, Any]:
+    """Resolve and prove the source-bound root used only by opening setup."""
+    campaign_dir = _campaign_dir(workspace, campaign_id)
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    if not isinstance(scenario, dict):
+        raise OpeningPreparationError(
+            "opening_source_missing", "campaign scenario metadata is missing"
+        )
+    source_root = str(scenario.get("source_cache_asset_root_id") or "").strip()
+    projected_root = str(scenario.get("progressive_asset_root_id") or "").strip()
+    if source_root and projected_root and source_root != projected_root:
+        raise OpeningPreparationError(
+            "opening_root_mismatch",
+            "source-cache and progressive projection pointers disagree",
+        )
+    root_id = projected_root or source_root
+    if not root_id:
+        raise OpeningPreparationError(
+            "opening_source_missing",
+            "campaign has no source-bound module asset root",
+        )
+    try:
+        root_id = coc_module_assets._require_id(root_id, "asset_root_id")
+        module_root = coc_module_assets._module_dir(workspace, root_id)
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise OpeningPreparationError("opening_root_unsafe", str(exc)) from exc
+    identity_path = module_root / "identity.json"
+    if not identity_path.is_file():
+        raise OpeningPreparationError(
+            "opening_identity_missing", "module asset identity.json is missing"
+        )
+    try:
+        registry = coc_module_assets.load_registry(workspace)
+        identity = _load_json(identity_path, {})
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise OpeningPreparationError(
+            "opening_identity_invalid", str(exc)
+        ) from exc
+    if not isinstance(identity, dict):
+        raise OpeningPreparationError(
+            "opening_identity_invalid", "module asset identity must be an object"
+        )
+    try:
+        file_sha256 = coc_module_assets._require_sha256(
+            identity.get("file_sha256"), "identity.file_sha256",
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise OpeningPreparationError("opening_identity_invalid", str(exc)) from exc
+    module_owner = (registry.get("modules") or {}).get(root_id)
+    sha_owner = (registry.get("by_file_sha256") or {}).get(file_sha256)
+    if (
+        not isinstance(module_owner, dict)
+        or str(module_owner.get("asset_root_id") or "") != root_id
+        or str(module_owner.get("file_sha256") or "") != file_sha256
+        or sha_owner != root_id
+    ):
+        raise OpeningPreparationError(
+            "opening_registry_mismatch",
+            "module registry ownership does not match the selected root",
+        )
+    if str(identity.get("asset_root_id") or "") != root_id:
+        raise OpeningPreparationError(
+            "opening_identity_mismatch", "identity asset_root_id differs from registry"
+        )
+    identity_source = (
+        identity.get("source") if isinstance(identity.get("source"), dict) else {}
+    )
+    scenario_source = (
+        scenario.get("source") if isinstance(scenario.get("source"), dict) else {}
+    )
+    for field in ("source_id", "file_sha256", "page_count", "producer"):
+        if scenario_source.get(field) != identity_source.get(field):
+            raise OpeningPreparationError(
+                "opening_source_identity_mismatch",
+                f"campaign source.{field} differs from the registered identity",
+            )
+    if identity_source.get("file_sha256") != file_sha256:
+        raise OpeningPreparationError(
+            "opening_source_identity_mismatch",
+            "registered source file digest differs from identity",
+        )
+    try:
+        bundle_sha256 = coc_module_assets._require_sha256(
+            scenario_source.get("bundle_sha256"), "campaign source.bundle_sha256",
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise OpeningPreparationError("opening_bundle_mismatch", str(exc)) from exc
+    bundle_row = next(
+        (
+            row
+            for row in (identity.get("source_bundles") or [])
+            if isinstance(row, dict)
+            and str(row.get("bundle_sha256") or "") == bundle_sha256
+        ),
+        None,
+    )
+    if bundle_row is None:
+        raise OpeningPreparationError(
+            "opening_bundle_mismatch",
+            "campaign-bound source bundle is not registered on the asset root",
+        )
+    return {
+        "campaign_dir": campaign_dir,
+        "asset_root_id": root_id,
+        "link_state": (
+            "progressive_projected" if projected_root else "source_bound"
+        ),
+        "source_id": str(identity_source.get("source_id") or ""),
+        "file_sha256": file_sha256,
+        "bundle_sha256": bundle_sha256,
+        "page_count": identity_source.get("page_count"),
+        "producer": identity_source.get("producer"),
+        "bundle_pdf_indices": sorted(bundle_row.get("pdf_indices") or []),
+    }
+
+
+def opening_start_candidates(skeleton: dict[str, Any]) -> list[dict[str, Any]]:
+    locations = {
+        str(row.get("location_id") or ""): row
+        for row in (skeleton.get("locations") or [])
+        if isinstance(row, dict) and str(row.get("location_id") or "")
+    }
+    return [
+        {
+            "location_id": start_id,
+            "title": str((locations.get(start_id) or {}).get("title") or start_id),
+        }
+        for start_id in (
+            str(value).strip() for value in (skeleton.get("start_candidates") or [])
+        )
+        if start_id
+    ]
+
+
+def parse_opening_start_selector(
+    raw_value: Any,
+    *,
+    required: bool,
+) -> str | None:
+    """Validate a raw JSON opening selector without coercing its type."""
+    if raw_value is None:
+        if required:
+            raise OpeningPreparationError(
+                "invalid_opening_start",
+                "start_location_id must be a nonempty string",
+            )
+        return None
+    if not isinstance(raw_value, str):
+        raise OpeningPreparationError(
+            "invalid_opening_start",
+            "start_location_id must be a string when provided",
+        )
+    selected = raw_value.strip()
+    if not selected:
+        if required:
+            raise OpeningPreparationError(
+                "invalid_opening_start",
+                "start_location_id must be a nonempty string",
+            )
+        return None
+    try:
+        coc_module_assets._require_id(selected, "start_location_id")
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise OpeningPreparationError("invalid_opening_start", str(exc)) from exc
+    return selected
+
+
+def select_opening_start(
+    campaign_dir: Path,
+    skeleton: dict[str, Any],
+    explicit_start_location_id: Any,
+) -> str:
+    candidates = opening_start_candidates(skeleton)
+    candidate_ids = {row["location_id"] for row in candidates}
+    explicit = parse_opening_start_selector(
+        explicit_start_location_id,
+        required=False,
+    )
+    if explicit:
+        if explicit not in candidate_ids:
+            raise OpeningPreparationError(
+                "invalid_opening_start",
+                "start_location_id is not a structured start candidate",
+            )
+        return explicit
+    if len(candidates) == 1:
+        return candidates[0]["location_id"]
+    world = _load_json(campaign_dir / "save" / "world-state.json", {})
+    active = str((world or {}).get("active_scene_id") or "")
+    if active and active in candidate_ids:
+        graph = _load_json(campaign_dir / "scenario" / "story-graph.json", {})
+        scene = next(
+            (
+                row
+                for row in ((graph or {}).get("scenes") or [])
+                if isinstance(row, dict) and str(row.get("scene_id") or "") == active
+            ),
+            None,
+        )
+        if (
+            isinstance(scene, dict)
+            and scene.get("is_start") is True
+            and str(scene.get("origin") or "") == "source"
+        ):
+            return active
+    raise OpeningPreparationError(
+        "opening_start_selection_required",
+        "multiple structured start candidates require an explicit selection",
+    )
+
+
+def resolve_opening_source_window(
+    workspace: Path,
+    root_info: dict[str, Any],
+    skeleton: dict[str, Any],
+    start_location_id: str,
+    supplied_pdf_indices: list[int] | None,
+) -> dict[str, Any]:
+    location = next(
+        (
+            row
+            for row in (skeleton.get("locations") or [])
+            if isinstance(row, dict)
+            and str(row.get("location_id") or "") == start_location_id
+        ),
+        None,
+    )
+    if location is None:
+        raise OpeningPreparationError(
+            "invalid_opening_start", "selected start has no structured location row"
+        )
+    try:
+        locator_indices = coc_module_assets._source_indices(
+            location, field="opening_start_locator",
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise OpeningPreparationError("opening_locator_invalid", str(exc)) from exc
+    locator_contiguous = bool(locator_indices) and locator_indices == list(
+        range(locator_indices[0], locator_indices[-1] + 1)
+    )
+    if supplied_pdf_indices is None:
+        if not locator_contiguous or not 1 <= len(locator_indices) <= 3:
+            raise OpeningPreparationError(
+                "opening_source_window_required",
+                "selected start locator is not an exact contiguous 1..3-page window",
+            )
+        selected_indices = locator_indices
+        origin = "structured_locator"
+    else:
+        selected_indices = supplied_pdf_indices
+        origin = "host_selected"
+    try:
+        scope = coc_module_assets.validate_opening_source_window(
+            workspace,
+            str(root_info["asset_root_id"]),
+            bundle_sha256=str(root_info["bundle_sha256"]),
+            pdf_indices=selected_indices,
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise OpeningPreparationError("opening_source_window_invalid", str(exc)) from exc
+    if locator_indices and not set(scope["pdf_indices"]) <= set(locator_indices):
+        raise OpeningPreparationError(
+            "opening_source_window_outside_locator",
+            "opening_pdf_indices must be contained in the selected start locator",
+        )
+    return {"window_origin": origin, "scope": scope}
+
+
+def campaign_is_pristine_for_opening(campaign_dir: Path) -> bool:
+    world = _load_json(campaign_dir / "save" / "world-state.json", {})
+    pacing = _load_json(campaign_dir / "save" / "pacing-state.json", {})
+    active_pointer = _load_json(campaign_dir / "save" / "active-scene.json", {})
+    if not isinstance(world, dict) or not isinstance(pacing, dict):
+        return False
+    if world.get("active_scene_id") is not None:
+        return False
+    if world.get("visited_scene_ids") or world.get("scene_history"):
+        return False
+    if int(pacing.get("turn_number") or 0) != 0:
+        return False
+    if isinstance(active_pointer, dict) and active_pointer.get("scene_id") is not None:
+        return False
+    events_path = campaign_dir / "logs" / "events.jsonl"
+    if events_path.is_file():
+        try:
+            for line in events_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if isinstance(row, dict) and row.get("event_type") == "scene_transition":
+                    return False
+        except (OSError, json.JSONDecodeError):
+            return False
+    return True
+
+
 def load_campaign_ir(campaign_dir: Path) -> dict[str, Any]:
     scenario_dir = campaign_dir / "scenario"
     ir: dict[str, Any] = {}
@@ -965,6 +1371,1796 @@ def load_campaign_ir(campaign_dir: Path) -> dict[str, Any]:
             raise ModuleProjectError(f"campaign missing {name}")
         ir[name] = _load_json(path, {})
     return ir
+
+
+_OPENING_CAMPAIGN_AUTHORITIES = frozenset({
+    "campaign_improvised",
+    "campaign_generated",
+})
+
+
+def _opening_campaign_local_row(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    provenance = (
+        value.get("provenance")
+        if isinstance(value.get("provenance"), dict)
+        else {}
+    )
+    authority = str(provenance.get("authority") or "")
+    origin = str(value.get("origin") or "")
+    return (
+        authority in _OPENING_CAMPAIGN_AUTHORITIES
+        or origin in _OPENING_CAMPAIGN_AUTHORITIES
+        or origin.startswith("campaign_")
+    )
+
+
+def _opening_scope_page_ref(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_id": str(value.get("source_id") or ""),
+        "pdf_index": value.get("pdf_index"),
+        "text_sha256": str(value.get("text_sha256") or ""),
+        "review_state": value.get("review_state"),
+        "parse_confidence": value.get("parse_confidence"),
+    }
+
+
+def _opening_pack_claims_match_revalidation(
+    stored: dict[str, Any],
+    revalidated: dict[str, Any],
+) -> bool:
+    """Reject stale/tampered durable evidence instead of silently blessing it."""
+    evidence_fields = (
+        "source_refs",
+        "source_page_indices",
+        "source_span",
+        "page_text_sha256",
+        "source_evidence",
+    )
+    return all(stored.get(field) == revalidated.get(field) for field in evidence_fields)
+
+
+def _opening_pack_has_accepted_source_evidence(pack: dict[str, Any]) -> bool:
+    evidence = (
+        pack.get("source_evidence")
+        if isinstance(pack.get("source_evidence"), dict)
+        else {}
+    )
+    refs = pack.get("source_refs") if isinstance(pack.get("source_refs"), list) else []
+    indices = evidence.get("pdf_indices")
+    digests = evidence.get("page_text_sha256")
+    bundles = evidence.get("bundle_sha256s")
+    return bool(
+        evidence.get("schema_version") == 1
+        and str(evidence.get("source_id") or "")
+        and str(evidence.get("file_sha256") or "")
+        and isinstance(indices, list)
+        and indices
+        and isinstance(digests, list)
+        and len(digests) == len(indices)
+        and isinstance(bundles, list)
+        and bundles
+        and refs
+    )
+
+
+def _opening_pack_covers_source_scope(
+    pack: dict[str, Any],
+    scope: dict[str, Any],
+) -> bool:
+    refs = [
+        row for row in (pack.get("source_refs") or [])
+        if isinstance(row, dict) and isinstance(row.get("pdf_index"), int)
+        and not isinstance(row.get("pdf_index"), bool)
+    ]
+    refs_by_index = {int(row["pdf_index"]): row for row in refs}
+    required_bundle = str(scope.get("bundle_sha256") or "")
+    for required_ref in scope.get("page_refs") or []:
+        if not isinstance(required_ref, dict):
+            return False
+        pdf_index = required_ref.get("pdf_index")
+        actual_ref = refs_by_index.get(pdf_index)
+        if actual_ref is None:
+            return False
+        if _opening_scope_page_ref(actual_ref) != required_ref:
+            return False
+        if required_bundle not in set(actual_ref.get("bundle_sha256s") or []):
+            return False
+    evidence = (
+        pack.get("source_evidence")
+        if isinstance(pack.get("source_evidence"), dict)
+        else {}
+    )
+    return bool(
+        evidence.get("source_id") == scope.get("source_id")
+        and evidence.get("file_sha256") == scope.get("file_sha256")
+        and required_bundle in set(evidence.get("bundle_sha256s") or [])
+        and set(scope.get("pdf_indices") or []).issubset(
+            set(evidence.get("pdf_indices") or [])
+        )
+    )
+
+
+def opening_pack_readiness(
+    workspace: Path,
+    asset_root_id: str,
+    start_location_id: str,
+    *,
+    required_npc_ids: list[str] | None = None,
+    required_secret_ids: list[str] | None = None,
+    required_source_scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return deterministic structural readiness for one selected start pack."""
+    blockers: list[dict[str, Any]] = []
+    advisories: list[dict[str, Any]] = []
+    try:
+        stored_pack = coc_module_assets.get_entity(
+            workspace, asset_root_id, "location", start_location_id,
+        )
+        pack = coc_module_assets.revalidate_entity_pack(
+            workspace, asset_root_id, "location", start_location_id,
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        return {
+            "ready": False,
+            "pack": None,
+            "blocking": [{"code": "opening_pack_evidence_invalid", "entity_id": start_location_id}],
+            "advisories": [],
+            "validation_error": str(exc),
+            "present_npc_ids": [],
+            "required_secret_status": [],
+        }
+    if pack is None:
+        return {
+            "ready": False,
+            "pack": None,
+            "blocking": [{"code": "opening_pack_missing", "entity_id": start_location_id}],
+            "advisories": [],
+            "present_npc_ids": [],
+            "required_secret_status": [],
+        }
+    canonical_scope: dict[str, Any] | None = None
+    scope_validation_error: str | None = None
+    if required_source_scope is None:
+        blockers.append({
+            "code": "opening_source_scope_required",
+            "entity_id": start_location_id,
+        })
+    else:
+        try:
+            canonical_scope = coc_module_assets.validate_opening_source_scope(
+                workspace, asset_root_id, required_source_scope,
+            )
+            if canonical_scope != required_source_scope:
+                raise coc_module_assets.ModuleAssetsError(
+                    "required opening source scope is not canonical"
+                )
+        except coc_module_assets.ModuleAssetsError as exc:
+            blockers.append({
+                "code": "opening_source_scope_invalid",
+                "entity_id": start_location_id,
+            })
+            canonical_scope = None
+            scope_validation_error = str(exc)
+    if _opening_campaign_local_row(pack):
+        blockers.append({
+            "code": "opening_pack_source_authority_invalid",
+            "entity_id": start_location_id,
+        })
+    if not _opening_pack_has_accepted_source_evidence(pack):
+        blockers.append({
+            "code": "opening_pack_source_evidence_missing",
+            "entity_id": start_location_id,
+        })
+    if not isinstance(stored_pack, dict) or not _opening_pack_claims_match_revalidation(
+        stored_pack, pack,
+    ):
+        blockers.append({
+            "code": "opening_pack_evidence_stale",
+            "entity_id": start_location_id,
+        })
+    state = str(pack.get("parse_state") or "")
+    if pack.get("evidence_gap"):
+        blockers.append({"code": "opening_pack_evidence_gap", "entity_id": start_location_id})
+    if state not in {"deep", "body_parsed", "partial"}:
+        blockers.append({"code": "opening_pack_depth_missing", "entity_id": start_location_id})
+    if state == "partial":
+        ingest_receipt = coc_module_assets.current_ingest_fulfillment_receipt(
+            pack
+        )
+        job_id = str((ingest_receipt or {}).get("job_id") or "").strip()
+        requests = coc_module_assets.list_host_work_requests(
+            workspace, asset_root_id, include_closed=True, limit=None,
+        )
+        request = next(
+            (
+                row for row in requests
+                if str(row.get("job_id") or "") == job_id
+            ),
+            None,
+        )
+        exact_partial = False
+        if (
+            job_id
+            and isinstance(request, dict)
+            and request.get("status") == "fulfilled"
+            and request.get("kind") == "partial_opening"
+            and request.get("request_purpose")
+            == coc_module_assets.FOREGROUND_OPENING_PURPOSE
+            and str(request.get("target_id") or "") == start_location_id
+            and coc_module_assets.fulfilled_request_matches_current_pack(
+                request,
+                pack,
+                kind="location",
+                entity_id=start_location_id,
+            )
+        ):
+            try:
+                exact_scope = coc_module_assets.validate_opening_source_scope(
+                    workspace,
+                    asset_root_id,
+                    request.get("requested_source_scope"),
+                )
+                expected_signature = coc_module_assets.opening_source_scope_signature(
+                    exact_scope
+                )
+                canonical_pack_refs = [
+                    _opening_scope_page_ref(row)
+                    for row in (pack.get("source_refs") or [])
+                    if isinstance(row, dict) and isinstance(row.get("pdf_index"), int)
+                ]
+                exact_partial = (
+                    str(request.get("source_scope_signature") or "")
+                    == expected_signature
+                    and canonical_pack_refs == exact_scope["page_refs"]
+                    and coc_module_assets._source_indices(
+                        pack, field="opening_partial_pack",
+                    )
+                    == exact_scope["pdf_indices"]
+                    and canonical_scope is not None
+                    and exact_scope == canonical_scope
+                )
+            except coc_module_assets.ModuleAssetsError:
+                exact_partial = False
+        if not exact_partial:
+            blockers.append({
+                "code": "opening_partial_binding_invalid",
+                "entity_id": start_location_id,
+                "job_id": job_id or None,
+            })
+    elif state in {"body_parsed", "deep"} and canonical_scope is not None:
+        if not _opening_pack_covers_source_scope(pack, canonical_scope):
+            blockers.append({
+                "code": "opening_pack_source_scope_mismatch",
+                "entity_id": start_location_id,
+            })
+    summary = pack.get("player_safe_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        blockers.append({"code": "opening_summary_missing", "entity_id": start_location_id})
+
+    embedded_clues = {
+        str(row.get("clue_id") or ""): row
+        for row in (pack.get("clues") or [])
+        if isinstance(row, dict) and str(row.get("clue_id") or "")
+    }
+    for clue_id in (
+        str(value).strip() for value in (pack.get("available_clue_ids") or [])
+    ):
+        clue = embedded_clues.get(clue_id)
+        if clue is None:
+            try:
+                clue = coc_module_assets.revalidate_entity_pack(
+                    workspace, asset_root_id, "clue", clue_id,
+                )
+            except coc_module_assets.ModuleAssetsError:
+                clue = None
+        if not isinstance(clue, dict):
+            blockers.append({"code": "opening_clue_missing", "entity_id": clue_id})
+            continue
+        if not isinstance(clue.get("discovery"), dict) or not isinstance(
+            clue.get("provenance"), dict
+        ):
+            blockers.append({"code": "opening_clue_structure_missing", "entity_id": clue_id})
+
+    present_ids: list[str] = []
+    for value in pack.get("npc_ids") or []:
+        text = str(value).strip()
+        if text and text not in present_ids:
+            present_ids.append(text)
+    embedded_npcs = {
+        str(row.get("npc_id") or ""): row
+        for row in (pack.get("npcs") or [])
+        if isinstance(row, dict) and str(row.get("npc_id") or "")
+    }
+    for npc_id in embedded_npcs:
+        if npc_id not in present_ids:
+            present_ids.append(npc_id)
+    for value in required_npc_ids or []:
+        text = str(value).strip()
+        if text and text not in present_ids:
+            blockers.append({
+                "code": "opening_required_npc_not_present",
+                "entity_id": text,
+            })
+    for npc_id in present_ids:
+        npc = embedded_npcs.get(npc_id)
+        if npc is None:
+            try:
+                npc = coc_module_assets.revalidate_entity_pack(
+                    workspace, asset_root_id, "npc", npc_id,
+                )
+            except coc_module_assets.ModuleAssetsError:
+                npc = None
+        if not isinstance(npc, dict):
+            blockers.append({"code": "opening_npc_missing", "entity_id": npc_id})
+            continue
+        if not isinstance(npc.get("agenda"), str) or not str(
+            npc.get("agenda") or ""
+        ).strip():
+            advisories.append({
+                "code": "opening_npc_agenda_missing",
+                "entity_id": npc_id,
+            })
+
+    secrets = {
+        str(row.get("id") or row.get("secret_id") or ""): row
+        for row in (pack.get("keeper_secret_refs") or [])
+        if isinstance(row, dict)
+        and str(row.get("id") or row.get("secret_id") or "")
+    }
+    secret_status: list[dict[str, Any]] = []
+    for secret_id in required_secret_ids or []:
+        row = secrets.get(str(secret_id))
+        body = None
+        if isinstance(row, dict):
+            body = row.get("prose") or row.get("body") or row.get("text")
+        ready = (
+            isinstance(row, dict)
+            and isinstance(body, str)
+            and bool(body.strip())
+            and bool(row.get("source_refs"))
+            and isinstance(row.get("provenance"), dict)
+            and row["provenance"].get("authority") == "source_authored"
+        )
+        secret_status.append({"secret_id": str(secret_id), "ready": ready})
+        if not ready:
+            blockers.append({"code": "opening_secret_missing", "entity_id": str(secret_id)})
+    source_binding = None
+    if not blockers and canonical_scope is not None:
+        source_binding = {
+            "schema_version": 1,
+            "authority": "source_authored",
+            "asset_root_id": asset_root_id,
+            "start_location_id": start_location_id,
+            "source_scope": json.loads(json.dumps(canonical_scope)),
+            "source_scope_signature": (
+                coc_module_assets.opening_source_scope_signature(canonical_scope)
+            ),
+        }
+    result = {
+        "ready": not blockers,
+        "pack": pack,
+        "blocking": blockers,
+        "advisories": advisories,
+        "present_npc_ids": present_ids,
+        "required_secret_status": secret_status,
+        "source_binding": source_binding,
+    }
+    if scope_validation_error:
+        result["validation_error"] = scope_validation_error
+    return result
+
+
+def _fulfilled_foreground_opening_scope_for_pack(
+    workspace: Path,
+    asset_root_id: str,
+    start_location_id: str,
+) -> dict[str, Any] | None:
+    """Recover an exact host-selected scope from durable canonical job state."""
+    try:
+        pack = coc_module_assets.revalidate_entity_pack(
+            workspace, asset_root_id, "location", start_location_id,
+        )
+    except coc_module_assets.ModuleAssetsError:
+        return None
+    if not isinstance(pack, dict):
+        return None
+    ingest_receipt = coc_module_assets.current_ingest_fulfillment_receipt(pack)
+    job_id = str((ingest_receipt or {}).get("job_id") or "").strip()
+    if not job_id:
+        return None
+    request = next(
+        (
+            row for row in coc_module_assets.list_host_work_requests(
+                workspace, asset_root_id, include_closed=True, limit=None,
+            )
+            if str(row.get("job_id") or "") == job_id
+        ),
+        None,
+    )
+    if not (
+        isinstance(request, dict)
+        and request.get("status") == "fulfilled"
+        and request.get("kind") == "partial_opening"
+        and request.get("request_purpose")
+        == coc_module_assets.FOREGROUND_OPENING_PURPOSE
+        and str(request.get("target_id") or "") == start_location_id
+        and coc_module_assets.fulfilled_request_matches_current_pack(
+            request,
+            pack,
+            kind="location",
+            entity_id=start_location_id,
+        )
+    ):
+        return None
+    try:
+        scope = coc_module_assets.validate_opening_source_scope(
+            workspace, asset_root_id, request.get("requested_source_scope"),
+        )
+    except coc_module_assets.ModuleAssetsError:
+        return None
+    if str(request.get("source_scope_signature") or "") != (
+        coc_module_assets.opening_source_scope_signature(scope)
+    ):
+        return None
+    return scope
+
+
+def resolve_selected_opening_binding(
+    workspace: Path,
+    root_info: dict[str, Any],
+    skeleton: dict[str, Any],
+    start_location_id: str,
+    supplied_pdf_indices: list[int] | None,
+    *,
+    required_npc_ids: list[str] | None = None,
+    required_secret_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Derive one exact scope and qualify its selected source pack."""
+    durable_scope = None
+    if supplied_pdf_indices is None:
+        durable_scope = _fulfilled_foreground_opening_scope_for_pack(
+            workspace,
+            str(root_info["asset_root_id"]),
+            start_location_id,
+        )
+    if durable_scope is not None:
+        window = {
+            "window_origin": "fulfilled_foreground_request",
+            "scope": durable_scope,
+        }
+    else:
+        window = resolve_opening_source_window(
+            workspace,
+            root_info,
+            skeleton,
+            start_location_id,
+            supplied_pdf_indices,
+        )
+    readiness = opening_pack_readiness(
+        workspace,
+        str(root_info["asset_root_id"]),
+        start_location_id,
+        required_npc_ids=required_npc_ids,
+        required_secret_ids=required_secret_ids,
+        required_source_scope=window["scope"],
+    )
+    return {**window, "readiness": readiness}
+
+
+_OPENING_LOCATION_PROJECTION_FIELDS = frozenset({
+    "location_id", "title", "display_name", "parse_state", "evidence_gap",
+    "dramatic_question", "scene_type", "player_safe_summary",
+    "available_clue_ids", "npc_ids", "pressure_moves", "affordances", "tone",
+    "storylet_tags", "allowed_improvisation", "exit_conditions", "scene_edges",
+    "san_triggers", "source_refs", "source_span", "source_page_indices",
+    "page_text_sha256", "source_evidence", "source_discrepancies",
+    "location_tags", "entry_conditions", "importance", "clues", "npcs",
+    "keeper_secret_refs", "origin",
+})
+_OPENING_CLUE_PROJECTION_FIELDS = frozenset({
+    "clue_id", "conclusion_id", "importance", "conclusion_description",
+    "delivery_kind", "visibility", "player_safe_summary", "localized_text",
+    "discovery", "provenance", "source_refs", "source_span",
+    "source_page_indices", "page_text_sha256", "source_evidence", "parse_state",
+    "origin", "mentions", "handout_id",
+})
+_OPENING_NPC_PROJECTION_FIELDS = frozenset({
+    "npc_id", "name", "display_name", "agenda", "agenda_public",
+    "relationship_to_investigators", "role_tags", "social_role", "voice",
+    "voice_notes", "parse_state", "origin", "source_refs", "source_span",
+    "source_page_indices", "page_text_sha256", "source_evidence", "scene_ids",
+    "schedule",
+})
+_OPENING_SECRET_PROJECTION_FIELDS = frozenset({
+    "id", "secret_id", "category", "prose", "body", "text", "scene_ids",
+    "provenance", "source_refs", "source_span", "source_page_indices",
+    "page_text_sha256", "source_evidence", "origin",
+})
+
+
+def _opening_projection_record(
+    value: dict[str, Any], fields: frozenset[str],
+) -> dict[str, Any]:
+    return {
+        key: json.loads(json.dumps(item))
+        for key, item in value.items()
+        if key in fields
+    }
+
+
+def _opening_location_projection_record(pack: dict[str, Any]) -> dict[str, Any]:
+    location = _opening_projection_record(pack, _OPENING_LOCATION_PROJECTION_FIELDS)
+    location["clues"] = [
+        _opening_projection_record(row, _OPENING_CLUE_PROJECTION_FIELDS)
+        for row in (pack.get("clues") or []) if isinstance(row, dict)
+    ]
+    location["npcs"] = [
+        _opening_projection_record(row, _OPENING_NPC_PROJECTION_FIELDS)
+        for row in (pack.get("npcs") or []) if isinstance(row, dict)
+    ]
+    location["keeper_secret_refs"] = [
+        _opening_projection_record(row, _OPENING_SECRET_PROJECTION_FIELDS)
+        for row in (pack.get("keeper_secret_refs") or []) if isinstance(row, dict)
+    ]
+    return location
+
+
+def _repository_qualified_opening_inputs(
+    workspace: Path,
+    asset_root_id: str,
+    start_location_id: str,
+    required_source_scope: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Load and authenticate the current opening pack from durable state."""
+    try:
+        root_id = coc_module_assets._require_id(
+            asset_root_id, "asset_root_id",
+        )
+        start_id = coc_module_assets._require_id(
+            start_location_id, "start_location_id",
+        )
+        canonical_scope = coc_module_assets.validate_opening_source_scope(
+            workspace, root_id, required_source_scope,
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise ModuleProjectError(
+            f"opening projection source qualification failed: {exc}"
+        ) from exc
+    if canonical_scope != required_source_scope:
+        raise ModuleProjectError(
+            "opening projection source scope must be canonical"
+        )
+    skeleton = coc_module_assets.get_skeleton(workspace, root_id)
+    if not isinstance(skeleton, dict):
+        raise ModuleProjectError("opening projection requires a durable skeleton")
+    if start_id not in {
+        str(value).strip() for value in (skeleton.get("start_candidates") or [])
+        if isinstance(value, str) and value.strip()
+    }:
+        raise ModuleProjectError(
+            "opening projection start is not a durable structured candidate"
+        )
+    location = next(
+        (
+            row for row in (skeleton.get("locations") or [])
+            if isinstance(row, dict)
+            and str(row.get("location_id") or "") == start_id
+        ),
+        None,
+    )
+    if not isinstance(location, dict):
+        raise ModuleProjectError(
+            "opening projection start has no durable skeleton locator"
+        )
+    try:
+        locator_indices = coc_module_assets._source_indices(
+            location, field="opening_projection_locator",
+        )
+    except coc_module_assets.ModuleAssetsError as exc:
+        raise ModuleProjectError(str(exc)) from exc
+    if locator_indices and not set(canonical_scope["pdf_indices"]) <= set(
+        locator_indices
+    ):
+        raise ModuleProjectError(
+            "opening projection source scope lies outside the durable locator"
+        )
+    readiness = opening_pack_readiness(
+        workspace,
+        root_id,
+        start_id,
+        required_source_scope=canonical_scope,
+    )
+    if not readiness.get("ready"):
+        blockers = [
+            str(row.get("code") or "opening_pack_not_ready")
+            for row in (readiness.get("blocking") or [])
+            if isinstance(row, dict)
+        ]
+        raise ModuleProjectError(
+            "opening projection requires a repository-qualified current pack: "
+            + ",".join(blockers[:8])
+        )
+    pack = readiness.get("pack")
+    binding = readiness.get("source_binding")
+    if not isinstance(pack, dict) or not isinstance(binding, dict):
+        raise ModuleProjectError(
+            "opening projection qualification returned no durable pack binding"
+        )
+    return pack, binding, canonical_scope
+
+
+def build_opening_projection_payload(
+    workspace: Path,
+    asset_root_id: str,
+    start_location_id: str,
+    required_source_scope: dict[str, Any],
+) -> dict[str, Any]:
+    pack, source_binding, _canonical_scope = (
+        _repository_qualified_opening_inputs(
+            workspace,
+            asset_root_id,
+            start_location_id,
+            required_source_scope,
+        )
+    )
+    location = _opening_location_projection_record(pack)
+    binding = json.loads(json.dumps(source_binding))
+    if not (
+        binding.get("schema_version") == 1
+        and binding.get("authority") == "source_authored"
+        and binding.get("asset_root_id") == asset_root_id
+        and binding.get("start_location_id") == location.get("location_id")
+        and isinstance(binding.get("source_scope"), dict)
+        and binding.get("source_scope_signature")
+        == coc_module_assets.opening_source_scope_signature(
+            binding["source_scope"]
+        )
+    ):
+        raise ModuleProjectError(
+            "opening projection payload requires a qualified source binding"
+        )
+    if _opening_campaign_local_row(location) or not _opening_pack_has_accepted_source_evidence(
+        location
+    ):
+        raise ModuleProjectError(
+            "campaign-local or unproven content cannot become a source opening"
+        )
+    embedded_clue_ids = {
+        str(row.get("clue_id") or "")
+        for row in (pack.get("clues") or []) if isinstance(row, dict)
+    }
+    clues: list[dict[str, Any]] = []
+    for clue_id in pack.get("available_clue_ids") or []:
+        cid = str(clue_id or "")
+        if not cid or cid in embedded_clue_ids:
+            continue
+        clue = coc_module_assets.revalidate_entity_pack(
+            workspace, asset_root_id, "clue", cid,
+        )
+        if isinstance(clue, dict):
+            clues.append(_opening_projection_record(
+                clue, _OPENING_CLUE_PROJECTION_FIELDS,
+            ))
+    embedded_npc_ids = {
+        str(row.get("npc_id") or "")
+        for row in (pack.get("npcs") or []) if isinstance(row, dict)
+    }
+    npcs: list[dict[str, Any]] = []
+    for npc_id in pack.get("npc_ids") or []:
+        nid = str(npc_id or "")
+        if not nid or nid in embedded_npc_ids:
+            continue
+        npc = coc_module_assets.revalidate_entity_pack(
+            workspace, asset_root_id, "npc", nid,
+        )
+        if isinstance(npc, dict):
+            npcs.append(_opening_projection_record(
+                npc, _OPENING_NPC_PROJECTION_FIELDS,
+            ))
+    return {
+        "source_binding": binding,
+        "location": location,
+        "clues": clues,
+        "npcs": npcs,
+    }
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def opening_projection_receipt(
+    asset_root_id: str,
+    start_location_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+    return {
+        "schema_version": 1,
+        "asset_root_id": asset_root_id,
+        "start_location_id": start_location_id,
+        "source_evidence_sha256": _canonical_sha256(
+            location.get("source_evidence") or {}
+        ),
+        "projection_input_sha256": _canonical_sha256(payload),
+    }
+
+
+def current_opening_projection_receipt(campaign_dir: Path) -> dict[str, Any] | None:
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    receipt = scenario.get("opening_projection_receipt") if isinstance(scenario, dict) else None
+    return json.loads(json.dumps(receipt)) if isinstance(receipt, dict) else None
+
+
+def current_opening_projection_source_binding(
+    campaign_dir: Path,
+) -> dict[str, Any] | None:
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    binding = (
+        scenario.get("opening_projection_source_binding")
+        if isinstance(scenario, dict)
+        else None
+    )
+    return (
+        json.loads(json.dumps(binding))
+        if isinstance(binding, dict)
+        else None
+    )
+
+
+def _opening_value_contains(actual: Any, expected: Any) -> bool:
+    """Compare source-owned values while permitting unrelated dict keys."""
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(
+            key in actual and _opening_value_contains(actual[key], value)
+            for key, value in expected.items()
+        )
+    return actual == expected
+
+
+def _opening_without_authority_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _opening_without_authority_metadata(item)
+            for key, item in value.items()
+            if key not in {"origin", "provenance"}
+        }
+    if isinstance(value, list):
+        return [_opening_without_authority_metadata(item) for item in value]
+    return value
+
+
+def _opening_structured_collision_keys(
+    value: dict[str, Any],
+    kind: str,
+) -> frozenset[str]:
+    id_fields = {
+        "affordance": ("id", "affordance_id"),
+        "edge": ("id", "edge_id"),
+        "secret_link": ("id", "secret_id"),
+    }[kind]
+    aliases = {
+        str(value.get(field) or "").strip()
+        for field in id_fields
+        if str(value.get(field) or "").strip()
+    }
+    if aliases:
+        return frozenset(f"alias:{alias}" for alias in aliases)
+    semantic = _opening_without_authority_metadata(value)
+    if kind == "edge":
+        destination = str(value.get("to") or "").strip()
+        edge_kind = str(value.get("kind") or "").strip()
+        if destination:
+            return frozenset({f"semantic:to:{destination}|kind:{edge_kind}"})
+    return frozenset({"semantic:sha256:" + _canonical_sha256(semantic)})
+
+
+def _opening_structured_row_id(value: dict[str, Any], kind: str) -> str:
+    """Compatibility display identity; collision logic uses the full key set."""
+    keys = sorted(_opening_structured_collision_keys(value, kind))
+    return keys[0]
+
+
+def _opening_overlay_expected_row(
+    current: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay frozen canonical fields while retaining unrelated current keys."""
+    out = json.loads(json.dumps(current))
+    for key, expected_value in expected.items():
+        current_value = out.get(key)
+        if isinstance(current_value, dict) and isinstance(expected_value, dict):
+            out[key] = _opening_overlay_expected_row(
+                current_value, expected_value,
+            )
+        else:
+            out[key] = json.loads(json.dumps(expected_value))
+    return out
+
+
+def _opening_fill_missing_values(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, value in source.items():
+        if key not in target:
+            target[key] = json.loads(json.dumps(value))
+        elif isinstance(target.get(key), dict) and isinstance(value, dict):
+            _opening_fill_missing_values(target[key], value)
+
+
+def _opening_merge_duplicate_roots(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    preferred = next(
+        (row for row in rows if not _opening_campaign_local_row(row)),
+        rows[0] if rows else {},
+    )
+    merged = json.loads(json.dumps(preferred))
+    for row in rows:
+        _opening_fill_missing_values(merged, row)
+    return merged
+
+
+def _opening_expected_structured_groups(
+    rows: Any,
+    *,
+    kind: str,
+) -> list[dict[str, Any]]:
+    """Build authored identity groups while rejecting cross-group aliases."""
+    groups: list[dict[str, Any]] = []
+    owner_by_key: dict[str, int] = {}
+    for raw_row in rows or []:
+        if not isinstance(raw_row, dict) or _opening_campaign_local_row(raw_row):
+            continue
+        row = json.loads(json.dumps(raw_row))
+        keys = set(_opening_structured_collision_keys(row, kind))
+        owners = {owner_by_key[key] for key in keys if key in owner_by_key}
+        if len(owners) > 1:
+            raise OpeningStructuredCollisionError(
+                f"{kind} row aliases multiple authored opening identities"
+            )
+        if owners:
+            group_index = next(iter(owners))
+            group = groups[group_index]
+            merged = _opening_overlay_expected_row(group["row"], row)
+            combined_keys = set(group["keys"]) | keys | set(
+                _opening_structured_collision_keys(merged, kind)
+            )
+            conflicting = {
+                owner_by_key[key]
+                for key in combined_keys
+                if key in owner_by_key and owner_by_key[key] != group_index
+            }
+            if conflicting:
+                raise OpeningStructuredCollisionError(
+                    f"{kind} row aliases multiple authored opening identities"
+                )
+            group["row"] = merged
+            group["keys"] = frozenset(combined_keys)
+        else:
+            group_index = len(groups)
+            group = {"row": row, "keys": frozenset(keys)}
+            groups.append(group)
+        for key in group["keys"]:
+            owner_by_key[key] = group_index
+    return groups
+
+
+def _opening_expected_structured_rows(
+    rows: Any,
+    *,
+    kind: str,
+) -> list[dict[str, Any]]:
+    """Freeze exactly one source row for each collision-key group."""
+    return [
+        json.loads(json.dumps(group["row"]))
+        for group in _opening_expected_structured_groups(rows, kind=kind)
+    ]
+
+
+def _opening_reconcile_structured_rows(
+    expected_rows: Any,
+    current_rows: Any,
+    *,
+    kind: str,
+) -> list[dict[str, Any]]:
+    """Upsert source rows by all aliases; keep noncolliding local extras."""
+    groups = _opening_expected_structured_groups(expected_rows, kind=kind)
+    current = [
+        json.loads(json.dumps(row))
+        for row in (current_rows or [])
+        if isinstance(row, dict)
+    ]
+    owner_by_key = {
+        key: index
+        for index, group in enumerate(groups)
+        for key in group["keys"]
+    }
+    matches_by_group: dict[int, list[dict[str, Any]]] = {
+        index: [] for index in range(len(groups))
+    }
+    local_extras: list[dict[str, Any]] = []
+    for row in current:
+        owners = {
+            owner_by_key[key]
+            for key in _opening_structured_collision_keys(row, kind)
+            if key in owner_by_key
+        }
+        if len(owners) > 1:
+            raise OpeningStructuredCollisionError(
+                f"{kind} row aliases multiple authored opening identities"
+            )
+        if owners:
+            matches_by_group[next(iter(owners))].append(row)
+        elif _opening_campaign_local_row(row):
+            local_extras.append(row)
+    result: list[dict[str, Any]] = []
+    for group_index, group in enumerate(groups):
+        expected_row = group["row"]
+        matches = matches_by_group[group_index]
+        source_matches = [
+            row for row in matches if not _opening_campaign_local_row(row)
+        ]
+        preferred = source_matches[0] if source_matches else {}
+        base = json.loads(json.dumps(preferred))
+        for row in source_matches:
+            for key, value in row.items():
+                if key not in base:
+                    base[key] = json.loads(json.dumps(value))
+        repaired = _opening_overlay_expected_row(base, expected_row)
+        for alias_field in {
+            "affordance": ("id", "affordance_id"),
+            "edge": ("id", "edge_id"),
+            "secret_link": ("id", "secret_id"),
+        }[kind]:
+            if alias_field not in expected_row:
+                repaired.pop(alias_field, None)
+        if "origin" not in expected_row and str(
+            repaired.get("origin") or ""
+        ).startswith("campaign_"):
+            repaired.pop("origin", None)
+        provenance = (
+            repaired.get("provenance")
+            if isinstance(repaired.get("provenance"), dict)
+            else {}
+        )
+        if (
+            "provenance" not in expected_row
+            and provenance.get("authority")
+            in _OPENING_CAMPAIGN_AUTHORITIES
+        ):
+            repaired.pop("provenance", None)
+        result.append(repaired)
+    result.extend(local_extras)
+    return result
+
+
+def _opening_structured_rows_are_fresh(
+    expected_rows: Any,
+    actual_rows: Any,
+    *,
+    kind: str,
+) -> bool:
+    """Match source rows by every alias and allow explicit local extras."""
+    if not isinstance(expected_rows, list) or not isinstance(actual_rows, list):
+        return False
+    actual = [row for row in actual_rows if isinstance(row, dict)]
+    if len(actual) != len(actual_rows):
+        return False
+    try:
+        groups = _opening_expected_structured_groups(expected_rows, kind=kind)
+    except OpeningStructuredCollisionError:
+        return False
+    owner_by_key = {
+        key: index
+        for index, group in enumerate(groups)
+        for key in group["keys"]
+    }
+    matches_by_group: dict[int, list[dict[str, Any]]] = {
+        index: [] for index in range(len(groups))
+    }
+    for actual_row in actual:
+        owners = {
+            owner_by_key[key]
+            for key in _opening_structured_collision_keys(actual_row, kind)
+            if key in owner_by_key
+        }
+        if len(owners) > 1:
+            return False
+        if owners:
+            if _opening_campaign_local_row(actual_row):
+                return False
+            matches_by_group[next(iter(owners))].append(actual_row)
+        elif not _opening_campaign_local_row(actual_row):
+            return False
+    for group_index, group in enumerate(groups):
+        matches = matches_by_group[group_index]
+        if len(matches) != 1 or not _opening_value_contains(
+            matches[0], group["row"],
+        ):
+            return False
+    return True
+
+
+def _opening_entity_row_id(
+    row: dict[str, Any],
+    id_fields: tuple[str, ...],
+) -> str:
+    for field in id_fields:
+        entity_id = str(row.get(field) or "").strip()
+        if entity_id:
+            return entity_id
+    return ""
+
+
+def _opening_expected_entity_rows(
+    rows: Any,
+    *,
+    id_fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    order: list[str] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        entity_id = _opening_entity_row_id(row, id_fields)
+        if not entity_id:
+            continue
+        if entity_id not in by_id:
+            order.append(entity_id)
+        by_id[entity_id] = json.loads(json.dumps(row))
+    return [by_id[entity_id] for entity_id in order]
+
+
+def _opening_repair_expected_entity_row(
+    expected_row: dict[str, Any],
+    matches: list[dict[str, Any]],
+    *,
+    union_list_fields: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    preferred = next(
+        (row for row in matches if not _opening_campaign_local_row(row)),
+        matches[0] if matches else {},
+    )
+    base = json.loads(json.dumps(preferred))
+    for row in matches:
+        for key, value in row.items():
+            if key not in base:
+                base[key] = json.loads(json.dumps(value))
+    repaired = _opening_overlay_expected_row(base, expected_row)
+    for field in union_list_fields:
+        values = {
+            str(value)
+            for row in [*matches, expected_row]
+            for value in (row.get(field) or [])
+            if str(value).strip()
+        }
+        repaired[field] = sorted(values)
+    if "origin" not in expected_row and str(
+        repaired.get("origin") or ""
+    ).startswith("campaign_"):
+        repaired.pop("origin", None)
+    provenance = (
+        repaired.get("provenance")
+        if isinstance(repaired.get("provenance"), dict)
+        else {}
+    )
+    if (
+        "provenance" not in expected_row
+        and provenance.get("authority")
+        in {"campaign_improvised", "campaign_generated"}
+    ):
+        repaired.pop("provenance", None)
+    return repaired
+
+
+def _opening_reconcile_entity_rows(
+    expected_rows: Any,
+    current_rows: Any,
+    *,
+    id_fields: tuple[str, ...],
+    union_list_fields: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    expected = _opening_expected_entity_rows(
+        expected_rows, id_fields=id_fields,
+    )
+    expected_by_id = {
+        _opening_entity_row_id(row, id_fields): row for row in expected
+    }
+    current = [
+        json.loads(json.dumps(row))
+        for row in (current_rows or [])
+        if isinstance(row, dict)
+    ]
+    matches_by_id = {
+        entity_id: [
+            row for row in current
+            if _opening_entity_row_id(row, id_fields) == entity_id
+        ]
+        for entity_id in expected_by_id
+    }
+    emitted: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for row in current:
+        entity_id = _opening_entity_row_id(row, id_fields)
+        expected_row = expected_by_id.get(entity_id)
+        if expected_row is None:
+            result.append(row)
+            continue
+        if entity_id in emitted:
+            continue
+        result.append(_opening_repair_expected_entity_row(
+            expected_row,
+            matches_by_id[entity_id],
+            union_list_fields=union_list_fields,
+        ))
+        emitted.add(entity_id)
+    for expected_row in expected:
+        entity_id = _opening_entity_row_id(expected_row, id_fields)
+        if entity_id in emitted:
+            continue
+        result.append(_opening_repair_expected_entity_row(
+            expected_row,
+            [],
+            union_list_fields=union_list_fields,
+        ))
+        emitted.add(entity_id)
+    return result
+
+
+def _opening_expected_seed_ir(start_location_id: str) -> dict[str, Any]:
+    """Return the minimal current-independent IR needed by canonical mergers."""
+    return {
+        "story-graph.json": {
+            "scenes": [{
+                "scene_id": start_location_id,
+                "is_start": True,
+                "origin": "source",
+                "available_clues": [],
+                "npc_ids": [],
+                "affordances": [],
+                "scene_edges": [],
+                "keeper_secret_refs": [],
+            }],
+        },
+        "clue-graph.json": {"conclusions": []},
+        "npc-agendas.json": {"npcs": []},
+        "pacing-map.json": {"curve": []},
+        "improvisation-boundaries.json": {"keeper_secrets": []},
+    }
+
+
+def _build_canonical_opening_slice(
+    payload: dict[str, Any],
+    start_location_id: str,
+) -> dict[str, Any]:
+    """Pure helper behind repository-qualified public opening builders."""
+    source_binding = payload.get("source_binding")
+    if not (
+        isinstance(source_binding, dict)
+        and source_binding.get("schema_version") == 1
+        and source_binding.get("authority") == "source_authored"
+        and source_binding.get("start_location_id") == start_location_id
+        and isinstance(source_binding.get("source_scope"), dict)
+        and source_binding.get("source_scope_signature")
+        == coc_module_assets.opening_source_scope_signature(
+            source_binding["source_scope"]
+        )
+    ):
+        raise ModuleProjectError(
+            "canonical opening slice requires a qualified source binding"
+        )
+    location = payload.get("location")
+    if not isinstance(location, dict):
+        raise ModuleProjectError("opening payload missing location")
+    location_id = str(location.get("location_id") or "").strip()
+    if not location_id or location_id != start_location_id:
+        raise ModuleProjectError(
+            "opening payload location does not match selected start"
+        )
+    if _opening_campaign_local_row(location) or not _opening_pack_has_accepted_source_evidence(
+        location
+    ):
+        raise ModuleProjectError(
+            "campaign-local or unproven content cannot become a source opening"
+        )
+    expected_ir = merge_deep_location_into_ir(
+        _opening_expected_seed_ir(start_location_id),
+        location,
+    )
+    for clue in payload.get("clues") or []:
+        if isinstance(clue, dict):
+            expected_ir = merge_deep_entity_into_ir(
+                expected_ir, "clue", clue,
+            )
+    for npc in payload.get("npcs") or []:
+        if isinstance(npc, dict):
+            expected_ir = merge_deep_entity_into_ir(
+                expected_ir, "npc", npc,
+            )
+    scene = next(
+        (
+            row for row in expected_ir["story-graph.json"]["scenes"]
+            if isinstance(row, dict)
+            and str(row.get("scene_id") or "") == start_location_id
+        ),
+        None,
+    )
+    if not isinstance(scene, dict):
+        raise ModuleProjectError("canonical opening scene was not produced")
+    scene = json.loads(json.dumps(scene))
+    scene["is_start"] = True
+    scene["origin"] = "source"
+    scene["affordances"] = _opening_expected_structured_rows(
+        scene.get("affordances") or [], kind="affordance",
+    )
+    scene["scene_edges"] = _opening_expected_structured_rows(
+        scene.get("scene_edges") or [], kind="edge",
+    )
+    scene["keeper_secret_refs"] = _opening_expected_structured_rows(
+        scene.get("keeper_secret_refs") or [], kind="secret_link",
+    )
+
+    clue_groups: list[dict[str, Any]] = []
+    seen_clues: set[str] = set()
+    for conclusion in expected_ir["clue-graph.json"].get("conclusions") or []:
+        if not isinstance(conclusion, dict):
+            continue
+        rows: list[dict[str, Any]] = []
+        for clue in conclusion.get("clues") or []:
+            if not isinstance(clue, dict):
+                continue
+            clue_id = _opening_entity_row_id(clue, ("clue_id",))
+            if not clue_id or clue_id in seen_clues:
+                continue
+            seen_clues.add(clue_id)
+            rows.append(json.loads(json.dumps(clue)))
+        if not rows:
+            continue
+        clue_groups.append({
+            "conclusion": {
+                key: json.loads(json.dumps(value))
+                for key, value in conclusion.items()
+                if key != "clues"
+            },
+            "clues": rows,
+        })
+    npcs = _opening_expected_entity_rows(
+        expected_ir["npc-agendas.json"].get("npcs") or [],
+        id_fields=("npc_id",),
+    )
+    secrets = _opening_expected_entity_rows(
+        expected_ir["improvisation-boundaries.json"].get(
+            "keeper_secrets"
+        ) or [],
+        id_fields=("id", "secret_id"),
+    )
+    return {
+        "start_location_id": start_location_id,
+        "scene": scene,
+        "clue_groups": clue_groups,
+        "npcs": npcs,
+        "keeper_secrets": secrets,
+    }
+
+
+def _opening_apply_expected_clues(
+    ir: dict[str, Any],
+    clue_groups: list[dict[str, Any]],
+) -> None:
+    conclusions = ir["clue-graph.json"].setdefault("conclusions", [])
+    grouped: list[dict[str, Any]] = []
+    grouped_by_id: dict[str, dict[str, Any]] = {}
+    for group in clue_groups:
+        expected_conclusion = group.get("conclusion")
+        if not isinstance(expected_conclusion, dict):
+            continue
+        conclusion_id = str(expected_conclusion.get("conclusion_id") or "")
+        target = grouped_by_id.get(conclusion_id)
+        if target is None:
+            target = {
+                "conclusion": json.loads(json.dumps(expected_conclusion)),
+                "clues": [],
+            }
+            grouped_by_id[conclusion_id] = target
+            grouped.append(target)
+        else:
+            target["conclusion"] = _opening_overlay_expected_row(
+                target["conclusion"], expected_conclusion,
+            )
+        target["clues"].extend(
+            json.loads(json.dumps(row))
+            for row in (group.get("clues") or [])
+            if isinstance(row, dict)
+        )
+    expected_ids = {
+        _opening_entity_row_id(row, ("clue_id",))
+        for group in grouped
+        for row in (group.get("clues") or [])
+        if isinstance(row, dict)
+    }
+    matches_by_id = {
+        clue_id: [
+            row
+            for conclusion in conclusions
+            if isinstance(conclusion, dict)
+            for row in (conclusion.get("clues") or [])
+            if isinstance(row, dict)
+            and _opening_entity_row_id(row, ("clue_id",)) == clue_id
+        ]
+        for clue_id in expected_ids
+    }
+    for conclusion in conclusions:
+        if not isinstance(conclusion, dict):
+            continue
+        conclusion["clues"] = [
+            row for row in (conclusion.get("clues") or [])
+            if not isinstance(row, dict)
+            or _opening_entity_row_id(row, ("clue_id",)) not in expected_ids
+        ]
+    for group in grouped:
+        expected_conclusion = group.get("conclusion")
+        if not isinstance(expected_conclusion, dict):
+            continue
+        conclusion_id = str(
+            expected_conclusion.get("conclusion_id") or ""
+        )
+        match_indices = [
+            index for index, row in enumerate(conclusions)
+            if isinstance(row, dict)
+            and str(row.get("conclusion_id") or "") == conclusion_id
+        ]
+        matches = [conclusions[index] for index in match_indices]
+        current = _opening_merge_duplicate_roots(matches)
+        if not current:
+            current = {"conclusion_id": conclusion_id, "clues": []}
+        preserved_clues = [
+            json.loads(json.dumps(clue))
+            for row in matches
+            for clue in (row.get("clues") or [])
+        ]
+        repaired_conclusion = _opening_overlay_expected_row(
+            current, expected_conclusion,
+        )
+        repaired_conclusion["clues"] = preserved_clues
+        if match_indices:
+            first_index = match_indices[0]
+            conclusions[:] = [
+                row for index, row in enumerate(conclusions)
+                if index not in set(match_indices)
+            ]
+            conclusions.insert(first_index, repaired_conclusion)
+        else:
+            conclusions.append(repaired_conclusion)
+        current = repaired_conclusion
+        for expected_clue in group.get("clues") or []:
+            if not isinstance(expected_clue, dict):
+                continue
+            clue_id = _opening_entity_row_id(expected_clue, ("clue_id",))
+            current["clues"].append(_opening_repair_expected_entity_row(
+                expected_clue,
+                matches_by_id.get(clue_id, []),
+            ))
+
+
+def merge_canonical_opening_slice_into_ir(
+    ir: dict[str, Any],
+    expected_slice: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay one frozen opening slice after ordinary merge side effects."""
+    out = {key: json.loads(json.dumps(value)) for key, value in ir.items()}
+    start_location_id = str(expected_slice.get("start_location_id") or "")
+    expected_scene = expected_slice.get("scene")
+    if not start_location_id or not isinstance(expected_scene, dict):
+        raise ModuleProjectError("canonical opening slice is incomplete")
+    scenes = out["story-graph.json"].setdefault("scenes", [])
+    scene_indices = [
+        index for index, row in enumerate(scenes)
+        if isinstance(row, dict)
+        and str(row.get("scene_id") or "") == start_location_id
+    ]
+    scene_matches = [scenes[index] for index in scene_indices]
+    scene = _opening_merge_duplicate_roots(scene_matches)
+    if not scene:
+        scene = {"scene_id": start_location_id}
+    scalar_expected = {
+        key: value for key, value in expected_scene.items()
+        if key not in {"affordances", "scene_edges", "keeper_secret_refs"}
+    }
+    repaired_scene = _opening_overlay_expected_row(scene, scalar_expected)
+    repaired_scene["affordances"] = _opening_reconcile_structured_rows(
+        expected_scene.get("affordances") or [],
+        [
+            row
+            for match in scene_matches or [scene]
+            for row in (match.get("affordances") or [])
+        ],
+        kind="affordance",
+    )
+    repaired_scene["scene_edges"] = _opening_reconcile_structured_rows(
+        expected_scene.get("scene_edges") or [],
+        [
+            row
+            for match in scene_matches or [scene]
+            for row in (match.get("scene_edges") or [])
+        ],
+        kind="edge",
+    )
+    repaired_scene["keeper_secret_refs"] = _opening_reconcile_structured_rows(
+        expected_scene.get("keeper_secret_refs") or [],
+        [
+            row
+            for match in scene_matches or [scene]
+            for row in (match.get("keeper_secret_refs") or [])
+        ],
+        kind="secret_link",
+    )
+    if scene_indices:
+        first_index = scene_indices[0]
+        remove_indices = set(scene_indices)
+        scenes[:] = [
+            row for index, row in enumerate(scenes)
+            if index not in remove_indices
+        ]
+        scenes.insert(first_index, repaired_scene)
+    else:
+        scenes.append(repaired_scene)
+
+    _opening_apply_expected_clues(
+        out, list(expected_slice.get("clue_groups") or []),
+    )
+    out["npc-agendas.json"]["npcs"] = _opening_reconcile_entity_rows(
+        expected_slice.get("npcs") or [],
+        out["npc-agendas.json"].get("npcs") or [],
+        id_fields=("npc_id",),
+    )
+    out["improvisation-boundaries.json"]["keeper_secrets"] = (
+        _opening_reconcile_entity_rows(
+            expected_slice.get("keeper_secrets") or [],
+            out["improvisation-boundaries.json"].get("keeper_secrets") or [],
+            id_fields=("id", "secret_id"),
+            union_list_fields=("scene_ids",),
+        )
+    )
+    return out
+
+
+def _selected_opening_projection_is_fresh_for_payload(
+    campaign_dir: Path,
+    start_location_id: str,
+    payload: dict[str, Any],
+    *,
+    candidate_ir: dict[str, Any] | None = None,
+) -> bool:
+    """Prove the selected source slice still exists in canonical campaign IR.
+
+    This is deliberately a slice comparison, not a whole-file digest.  It uses
+    the same filtered payload and merge functions as projection, ignores
+    mechanics/operational fields that never enter that payload, and permits
+    unrelated entities plus explicitly provenance-marked campaign-local rows.
+    """
+    try:
+        expected_slice = _build_canonical_opening_slice(
+            payload, start_location_id,
+        )
+        ir = candidate_ir if candidate_ir is not None else load_campaign_ir(
+            campaign_dir
+        )
+    except (ModuleProjectError, KeyError, TypeError, ValueError, OSError):
+        return False
+
+    scenes = (ir.get("story-graph.json") or {}).get("scenes") or []
+    scene_matches = [
+        row for row in scenes
+        if isinstance(row, dict)
+        and str(row.get("scene_id") or "") == start_location_id
+    ]
+    if len(scene_matches) != 1:
+        return False
+    scene = scene_matches[0]
+    expected_scene = expected_slice.get("scene")
+    if not isinstance(expected_scene, dict):
+        return False
+    scalar_expected = {
+        key: value for key, value in expected_scene.items()
+        if key not in {"affordances", "scene_edges", "keeper_secret_refs"}
+    }
+    if not _opening_value_contains(scene, scalar_expected):
+        return False
+    if not _opening_structured_rows_are_fresh(
+        expected_scene.get("affordances") or [],
+        scene.get("affordances"),
+        kind="affordance",
+    ):
+        return False
+    if not _opening_structured_rows_are_fresh(
+        expected_scene.get("scene_edges") or [],
+        scene.get("scene_edges"),
+        kind="edge",
+    ):
+        return False
+    if not _opening_structured_rows_are_fresh(
+        expected_scene.get("keeper_secret_refs") or [],
+        scene.get("keeper_secret_refs"),
+        kind="secret_link",
+    ):
+        return False
+
+    actual_conclusions = (
+        ir.get("clue-graph.json") or {}
+    ).get("conclusions") or []
+    for group in expected_slice.get("clue_groups") or []:
+        expected_conclusion = group.get("conclusion")
+        if not isinstance(expected_conclusion, dict):
+            return False
+        conclusion_id = str(
+            expected_conclusion.get("conclusion_id") or ""
+        )
+        conclusion_matches = [
+            row for row in actual_conclusions
+            if isinstance(row, dict)
+            and str(row.get("conclusion_id") or "") == conclusion_id
+        ]
+        if len(conclusion_matches) != 1:
+            return False
+        actual_conclusion = conclusion_matches[0]
+        conclusion_expected_values = {
+            key: value for key, value in expected_conclusion.items()
+            if key != "clues"
+        }
+        if not _opening_value_contains(
+            actual_conclusion, conclusion_expected_values,
+        ):
+            return False
+        for expected_clue in group.get("clues") or []:
+            if not isinstance(expected_clue, dict):
+                return False
+            clue_id = _opening_entity_row_id(expected_clue, ("clue_id",))
+            matches = [
+                (row, conclusion)
+                for conclusion in actual_conclusions
+                if isinstance(conclusion, dict)
+                for row in (conclusion.get("clues") or [])
+                if isinstance(row, dict)
+                and _opening_entity_row_id(row, ("clue_id",)) == clue_id
+            ]
+            if (
+                len(matches) != 1
+                or matches[0][1] is not actual_conclusion
+                or _opening_campaign_local_row(matches[0][0])
+                or not _opening_value_contains(matches[0][0], expected_clue)
+            ):
+                return False
+
+    actual_npcs = [
+        row for row in (ir.get("npc-agendas.json") or {}).get("npcs") or []
+        if isinstance(row, dict)
+    ]
+    for expected_npc in expected_slice.get("npcs") or []:
+        if not isinstance(expected_npc, dict):
+            return False
+        npc_id = _opening_entity_row_id(expected_npc, ("npc_id",))
+        matches = [
+            row for row in actual_npcs
+            if _opening_entity_row_id(row, ("npc_id",)) == npc_id
+        ]
+        if (
+            len(matches) != 1
+            or _opening_campaign_local_row(matches[0])
+            or not _opening_value_contains(matches[0], expected_npc)
+        ):
+            return False
+
+    actual_secrets = [
+        row
+        for row in (ir.get("improvisation-boundaries.json") or {}).get(
+            "keeper_secrets"
+        ) or []
+        if isinstance(row, dict)
+    ]
+    for expected_secret in expected_slice.get("keeper_secrets") or []:
+        if not isinstance(expected_secret, dict):
+            return False
+        secret_id = _opening_entity_row_id(
+            expected_secret, ("id", "secret_id"),
+        )
+        actual_matches = [
+            row for row in actual_secrets
+            if _opening_entity_row_id(row, ("id", "secret_id")) == secret_id
+        ]
+        if len(actual_matches) != 1 or _opening_campaign_local_row(
+            actual_matches[0]
+        ):
+            return False
+        expected_secret_values = {
+            key: value for key, value in expected_secret.items()
+            if key != "scene_ids"
+        }
+        if not _opening_value_contains(actual_matches[0], expected_secret_values):
+            return False
+        expected_scene_ids = set(expected_secret.get("scene_ids") or [])
+        if not expected_scene_ids.issubset(set(actual_matches[0].get("scene_ids") or [])):
+            return False
+    return True
+
+
+def opening_projection_state_is_fresh(
+    workspace: Path,
+    campaign_dir: Path,
+    asset_root_id: str,
+    start_location_id: str,
+    required_source_scope: dict[str, Any],
+) -> bool:
+    """Require durable binding, five-field receipt, and source slice agreement."""
+    try:
+        payload = build_opening_projection_payload(
+            workspace,
+            asset_root_id,
+            start_location_id,
+            required_source_scope,
+        )
+        receipt = opening_projection_receipt(
+            asset_root_id, start_location_id, payload,
+        )
+    except (ModuleProjectError, KeyError, TypeError, ValueError, OSError):
+        return False
+    return bool(
+        current_opening_projection_source_binding(campaign_dir)
+        == payload.get("source_binding")
+        and current_opening_projection_receipt(campaign_dir) == receipt
+        and _selected_opening_projection_is_fresh_for_payload(
+            campaign_dir,
+            start_location_id,
+            payload,
+        )
+    )
+
+
+def project_selected_opening(
+    workspace: Path,
+    campaign_id: str,
+    asset_root_id: str,
+    source_file_sha256: str,
+    start_location_id: str,
+    opening_pdf_indices: list[int] | None = None,
+) -> dict[str, Any]:
+    selected_argument = parse_opening_start_selector(
+        start_location_id,
+        required=True,
+    )
+    assert selected_argument is not None
+    root_info = resolve_opening_preparation_root(workspace, campaign_id)
+    if (
+        root_info["asset_root_id"] != asset_root_id
+        or root_info["file_sha256"] != source_file_sha256
+    ):
+        raise OpeningPreparationError(
+            "opening_source_identity_mismatch",
+            "project arguments do not match the campaign-bound source root",
+        )
+    skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id)
+    if not isinstance(skeleton, dict):
+        raise OpeningPreparationError("opening_skeleton_missing", "skeleton is not published")
+    selected = select_opening_start(
+        root_info["campaign_dir"], skeleton, selected_argument,
+    )
+    binding_result = resolve_selected_opening_binding(
+        workspace,
+        root_info,
+        skeleton,
+        selected,
+        opening_pdf_indices,
+    )
+    readiness = binding_result["readiness"]
+    if not readiness["ready"]:
+        first_blocker = next(iter(readiness.get("blocking") or []), {})
+        blocker_code = str(first_blocker.get("code") or "")
+        if blocker_code.startswith("opening_pack_source_") or blocker_code in {
+            "opening_source_scope_required",
+            "opening_source_scope_invalid",
+            "opening_partial_binding_invalid",
+            "opening_pack_evidence_stale",
+        }:
+            raise OpeningPreparationError(
+                blocker_code,
+                "selected opening pack is not qualified for source-authored projection",
+            )
+        raise OpeningPreparationError(
+            "opening_pack_not_ready", "selected opening pack is not structurally ready"
+        )
+    payload = build_opening_projection_payload(
+        workspace,
+        asset_root_id,
+        selected,
+        binding_result["scope"],
+    )
+    try:
+        expected_slice = _build_canonical_opening_slice(payload, selected)
+    except OpeningStructuredCollisionError as exc:
+        raise OpeningPreparationError(
+            "opening_projection_identity_ambiguous", str(exc),
+        ) from exc
+    receipt = opening_projection_receipt(asset_root_id, selected, payload)
+    campaign_dir = root_info["campaign_dir"]
+    current = current_opening_projection_receipt(campaign_dir)
+    current_binding = current_opening_projection_source_binding(campaign_dir)
+    projection_fresh = _selected_opening_projection_is_fresh_for_payload(
+        campaign_dir, selected, payload,
+    )
+    if (
+        current == receipt
+        and current_binding == payload["source_binding"]
+        and projection_fresh
+    ):
+        return {
+            "status": "current",
+            "projected": True,
+            "idempotent": True,
+            "opening_projection_receipt": receipt,
+        }
+    if not campaign_is_pristine_for_opening(campaign_dir):
+        raise OpeningPreparationError(
+            "opening_projection_non_pristine",
+            "a stale or missing opening projection cannot overwrite played state",
+        )
+    ir = load_campaign_ir(campaign_dir)
+    try:
+        ir = merge_deep_location_into_ir(ir, payload["location"])
+        for clue in payload["clues"]:
+            ir = merge_deep_entity_into_ir(ir, "clue", clue)
+        for npc in payload["npcs"]:
+            ir = merge_deep_entity_into_ir(ir, "npc", npc)
+        ir = merge_canonical_opening_slice_into_ir(ir, expected_slice)
+    except OpeningStructuredCollisionError as exc:
+        raise OpeningPreparationError(
+            "opening_projection_identity_ambiguous", str(exc),
+        ) from exc
+    if not _selected_opening_projection_is_fresh_for_payload(
+        campaign_dir,
+        selected,
+        payload,
+        candidate_ir=ir,
+    ):
+        raise OpeningPreparationError(
+            "opening_projection_incomplete",
+            "canonical selected opening candidate did not pass its slice check",
+        )
+    paths = write_ir_to_campaign(campaign_dir, ir, asset_root_id=asset_root_id)
+    if not _selected_opening_projection_is_fresh_for_payload(
+        campaign_dir, selected, payload,
+    ):
+        raise OpeningPreparationError(
+            "opening_projection_incomplete",
+            "canonical selected opening projection did not pass its slice check",
+        )
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    scenario = _load_json(scenario_path, {})
+    scenario["opening_projection_receipt"] = receipt
+    scenario["opening_projection_source_binding"] = json.loads(json.dumps(
+        payload["source_binding"]
+    ))
+    _write_json(scenario_path, scenario)
+    if not opening_projection_state_is_fresh(
+        workspace,
+        campaign_dir,
+        asset_root_id,
+        selected,
+        binding_result["scope"],
+    ):
+        raise OpeningPreparationError(
+            "opening_projection_incomplete",
+            "durable opening projection binding did not pass revalidation",
+        )
+    return {
+        "status": "complete",
+        "projected": True,
+        "idempotent": False,
+        "asset_root_id": asset_root_id,
+        "start_location_id": selected,
+        "opening_projection_receipt": receipt,
+        "paths": paths,
+    }
 
 
 def project_skeleton_to_campaign(
@@ -1048,25 +3244,6 @@ def project_opening_deep(
             raise ModuleProjectError(
                 f"start scene {sid!r} is not deep after projection"
             )
-        # Ensure at least two affordances for social/investigation if empty
-        if scene.get("scene_type") in {"social", "investigation"} and len(
-            scene.get("affordances") or []
-        ) < 2:
-            scene["affordances"] = list(scene.get("affordances") or []) + [
-                {
-                    "id": f"{sid}-look",
-                    "cue": "Survey the immediate surroundings.",
-                    "route_type": "investigative_lead",
-                    "status": "open",
-                },
-                {
-                    "id": f"{sid}-ask",
-                    "cue": "Ask who is present what they know.",
-                    "route_type": "npc_question",
-                    "status": "open",
-                },
-            ]
-
     campaign_dir = _campaign_dir(workspace, campaign_id)
     paths = write_ir_to_campaign(campaign_dir, ir, asset_root_id=asset_root_id)
     coc_module_assets.note_parse_tier(workspace, asset_root_id, 2)
@@ -1295,7 +3472,10 @@ def on_enter_scene(
         "host_hints": host_hints,
         "actions": actions,
         "queue": _compact_queue_snapshot(
-            coc_module_assets.list_queue(workspace, root_id)
+            coc_module_assets.list_queue(workspace, root_id),
+            open_host_work=coc_module_assets.list_host_work_requests(
+                workspace, root_id, limit=None,
+            ),
         ),
     }
 
@@ -1582,6 +3762,34 @@ def _entity_status(
 ) -> dict[str, Any]:
     pack = coc_module_assets.get_entity(workspace, asset_root_id, kind, entity_id)
     if pack is None:
+        skeleton = coc_module_assets.get_skeleton(workspace, asset_root_id) or {}
+        roster_key = {"npc": "npc_roster", "item": "item_roster"}.get(kind)
+        id_key = {"npc": "npc_id", "item": "item_id"}.get(kind)
+        roster_row = next(
+            (
+                row
+                for row in (skeleton.get(roster_key) or [])
+                if isinstance(row, dict)
+                and str(row.get(id_key) or "") == entity_id
+            ),
+            None,
+        ) if roster_key and id_key else None
+        if roster_row is not None:
+            parse_state = str(roster_row.get("parse_state") or "named_only")
+            return {
+                "kind": kind,
+                "entity_id": entity_id,
+                "exists": True,
+                "parse_state": parse_state,
+                "evidence_gap": True,
+                "deep_ready": False,
+                "title": roster_row.get("title")
+                or roster_row.get("display_name")
+                or roster_row.get("name")
+                or (roster_row.get("names") or [None])[0],
+                "source_evidence": None,
+                "ingest_timing": None,
+            }
         return {
             "kind": kind,
             "entity_id": entity_id,
@@ -1609,7 +3817,11 @@ def _entity_status(
     }
 
 
-def _compact_queue_snapshot(queue: dict[str, Any]) -> dict[str, Any]:
+def _compact_queue_snapshot(
+    queue: dict[str, Any],
+    *,
+    open_host_work: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Bound queue evidence returned on the live dig path.
 
     The durable parse queue keeps its full capped history on disk.  Returning
@@ -1651,21 +3863,26 @@ def _compact_queue_snapshot(queue: dict[str, Any]) -> dict[str, Any]:
         for row in done[-5:]
         if isinstance(row, dict)
     ]
-    awaiting_host = [
+    historical_host_handoffs = [
         row for row in done
         if isinstance(row, dict) and row.get("result") == "awaiting_host_pack"
     ]
+    host_tail_fields = (
+        "job_id", "kind", "target_id", "status", "created_at",
+        "requested_pdf_indices", "cached_scope_complete",
+    )
     return {
         "schema_version": queue.get("schema_version"),
         "pending": list(queue.get("pending") or []),
         "in_flight": list(queue.get("in_flight") or []),
         "done_count": len(done),
         "done_tail": done_tail,
-        "awaiting_host_count": len(awaiting_host),
+        "awaiting_host_count": len(open_host_work),
         "awaiting_host_tail": [
-            {key: row[key] for key in tail_fields if key in row}
-            for row in awaiting_host[-5:]
+            {key: row[key] for key in host_tail_fields if key in row}
+            for row in open_host_work[-5:]
         ],
+        "historical_host_handoff_count": len(historical_host_handoffs),
         "timing_ms": {
             "measured_count": len(total_values),
             "median_total": median_ms("total_ms"),
@@ -1821,7 +4038,10 @@ def follow_structured_mentions(
         "actions": actions,
         "merged_location_ids": applied.get("merged_location_ids") or [],
         "queue": _compact_queue_snapshot(
-            coc_module_assets.list_queue(workspace, root_id)
+            coc_module_assets.list_queue(workspace, root_id),
+            open_host_work=coc_module_assets.list_host_work_requests(
+                workspace, root_id, limit=None,
+            ),
         ),
     }
 
@@ -1843,6 +4063,11 @@ def _campaign_entity_source_scope(
     elif kind == "npc":
         rows = list((ir.get("npc-agendas.json") or {}).get("npcs") or [])
         keys = ("npc_id",)
+    elif kind == "item":
+        rows = list(
+            (((ir.get("module-meta.json") or {}).get("module_mechanics") or {}).get("items") or {}).values()
+        )
+        keys = ("item_id",)
     elif kind == "clue":
         rows = [
             clue
@@ -1914,6 +4139,77 @@ def request_deepen(
     if result.get("followed"):
         result["status"] = result["followed"][0].get("status")
     return result
+
+
+def request_mechanics(
+    workspace: Path,
+    campaign_id: str,
+    *,
+    kind: str,
+    target_id: str,
+    title: str | None = None,
+    reason: str = "mechanics_required",
+    asset_root_id: str | None = None,
+    priority: int = 95,
+) -> dict[str, Any]:
+    """Request source-first mechanics without forcing another body parse."""
+    kind = str(kind or "").strip()
+    target_id = str(target_id or "").strip()
+    if kind not in {"npc", "item"}:
+        raise ModuleProjectError("mechanics kind must be npc or item")
+    if not target_id:
+        raise ModuleProjectError("target_id required")
+    campaign_dir = _campaign_dir(workspace, campaign_id)
+    root_id = asset_root_id or campaign_asset_root_id(campaign_dir)
+    if not root_id:
+        return {
+            "progressive": False,
+            "skipped": True,
+            "reason": "campaign is not progressive / no asset_root_id",
+        }
+    source_scope = _campaign_entity_source_scope(campaign_dir, kind, target_id)
+    stub = coc_module_assets.ensure_stub(
+        workspace,
+        root_id,
+        kind,
+        target_id,
+        title=title or target_id,
+        reason=reason,
+        source_scope=source_scope,
+    )
+    pack = coc_module_assets.get_entity(workspace, root_id, kind, target_id) or {}
+    mechanics = pack.get("mechanics") if isinstance(pack.get("mechanics"), dict) else {}
+    status = str(mechanics.get("status") or "unresolved")
+    enqueue = None
+    if status not in {"authored", "not_authored"}:
+        enqueue = coc_module_assets.enqueue_job(
+            workspace,
+            root_id,
+            kind=(
+                "resolve_npc_mechanics" if kind == "npc"
+                else "resolve_item_mechanics"
+            ),
+            target_id=target_id,
+            priority=priority,
+            reason=reason,
+        )
+    return {
+        "progressive": True,
+        "asset_root_id": root_id,
+        "kind": kind,
+        "target_id": target_id,
+        "mechanics_status": status,
+        "ready": status in {"authored", "not_authored"},
+        "stub": stub,
+        "enqueue": enqueue,
+        "host_hints": (
+            [] if status in {"authored", "not_authored"}
+            else [
+                "resolve the source-bound mechanics host work once; later uses "
+                "must reuse the resulting authored profile or absence receipt"
+            ]
+        ),
+    }
 
 
 def on_clue_discovered(

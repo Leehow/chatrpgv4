@@ -31,7 +31,7 @@
   "copyright_notice": [
     "Call of Cthulhu is a trademark of Chaosium Inc.",
     "This starter pack does not reproduce Chaosium Product Identity (plots, dialogue, maps, or boxed read-aloud text from the Keeper Rulebook).",
-    "Open game / rules data for Walter Corbitt presentation lives in references/rules-json/monsters.json and the-haunting.json."
+    "Open game / rules data for Walter Corbitt presentation lives in rulesets/coc7/rules-json/monsters.json and the-haunting.json."
   ],
-  "open_content_note": "Narrative scenes, clue wording, and NPC agendas here are original derivative work. Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with references/rules-json/the-haunting.json."
+  "open_content_note": "Narrative scenes, clue wording, and NPC agendas here are original derivative work. Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with rulesets/coc7/rules-json/the-haunting.json."
 }

@@ -16,7 +16,7 @@ const require = createRequire(
   path.join(__dirname, "node_modules/@earendil-works/pi-coding-agent/package.json"),
 );
 const { Type } = require("typebox");
-const CONTRACT_PATH = path.resolve(
+const CONTRACT_PATH = process.env.COC_EPISTEMIC_CONTRACT_PATH ?? path.resolve(
   __dirname, "../../../plugins/coc-keeper/scripts/epistemic-contract.json",
 );
 export const EPISTEMIC_CONTRACT = Object.freeze(

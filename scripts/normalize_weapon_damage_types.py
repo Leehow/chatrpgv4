@@ -25,7 +25,7 @@ import re
 import sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 
 
 def infer_damage_type(key: str, entry: dict) -> str:
@@ -70,7 +70,7 @@ def clean_damage_die(damage_die: str) -> tuple[str, str | None]:
 
 def main() -> int:
     apply = "--apply" in sys.argv
-    path = Path("plugins/coc-keeper") / "references" / "rules-json" / "weapons.json"
+    path = Path("plugins/coc-keeper") / "rulesets" / "coc7" / "rules-json" / "weapons.json"
     data = json.loads(path.read_text())
     weapons = data["weapons"]
     changed = 0

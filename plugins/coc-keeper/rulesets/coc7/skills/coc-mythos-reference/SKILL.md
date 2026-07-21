@@ -19,7 +19,7 @@ Prefer structured scenario JSON and source maps first. Use PDFs for detailed loo
 
 ## Monster Presentation Contract
 
-Every entry in `references/rules-json/monsters.json` carries a structured
+Every entry in `../../rules-json/monsters.json` carries a structured
 `presentation` block (Keeper Rulebook Ch14 p.280-282). Honor it whenever that
 monster is in play:
 

@@ -22,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD_PATH = Path("checks/ocr-cached/skills-ch4.md")
 
 

@@ -7,25 +7,19 @@ description: Run immersive Call of Cthulhu play after COC mode is active. Use fo
 
 ## You Run the Table
 
-You are the Keeper. You read the player, decide what the scene needs, call
-tools for facts and dice, and write the story. **The KP is the product.**
-There is **no fixed turn pipeline**: which tools a turn needs is your judgment.
+You are the Keeper: read the player, decide what the scene needs, call tools for
+facts and dice, and write the story. **The KP is the product.** There is **no fixed turn pipeline**.
 
-Every tool returns `{ok, data, warnings, hints}`. `warnings` inform; they never
-block. `hints` are craft nudges. Both are for you, not the player.
+Every tool returns `{ok, data, warnings, hints}`. Warnings inform; hints nudge craft. Neither is player prose.
 
-AI-coding hosts and Pi/headless are two surfaces of this same Keeper. Both must
-discover this skill and the same toolbox registry, use the same deterministic
-rules/state tools and optional Director/text capabilities, and emit the same
-evidence contracts. Do not create a rich coding-host path and a reduced Pi
-path. A platform-only exception must be explicitly marked and must not change
-core play quality.
+AI-coding hosts and Pi/headless are two surfaces of this same Keeper. Both use this skill,
+the same toolbox, deterministic rules/state, optional Director/text capabilities, and evidence
+contracts. Never make Pi a reduced path; explicit platform exceptions cannot lower core play quality.
 
 ## Progressive Context Routing
 
-**Load the named reference before adjudicating that case.** References under
-`references/` are **normative when routed**, not optional suggestions. Ordinary
-turns stay on this short skill; do not re-read every reference each turn.
+**Load the named reference before adjudicating that case.** References are **normative when
+routed**, not optional; ordinary turns stay here and do not re-read them all.
 
 | When this case arises | Load before adjudicating |
 | --- | --- |
@@ -40,23 +34,19 @@ turns stay on this short skill; do not re-read every reference each turn.
 
 **MCP-first when the plugin MCP is available (host parity path):**
 
-1. Use the **15-tool hotset** first: meta tools `coc_capabilities`,
-   `coc_discover`, `coc_invoke`, plus the listed turn hotset
-   (`session.resume`, `scene.context`, `secrets.briefing`, `actions.advise`, `rules.roll`,
-   `rules.sanity_check`, `npc.reaction`, `state.record_clue`,
-   `state.record_npc_engagement`, `state.journal`, `turn.output_context`,
-   `turn.finalize` — host may spell them with underscores).
-2. For long-tail tools, call **exact-operation or exact-domain**
-   `coc_discover`, then `coc_invoke` with that operation. Do **not** call
-   no-arg full catalog discovery repeatedly each turn. Call `coc_discover`
-   only when a concrete long-tail operation is needed for the current
-   adjudication; never discover a domain merely for awareness, reassurance,
-   or repeated confirmation.
-3. **Do not mix MCP and shell** toolbox transport in the same run for the same
-   state mutation or retry path.
+1. A native static-tool host may use the **15-tool hotset** first: the three
+   `coc_*` gateways plus resume, scene, secrets, action advice, common rules,
+   `npc.reaction`, `state.record_npc_engagement`, other writes, output, and finalize.
+   A lazy-search host discovers the trio once, invokes every card through retained `coc_invoke`, and never searches each hot operation.
+2. Long-tail operations use **exact-operation or exact-domain** `coc_discover`, then `coc_invoke`.
+   Do **not** repeat no-arg full catalog discovery: discover only when a concrete long-tail operation is needed,
+   never discover a domain merely for awareness, reassurance, or confirmation.
+   Retain the gateway trio from one cold search. Invoke returned
+   `discovery_required=false` cards directly; exact discovery's `invoke_card` is already
+   nested for `coc_invoke.arguments`, so merge it without translating, adding fields, or rediscovering.
+3. **Do not mix MCP and shell** toolbox transport for the same mutation or retry path.
 
-**Pi/headless or no-plugin-MCP parity path** (on-demand, not list-everything
-each turn):
+**Pi/headless or no-plugin-MCP parity path** (on-demand, not list-everything each turn):
 
 ```bash
 uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py list
@@ -64,62 +54,27 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py describe <tool>
 uv run --frozen python plugins/coc-keeper/scripts/coc_toolbox.py <tool> --root . --campaign <id> --json '<args>'
 ```
 
-Shell `list` / `describe` are for discovery when MCP is unavailable; do not
-re-list the entire catalog on every ordinary turn. Prefer the tool you already
-know, then describe that one tool if parameters are unclear.
+Shell `list` / `describe` are for discovery without MCP; do not re-list the entire catalog
+each turn. Prefer a known tool, then describe only it if parameters are unclear.
 
-`scene.context.action_routes` is the scene-local progressive index. Interpret
-intent semantically, then pass selected route IDs and your reason to
-`actions.advise`; do not rediscover the catalog or reread module assets.
-`scene.context` keeps compact summaries; `actions.advise` returns exact cards.
-A `direct_delivery` route earns its fact without a roll: execute its prefilled
-`state.*` cards. `authored_roll_advice` supplies a prefilled `rules.roll` card.
-All are advisory (`hard_gate: false`): the KP may revise or ignore them.
+`scene.context.action_routes` is the scene-local progressive index. Interpret intent semantically, then pass selected route IDs and reason to `actions.advise`; do not rediscover the catalog or assets. `direct_delivery` earns its fact without a roll via prefilled `state.*` cards; `authored_roll_advice` supplies `rules.roll`. All are advisory (`hard_gate: false`).
 
-**Ordinary-turn hot path:** use typed working-set cards, not host `Read`/search over scenario JSON, module assets, investigator files, tool logs, or old calls.
-For travel, invoke the exact exit card first, then its returned context card
-once; scene context never previews a non-active scene.
+**Ordinary-turn hot path:** use typed cards, not host `Read`/search over scenario assets, files, logs, or old calls. Travel uses the exit card—or tight resume's `exit_operation_template` plus selected `exits[].to`—then returned context once; never preview an inactive scene. A full `scene.context` with `working_set.mode=full` and needed `covered_domains` is enough: stop extra reads. Drill down only for a named missing field that materially affects current adjudication—never for reassurance via domain discovery, continuation pagination, `session.delivery_text`, or empty clue/secret reads. After `progressive.request_deepen`, do not confirm in the same player turn with `scene.map`/`progressive.status`; background continues and the player reply comes first. This is advisory KP judgment, not a fixed call count/order.
 
 ## Context Recovery (Always Active)
 
-Model context is disposable; the campaign is not. In every fresh host process,
-after a campaign switch, and after compaction, call `session.resume` before any
-other campaign operation. This is a lifecycle read, not a fixed turn pipeline.
-Do not re-open save files, repeat `scene.context`, rescan the transcript, or run
-full catalog discovery first—the resume packet already merges those bounded
-views from canonical sources.
+Model context is disposable; the campaign is not. On host start, switch, or compaction, call `session.resume` first; it is recovery, not a pipeline. Do not reopen merged saves/context/transcript/catalog.
 
-Call it **once per host context epoch**, not once per player turn. After the
-same session/epoch is acknowledged, keep using the returned working set and
-normal operation receipts until startup, campaign switch, or compaction marks
-a new epoch. A missed resume is soft recovery advice, not a fifth action gate;
-follow it promptly without restarting discovery.
+Call it **once per host context epoch**, not per turn; reuse its working set/receipts until a new epoch. A missed resume is soft advice, not a fifth gate. Retain `ordinary_turn_operations` and exact schemas. A `recovery_index_projection` uses only exact cards needed now—never files, Bash, or reassurance discovery.
 
-- `pending_finalization`: the prior player turn is already journaled. Use the
-  returned `pending_output_context`; repair only an explicitly reported
-  source-bound settlement blocker, then `turn.finalize`. Never reroll, replay a
-  successful mutation, accept a new player action, or redraft deterministic
-  mechanics.
-- `open_turn_recovery`: continue from successful `current_turn.rows` in source
-  order. Reuse their decision/receipt identities and settle only work not yet
-  recorded. Reuse returned `operation_opportunities` (including an open Push)
-  and the current `narrative_opportunity`; do not reroll, rediscover them, or
-  ask the player to restate the same intent.
-- `awaiting_player`: use the recovered scene, exact public tail, unresolved
-  threads, decisions, and style commitments to interpret the current message.
-- `delivery.status=unconfirmed`: if the last Keeper reply is absent from the
-  player's screen, replay `delivery.exact_text`, or its hash-bound `session.delivery_text` card when externalized, byte-for-byte. Do not call
-  rules/state/finalization again and do not regenerate “equivalent” prose.
-- `host_input` is transport evidence labeled unclassified. Decide its meaning
-  semantically; never promote it automatically into an investigator action.
+- `pending_finalization`: repair only the returned `pending_output_context` blocker, then finalize; never reroll, replay mutation, accept another action, or redraft deterministic mechanics.
+- `open_turn_recovery`: continue successful `current_turn.rows` in order, reuse returned identities/opportunities, and settle only missing work; do not reroll, rediscover, or ask the player to restate intent.
+- `awaiting_player`: interpret the message from recovered scene, public tail, threads, decisions, and style commitments.
+- `delivery.status=unconfirmed`: if the last reply is absent from the player's screen, replay `delivery.exact_text`, or externalized `session.delivery_text`, byte-for-byte; do not call rules/state/finalization again or regenerate prose.
+- `host_input` is unclassified transport evidence. Decide its meaning semantically; never promote it automatically into an investigator action.
 
-Every successful `turn.finalize` publishes an immutable, hash-bound, 16-entry checkpoint cache automatically; `session.resume` keeps its complete wire projection under 40 KiB and returns typed exact-read cards for externalized content. `state.journal.continuation` is only a sparse KP-authored semantic
-delta when meaning changed: unresolved player intent, open/resolved threads,
-confirmed choices, do-not-repeat commitments, or durable style promises. Do
-not summarize the whole turn again or infer these fields with keywords. The
-merged capsule keeps scene craft, NPC agency, causality, active play language,
-and Table Wit—including friendly teasing and situational sarcasm—across
-compaction; recovery is never permission to become a dice machine.
+Every `turn.finalize` publishes a hash-bound, 16-entry cache; resume stays under 40 KiB and MCP `keeper_hot_v1` under 16 KiB. Use exact-read cards; continuation stays sparse.
+Preserve craft, NPC agency, causality, play language, and Table Wit; recovery is never permission to become a dice machine.
 
 ## Core Keeper Response Contract (Always Active)
 
@@ -186,10 +141,16 @@ output evidence boundary, not a replacement prose engine:
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
 
-Before delivering a new run's opening scene, call `evidence.table_opening`
-with that exact player-visible text and the current `run_id`, then deliver the
-same text unchanged. Ordinary replies remain owned by `state.journal` plus
-`turn.finalize` and must not call the opening tool later.
+Before delivering a new run's opening scene, freely draft its narrative but do
+not hand-write or recompute deterministic first-impression lines. Call
+`evidence.table_opening` with that narrative, the current `run_id`, and the
+ordered public `roll_id` values returned by opening `npc.reaction` calls as
+`presented_roll_ids` (`[]` is valid). The tool canonical-renders APP, Credit
+Rating, the governing higher value, D100, and level, inserts that block before a
+final `[/in_game]` marker when present, records the exact result, and closes the
+pre-turn setup/opening evidence prefix. Deliver its returned `text` unchanged.
+Ordinary replies remain owned by `state.journal` plus `turn.finalize`; never
+call the opening tool later to consume or hide an ordinary-turn roll.
 
 ### Always-on product invariants (ordinary turns)
 
@@ -234,8 +195,11 @@ same text unchanged. Ordinary replies remain owned by `state.journal` plus
   `play_language`.
 - **Multi-NPC / first contact / relationships.** A turn may have zero, one, or
   many materially acting NPCs. Each first material investigator/NPC meeting
-  owns its own public `npc.reaction` receipt (max APP / Credit Rating). Later
-  relationship change is KP semantic judgment via `state.npc_update` /
+  owns a public `npc.reaction` receipt (max APP / Credit Rating); invoke its
+  `record_engagement_operation` directly with the semantic realization. If that
+  beat completes an authored route, include `route_completion`; older evidence uses
+  `state.record_route_completion`, then its returned context card. Never infer either from prose.
+  Later relationship change is KP semantic judgment via `state.npc_update` /
   scoped rewards — never free-prose keywords such as “help” or “gift.” When a
   stable authored or improvised NPC actually enters, leaves, or relocates,
   use `state.npc_presence`; `scene.context` overlays that explicit live state
@@ -300,20 +264,52 @@ settled finalization.
    denial: normally offer the returned Push, change the fictional method or
    stakes, or record genuine reset evidence; the KP may still keep the new
    roll when the fiction warrants it. `attempt_pressure` counts same-goal no-progress receipts independently of idle turns; only an authored `retry_policy` plus canonical elapsed time yields a fresh `reset_retry` card.
+   When a source NPC with armed or combat potential is materially present and
+   conflict is semantically approaching, call `mechanics.ensure` early if its
+   profile is not ready. This is not for every NPC or every turn; non-dependent
+   observation, positioning, and parley continue. If `mechanics.ensure` returns
+   `source_work_required`, or `combat.resolve` returns `mechanics_not_ready`,
+   immediately use `progressive.claim_host_work` and spawn the exact packet as
+   the unqualified `coc-source-pack-worker` with `background=true`. Never
+   substitute `rules.roll`, `rules.opposed`, copied stub values, or a generic
+   profile. The existing `blocking_micro` semantics apply only to the current
+   mechanics-dependent settlement. This adds no new narrative or output gate.
+   Reuse authored data and freeze a semantically chosen fallback only when
+   source evidence authorizes one. Emergent targets and typed weapon effects
+   use `combat.resolve(target_npc_id=..., weapon_effect_ids=...)`. Load
+   `references/turn-tooling-and-typed-ops.md` for the direct-submit/no-retrieval
+   lifecycle, source-first mechanics, and the optional host-sidecar contract.
 4. **Advisory (optional).** `actions.advise` may include one stable
    `narrative_opportunity` assembled from Director/Storylet advice to avoid
    separate discovery calls. Adopt, modify, or ignore it semantically; there
-   is no per-turn quota. If it actually shapes the final draft, pass the candidate and an exact realizing excerpt as `turn.finalize.advisory_uptake`; only finalized uptake updates the Storylet ledger. On stalls or complex beats, standalone
+   is no per-turn quota. If it actually shapes the final draft, pass its stable
+   `candidate_ref` and an exact realizing excerpt as
+   `turn.finalize.advisory_uptake`; do not echo the full candidate JSON. Only
+   finalized uptake updates the Storylet ledger. If you ignore the candidate,
+   omit `turn.finalize.advisory_uptake` entirely—never pass an `ignored`
+   disposition; optionally record that choice with `evidence.record_adoption`.
+   On stalls or complex beats, standalone
    `director.advise` / `storylets.suggest` remain available;
    `narration.brief` / `narration.review` are only for beats that are genuinely
-   hard to self-review. Never call review every turn for an empty receipt.
+   hard to self-review. Never call review every turn for an empty receipt. A
+   `coc_advisory_sidecar_v1=true` host may use the optional background adviser
+   contract in `references/turn-tooling-and-typed-ops.md` on a genuinely complex
+   beat; it never waits, becomes a second KP, or replaces semantic/rules/state/
+   final-prose ownership.
 5. **State + close.** Record clues/moves/flags/NPC presence and engagements/
    items/time as the fiction earns them. Then `state.journal` → `turn.output_context` →
    coverage → `turn.finalize` → deliver exact `rendered_text`. Normally omit
    `mechanics_placements`: the finalizer safely puts each public roll before
    its covered result paragraph and groups later authoritative changes exactly
-   once. Supply explicit placements only when deliberate interleaving improves
-   the scene.
+   once. Under default placement, make each public roll's setup exactly one
+   Markdown paragraph and its consequence exactly one following Markdown
+   paragraph (`setup text\n\nconsequence text`); do not split either with a
+   blank line. Copy `coverage.exact_excerpt` as a continuous verbatim substring
+   wholly inside that one consequence paragraph—it must never cross a blank
+   line (`\n\n`), use an ellipsis, or stitch fragments. This lets the finalizer
+   insert the roll between setup and consequence while leaving content and
+   causality to Keeper judgment. Supply explicit placements only
+   when deliberate interleaving improves the scene.
    Authoritative mutating calls run in decided order, never in parallel for
    dice/resources/journal/finalization.
 
@@ -326,6 +322,5 @@ Check `secrets.briefing` at session start and after big reveals.
 `/.coc/investigators/` and starter character gates live in
 `references/investigators-horror-npc.md`.
 
-Use `[meta]` only for table-level or system-level questions. Subsystem depth
-remains in `coc-combat`, `coc-chase`, `coc-sanity`, `coc-development` as those
-cases arise.
+Use `[meta]` only for table/system questions. Subsystem depth remains in
+`coc-combat`, `coc-chase`, `coc-sanity`, `coc-development` — rule-craft skills loaded by reference from the active ruleset's skill pack (`rulesets/<id>/skills/`, default `coc7`) — as cases arise.

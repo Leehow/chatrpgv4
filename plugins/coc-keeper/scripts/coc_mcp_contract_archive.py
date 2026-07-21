@@ -59,6 +59,7 @@ _JSON_SCHEMA_ALLOWED = frozenset({
     "maxItems",
     "minLength",
     "maxLength",
+    "pattern",
     "uniqueItems",
     "default",
     "examples",

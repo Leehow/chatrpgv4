@@ -1,12 +1,20 @@
 # Rules JSON Guide
 
+See also: `docs/rulebook-abstraction-paradigm.md` (the three-layer paradigm
+these files implement) and `docs/coc7-rulebook-coverage-audit.md` (current
+rulebook coverage and gaps).
+
 ## Authority
 
 Frequent COC calculations use structured JSON and Python scripts as runtime authority. PDFs remain source and reference material, not the first stop for common checks.
 
 ## V1 Rule Files
 
-`references/rules-json/` contains:
+The rule tables moved into the `coc7` ruleset package in Phase 1 of the
+ruleset generalization (see `docs/ruleset-contract.md`): they now live at
+`rulesets/coc7/rules-json/` (relative to the plugin root).
+
+`rulesets/coc7/rules-json/` contains:
 
 - `metadata.json`
 - `rule-index.json`

@@ -28,13 +28,32 @@ uv run --frozen python plugins/coc-keeper/scripts/coc_module_assets.py \
   --identity-json '<module_identity json>'
 ```
 
-### Tier 1 — Skeleton (TOC / front matter window)
+### Tier 1A — Play bootstrap skeleton (blocking minimum)
+
+Read only enough cover/TOC/front matter to establish the source-bound start
+candidate, a valid sparse topology, and exact opening-page locator. Store a
+valid skeleton immediately; empty or unresolved roster/index collections are
+legal when explicitly represented. Tier 1A plus the Tier 2 opening deep pack
+is the first-play readiness boundary. Do not hold the player for appendix,
+finale, or remote-region enrichment.
+
+### Tier 1B — Skeleton enrichment (background bounded windows)
 
 Host extracts **selected** TOC + keeper-background headings + dramatis personae
 titles + resolution/timeline titles (still ≤32 pages per source-bundle window).
+Tier 1 also emits a lightweight `mechanics_index`: stable NPC/item identities,
+`status` (`located`, `unresolved`, or reviewed `not_authored`), and exact
+`source_page_indices`. Inspect appendix headings, character-roster pages, and
+chapter-end stat/special-item sections as bounded locator windows; do not
+deep-extract every block yet. Several subjects on one page share the same page
+locator so a later host pass can resolve them together.
 Validate with `coc_pdf_bundle.py` if using a formal handoff window, then emit
 structured `skeleton.json` (locations, provisional edges, npc_roster names,
 handout index, threat stubs, start_candidates). **No full handout bodies.**
+Independent roster/mechanics-locator, handout/threat/finale, and remote-region
+index windows may run concurrently after Tier 1A. Each accepted result updates
+the same canonical skeleton; this is bounded index enrichment, never an
+unbounded deep crawl of the whole PDF.
 When the source establishes a calendar opening whose daylight differs from the
 default 06:00/12:00/18:00/21:00 phases, include a top-level `start_clock` with
 the exact `local_datetime`, `timezone`, `display`, and optional
@@ -147,6 +166,21 @@ the request's `host_work_job_id` plus
 boundary enriches those references from cached page hashes and rejects missing
 or drifted evidence. A host-work request with `cached_scope_complete: true`
 must be fulfilled from `cached_page_refs` without reopening the PDF.
+Mechanics packs additionally carry `mechanics.status=authored`, a normalized
+actor/weapon/artifact/tome/gear profile and exact `mechanics.source_refs`; or
+`mechanics.status=not_authored` with an accepted visual-review absence receipt.
+One mechanics request may return `related_packs` only for subjects listed in
+that request's `batch_subjects`. This is the reuse boundary: later attacks,
+checks, or item uses consume the durable profile instead of asking the PDF the
+same question again.
+Runtime actor characteristics are always percentile-scale. For pre-7e modules
+whose appendix uses 3–18 values, preserve `source_characteristics`, declare
+`source_characteristic_scale: coc_3_18`, and provide a host-reviewed
+`normalization_note`; never pass the printed 3–18 number off as a percentile.
+Special weapon rules use typed `effects[]` with stable IDs, structured
+`applicability`, and either `combat_damage_multiplier` or `keeper_advisory`
+resolution. Preserve unsupported prose effects as advisory data rather than
+silently pretending the combat engine applied them.
 Landing the pack closes that exact host-work request; an idempotent re-put
 reuses the original timing receipt instead of manufacturing a new delay.
 Structured `mentions[]` inherit the exact source scope of the enclosing pack

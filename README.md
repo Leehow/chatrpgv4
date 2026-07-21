@@ -255,7 +255,7 @@ tests/                           # 确定性合同测试
 
 调查员立绘走**当前宿主自带的生图工具**（Codex `imagegen`/`image_gen`，
 Grok Build `image_gen`/Imagine）。无内置生图的宿主跳过立绘并继续创角。
-门控保留在 `plugins/coc-keeper/skills/coc-character/SKILL.md` 的
+门控保留在 `plugins/coc-keeper/rulesets/coc7/skills/coc-character/SKILL.md` 的
 `HOST_NATIVE_IMAGEGEN` 标记内；不得为立绘维护第二套插件树，也不得在非
 Codex 宿主上强行调用 Codex imagegen。
 

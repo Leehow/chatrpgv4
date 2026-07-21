@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
 
 # Sanity thresholds (rulebook p.155-156)
 TEMP_INSANITY_LOSS_THRESHOLD = 5
@@ -100,6 +99,9 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
+
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 def roll_npc_reaction(app: int, credit_rating: int, rng: random.Random | None = None) -> dict[str, Any]:

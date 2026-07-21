@@ -24,6 +24,20 @@ import json
 from pathlib import Path
 from typing import Any
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_rulesets = _load_sibling("coc_rulesets_npc_roles", "coc_rulesets.py")
+
 # Must mirror coc_npc_persona.DEFAULT_SOCIAL_ROLE keys (kept here so this module
 # does not import the persona module and stays self-contained at compile time).
 _DEFAULT_SOCIAL_ROLE: dict[str, Any] = {
@@ -185,15 +199,13 @@ def expand_from_dir(
     """Load npc-agendas.json from ``scenario_dir`` and return role-expanded copy.
 
     Resolves templates + relationship→template mappings from ``rules_dir``
-    (defaults to the shipped ``references/rules-json`` next to starter
-    scenarios). Reads ``scenario_dir/npc-agendas.json``; does not write back.
-    Callers persist the result themselves.
+    (defaults to the shipped default ruleset's ``rules-json`` via the
+    ruleset registry). Reads ``scenario_dir/npc-agendas.json``; does not
+    write back. Callers persist the result themselves.
     """
     scenario_dir = Path(scenario_dir)
     if rules_dir is None:
-        rules_dir = (
-            scenario_dir.parent.parent.parent / "references" / "rules-json"
-        )
+        rules_dir = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
     rules_dir = Path(rules_dir)
     templates = load_role_templates(rules_dir)
     keywords = load_role_mappings(rules_dir)

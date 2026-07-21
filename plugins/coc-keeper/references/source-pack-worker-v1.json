@@ -1,0 +1,697 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.source-pack-worker.v1",
+  "authority": {
+    "mode": "source_compilation",
+    "repository_pdf_parser": false,
+    "child_may_read_only_packet_page_refs": true,
+    "codex_exact_read_command_only": true,
+    "child_may_write_campaign_or_module_state": false,
+    "parent_keeper_fulfills_canonical_operation": true
+  },
+  "lifecycle": {
+    "background_default": true,
+    "keeper_waits_only_for_current_source_hard_dependency": true,
+    "max_parallel_packets": 4,
+    "max_result_polls_per_turn": 1,
+    "grok_direct_submit_parent_waits": false,
+    "grok_direct_submit_parent_result_polls": 0,
+    "lease_recovery": true,
+    "stale_or_mismatched_result": "reject"
+  },
+  "packet": {
+    "required_fields": [
+      "schema_version",
+      "contract_id",
+      "packet_id",
+      "asset_root_id",
+      "work_group_id",
+      "lease_expires_at",
+      "source_id",
+      "file_sha256",
+      "source_aspect",
+      "request_purpose",
+      "requested_source_scope",
+      "source_scope_signature",
+      "deadline_class",
+      "requested_pdf_indices",
+      "cached_scope_complete",
+      "requests"
+    ],
+    "source_aspect_values": ["body", "mechanics"],
+    "deadline_class_values": [
+      "blocking_micro",
+      "next_turn_hot",
+      "hot_ring",
+      "idle_warm"
+    ],
+    "cached_pages_only_v1": true,
+    "foreground_opening_slice": {
+      "request_kind": "partial_opening",
+      "request_purpose": "foreground_opening_slice",
+      "source_aspect": "body",
+      "deadline_class": "blocking_micro",
+      "expected_parse_state": "partial",
+      "required_exact_scope_fields": [
+        "source_id",
+        "file_sha256",
+        "bundle_sha256",
+        "pdf_indices",
+        "page_refs"
+      ],
+      "required_request_fields": [
+        "request_purpose",
+        "requested_source_scope",
+        "source_scope_signature",
+        "result_contract"
+      ],
+      "result_contract": {
+        "schema_version": 1,
+        "contract_id": "coc.foreground-opening-pack.v1",
+        "closed": true,
+        "parse_state": "partial",
+        "evidence_gap": false,
+        "required_location_fields": [
+          "location_id",
+          "player_safe_summary",
+          "source_page_indices",
+          "source_refs"
+        ],
+        "exact_source_scope": true,
+        "location_pack": {
+          "fixed_fields": {
+            "parse_state": "partial",
+            "evidence_gap": false,
+            "origin": "source"
+          },
+          "copy_from_request": {
+            "location_id": "target_id",
+            "host_work_job_id": "job_id",
+            "source_page_indices": "requested_pdf_indices",
+            "source_refs": {
+              "from": "cached_page_refs",
+              "select_fields": ["source_id", "pdf_index", "text_sha256"],
+              "scope": "exact"
+            }
+          },
+          "required_semantic_fields": ["title", "player_safe_summary"],
+          "empty_defaults": {
+            "available_clue_ids": [],
+            "npc_ids": [],
+            "clues": [],
+            "npcs": [],
+            "scene_edges": [],
+            "affordances": [],
+            "keeper_secret_refs": [],
+            "pressure_moves": [],
+            "tone": [],
+            "mentions": []
+          },
+          "source_ref": {
+            "required_fields": ["source_id", "pdf_index", "text_sha256"],
+            "field_types": {
+              "source_id": "string",
+              "pdf_index": "non_negative_integer",
+              "text_sha256": "64_hex_string"
+            },
+            "scope": "exact_cached_page_or_fact_subset"
+          },
+          "row_contracts": {
+            "scene_edge": {
+              "required_fields": ["to"],
+              "template": {
+                "to": "<source-grounded-location-id>",
+                "kind": "travel",
+                "when": {"kind": "always"}
+              },
+              "when_optional": true,
+              "when_kind_values": [
+                "always",
+                "clock_reaches",
+                "clue_discovered",
+                "flag_set",
+                "narrative"
+              ],
+              "when_required_fields_by_kind": {
+                "clue_discovered": ["clue_id"],
+                "clock_reaches": ["threshold"],
+                "flag_set": ["flag_id"]
+              },
+              "forbidden_fields": ["when.type"]
+            },
+            "affordance": {
+              "required_fields": ["id", "cue", "route_type", "status"],
+              "template": {
+                "id": "<source-grounded-affordance-id>",
+                "cue": "<player-facing-action-cue>",
+                "route_type": "<semantic-route-type>",
+                "status": "open"
+              },
+              "forbidden_fields": ["affordance_id"]
+            },
+            "clue": {
+              "required_fields": [
+                "clue_id",
+                "player_safe_summary",
+                "discovery",
+                "provenance",
+                "source_refs"
+              ],
+              "template": {
+                "clue_id": "<source-grounded-clue-id>",
+                "player_safe_summary": "<source-grounded-player-text>",
+                "discovery": {
+                  "mode": "automatic",
+                  "skill": null,
+                  "difficulty": null,
+                  "condition": null
+                },
+                "provenance": {
+                  "authority": "source_authored",
+                  "basis": "host_pack"
+                },
+                "source_refs": [{
+                  "source_id": "<request-source-id>",
+                  "pdf_index": "<cached-page-index-integer>",
+                  "text_sha256": "<cached-page-text-sha256>"
+                }]
+              },
+              "discovery_mode_values": [
+                "automatic",
+                "check",
+                "conditional_check",
+                "keeper_judgment"
+              ],
+              "discovery_difficulty_values": ["extreme", "hard", "regular"],
+              "discovery_templates_by_mode": {
+                "automatic": {
+                  "skill": null,
+                  "difficulty": null,
+                  "condition": null
+                },
+                "check": {
+                  "skill": "<non-empty-skill>",
+                  "difficulty": "<difficulty-enum>",
+                  "condition": null
+                },
+                "conditional_check": {
+                  "skill": "<non-empty-skill>",
+                  "difficulty": "<difficulty-enum>",
+                  "condition": {
+                    "kind": "<source-grounded-condition-kind>"
+                  }
+                },
+                "keeper_judgment": {
+                  "skill": null,
+                  "difficulty": null,
+                  "condition": null
+                }
+              },
+              "forbidden_fields": ["summary"]
+            },
+            "npc": {
+              "required_fields": ["npc_id", "agenda"],
+              "template": {
+                "npc_id": "<source-grounded-npc-id>",
+                "name": "<source-grounded-name>",
+                "parse_state": "partial",
+                "player_safe_summary": "<source-grounded-player-text>",
+                "agenda": "<source-bounded-immediate-agenda>"
+              },
+              "source_refs_policy": "omit_to_inherit_location_scope_or_use_exact_subset"
+            },
+            "provenance": {
+              "allowed_fields": ["authority", "basis", "source_refs"],
+              "authority_values": [
+                "campaign_generated",
+                "campaign_improvised",
+                "source_authored"
+              ],
+              "source_authored_template": {
+                "authority": "source_authored",
+                "basis": "host_pack"
+              },
+              "source_refs_policy": "omit_or_match_record_source_refs_exactly"
+            }
+          }
+        },
+        "first_submission_guidance": {
+          "authority": "advisory",
+          "hard_gate": false,
+          "copy_contract_values": [
+            "location_pack.fixed_fields",
+            "location_pack.copy_from_request",
+            "location_pack.empty_defaults"
+          ],
+          "required_semantics_only": {
+            "location_fields": ["title", "player_safe_summary"],
+            "materially_present_npc_fields": ["npc_id", "agenda"],
+            "npc_policy": "source_supported_and_materially_present_only"
+          },
+          "forced_empty_fields": {
+            "scene_edges": [],
+            "affordances": []
+          },
+          "infer_structured_clock_or_routes_from_prose": false,
+          "self_check_before_status_usable": true,
+          "unsatisfied_required_fields_result": {
+            "status": "abstain",
+            "results": []
+          },
+          "parent_repair_allowed": false
+        },
+        "materially_present_npc": {
+          "same_pack": true,
+          "required_fields": ["npc_id", "agenda"],
+          "agenda_scope": "source_bounded_immediate"
+        },
+        "missing_agenda_disposition": "soft_deferred",
+        "replacement_before_opening": false
+      },
+      "rules": [
+        "requested_source_scope and source_scope_signature must match at packet and request level",
+        "requested_pdf_indices and cached_page_refs must equal the exact accepted requested_source_scope subset",
+        "review only cached_page_refs for this request; never widen to a locator, entity, neighbor, or whole-module scope",
+        "follow the closed request.result_contract: include player_safe_summary and same-pack npc_id plus a source-bounded immediate agenda for every materially present NPC",
+        "for foreground v1 keep scene_edges and affordances empty; never infer a structured clock or route from prose",
+        "before status=usable self-check the closed minimum; if a required field cannot be supplied, return status=abstain with results=[] and never ask the parent to repair it",
+        "missing NPC agenda is soft_deferred and must never cause a replacement opening pack before play",
+        "return parse_state=partial, exact source_page_indices/source_refs, and host_work_job_id equal to the request job_id",
+        "submit the complete outer result through the named direct transport, or return it unchanged to an adapter that lacks that transport; partial_opening is never deep coverage"
+      ]
+    },
+    "mechanics_locator_pass": {
+      "request_kind": "locate_mechanics_index",
+      "request_purpose": "mechanics_locator_pass",
+      "source_aspect": "mechanics",
+      "deadline_class": "idle_warm",
+      "required_for_opening": false,
+      "result_contract_id": "coc.mechanics-locator-pack.v1",
+      "pack_contract": {
+        "allowed_fields": [
+          "mechanics_locator_pass_status",
+          "mechanics_locator_scope",
+          "npc_roster",
+          "item_roster",
+          "mechanics_index"
+        ],
+        "required_fields": [
+          "mechanics_locator_pass_status",
+          "mechanics_locator_scope",
+          "npc_roster",
+          "item_roster",
+          "mechanics_index"
+        ],
+        "npc_roster_row": {
+          "allowed_fields": ["npc_id", "names", "parse_state", "source_page_indices", "source_refs"],
+          "required_fields": ["npc_id", "names", "parse_state", "source_page_indices", "source_refs"],
+          "fixed_fields": {"parse_state": "named_only"},
+          "names": "non_empty_array_of_non_empty_strings",
+          "names_semantics": "aliases_for_one_subject_only",
+          "shared_stat_block_policy": {
+            "distinct_named_people": "separate_stable_npc_ids",
+            "required_rows_per_person": ["npc_roster", "mechanics_index"],
+            "may_reuse_exact_fields": ["source_page_indices", "source_refs", "locator_scope"],
+            "merge_identity_into_compound_subject": false
+          },
+          "eligibility": "same_subject_has_a_mechanics_index_row"
+        },
+        "item_roster_row": {
+          "allowed_fields": ["item_id", "label", "parse_state", "source_page_indices", "source_refs"],
+          "required_fields": ["item_id", "label", "parse_state", "source_page_indices", "source_refs"],
+          "fixed_fields": {"parse_state": "named_only"},
+          "label": "non_empty_string",
+          "eligibility": "same_subject_has_a_mechanics_index_row"
+        },
+        "mechanics_index_row": {
+          "allowed_fields": ["subject_kind", "subject_id", "status", "locator_pass_status", "locator_scope", "source_page_indices", "source_refs"],
+          "required_fields": ["subject_kind", "subject_id", "status", "locator_pass_status", "locator_scope", "source_page_indices", "source_refs"],
+          "fixed_fields": {"status": "located", "locator_pass_status": "complete"},
+          "subject_kind_values": ["npc", "item"],
+          "source_scope": "exact_subset_of_requested_cached_refs"
+        }
+      },
+      "no_located_subject_result": {
+        "status": "usable",
+        "copy_pack_fixed_fields": true,
+        "npc_roster": [],
+        "item_roster": [],
+        "mechanics_index": [],
+        "related_packs": []
+      },
+      "rules": [
+        "review only the exact 1..3 requested cached page refs; never select pages or widen to other cache/PDF pages",
+        "copy request.result_contract.pack.fixed_fields exactly, so the global locator pass remains pending",
+        "npc_roster and item_roster contain only source-supported named_only additions for subjects that also receive a mechanics_index row; NPC rows use names (plural), never name, and every row has exact source_page_indices/source_refs",
+        "emit one stable npc subject plus matching roster and index row for every distinct named person, even when multiple people share one authored stat block",
+        "names are aliases for one subject only; shared stats may reuse exact source page indices, source refs, and locator scope but never merge distinct identities into a compound subject",
+        "mechanics_index contains only complete+located npc/item rows bound to the exact request locator_scope and exact cached refs",
+        "a name, heading, description, plot role, roster, or dramatis-personae entry does not establish mechanics located; only subject-specific authored numeric rules, parameters, or a stat block on the reviewed page does",
+        "an exact reviewed window with no supported subject returns status=usable with empty rosters and mechanics_index (not abstain) so the request can close while global status remains pending",
+        "do not emit authored mechanics profiles, not_authored claims, or eager related packs",
+        "related_packs must be []; Grok submits the complete outer result directly, while an adapter without direct submit returns it unchanged to the parent fallback"
+      ]
+    },
+    "mechanics_resolution": {
+      "request_kinds": ["resolve_npc_mechanics", "resolve_item_mechanics"],
+      "source_aspect": "mechanics",
+      "deadline_class": "blocking_micro",
+      "required_request_fields": ["job_id", "target_id", "cached_page_refs", "batch_subjects", "result_contract"],
+      "result_contract_id": "coc.mechanics-entity-pack.v1",
+      "live_routing": {
+        "early_trigger": "source_npc_materially_present_with_armed_or_combat_potential_and_conflict_semantically_approaching_while_profile_not_ready",
+        "early_trigger_not_every_npc_or_turn": true,
+        "source_required_statuses": ["mechanics_not_ready", "source_work_required"],
+        "immediate_operations": ["progressive.claim_host_work", "spawn:unqualified_coc-source-pack-worker_background_true"],
+        "forbidden_bypasses": ["rules.roll", "rules.opposed", "rules.damage", "copied_stub_values", "generic_profile"],
+        "nondependent_play_may_continue": true,
+        "dependent_settlement": "existing_blocking_micro_only",
+        "new_narrative_or_output_gate": false,
+        "grok_parent_retrieves_child_output": false,
+        "durable_profile_consumers": ["mechanics.ensure", "combat.resolve"],
+        "retry_scope": "same_current_or_later_naturally_needed_action_only",
+        "reassurance_poll_or_retry_loop": false
+      },
+      "result_contract_template": {
+        "closed": true,
+        "result_item": {
+          "allowed_fields": ["job_id", "pack", "related_packs"],
+          "required_fields": ["job_id", "pack", "related_packs"],
+          "job_id": "copy_exact_request_job_id"
+        },
+        "pack": {
+          "allowed_fields": ["mechanics"],
+          "required_fields": ["mechanics"],
+          "forbidden_fields": ["parse_state", "source_page_indices", "source_refs", "status", "profile", "fields_observed", "fields_extracted", "fields_not_authored", "provenance", "host_timing"],
+          "mechanics_nested_only": true,
+          "mechanics": {
+            "status_values": ["authored", "not_authored"],
+            "authored_required_fields": ["status", "profile", "source_refs", "fields_observed", "fields_extracted", "fields_not_authored", "provenance"],
+            "source_refs": "non_empty_exact_subject_subset_of_request_cached_page_refs",
+            "profile_kind_by_subject_kind": {"npc": "actor", "item": "non_actor"},
+            "allowed_canonical_extends_ids": "copy exact generated request contract list from the active canonical ruleset",
+            "canonical_weapon_entry_self_check": "use extends only when it exactly matches allowed_canonical_extends_ids; otherwise omit extends and provide the complete full weapon fields required by the canonical validator"
+          }
+        },
+        "related_packs": {
+          "wrapper_allowed_fields": ["subject_kind", "subject_id", "pack"],
+          "wrapper_required_fields": ["subject_kind", "subject_id", "pack"],
+          "eligible_subjects": "unique_non_primary_subjects_from_request_batch_subjects",
+          "pack_contract": "same_as_primary_pack"
+        }
+      },
+      "rules": [
+        "primary pack is exactly {mechanics:{...}}; never put mechanics fields at pack root",
+        "related_packs are wrapper objects, never bare entity or mechanics packs",
+        "mechanics.source_refs copy exact source_id/pdf_index/text_sha256 refs from the leased request; resolve packs carry no root source_page_indices",
+        "child output never supplies host timing; repository lease timing owns direct submit and exact host_task_timing is fallback parent/runtime metadata",
+        "do not claim parse_state=deep; mechanics resolution is independent from narrative depth",
+        "self-check every authored profile, including exact allowed_canonical_extends_ids or complete inline weapon fields, before status=usable",
+        "Grok submits the complete outer result directly; fallback parents forward child output unchanged; neither path repairs, rewrites, describes, discovers, or retries a rejected pack"
+      ]
+    },
+    "forbidden_payloads": [
+      "whole_transcript",
+      "whole_module",
+      "campaign_save",
+      "unrequested_cached_page",
+      "hidden_chain_of_thought"
+    ]
+  },
+  "result": {
+    "required_fields": [
+      "schema_version",
+      "contract_id",
+      "packet_id",
+      "work_group_id",
+      "status",
+      "results"
+    ],
+    "status_values": ["usable", "abstain", "failed"],
+    "result_item_required_fields": ["job_id", "pack", "related_packs"],
+    "timing_authority": "repository_lease_interval_for_direct_submit_or_exact_fallback_host_metadata",
+    "grok_direct_submit": {
+      "server": "coc-source-submit",
+      "tool": "submit_source_result",
+      "operation_arguments": "entire_outer_result",
+      "calls": 1,
+      "parent_retrieves_or_retypes_pack": false,
+      "parent_retrieves_receipt": false,
+      "forbidden_parent_output_tools": [
+        "get_task_output",
+        "get_command_or_subagent_output"
+      ],
+      "parent_calls_fulfill_host_work": false,
+      "success_receipt_contract": "coc.source-submit-receipt.v1",
+      "receipt_purpose": "child_audit_only",
+      "server_success_receipt_guarantees": {
+        "packet_id_matches_claim": true,
+        "work_group_id_matches_claim": true,
+        "receipt_ok": true,
+        "every_expected_job_ok": true,
+        "every_request_status": "fulfilled",
+        "every_fulfillment_digest_non_empty": true
+      },
+      "host_completion_meaning": "notification_liveness_only",
+      "parent_claims_success_to_player": false,
+      "durable_availability_consumed_by": "later_naturally_needed_canonical_entity_or_mechanics_query",
+      "reassurance_query_or_poll": false,
+      "failed_submit_lifecycle": "open_or_leased_for_existing_recovery",
+      "repair_retry_or_poll": false
+    },
+    "fallback_parent_operation": "progressive.fulfill_host_work",
+    "fallback_parent_exact_forwarding": {
+      "source": "results[i]",
+      "operation_arguments": {
+        "worker_result": "results[i]",
+        "host_task_timing": "exact_host_task_metadata"
+      },
+      "extract_or_retype_result_fields": false,
+      "mix_with_legacy_explicit_fields": false,
+      "move_or_copy_result_fields_into_pack": false,
+      "rebuild_add_defaults_or_repair": false,
+      "retry_rejected_fulfillment": false,
+      "success_claim_requires": {
+        "tool_ok": true,
+        "durable_request_status": "fulfilled"
+      },
+      "failed_result_lifecycle": "open_or_leased_for_existing_recovery"
+    }
+  },
+  "pack_contract": {
+    "notes": [
+      "The submit-only server and fallback parent both reuse progressive.fulfill_host_work → put_entity; locator deltas are merged through put_skeleton.",
+      "Body and mechanics aspects are independent: resolve_* must not force parse_state=deep.",
+      "Canonical clue player text is player_safe_summary only; bare summary is rejected.",
+      "Progressive affordances use id (not combat affordance_id).",
+      "Host adapters remain experimental until real dual-host V3 evidence."
+    ],
+    "common_fields": {
+      "source_page_indices": "required non-empty int list for body pack/entity source windows; resolve_* mechanics packs are the explicit exception and carry selection only in nested mechanics.source_refs",
+      "origin": "entity-level class; default source for PDF-derived packs",
+      "provenance": {
+        "required_on": [
+          "mechanics when status=authored",
+          "clue rows that carry discovery"
+        ],
+        "authority_values": [
+          "source_authored",
+          "campaign_improvised",
+          "campaign_generated"
+        ],
+        "rules": [
+          "source_authored requires non-empty record source_refs with pdf_index; provenance source_refs may be omitted, but when supplied must match the canonical record source-id/page/text-digest signature exactly",
+          "source_refs is the only worker-supplied source selector on a fact record or its provenance; omit fact-level source_page_indices, source_span, page_text_sha256, and source_evidence",
+          "fact provenance may contain authority, optional source_refs, and optional basis only; optional provenance.basis, when present, must be a non-empty string such as \"host_pack\"; mappings, lists, null, booleans, numbers, and empty or whitespace-only strings are invalid; parallel source scopes or evidence are rejected even when empty or self-consistent",
+          "canonical fact source_evidence is repository-derived and verified from the registered accepted cache; workers must not emit it as a second assertion",
+          "every source-authored fact ref must resolve to this packet's source_id/file_sha256 and registered accepted cached_page_refs; foreign, uncached, stale, or widened selections are rejected",
+          "status=authored requires provenance.authority=source_authored",
+          "status=authored profile.authority may be omitted or source_authored only",
+          "campaign_improvised and campaign_generated must not borrow any PDF source-bearing record or provenance field, including source_refs, source_page_indices, source_span, page_text_sha256, or source_evidence"
+        ]
+      }
+    },
+    "body_aspect": {
+      "parse_state_values": ["partial", "deep"],
+      "partial_opening_parse_state": "partial",
+      "forbidden": [
+        "inventing handout text",
+        "inventing secrets",
+        "claiming mechanics authored without a mechanics aspect pack"
+      ],
+      "location_clues": {
+        "player_safe_summary": "canonical player text",
+        "summary": "forbidden alias",
+        "discovery": {
+          "required": true,
+          "mode_values": [
+            "automatic",
+            "check",
+            "conditional_check",
+            "keeper_judgment"
+          ],
+          "rules": [
+            "every progressive/source-worker clue row must carry discovery",
+            "delivery_kind=skill_check without discovery is rejected on this path",
+            "starter skill_check without discovery is only valid at the non-progressive loader boundary",
+            "automatic: skill and difficulty must be null",
+            "check: skill and difficulty required (regular|hard|extreme)",
+            "conditional_check: skill, difficulty, and condition required",
+            "keeper_judgment: skill/difficulty optional; never projector-filled",
+            "never invent difficulty from skill presence",
+            "a clue that needs no check stays automatic even if prose mentions a skill",
+            "provenance.authority=source_authored with source refs required"
+          ]
+        }
+      }
+    },
+    "mechanics_aspect": {
+      "parse_state": "must not claim deep narration; parent preserves existing narrative parse_state",
+      "mechanics.status_values": [
+        "unresolved",
+        "located",
+        "authored",
+        "not_authored"
+      ],
+      "skeleton_locator_pass": {
+        "field": "mechanics_locator_pass_status",
+        "values": ["pending", "complete"],
+        "scope_field": "mechanics_locator_scope",
+        "rules": [
+          "source-bound skeletons must state the pass; no implicit default",
+          "pending may have empty or partial mechanics_index",
+          "complete requires valid reviewed mechanics_locator_scope and full npc/item roster coverage",
+          "empty mechanics_index with non-empty roster cannot be complete",
+          "every global or row locator source_file_sha256 must equal the packet/bound source file_sha256 and every selected page must be registered, accepted, and current in cached_page_refs"
+        ]
+      },
+      "locator_pass_status_values": ["pending", "complete"],
+      "locator_rules": [
+        "pending may only pair with unresolved",
+        "complete may be located or not_authored (entity authored after extract)",
+        "not_authored requires locator_pass_status=complete, validated locator_scope, and mechanics-grade absence_receipt",
+        "absence_receipt.checked_scope must be a structured locator-scope object (never string/list)",
+        "checked_scope binds scope_kind, pdf_indices, and 64-hex digest exactly to locator_scope",
+        "complete global and row scopes use the same scope_kind; located source_page_indices stay within the row locator_scope",
+        "locator pdf_indices are unique, within source.page_count, and source/cache-bound even when the global pass remains pending",
+        "put_entity not_authored binds to the matching skeleton mechanics_index row scope",
+        "empty or unscanned indices cannot imply completion"
+      ],
+      "locator_thin_statuses": ["unresolved", "located"],
+      "not_authored_allowed_keys": [
+        "status",
+        "source_page_indices",
+        "source_refs",
+        "locator_pass_status",
+        "locator_scope",
+        "absence_receipt",
+        "provenance"
+      ],
+      "locator_thin_forbidden_payload": [
+        "profile",
+        "characteristics",
+        "derived",
+        "skills",
+        "weapons",
+        "attacks",
+        "attacks_per_round",
+        "spells",
+        "san_loss_to_see",
+        "fields_observed",
+        "fields_extracted",
+        "fields_not_authored",
+        "absence_receipt"
+      ],
+      "authored_required": [
+        "profile",
+        "source_refs",
+        "fields_observed",
+        "fields_extracted",
+        "fields_not_authored",
+        "provenance"
+      ],
+      "fields_accounting": {
+        "actor_closed_field_ids": [
+          "characteristics.STR",
+          "characteristics.CON",
+          "characteristics.SIZ",
+          "characteristics.DEX",
+          "characteristics.INT",
+          "characteristics.APP",
+          "characteristics.POW",
+          "characteristics.EDU",
+          "derived.HP",
+          "derived.MP",
+          "derived.SAN",
+          "derived.MOV",
+          "derived.Build",
+          "derived.DB",
+          "skills",
+          "weapons",
+          "attacks",
+          "attacks_per_round",
+          "spells",
+          "san_loss_to_see",
+          "armor",
+          "armor_rule"
+        ],
+        "rules": [
+          "fields_observed: closed-schema fields explicitly seen in the reviewed source block",
+          "fields_extracted: observed fields normalized into the profile",
+          "fields_not_authored: closed-schema fields absent from that source block",
+          "fields_observed == fields_extracted",
+          "fields_observed ∩ fields_not_authored = ∅",
+          "fields_observed ∪ fields_not_authored == closed actor schema",
+          "empty fields_extracted / fields_not_authored allowed when logically valid",
+          "empty skills/weapons/attacks/spells containers do not count as extracted",
+          "unknown ids rejected in all three sets",
+          "do not fabricate fields the source did not author; mark them fields_not_authored"
+        ]
+      },
+      "actor_profile": {
+        "profile_kind": "actor",
+        "characteristic_scale": "percentile",
+        "required_characteristics": ["STR", "CON", "SIZ", "DEX", "POW"],
+        "optional_when_authored": [
+          "INT",
+          "APP",
+          "EDU",
+          "derived.HP",
+          "derived.MP",
+          "derived.SAN",
+          "derived.MOV",
+          "derived.Build",
+          "derived.DB",
+          "skills",
+          "weapons",
+          "attacks",
+          "attacks_per_round",
+          "spells",
+          "san_loss_to_see",
+          "armor",
+          "armor_rule"
+        ],
+        "attacks_per_round": "positive integer or non-empty source-preserving string; distinct from attacks list"
+      }
+    }
+  },
+  "host_adapters": {
+    "grok": {
+      "status": "experimental",
+      "agent_type": "coc-source-pack-worker",
+      "agent_scope": "focused_user_projection_of_installed_plugin",
+      "background": true,
+      "capability_mode": "narrow_read_plus_named_submit",
+      "mcp_server": "coc-source-submit",
+      "submit_tool": "submit_source_result",
+      "result_contract": "coc.source-submit-receipt.v1"
+    },
+    "codex": {
+      "status": "experimental",
+      "adapter": "native_background_subagent",
+      "background": true,
+      "capability_mode": "workspace-read-only",
+      "read_transport": "/bin/cat -- <exact contract-or-packet path>"
+    }
+  }
+}

@@ -9,7 +9,7 @@ Each OCR entry is a numbered list item: "<idx>) <Name>: <description>".
 MinerU OCR'ed the digit "1" as capital "I", so "I)" = "1)" and "I0)" = "10)".
 We fix that before parsing the index.
 
-Our data: plugins/coc-keeper/references/rules-json/bout-tables.json
+Our data: plugins/coc-keeper/rulesets/coc7/rules-json/bout-tables.json
   {
     "realtime": [{d10_roll, result, kind}, ... 10],
     "summary":  [{d10_roll, result, kind}, ... 10],
@@ -32,7 +32,7 @@ import re
 import sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD_PATH = Path("checks/ocr-cached/bout-tables.md")
 
 

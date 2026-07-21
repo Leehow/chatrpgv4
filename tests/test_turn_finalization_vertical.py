@@ -56,6 +56,20 @@ def test_time_delta_honors_supernatural_appearance() -> None:
     assert rendered == "【变化】时段：凝固的血色黄昏"
 
 
+def test_luck_delta_uses_play_language() -> None:
+    effect = {
+        "effect_kind": "scalar",
+        "resource": "Luck",
+        "before": 55,
+        "after": 46,
+        "delta": -9,
+    }
+
+    assert coc_turn_finalization._render_state_delta(
+        effect, play_language="zh-Hans",
+    ) == "【变化】幸运：55 → 46（-9）"
+
+
 def test_same_broad_phase_keeps_exact_advance_out_of_player_delta() -> None:
     rows = coc_turn_finalization._project_state_deltas([{
         "ok": True,

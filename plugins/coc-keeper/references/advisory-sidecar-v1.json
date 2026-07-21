@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.advisory-sidecar.v1",
+  "authority": {
+    "mode": "advisory",
+    "hard_gate": false,
+    "keeper_retains_semantic_judgment": true,
+    "keeper_retains_rules_and_state_authority": true,
+    "result_may_be_ignored": true
+  },
+  "lifecycle": {
+    "background_only": true,
+    "keeper_waits_for_result": false,
+    "max_sidecars_per_player_turn": 1,
+    "max_result_polls": 1,
+    "unfinished_or_stale_result": "discard",
+    "persist_raw_result": false,
+    "persist_only_adopted_durable_meaning": true
+  },
+  "packet": {
+    "max_utf8_bytes": 6144,
+    "required_fields": [
+      "schema_version",
+      "contract_id",
+      "packet_id",
+      "campaign_id",
+      "turn_number",
+      "scene_id",
+      "play_language",
+      "player_action",
+      "scene_facts",
+      "npc_facts",
+      "continuity_facts",
+      "requested_lenses"
+    ],
+    "requested_lens_values": [
+      "npc_agency",
+      "causal_texture",
+      "continuity_risk",
+      "table_wit"
+    ],
+    "forbidden_payloads": [
+      "whole_transcript",
+      "whole_module",
+      "raw_tool_envelope",
+      "filesystem_path",
+      "hidden_chain_of_thought"
+    ]
+  },
+  "result": {
+    "required_fields": [
+      "schema_version",
+      "contract_id",
+      "packet_id",
+      "status",
+      "suggestions"
+    ],
+    "status_values": [
+      "usable",
+      "abstain"
+    ],
+    "max_suggestions": 3,
+    "suggestion_required_fields": [
+      "suggestion_id",
+      "lens",
+      "proposal",
+      "reason",
+      "preserves",
+      "durable_implication"
+    ]
+  },
+  "host_adapters": {
+    "grok": {
+      "status": "experimental",
+      "agent_type": "coc-keeper:coc-scene-adviser",
+      "background": true,
+      "capability_mode": "read-only",
+      "result_operation": "get_command_or_subagent_output"
+    },
+    "codex": {
+      "status": "reserved_reference_adapter"
+    }
+  }
+}

@@ -5,6 +5,13 @@
       "env": {
         "COC_HOST": "grok"
       }
+    },
+    "coc-source-submit": {
+      "command": "${GROK_PLUGIN_ROOT}/mcp/launch",
+      "env": {
+        "COC_HOST": "grok",
+        "COC_MCP_PROFILE": "source-submit"
+      }
     }
   }
 }

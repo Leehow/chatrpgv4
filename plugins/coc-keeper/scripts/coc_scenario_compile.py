@@ -40,9 +40,13 @@ coc_npc_state = _load_sibling("coc_npc_state_scenario_compile", "coc_npc_state.p
 coc_director_strategies = _load_sibling(
     "coc_director_strategies_scenario_compile", "coc_director_strategies.py"
 )
+coc_mechanics = _load_sibling(
+    "coc_mechanics_scenario_compile", "coc_mechanics.py"
+)
 
 import coc_pdf_source
 import coc_epistemic_lifecycle
+import coc_rulesets
 
 VALID_STRUCTURE_TYPES = {
     "linear_acts", "time_loop", "branching_investigation", "hub_sandbox",
@@ -86,7 +90,7 @@ def _plugin_root() -> Path:
 
 
 def _rules_json_dir() -> Path:
-    return _plugin_root() / "references" / "rules-json"
+    return coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 def _read(path: Path) -> Any:
@@ -1777,6 +1781,42 @@ def _check_source_evidence(
     return findings
 
 
+def _check_mechanics_contract(compiled: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate optional source-first NPC/item mechanics overlays.
+
+    Sparse progressive rows may remain unresolved or merely located. Once a
+    host marks data authored or not-authored, the stronger reusable evidence
+    contract is mandatory.
+    """
+    findings: list[dict[str, str]] = []
+    subjects: list[tuple[str, str, Any]] = []
+    for index, npc in enumerate(
+        (compiled.get("npc_agendas") or {}).get("npcs") or []
+    ):
+        if isinstance(npc, dict) and npc.get("mechanics") is not None:
+            subjects.append(("npc", f"npc_agendas.npcs[{index}].mechanics", npc["mechanics"]))
+    module_mechanics = (compiled.get("module_meta") or {}).get("module_mechanics")
+    items = module_mechanics.get("items") if isinstance(module_mechanics, dict) else None
+    if isinstance(items, dict):
+        for item_id, item in items.items():
+            if isinstance(item, dict) and item.get("mechanics") is not None:
+                subjects.append((
+                    "item",
+                    f"module_meta.module_mechanics.items.{item_id}.mechanics",
+                    item["mechanics"],
+                ))
+    for subject_kind, path, record in subjects:
+        try:
+            coc_mechanics.validate_mechanics_record(
+                record, subject_kind=subject_kind,
+            )
+        except coc_mechanics.MechanicsError as exc:
+            findings.append(_finding(
+                "mechanics_contract_invalid", "error", str(exc), path=path,
+            ))
+    return findings
+
+
 def validate_compiled_scenario(
     compiled: dict[str, Any],
     source_segments: list[dict[str, Any]] | None = None,
@@ -1807,6 +1847,7 @@ def validate_compiled_scenario(
     findings.extend(_check_threat_affinity_contract(compiled))
     findings.extend(_check_threat_clock_identity_contract(compiled))
     findings.extend(_check_npc_disclosure_contract(compiled))
+    findings.extend(_check_mechanics_contract(compiled))
     findings.extend(_check_time_loop_signal_contract(compiled))
     findings.extend(_check_epistemic_sidecars(compiled, id_maps))
     findings.extend(_check_source_evidence(
@@ -2191,6 +2232,7 @@ def validate_scenario(scenario_dir: Path) -> dict[str, list[str]]:
 
     compiled = load_compiled_from_dir(scenario_dir)
     epi_findings = _check_epistemic_sidecars(compiled, _collect_id_maps(compiled))
+    epi_findings.extend(_check_mechanics_contract(compiled))
     index_dir = scenario_dir.parent / "index"
     source_bundle = None
     if (index_dir / "page-map.json").exists() or (index_dir / "parse-manifest.json").exists():

@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
 
 
 def _load_sibling(name: str, filename: str):
@@ -49,6 +48,9 @@ def _load_sibling(name: str, filename: str):
 
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
+
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 # --------------------------------------------------------------------------- #

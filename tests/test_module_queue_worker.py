@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 import time
 from pathlib import Path
+
+import pytest
 
 # Prevent detached worker subprocess races during unit tests.
 os.environ["COC_DISABLE_QUEUE_WORKER"] = "1"
@@ -68,6 +71,7 @@ def _skeleton():
         "handouts": [],
         "threats": [],
         "conclusion_buckets": [],
+        "mechanics_locator_pass_status": "pending",
     }
 
 
@@ -77,6 +81,7 @@ def _deep(loc_id: str) -> dict:
         "title": loc_id,
         "parse_state": "deep",
         "evidence_gap": False,
+        "source_page_indices": [0],
         "dramatic_question": f"What about {loc_id}?",
         "scene_type": "investigation",
         "player_safe_summary": f"Deep pack for {loc_id}.",
@@ -86,6 +91,16 @@ def _deep(loc_id: str) -> dict:
                 "clue_id": f"clue-{loc_id}",
                 "delivery_kind": "obvious",
                 "player_safe_summary": f"A real clue in {loc_id}.",
+                "discovery": {
+                    "mode": "automatic",
+                    "skill": None,
+                    "difficulty": None,
+                },
+                "provenance": {
+                    "authority": "source_authored",
+                    "source_refs": [{"pdf_index": 0}],
+                },
+                "source_refs": [{"pdf_index": 0}],
             }
         ],
         "npcs": [],
@@ -111,26 +126,77 @@ def _deep(loc_id: str) -> dict:
     }
 
 
-def _campaign(tmp_path: Path, asset_root: str = "qw-demo") -> str:
-    assets.init_module_root(
-        tmp_path,
-        asset_root_id=asset_root,
-        identity={"canonical_module_id": asset_root},
-        file_sha256=FAKE_SHA,
-    )
-    assets.put_page(
-        tmp_path,
-        asset_root,
-        1,
-        "# Cellar\n\nCached source scope.\n",
-        meta={
-            "source_id": "pdf:qw-demo",
+def _register_qw_source_pages(
+    tmp_path: Path,
+    page_text: dict[int, str],
+    *,
+    asset_root: str = "qw-demo",
+) -> dict:
+    """Register only the accepted source pages used by one queue fixture."""
+    pdf = tmp_path / f"{asset_root}.pdf"
+    if not pdf.is_file():
+        pdf.write_bytes(b"%PDF queue worker source fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    suffix = "-".join(str(index) for index in sorted(page_text))
+    bundle = tmp_path / f"{asset_root}-source-{suffix}"
+    bundle.mkdir()
+    pages = []
+    for pdf_index, text in sorted(page_text.items()):
+        page_bytes = text.encode()
+        markdown_path = f"page-{pdf_index:04d}.md"
+        (bundle / markdown_path).write_bytes(page_bytes)
+        anchor = next(
+            line for line in reversed(text.splitlines()) if line.strip()
+        )
+        pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": markdown_path,
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
             "review_state": "manual_accepted",
-            "parse_confidence": 0.9,
-            "grep_anchors": ["Cached source scope."],
+            "parse_confidence": 0.95,
+            "grep_anchors": [anchor],
+        })
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": f"pdf:{asset_root}",
+            "title": "Queue Worker Demo",
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": 4,
         },
+        "pages": pages,
+    }), encoding="utf-8")
+    return assets.register_source_bundle(
+        tmp_path,
+        bundle,
+        asset_root_id=asset_root,
+        module_identity={"canonical_module_id": asset_root},
     )
-    assets.put_skeleton(tmp_path, asset_root, _skeleton())
+
+
+def _campaign(tmp_path: Path, asset_root: str = "qw-demo") -> str:
+    _register_qw_source_pages(tmp_path, {
+        0: "# Opening\n\nAccepted authored clue scope.\n",
+        1: "# Cellar\n\nCached source scope.\n",
+    }, asset_root=asset_root)
+    identity = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / asset_root / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    skeleton = _skeleton()
+    source = identity["source"]
+    skeleton["source"] = {
+        "source_id": source["source_id"],
+        "path": source["path"],
+        "file_sha256": source["file_sha256"],
+        "page_count": source["page_count"],
+        "producer": "codex-pdf-skill",
+    }
+    skeleton["start_clock_status"] = "unresolved"
+    assets.put_skeleton(tmp_path, asset_root, skeleton)
     assets.put_entity(tmp_path, asset_root, "location", "opening", _deep("opening"))
     cid = "qw-camp"
     state.create_campaign(tmp_path, cid, "QW Camp", play_language="zh-Hans")
@@ -221,7 +287,9 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert request["cached_scope_complete"] is True
     assert request["cached_page_refs"][0]["pdf_index"] == 1
     assert "do not reopen the PDF" in request["instruction"]
-    assert "host_work_job_id" in request["instruction"]
+    assert "fulfillment operation binds the request transiently" in request[
+        "instruction"
+    ]
 
     open_requests = assets.list_host_work_requests(tmp_path, "qw-demo")
     assert len(open_requests) == 1
@@ -229,40 +297,368 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert open_requests[0]["fulfillment_operation"]["tool"] == (
         "progressive.fulfill_host_work"
     )
+    assert open_requests[0]["fulfillment_operation"]["args"] == {
+        "worker_result": "<exact completed child results[i] object>",
+        "host_task_timing": "<exact host task metadata when available>",
+    }
 
     ctx = toolbox.Ctx(tmp_path, cid)
     status, _warnings, hints = toolbox.TOOLS["progressive.status"]["handler"](
         ctx, {},
     )
     assert status["host_work"]["open_count"] == 1
+    assert status["host_work"]["ready_for_background_count"] == 1
     assert any("not completed parses" in hint for hint in hints)
+
+    claimed, _warnings, claim_hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        ctx, {"executor_id": "test-host", "limit": 4},
+    )
+    assert claimed["leased_group_count"] == 1
+    packet = claimed["packets"][0]
+    assert packet["contract_id"] == "coc.source-pack-worker.v1"
+    assert packet["cached_scope_complete"] is True
+    assert packet["requested_pdf_indices"] == [1]
+    assert packet["requests"][0]["job_id"] == request["job_id"]
+    assert any("continue play" in hint for hint in claim_hints)
+    leased_request = assets.list_host_work_requests(tmp_path, "qw-demo")[0]
 
     fulfilled_pack = _deep("cellar")
     fulfilled, _warnings, _hints = toolbox.TOOLS[
         "progressive.fulfill_host_work"
     ]["handler"](
-        ctx, {"job_id": request["job_id"], "pack": fulfilled_pack},
+        ctx,
+        {
+            "worker_result": {
+                "job_id": request["job_id"],
+                "pack": fulfilled_pack,
+                "related_packs": [],
+            },
+            "host_task_timing": {
+                "started_at": leased_request["leased_at"],
+                "completed_at": leased_request["leased_at"],
+                "duration_ms": 0,
+                "task_id": "grok-task-test-1",
+            },
+        },
     )
     first_put = fulfilled["put"]
     first_timing = first_put["ingest_timing"]
-    assert first_timing["host_work_job_id"] == request["job_id"]
+    assert "host_work_job_id" not in first_timing
+    assert first_timing[assets.FULFILLED_PACK_INGEST_FIELD]["job_id"] == (
+        request["job_id"]
+    )
     assert first_timing["host_request_to_pack_ms"] >= 0
+    assert first_timing["source_compile_ms"] == 0
+    assert first_timing["producer"] == "host_background_subagent"
+    assert first_timing["source_timing_measurement"] == "exact_host_task_runtime"
+    assert first_timing["source_task_id"] == "grok-task-test-1"
+    assert first_timing["source_executor_id"] == "test-host"
+    assert first_timing["source_dispatch_to_pack_ms"] >= 0
+    assert fulfilled["measured_host_timing"]["duration_ms"] == (
+        first_timing["source_compile_ms"]
+    )
     fulfilled_request = json.loads(host_work[0].read_text(encoding="utf-8"))
     assert fulfilled_request["status"] == "fulfilled"
-    assert fulfilled_request["fulfilled_entity"] == {
-        "kind": "location",
-        "entity_id": "cellar",
-    }
+    current_cellar = assets.get_entity(
+        tmp_path, "qw-demo", "location", "cellar",
+    )
+    assert fulfilled_request["fulfilled_entity"] == (
+        assets.canonical_fulfilled_entity_receipt(
+            "location", "cellar", current_cellar,
+        )
+    )
 
     fulfilled_pack["host_work_job_id"] = request["job_id"]
     second_put = assets.put_entity(
         tmp_path, "qw-demo", "location", "cellar", fulfilled_pack,
     )
+    second_stored = assets.get_entity(
+        tmp_path, "qw-demo", "location", "cellar",
+    )
+    assert "host_work_job_id" not in second_stored
+    assert "host_work_job_id" not in second_put["ingest_timing"]
     assert second_put["ingest_timing"]["pack_reuse_count"] == 1
     assert (
         second_put["ingest_timing"]["host_request_to_pack_ms"]
         == first_timing["host_request_to_pack_ms"]
     )
+
+
+def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Path):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    identity = json.loads(
+        (
+            tmp_path / ".coc" / "module-assets" / "qw-demo" / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    bundle_sha = identity["source_bundles"][0]["bundle_sha256"]
+    scope = assets.validate_opening_source_window(
+        tmp_path,
+        "qw-demo",
+        bundle_sha256=bundle_sha,
+        pdf_indices=[0],
+    )
+    queued = assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="partial_opening",
+        target_id="opening",
+        request_purpose=assets.FOREGROUND_OPENING_PURPOSE,
+        requested_source_scope=scope,
+    )
+
+    result = worker.run_worker_once(tmp_path, parallel=1)
+    assert result["results"][0]["result"] == "awaiting_host_pack"
+    request_path = Path(result["results"][0]["host_work_request"])
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request["job_id"] == queued["job"]["job_id"]
+    assert request["kind"] == "partial_opening"
+    assert request["request_purpose"] == "foreground_opening_slice"
+    assert request["requested_source_scope"] == scope
+    assert request["requested_pdf_indices"] == [0]
+    assert [row["pdf_index"] for row in request["cached_page_refs"]] == [0]
+    assert "parse_state=partial" in request["instruction"]
+    assert "named source transport" in request["instruction"]
+    assert "exact fallback parent" in request["instruction"]
+    result_contract = request["result_contract"]
+    assert result_contract["contract_id"] == "coc.foreground-opening-pack.v1"
+    assert result_contract["closed"] is True
+    assert result_contract["required_location_fields"] == [
+        "location_id",
+        "player_safe_summary",
+        "source_page_indices",
+        "source_refs",
+    ]
+    assert result_contract["exact_source_scope"] is True
+    location_pack = result_contract["location_pack"]
+    assert location_pack["fixed_fields"] == {
+        "parse_state": "partial",
+        "evidence_gap": False,
+        "origin": "source",
+    }
+    assert location_pack["copy_from_request"] == {
+        "location_id": "target_id",
+        "host_work_job_id": "job_id",
+        "source_page_indices": "requested_pdf_indices",
+        "source_refs": {
+            "from": "cached_page_refs",
+            "select_fields": ["source_id", "pdf_index", "text_sha256"],
+            "scope": "exact",
+        },
+    }
+    assert set(location_pack["empty_defaults"]) == {
+        "available_clue_ids",
+        "npc_ids",
+        "clues",
+        "npcs",
+        "scene_edges",
+        "affordances",
+        "keeper_secret_refs",
+        "pressure_moves",
+        "tone",
+        "mentions",
+    }
+    assert all(value == [] for value in location_pack["empty_defaults"].values())
+    assert result_contract["first_submission_guidance"] == {
+        "authority": "advisory",
+        "hard_gate": False,
+        "copy_contract_values": [
+            "location_pack.fixed_fields",
+            "location_pack.copy_from_request",
+            "location_pack.empty_defaults",
+        ],
+        "required_semantics_only": {
+            "location_fields": ["title", "player_safe_summary"],
+            "materially_present_npc_fields": ["npc_id", "agenda"],
+            "npc_policy": "source_supported_and_materially_present_only",
+        },
+        "forced_empty_fields": {
+            "scene_edges": [],
+            "affordances": [],
+        },
+        "infer_structured_clock_or_routes_from_prose": False,
+        "self_check_before_status_usable": True,
+        "unsatisfied_required_fields_result": {
+            "status": "abstain",
+            "results": [],
+        },
+        "parent_repair_allowed": False,
+    }
+    assert location_pack["source_ref"]["field_types"] == {
+        "source_id": "string",
+        "pdf_index": "non_negative_integer",
+        "text_sha256": "64_hex_string",
+    }
+    row_contracts = location_pack["row_contracts"]
+    edge_contract = row_contracts["scene_edge"]
+    assert edge_contract["template"]["when"] == {"kind": "always"}
+    assert edge_contract["when_kind_values"] == sorted(
+        assets._EXIT_CONDITION_KINDS
+    )
+    assert edge_contract["forbidden_fields"] == ["when.type"]
+    assert row_contracts["affordance"]["required_fields"] == [
+        "id", "cue", "route_type", "status",
+    ]
+    clue_contract = row_contracts["clue"]
+    assert clue_contract["discovery_mode_values"] == sorted(
+        assets.CLUE_DISCOVERY_MODES
+    )
+    assert clue_contract["discovery_difficulty_values"] == sorted(
+        assets.CLUE_CHECK_DIFFICULTIES
+    )
+    assert clue_contract["template"]["discovery"] == {
+        "mode": "automatic",
+        "skill": None,
+        "difficulty": None,
+        "condition": None,
+    }
+    assert clue_contract["template"]["provenance"] == {
+        "authority": "source_authored",
+        "basis": "host_pack",
+    }
+    assert isinstance(clue_contract["template"]["source_refs"], list)
+    assert row_contracts["npc"]["required_fields"] == ["npc_id", "agenda"]
+    assert row_contracts["provenance"]["allowed_fields"] == sorted(
+        assets.FACT_PROVENANCE_FIELDS
+    )
+    assert row_contracts["provenance"]["authority_values"] == sorted(
+        assets.FACT_PROVENANCE_AUTHORITIES
+    )
+    assert len(json.dumps(result_contract).encode("utf-8")) < 8 * 1024
+    assert result_contract["materially_present_npc"] == {
+        "same_pack": True,
+        "required_fields": ["npc_id", "agenda"],
+        "agenda_scope": "source_bounded_immediate",
+    }
+    assert result_contract["missing_agenda_disposition"] == "soft_deferred"
+    assert result_contract["replacement_before_opening"] is False
+    assert "closed result_contract" in request["instruction"]
+    source_worker_contract = json.loads(
+        Path(
+            "plugins/coc-keeper/references/source-pack-worker-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert result_contract == source_worker_contract["packet"][
+        "foreground_opening_slice"
+    ]["result_contract"]
+
+    claimed = assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="opening-packet-test",
+        limit=1,
+    )
+    packet = claimed["packets"][0]
+    assert packet["request_purpose"] == "foreground_opening_slice"
+    assert packet["requested_source_scope"] == scope
+    assert packet["source_scope_signature"] == request["source_scope_signature"]
+    assert packet["requested_pdf_indices"] == [0]
+    assert packet["requests"][0]["requested_source_scope"] == scope
+    assert packet["requests"][0]["result_contract"] == result_contract
+    assert [
+        row["pdf_index"] for row in packet["requests"][0]["cached_page_refs"]
+    ] == [0]
+
+    partial_pack = _deep("opening")
+    partial_pack["parse_state"] = "partial"
+    partial_pack["host_work_job_id"] = request["job_id"]
+    partial_pack["scene_edges"] = [{
+        "to": "cellar",
+        "kind": "travel",
+        "when": {"kind": "clock_reaches", "threshold": "noon"},
+    }]
+    with pytest.raises(
+        assets.ModuleAssetsError,
+        match=r"scene_edges\[0\]\.when\.threshold must be an integer",
+    ):
+        assets.put_entity(
+            tmp_path, "qw-demo", "location", "opening", partial_pack,
+        )
+    partial_pack["scene_edges"] = []
+    partial_pack["affordances"] = []
+    assets.put_entity(
+        tmp_path, "qw-demo", "location", "opening", partial_pack,
+    )
+    stored = assets.get_entity(
+        tmp_path, "qw-demo", "location", "opening",
+    )
+    assert stored["scene_edges"] == []
+    assert stored["affordances"] == []
+    assert "host_work_job_id" not in stored
+    assert "host_work_job_id" not in stored["ingest_timing"]
+    assert worker.process_claimed_job(
+        tmp_path, "qw-demo", queued["job"],
+    )["result"] == "entity_ready"
+
+    changed = json.loads(json.dumps(stored))
+    changed["player_safe_summary"] = "Changed after fulfillment."
+    changed["host_work_job_id"] = request["job_id"]
+    assets.put_entity(
+        tmp_path, "qw-demo", "location", "opening", changed,
+    )
+    rewritten = assets.get_entity(
+        tmp_path, "qw-demo", "location", "opening",
+    )
+    assert "host_work_job_id" not in rewritten
+    assert assets.current_ingest_fulfillment_receipt(rewritten) is None
+    assert worker.process_claimed_job(
+        tmp_path, "qw-demo", queued["job"],
+    )["result"] == "awaiting_host_pack"
+
+
+def test_unknown_source_scope_never_expands_to_all_cached_pages(tmp_path: Path):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="attic",
+        reason="no exact source scope yet",
+    )
+
+    result = worker.run_worker_once(tmp_path, parallel=1)
+    request = json.loads(
+        Path(result["results"][0]["host_work_request"]).read_text(encoding="utf-8")
+    )
+
+    assert request["requested_pdf_indices"] == []
+    assert request["cached_page_refs"] == []
+    assert request["pages_cached"] == []
+    assert request["cached_scope_complete"] is None
+    assert request["source_scope_status"] == "unknown"
+    assert "Do not open or scan the PDF" in request["instruction"]
+    assert "do not scan unrelated cached pages" in request["instruction"]
+
+    # A legacy no-scope request that embedded the whole cache is invalidated
+    # and replaced rather than reused as a negative-cache hit.
+    request_path = Path(result["results"][0]["host_work_request"])
+    legacy = json.loads(request_path.read_text(encoding="utf-8"))
+    legacy.pop("source_scope_status", None)
+    legacy["cached_page_refs"] = [{"pdf_index": 1}]
+    request_path.write_text(
+        json.dumps(legacy, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    repeated = assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="attic",
+        reason="replace unsafe legacy no-scope handoff",
+    )
+    assert repeated["enqueued"] is True
+    assert repeated["superseded_host_job_ids"] == [legacy["job_id"]]
+    replacement = worker.run_worker_once(tmp_path, parallel=1)
+    replacement_request = json.loads(
+        Path(replacement["results"][0]["host_work_request"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert replacement_request["cached_page_refs"] == []
 
 
 def test_same_source_scope_dedupes_after_stub_dig_metadata_update(
@@ -337,18 +733,7 @@ def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):
     first_request = json.loads(first_request_path.read_text(encoding="utf-8"))
     assert first_request["requested_pdf_indices"] == [1]
 
-    assets.put_page(
-        tmp_path,
-        "qw-demo",
-        2,
-        "# Cellar context\n",
-        meta={
-            "source_id": "pdf:qw-demo",
-            "review_state": "manual_accepted",
-            "parse_confidence": 0.9,
-            "grep_anchors": ["Cellar context"],
-        },
-    )
+    _register_qw_source_pages(tmp_path, {2: "# Cellar context\n"})
     widened = assets.ensure_stub(
         tmp_path,
         "qw-demo",
@@ -376,6 +761,97 @@ def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):
     )
     assert second_request["requested_pdf_indices"] == [1, 2]
     assert second_request.get("status") is None
+
+
+def test_deep_job_supersedes_open_partial_neighbor_request(tmp_path: Path):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    assets.ensure_stub(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "cellar",
+        title="Cellar",
+        source_scope={"source_page_indices": [1]},
+    )
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="partial_neighbor",
+        target_id="cellar",
+        reason="neighbor prefetch",
+    )
+    first = worker.run_worker_once(tmp_path, parallel=1)
+    first_request_path = Path(first["results"][0]["host_work_request"])
+    first_request = json.loads(first_request_path.read_text(encoding="utf-8"))
+
+    deep = assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="cellar",
+        reason="player enters and investigates",
+    )
+
+    assert deep["enqueued"] is True
+    assert deep["superseded_host_job_ids"] == [first_request["job_id"]]
+    assert json.loads(first_request_path.read_text(encoding="utf-8"))["status"] == "superseded"
+
+
+def test_complete_deep_pack_reconciles_covered_stale_partial_request(
+    tmp_path: Path,
+):
+    _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    assets.ensure_stub(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "cellar",
+        title="Cellar",
+        source_scope={"source_page_indices": [1]},
+    )
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="partial_neighbor",
+        target_id="cellar",
+        reason="neighbor prefetch",
+    )
+    first = worker.run_worker_once(tmp_path, parallel=1)
+    request_path = Path(first["results"][0]["host_work_request"])
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    deep_request = dict(request)
+    deep_request["job_id"] = "job-deep-replacement"
+    deep_request["kind"] = "deepen_location"
+    deep_request_path = request_path.with_name("job-deep-replacement.json")
+    deep_request_path.write_text(
+        json.dumps(deep_request, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    put = assets.put_entity(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "cellar",
+        {
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "title": "Cellar",
+            "source_page_indices": [1],
+            "host_work_job_id": "job-deep-replacement",
+        },
+    )
+
+    assert put["superseded_host_job_ids"] == [request["job_id"]]
+    closed = json.loads(request_path.read_text(encoding="utf-8"))
+    assert closed["status"] == "superseded"
+    assert closed["superseded_by_entity"] == {
+        "kind": "location",
+        "entity_id": "cellar",
+    }
+    assert json.loads(deep_request_path.read_text(encoding="utf-8"))["status"] == "fulfilled"
 
 
 def test_dynamic_mention_stub_narrows_host_work_to_inherited_source_page(
@@ -415,19 +891,10 @@ def test_host_work_unions_skeleton_profile_and_context_mention_pages(
     tmp_path: Path,
 ):
     _campaign(tmp_path)
-    for pdf_index in (2, 3):
-        assets.put_page(
-            tmp_path,
-            "qw-demo",
-            pdf_index,
-            f"# NPC context {pdf_index}\n",
-            meta={
-                "source_id": "pdf:qw-demo",
-                "review_state": "manual_accepted",
-                "parse_confidence": 0.9,
-                "grep_anchors": [f"NPC context {pdf_index}"],
-            },
-        )
+    _register_qw_source_pages(tmp_path, {
+        2: "# NPC context 2\n",
+        3: "# NPC context 3\n",
+    })
     skeleton = assets.get_skeleton(tmp_path, "qw-demo")
     assert skeleton is not None
     skeleton["npc_roster"] = [{
@@ -474,6 +941,7 @@ def test_worker_merges_standalone_npc_and_threat_into_live_ir(tmp_path: Path):
     assets.put_entity(tmp_path, "qw-demo", "npc", "npc-witness", {
         "parse_state": "deep",
         "evidence_gap": False,
+        "source_page_indices": [0],
         "name": "Witness",
         "agenda": "Tell only what the source supports.",
         "voice": "Measured.",
@@ -482,6 +950,7 @@ def test_worker_merges_standalone_npc_and_threat_into_live_ir(tmp_path: Path):
     assets.put_entity(tmp_path, "qw-demo", "threat", "threat-storm", {
         "parse_state": "deep",
         "evidence_gap": False,
+        "source_page_indices": [0],
         "label": "Oncoming storm",
         "applicability": "Places and people tied to the papers.",
         "manifestation_guidance": [{"id": "radio", "keeper_only": True}],
@@ -563,3 +1032,594 @@ def test_finish_job_replaces_existing_completion_for_same_job_id(tmp_path: Path)
     assert done[0]["queue_wait_ms"] == 1000
     assert done[0]["processing_ms"] >= 0
     assert done[0]["total_ms"] >= done[0]["queue_wait_ms"]
+
+
+def _actor_mechanics(source_ref: dict) -> dict:
+    mechanics = _load("coc_mechanics_qw", str(SCRIPTS / "coc_mechanics.py"))
+    extracted = {
+        "characteristics.STR",
+        "characteristics.CON",
+        "characteristics.SIZ",
+        "characteristics.DEX",
+        "characteristics.POW",
+        "derived.HP",
+        "derived.MP",
+        "derived.SAN",
+        "derived.MOV",
+        "derived.Build",
+        "skills",
+        "weapons",
+    }
+    observed = sorted(extracted)
+    not_authored = sorted(mechanics.ACTOR_FIELD_IDS - extracted)
+    return {
+        "status": "authored",
+        "source_refs": [json.loads(json.dumps(source_ref))],
+        "fields_observed": observed,
+        "fields_extracted": observed,
+        "fields_not_authored": not_authored,
+        "provenance": {"authority": "source_authored"},
+        "profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "characteristics": {
+                "STR": 55, "CON": 50, "SIZ": 60, "DEX": 45, "POW": 50,
+            },
+            "derived": {"HP": 11, "MP": 10, "SAN": 50, "MOV": 8, "Build": 0},
+            "skills": {"Fighting (Brawl)": 45, "Dodge": 22},
+            "weapons": [{"weapon_id": "unarmed", "extends": "unarmed"}],
+        },
+    }
+
+
+def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
+    tmp_path: Path,
+):
+    cid = _campaign(tmp_path)
+    skeleton = assets.get_skeleton(tmp_path, "qw-demo")
+    skeleton["locations"].append({
+        "location_id": "annex",
+        "title": "Annex",
+        "parse_state": "named_only",
+        "source_page_indices": [1],
+    })
+    assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    _clear_queue(tmp_path)
+    for target_id in ("cellar", "annex"):
+        assets.enqueue_job(
+            tmp_path,
+            "qw-demo",
+            kind="deepen_location",
+            target_id=target_id,
+            priority=80,
+            reason="bounded background test",
+        )
+    produced = worker.run_worker_once(tmp_path, parallel=2)
+    assert produced["claimed"] == 2
+
+    ctx = toolbox.Ctx(tmp_path, cid)
+    claimed, _warnings, _hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        ctx, {"executor_id": "host-a", "limit": 1, "lease_seconds": 600},
+    )
+    assert claimed["leased_group_count"] == 1
+    packet = claimed["packets"][0]
+    assert {row["target_id"] for row in packet["requests"]} == {
+        "cellar", "annex",
+    }
+    assert packet["requested_pdf_indices"] == [1]
+
+    unavailable, _warnings, _hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        ctx, {"executor_id": "host-b", "limit": 4},
+    )
+    assert unavailable["packets"] == []
+
+    work_dir = tmp_path / ".coc/module-assets/qw-demo/host-work"
+    for path in work_dir.glob("*.json"):
+        request = json.loads(path.read_text(encoding="utf-8"))
+        request["lease_expires_at"] = "2000-01-01T00:00:00+00:00"
+        path.write_text(
+            json.dumps(request, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    recovered, _warnings, _hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        ctx, {"executor_id": "host-b", "limit": 1},
+    )
+    assert recovered["leased_group_count"] == 1
+    assert recovered["packets"][0]["packet_id"] != packet["packet_id"]
+    refreshed = assets.list_host_work_requests(tmp_path, "qw-demo")
+    assert {row["dispatch_attempts"] for row in refreshed} == {2}
+    assert {row["executor_id"] for row in refreshed} == {"host-b"}
+
+
+def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
+    tmp_path: Path,
+):
+    cid = _campaign(tmp_path)
+    skeleton = assets.get_skeleton(tmp_path, "qw-demo")
+    skeleton["npc_roster"] = [
+        {
+            "npc_id": "lucas-strong",
+            "names": ["Lucas Strong"],
+            "parse_state": "named_only",
+            "source_page_indices": [1],
+        },
+        {
+            "npc_id": "joseph-turner",
+            "names": ["Joseph Turner"],
+            "parse_state": "named_only",
+        },
+        {
+            "npc_id": "jane-strong",
+            "names": ["Jane Strong"],
+            "parse_state": "named_only",
+        },
+    ]
+    skeleton["item_roster"] = [
+        {"item_id": "ritual-knife", "label": "仪式刀", "parse_state": "named_only"},
+    ]
+    skeleton["mechanics_locator_pass_status"] = "complete"
+    source_file_sha = skeleton["source"]["file_sha256"]
+    skeleton["mechanics_locator_scope"] = {
+        "scope_kind": "explicit_pdf_indices",
+        "pdf_indices": [2],
+        "source_file_sha256": source_file_sha,
+    }
+    skeleton["mechanics_index"] = [
+        {
+            "subject_kind": kind,
+            "subject_id": subject_id,
+            "status": "located",
+            "locator_pass_status": "complete",
+            "locator_scope": {
+                "scope_kind": "explicit_pdf_indices",
+                "pdf_indices": [2],
+                "source_file_sha256": source_file_sha,
+            },
+            "source_page_indices": [2],
+        }
+        for kind, subject_id in (
+            ("npc", "lucas-strong"),
+            ("npc", "joseph-turner"),
+            ("npc", "jane-strong"),
+            ("item", "ritual-knife"),
+        )
+    ]
+    _register_qw_source_pages(tmp_path, {
+        2: "# Appendix\n\nTwo NPC blocks and one ritual knife block.\n",
+    })
+    assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    project.project_skeleton_to_campaign(tmp_path, cid, "qw-demo")
+    _clear_queue(tmp_path)
+
+    first = project.request_mechanics(
+        tmp_path, cid, kind="npc", target_id="lucas-strong", reason="attacked",
+    )
+    repeated = project.request_mechanics(
+        tmp_path, cid, kind="npc", target_id="lucas-strong", reason="attacked-again",
+    )
+    assert first["enqueue"]["enqueued"] is True
+    assert repeated["enqueue"]["enqueued"] is False
+
+    worker_result = worker.run_worker_once(tmp_path, parallel=1)
+    request_path = Path(worker_result["results"][0]["host_work_request"])
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    # Lucas's narrative/profile page is 1; blocking mechanics must stay on the
+    # appendix locator instead of inheriting that body scope.
+    assert request["requested_pdf_indices"] == [2]
+    assert request["source_aspect"] == "mechanics"
+    assert request["deadline_class"] == "blocking_micro"
+    assert "equal to this packet's file_sha256" in request["instruction"]
+    assert "registered accepted cached_page_refs" in request["instruction"]
+    assert {
+        (row["subject_kind"], row["subject_id"])
+        for row in request["batch_subjects"]
+    } == {
+        ("npc", "lucas-strong"),
+        ("npc", "joseph-turner"),
+        ("npc", "jane-strong"),
+        ("item", "ritual-knife"),
+    }
+
+    scene_context, _warnings, context_hints = toolbox.TOOLS[
+        "scene.context"
+    ]["handler"](toolbox.Ctx(tmp_path, cid), {})
+    progressive = scene_context["progressive"]
+    assert progressive["ready_for_background_count"] == 1
+    assert progressive["blocking_micro_ready_count"] == 1
+    assert progressive["ready_background_requests"] == [{
+        "job_id": request["job_id"],
+        "kind": "resolve_npc_mechanics",
+        "target_id": "lucas-strong",
+        "priority": request["priority"],
+        "requested_pdf_indices": [2],
+        "source_aspect": "mechanics",
+        "deadline_class": "blocking_micro",
+        "work_group_id": request["work_group_id"],
+        "dispatch_state": "ready",
+        "dispatch_attempts": 0,
+        "cached_scope_complete": True,
+    }]
+    takeover = progressive["background_takeover"]
+    assert takeover["authority"] == "advisory"
+    assert takeover["hard_gate"] is False
+    assert takeover["claim_operation"] == {
+        "operation": "progressive.claim_host_work",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": {"limit": 1},
+        "missing_arguments": ["executor_id"],
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+    assert takeover["host_dispatch"] == {
+        "worker_profile": "coc-source-pack-worker",
+        "background": True,
+        "packet_binding": "one exact returned packets[] value per child",
+        "direct_submit_parent_waits": False,
+        "direct_submit_parent_result_polls": 0,
+        "direct_submit_parent_output_retrieval": False,
+        "direct_submit_parent_calls_fulfill_host_work": False,
+        "fallback_without_direct_submit": (
+            "forward exact completed results[i] once through "
+            "progressive.fulfill_host_work"
+        ),
+    }
+    assert takeover["play_boundary"] == {
+        "player_action_gate": False,
+        "narrative_gate": False,
+        "output_gate": False,
+        "nondependent_play_may_continue": True,
+        "blocking_micro_applies_only_to_current_dependent_settlement": True,
+    }
+    assert any("never gates player input" in hint for hint in context_hints)
+
+    exact_ref = {
+        key: request["cached_page_refs"][0][key]
+        for key in ("source_id", "pdf_index", "text_sha256")
+    }
+    contract = request["result_contract"]
+    assert contract["contract_id"] == "coc.mechanics-entity-pack.v1"
+    assert contract["closed"] is True
+    assert contract["result_item"]["fixed_fields"] == {
+        "job_id": request["job_id"],
+    }
+    assert contract["primary_subject"] == {
+        "subject_kind": "npc", "subject_id": "lucas-strong",
+    }
+    assert contract["pack"]["allowed_fields"] == ["mechanics"]
+    assert contract["pack"]["required_fields"] == ["mechanics"]
+    assert "parse_state" in contract["pack"]["forbidden_fields"]
+    assert contract["pack"]["mechanics"]["authored"]["source_refs"][
+        "allowed_exact_refs"
+    ] == [exact_ref]
+    allowed_extends = contract["pack"]["mechanics"]["authored"][
+        "canonical_profile_self_check"
+    ]["allowed_canonical_extends_ids"]
+    assert allowed_extends == list(worker.coc_mechanics.canonical_weapon_ids())
+    assert allowed_extends == sorted(set(allowed_extends))
+    assert {"unarmed", "knife_medium", "30_06_bolt_action_rifle", "shotgun_12g"} <= set(
+        allowed_extends
+    )
+    assert {"brawl", "knife", "rifle", "shotgun"}.isdisjoint(allowed_extends)
+    assert {
+        (row["subject_kind"], row["subject_id"])
+        for row in contract["related_packs"]["eligible_subjects"]
+    } == {
+        ("npc", "joseph-turner"),
+        ("npc", "jane-strong"),
+        ("item", "ritual-knife"),
+    }
+
+    lucas = {"mechanics": _actor_mechanics(exact_ref)}
+    joseph = json.loads(json.dumps(lucas))
+    jane = json.loads(json.dumps(lucas))
+    knife = {
+        "mechanics": {
+            "status": "authored",
+            "source_refs": [exact_ref],
+            "fields_observed": ["weapon_id", "extends", "name"],
+            "fields_extracted": ["weapon_id", "extends", "name"],
+            "fields_not_authored": [],
+            "provenance": {"authority": "source_authored"},
+            "profile": {
+                "profile_kind": "weapon",
+                "weapon_id": "module:ritual-knife",
+                "extends": "knife_medium",
+                "name": "仪式刀",
+            },
+        },
+    }
+    module_root = tmp_path / ".coc" / "module-assets" / "qw-demo"
+
+    def durable_snapshot() -> dict[str, bytes]:
+        return {
+            str(path.relative_to(module_root)): path.read_bytes()
+            for path in module_root.rglob("*.json")
+        }
+
+    baseline = durable_snapshot()
+    # R24 shape: semantically plausible mechanics were returned at pack root.
+    # It must fail as a child-pack error without mutating the entity/request.
+    malformed_primary = _actor_mechanics(exact_ref)
+    rejected_primary = toolbox.run_tool(
+        "progressive.fulfill_host_work",
+        tmp_path,
+        cid,
+        {
+            "job_id": request["job_id"],
+            "pack": malformed_primary,
+            "related_packs": [],
+        },
+    )
+    assert rejected_primary["ok"] is False
+    assert rejected_primary["error"]["code"] == "invalid_source_worker_pack"
+    assert "must not repair or rewrite" in rejected_primary["hints"][0]
+    assert durable_snapshot() == baseline
+
+    # A malformed same-page child is also rejected before the valid primary is
+    # written; the parent never normalizes the bare mechanics object.
+    rejected_related = toolbox.run_tool(
+        "progressive.fulfill_host_work",
+        tmp_path,
+        cid,
+        {
+            "job_id": request["job_id"],
+            "pack": lucas,
+            "related_packs": [{
+                "subject_kind": "npc",
+                "subject_id": "joseph-turner",
+                "pack": _actor_mechanics(exact_ref),
+            }],
+        },
+    )
+    assert rejected_related["ok"] is False
+    assert rejected_related["error"]["code"] == "invalid_source_worker_pack"
+    assert durable_snapshot() == baseline
+
+    r24_weapon_shape = json.loads(json.dumps(joseph))
+    r24_weapon_shape["mechanics"]["profile"]["weapons"] = [{
+        "name": "Knife", "damage": "1D4+DB",
+    }]
+    rejected_weapon = toolbox.run_tool(
+        "progressive.fulfill_host_work",
+        tmp_path,
+        cid,
+        {
+            "job_id": request["job_id"],
+            "pack": lucas,
+            "related_packs": [{
+                "subject_kind": "npc",
+                "subject_id": "joseph-turner",
+                "pack": r24_weapon_shape,
+            }],
+        },
+    )
+    assert rejected_weapon["ok"] is False
+    assert rejected_weapon["error"]["code"] == "invalid_source_worker_pack"
+    assert "weapon profile requires weapon_id" in rejected_weapon["error"]["message"]
+    assert durable_snapshot() == baseline
+
+    r25_unknown_primary = json.loads(json.dumps(lucas))
+    r25_unknown_primary["mechanics"]["profile"]["weapons"] = [{
+        "weapon_id": "module:lucas-brawl",
+        "extends": "brawl",
+    }]
+    rejected_unknown_primary = toolbox.run_tool(
+        "progressive.fulfill_host_work",
+        tmp_path,
+        cid,
+        {
+            "job_id": request["job_id"],
+            "pack": r25_unknown_primary,
+            "related_packs": [],
+        },
+    )
+    assert rejected_unknown_primary["ok"] is False
+    assert rejected_unknown_primary["error"]["code"] == (
+        "invalid_source_worker_pack"
+    )
+    assert "not an active canonical weapon id" in (
+        rejected_unknown_primary["error"]["message"]
+    )
+    assert durable_snapshot() == baseline
+
+    r25_unknown_extends = json.loads(json.dumps(joseph))
+    r25_unknown_extends["mechanics"]["profile"]["weapons"] = [{
+        "weapon_id": "module:lucas-knife",
+        "extends": "knife",
+    }]
+    rejected_unknown_extends = toolbox.run_tool(
+        "progressive.fulfill_host_work",
+        tmp_path,
+        cid,
+        {
+            "job_id": request["job_id"],
+            "pack": lucas,
+            "related_packs": [{
+                "subject_kind": "npc",
+                "subject_id": "joseph-turner",
+                "pack": r25_unknown_extends,
+            }],
+        },
+    )
+    assert rejected_unknown_extends["ok"] is False
+    assert rejected_unknown_extends["error"]["code"] == "invalid_source_worker_pack"
+    assert "not an active canonical weapon id" in rejected_unknown_extends["error"]["message"]
+    assert durable_snapshot() == baseline
+
+    claimed, _warnings, _hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {"executor_id": "host-mechanics", "limit": 1, "lease_seconds": 600},
+    )
+    assert claimed["leased_group_count"] == 1
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request["leased_at"]
+
+    fulfillment_args = {
+        "job_id": request["job_id"],
+        "pack": lucas,
+        "related_packs": [
+            {
+                "subject_kind": "npc",
+                "subject_id": "joseph-turner",
+                "pack": joseph,
+            },
+            {
+                "subject_kind": "npc",
+                "subject_id": "jane-strong",
+                "pack": jane,
+            },
+            {
+                "subject_kind": "item",
+                "subject_id": "ritual-knife",
+                "pack": knife,
+            },
+        ],
+        "host_task_timing": {
+            "started_at": request["leased_at"],
+            "completed_at": request["leased_at"],
+            "duration_ms": 0,
+            "task_id": "source-worker-mechanics-exact",
+        },
+    }
+    child_result_before = json.loads(json.dumps(fulfillment_args))
+    fulfilled = toolbox.run_tool(
+        "progressive.fulfill_host_work", tmp_path, cid, fulfillment_args,
+    )
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["request_status"] == "fulfilled"
+    assert len(fulfilled["data"]["related_puts"]) == 3
+    assert fulfillment_args == child_result_before
+    for npc_id in ("lucas-strong", "joseph-turner", "jane-strong"):
+        stored = assets.get_entity(tmp_path, "qw-demo", "npc", npc_id)
+        assert stored["parse_state"] == "named_only"
+        assert stored["mechanics"]["status"] == "authored"
+    lucas_stored = assets.get_entity(
+        tmp_path, "qw-demo", "npc", "lucas-strong",
+    )
+    ingest_timing = lucas_stored["ingest_timing"]
+    assert ingest_timing["host_timing_status"] == "reported"
+    assert ingest_timing["source_compile_ms"] == 0
+    assert ingest_timing["source_task_id"] == "source-worker-mechanics-exact"
+    assert lucas_stored["host_timing"] == fulfilled["data"][
+        "measured_host_timing"
+    ]
+    fulfillment_receipt = ingest_timing[assets.FULFILLED_PACK_INGEST_FIELD]
+    assert fulfillment_receipt["job_id"] == request["job_id"]
+    for related_kind, related_id in (
+        ("npc", "joseph-turner"),
+        ("npc", "jane-strong"),
+        ("item", "ritual-knife"),
+    ):
+        related_stored = assets.get_entity(
+            tmp_path, "qw-demo", related_kind, related_id,
+        )
+        assert related_stored.get("ingest_timing") is None
+
+    fulfilled_request = json.loads(request_path.read_text(encoding="utf-8"))
+    assert fulfilled_request["status"] == "fulfilled"
+    assert fulfilled_request["dispatch_state"] == "fulfilled"
+    assert fulfilled_request["fulfilled_at"]
+    assert fulfilled_request["fulfilled_entity"] == (
+        assets.canonical_fulfilled_entity_receipt(
+            "npc", "lucas-strong", lucas_stored,
+        )
+    )
+    assert assets.fulfilled_request_matches_current_pack(
+        fulfilled_request,
+        lucas_stored,
+        kind="npc",
+        entity_id="lucas-strong",
+    ) is True
+
+    worker.run_worker_once(tmp_path, parallel=4)
+    request_after_merge = json.loads(request_path.read_text(encoding="utf-8"))
+    assert request_after_merge["status"] == "fulfilled"
+    assert request_after_merge["dispatch_state"] == "fulfilled"
+    assert request_after_merge["fulfilled_at"] == fulfilled_request["fulfilled_at"]
+    assert request_after_merge["fulfilled_entity"] == fulfilled_request["fulfilled_entity"]
+    assert "superseded_at" not in request_after_merge
+    scenario = tmp_path / ".coc" / "campaigns" / cid / "scenario"
+    agendas = json.loads((scenario / "npc-agendas.json").read_text(encoding="utf-8"))
+    lucas_projected = next(
+        row for row in agendas["npcs"] if row["npc_id"] == "lucas-strong"
+    )
+    assert lucas_projected["mechanics"]["status"] == "authored"
+    meta = json.loads((scenario / "module-meta.json").read_text(encoding="utf-8"))
+    assert (
+        meta["module_mechanics"]["items"]["ritual-knife"]["mechanics"]["status"]
+        == "authored"
+    )
+
+    ready, _warnings, _hints = toolbox.TOOLS["mechanics.ensure"]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "subject_kind": "npc",
+            "subject_id": "lucas-strong",
+            "purpose": "combat",
+            "decision_id": "mechanics-lucas-strong",
+        },
+    )
+    assert ready["authority"] == "authored"
+    assert ready["profile"]["characteristics"]["STR"] == 55
+    item_ready, _warnings, _hints = toolbox.TOOLS["mechanics.ensure"]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "subject_kind": "item",
+            "subject_id": "ritual-knife",
+            "purpose": "item_use",
+            "decision_id": "mechanics-ritual-knife",
+        },
+    )
+    granted, _warnings, _hints = toolbox.TOOLS["state.item_grant"]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "npc_id": "lucas-strong",
+            "kind": "weapon",
+            "label": "仪式刀",
+            "mechanics_ref": item_ready["mechanics_ref"],
+            "decision_id": "grant-ritual-knife",
+        },
+    )
+    assert granted["changed"] is True
+    inventory, _warnings, _hints = toolbox.TOOLS["state.inventory_list"]["handler"](
+        toolbox.Ctx(tmp_path, cid), {"npc_id": "lucas-strong"},
+    )
+    assert inventory["weapons"][0]["extends"] == "knife_medium"
+
+
+def test_improvised_mechanics_are_frozen_and_reused(tmp_path: Path):
+    cid = _campaign(tmp_path)
+    ctx = toolbox.Ctx(tmp_path, cid)
+    first, _warnings, _hints = toolbox.TOOLS["mechanics.ensure"]["handler"](
+        ctx,
+        {
+            "subject_kind": "npc",
+            "subject_id": "improvised-bouncer",
+            "purpose": "combat",
+            "fallback_archetype_id": "capable_adult",
+            "label": "临时保镖",
+            "decision_id": "generate-bouncer",
+        },
+    )
+    second, _warnings, _hints = toolbox.TOOLS["mechanics.ensure"]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "subject_kind": "npc",
+            "subject_id": "improvised-bouncer",
+            "purpose": "check",
+            "decision_id": "reuse-bouncer",
+        },
+    )
+
+    assert first["authority"] == "campaign_generated"
+    assert first["reused"] is False
+    assert second["reused"] is True
+    assert second["profile"] == first["profile"]

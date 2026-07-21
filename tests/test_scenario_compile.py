@@ -106,6 +106,39 @@ def test_validate_npc_without_agenda(tmp_path):
     assert any("agenda" in e for e in result["errors"])
 
 
+def test_validate_mechanics_rejects_authored_npc_without_source_page(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "npc-agendas.json"
+    data = json.loads(path.read_text())
+    data["npcs"][0]["mechanics"] = {
+        "status": "authored",
+        "profile": {
+            "profile_kind": "actor",
+            "characteristic_scale": "percentile",
+            "characteristics": {
+                "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50, "POW": 50,
+            },
+        },
+    }
+    path.write_text(json.dumps(data))
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert any("authored mechanics requires source_refs" in row for row in result["errors"])
+
+
+def test_validate_mechanics_accepts_sparse_unresolved_locator(tmp_path):
+    sc = _make_valid_scenario(tmp_path)
+    path = sc / "npc-agendas.json"
+    data = json.loads(path.read_text())
+    data["npcs"][0]["mechanics"] = {"status": "located"}
+    path.write_text(json.dumps(data))
+
+    result = coc_scenario_compile.validate_scenario(sc)
+
+    assert not any("mechanics_contract_invalid" in row for row in result["errors"])
+
+
 def test_npc_presence_requirement_requires_scene_npc_and_scene_route(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     story_path = sc / "story-graph.json"

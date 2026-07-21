@@ -127,9 +127,10 @@ def test_finalize_mcp_schema_recursively_preserves_closed_nested_contract(monkey
         "disposition",
         "reason",
         "adopted_fields",
-        "storylet_candidate",
         "exact_excerpt",
     }
+    assert uptake["properties"]["candidate_ref"]["minLength"] == 1
+    assert "storylet_candidate" in uptake["properties"]
     assert "advisory_uptake" not in input_schema["required"]
 
     converted = server._json_schema({

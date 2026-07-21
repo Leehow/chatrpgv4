@@ -124,7 +124,7 @@ def test_is_cacheable_path_rejects_dot_coc():
     assert coc_cache.is_cacheable_path(Path("/proj/.coc/save/world-state.json")) is False
     assert (
         coc_cache.is_cacheable_path(
-            Path("/proj/plugins/coc-keeper/references/rules-json/x.json")
+            Path("/proj/plugins/coc-keeper/rulesets/coc7/rules-json/x.json")
         )
         is True
     )

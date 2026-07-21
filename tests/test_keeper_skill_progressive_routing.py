@@ -149,6 +149,16 @@ def test_mcp_hotset_and_no_repeated_full_catalog_guidance():
     # No speculative domain discovery for awareness/reassurance/confirmation.
     assert "only when a concrete long-tail operation is needed" in compact
     assert "never discover a domain merely for awareness" in compact
+    for phrase in (
+        "working_set.mode=full",
+        "covered_domains",
+        "named missing field",
+        "progressive.request_deepen",
+        "same player turn",
+        "background continues and the player reply comes first",
+        "not a fixed call count/order",
+    ):
+        assert phrase in compact, phrase
     assert "do not mix mcp and shell" in compact
     assert "coc_toolbox.py" in compact
     assert "pi/headless" in compact or "pi/headless or no-plugin-mcp" in compact

@@ -1,7 +1,7 @@
 {
   "name": "coc-keeper",
   "version": "0.4.0-alpha.0",
-  "description": "Call of Cthulhu Keeper mode plugin with canonical skills and the shared MCP toolbox gateway. Full single-track skills under ./skills/ (Codex/Claude/Cursor/Grok/Kimi/Pi). Investigator portraits use Grok Build image_gen when available.",
+  "description": "Call of Cthulhu Keeper mode plugin with canonical skills, a bounded shared MCP toolbox gateway, a lease-bound submit-only source-worker MCP, a focused Grok main-KP profile, and an optional zero-tool background scene adviser. Full single-track skills under ./skills/ (Codex/Claude/Cursor/Grok/Kimi/Pi). Investigator portraits use Grok Build image_gen when available.",
   "author": {
     "name": "Leehow"
   },

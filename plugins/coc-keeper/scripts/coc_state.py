@@ -20,13 +20,15 @@ from coc_fileio import (
 from coc_language import DEFAULT_PLAY_LANGUAGE, language_profile
 import coc_investigator_guard
 import coc_flag_state
+import coc_rulesets
 
 
 # Per-kind current schema versions. Persisted state is accepted only when it
 # matches these versions exactly. This project intentionally has no migration
 # registry or legacy reader.
 CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
-    "campaign": 1,
+    # campaign 2: campaigns persist ruleset_id from creation (seam 1b).
+    "campaign": 2,
     "world": 2,
     "pacing": 1,
     "investigator": 1,
@@ -76,8 +78,12 @@ TOP_LEVEL_DIRS = (
     "exports",
 )
 
+# Package-owned campaign dirs are declared by the active ruleset manifest
+# (docs/ruleset-contract.md §6 ``state_dirs`` entries with create_on_init);
+# the kernel owns only the generic remainder. For coc7 this yields exactly
+# the historical tuple ("save/investigator-state" first).
 CAMPAIGN_DIRS = (
-    "save/investigator-state",
+    *coc_rulesets.ruleset_campaign_init_dirs(coc_rulesets.DEFAULT_RULESET_ID),
     "save/continuation/checkpoints",
     "scenario",
     "index",
@@ -1132,8 +1138,9 @@ def _create_campaign_at(
         (campaign_dir / directory).mkdir(parents=True, exist_ok=True)
     created_at = now_iso()
     campaign = {
-        "schema_version": 1,
+        "schema_version": int(CURRENT_SCHEMA_VERSIONS["campaign"]),
         "campaign_id": campaign_id,
+        "ruleset_id": coc_rulesets.DEFAULT_RULESET_ID,
         "title": title,
         "mode": "keeper",
         "status": "setup",

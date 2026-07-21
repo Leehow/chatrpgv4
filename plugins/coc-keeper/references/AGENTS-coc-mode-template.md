@@ -46,6 +46,8 @@ When COC mode activates:
 10. After a structured ending, use `coc-development`. Export readable battle
     reports only through `coc-export-battle-report`.
 
+Rule-craft skills (`coc-character`, `coc-combat`, `coc-chase`, `coc-sanity`, `coc-magic`, `coc-mythos-reference`, `coc-development`, `coc-rules-engine`) live in the active ruleset's skill pack (`rulesets/<id>/skills/`, default `coc7`) and load by reference.
+
 ## Language
 
 At campaign setup, let the player choose the visible play language. If the player does not choose, set `play_language` to `zh-Hans`.

@@ -30,8 +30,9 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import coc_cache
 import coc_fileio
+import coc_rulesets
 
-RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 _SCHEMA_VERSION = 1
 
 CONFLICT_LEVELS = ["low", "medium", "high", "climax"]

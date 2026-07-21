@@ -7,6 +7,21 @@ import re
 from pathlib import Path
 
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_rulesets = _load_sibling("coc_rulesets_validate", "coc_rulesets.py")
+
+
 REQUIRED_RULE_FILES = [
     "metadata.json",
     "rule-index.json",
@@ -62,7 +77,7 @@ RULE_INDEX_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
 
 def validate_rules(plugin_root: Path) -> list[str]:
     errors: list[str] = []
-    rules_dir = plugin_root / "references" / "rules-json"
+    rules_dir = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
     if not rules_dir.exists():
         return [f"missing rules directory: {rules_dir}"]
 

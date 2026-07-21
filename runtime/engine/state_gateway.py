@@ -23,9 +23,35 @@ def _load_paths():
     return _load_module("runtime_paths_gateway", _engine_dir() / "paths.py")
 
 
-def _load_coc_state():
-    path = Path(__file__).resolve().parents[2] / "plugins" / "coc-keeper" / "scripts" / "coc_state.py"
+def _load_plugin_locator():
+    return _load_module("runtime_plugin_locator_gateway", _engine_dir() / "plugin_locator.py")
+
+
+def _load_coc_state(workspace: Path | str | None = None):
+    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_state.py"
     return _load_module("runtime_coc_state_gateway", path)
+
+
+def _load_coc_rulesets(workspace: Path | str | None = None):
+    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_rulesets.py"
+    return _load_module("runtime_coc_rulesets_gateway", path)
+
+
+def _default_investigator_resource_fields() -> tuple[str, ...]:
+    """Workspace-less import-time binding over the default ruleset manifest."""
+    rulesets = _load_coc_rulesets()
+    return tuple(
+        rulesets.ruleset_projected_resource_fields(rulesets.DEFAULT_RULESET_ID)
+    )
+
+
+# Phase 1 seam 3: investigator resource gauges projected by
+# ``load_investigator`` are read from the active ruleset manifest
+# ``resources[*].projected`` (docs/ruleset-contract.md §6). This module
+# constant is the workspace-less default-ruleset binding; instance
+# projections resolve the campaign's own bound ruleset. One declared place:
+# update the manifest, not call sites.
+INVESTIGATOR_RESOURCE_FIELDS = _default_investigator_resource_fields()
 
 
 def _typed_int(value: Any) -> int | None:
@@ -42,8 +68,10 @@ class RuntimeStateGateway:
         investigator_id: str | None = None,
     ) -> None:
         self._paths = _load_paths()
-        self._state = _load_coc_state()
         self.workspace = self._paths.workspace_root(workspace)
+        self._state = _load_coc_state(self.workspace)
+        self._rulesets = _load_coc_rulesets(self.workspace)
+        self._resource_fields: tuple[str, ...] | None = None
         self.campaign_id = self._paths.validate_id(campaign_id, "campaign_id")
         self.investigator_id = (
             self._paths.validate_id(investigator_id, "investigator_id")
@@ -70,7 +98,7 @@ class RuntimeStateGateway:
             return self._paths.contained_path(save, save / "pacing-state.json")
         if state == "investigator" and investigator_id is not None:
             investigator_id = self._paths.validate_id(investigator_id, "investigator_id")
-            inv_dir = self._paths.contained_path(save, save / "investigator-state")
+            inv_dir = self._paths.contained_path(save, save / self._paths.INVESTIGATOR_STATE_DIRNAME)
             return self._paths.contained_path(inv_dir, inv_dir / f"{investigator_id}.json")
         raise ValueError("invalid runtime state kind")
 
@@ -83,6 +111,30 @@ class RuntimeStateGateway:
     def load_pacing(self) -> dict[str, Any]:
         return self._state.load_pacing_state(self.campaign_dir)
 
+    def _investigator_resource_fields(self) -> tuple[str, ...]:
+        """Projected resource fields for this campaign's bound ruleset.
+
+        Read once per gateway from the campaign's persisted ``ruleset_id``;
+        an unreadable or missing campaign.json falls back to the default
+        ruleset through ``get_campaign_ruleset_id`` — the same tolerance the
+        campaign-less path always had, with no new failure mode.
+        """
+        if self._resource_fields is None:
+            path = self._paths.contained_path(
+                self.campaign_dir, self.campaign_dir / "campaign.json"
+            )
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                raw = None
+            ruleset_id = self._rulesets.get_campaign_ruleset_id(
+                raw if isinstance(raw, dict) else None
+            )
+            self._resource_fields = tuple(
+                self._rulesets.ruleset_projected_resource_fields(ruleset_id)
+            )
+        return self._resource_fields
+
     def load_investigator(self, investigator_id: str) -> dict[str, Any]:
         investigator_id = self._paths.validate_id(investigator_id, "investigator_id")
         payload = self._state.load_investigator_state(
@@ -94,23 +146,21 @@ class RuntimeStateGateway:
         ):
             self._issue("investigator", "invalid_fields")
             conditions = []
-        entry = {
-            "id": investigator_id,
-            "current_hp": _typed_int(payload.get("current_hp")),
-            "current_san": _typed_int(payload.get("current_san")),
-            "current_mp": _typed_int(payload.get("current_mp")),
-            "conditions": list(conditions),
-        }
+        resource_fields = self._investigator_resource_fields()
+        entry = {"id": investigator_id}
+        for field in resource_fields:
+            entry[field] = _typed_int(payload.get(field))
+        entry["conditions"] = list(conditions)
         if any(
             payload.get(key) is not None and entry[key] is None
-            for key in ("current_hp", "current_san", "current_mp")
+            for key in resource_fields
         ):
             self._issue("investigator", "invalid_fields")
         return entry
 
     def load_investigators(self) -> list[dict[str, Any]]:
         save = self._paths.contained_path(self.campaign_dir, self.campaign_dir / "save")
-        inv_dir = self._paths.contained_path(save, save / "investigator-state")
+        inv_dir = self._paths.contained_path(save, save / self._paths.INVESTIGATOR_STATE_DIRNAME)
         if not inv_dir.is_dir():
             return []
         entries: list[dict[str, Any]] = []

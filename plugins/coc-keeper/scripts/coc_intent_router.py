@@ -43,6 +43,20 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str, filename: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, _SCRIPT_DIR / filename)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+coc_rulesets = _load_sibling("coc_rulesets_intent_router", "coc_rulesets.py")
+
 
 # ---------------------------------------------------------------------------
 # Artifact contract for semantic intent evaluation
@@ -70,9 +84,7 @@ _PRIMARY_INTENT_ENUM = (
 def _load_time_category_enum() -> tuple[str, ...]:
     """Load exact structured time categories from the canonical rule catalog."""
     path = (
-        Path(__file__).resolve().parent.parent
-        / "references"
-        / "rules-json"
+        coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
         / "time-costs.json"
     )
     try:

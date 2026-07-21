@@ -5,7 +5,7 @@ OCR source: checks/ocr-cached/poisons.md
   * "Sample Poisons" rendered as a single HTML <table>.
   * Columns: Poison, Speed, Effect (1 dose), Notes.  11 poisons.
 
-Our data: plugins/coc-keeper/references/rules-json/poisons.json
+Our data: plugins/coc-keeper/rulesets/coc7/rules-json/poisons.json
   * poisons[name] = {delivery, damage_or_effect, onset, note}
 
 For each poison we compare four fields:
@@ -32,7 +32,7 @@ import re
 import sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD_PATH = Path("checks/ocr-cached/poisons.md")
 
 

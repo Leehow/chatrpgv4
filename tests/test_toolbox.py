@@ -42,6 +42,7 @@ coc_director_apply = _load(
 )
 
 EXPECTED_NAMESPACES = {
+    "setup",
     "rules",
     "combat",
     "chase",
@@ -62,6 +63,7 @@ EXPECTED_NAMESPACES = {
     "session",
     "state",
     "progressive",
+    "mechanics",
     "turn",
 }
 
@@ -211,7 +213,7 @@ def _first_contact_binding(
             "authored_or_relationship_boundary": "初次见面不会改写 NPC 的身份、立场或权限",
             "semantic_reason": "外表与信用只影响对方起初的接纳方式",
         },
-        "seed": 7,
+        "seed": 0,
         "decision_id": f"{key}-reaction",
     }
     if run_id is not None:
@@ -456,6 +458,55 @@ def test_describe_known_tool_returns_parameter_schema():
     assert "expression" in described["params"]
     assert described["params"]["expression"]["required"] is True
     assert described["params"]["expression"]["type"] == "string"
+
+
+def test_setup_tools_reuse_canonical_pre_session_gateway(tmp_path):
+    inspected = coc_toolbox.run_tool("setup.inspect", tmp_path, None, {})
+    assert inspected["ok"] is True, inspected
+    result = inspected["data"]["result"]
+    assert result["workspace_ready"] is False
+    haunting = next(
+        row for row in result["starters"]
+        if row["scenario_id"] == "the-haunting"
+    )
+    assert any(
+        row["pregen_id"] == "thomas-hayes"
+        for row in haunting["pregens"]
+    )
+
+    started = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            "scenario_id": "the-haunting",
+            "pregen_id": "thomas-hayes",
+            "campaign_id": "typed-setup",
+            "title": "Typed Setup",
+        },
+    )
+    assert started["ok"] is True, started
+    assert started["data"]["kind"] == "campaign.quick_start"
+    assert started["data"]["result"]["campaign_id"] == "typed-setup"
+    campaign = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "typed-setup" / "campaign.json")
+        .read_text(encoding="utf-8")
+    )
+    assert campaign["play_language"] == "zh-Hans"
+
+    unsupported = coc_toolbox.run_tool(
+        "setup.quick_start",
+        tmp_path,
+        None,
+        {
+            "scenario_id": "the-haunting",
+            "pregen_id": "thomas-hayes",
+            "play_language": "en",
+        },
+    )
+    assert unsupported["ok"] is False
+    assert unsupported["error"]["code"] == "invalid_param"
+    assert "play_language" in unsupported["error"]["message"]
 
 
 def test_describe_rules_roll_exposes_context_and_push_binding_contract():
@@ -2583,6 +2634,39 @@ def test_rules_luck_spend_is_idempotent_and_does_not_fabricate_roll(campaign_ws)
         if row.get("event_type") == "luck_spent"
     ]
     assert len(luck_events) == 1
+
+
+def test_rules_luck_spend_rejects_a_roll_after_turn_finalization(campaign_ws):
+    source = _run(campaign_ws, "rules.roll", {
+        "investigator": campaign_ws["investigator_id"],
+        "skill": "Library Use",
+        "target": 50,
+        "decision_id": "finalized-luck-source",
+        "seed": 88,
+    })
+    assert source["data"]["roll"] == 51
+    journaled = _run(campaign_ws, "state.journal", {
+        "summary": "调查员没有在本轮结算前花费幸运，尝试失败。",
+        "player_action": "完成一次失败的图书馆使用检定",
+        "intent_class": "investigate",
+        "decision_id": "finalized-luck-journal",
+    })
+    assert journaled["ok"] is True
+    finalized = _finalize_pending_turn_for_test(
+        campaign_ws, decision_id="finalized-luck-finalize"
+    )
+    assert finalized["ok"] is True
+
+    rejected = _run(campaign_ws, "rules.luck_spend", {
+        "investigator": campaign_ws["investigator_id"],
+        "source_roll_id": source["data"]["roll_id"],
+        "points": 1,
+        "decision_id": "too-late-luck-spend",
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_state"
+    assert "before turn.finalize" in rejected["error"]["message"]
 
 
 @pytest.mark.parametrize("receipt_state", ["crash_window", "completed"])
@@ -6087,6 +6171,125 @@ def test_contextual_authored_routes_prevent_false_rolls_and_settle_direct_handou
     assert len(roll_rows) == 1
 
 
+def test_npc_engagement_semantically_completes_access_route_without_extra_roll(
+    campaign_ws,
+):
+    _activate_newspaper_morgue(campaign_ws)
+    reaction = _run(campaign_ws, "npc.reaction", {
+        "npc_id": "npc-arty-wilmot",
+        "npc_display_name": "阿尔蒂·威尔莫特",
+        "investigator": campaign_ws["investigator_id"],
+        "context": {
+            "player_conduct": "调查员专业说明来意并尊重编辑室边界",
+            "scene_constraints": "阿尔蒂掌握地下剪报库的准入",
+            "authored_or_relationship_boundary": "放行不改变其守门人议程",
+            "semantic_reason": "首次接触决定即时准入摩擦",
+        },
+        "seed": 2,
+        "decision_id": "arty-alternate-access-reaction",
+    })
+    assert reaction["ok"] is True, reaction
+    engagement_card = reaction["data"]["record_engagement_operation"]
+    engagement = _run(campaign_ws, engagement_card["operation"], {
+        **engagement_card["prefilled_arguments"],
+        "interaction_kind": "assistance",
+        "decision_id": "arty-alternate-access-engagement",
+        "first_impression_realization": {
+            "observable_manner": "阿尔蒂收起拒人的架势，朝地下室门一抬下巴",
+            "causal_explanation": "专业而克制的初见让他把调查员当成可放行的正经访客",
+            "boundary_preserved": "他仍守着编辑室与未刊材料的权限边界",
+            "opportunity_or_friction": "他允许进入剪报库并指名露丝按名调档",
+        },
+        "route_completion": {
+            "scene_id": "newspaper-morgue",
+            "route_id": "persuade-arty",
+            "semantic_reason": "阿尔蒂已在本次有来源的首次接触中明确放行",
+        },
+    })
+    assert engagement["ok"] is True, engagement
+    assert any("persuade-arty" in hint for hint in engagement["hints"])
+
+    world = json.loads((
+        campaign_ws["campaign_dir"] / "save" / "world-state.json"
+    ).read_text(encoding="utf-8"))
+    route_receipt = next(
+        row for row in world["route_completion_receipts"]
+        if row["route_id"] == "persuade-arty"
+    )
+    assert route_receipt["status"] == "consumed"
+    assert route_receipt["completion_quality"] == "keeper_judgment"
+    assert route_receipt["hard_gate"] is False
+    assert route_receipt["semantic_reason"].startswith("阿尔蒂已")
+
+    context = _run(campaign_ws, "scene.context")
+    routes = {row["route_id"]: row for row in context["data"]["action_routes"]}
+    assert "persuade-arty" not in routes
+    assert routes["search-clippings"]["resolution_kind"] == "direct_delivery"
+    advised = _run(campaign_ws, "actions.advise", {
+        "intent_evidence": {
+            "primary_intent": "search_clippings",
+            "reason": "玩家已获准入并明确按地址翻查剪报",
+            "matched_affordance_ids": ["search-clippings"],
+        },
+    })
+    assert advised["ok"] is True, advised
+    assert [
+        row["operation"]
+        for row in advised["data"]["resolution_advice"]["operation_opportunities"]
+    ] == ["state.record_clue", "state.record_clue"]
+
+
+def test_route_completion_repairs_older_structured_evidence_without_save_edit(
+    campaign_ws,
+):
+    _activate_newspaper_morgue(campaign_ws)
+    reaction = _run(campaign_ws, "npc.reaction", {
+        "npc_id": "npc-arty-wilmot",
+        "npc_display_name": "阿尔蒂·威尔莫特",
+        "investigator": campaign_ws["investigator_id"],
+        "context": {
+            "player_conduct": "调查员清楚说明来意",
+            "scene_constraints": "阿尔蒂掌握剪报库准入",
+            "authored_or_relationship_boundary": "准入不等于交出编辑室秘密",
+            "semantic_reason": "首次接触影响当场放行机会",
+        },
+        "seed": 2,
+        "decision_id": "legacy-arty-reaction",
+    })
+    assert reaction["ok"] is True, reaction
+    repaired = _run(campaign_ws, "state.record_route_completion", {
+        "scene_id": "newspaper-morgue",
+        "route_id": "persuade-arty",
+        "semantic_reason": "既有初印象收据已由 KP 在桌面实现为阿尔蒂明确放行",
+        "evidence_ref": reaction["data"]["first_impression_ref"],
+        "decision_id": "repair-legacy-arty-access-route",
+    })
+    assert repaired["ok"] is True, repaired
+    assert repaired["data"]["completed"] is True
+    receipt = repaired["data"]["route_completion"]
+    assert receipt["route_id"] == "persuade-arty"
+    assert receipt["completion_quality"] == "keeper_judgment"
+    assert receipt["evidence_ref"] == reaction["data"]["first_impression_ref"]
+    assert repaired["data"]["next_operation"] == {
+        "operation": "scene.context",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": {},
+        "missing_arguments": [],
+        "reason": (
+            "Refresh the bounded active-scene route index after recording "
+            "this campaign-local semantic completion."
+        ),
+        "hard_gate": False,
+    }
+    assert _run(campaign_ws, "state.record_route_completion", {
+        "scene_id": "newspaper-morgue",
+        "route_id": "persuade-arty",
+        "semantic_reason": "既有初印象收据已由 KP 在桌面实现为阿尔蒂明确放行",
+        "evidence_ref": reaction["data"]["first_impression_ref"],
+        "decision_id": "repair-legacy-arty-access-route",
+    })["data"] == repaired["data"]
+
+
 def test_same_attempt_retry_is_soft_advice_and_survives_resume(campaign_ws):
     _activate_newspaper_morgue(campaign_ws)
     story_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
@@ -6202,7 +6405,27 @@ def test_actions_advise_combines_stable_storylet_and_adoption_updates_ledger(
     opportunity = first["data"]["narrative_opportunity"]
     assert opportunity is not None
     assert opportunity["hard_gate"] is False
+    assert opportunity["candidate_ref"].startswith("storylet-candidate-v1:")
+    assert opportunity["adoption_operation"]["prefilled_arguments"] == {
+        "advice_id": opportunity["advice_id"],
+        "candidate_ref": opportunity["candidate_ref"],
+    }
     assert opportunity == second["data"]["narrative_opportunity"]
+
+    ctx = coc_toolbox.Ctx(campaign_ws["workspace"], campaign_ws["campaign_id"])
+    legacy = coc_toolbox._normalize_finalized_advisory_uptake(
+        ctx,
+        {
+            "advice_id": opportunity["advice_id"],
+            "disposition": "modified",
+            "reason": "兼容旧宿主的完整候选输入。",
+            "adopted_fields": ["candidate.cue"],
+            "storylet_candidate": opportunity["candidate"],
+            "exact_excerpt": "兼容候选",
+        },
+        draft="兼容候选",
+    )
+    assert legacy["candidate_ref"] == opportunity["candidate_ref"]
 
     journal = _run(campaign_ws, "state.journal", {
         "summary": "调查员继续核对资料，同时留意环境变化。",
@@ -6225,7 +6448,7 @@ def test_actions_advise_combines_stable_storylet_and_adoption_updates_ledger(
             "disposition": "modified",
             "reason": "保留世界主动变化的功能，并改写成当前场景可直接听见的报童叫卖。",
             "adopted_fields": ["candidate.cue", "candidate.beat"],
-            "storylet_candidate": opportunity["candidate"],
+            "candidate_ref": opportunity["candidate_ref"],
             "exact_excerpt": excerpt,
         },
     })
@@ -8189,6 +8412,97 @@ def test_combat_tool_persists_reloadable_session_and_public_rolls(campaign_ws):
     assert any(row["roll_id"] not in prior_roll_ids for row in all_rolls)
 
 
+def test_attack_present_improvised_npc_uses_frozen_mechanics(campaign_ws):
+    context = _run(campaign_ws, "scene.context")
+    scene_id = context["data"]["active_scene_id"]
+    npc_id = "npc-improvised-enforcer"
+    placed = _run(campaign_ws, "state.npc_presence", {
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "status": "present",
+        "reason": "the enforcer stepped into the room",
+        "decision_id": "place-improvised-enforcer",
+    })
+    assert placed["ok"] is True, placed
+    generated = _run(campaign_ws, "mechanics.ensure", {
+        "subject_kind": "npc",
+        "subject_id": npc_id,
+        "purpose": "combat",
+        "fallback_archetype_id": "dangerous_actor",
+        "label": "打手",
+        "decision_id": "generate-improvised-enforcer",
+    })
+    assert generated["ok"] is True, generated
+    assert generated["data"]["authority"] == "campaign_generated"
+
+    result = _run(campaign_ws, "combat.resolve", {
+        "target_npc_id": npc_id,
+        "investigator": campaign_ws["investigator_id"],
+        "weapon_id": "unarmed",
+        "decision_id": "attack-improvised-enforcer",
+        "seed": 73,
+    })
+
+    assert result["ok"] is True, result
+    actors = {
+        row["actor_id"] for row in result["data"]["combat"]["participants"]
+    }
+    assert npc_id in actors
+
+
+def test_authored_weapon_effect_reaches_deterministic_combat_damage(campaign_ws):
+    granted = _run(campaign_ws, "state.item_grant", {
+        "investigator": campaign_ws["investigator_id"],
+        "kind": "weapon",
+        "label": "受祝仪式刀",
+        "weapon": {
+            "weapon_id": "module:blessed-knife",
+            "extends": "knife_medium",
+            "effects": [{
+                "effect_id": "double-vs-corbitt",
+                "resolution": "combat_damage_multiplier",
+                "applicability": {"target_ids": ["walter-corbitt"]},
+                "multiplier": 2,
+            }],
+        },
+        "decision_id": "grant-blessed-knife",
+    })
+    assert granted["ok"] is True, granted
+    moved = _run(campaign_ws, "state.move_scene", {
+        "scene_id": "corbitt-confrontation",
+        "decision_id": "move-special-weapon-combat",
+    })
+    assert moved["ok"] is True, moved
+
+    resolved = _run(campaign_ws, "combat.resolve", {
+        "affordance_id": "conventional-assault",
+        "investigator": campaign_ws["investigator_id"],
+        "weapon_id": "module:blessed-knife",
+        "weapon_effect_ids": ["double-vs-corbitt"],
+        "decision_id": "special-weapon-combat",
+        "seed": 0,
+    })
+
+    assert resolved["ok"] is True, resolved
+    affected = [
+        row for row in resolved["data"]["combat"]["damage_chain"]
+        if "double-vs-corbitt" in row.get("weapon_effect_ids", [])
+    ]
+    assert affected
+    assert affected[0]["damage_multiplier"] == 2
+    assert affected[0]["raw_damage"] >= affected[0]["rolled_total"] * 2
+    reloaded = coc_toolbox.coc_subsystem_executor.coc_combat.CombatSession.load(
+        campaign_ws["campaign_dir"], rng=random.Random(99),
+        damage_evidence=coc_toolbox.coc_subsystem_executor.load_combat_damage_evidence(
+            campaign_ws["campaign_dir"]
+        ),
+        damage_evidence_actor=campaign_ws["investigator_id"],
+    )
+    assert reloaded.damage_chain[-1]["weapon_effect_ids"] == [
+        "double-vs-corbitt"
+    ]
+
+
 def test_combat_tool_routes_owned_firearm_without_illegal_melee_defense(campaign_ws):
     moved = _run(
         campaign_ws,
@@ -8980,6 +9294,20 @@ def test_npc_reaction_is_public_deterministic_and_npc_bound(campaign_ws):
     assert data["governing_value"] == max(data["app"], data["credit_rating"])
     assert data["roll_record"]["visibility"] == "public"
     assert data["reaction_tier"]
+    engagement = data["record_engagement_operation"]
+    assert engagement["operation"] == "state.record_npc_engagement"
+    assert engagement["prefilled_arguments"] == {
+        "npc_id": "npc-test-clerk",
+        "investigator": campaign_ws["investigator_id"],
+        "first_impression_ref": data["receipt_id"],
+        "run_id": data["run_id"],
+    }
+    assert engagement["missing_arguments"] == [
+        "interaction_kind",
+        "decision_id",
+        "first_impression_realization",
+    ]
+    assert engagement["hard_gate"] is False
     # The public first-impression die is written exactly once.
     rolls_log = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
     matching = [
@@ -8999,7 +9327,244 @@ def test_npc_reaction_is_public_deterministic_and_npc_bound(campaign_ws):
     assert bound["data"]["npc_id"] == npc_id
 
 
+def test_table_opening_accepts_empty_presented_roll_ids(campaign_ws):
+    narrative = "[in_game]\n没有初见 NPC 的自由开场。\n[/in_game]"
+    opening = _run(
+        campaign_ws,
+        "evidence.table_opening",
+        {
+            "text": narrative,
+            "run_id": "empty-opening-run",
+            "presented_roll_ids": [],
+            "decision_id": "empty-opening-evidence",
+        },
+    )
+
+    assert opening["ok"] is True, opening
+    assert opening["data"]["text"] == narrative
+    assert opening["data"]["presented_roll_ids"] == []
+
+
+def test_table_opening_boundary_recovers_earliest_logged_row_after_interruption(
+    campaign_ws, monkeypatch
+):
+    original_complete = (
+        coc_toolbox.coc_turn_manifest.complete_table_opening_boundary
+    )
+    interrupted = False
+
+    def interrupt_once(*args, **kwargs):
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise coc_toolbox.coc_turn_manifest.TurnManifestError(
+                "simulated_interruption", "simulated post-log interruption"
+            )
+        return original_complete(*args, **kwargs)
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_turn_manifest,
+        "complete_table_opening_boundary",
+        interrupt_once,
+    )
+    opening_args = {
+        "text": "[in_game]\n恢复测试开场。\n[/in_game]",
+        "run_id": "opening-recovery-run",
+        "presented_roll_ids": [],
+        "decision_id": "opening-recovery-evidence",
+    }
+    opening = _run(campaign_ws, "evidence.table_opening", opening_args)
+    assert opening["ok"] is True, opening
+    assert any("pre-turn source boundary" in warning for warning in opening["warnings"])
+    cursor_path = (
+        campaign_ws["campaign_dir"] / "save" / "turn-source-cursor.json"
+    )
+    assert not cursor_path.exists()
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_turn_manifest,
+        "complete_table_opening_boundary",
+        original_complete,
+    )
+    later_roll = _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {
+            "expression": "1D6",
+            "seed": 23,
+            "decision_id": "post-interruption-player-roll",
+        },
+    )
+    assert later_roll["ok"] is True, later_roll
+    calls = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    )
+    earliest_opening_index = next(
+        index
+        for index, row in enumerate(calls)
+        if row.get("tool") == "evidence.table_opening" and row.get("ok") is True
+    )
+    cursor = json.loads(cursor_path.read_text(encoding="utf-8"))
+    assert cursor["next_source_index"] == earliest_opening_index + 1
+
+    cursor_before_replay = cursor_path.read_bytes()
+    replay = _run(campaign_ws, "evidence.table_opening", opening_args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == opening["data"]
+    assert cursor_path.read_bytes() == cursor_before_replay
+
+
+def test_table_opening_renders_bound_rolls_and_closes_setup_source_prefix(
+    campaign_ws,
+):
+    investigator_id = "credit-focused-investigator"
+    source_sheet = coc_toolbox.Ctx(
+        campaign_ws["workspace"], campaign_ws["campaign_id"]
+    ).sheet(campaign_ws["investigator_id"])
+    sheet = deepcopy(source_sheet)
+    sheet["id"] = investigator_id
+    sheet["name"] = "信用调查员"
+    sheet["characteristics"]["APP"] = 40
+    sheet["skills"]["Credit Rating"] = 70
+    sheet["credit_rating"] = 70
+    coc_state.create_investigator(campaign_ws["workspace"], investigator_id, sheet)
+    coc_state.link_party(
+        campaign_ws["workspace"],
+        campaign_ws["campaign_id"],
+        [campaign_ws["investigator_id"], investigator_id],
+    )
+
+    setup_roll_ids = []
+    for index, (expression, seed) in enumerate(
+        (("3D6", 1), ("1D100", 2), ("1D10", 3)), start=1
+    ):
+        setup = _run(
+            campaign_ws,
+            "rules.roll_dice",
+            {
+                "expression": expression,
+                "reason": f"pre-table source {index}",
+                "seed": seed,
+                "decision_id": f"pre-table-roll-{index}",
+            },
+        )
+        assert setup["ok"] is True, setup
+        setup_roll_ids.append(setup["data"]["roll_id"])
+
+    run_id = "canonical-opening-run"
+
+    def first_impression(npc_id: str, display_name: str, seed: int) -> dict:
+        reaction = _run(
+            campaign_ws,
+            "npc.reaction",
+            {
+                "npc_id": npc_id,
+                "npc_display_name": display_name,
+                "investigator": investigator_id,
+                "run_id": run_id,
+                "context": {
+                    "player_conduct": "调查员平静说明来意",
+                    "scene_constraints": "对方仍保有自己的职责与边界",
+                    "authored_or_relationship_boundary": "双方初次见面且没有既有关系",
+                    "semantic_reason": "外表与信用只影响最初接纳方式",
+                },
+                "seed": seed,
+                "decision_id": f"opening-reaction-{npc_id}",
+            },
+        )
+        assert reaction["ok"] is True, reaction
+        assert reaction["data"]["app"] == 40
+        assert reaction["data"]["credit_rating"] == 70
+        assert reaction["data"]["governing_attribute"] == "credit_rating"
+        return reaction
+
+    first = first_impression("npc-opening-one", "开场人物甲", 7)
+    second = first_impression("npc-opening-two", "开场人物乙", 11)
+    opening_roll_ids = [first["data"]["roll_id"], second["data"]["roll_id"]]
+    narrative = "[in_game]\n开场叙事仍由 KP 自由书写。\n\n你要做什么？\n[/in_game]"
+    opening_args = {
+        "text": narrative,
+        "run_id": run_id,
+        "presented_roll_ids": opening_roll_ids,
+        "decision_id": "canonical-opening-evidence",
+    }
+    opening = _run(campaign_ws, "evidence.table_opening", opening_args)
+    assert opening["ok"] is True, opening
+    exact_text = opening["data"]["text"]
+    expected_lines = [
+        coc_toolbox.coc_turn_finalization._render_public_roll(
+            reaction["data"]["roll_record"], play_language="zh-Hans"
+        )
+        for reaction in (first, second)
+    ]
+    assert opening["data"]["presented_roll_ids"] == opening_roll_ids
+    assert "开场叙事仍由 KP 自由书写。" in exact_text
+    assert "[roll]" in exact_text and "[/roll]" in exact_text
+    for expected in expected_lines:
+        assert exact_text.count(expected) == 1
+        assert exact_text.index(expected) < exact_text.index("[/in_game]")
+    assert "外貌 40 / 信用评级 70；采用信用评级 70" in expected_lines[0]
+
+    calls = _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "toolbox-calls.jsonl"
+    )
+    opening_index = next(
+        index
+        for index, row in enumerate(calls)
+        if row.get("tool") == "evidence.table_opening" and row.get("ok") is True
+    )
+    cursor_path = (
+        campaign_ws["campaign_dir"] / "save" / "turn-source-cursor.json"
+    )
+    cursor_after_opening = json.loads(cursor_path.read_text(encoding="utf-8"))
+    assert cursor_after_opening["next_source_index"] == opening_index + 1
+    assert cursor_after_opening["last_finalization_id"] is None
+
+    new_roll = _run(
+        campaign_ws,
+        "rules.roll_dice",
+        {
+            "expression": "1D6",
+            "reason": "the first genuine player turn",
+            "seed": 19,
+            "decision_id": "first-player-turn-roll",
+        },
+    )
+    assert new_roll["ok"] is True, new_roll
+    cursor_before_replay = cursor_path.read_bytes()
+    replay = _run(campaign_ws, "evidence.table_opening", opening_args)
+    assert replay["ok"] is True, replay
+    assert replay["data"] == opening["data"]
+    assert cursor_path.read_bytes() == cursor_before_replay
+
+    journal = _run(
+        campaign_ws,
+        "state.journal",
+        {
+            "summary": "首个真实玩家回合完成。",
+            "player_text": "我开始行动。",
+            "decision_id": "first-player-turn-journal",
+        },
+    )
+    assert journal["ok"] is True, journal
+    context = _run(campaign_ws, "turn.output_context")
+    assert context["ok"] is True, context
+    assert context["data"]["source_roll_ids"] == [new_roll["data"]["roll_id"]]
+    public_ids = {
+        row["roll_id"]
+        for row in context["data"]["mechanics_bundle"]["public_check"]
+    }
+    assert public_ids == {new_roll["data"]["roll_id"]}
+    assert not (set(setup_roll_ids) | set(opening_roll_ids)) & public_ids
+
+
 def test_scene_context_exposes_party_investigator_briefs(campaign_ws):
+    ctx = coc_toolbox.Ctx(
+        campaign_ws["workspace"], campaign_ws["campaign_id"]
+    )
+    state = ctx.inv_state(campaign_ws["investigator_id"])
+    state["current_luck"] = 17
+    ctx.save_inv_state(campaign_ws["investigator_id"], state)
     context = _run(campaign_ws, "scene.context")
     assert context["ok"] is True
     data = context["data"]
@@ -9017,6 +9582,7 @@ def test_scene_context_exposes_party_investigator_briefs(campaign_ws):
     }
     assert "build" in brief
     assert "mov" in brief
+    assert brief["luck"] == 17
     assert set(brief["madness"]) >= {
         "bout_active", "temporary_insane", "indefinite_insane", "delusion_active",
     }
@@ -9125,3 +9691,2629 @@ def test_first_impression_hint_on_npc_query_and_engagement(campaign_ws):
     queried_after = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
     assert queried_after["ok"] is True
     assert not any("first impression" in hint for hint in queried_after["hints"])
+
+
+# --- progressive semantic contract (opening-bridge) ---
+
+
+def test_progressive_clue_roll_gate_uses_discovery_mode_not_skill_presence():
+    """Automatic discovery is never roll-gated; check mode is; starters remain."""
+    automatic = {
+        "clue_id": "archive-history",
+        "delivery_kind": "obvious",
+        "skill": "Library Use",
+        "discovery": {"mode": "automatic", "skill": None, "difficulty": None},
+    }
+    check = {
+        "clue_id": "locked-diary",
+        "delivery_kind": "obvious",
+        "discovery": {
+            "mode": "check",
+            "skill": "Spot Hidden",
+            "difficulty": "regular",
+        },
+    }
+    starter = {
+        "clue_id": "starter-check",
+        "delivery_kind": "skill_check",
+        "skill": "Library Use",
+        "difficulty": "regular",
+    }
+    assert coc_toolbox._clue_is_roll_gated(automatic) is False
+    assert coc_toolbox._clue_is_roll_gated(check) is True
+    assert coc_toolbox._clue_is_roll_gated(starter) is True
+    assert coc_toolbox._clue_roll_gate_skills(check) == ["Spot Hidden"]
+    assert coc_toolbox._clue_roll_gate_skills(starter) == ["Library Use"]
+
+
+def test_progressive_fulfill_resolve_mechanics_preserves_narrative_depth(tmp_path: Path):
+    """resolve_* fulfillment merges mechanics only and does not force deep."""
+    from datetime import datetime, timedelta, timezone
+
+    assets = _load("coc_module_assets_toolbox_prog", SCRIPTS / "coc_module_assets.py")
+    project = _load("coc_module_project_toolbox_prog", SCRIPTS / "coc_module_project.py")
+    mechanics = _load("coc_mechanics_toolbox_prog", SCRIPTS / "coc_mechanics.py")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    asset_root = "prog-mech"
+    pdf = workspace / "prog-mech.pdf"
+    pdf.write_bytes(b"%PDF mechanics fulfillment fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    bundle = workspace / "prog-mech-source"
+    bundle.mkdir()
+    page_bytes = b"# Appendix\n\nAuthored subject mechanics.\n"
+    (bundle / "page-0003.md").write_bytes(page_bytes)
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:prog-mech",
+            "title": "Progressive Mechanics",
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": 4,
+        },
+        "pages": [{
+            "pdf_index": 3,
+            "markdown_path": "page-0003.md",
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.99,
+            "grep_anchors": ["Authored subject mechanics."],
+        }],
+    }), encoding="utf-8")
+    assets.register_source_bundle(
+        workspace,
+        bundle,
+        asset_root_id=asset_root,
+        module_identity={"canonical_module_id": asset_root},
+    )
+    assets.put_entity(workspace, asset_root, "npc", "npc-subject", {
+        "npc_id": "npc-subject",
+        "name": "Subject",
+        "display_name": "Subject",
+        "parse_state": "body_parsed",
+        "source_page_indices": [3],
+        "agenda": "Keeps watch over the archive.",
+        "origin": "source",
+        "mechanics": {"status": "unresolved"},
+    })
+    now = datetime.now(timezone.utc)
+    job_id = "job-resolve-npc-subject"
+    host_dir = workspace / ".coc" / "module-assets" / asset_root / "host-work"
+    host_dir.mkdir(parents=True, exist_ok=True)
+    (host_dir / f"{job_id}.json").write_text(json.dumps({
+        "schema_version": 1,
+        "job_id": job_id,
+        "kind": "resolve_npc_mechanics",
+        "target_id": "npc-subject",
+        "status": "open",
+        "dispatch_state": "leased",
+        "leased_at": now.isoformat(),
+        "lease_expires_at": (now + timedelta(minutes=10)).isoformat(),
+        "requested_pdf_indices": [3],
+        "cached_page_refs": [{
+            "source_id": "pdf:prog-mech",
+            "pdf_index": 3,
+            "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+        }],
+        "batch_subjects": [],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    campaign_id = "prog-camp"
+    camp = workspace / ".coc" / "campaigns" / campaign_id
+    camp.mkdir(parents=True)
+    (camp / "campaign.json").write_text(json.dumps({
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "title": "Prog",
+        "status": "active",
+        "play_language": "zh-Hans",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    scenario = camp / "scenario"
+    scenario.mkdir(exist_ok=True)
+    (scenario / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "progressive_asset_root_id": asset_root,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    for name, payload in {
+        "module-meta.json": {
+            "schema_version": 1,
+            "progressive": True,
+            "scenario_id": asset_root,
+            "module_identity": {"canonical_module_id": asset_root},
+        },
+        "story-graph.json": {"schema_version": 1, "scenes": []},
+        "clue-graph.json": {"schema_version": 1, "conclusions": []},
+        "npc-agendas.json": {"schema_version": 1, "npcs": []},
+        "timeline.json": {"schema_version": 1},
+        "threat-clocks.json": {"schema_version": 1},
+        "handouts.json": {"schema_version": 1},
+    }.items():
+        (scenario / name).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+    assert project.campaign_asset_root_id(camp) == asset_root
+
+    extracted = {
+        "characteristics.STR", "characteristics.CON", "characteristics.SIZ",
+        "characteristics.DEX", "characteristics.POW",
+        "derived.HP", "derived.MP", "derived.SAN", "derived.MOV", "derived.Build",
+        "skills", "weapons",
+    }
+    observed = sorted(extracted)
+    not_authored = sorted(mechanics.ACTOR_FIELD_IDS - extracted)
+    pack = {
+        "mechanics": {
+            "status": "authored",
+            "source_refs": [{
+                "source_id": "pdf:prog-mech",
+                "pdf_index": 3,
+                "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
+            }],
+            "fields_observed": observed,
+            "fields_extracted": observed,
+            "fields_not_authored": not_authored,
+            "provenance": {"authority": "source_authored"},
+            "profile": {
+                "profile_kind": "actor",
+                "characteristic_scale": "percentile",
+                "characteristics": {
+                    "STR": 60, "CON": 55, "SIZ": 60, "DEX": 50, "POW": 45,
+                },
+                "derived": {"HP": 11, "MP": 9, "SAN": 45, "MOV": 8, "Build": 1},
+                "skills": {"Fighting (Brawl)": 45, "Dodge": 25},
+                "weapons": [{"weapon_id": "unarmed", "extends": "unarmed"}],
+            },
+        }
+    }
+    result = coc_toolbox.run_tool(
+        "progressive.fulfill_host_work",
+        workspace,
+        campaign_id,
+        {"job_id": job_id, "pack": pack},
+    )
+    assert result["ok"] is True, result
+    stored = assets.get_entity(workspace, asset_root, "npc", "npc-subject")
+    assert stored is not None
+    assert stored["parse_state"] == "body_parsed"
+    assert stored["mechanics"]["status"] == "authored"
+    assert stored.get("agenda") == "Keeps watch over the archive."
+
+
+def _opening_component_workspace(
+    tmp_path: Path,
+    *,
+    extra_pdf_indices: tuple[int, ...] = (),
+) -> dict:
+    workspace = tmp_path / "opening-workspace"
+    campaign_id = "opening-component"
+    coc_state.create_campaign(
+        workspace, campaign_id, "Opening Component", play_language="zh-Hans",
+    )
+    pdf = workspace / "opening-module.pdf"
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    pdf.write_bytes(b"%PDF opening component fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    bundle = workspace / "opening-source"
+    bundle.mkdir()
+    page_indices = [0, *extra_pdf_indices]
+    pages = []
+    for pdf_index in page_indices:
+        page = (
+            "# Opening\n\nA bounded authored opening.\n"
+            if pdf_index == 0
+            else f"# Appendix {pdf_index}\n\nAccepted extra source page.\n"
+        ).encode()
+        markdown_path = f"page-{pdf_index:04d}.md"
+        (bundle / markdown_path).write_bytes(page)
+        pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": markdown_path,
+            "text_sha256": hashlib.sha256(page).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.99,
+            "grep_anchors": [
+                "A bounded authored opening."
+                if pdf_index == 0 else "Accepted extra source page."
+            ],
+        })
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:opening-component",
+            "title": "Opening Component",
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": max(page_indices) + 1,
+        },
+        "pages": pages,
+    }), encoding="utf-8")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    registration = assets.register_source_bundle(
+        workspace,
+        bundle,
+        asset_root_id="opening-component",
+        module_identity={"canonical_module_id": "opening-component"},
+    )
+    identity = json.loads(
+        (
+            workspace / ".coc" / "module-assets" / "opening-component"
+            / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    scenario = (
+        json.loads(scenario_path.read_text(encoding="utf-8"))
+        if scenario_path.is_file() else {"schema_version": 1}
+    )
+    scenario.update({
+        "source_cache_asset_root_id": "opening-component",
+        "source": {
+            **identity["source"],
+            "bundle_sha256": registration["bundle_sha256"],
+        },
+    })
+    _write_json(scenario_path, scenario)
+    skeleton = {
+        "schema_version": 1,
+        "parse_tier": 1,
+        "module_identity": {
+            "canonical_module_id": "opening-component",
+            "canonical_title": "Opening Component",
+        },
+        "structure_type": "branching_investigation",
+        "source": identity["source"],
+        "start_candidates": ["opening"],
+        "finale_buckets": [
+            {"id": "end", "title": "End", "importance": "critical"},
+        ],
+        "locations": [{
+            "location_id": "opening",
+            "title": "Opening",
+            "parse_state": "toc_only",
+            "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+        }],
+        "edges_provisional": [],
+        "npc_roster": [],
+        "handouts": [],
+        "threats": [],
+        "conclusion_buckets": [],
+        "mechanics_locator_pass_status": "pending",
+        "start_clock_status": "unresolved",
+    }
+    return {
+        "workspace": workspace,
+        "campaign_id": campaign_id,
+        "campaign_dir": campaign_dir,
+        "asset_root_id": "opening-component",
+        "file_sha256": file_sha,
+        "skeleton": skeleton,
+    }
+
+
+def _opening_component_pack(**overrides) -> dict:
+    pack = {
+        "location_id": "opening",
+        "title": "Opening",
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "source_page_indices": [0],
+        "player_safe_summary": "A bounded player-safe opening.",
+        "dramatic_question": "What will the investigators do?",
+        "scene_type": "investigation",
+        "available_clue_ids": [],
+        "npc_ids": [],
+        "clues": [],
+        "npcs": [],
+        "keeper_secret_refs": [],
+        "scene_edges": [],
+        "affordances": [{
+            "id": "inspect",
+            "cue": "Inspect the room",
+            "route_type": "investigative_lead",
+            "status": "open",
+        }],
+        "pressure_moves": [],
+        "tone": ["quiet"],
+    }
+    pack.update(overrides)
+    return pack
+
+
+def _publish_and_project_opening_component(ws: dict, *, pack: dict | None = None):
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "opening",
+        pack or _opening_component_pack(),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    return published, projected
+
+
+def test_prepare_opening_is_strict_read_only_and_skips_recovery(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    spec = coc_toolbox.TOOLS["progressive.prepare_opening"]
+    assert spec["access"] == "query"
+    assert spec["write_domains"] == ()
+    assert spec["recovery_domains"] == ()
+    assert spec["response_mode"] == "full"
+    assert spec["audit_mode"] == "reference"
+    assert spec["strict_read_only"] is True
+    with pytest.raises(ValueError, match="strict_read_only requires"):
+        coc_toolbox.tool(
+            "test.invalid_strict_query",
+            "invalid",
+            {},
+            access="query",
+            write_domains=(),
+            recovery_domains=None,
+            response_mode="full",
+            audit_mode="reference",
+            strict_read_only=True,
+        )
+
+    ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
+    before = _game_file_bytes(ws["workspace"])
+    data, _warnings, _hints = spec["handler"](ctx, {})
+    assert data["opening_ready"] is False
+    assert data["skeleton_ready"] is False
+    assert data["mutation_cards"][0]["operation"] == (
+        "progressive.publish_skeleton"
+    )
+    assert data["blocking"] == [{
+        "code": "opening_skeleton_missing",
+        "entity_id": ws["asset_root_id"],
+    }]
+    assert data["hard_work"] == []
+    assert data["opening_page_candidates"] == [{
+        "pdf_index": 0,
+        "review_state": "manual_accepted",
+        "parse_confidence": 0.99,
+        "grep_anchor_preview": "A bounded authored opening.",
+    }]
+    assert data["opening_page_candidate_total"] == 1
+    assert data["opening_page_candidate_complete"] is True
+    assert data["opening_page_candidate_role"] == (
+        "selection_hint_only_not_provenance"
+    )
+    skeleton_contract = data["mutation_cards"][0][
+        "skeleton_argument_contract"
+    ]
+    assert skeleton_contract["contract_id"] == (
+        "coc.progressive-opening-skeleton-argument.v1"
+    )
+    assert skeleton_contract["closed"] is True
+    template = skeleton_contract["prefilled_template"]
+    assert template == {
+        "schema_version": 1,
+        "parse_tier": 1,
+        "source": {
+            "source_id": "pdf:opening-component",
+            "file_sha256": ws["file_sha256"],
+            "page_count": 1,
+            "producer": "codex-pdf-skill",
+        },
+        "start_candidates": ["<source-grounded-location-id>"],
+        "locations": [{
+            "location_id": "<same-start-location-id>",
+            "title": "<source-grounded-title>",
+            "parse_state": "toc_only",
+        }],
+        "mechanics_locator_pass_status": "pending",
+        "mechanics_index": [],
+        "start_clock_status": "unresolved",
+    }
+    assert skeleton_contract["first_submission_guidance"] == {
+        "authority": "advisory",
+        "hard_gate": False,
+        "copy_prefilled_template": True,
+        "replace_placeholders_only": True,
+        "omit_optional_source_evidenced_fields": True,
+    }
+    assert skeleton_contract["required_fields"] == [
+        "schema_version",
+        "parse_tier",
+        "source",
+        "start_candidates",
+        "locations",
+        "mechanics_locator_pass_status",
+        "start_clock_status",
+    ]
+    assert set(skeleton_contract["location_parse_state_enum"]) == (
+        coc_toolbox.coc_module_project.coc_module_assets.PARSE_STATES
+    )
+    assert "mechanics_index" not in skeleton_contract[
+        "optional_source_evidenced_fields"
+    ]
+    selected_data, _warnings, _hints = spec["handler"](
+        ctx, {"opening_pdf_indices": [0]},
+    )
+    assert selected_data["skeleton_ready"] is False
+    assert selected_data["source_window_ready"] is True
+    assert selected_data["source_window"] == [0]
+    assert selected_data["window_origin"] == "host_selected_pre_skeleton"
+    assert "opening_page_candidates" not in selected_data
+    assert selected_data["blocking"] == [{
+        "code": "opening_skeleton_missing",
+        "entity_id": ws["asset_root_id"],
+    }]
+    assert selected_data["ownership"]["semantic_model"] is False
+    assert selected_data["ownership"]["player_action_gate"] is False
+    assert len(selected_data["cached_page_refs"]) == 1
+    selected_ref = selected_data["cached_page_refs"][0]
+    assert selected_ref["source_id"] == "pdf:opening-component"
+    assert selected_ref["pdf_index"] == 0
+    assert len(selected_ref["text_sha256"]) == 64
+    assert selected_ref["review_state"] == "manual_accepted"
+    assert selected_ref["parse_confidence"] == 0.99
+    assert selected_ref["path"] == str(
+        ws["workspace"] / ".coc" / "module-assets"
+        / ws["asset_root_id"] / "pages" / "0000.md"
+    )
+    assert selected_data["mutation_cards"][0]["operation"] == (
+        "progressive.publish_skeleton"
+    )
+    assert _game_file_bytes(ws["workspace"]) == before
+
+    recovery_calls = []
+    monkeypatch.setattr(
+        coc_toolbox.coc_runtime_ops,
+        "recover_development_transactions",
+        lambda *_args, **_kwargs: recovery_calls.append(True),
+    )
+    module_root = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    module_before = {
+        path.relative_to(module_root): path.read_bytes()
+        for path in module_root.rglob("*") if path.is_file()
+    }
+    result = _run(ws, "progressive.prepare_opening")
+    assert result["ok"] is True
+    assert recovery_calls == []
+    module_after = {
+        path.relative_to(module_root): path.read_bytes()
+        for path in module_root.rglob("*") if path.is_file()
+    }
+    assert module_after == module_before
+    assert not list(ws["campaign_dir"].rglob("*.lock"))
+
+
+def test_missing_skeleton_page_catalog_is_complete_bounded_and_fail_closed(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(
+        tmp_path, extra_pdf_indices=tuple(range(1, 32)),
+    )
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    data = prepared["data"]
+    assert data["opening_page_candidate_total"] == 32
+    assert data["opening_page_candidate_complete"] is True
+    assert len(data["opening_page_candidates"]) == 32
+    assert [
+        row["pdf_index"] for row in data["opening_page_candidates"]
+    ] == list(range(32))
+    candidate_preview_limit = (
+        coc_toolbox.coc_module_project.coc_module_assets
+        .OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES
+    )
+    assert all(
+        len(row["grep_anchor_preview"].encode("utf-8"))
+        <= candidate_preview_limit
+        for row in data["opening_page_candidates"]
+    )
+    assert data["encoded_data_bytes"] <= data["encoded_data_budget_bytes"]
+    assert any(
+        card["operation"] == "progressive.publish_skeleton"
+        for card in data["mutation_cards"]
+    )
+    assert data["blocking"] == [{
+        "code": "opening_skeleton_missing",
+        "entity_id": ws["asset_root_id"],
+    }]
+
+    invalid = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [0, 2],
+    })
+    assert invalid["ok"] is False
+    assert invalid["error"]["code"] == "opening_source_window_invalid"
+    assert "contiguous" in invalid["error"]["message"]
+
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    locator_planned = _run(ws, "progressive.prepare_opening")
+    assert locator_planned["ok"] is True, locator_planned
+    locator_data = locator_planned["data"]
+    assert locator_data["mechanics_locator_page_candidate_total"] == 32
+    assert len(locator_data["mechanics_locator_page_candidates"]) == 32
+    assert locator_data["encoded_data_bytes"] <= locator_data[
+        "encoded_data_budget_bytes"
+    ]
+
+
+def test_opening_component_publish_project_prepare_and_initial_defer(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assert published["data"]["status"] == "complete"
+    assert published["data"]["stored"] is True
+    assert published["data"]["projected"] is True
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening", {
+            "location_id": "opening",
+            "title": "Opening",
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "source_page_indices": [0],
+            "player_safe_summary": "A bounded player-safe opening.",
+            "dramatic_question": "What will the investigators do?",
+            "scene_type": "investigation",
+            "available_clue_ids": [],
+            "npc_ids": [],
+            "clues": [],
+            "npcs": [],
+            "keeper_secret_refs": [],
+            "scene_edges": [],
+            "affordances": [{
+                "id": "inspect",
+                "cue": "Inspect the room",
+                "route_type": "investigative_lead",
+                "status": "open",
+            }],
+            "pressure_moves": [],
+            "tone": ["quiet"],
+        },
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    assert projected["data"]["status"] == "complete"
+    assert projected["data"]["activation_operation"] == {
+        "operation": "state.move_scene",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": {
+            "scene_id": "opening",
+            "defer_initial_progressive_on_enter": True,
+        },
+        "missing_arguments": ["decision_id"],
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True
+    assert prepared["data"]["ready_to_activate"] is True
+    assert prepared["data"]["opening_ready"] is False
+    assert prepared["data"]["encoded_data_bytes"] <= (
+        prepared["data"]["encoded_data_budget_bytes"]
+    )
+    activation = next(
+        card for card in prepared["data"]["mutation_cards"]
+        if card["operation"] == "state.move_scene"
+    )
+    assert activation["prefilled_arguments"] == {
+        "scene_id": "opening",
+        "defer_initial_progressive_on_enter": True,
+    }
+    assert activation == projected["data"]["activation_operation"]
+
+    on_enter_calls = []
+    monkeypatch.setattr(
+        coc_toolbox.coc_module_project,
+        "on_enter_scene",
+        lambda *_args, **_kwargs: on_enter_calls.append(True),
+    )
+    moved = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "reason": "begin authored opening",
+        "decision_id": "opening-initial-move",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert moved["ok"] is True, moved
+    assert moved["data"]["progressive"] == {
+        "on_enter_deferred": True,
+        "deferred_operation": "progressive.on_enter_scene",
+        "resume_available": False,
+        "scope": "entire_initial_progressive_on_enter_hook",
+    }
+    assert on_enter_calls == []
+    late_projection = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert late_projection["ok"] is True, late_projection
+    assert late_projection["data"]["status"] == "current"
+    assert "activation_operation" not in late_projection["data"]
+    replay = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "reason": "begin authored opening",
+        "decision_id": "opening-initial-move",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert replay["ok"] is True
+    assert replay["data"] == moved["data"]
+    assert on_enter_calls == []
+
+
+def test_mechanics_locator_vertical_is_exact_nonblocking_and_reused(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(1, 2))
+    appendix_page = coc_toolbox.coc_module_project.coc_module_assets.get_page(
+        ws["workspace"], ws["asset_root_id"], 2,
+    )
+    appendix_meta = appendix_page["meta"]
+    appendix_ref = {
+        "source_id": appendix_meta["source_id"],
+        "pdf_index": 2,
+        "text_sha256": appendix_meta["text_sha256"],
+    }
+    ws["skeleton"]["npc_roster"] = [{
+        "npc_id": "lucas-strong",
+        "names": ["Lucas Strong"],
+        "parse_state": "partial",
+        "agenda": "Protect Jane without losing face.",
+        # A narrative roster row and its mechanics locator may legitimately
+        # bind the same accepted page; the aggregate scope must carry it once.
+        "source_page_indices": [2],
+        "source_refs": [appendix_ref],
+    }]
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    real_get_page = assets.get_page
+    page_body_reads: list[int] = []
+
+    def observe_page_read(workspace, asset_root_id, pdf_index):
+        page_body_reads.append(pdf_index)
+        return real_get_page(workspace, asset_root_id, pdf_index)
+
+    monkeypatch.setattr(assets, "get_page", observe_page_read)
+    planned = _run(ws, "progressive.prepare_opening")
+    assert planned["ok"] is True, planned
+    data = planned["data"]
+    assert {row["pdf_index"] for row in data["mechanics_locator_page_candidates"]} == {
+        0, 1, 2,
+    }
+    # Opening binding may verify its own page; the locator catalog must not
+    # read candidate appendix bodies 1 or 2.
+    assert set(page_body_reads) <= {0}
+    locator_card = next(
+        card for card in data["mutation_cards"]
+        if card["operation"] == "progressive.request_locator_pass"
+    )
+    assert locator_card["missing_arguments"] == [
+        "mechanics_locator_pdf_indices",
+    ]
+    assert locator_card["required_for_opening"] is False
+    assert locator_card["hard_gate"] is False
+    baseline_readiness = {
+        key: data[key] for key in (
+            "blocking", "hard_work", "ready_to_activate", "opening_ready",
+        )
+    }
+    monkeypatch.setattr(assets, "get_page", real_get_page)
+    selected = _run(ws, "progressive.prepare_opening", {
+        "mechanics_locator_pdf_indices": [1, 2],
+    })
+    assert selected["ok"] is True, selected
+    assert {
+        key: selected["data"][key] for key in baseline_readiness
+    } == baseline_readiness
+    selected_card = next(
+        card for card in selected["data"]["mutation_cards"]
+        if card["operation"] == "progressive.request_locator_pass"
+    )
+    assert selected_card["prefilled_arguments"][
+        "mechanics_locator_pdf_indices"
+    ] == [1, 2]
+
+    foreign = _run(ws, "progressive.request_locator_pass", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "mechanics_locator_pdf_indices": [3],
+        "request_purpose": "mechanics_locator_pass",
+    })
+    assert foreign["ok"] is False
+    assert foreign["error"]["code"] == "mechanics_locator_source_window_invalid"
+    requested = _run(ws, "progressive.request_locator_pass", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "mechanics_locator_pdf_indices": [1, 2],
+        "request_purpose": "mechanics_locator_pass",
+    })
+    repeated = _run(ws, "progressive.request_locator_pass", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "mechanics_locator_pdf_indices": [1, 2],
+        "request_purpose": "mechanics_locator_pass",
+    })
+    assert requested["ok"] is True, requested
+    assert repeated["ok"] is True, repeated
+    assert repeated["data"]["status"] == "coalesced"
+    assert repeated["data"]["job_id"] == requested["data"]["job_id"]
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_locator_vertical",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1
+    host_request = assets.list_host_work_requests(
+        ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+    )[0]
+    assert host_request["kind"] == "locate_mechanics_index"
+    assert host_request["requested_pdf_indices"] == [1, 2]
+    assert host_request["source_aspect"] == "mechanics"
+    assert host_request["deadline_class"] == "idle_warm"
+    claimed = _run(ws, "progressive.claim_host_work", {
+        "executor_id": "locator-test-host", "limit": 1,
+    })
+    assert claimed["ok"] is True, claimed
+    packet = claimed["data"]["packets"][0]
+    assert packet["contract_id"] == "coc.source-pack-worker.v1"
+    assert packet["requested_pdf_indices"] == [1, 2]
+    assert packet["source_aspect"] == "mechanics"
+    assert packet["deadline_class"] == "idle_warm"
+    request = packet["requests"][0]
+    assert request["result_contract"]["contract_id"] == (
+        "coc.mechanics-locator-pack.v1"
+    )
+    result_pack_contract = request["result_contract"]["pack"]
+    assert result_pack_contract["required_fields"] == (
+        result_pack_contract["allowed_fields"]
+    )
+    assert result_pack_contract["npc_roster_row"]["allowed_fields"] == [
+        "npc_id", "names", "parse_state", "source_page_indices", "source_refs",
+    ]
+    assert result_pack_contract["npc_roster_row"]["required_fields"] == (
+        result_pack_contract["npc_roster_row"]["allowed_fields"]
+    )
+    assert result_pack_contract["npc_roster_row"]["names_semantics"] == (
+        "aliases_for_one_subject_only"
+    )
+    assert result_pack_contract["npc_roster_row"][
+        "shared_stat_block_policy"
+    ] == {
+        "distinct_named_people": "separate_stable_npc_ids",
+        "required_rows_per_person": ["npc_roster", "mechanics_index"],
+        "may_reuse_exact_fields": [
+            "source_page_indices", "source_refs", "locator_scope",
+        ],
+        "merge_identity_into_compound_subject": False,
+    }
+    instruction = request["instruction"]
+    for phrase in (
+        "every distinct named person",
+        "separate stable npc_id",
+        "exact source_page_indices, source_refs, and locator_scope",
+        "names holds aliases for one subject only",
+        "never forms a compound identity",
+    ):
+        assert phrase in instruction, phrase
+    assert result_pack_contract["mechanics_index_row"]["required_fields"] == (
+        result_pack_contract["mechanics_index_row"]["allowed_fields"]
+    )
+    assert any(
+        "dramatis_personae_entry_only" in reason
+        for reason in result_pack_contract["mechanics_index_row"][
+            "does_not_establish_located"
+        ]
+    )
+    assert request["result_contract"]["no_located_subject_result"] == {
+        "status": "usable",
+        "copy_pack_fixed_fields": True,
+        "npc_roster": [],
+        "item_roster": [],
+        "mechanics_index": [],
+        "related_packs": [],
+    }
+    locator_rules = request["result_contract"]["rules"]
+    assert any("every distinct named person" in rule for rule in locator_rules)
+    assert any("aliases for one subject only" in rule for rule in locator_rules)
+    refs = {
+        int(ref["pdf_index"]): {
+            "source_id": ref["source_id"],
+            "pdf_index": int(ref["pdf_index"]),
+            "text_sha256": ref["text_sha256"],
+        }
+        for ref in request["cached_page_refs"]
+    }
+    locator_scope = {
+        "scope_kind": "explicit_pdf_indices",
+        "pdf_indices": [1, 2],
+        "source_file_sha256": ws["file_sha256"],
+    }
+
+    def npc_row(npc_id: str, names: str | list[str]) -> dict:
+        return {
+            "npc_id": npc_id,
+            "names": [names] if isinstance(names, str) else list(names),
+            "parse_state": "named_only",
+            "source_page_indices": [2],
+            "source_refs": [refs[2]],
+        }
+
+    def locator_row(npc_id: str) -> dict:
+        return {
+            "subject_kind": "npc",
+            "subject_id": npc_id,
+            "status": "located",
+            "locator_pass_status": "complete",
+            "locator_scope": locator_scope,
+            "source_page_indices": [2],
+            "source_refs": [refs[2]],
+        }
+
+    locator_pack = {
+        "mechanics_locator_pass_status": "pending",
+        "mechanics_locator_scope": locator_scope,
+        "npc_roster": [
+            npc_row("lucas-strong", "Lucas Strong"),
+            npc_row("jane-strong", "Jane Strong"),
+            npc_row("joseph-turner", "Joseph Turner"),
+            npc_row("shared-block-one", "First Distinct Person"),
+            npc_row("shared-block-two", "Second Distinct Person"),
+            npc_row(
+                "one-person-with-aliases",
+                ["One Person", "The Same Person's Alias"],
+            ),
+            npc_row("appendix-person-seven", "Seventh Person"),
+            npc_row("appendix-person-eight", "Eighth Person"),
+            npc_row("appendix-person-nine", "Ninth Person"),
+        ],
+        "item_roster": [],
+        "mechanics_index": [
+            locator_row("lucas-strong"),
+            locator_row("jane-strong"),
+            locator_row("joseph-turner"),
+            locator_row("shared-block-one"),
+            locator_row("shared-block-two"),
+            locator_row("one-person-with-aliases"),
+            locator_row("appendix-person-seven"),
+            locator_row("appendix-person-eight"),
+            locator_row("appendix-person-nine"),
+        ],
+    }
+    skeleton_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "skeleton.json"
+    )
+    before_invalid = skeleton_path.read_bytes()
+    invalid_pack = deepcopy(locator_pack)
+    invalid_pack["npc_roster"][0]["name"] = invalid_pack[
+        "npc_roster"
+    ][0].pop("names")[0]
+    invalid_pack["npc_roster"][0].pop("source_refs")
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": request["job_id"],
+        "pack": invalid_pack,
+        "related_packs": [],
+    })
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_source_worker_pack"
+    assert len(rejected["hints"]) == 1
+    assert "must not repair or rewrite" in rejected["hints"][0]
+    assert "leave the request unfulfilled" in rejected["hints"][0]
+    assert "call describe for the tool schema" not in rejected["hints"][0]
+    assert skeleton_path.read_bytes() == before_invalid
+    still_open = next(
+        row for row in assets.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row["job_id"] == request["job_id"]
+    )
+    assert still_open["status"] != "fulfilled"
+
+    roster_without_locator = deepcopy(locator_pack)
+    roster_without_locator["npc_roster"].append(
+        npc_row("dramatis-personae-only", "Dramatis Personae Only")
+    )
+    rejected_roster = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": request["job_id"],
+        "pack": roster_without_locator,
+        "related_packs": [],
+    })
+    assert rejected_roster["error"]["code"] == "invalid_source_worker_pack"
+    assert skeleton_path.read_bytes() == before_invalid
+
+    scope_mismatch = deepcopy(locator_pack)
+    scope_mismatch["mechanics_index"][0]["source_page_indices"] = [0]
+    scope_mismatch["mechanics_index"][0]["source_refs"] = [refs[2]]
+    rejected_scope = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": request["job_id"],
+        "pack": scope_mismatch,
+        "related_packs": [],
+    })
+    assert rejected_scope["error"]["code"] == "invalid_source_worker_pack"
+    assert skeleton_path.read_bytes() == before_invalid
+
+    # The host forwards the complete child item as one exact envelope.  A
+    # historically observed parent copy error that nests related_packs inside
+    # pack remains a strict child-pack failure; the receiver does not repair it.
+    polluted_pack = deepcopy(locator_pack)
+    polluted_pack["related_packs"] = []
+    polluted_result = {
+        "job_id": request["job_id"],
+        "pack": polluted_pack,
+        "related_packs": [],
+    }
+    polluted_before = deepcopy(polluted_result)
+    direct_base = {
+        "schema_version": 1,
+        "contract_id": "coc.source-pack-worker.v1",
+        "packet_id": packet["packet_id"],
+        "work_group_id": packet["work_group_id"],
+        "status": "usable",
+        "results": [polluted_result],
+    }
+    with pytest.raises(coc_toolbox.ToolError) as wrong_packet:
+        coc_toolbox.submit_source_worker_result(ws["workspace"], {
+            **deepcopy(direct_base), "packet_id": "not-the-leased-packet",
+        })
+    assert wrong_packet.value.code == "invalid_source_lease"
+    with pytest.raises(coc_toolbox.ToolError) as wrong_group:
+        coc_toolbox.submit_source_worker_result(ws["workspace"], {
+            **deepcopy(direct_base), "work_group_id": "not-the-leased-group",
+        })
+    assert wrong_group.value.code == "invalid_source_lease"
+    wrong_jobs = deepcopy(direct_base)
+    wrong_jobs["results"][0]["job_id"] = "not-the-leased-job"
+    with pytest.raises(coc_toolbox.ToolError) as wrong_job_set:
+        coc_toolbox.submit_source_worker_result(ws["workspace"], wrong_jobs)
+    assert wrong_job_set.value.code == "invalid_source_lease"
+    with monkeypatch.context() as expired_lease:
+        expired_lease.setattr(assets, "_lease_is_expired", lambda *_args: True)
+        with pytest.raises(coc_toolbox.ToolError) as expired_packet:
+            coc_toolbox.submit_source_worker_result(
+                ws["workspace"], deepcopy(direct_base),
+            )
+    assert expired_packet.value.code == "invalid_source_lease"
+
+    rejected_polluted = coc_toolbox.submit_source_worker_result(
+        ws["workspace"], direct_base,
+    )
+    assert rejected_polluted["ok"] is False
+    assert rejected_polluted["error"]["code"] == "invalid_source_worker_pack"
+    assert "unsupported fields" in rejected_polluted["error"]["message"]
+    assert polluted_result == polluted_before
+    assert skeleton_path.read_bytes() == before_invalid
+
+    canonical_result = {
+        "job_id": request["job_id"],
+        "pack": locator_pack,
+        "related_packs": [],
+    }
+    mixed = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": canonical_result,
+        "pack": locator_pack,
+    })
+    assert mixed["ok"] is False
+    assert mixed["error"]["code"] == "invalid_param"
+    assert "mutually exclusive" in mixed["error"]["message"]
+    assert skeleton_path.read_bytes() == before_invalid
+
+    canonical_before = deepcopy(canonical_result)
+    fulfilled = coc_toolbox.submit_source_worker_result(ws["workspace"], {
+        **deepcopy(direct_base), "results": [canonical_result],
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["contract_id"] == "coc.source-submit-receipt.v1"
+    assert fulfilled["packet_id"] == packet["packet_id"]
+    assert fulfilled["lease_id"] == packet["packet_id"]
+    assert fulfilled["work_group_id"] == packet["work_group_id"]
+    assert fulfilled["asset_root_id"] == ws["asset_root_id"]
+    assert fulfilled["submission_digest"]
+    assert fulfilled["job_receipts"] == [{
+        "job_id": request["job_id"],
+        "ok": True,
+        "request_status": "fulfilled",
+        "fulfillment_digest": fulfilled["job_receipts"][0][
+            "fulfillment_digest"
+        ],
+    }]
+    assert fulfilled["job_receipts"][0]["fulfillment_digest"]
+    assert canonical_result == canonical_before
+    stored = assets.get_skeleton(ws["workspace"], ws["asset_root_id"])
+    assert stored["locations"] == ws["skeleton"]["locations"]
+    assert stored["npc_roster"][0] == ws["skeleton"]["npc_roster"][0]
+    assert {row["npc_id"] for row in stored["npc_roster"]} == {
+        "lucas-strong", "jane-strong", "joseph-turner",
+        "shared-block-one", "shared-block-two", "one-person-with-aliases",
+        "appendix-person-seven", "appendix-person-eight", "appendix-person-nine",
+    }
+    stored_roster = {
+        row["npc_id"]: row for row in stored["npc_roster"]
+    }
+    assert stored_roster["shared-block-one"]["source_refs"] == (
+        stored_roster["shared-block-two"]["source_refs"]
+    )
+    assert stored_roster["one-person-with-aliases"]["names"] == [
+        "One Person", "The Same Person's Alias",
+    ]
+    assert stored["mechanics_locator_pass_status"] == "pending"
+    assert {
+        (row["subject_kind"], row["subject_id"])
+        for row in stored["mechanics_index"]
+    } == {
+        ("npc", "lucas-strong"),
+        ("npc", "jane-strong"),
+        ("npc", "joseph-turner"),
+        ("npc", "shared-block-one"),
+        ("npc", "shared-block-two"),
+        ("npc", "one-person-with-aliases"),
+        ("npc", "appendix-person-seven"),
+        ("npc", "appendix-person-eight"),
+        ("npc", "appendix-person-nine"),
+    }
+    stored_index = {
+        row["subject_id"]: row for row in stored["mechanics_index"]
+    }
+    assert stored_index["shared-block-one"]["locator_scope"] == (
+        stored_index["shared-block-two"]["locator_scope"]
+    )
+    closed_request = next(
+        row for row in assets.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row["job_id"] == request["job_id"]
+    )
+    assert closed_request["status"] == "fulfilled"
+
+    first_mechanics = _run(ws, "mechanics.ensure", {
+        "subject_kind": "npc",
+        "subject_id": "lucas-strong",
+        "purpose": "check",
+        "decision_id": "locator-lucas-first",
+    })
+    repeated_mechanics = _run(ws, "mechanics.ensure", {
+        "subject_kind": "npc",
+        "subject_id": "lucas-strong",
+        "purpose": "check",
+        "decision_id": "locator-lucas-repeat",
+    })
+    assert first_mechanics["ok"] is True, first_mechanics
+    assert first_mechanics["data"]["status"] == "source_work_required"
+    assert first_mechanics["data"]["source_work"]["stub"]["entity"][
+        "source_page_indices"
+    ] == [2]
+    assert repeated_mechanics["data"]["source_work"]["enqueue"]["enqueued"] is False
+    mechanics_materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    mechanics_request = json.loads(Path(
+        mechanics_materialized["results"][0]["host_work_request"]
+    ).read_text(encoding="utf-8"))
+    assert mechanics_request["requested_pdf_indices"] == [2]
+    assert {
+        (row["subject_kind"], row["subject_id"])
+        for row in mechanics_request["batch_subjects"]
+    } == {
+        ("npc", "lucas-strong"),
+        ("npc", "jane-strong"),
+        ("npc", "joseph-turner"),
+        ("npc", "shared-block-one"),
+        ("npc", "shared-block-two"),
+        ("npc", "one-person-with-aliases"),
+        ("npc", "appendix-person-seven"),
+        ("npc", "appendix-person-eight"),
+        ("npc", "appendix-person-nine"),
+    }
+
+
+def test_missing_mechanics_locator_returns_read_only_discovery_card(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["npc_roster"] = [{
+        "npc_id": "lucas-strong",
+        "names": ["Lucas Strong"],
+        "parse_state": "partial",
+        "agenda": "Protect Jane without losing face.",
+        "source_page_indices": [0],
+    }]
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+
+    requested = _run(ws, "progressive.request_mechanics", {
+        "kind": "npc",
+        "target_id": "lucas-strong",
+        "title": "Lucas Strong",
+        "reason": "opposed_strength_check",
+    })
+    assert requested["ok"] is True, requested
+    request_data = requested["data"]
+    assert request_data["mechanics_locator_state"] == {
+        "global_pass_status": "pending",
+        "subject_locator_status": "missing",
+        "narrative_body_refs_present": True,
+        "narrative_body_refs_are_mechanics_locator": False,
+    }
+    locator_card = request_data["locator_discovery_operation"]
+    assert locator_card == {
+        "operation": "progressive.prepare_opening",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": {},
+        "missing_arguments": [],
+        "authority": "advisory",
+        "hard_gate": False,
+        "read_only": True,
+        "required_for_opening": False,
+        "purpose": "discover_mechanics_locator_window",
+    }
+    assert "mechanics_locator_pdf_indices" not in locator_card[
+        "prefilled_arguments"
+    ]
+
+    ensured = _run(ws, "mechanics.ensure", {
+        "subject_kind": "npc",
+        "subject_id": "lucas-strong",
+        "purpose": "check",
+        "decision_id": "lucas-missing-locator",
+    })
+    assert ensured["ok"] is True, ensured
+    assert ensured["data"]["status"] == "source_work_required"
+    assert ensured["data"]["source_work"][
+        "mechanics_locator_state"
+    ] == request_data["mechanics_locator_state"]
+    assert ensured["data"]["next_operation"] == locator_card
+    assert ensured["data"]["source_work"][
+        "locator_discovery_operation"
+    ] == locator_card
+
+
+def test_empty_locator_window_closes_and_only_new_window_requeues(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(1, 2))
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    first = _run(ws, "progressive.request_locator_pass", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "mechanics_locator_pdf_indices": [1],
+        "request_purpose": "mechanics_locator_pass",
+    })
+    assert first["ok"] is True, first
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_empty_locator_vertical",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1
+    claimed = _run(ws, "progressive.claim_host_work", {
+        "executor_id": "empty-locator-test-host", "limit": 1,
+    })
+    request = claimed["data"]["packets"][0]["requests"][0]
+    empty_scope = {
+        "scope_kind": "explicit_pdf_indices",
+        "pdf_indices": [1],
+        "source_file_sha256": ws["file_sha256"],
+    }
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": request["job_id"],
+        "pack": {
+            "mechanics_locator_pass_status": "pending",
+            "mechanics_locator_scope": empty_scope,
+            "npc_roster": [],
+            "item_roster": [],
+            "mechanics_index": [],
+        },
+        "related_packs": [],
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["locator_rows_merged"] == 0
+    same_window = _run(ws, "progressive.request_locator_pass", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "mechanics_locator_pdf_indices": [1],
+        "request_purpose": "mechanics_locator_pass",
+    })
+    assert same_window["ok"] is True, same_window
+    assert same_window["data"]["status"] == "current"
+    assert same_window["data"]["idempotent"] is True
+    assert same_window["data"]["worker_kick"]["reason"] == (
+        "locator_window_already_reviewed"
+    )
+    second = _run(ws, "progressive.request_locator_pass", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "mechanics_locator_pdf_indices": [2],
+        "request_purpose": "mechanics_locator_pass",
+    })
+    assert second["ok"] is True, second
+    assert second["data"]["status"] == "queued"
+    assert second["data"]["job_id"] != first["data"]["job_id"]
+
+
+@pytest.mark.parametrize(
+    "defer_arguments",
+    [{}, {"defer_initial_progressive_on_enter": False}],
+)
+def test_state_move_scene_absent_or_false_deferral_keeps_normal_on_enter(
+    tmp_path: Path, monkeypatch, defer_arguments: dict,
+):
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    on_enter_calls: list[tuple[str, str]] = []
+
+    def record_on_enter(_root, campaign_id, scene_id):
+        on_enter_calls.append((campaign_id, scene_id))
+        return None
+
+    monkeypatch.setattr(
+        coc_toolbox.coc_module_project,
+        "on_enter_scene",
+        record_on_enter,
+    )
+    moved = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "reason": "ordinary opening movement",
+        "decision_id": "ordinary-opening-move",
+        **defer_arguments,
+    })
+
+    assert moved["ok"] is True, moved
+    assert on_enter_calls == [(ws["campaign_id"], "opening")]
+    assert moved["data"].get("progressive", {}).get(
+        "on_enter_deferred"
+    ) is not True
+
+
+def test_publish_skeleton_reports_all_three_write_phases_truthfully(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    skeleton_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "skeleton.json"
+    )
+    invalid = deepcopy(ws["skeleton"])
+    invalid["parse_tier"] = 99
+    rejected = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": invalid,
+    })
+    assert rejected["ok"] is False
+    assert rejected["error"]["details"] == {
+        "status": "validation_failed",
+        "complete": False,
+        "stored": False,
+        "projected": False,
+    }
+    assert not skeleton_path.exists()
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    real_bump = assets._bump_parse_tier
+    calls = 0
+
+    def fail_metadata_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise assets.ModuleAssetsError("injected registry identity failure")
+        return real_bump(*args, **kwargs)
+
+    monkeypatch.setattr(assets, "_bump_parse_tier", fail_metadata_once)
+    queue_path = skeleton_path.parent / "parse-queue.json"
+    queue_before = queue_path.read_bytes()
+    partial = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert partial["ok"] is True, partial
+    assert partial["data"] == {
+        "status": "stored_metadata_failed",
+        "complete": False,
+        "stored": True,
+        "projected": False,
+        "asset_root_id": ws["asset_root_id"],
+        "store": partial["data"]["store"],
+        "pending_phase": "parse_tier_registry_identity",
+        "metadata_error": {
+            "type": "ModuleAssetsError",
+            "message": "injected registry identity failure",
+        },
+        "retry_card": partial["data"]["retry_card"],
+    }
+    assert skeleton_path.is_file()
+    assert queue_path.read_bytes() == queue_before
+    retry = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert retry["ok"] is True, retry
+    assert retry["data"]["status"] == "complete"
+    assert retry["data"]["stored"] is True
+    assert retry["data"]["projected"] is True
+    assert queue_path.read_bytes() == queue_before
+    registry = assets.load_registry(ws["workspace"])
+    assert registry["modules"][ws["asset_root_id"]]["parse_tier_max"] == 1
+
+    projection_ws = _opening_component_workspace(tmp_path / "projection")
+    monkeypatch.setattr(
+        coc_toolbox.coc_module_project,
+        "project_skeleton_to_campaign",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("injected sparse projection failure")
+        ),
+    )
+    projection_failed = _run(
+        projection_ws,
+        "progressive.publish_skeleton",
+        {
+            "asset_root_id": projection_ws["asset_root_id"],
+            "source_file_sha256": projection_ws["file_sha256"],
+            "skeleton": projection_ws["skeleton"],
+        },
+    )
+    assert projection_failed["ok"] is True
+    assert projection_failed["data"]["status"] == "stored_projection_failed"
+    assert projection_failed["data"]["stored"] is True
+    assert projection_failed["data"]["projected"] is False
+    assert projection_failed["data"]["projection_error"] == {
+        "type": "RuntimeError",
+        "message": "injected sparse projection failure",
+    }
+
+
+@pytest.mark.parametrize(
+    "non_pristine_kind",
+    [
+        "world_active",
+        "visited",
+        "history",
+        "pacing",
+        "active_pointer",
+        "scene_transition",
+    ],
+)
+def test_prepare_opening_activation_card_requires_exact_pristine_state(
+    tmp_path: Path, non_pristine_kind: str,
+):
+    ws = _opening_component_workspace(tmp_path)
+    _publish_and_project_opening_component(ws)
+    camp = ws["campaign_dir"]
+    if non_pristine_kind in {"world_active", "visited", "history"}:
+        path = camp / "save" / "world-state.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if non_pristine_kind == "world_active":
+            doc["active_scene_id"] = "opening"
+        elif non_pristine_kind == "visited":
+            doc["visited_scene_ids"] = ["opening"]
+        else:
+            doc["scene_history"] = ["opening"]
+        _write_json(path, doc)
+    elif non_pristine_kind == "pacing":
+        path = camp / "save" / "pacing-state.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc["turn_number"] = 1
+        _write_json(path, doc)
+    elif non_pristine_kind == "active_pointer":
+        _write_json(camp / "save" / "active-scene.json", {
+            "schema_version": 1,
+            "scene_id": "opening",
+        })
+    else:
+        events = camp / "logs" / "events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text(
+            json.dumps({"event_type": "scene_transition"}) + "\n",
+            encoding="utf-8",
+        )
+
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["projected_selected_start_ready"] is True
+    assert prepared["data"]["ready_to_activate"] is False
+    assert all(
+        card["operation"] != "state.move_scene"
+        for card in prepared["data"]["mutation_cards"]
+    )
+
+
+def test_stale_selected_projection_agrees_across_prepare_defer_and_project(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path)
+    _publish_and_project_opening_component(ws)
+    graph_path = ws["campaign_dir"] / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    opening = next(row for row in graph["scenes"] if row["scene_id"] == "opening")
+    opening["player_safe_summary"] = "TAMPERED NON-SOURCE OPENING"
+    _write_json(graph_path, graph)
+
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    root_info = coc_toolbox.coc_module_project.resolve_opening_preparation_root(
+        ws["workspace"], ws["campaign_id"],
+    )
+    skeleton = assets.get_skeleton(ws["workspace"], ws["asset_root_id"])
+    binding_result = coc_toolbox.coc_module_project.resolve_selected_opening_binding(
+        ws["workspace"], root_info, skeleton, "opening", None,
+    )
+    assert binding_result["readiness"]["ready"] is True
+    payload = coc_toolbox.coc_module_project.build_opening_projection_payload(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "opening",
+        binding_result["scope"],
+    )
+    assert coc_toolbox.coc_module_project.opening_projection_state_is_fresh(
+        ws["workspace"], ws["campaign_dir"], ws["asset_root_id"],
+        "opening", binding_result["scope"],
+    ) is False
+
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True
+    assert prepared["data"]["projected_selected_start_ready"] is False
+    assert prepared["data"]["ready_to_activate"] is False
+    assert any(
+        row["code"] == "opening_projection_required"
+        for row in prepared["data"]["blocking"]
+    )
+    assert all(
+        card["operation"] != "state.move_scene"
+        for card in prepared["data"]["mutation_cards"]
+    )
+
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    deferred = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "stale-opening-defer",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert deferred["ok"] is False
+    assert deferred["error"]["code"] == "initial_progressive_deferral_invalid"
+    assert world_path.read_bytes() == world_before
+
+    repaired = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert repaired["ok"] is True, repaired
+    assert repaired["data"]["status"] == "complete"
+    assert coc_toolbox.coc_module_project.opening_projection_state_is_fresh(
+        ws["workspace"], ws["campaign_dir"], ws["asset_root_id"],
+        "opening", binding_result["scope"],
+    ) is True
+
+
+def test_prepare_required_npc_does_not_inject_unreferenced_durable_npc(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _opening_component_pack(),
+    )
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "npc", "npc-unreferenced", {
+            "npc_id": "npc-unreferenced",
+            "name": "Unreferenced Witness",
+            "parse_state": "deep",
+            "source_page_indices": [0],
+            "agenda": "Wait outside the selected pack.",
+        },
+    )
+
+    prepared = _run(ws, "progressive.prepare_opening", {
+        "opening_required_npc_ids": ["npc-unreferenced"],
+    })
+    assert prepared["ok"] is True
+    assert prepared["data"]["selected_start_pack_ready"] is False
+    assert prepared["data"]["present_npc_ids"] == []
+    assert any(
+        row["code"] == "opening_required_npc_not_present"
+        for row in prepared["data"]["blocking"]
+    )
+    assert all(
+        card["operation"] not in {
+            "progressive.project_opening", "state.move_scene",
+        }
+        for card in prepared["data"]["mutation_cards"]
+    )
+
+
+def test_prepare_opening_dynamically_bounds_long_start_catalog(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path)
+    start_ids = [f"start-{index:03d}" for index in range(100)]
+    ws["skeleton"]["start_candidates"] = start_ids
+    ws["skeleton"]["locations"] = [
+        {
+            "location_id": start_id,
+            "title": f"{index:03d}-" + ("长标题" * 80),
+            "parse_state": "toc_only",
+            "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+        }
+        for index, start_id in enumerate(start_ids)
+    ]
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+
+    prepared = _run(ws, "progressive.prepare_opening", {
+        "start_location_id": "start-099",
+    })
+    assert prepared["ok"] is True, prepared
+    data = prepared["data"]
+    assert data["encoded_data_bytes"] <= data["encoded_data_budget_bytes"] == 12 * 1024
+    assert data["start_candidate_total"] == 100
+    assert data["start_candidate_returned_count"] == len(data["start_candidates"])
+    assert data["start_candidate_omitted_count"] == (
+        100 - data["start_candidate_returned_count"]
+    )
+    assert data["start_candidate_returned_count"] < 64
+    assert data["start_candidates"][-1]["location_id"] == "start-099"
+    assert [row["location_id"] for row in data["start_candidates"][:-1]] == (
+        start_ids[: data["start_candidate_returned_count"] - 1]
+    )
+
+
+def test_prepare_opening_reports_typed_error_when_selected_row_cannot_fit():
+    data = {
+        "start_candidates": [
+            {"location_id": "selected", "title": "x" * (20 * 1024)},
+        ],
+        "start_candidate_total": 1,
+        "deferred": [],
+        "deferred_total": 0,
+        "soft_work": [],
+        "soft_work_total": 0,
+        "hard_work": [],
+        "hard_work_total": 0,
+        "blocking": [],
+        "blocking_total": 0,
+        "mutation_cards": [],
+        "mutation_cards_total": 0,
+        "encoded_data_budget_bytes": 12 * 1024,
+        "encoded_data_bytes": 0,
+    }
+
+    with pytest.raises(coc_toolbox.ToolError) as exc_info:
+        coc_toolbox._fit_opening_data_budget(
+            data,
+            selected_start_location_id="selected",
+        )
+
+    assert exc_info.value.code == "opening_selected_candidate_too_large"
+    assert exc_info.value.message == (
+        "mandatory opening preparation data exceeds the 12 KiB budget"
+    )
+
+
+@pytest.mark.parametrize("raw_id", [True, 7, {"id": "npc"}])
+def test_prepare_opening_required_id_selectors_reject_non_strings_every_gateway(
+    tmp_path: Path, raw_id,
+):
+    ws = _opening_component_workspace(tmp_path)
+    ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
+    handler = coc_toolbox.TOOLS["progressive.prepare_opening"]["handler"]
+    with pytest.raises(coc_toolbox.ToolError) as direct:
+        handler(ctx, {"opening_required_npc_ids": [raw_id]})
+    assert direct.value.code == "invalid_param"
+    assert "non-empty string" in direct.value.message
+
+    gateway = _run(ws, "progressive.prepare_opening", {
+        "opening_required_secret_ids": [raw_id],
+    })
+    assert gateway["ok"] is False
+    assert gateway["error"]["code"] == "invalid_param"
+    assert "non-empty string" in gateway["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    ("raw_start", "matching_candidate"),
+    [
+        (True, "True"),
+        (7, "7"),
+        (["opening"], "opening"),
+        ({"id": "opening"}, "opening"),
+    ],
+)
+def test_prepare_opening_start_selector_rejects_non_strings_before_coercion(
+    tmp_path: Path, raw_start, matching_candidate: str,
+):
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["start_candidates"] = [matching_candidate]
+    ws["skeleton"]["locations"] = [{
+        "location_id": matching_candidate,
+        "title": f"Start {matching_candidate}",
+        "parse_state": "toc_only",
+        "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+    }]
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
+    handler = coc_toolbox.TOOLS["progressive.prepare_opening"]["handler"]
+
+    with pytest.raises(coc_toolbox.ToolError) as direct:
+        handler(ctx, {"start_location_id": raw_start})
+    assert direct.value.code == "invalid_param"
+    assert direct.value.message == (
+        "start_location_id must be a string when provided"
+    )
+
+    gateway = _run(ws, "progressive.prepare_opening", {
+        "start_location_id": raw_start,
+    })
+    assert gateway["ok"] is False
+    assert gateway["error"] == {
+        "code": "invalid_param",
+        "message": "start_location_id must be a string when provided",
+    }
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{}, {"start_location_id": None}, {"start_location_id": "   "}],
+)
+def test_prepare_opening_start_selector_preserves_omission_semantics(
+    tmp_path: Path, args: dict,
+):
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
+    handler = coc_toolbox.TOOLS["progressive.prepare_opening"]["handler"]
+
+    direct_data, _, _ = handler(ctx, args)
+    assert direct_data["selected_start_location_id"] == "opening"
+    gateway = _run(ws, "progressive.prepare_opening", args)
+    assert gateway["ok"] is True, gateway
+    assert gateway["data"]["selected_start_location_id"] == "opening"
+
+
+@pytest.mark.parametrize(
+    ("operation", "raw_start", "matching_candidate"),
+    [
+        ("progressive.request_opening_pack", True, "True"),
+        ("progressive.request_opening_pack", 7, "7"),
+        ("progressive.request_opening_pack", ["opening"], "opening"),
+        ("progressive.request_opening_pack", {"id": "opening"}, "opening"),
+        ("progressive.project_opening", True, "True"),
+        ("progressive.project_opening", 7, "7"),
+        ("progressive.project_opening", ["opening"], "opening"),
+        ("progressive.project_opening", {"id": "opening"}, "opening"),
+    ],
+)
+def test_opening_mutation_selectors_reject_non_strings_before_coercion(
+    tmp_path: Path,
+    operation: str,
+    raw_start,
+    matching_candidate: str,
+):
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["start_candidates"] = [matching_candidate]
+    ws["skeleton"]["locations"] = [{
+        "location_id": matching_candidate,
+        "title": f"Start {matching_candidate}",
+        "parse_state": "toc_only",
+        "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+    }]
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    args = {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": raw_start,
+    }
+    if operation == "progressive.request_opening_pack":
+        args.update({
+            "opening_pdf_indices": [0],
+            "request_purpose": "foreground_opening_slice",
+        })
+    ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
+    handler = coc_toolbox.TOOLS[operation]["handler"]
+    with pytest.raises(coc_toolbox.ToolError) as direct:
+        handler(ctx, args)
+    assert direct.value.code == "invalid_param"
+    assert direct.value.message == (
+        "start_location_id must be a string when provided"
+    )
+    gateway = _run(ws, operation, args)
+    assert gateway["ok"] is False
+    assert gateway["error"] == {
+        "code": "invalid_param",
+        "message": "start_location_id must be a string when provided",
+    }
+
+
+@pytest.mark.parametrize(
+    ("operation", "raw_start"),
+    [
+        ("progressive.request_opening_pack", None),
+        ("progressive.request_opening_pack", "   "),
+        ("progressive.project_opening", None),
+        ("progressive.project_opening", "   "),
+    ],
+)
+def test_opening_mutation_selectors_require_nonempty_strings(
+    tmp_path: Path,
+    operation: str,
+    raw_start,
+):
+    ws = _opening_component_workspace(tmp_path)
+    args = {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": raw_start,
+    }
+    if operation == "progressive.request_opening_pack":
+        args.update({
+            "opening_pdf_indices": [0],
+            "request_purpose": "foreground_opening_slice",
+        })
+    ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
+    with pytest.raises(coc_toolbox.ToolError) as direct:
+        coc_toolbox.TOOLS[operation]["handler"](ctx, args)
+    assert direct.value.code == "invalid_param"
+    assert direct.value.message == "start_location_id must be a nonempty string"
+    gateway = _run(ws, operation, args)
+    assert gateway["ok"] is False
+    assert gateway["error"]["code"] == (
+        "missing_param" if raw_start is None else "invalid_param"
+    )
+
+
+def test_derived_external_npc_tamper_agrees_across_all_opening_consumers(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "npc", "npc-external", {
+            "npc_id": "npc-external",
+            "name": "Source Name",
+            "agenda": "Deliver the source-authored opening warning.",
+            "parse_state": "deep",
+            "source_page_indices": [0],
+        },
+    )
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+        _opening_component_pack(npc_ids=["npc-external"], npcs=[]),
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    npc_path = ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+    npc_doc = json.loads(npc_path.read_text(encoding="utf-8"))
+    npc = next(
+        row for row in npc_doc["npcs"] if row["npc_id"] == "npc-external"
+    )
+    assert npc["display_name"] == "Source Name"
+    npc["display_name"] = "TAMPERED CURRENT DISPLAY"
+    _write_json(npc_path, npc_doc)
+
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["projected_selected_start_ready"] is False
+    assert prepared["data"]["ready_to_activate"] is False
+    assert any(
+        row["code"] == "opening_projection_required"
+        for row in prepared["data"]["blocking"]
+    )
+    assert all(
+        card["operation"] != "state.move_scene"
+        for card in prepared["data"]["mutation_cards"]
+    )
+
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    deferred = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "derived-npc-stale-defer",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert deferred["ok"] is False
+    assert deferred["error"]["code"] == "initial_progressive_deferral_invalid"
+    assert world_path.read_bytes() == world_before
+
+    repaired = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert repaired["ok"] is True, repaired
+    assert repaired["data"]["status"] == "complete"
+    repaired_doc = json.loads(npc_path.read_text(encoding="utf-8"))
+    repaired_npc = next(
+        row for row in repaired_doc["npcs"]
+        if row["npc_id"] == "npc-external"
+    )
+    assert repaired_npc["display_name"] == "Source Name"
+
+
+def test_partial_opening_fulfill_hint_claims_only_explicit_projection(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True
+    requested = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert requested["ok"] is True, requested
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_partial_hint_test",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1
+
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": requested["data"]["job_id"],
+        "pack": _opening_component_pack(parse_state="partial"),
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert len(fulfilled["hints"]) == 1
+    assert "exact reusable partial opening pack is durable" in fulfilled["hints"][0]
+    assert "progressive.prepare_opening" in fulfilled["hints"][0]
+    assert "ready for" not in fulfilled["hints"][0]
+    assert "re-enqueued" not in fulfilled["hints"][0]
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["window_origin"] == "fulfilled_foreground_request"
+    assert prepared["data"]["selected_start_pack_ready"] is True
+    current_request = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert current_request["ok"] is True, current_request
+    assert current_request["data"]["status"] == "current"
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    assert projected["data"]["status"] == "complete"
+
+
+def test_partial_opening_missing_npc_agenda_projects_without_repack(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["npc_roster"] = [{
+        "npc_id": "npc-witness",
+        "names": ["Witness"],
+        "parse_state": "named_only",
+    }]
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    requested = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert requested["ok"] is True, requested
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_soft_agenda_test",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1
+
+    pack = _opening_component_pack(
+        parse_state="partial",
+        npc_ids=["npc-witness"],
+        npcs=[{
+            "npc_id": "npc-witness",
+            "name": "Witness",
+            "parse_state": "partial",
+            "player_safe_summary": "A witness is present at the briefing.",
+        }],
+    )
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": requested["data"]["job_id"],
+        "pack": pack,
+    })
+    assert fulfilled["ok"] is True, fulfilled
+
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["selected_start_pack_ready"] is True
+    assert {
+        row["code"] for row in prepared["data"]["blocking"]
+    } == {"opening_projection_required"}
+    assert prepared["data"]["soft_work"] == [
+        {
+            "code": "opening_npc_agenda_missing",
+            "entity_id": "npc-witness",
+        },
+        {
+            "code": "mechanics_locator_pass_pending",
+            "required_for_opening": False,
+            "hard_gate": False,
+        },
+    ]
+    assert prepared["data"]["deferred"] == [
+        {
+            "code": "opening_npc_agenda_deferred",
+            "entity_id": "npc-witness",
+            "reason": "not_required_for_opening",
+        },
+        {
+            "code": "mechanics_locator_pass_deferred",
+            "reason": "idle_warm_not_required_for_opening",
+        },
+    ]
+    project_card = next(
+        row for row in prepared["data"]["mutation_cards"]
+        if row["operation"] == "progressive.project_opening"
+    )
+
+    current = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert current["ok"] is True, current
+    assert current["data"]["status"] == "current"
+    assert current["data"]["job_id"] == requested["data"]["job_id"]
+
+    projected = _run(
+        ws,
+        project_card["operation"],
+        project_card["prefilled_arguments"],
+    )
+    assert projected["ok"] is True, projected
+    assert projected["data"]["status"] == "complete"
+    agendas = json.loads(
+        (
+            ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+        ).read_text(encoding="utf-8")
+    )
+    witness = next(
+        row for row in agendas["npcs"] if row["npc_id"] == "npc-witness"
+    )
+    assert witness["agenda"] == "npc-witness agenda"
+
+    queue = json.loads(
+        (
+            ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+            / "parse-queue.json"
+        ).read_text(encoding="utf-8")
+    )
+    jobs = [
+        row
+        for state in ("pending", "in_flight", "done")
+        for row in queue.get(state) or []
+    ]
+    assert sum(row.get("kind") == "partial_opening" for row in jobs) == 1
+    assert all(row.get("kind") != "deepen_npc" for row in jobs)
+
+
+def _fulfilled_partial_opening_workspace(
+    tmp_path: Path,
+    monkeypatch,
+) -> tuple[dict, str, Path, Path]:
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    requested = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert requested["ok"] is True, requested
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_revision4_partial_fixture",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1
+    job_id = requested["data"]["job_id"]
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": job_id,
+        "pack": _opening_component_pack(parse_state="partial"),
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    module_root = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    return (
+        ws,
+        job_id,
+        module_root / "host-work" / f"{job_id}.json",
+        module_root / "entities" / "location-opening.json",
+    )
+
+
+def test_changed_partial_pack_cannot_reuse_old_fulfillment_and_replacement_can(
+    tmp_path: Path,
+    monkeypatch,
+):
+    ws, old_job_id, _request_path, entity_path = (
+        _fulfilled_partial_opening_workspace(tmp_path, monkeypatch)
+    )
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    changed = json.loads(entity_path.read_text(encoding="utf-8"))
+    changed["player_safe_summary"] = "Changed after the first fulfillment."
+    changed["host_work_job_id"] = old_job_id
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening", changed,
+    )
+    rewritten = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert "host_work_job_id" not in rewritten
+    assert "host_work_job_id" not in rewritten["ingest_timing"]
+    assert assets.current_ingest_fulfillment_receipt(rewritten) is None
+
+    scenario_before = {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    }
+    prepared = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [0],
+    })
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["selected_start_pack_ready"] is False
+    assert "opening_partial_binding_invalid" in {
+        row["code"] for row in prepared["data"]["blocking"]
+    }
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+    })
+    assert projected["ok"] is False
+    assert projected["error"]["code"] == "opening_partial_binding_invalid"
+    assert {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    } == scenario_before
+
+    replacement_request = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert replacement_request["ok"] is True, replacement_request
+    assert replacement_request["data"]["status"] in {"queued", "coalesced"}
+    assert replacement_request["data"]["job_id"] != old_job_id
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_revision4_partial_replacement",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1
+    replacement_pack = json.loads(entity_path.read_text(encoding="utf-8"))
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": replacement_request["data"]["job_id"],
+        "pack": replacement_pack,
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    rebound = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert assets.current_ingest_fulfillment_receipt(rebound)["job_id"] == (
+        replacement_request["data"]["job_id"]
+    )
+    prepared_after = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [0],
+    })
+    assert prepared_after["ok"] is True, prepared_after
+    assert prepared_after["data"]["selected_start_pack_ready"] is True
+    projected_after = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+    })
+    assert projected_after["ok"] is True, projected_after
+    assert projected_after["data"]["status"] == "complete"
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "request_kind",
+        "request_entity",
+        "request_pack_digest",
+        "request_evidence_digest",
+        "current_ingest_digest",
+    ],
+)
+def test_partial_receipt_mismatch_refuses_prepare_request_and_project(
+    tmp_path: Path,
+    monkeypatch,
+    tamper: str,
+):
+    ws, _job_id, request_path, entity_path = (
+        _fulfilled_partial_opening_workspace(tmp_path, monkeypatch)
+    )
+    if tamper.startswith("request_"):
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        field, replacement = {
+            "request_kind": ("kind", "npc"),
+            "request_entity": ("entity_id", "other"),
+            "request_pack_digest": ("fulfilled_pack_sha256", "1" * 64),
+            "request_evidence_digest": ("source_evidence_sha256", "2" * 64),
+        }[tamper]
+        request["fulfilled_entity"][field] = replacement
+        _write_json(request_path, request)
+    else:
+        entity = json.loads(entity_path.read_text(encoding="utf-8"))
+        receipt_field = (
+            coc_toolbox.coc_module_project.coc_module_assets
+            .FULFILLED_PACK_INGEST_FIELD
+        )
+        entity["ingest_timing"][receipt_field]["fulfilled_pack_sha256"] = (
+            "3" * 64
+        )
+        _write_json(entity_path, entity)
+
+    scenario_before = {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    }
+    prepared = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [0],
+    })
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["selected_start_pack_ready"] is False
+    assert "opening_partial_binding_invalid" in {
+        row["code"] for row in prepared["data"]["blocking"]
+    }
+    requested = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert requested["ok"] is True, requested
+    assert requested["data"]["status"] != "current"
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+    })
+    assert projected["ok"] is False
+    assert projected["error"]["code"] == "opening_partial_binding_invalid"
+    assert {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    } == scenario_before
+
+
+def test_wrong_page_pack_blocks_source_projection_not_ordinary_play(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(9,))
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "opening",
+        _opening_component_pack(source_page_indices=[9]),
+    )
+    scenario_before = {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    }
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["ownership"]["player_action_gate"] is False
+    assert prepared["data"]["selected_start_pack_ready"] is False
+    assert "opening_pack_source_scope_mismatch" in {
+        row["code"] for row in prepared["data"]["blocking"]
+    }
+    assert all(
+        card["operation"] != "state.move_scene"
+        for card in prepared["data"]["mutation_cards"]
+    )
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is False
+    assert projected["error"]["code"] == "opening_pack_source_scope_mismatch"
+    assert {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    } == scenario_before
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    deferred = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "wrong-page-explicit-defer",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert deferred["ok"] is False
+    assert deferred["error"]["code"] == "initial_progressive_deferral_invalid"
+    assert world_path.read_bytes() == world_before
+
+    ordinary = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "wrong-page-ordinary-move",
+    })
+    assert ordinary["ok"] is True, ordinary
+    assert ordinary["data"]["to_scene_id"] == "opening"
+
+
+def test_covering_extra_page_pack_is_current_for_request_and_can_activate(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(9,))
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "opening",
+        _opening_component_pack(source_page_indices=[0, 9]),
+    )
+    current_request = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert current_request["ok"] is True, current_request
+    assert current_request["data"]["status"] == "current"
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["selected_start_pack_ready"] is True
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is True, projected
+    activated = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "covering-extra-page-defer",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert activated["ok"] is True, activated
+    assert activated["data"]["progressive"]["on_enter_deferred"] is True
+
+
+def test_explicit_page_one_scope_survives_prepare_project_and_disk_defer(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(
+        tmp_path, extra_pdf_indices=(1, 2),
+    )
+    ws["skeleton"]["locations"][0]["source_span"] = {
+        "pdf_index_start": 0,
+        "pdf_index_end": 2,
+    }
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.put_entity(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "opening",
+        _opening_component_pack(source_page_indices=[1]),
+    )
+
+    prepared = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [1],
+    })
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["source_window"] == [1]
+    assert prepared["data"]["window_origin"] == "host_selected"
+    assert prepared["data"]["selected_start_pack_ready"] is True
+    project_card = next(
+        row for row in prepared["data"]["mutation_cards"]
+        if row["operation"] == "progressive.project_opening"
+    )
+    assert project_card["prefilled_arguments"]["opening_pdf_indices"] == [1]
+
+    current_request = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [1],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert current_request["ok"] is True, current_request
+    assert current_request["data"]["status"] == "current"
+    assert current_request["data"]["job_id"] is None
+
+    projected = _run(
+        ws,
+        project_card["operation"],
+        project_card["prefilled_arguments"],
+    )
+    assert projected["ok"] is True, projected
+    assert projected["data"]["status"] == "complete"
+    scenario = json.loads(
+        (
+            ws["campaign_dir"] / "scenario" / "scenario.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert scenario["opening_projection_source_binding"]["source_scope"][
+        "pdf_indices"
+    ] == [1]
+    assert set(scenario["opening_projection_receipt"]) == {
+        "schema_version",
+        "asset_root_id",
+        "start_location_id",
+        "source_evidence_sha256",
+        "projection_input_sha256",
+    }
+
+    prepared_after_reload = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [1],
+    })
+    assert prepared_after_reload["ok"] is True, prepared_after_reload
+    assert prepared_after_reload["data"]["projected_selected_start_ready"] is True
+    assert prepared_after_reload["data"]["ready_to_activate"] is True
+    second_project = _run(ws, "progressive.project_opening", {
+        **project_card["prefilled_arguments"],
+    })
+    assert second_project["ok"] is True, second_project
+    assert second_project["data"]["status"] == "current"
+    assert second_project["data"]["idempotent"] is True
+
+    # No prior prepare response is consulted here: explicit defer reloads the
+    # persisted page-1 binding and revalidates current module evidence.
+    activated = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "explicit-page-one-opening",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert activated["ok"] is True, activated
+    assert activated["data"]["to_scene_id"] == "opening"
+    assert activated["data"]["progressive"]["on_enter_deferred"] is True
+
+
+def test_persisted_opening_binding_tamper_blocks_only_authored_activation(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path)
+    _publish_and_project_opening_component(ws)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["opening_projection_source_binding"][
+        "source_scope_signature"
+    ] = "0" * 64
+    _write_json(scenario_path, scenario)
+
+    prepared = _run(ws, "progressive.prepare_opening", {
+        "opening_pdf_indices": [0],
+    })
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["ownership"]["player_action_gate"] is False
+    assert prepared["data"]["projected_selected_start_ready"] is False
+    assert prepared["data"]["ready_to_activate"] is False
+
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    explicit_defer = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "tampered-binding-explicit-defer",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert explicit_defer["ok"] is False
+    assert explicit_defer["error"]["code"] == (
+        "initial_progressive_deferral_invalid"
+    )
+    assert world_path.read_bytes() == world_before
+
+    # The source-classification prerequisite is not a player-action gate.
+    ordinary = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "tampered-binding-ordinary-move",
+    })
+    assert ordinary["ok"] is True, ordinary
+    assert ordinary["data"]["to_scene_id"] == "opening"
+
+    scenario_before_project = {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    }
+    refused_repair_after_play = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+    })
+    assert refused_repair_after_play["ok"] is False
+    assert refused_repair_after_play["error"]["code"] == (
+        "opening_projection_non_pristine"
+    )
+    assert {
+        path.name: path.read_bytes()
+        for path in (ws["campaign_dir"] / "scenario").glob("*.json")
+    } == scenario_before_project
+
+
+def test_campaign_local_pack_stays_local_across_prepare_project_and_defer(
+    tmp_path: Path,
+):
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    local_pack = _opening_component_pack(
+        origin="campaign_improvised",
+        provenance={"authority": "campaign_improvised"},
+    )
+    local_pack.pop("source_page_indices", None)
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening", local_pack,
+    )
+    entity_path = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+        / "entities" / "location-opening.json"
+    )
+    entity_before = entity_path.read_bytes()
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["ownership"]["player_action_gate"] is False
+    codes = {row["code"] for row in prepared["data"]["blocking"]}
+    assert "opening_pack_source_authority_invalid" in codes
+    assert "opening_pack_source_evidence_missing" in codes
+    projected = _run(ws, "progressive.project_opening", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+    })
+    assert projected["ok"] is False
+    assert projected["error"]["code"] == "opening_pack_source_authority_invalid"
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+    deferred = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "local-pack-explicit-defer",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert deferred["ok"] is False
+    assert deferred["error"]["code"] == "initial_progressive_deferral_invalid"
+    assert world_path.read_bytes() == world_before
+    assert entity_path.read_bytes() == entity_before

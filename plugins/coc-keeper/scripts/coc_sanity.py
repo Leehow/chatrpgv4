@@ -40,6 +40,7 @@ def _load_sibling(name: str, filename: str):
 coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_rules = _load_sibling("coc_rules", "coc_rules.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 
 coc_time = None
 try:
@@ -83,8 +84,8 @@ BACKSTORY_FIELDS = (
     "encounters",
 )
 
-# Phobia / mania table loader (references/rules-json/{phobias,manias}.json).
-RULES_DIR = Path(__file__).resolve().parent.parent / "references" / "rules-json"
+# Phobia / mania table loader (rulesets/coc7/rules-json/{phobias,manias}.json).
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 _SAN_LOSS_DICE = re.compile(
     r"^(?P<count>\d+)D(?P<sides>\d+)(?:\+(?P<modifier>\d+))?$",

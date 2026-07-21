@@ -38,12 +38,13 @@ def _load_sibling(name: str, filename: str):
 
 
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_rulesets = _load_sibling("coc_rulesets", "coc_rulesets.py")
 
 
 # --------------------------------------------------------------------------- #
 # Rule-data loading (spells.json -> mp_economy block)
 # --------------------------------------------------------------------------- #
-RULES_DIR = SCRIPT_DIR.parent / "references" / "rules-json"
+RULES_DIR = coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
 
 
 def _load_mp_economy(rules_dir: Path | None = None) -> dict[str, Any]:

@@ -5,7 +5,7 @@ import importlib.util
 from pathlib import Path
 from typing import Any
 
-_LIVE_RUNNER = None
+_LIVE_RUNNERS: dict[Path, Any] = {}
 _MAPPER = None
 
 
@@ -21,12 +21,16 @@ def _load_module(name: str, path: Path):
     return mod
 
 
-def _live_runner():
-    global _LIVE_RUNNER
-    if _LIVE_RUNNER is None:
-        path = _repo_root() / "plugins" / "coc-keeper" / "scripts" / "coc_live_turn_runner.py"
-        _LIVE_RUNNER = _load_module("coc_live_turn_runner", path)
-    return _LIVE_RUNNER
+def _load_plugin_locator():
+    path = _repo_root() / "runtime" / "engine" / "plugin_locator.py"
+    return _load_module("runtime_plugin_locator_debug", path)
+
+
+def _live_runner(workspace: Path | str | None = None):
+    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_live_turn_runner.py"
+    if path not in _LIVE_RUNNERS:
+        _LIVE_RUNNERS[path] = _load_module("coc_live_turn_runner", path)
+    return _LIVE_RUNNERS[path]
 
 
 def _mapper():
@@ -48,11 +52,11 @@ def debug_send_turn(
 ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
     """Run one live turn via coc-keeper and map the result to Events.
 
-    ``workspace`` is accepted for API symmetry with the session layer; the
+    ``workspace`` is accepted for API symmetry with the session layer; it also
+    scopes plugin resolution (``.coc/runtime.json`` ``plugin_root``). The
     live runner operates on ``campaign_dir`` / character paths directly.
     """
-    _ = workspace  # reserved for future workspace-scoped config
-    result = _live_runner().run_live_turn(
+    result = _live_runner(workspace).run_live_turn(
         campaign_dir,
         character_path,
         investigator_id,

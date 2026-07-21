@@ -1,7 +1,7 @@
 """Wire the rulebook data audits into pytest.
 
 gap_audit.py is the offline JSON-vs-JSON auditor: it compares every
-rule-table parameter in plugins/coc-keeper/references/rules-json/ against
+rule-table parameter in plugins/coc-keeper/rulesets/coc7/rules-json/ against
 the committed rulebook reference snapshots in checks/rulebook-*-ref.json
 (skills, occupations, weapons, spells, monsters, bout tables, ...). It
 needs no OCR cache and must stay clean; any drift in rule data fails here.

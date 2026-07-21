@@ -10,7 +10,7 @@ from __future__ import annotations
 import json, re, sys
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD = Path("checks/ocr-cached/monsters-ch14.md")
 
 

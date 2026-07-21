@@ -62,7 +62,7 @@ def test_expand_no_match_leaves_social_role_absent():
 
 def test_load_role_templates_from_shipped_file():
     from pathlib import Path
-    t = npc_roles.load_role_templates(Path("plugins/coc-keeper/references/rules-json"))
+    t = npc_roles.load_role_templates(Path("plugins/coc-keeper/rulesets/coc7/rules-json"))
     assert "scene_safety_authority" in t  # template id present
 
 

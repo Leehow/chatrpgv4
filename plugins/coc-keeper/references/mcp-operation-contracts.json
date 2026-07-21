@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:7f5a68bd4e56ffc369cf410e5a3f73148e7101b92068cd60a2467af58299e67a",
+  "content_sha256": "sha256:4b90f0dec03baeb0cf544a92f69f722e0baf328de157cdfeab510c4a4f004811",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 73,
+  "operation_count": 87,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -29,7 +29,79 @@
           },
           "intent_evidence": {
             "additionalProperties": true,
-            "description": "optional KP semantic result with primary_intent, reason, and matched_affordance_ids/selected_affordance_ids",
+            "description": "optional KP semantic result; bind authored routes only with matched_affordance_ids or selected_affordance_ids from the current action_routes index",
+            "examples": [
+              {
+                "matched_affordance_ids": [
+                  "search-clippings"
+                ],
+                "primary_intent": "search_clippings",
+                "semantic_reason": "the player asks the clerk to retrieve the house file"
+              }
+            ],
+            "properties": {
+              "action_resolution": {
+                "additionalProperties": true,
+                "description": "optional structured semantic-router result",
+                "type": "object"
+              },
+              "matched_affordance_ids": {
+                "description": "preferred exact route IDs from scene.context.action_routes",
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "method": {
+                "description": "optional semantic description of the attempted method",
+                "type": "string"
+              },
+              "normalized_action_atoms": {
+                "description": "optional structured atoms from a semantic host resolver",
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "precautions": {
+                "description": "optional precautions explicitly established by the player",
+                "type": "string"
+              },
+              "primary_intent": {
+                "description": "KP semantic label for the player's main intent",
+                "minLength": 1,
+                "type": "string"
+              },
+              "reason": {
+                "description": "backward-compatible alias for semantic_reason",
+                "minLength": 1,
+                "type": "string"
+              },
+              "selected_affordance_ids": {
+                "description": "accepted alias for matched_affordance_ids",
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "semantic_reason": {
+                "description": "why this structured interpretation fits the actual player action",
+                "minLength": 1,
+                "type": "string"
+              },
+              "target": {
+                "description": "optional semantic target of the action",
+                "type": "string"
+              }
+            },
+            "required": [
+              "primary_intent"
+            ],
             "type": "object"
           },
           "investigator": {
@@ -242,7 +314,7 @@
     },
     "combat.resolve": {
       "canonical_operation": "combat.resolve",
-      "description": "Execute one authored combat beat through CombatSession, including reaction-specific ties (Dodge tie: defender; Fight Back tie: attacker), combat.json, and canonical roll evidence. Canonical operation `combat.resolve`; the result envelope is authoritative.",
+      "description": "Execute one authored or KP-selected emergent combat beat through CombatSession, including reaction-specific ties, combat.json, and canonical roll evidence. Canonical operation `combat.resolve`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -278,6 +350,14 @@
             "description": "deterministic RNG seed (tests only)",
             "type": "integer"
           },
+          "target_npc_id": {
+            "description": "present stable NPC id for an emergent attack (alternative to affordance_id)",
+            "type": "string"
+          },
+          "weapon_effect_ids": {
+            "description": "authored weapon effect IDs whose applicability the KP has semantically established for this attack",
+            "type": "array"
+          },
           "weapon_id": {
             "description": "stable owned weapon id for a structured_player_selection route",
             "type": "string"
@@ -285,13 +365,12 @@
         },
         "required": [
           "campaign",
-          "affordance_id",
           "decision_id"
         ],
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Execute one authored combat beat through CombatSession, including reaction-specific ties (Dodge tie: defender; Fight Back tie: attacker), combat.json, and canonical roll evidence."
+      "summary": "Execute one authored or KP-selected emergent combat beat through CombatSession, including reaction-specific ties, combat.json, and canonical roll evidence."
     },
     "development.settle": {
       "canonical_operation": "development.settle",
@@ -420,6 +499,10 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "candidate_ref": {
+            "description": "optional stable candidate_ref returned by actions.advise; the canonical candidate is resolved from advisory evidence",
+            "type": "string"
+          },
           "decision_id": {
             "description": "stable turn decision id",
             "type": "string"
@@ -450,7 +533,7 @@
           },
           "storylet_candidate": {
             "additionalProperties": true,
-            "description": "optional exact candidate returned by actions.advise/storylets.suggest; adopted or modified candidates update the existing anti-repeat ledger",
+            "description": "legacy optional exact candidate returned by actions.advise/storylets.suggest; prefer candidate_ref",
             "type": "object"
           }
         },
@@ -468,7 +551,7 @@
     },
     "evidence.table_opening": {
       "canonical_operation": "evidence.table_opening",
-      "description": "Record the exact player-visible Keeper opening that precedes the first player message, so the readable transcript starts where play actually started. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
+      "description": "Record the exact player-visible Keeper opening before the first player message, canonical-render its explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix. Canonical operation `evidence.table_opening`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -479,6 +562,14 @@
           "decision_id": {
             "description": "idempotency key",
             "type": "string"
+          },
+          "presented_roll_ids": {
+            "description": "ordered public npc_first_impression roll_ids from this campaign/run; [] is valid",
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
@@ -493,7 +584,7 @@
             "type": "string"
           },
           "text": {
-            "description": "exact opening text delivered to the player",
+            "description": "Keeper-authored opening narrative; deterministic first-impression lines are inserted by the tool before a final [/in_game] marker when present, otherwise appended",
             "type": "string"
           }
         },
@@ -501,12 +592,68 @@
           "campaign",
           "text",
           "run_id",
+          "presented_roll_ids",
           "decision_id"
         ],
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Record the exact player-visible Keeper opening that precedes the first player message, so the readable transcript starts where play actually started."
+      "summary": "Record the exact player-visible Keeper opening before the first player message, canonical-render its explicitly bound public first-impression rolls, and close the pre-turn setup/opening source prefix."
+    },
+    "mechanics.ensure": {
+      "canonical_operation": "mechanics.ensure",
+      "description": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused. Canonical operation `mechanics.ensure`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "base_weapon_id": {
+            "description": "KP-selected comparable core weapon for a campaign-improvised item",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "fallback_archetype_id": {
+            "description": "KP-selected ordinary_adult | capable_adult | dangerous_actor; only when fallback is source-authorized",
+            "type": "string"
+          },
+          "label": {
+            "description": "table-language item/NPC label",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "combat | check | item_use",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "subject_id": {
+            "description": "stable NPC/item id",
+            "type": "string"
+          },
+          "subject_kind": {
+            "description": "npc | item",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "subject_kind",
+          "subject_id",
+          "purpose",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Resolve one NPC or item into a source-bound mechanics profile. Authored PDF data wins; source subjects require a reviewed not-authored receipt before campaign fallback generation. Generated profiles are frozen and reused."
     },
     "narration.brief": {
       "canonical_operation": "narration.brief",
@@ -731,6 +878,46 @@
       "needs_campaign": true,
       "summary": "Read structured personal-horror hooks and accepted backstory corruptions without scanning character prose."
     },
+    "progressive.claim_host_work": {
+      "canonical_operation": "progressive.claim_host_work",
+      "description": "Atomically lease up to four exact cached-page work groups for bounded host-native source-pack subagents. Returns bare coc.source-pack-worker.v1 packets; children never write campaign/module state and the parent Keeper must submit accepted packs through progressive.fulfill_host_work. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "executor_id": {
+            "description": "stable host/session executor id used for leases and recovery",
+            "type": "string"
+          },
+          "lease_seconds": {
+            "description": "crash-recovery lease duration (default 600 seconds)",
+            "maximum": 3600,
+            "minimum": 30,
+            "type": "integer"
+          },
+          "limit": {
+            "description": "maximum independent exact-page work groups to lease (default 1)",
+            "maximum": 4,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "executor_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Atomically lease up to four exact cached-page work groups for bounded host-native source-pack subagents. Returns bare coc.source-pack-worker.v1 packets; children never write campaign/module state and the parent Keeper must submit accepted packs through progressive.fulfill_host_work."
+    },
     "progressive.follow_mentions": {
       "canonical_operation": "progressive.follow_mentions",
       "description": "Enqueue deepen jobs from a structured mentions list [{kind, ref_id, raw_label?}]. For KP/host use when a deep pack, handout index, or dig yields explicit entity refs. Never pass free prose to scan. Canonical operation `progressive.follow_mentions`; the result envelope is authoritative.",
@@ -765,7 +952,7 @@
     },
     "progressive.fulfill_host_work": {
       "canonical_operation": "progressive.fulfill_host_work",
-      "description": "Submit one host-PDF semantic pack for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work. Canonical operation `progressive.fulfill_host_work`; the result envelope is authoritative.",
+      "description": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work. Canonical operation `progressive.fulfill_host_work`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -773,29 +960,274 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "host_task_timing": {
+            "additionalProperties": true,
+            "description": "optional exact host-runtime metadata from the completed background task; never model-authored",
+            "properties": {
+              "completed_at": {
+                "type": "string"
+              },
+              "duration_ms": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "started_at": {
+                "type": "string"
+              },
+              "task_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "started_at",
+              "completed_at",
+              "duration_ms",
+              "task_id"
+            ],
+            "type": "object"
+          },
           "job_id": {
-            "description": "open job_id returned by progressive.status or scene.context",
+            "description": "legacy explicit job id; mutually exclusive with worker_result",
             "type": "string"
           },
           "pack": {
             "additionalProperties": true,
-            "description": "source-bound semantic entity pack produced by the host PDF capability",
+            "description": "legacy explicit pack; mutually exclusive with worker_result",
             "type": "object"
+          },
+          "related_packs": {
+            "description": "legacy optional same-page batch; mutually exclusive with worker_result",
+            "type": "array"
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "worker_result": {
+            "additionalProperties": false,
+            "description": "preferred exact child results[i] object; pass it unchanged as one value and never combine it with legacy job_id/pack/related_packs",
+            "properties": {
+              "job_id": {
+                "type": "string"
+              },
+              "pack": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "related_packs": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "job_id",
+              "pack",
+              "related_packs"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work."
+    },
+    "progressive.prepare_opening": {
+      "canonical_operation": "progressive.prepare_opening",
+      "description": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "mechanics_locator_pdf_indices": {
+            "description": "optional exact host-selected appendix/roster candidate pages; never required for opening",
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "opening_pdf_indices": {
+            "description": "optional exact host-selected contiguous accepted pages",
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "opening_required_npc_ids": {
+            "description": "optional present-NPC opening construction prerequisites",
+            "items": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "opening_required_secret_ids": {
+            "description": "optional keeper-secret opening construction prerequisites",
+            "items": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "start_location_id": {
+            "description": "optional exact structured start candidate id",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "campaign"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions."
+    },
+    "progressive.project_opening": {
+      "canonical_operation": "progressive.project_opening",
+      "description": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. Canonical operation `progressive.project_opening`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "opening_pdf_indices": {
+            "description": "optional exact qualified selected opening page window",
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_file_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "type": "string"
+          },
+          "start_location_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
             "type": "string"
           }
         },
         "required": [
           "campaign",
-          "job_id",
-          "pack"
+          "asset_root_id",
+          "source_file_sha256",
+          "start_location_id"
         ],
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Submit one host-PDF semantic pack for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work."
+      "summary": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun."
+    },
+    "progressive.publish_skeleton": {
+      "canonical_operation": "progressive.publish_skeleton",
+      "description": "Experimental canonical publication of one structured source-bound skeleton. Stores validated shared module truth, then projects sparse campaign IR as a separate non-atomic phase; it never parses free prose or source pages. Canonical operation `progressive.publish_skeleton`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "skeleton": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "source_file_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "asset_root_id",
+          "source_file_sha256",
+          "skeleton"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Experimental canonical publication of one structured source-bound skeleton. Stores validated shared module truth, then projects sparse campaign IR as a separate non-atomic phase; it never parses free prose or source pages."
+    },
+    "progressive.register_source_bundle": {
+      "canonical_operation": "progressive.register_source_bundle",
+      "description": "Validate and register one later host-PDF page window for the campaign's existing progressive asset root. This caches reviewed pages only; it does not parse PDF bytes or compile semantic entity packs. Canonical operation `progressive.register_source_bundle`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_bundle_path": {
+            "description": "absolute path to one host-produced source-bundle directory",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "source_bundle_path"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Validate and register one later host-PDF page window for the campaign's existing progressive asset root. This caches reviewed pages only; it does not parse PDF bytes or compile semantic entity packs."
     },
     "progressive.request_deepen": {
       "canonical_operation": "progressive.request_deepen",
@@ -837,6 +1269,158 @@
       },
       "needs_campaign": true,
       "summary": "Player-dig path for progressive modules: ensure a named_only stub, coalesce one reusable host deep-extract, and return host_hints / evidence_gap status. Use when the investigator materially pursues a place, NPC, clue, or handout that is only mentioned or stubbed — without moving scenes. Never invent deep bodies; never keyword-scan free prose (pass structured kind+id only)."
+    },
+    "progressive.request_locator_pass": {
+      "canonical_operation": "progressive.request_locator_pass",
+      "description": "Enqueue one nonblocking mechanics-locator pass over an exact host-selected contiguous 1..3-page accepted window. It never selects pages, scans the bundle, blocks opening readiness, or extracts mechanics profiles. Canonical operation `progressive.request_locator_pass`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "mechanics_locator_pdf_indices": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "request_purpose": {
+            "enum": [
+              "mechanics_locator_pass"
+            ],
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_file_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "asset_root_id",
+          "source_file_sha256",
+          "mechanics_locator_pdf_indices",
+          "request_purpose"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Enqueue one nonblocking mechanics-locator pass over an exact host-selected contiguous 1..3-page accepted window. It never selects pages, scans the bundle, blocks opening readiness, or extracts mechanics profiles."
+    },
+    "progressive.request_mechanics": {
+      "canonical_operation": "progressive.request_mechanics",
+      "description": "Request one source-first NPC/item mechanics lookup without reparsing its narrative body. Exact appendix/chapter pages are cached and same-page subjects are batched. Canonical operation `progressive.request_mechanics`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "npc | item",
+            "type": "string"
+          },
+          "reason": {
+            "description": "structured reason for the source lookup",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "target_id": {
+            "description": "stable subject id",
+            "type": "string"
+          },
+          "title": {
+            "description": "optional table-language label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "kind",
+          "target_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Request one source-first NPC/item mechanics lookup without reparsing its narrative body. Exact appendix/chapter pages are cached and same-page subjects are batched."
+    },
+    "progressive.request_opening_pack": {
+      "canonical_operation": "progressive.request_opening_pack",
+      "description": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction. Canonical operation `progressive.request_opening_pack`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "opening_pdf_indices": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "request_purpose": {
+            "enum": [
+              "foreground_opening_slice"
+            ],
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "source_file_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "type": "string"
+          },
+          "start_location_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "asset_root_id",
+          "source_file_sha256",
+          "start_location_id",
+          "opening_pdf_indices",
+          "request_purpose"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Experimental mutation that enqueues exactly one selected-start partial opening slice over a validated 1..3-page accepted window. The queue kick only materializes host work; it does not perform semantic extraction."
     },
     "progressive.status": {
       "canonical_operation": "progressive.status",
@@ -1722,6 +2306,62 @@
       "needs_campaign": true,
       "summary": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump."
     },
+    "session.continuation_detail": {
+      "canonical_operation": "session.continuation_detail",
+      "description": "Read one exact paged section omitted from the compact session.resume working set. Use only a returned detail_operation card; never scan save files or logs. Canonical operation `session.continuation_detail`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "ids": {
+            "description": "optional exact structured ids; no prose or keyword search",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
+          "limit": {
+            "description": "maximum exact rows to return (default 4, max 8)",
+            "maximum": 8,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "description": "zero-based row offset (default 0)",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "section": {
+            "description": "exact continuation section named by session.resume",
+            "enum": [
+              "recent_summaries",
+              "threads",
+              "confirmed_decisions",
+              "do_not_repeat",
+              "style_commitments",
+              "current_turn"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "section"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Read one exact paged section omitted from the compact session.resume working set. Use only a returned detail_operation card; never scan save files or logs."
+    },
     "session.delivery_ack": {
       "canonical_operation": "session.delivery_ack",
       "description": "Confirm that the latest immutable Keeper rendered_text was displayed or replayed. This never changes campaign fiction or mechanics. Canonical operation `session.delivery_ack`; the result envelope is authoritative.",
@@ -1842,6 +2482,167 @@
       },
       "needs_campaign": true,
       "summary": "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context."
+    },
+    "setup.inspect": {
+      "canonical_operation": "setup.inspect",
+      "description": "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files. Canonical operation `setup.inspect`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files."
+    },
+    "setup.invoke": {
+      "canonical_operation": "setup.invoke",
+      "description": "Invoke one existing canonical custom-campaign setup operation. This thin MCP-facing gateway delegates schema, source-bundle, path, and state validation to the shared pre-session setup runtime. Canonical operation `setup.invoke`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "exact custom setup operation kind",
+            "enum": [
+              "campaign.create",
+              "investigator.create",
+              "campaign.link_investigator",
+              "scenario.bind_pdf",
+              "campaign.render_briefing",
+              "investigator.render_card"
+            ],
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": false,
+            "description": "exact payload for the selected kind: campaign.create requires campaign_id/title and optionally era/play_language/start_clock; investigator.create requires investigator_id/sheet and optionally creation; campaign.link_investigator requires exactly campaign_id/investigator_ids; scenario.bind_pdf requires campaign_id/scenario_id/title/source_bundle_path and optionally compile_now; campaign.render_briefing requires campaign_id and optionally language; investigator.render_card requires campaign_id/investigator_id and optionally language/html_mode. Per-kind allowed fields are enforced by the canonical setup runtime. For installed-host progressive binding, omit compile_now or pass false; true requires the repository cold compiler runtime and is not part of the opening critical path",
+            "properties": {
+              "campaign_id": {
+                "type": "string"
+              },
+              "compile_now": {
+                "description": "optional cold full-module compile request; omit or pass false for installed-host progressive import. true is accepted only when the repository compiler runtime is available and must not block the playable opening",
+                "type": "boolean"
+              },
+              "creation": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "era": {
+                "type": "string"
+              },
+              "html_mode": {
+                "description": "character-card HTML rendering mode",
+                "enum": [
+                  "never",
+                  "auto",
+                  "always"
+                ],
+                "type": "string"
+              },
+              "investigator_id": {
+                "type": "string"
+              },
+              "investigator_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "language": {
+                "type": "string"
+              },
+              "play_language": {
+                "type": "string"
+              },
+              "scenario_id": {
+                "type": "string"
+              },
+              "sheet": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "source_bundle_path": {
+                "type": "string"
+              },
+              "start_clock": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Invoke one existing canonical custom-campaign setup operation. This thin MCP-facing gateway delegates schema, source-bundle, path, and state validation to the shared pre-session setup runtime."
+    },
+    "setup.quick_start": {
+      "canonical_operation": "setup.quick_start",
+      "description": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans. Canonical operation `setup.quick_start`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "campaign_id": {
+            "description": "optional stable campaign id; omit to let the canonical starter choose one",
+            "type": "string"
+          },
+          "pregen_id": {
+            "description": "exact pregen_id returned by setup.inspect for that scenario",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scenario_id": {
+            "description": "exact built-in scenario_id returned by setup.inspect",
+            "type": "string"
+          },
+          "title": {
+            "description": "optional campaign title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario_id",
+          "pregen_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Create a canonical built-in starter campaign and linked pregen investigator through the shared setup gateway. The starter path defaults player-visible play_language to zh-Hans."
     },
     "state.advance_time": {
       "canonical_operation": "state.advance_time",
@@ -2321,6 +3122,10 @@
             "description": "short display label",
             "type": "string"
           },
+          "mechanics_ref": {
+            "description": "campaign-item:<id> or module-item:<id> returned by mechanics.ensure",
+            "type": "string"
+          },
           "note": {
             "description": "where/how the item was obtained",
             "type": "string"
@@ -2604,6 +3409,10 @@
           "decision_id": {
             "description": "idempotency key",
             "type": "string"
+          },
+          "defer_initial_progressive_on_enter": {
+            "description": "experimental initial-only deferral of the complete progressive on-enter hook",
+            "type": "boolean"
           },
           "exhaust_previous": {
             "description": "mark the departed scene exhausted (done with it)",
@@ -2936,6 +3745,11 @@
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
           },
+          "route_completion": {
+            "additionalProperties": true,
+            "description": "optional exact {scene_id, route_id, semantic_reason}; include only when this engagement causally completes that authored route by KP semantic judgment, never by prose matching",
+            "type": "object"
+          },
           "run_id": {
             "description": "current play/report segment run id; live play hosts supply this automatically",
             "type": "string"
@@ -2951,6 +3765,54 @@
       },
       "needs_campaign": true,
       "summary": "Record one NPC's material participation. Each first investigator/NPC contact binds that pair's canonical npc.reaction receipt plus a KP-authored causal realization; one journal may contain zero to many independent engagements."
+    },
+    "state.record_route_completion": {
+      "canonical_operation": "state.record_route_completion",
+      "description": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth. Canonical operation `state.record_route_completion`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "evidence_ref": {
+            "description": "exact canonical receipt/event/state reference grounding that judgment",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "route_id": {
+            "description": "exact authored route/affordance id",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "exact authored scene id owning the route",
+            "type": "string"
+          },
+          "semantic_reason": {
+            "description": "KP semantic explanation of how established fiction completed the route",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "scene_id",
+          "route_id",
+          "semantic_reason",
+          "evidence_ref",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record a campaign-local authored route as completed when the KP has structured evidence that play achieved it through a causally valid alternate method. This never infers meaning from prose and never edits module truth."
     },
     "state.set_flag": {
       "canonical_operation": "state.set_flag",
@@ -3257,7 +4119,7 @@
         "properties": {
           "advisory_uptake": {
             "additionalProperties": false,
-            "description": "optional proof that one actions.advise Storylet candidate actually shaped this finalized draft; omitted when ignored",
+            "description": "optional proof that one actions.advise Storylet candidate actually shaped this finalized draft; use candidate_ref, while storylet_candidate remains a legacy compatibility input",
             "properties": {
               "adopted_fields": {
                 "items": {
@@ -3268,6 +4130,10 @@
                 "type": "array"
               },
               "advice_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "candidate_ref": {
                 "minLength": 1,
                 "type": "string"
               },
@@ -3296,7 +4162,6 @@
               "disposition",
               "reason",
               "adopted_fields",
-              "storylet_candidate",
               "exact_excerpt"
             ],
             "type": "object"

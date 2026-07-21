@@ -32,6 +32,10 @@ state = _load(
     "coc_state_runtime_ops_test",
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_state.py",
 )
+module_project = _load(
+    "coc_module_project_runtime_ops_test",
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_module_project.py",
+)
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -2256,6 +2260,15 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     assert "progressive_asset_root_id" not in scenario
     assert bound["result"]["source_cache"]["asset_root_id"] == "custom-module"
     assert bound["result"]["source_cache"]["new_page_count"] == 1
+    opening_root = module_project.resolve_opening_preparation_root(
+        tmp_path, "custom",
+    )
+    assert opening_root["asset_root_id"] == "custom-module"
+    assert opening_root["link_state"] == "source_bound"
+    assert opening_root["source_id"] == "pdf:custom-module"
+    assert opening_root["file_sha256"] == hashlib.sha256(pdf.read_bytes()).hexdigest()
+    assert opening_root["bundle_sha256"] == scenario["source"]["bundle_sha256"]
+    assert opening_root["bundle_pdf_indices"] == [0]
     cached_page = (
         tmp_path
         / ".coc"

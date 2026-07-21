@@ -7,8 +7,8 @@ pack are original work by the chatrpgv4 contributors and do **not** reproduce
 Chaosium Product Identity boxed text.
 
 Mechanical hooks (Flesh Ward, floating knife, own-dagger exception) align with
-`../../rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
-referenced from `../../rules-json/monsters.json`.
+`../../../rulesets/coc7/rules-json/the-haunting.json`. Walter Corbitt presentation/stats are
+referenced from `../../../rulesets/coc7/rules-json/monsters.json`.
 
 ## Playing
 

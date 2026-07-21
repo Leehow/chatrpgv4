@@ -36,7 +36,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-BASE = Path("plugins/coc-keeper/references/rules-json")
+BASE = Path("plugins/coc-keeper/rulesets/coc7/rules-json")
 MD_PATH = Path("checks/ocr-cached/spells-grimoire.md")
 
 # OCR headings that are NOT individual spells: section intros, "deeper version"

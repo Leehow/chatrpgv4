@@ -1,6 +1,11 @@
 # On-Demand Module Skeleton + Durable Asset Store
 
-**Status:** design contract; **slices 1–8 implemented** (progressive track vertical complete)
+**Status:** thin repair slices are implemented and have returned repeatedly to
+installed-plugin play. R13 proves a one-page canonical foreground pack plus a
+source worker that finishes after player input is restored; R17 proves the
+current ordinary-turn finalization guidance on its first submission. Opening
+latency, Codex live activation, appendix/mechanics live evidence, and complete
+background lifecycle ownership remain open; slices 7 and 9 are still Partial.**
 **Date:** 2026-07-18
 **Scope:** progressive PDF import, director-ready topology, mention-driven deepen,
 local multi-campaign reuse of parsed assets.
@@ -15,8 +20,134 @@ local multi-campaign reuse of parsed assets.
 | 4 Enter-scene deepen + neighbor/mention enqueue | **Done** | `on_enter_scene` / `process_ready_deepens`; hooked from `state.move_scene` |
 | 5 `scene.map` parse_state | **Done** | `scene.map` exposes `parse_state`, `evidence_gap`, `progressive_asset_root_id` |
 | 6 Library/install reuse by file_sha256 | **Done** | `coc_module_reuse.py` (`reuse`, `link-library`, `resolve`); library install stamps progressive link |
-| 7 Queue worker | **Done** | `coc_module_reuse.py process-queue` + **background parallel** `coc_module_queue_worker.py` (claim/`in_flight`, thread pool, host-work requests, non-blocking kick on enqueue) |
+| 7 Queue worker | **Partial** | Queue claim/merge exists and R13 completion arrived after player input was restored, but semantic dispatch and final fulfill still return to the main KP. |
 | 8 Player-dig path (no scene move) | **Done** | `request_deepen` / `follow_structured_mentions` / `on_clue_discovered`; toolbox `progressive.*`; clue `mentions[]` preserved in IR |
+| 9 Host-native source workers | **Partial / live opening exercised** | R12/R13 produced and first-fulfilled a canonical one-page opening pack without parent repair, but the adapter remains experimental and the main KP still owns dispatch/inspection/final fulfill. |
+
+## 2026-07-20 repair objective
+
+**User job:** a fresh campaign with an accepted source bundle should reach a
+source-faithful, genuinely playable opening quickly, while non-critical module
+enrichment continues without making the player wait or turning the KP into a
+manual compiler/queue operator. A hollow result would be a fast status message,
+synthetic timing harness, or green shape-only tests while normal plugin play
+still blocks, falls back to shell, or corrupts source semantics.
+
+**Product question:** can Codex and Grok use the canonical plugin path to show
+the same trustworthy opening within the latency budget, then finish bounded
+background work without weakening the live KP or inventing a fixed narrative
+pipeline?
+
+### Reopened repair ledger
+
+| Item | Status | Required evidence |
+|---|---|---|
+| Native Codex MCP activation | **V0/V1 implemented; live host pending** | Source config now uses `./mcp/launch` with plugin cwd and passes a real launcher handshake; managed-cache refresh and fresh Codex-host activation remain unproved. |
+| Canonical source-worker result | **Implemented; R12/R13 live pass** | The bare claimed packet reached the worker unchanged; its canonical pack reached first fulfill unchanged and passed without main-KP JSON repair. |
+| Opening foreground boundary | **Implemented; R13 live pass** | The installed host selected and read only page 361 for the playable opening; neighboring scenes and appendix mechanics did not block it. |
+| Autonomous background lifecycle | **Improved but still Partial** | R13 restored the character-card input 18.209 s before the source worker finished and handled completion later, but the host still owns semantic dispatch and final fulfill. |
+| Content-addressed semantic cache | **Existing identities mapped; implementation pending** | Compose existing file/bundle/page/work-group/semantic hashes with entity/aspect and schema version; do not create a second store. |
+| Locator and authored-absence proof | **Validation implemented; locator production missing in live path** | `pending|complete` and scope-bound absence receipts reject false completeness, but R18 proved no canonical post-opening pass currently produces the appendix locator index. |
+| Mechanics field completeness | **Implemented; component-verified / live Joseph pending** | Authored actor packs account for the closed schema through `fields_observed`, `fields_extracted`, and `fields_not_authored`; partial flat profiles no longer pass as authored. |
+| Structured clue delivery semantics | **Implemented; component-verified / live clue pending** | Canonical `automatic|check|conditional_check|keeper_judgment` survives projection; automatic clues no longer acquire `regular` merely because prose or legacy data names a skill. |
+| Per-fact provenance | **Implemented mechanically; live evidence pending** | Nested facts accept source-authored or campaign-improvised provenance instead of inheriting a pack-wide source claim. |
+| Real-host acceptance | **R17 format pass / latency fail / incomplete** | Updated installed-plugin Grok play has no shell fallback and first-pass finalization now works, but a normal turn still took 113.938 s; opening latency, five-turn evidence, Codex-host activation, and live appendix/clue checks remain open. |
+
+### Acceptance targets
+
+- Accepted source bundle + fresh campaign: first playable opening P50 <= 30 s,
+  P95 <= 60 s; opening display to restored player input <= 5 s.
+- The first screen does not read the full module or start neighbor/NPC deep
+  packs, and background work continues while the host waits for player input.
+- Codex and Grok agree on the opening entry and appendix/roster locator scope.
+- Lucas and Jane resolve from the appendix; Joseph retains every authored
+  mechanics field; an explicitly automatic archive clue does not become a
+  Library Use check.
+- Five normal live-KP turns use the native MCP path without shell fallback.
+
+### 2026-07-21 R9 real-host evidence
+
+- Method: installed `coc-keeper` plugin in an interactive Grok TUI under tmux;
+  Grok was the sole live KP and one context-free Codex subagent supplied one
+  player reply at a time. This was not one-shot, batch, scripted-player, or
+  fake-KP execution.
+- The MCP connected in 2.282 s and exposed only the three canonical gateway
+  tools. An exact log scan found no `run_terminal_command` call.
+- Before the playable opening, the host exact-read the bound manifest and only
+  PDF indices 359-361; it did not crawl all 18 scenario pages.
+- The real host source worker ran for 44.788 s, returned a canonical opening
+  pack, and was fulfilled without main-KP field repair. Open host work then
+  cleared to zero while the player was between replies.
+- The KP projected Bennington Police Station, recorded two public first-contact
+  rolls, delivered the Chinese opening, accepted the player's question to the
+  sheriff, persisted its consequences, and completed `turn.finalize`.
+- Performance failed: first host response 140.4 s (> 60 s), character
+  confirmation to playable opening 127.3 s (> 60 s), and the first ordinary
+  action 101.7 s. `turn.finalize` also rejected one unnecessary
+  `advisory_uptake` payload before succeeding on retry.
+- Scope remains incomplete: this run settled one normal play turn, not five;
+  it did not validate Codex native activation, appendix locator completeness,
+  Lucas/Jane mechanics, Joseph field completeness, or automatic-clue semantics.
+- Raw source of truth: Grok session
+  `019f82ad-9a59-7bc0-98a0-4fcb8f0aae81` under the focused Grok session store;
+  isolated campaign workspace
+  `/tmp/coc-opening-live-grok-r9-20260721-WLvKXy`.
+
+### 2026-07-21 R10-R17 real-play repair loop
+
+- Every acceptance run used the updated installed plugin in an interactive
+  tmux TUI. Grok was the only live KP; a protocol-isolated Codex subagent
+  supplied one player line at a time. No one-shot, batch, scripted-player, or
+  fake-KP run is counted here.
+- R10 selected three later pages and was stopped as invalid. R11 selected the
+  correct single page but still required parent-side pack repair. R12/R13 then
+  passed the bare-packet, canonical-pack, unchanged-first-fulfill path on page
+  361. R13 visibly restored player input 18.209 seconds before its source
+  worker completed, then processed that completion in a later host turn.
+- R13 reduced character creation to first-pass create/link/render and removed
+  the malformed empty operation and redundant item grant. It still needed
+  three finalization attempts. R14/R15 were stopped and labeled invalid when
+  the live KP wandered into unlocated/off-graph deepening instead of staying
+  with the current playable scene; they are not acceptance evidence.
+- R16 proved ignored advice is now recorded separately through
+  `evidence.record_adoption`, but its first finalization joined text across a
+  blank-line paragraph boundary and failed before a corrected retry.
+- R17 tightened only that paragraph guidance, reinstalled the real plugin,
+  and replayed a public-roll turn. The sole `turn.finalize` call succeeded;
+  delivered output matched canonical `rendered_text` byte-for-byte. The turn
+  took 113.938 seconds, while 23 MCP calls totaled 366 ms (45 ms max), and the
+  final output tail was 3.406 seconds. Native tools were only `search_tool` and
+  `use_tool`; there was no shell fallback. Queue pending/in-flight counts were
+  both zero after the turn.
+- New R17 risk: the KP issued independent-looking item grants and later state
+  mutations in parallel waves. No conflict appeared in this run, but that does
+  not satisfy the canonical serial-mutation guidance and remains an explicit
+  correctness item for subsequent real play; no new scheduler or hard gate is
+  inferred from one observation.
+- R17 source of truth: Grok session
+  `019f8319-1967-7191-bd9f-571bb48f5c6c` in workspace
+  `/tmp/coc-opening-live-grok-r9-20260721-WLvKXy`.
+- R18 used the same updated installed-plugin TUI and a new isolated player
+  reply to start a non-lethal STR contest with Lucas. The live KP correctly
+  called `mechanics.ensure` instead of inventing NPC numbers. The operation
+  returned `source_work_required`, but the skeleton still had
+  `mechanics_locator_pass_status=pending` and `mechanics_index=[]`; the derived
+  mechanics request therefore had `requested_pdf_indices=[]` and
+  `source_scope_status=unknown`. `progressive.claim_host_work` returned no
+  packets (`ready_group_count=0`). The turn was cancelled at 84.754 seconds
+  before the KP could widen the search, fake a pack, or generate fallback
+  mechanics. This is valid failure diagnosis, not a completed play turn or
+  acceptance pass. Source session:
+  `019f8322-898e-7483-a90a-d1141ec4cd00`.
+
+### Non-goals / hard boundaries
+
+- No repository PDF parser or OCR fallback.
+- No keyword/regex semantic routing, fixed Keeper pipeline, narrative gate, or
+  fake-KP/batch-settle acceptance harness.
+- `progressive.prepare_opening`, if adopted, is a thin source-window and work-
+  plan operation; the live KP retains semantic interpretation and final prose.
+- No full-module crawl before the first playable opening.
 
 This document freezes the product contract for skeleton-first play and
 on-demand deep parse. Implementation must match these shapes. Existing full
@@ -52,7 +183,8 @@ player-supplied PDFs.
 | Tier | Name | When | Output |
 |------|------|------|--------|
 | 0 | Identity | import start | `module_identity`, PDF hash, page_count, flags |
-| 1 | Skeleton map | before first play turn | locations, provisional edges, NPC roster names, handout index, threat stubs, finale buckets, source spans |
+| 1A | Bootstrap skeleton | before first play turn | valid sparse topology + start candidate + exact opening locator |
+| 1B | Skeleton enrichment | background after 1A | locations, provisional edges, NPC roster names, handout/threat/finale/mechanics locators |
 | 2 | Opening deep | first playable scene | full packs for start scene + its clues/NPCs/handouts |
 | 3 | On-demand deep | enter location / open handout / material NPC contact | location/NPC/clue packs for that entity |
 | 4 | Hot-ring prefetch | after Tier 3 on L | neighbors depth-1 **partial**; mentioned entities **stub→partial** |
@@ -429,6 +561,13 @@ track. Do not ship partial six-field `scene_function` or partial A21 blocks
    - Host PDF skill fulfills host-work (put_entity deep); `put_entity` re-enqueues
      merge at priority 100 and kicks workers again.
    - Disable detached spawn in tests via `COC_DISABLE_QUEUE_WORKER=1`.
+8. Host-native semantic workers over the existing host-work boundary.
+   - `progressive.claim_host_work` atomically leases up to four exact cached-page
+     groups and recovers abandoned work after lease expiry.
+   - The grouping identity is PDF hash + body/mechanics aspect + exact page set;
+     mechanics never inherits narrative body pages.
+   - Grok and Codex consume the same `coc.source-pack-worker.v1` packet. Children
+     are read-only and the main KP remains the sole canonical fulfiller.
 
 ## Pilot modules (local corpus)
 

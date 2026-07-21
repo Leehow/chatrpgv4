@@ -676,7 +676,7 @@ def build_documents(
             for key in (
                 "npc_id", "name", "display_name", "names", "aliases", "voice",
                 "relationship_to_investigators", "social_role", "role_label", "schedule",
-                "agenda", "source_refs", "origin", "parse_state",
+                "agenda", "source_refs", "origin", "parse_state", "mechanics",
             )
             if key in npc
         }
@@ -695,6 +695,7 @@ def build_documents(
                 "keeper_note": npc.get("keeper_note"),
                 "keeper_only_notes": npc.get("keeper_only_notes"),
                 "identity_source": identity_fields,
+                "mechanics": deepcopy(npc.get("mechanics")),
             },
             drilldown_refs={"scene": list(npc.get("scene_ids") or [])},
             provenance={
@@ -811,6 +812,8 @@ def build_documents(
         "keeper_secrets": secret_index,
     }
     covered = ["scene", "npc", "clue", "keeper_secret"]
+    if any(isinstance(npc.get("mechanics"), dict) for npc in npcs.values()):
+        covered.append("mechanics")
     body = {
         "schema_version": SCHEMA_VERSION,
         "kind": ARCHIVE_KIND,
