@@ -1600,6 +1600,198 @@ def _campaign_npc_projection_index(
     return campaign_npc_ids, campaign_names, name_conflicts
 
 
+def _first_contact_localized_name(
+    npc: dict[str, Any] | None,
+    stored_card: dict[str, Any] | None,
+    campaign_name: str | None,
+    play_language: str,
+) -> str | None:
+    """Use only an explicitly localized or campaign-accepted table name."""
+    for key in ("localized_names", "localized_text"):
+        localized = (
+            npc.get(key, {}).get(play_language)
+            if isinstance(npc, dict) and isinstance(npc.get(key), dict)
+            else None
+        )
+        if isinstance(localized, str) and localized.strip():
+            return localized.strip()
+        if isinstance(localized, dict):
+            value = next(
+                (localized.get(field) for field in ("display_name", "name", "title")
+                 if isinstance(localized.get(field), str)
+                 and localized.get(field).strip()),
+                None,
+            )
+            if value:
+                return value.strip()
+    if campaign_name:
+        return str(campaign_name)
+    if npc is not None or not isinstance(stored_card, dict):
+        return None
+    name = stored_card.get("name")
+    if isinstance(name, dict):
+        name = name.get("value")
+    return str(name).strip() if isinstance(name, str) and name.strip() else None
+
+
+def _first_contact_readiness(
+    ctx: Ctx,
+    *,
+    npc_id: str,
+    authored_npc: dict[str, Any] | None,
+    npc_state: dict[str, Any],
+    campaign_name: str | None,
+    active_scene_id: str | None,
+) -> dict[str, Any]:
+    """Build one compact, read-only readiness row for the normal NPC query."""
+    stored_cards = npc_state.get("npcs")
+    stored_card = stored_cards.get(npc_id) if isinstance(stored_cards, dict) else None
+    stored_card = stored_card if isinstance(stored_card, dict) else None
+    authored = authored_npc if isinstance(authored_npc, dict) else None
+    localized_name = _first_contact_localized_name(
+        authored, stored_card, campaign_name, _campaign_play_language(ctx),
+    )
+
+    if authored is not None:
+        authored_persona = (
+            authored.get("persona") if isinstance(authored.get("persona"), dict)
+            else {}
+        )
+        voice = authored.get("voice")
+        tags = list(authored_persona.get("tags") or [])[:6]
+        persona_status = (
+            "authored" if (isinstance(voice, str) and voice.strip()) or tags
+            else "authored_incomplete"
+        )
+        persona = {
+            "source_status": persona_status, "voice": voice, "tags": tags,
+        }
+    elif stored_card is not None and isinstance(stored_card.get("persona"), dict):
+        persona = {
+            "source_status": "campaign_persisted",
+            "tags": list(stored_card["persona"].get("tags") or [])[:6],
+        }
+    else:
+        candidate = coc_npc_persona.build_persona_card(
+            {"npc_id": npc_id, "origin": "improvised"},
+            seed_parts=[ctx.campaign_id, npc_id, "first-contact-readiness-v1"],
+            context={"campaign_id": ctx.campaign_id, "scene_id": active_scene_id},
+        )
+        persona = {
+            "source_status": "seed_stable_proposal",
+            "seed": (candidate.get("generation") or {}).get("seed"),
+            "tags": list((candidate.get("persona") or {}).get("tags") or [])[:6],
+        }
+
+    authored_mechanics = (
+        authored.get("mechanics")
+        if authored is not None and isinstance(authored.get("mechanics"), dict)
+        else {}
+    )
+    stored_mechanics = stored_card.get("mechanics") if stored_card else None
+    stored_mechanics = stored_mechanics if isinstance(stored_mechanics, dict) else {}
+    if (
+        stored_mechanics.get("status") == "generated"
+        and isinstance(stored_mechanics.get("profile"), dict)
+    ):
+        mechanics_ready = True
+        mechanics_source_status = "campaign_generated"
+    elif (
+        authored_mechanics.get("status") == "authored"
+        and isinstance(authored_mechanics.get("profile"), dict)
+    ):
+        mechanics_ready = True
+        mechanics_source_status = "authored"
+    else:
+        mechanics_ready = False
+        raw_source_status = str(authored_mechanics.get("status") or "").strip()
+        mechanics_source_status = raw_source_status or (
+            "source_unresolved" if authored is not None
+            else "campaign_fallback_eligible"
+        )
+
+    pending_source_dependency = (
+        {
+            "consumer": "mechanics.ensure", "subject_id": npc_id,
+            "source_status": mechanics_source_status,
+            "blocks_only_when": "this_npc_mechanics_are_required",
+        }
+        if not mechanics_ready and authored is not None
+        and mechanics_source_status != "not_authored" else None
+    )
+
+    try:
+        campaign_id = coc_npc_event_chain.resolve_campaign_id(ctx.campaign_dir)
+        impression_document = coc_first_impression.load_document(
+            ctx.campaign_dir, campaign_id,
+        )
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    first_impression_pairs: list[dict[str, Any]] = []
+    next_operation_cards: list[dict[str, Any]] = []
+    for investigator_id in ctx.party_ids():
+        receipt = coc_first_impression.find_by_pair(
+            impression_document, investigator_id, npc_id,
+        )
+        exists = isinstance(receipt, dict)
+        first_impression_pairs.append({
+            "investigator_id": investigator_id, "receipt_exists": exists,
+            "first_impression_ref": receipt.get("receipt_id") if exists else None,
+        })
+        if exists:
+            continue
+        prefilled = {"npc_id": npc_id, "investigator": investigator_id}
+        missing = ["run_id", "context", "decision_id"]
+        if localized_name is not None:
+            prefilled["npc_display_name"] = localized_name
+        else:
+            missing.insert(0, "npc_display_name")
+        next_operation_cards.append({
+            "operation": "npc.reaction",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": prefilled,
+            "missing_arguments": missing,
+            "fresh_decision_id_required": True,
+            "roll_created": False,
+        })
+
+    if not mechanics_ready:
+        mechanics_missing = ["purpose", "decision_id"]
+        if mechanics_source_status in {
+            "not_authored", "campaign_fallback_eligible",
+        }:
+            mechanics_missing.insert(1, "fallback_archetype_id")
+        mechanics_prefilled = {"subject_kind": "npc", "subject_id": npc_id}
+        if localized_name is not None:
+            mechanics_prefilled["label"] = localized_name
+        next_operation_cards.append({
+            "operation": "mechanics.ensure",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": mechanics_prefilled,
+            "missing_arguments": mechanics_missing,
+        })
+
+    return {
+        "npc_id": npc_id,
+        "identity_ready": bool(authored is not None or stored_card is not None),
+        "localized_name_ready": localized_name is not None,
+        "localized_name": localized_name,
+        "agenda_ready": bool(
+            authored is not None
+            and authored.get("parse_state") != "named_only"
+            and isinstance(authored.get("agenda"), str)
+            and authored.get("agenda", "").strip()
+        ),
+        "persona_ready": persona["source_status"] != "authored_incomplete",
+        "persona": persona,
+        "mechanics_ready": mechanics_ready,
+        "mechanics_source_status": mechanics_source_status,
+        "pending_source_dependency": pending_source_dependency,
+        "first_impression_pairs": first_impression_pairs,
+        "next_operation_cards": next_operation_cards,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Adjudication advisory evidence (warnings/hints only — never blocking)
 # --------------------------------------------------------------------------- #
@@ -12868,7 +13060,7 @@ def _tool_clues_query(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "npc.query",
-    "NPC agendas plus live psych state and the requested investigator/NPC's bounded textual impression. 'secret'-marked fields are keeper-only reference — never reveal verbatim.",
+    "NPC agendas, live psych state, and compact first-contact readiness for one requested NPC. 'secret'-marked fields are keeper-only reference — never reveal verbatim.",
     {
         "npc_id": {"type": "string", "desc": "a single NPC (default: all)"},
         "investigator": {"type": "string", "desc": "investigator whose pair-scoped impression should be projected"},
@@ -12988,6 +13180,22 @@ def _tool_npc_query(ctx: Ctx, args: dict[str, Any]):
                 "availability": normalized_psych.get("availability"),
                 "impression": deepcopy(impression) if isinstance(impression, dict) else None,
             },
+            **(
+                {
+                    "first_contact_readiness": _first_contact_readiness(
+                        ctx,
+                        npc_id=npc_id,
+                        authored_npc=npc,
+                        npc_state=npc_state,
+                        campaign_name=campaign_name,
+                        active_scene_id=(
+                            str(active_scene_id) if active_scene_id else None
+                        ),
+                    )
+                }
+                if canonical_requested_id
+                else {}
+            ),
         })
     hints = [
         "fields marked secret:true are your reference only — reveal through play, not exposition",
@@ -14163,9 +14371,7 @@ def _tool_storylets_suggest(ctx: Ctx, args: dict[str, Any]):
 def _tool_npc_advise(ctx: Ctx, args: dict[str, Any]):
     intent = _intent_evidence(args.get("intent_evidence"))
     scene = _active_scene(ctx)
-    npc_state = _read_optional_json(
-        ctx.campaign_dir / "save" / "npc-persona-state.json", {"npcs": {}}
-    )
+    npc_state = coc_npc_state.load_npc_state(ctx.campaign_dir)
     result = coc_npc_persona.build_scene_npc_agency(
         scene,
         ctx.npc_agendas,

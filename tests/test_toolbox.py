@@ -6954,6 +6954,118 @@ def test_npc_query_projects_campaign_local_npc_and_invalidates_on_first_impressi
     assert npc_id in {item["npc_id"] for item in all_npcs["data"]["npcs"]}
 
 
+def test_single_npc_query_projects_unrolled_first_contact_readiness(campaign_ws):
+    npc_id = "npc-steven-knott"
+    rolls_path = campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    rolls_before = rolls_path.read_bytes() if rolls_path.is_file() else b""
+
+    queried = _run(campaign_ws, "npc.query", {"npc_id": npc_id})
+    assert queried["ok"] is True, queried
+    readiness = queried["data"]["npcs"][0]["first_contact_readiness"]
+    assert readiness["npc_id"] == npc_id
+    assert readiness["identity_ready"] is True
+    assert readiness["agenda_ready"] is True
+    assert readiness["persona_ready"] is True
+    assert readiness["persona"]["source_status"] == "authored"
+    assert readiness["persona"]["voice"] == queried["data"]["npcs"][0]["voice"]
+    assert readiness["mechanics_ready"] is False
+    assert readiness["mechanics_source_status"] == "source_unresolved"
+    assert readiness["pending_source_dependency"]["consumer"] == "mechanics.ensure"
+    pair = readiness["first_impression_pairs"][0]
+    assert pair == {
+        "investigator_id": campaign_ws["investigator_id"],
+        "receipt_exists": False,
+        "first_impression_ref": None,
+    }
+    reaction = next(
+        card for card in readiness["next_operation_cards"]
+        if card["operation"] == "npc.reaction"
+    )
+    assert reaction["roll_created"] is False
+    assert reaction["fresh_decision_id_required"] is True
+    assert reaction["missing_arguments"] == [
+        "npc_display_name", "run_id", "context", "decision_id",
+    ]
+    assert (rolls_path.read_bytes() if rolls_path.is_file() else b"") == rolls_before
+    bulk = _run(campaign_ws, "npc.query")
+    assert all("first_contact_readiness" not in row for row in bulk["data"]["npcs"])
+
+
+def test_first_contact_readiness_reuses_receipt_and_seed_stable_persona(campaign_ws):
+    improvised_id = "npc-improvised-readiness"
+    seeded = _run(campaign_ws, "state.npc_update", {
+        "npc_id": improvised_id,
+        "trust_delta": 1,
+        "decision_id": "seed-improvised-readiness",
+    })
+    assert seeded["ok"] is True
+    first = _run(campaign_ws, "npc.query", {"npc_id": improvised_id})
+    second = _run(campaign_ws, "npc.query", {"npc_id": improvised_id})
+    first_ready = first["data"]["npcs"][0]["first_contact_readiness"]
+    second_ready = second["data"]["npcs"][0]["first_contact_readiness"]
+    assert first_ready["persona"]["source_status"] == "seed_stable_proposal"
+    assert first_ready["persona"]["seed"] == second_ready["persona"]["seed"]
+    assert first_ready["persona"]["tags"] == second_ready["persona"]["tags"]
+    assert first_ready["mechanics_source_status"] == "campaign_fallback_eligible"
+    mechanics = next(
+        card for card in first_ready["next_operation_cards"]
+        if card["operation"] == "mechanics.ensure"
+    )
+    assert "fallback_archetype_id" in mechanics["missing_arguments"]
+
+    binding = _first_contact_binding(
+        campaign_ws, improvised_id, key="improvised-readiness",
+    )
+    after = _run(campaign_ws, "npc.query", {"npc_id": improvised_id})
+    after_ready = after["data"]["npcs"][0]["first_contact_readiness"]
+    assert after_ready["first_impression_pairs"][0]["receipt_exists"] is True
+    assert after_ready["first_impression_pairs"][0]["first_impression_ref"] == (
+        binding["first_impression_ref"]
+    )
+    assert not any(
+        card["operation"] == "npc.reaction"
+        for card in after_ready["next_operation_cards"]
+    )
+
+
+def test_npc_advise_uses_canonical_npc_state_store(campaign_ws):
+    npc_id = "npc-steven-knott"
+    canonical = coc_toolbox.coc_npc_state.load_npc_state(
+        campaign_ws["campaign_dir"]
+    )
+    canonical["npcs"][npc_id] = {
+        "npc_id": npc_id,
+        "name": {"status": "provided", "value": "Steven Knott"},
+        "social_role": {},
+        "persona": {"tags": ["voice.short_orders"]},
+    }
+    coc_toolbox.coc_npc_state.save_npc_state(campaign_ws["campaign_dir"], canonical)
+    stale_path = campaign_ws["campaign_dir"] / "save" / "npc-persona-state.json"
+    stale_path.write_text(json.dumps({
+        "npcs": {npc_id: {
+            "npc_id": npc_id,
+            "persona": {"tags": ["voice.nervous_ramble"]},
+        }},
+    }), encoding="utf-8")
+
+    advised = _run(campaign_ws, "npc.advise", {
+        "intent_evidence": {
+            "primary_intent": "talk",
+            "secondary_intents": [],
+            "risk_posture": "careful",
+            "target_entities": [npc_id],
+            "intent_tags": [],
+            "reason": "test canonical persona state",
+        },
+        "seed": 7,
+    })
+    assert advised["ok"] is True, advised
+    persona = advised["data"]["candidate_agency"]["by_npc"][npc_id][
+        "persona_card"
+    ]["persona"]
+    assert persona["tags"] == ["voice.short_orders"]
+
+
 def test_explicit_campaign_local_npc_presence_reaches_scene_context_and_replays(
     campaign_ws,
 ):
