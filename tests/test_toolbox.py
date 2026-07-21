@@ -10414,6 +10414,7 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
         "instruction_ref": str(
             (REPO / "plugins/coc-keeper/agents/coc-source-pack-worker.md").resolve()
         ),
+        "model_policy": "inherit_parent",
         "run_in_background": False,
         "prompt_binding": "one exact returned packets[] value",
         "result_binding": (
@@ -10442,6 +10443,7 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
     assert Path(codex_task["instruction_ref"]) == (
         REPO / "plugins/coc-keeper/agents/coc-source-coordinator.md"
     ).resolve()
+    assert codex_task["model_policy"] == "inherit_parent"
     assert codex_task["packet"] == packet
 
 

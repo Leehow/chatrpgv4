@@ -270,6 +270,17 @@ Codex adapter evidence:
 
 ## Validation order
 
+Acceptance evidence is model-scoped. Use a fresh `gpt-5.6-luna`
+`fast_iteration` window first for the three-minute opening, lifecycle, and
+multi-NPC recurrence loop. Keep the selected model fixed from before
+`coc-main` activation through the player, source coordinator, and source
+leaves; all child tasks inherit the parent model. After the fast lane is
+stable, use a separate fresh `quality_confirmation` window on an available
+`gpt-5.6-terra` or `gpt-5.6-sol` for complex KP semantics, portrayal, pacing,
+and improvisation. Neither lane proves cross-model parity, and a mid-run model
+switch makes that run mixed-model exploratory evidence rather than a
+single-model acceptance run.
+
 1. Focused host-work lifecycle and queue tests.
 2. Focused NPC readiness/persona/mechanics/reaction tests.
 3. Plugin metadata and MCP contract tests.

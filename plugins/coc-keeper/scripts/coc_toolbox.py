@@ -9798,6 +9798,7 @@ def _source_coordinator_dispatch(
             "instruction_ref": str(
                 (_HERE.parent / "agents" / "coc-source-pack-worker.md").resolve()
             ),
+            "model_policy": "inherit_parent",
             "run_in_background": False,
             "prompt_binding": "one exact returned packets[] value",
             "result_binding": (
@@ -9831,6 +9832,7 @@ def _source_coordinator_dispatch(
                     / "coc-source-coordinator.md"
                 ).resolve()
             ),
+            "model_policy": "inherit_parent",
             "packet": packet,
         },
     }

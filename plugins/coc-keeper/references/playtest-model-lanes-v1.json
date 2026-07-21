@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.playtest-model-lanes.v1",
+  "status": "experimental",
+  "canonical_consumer": "skills/coc-playtest/SKILL.md",
+  "authority": {
+    "mode": "advisory_acceptance_protocol",
+    "advisory_only": true,
+    "runtime_gate": false,
+    "player_output_gate": false,
+    "repository_model_allowlist": false,
+    "host_model_availability_is_authoritative": true
+  },
+  "window_contract": {
+    "select_model_before": "coc-main activation",
+    "model_locked_for_run": true,
+    "mid_run_switch_policy": "record_mixed_model_and_do_not_claim_single_model_acceptance",
+    "keeper_model_source": "acceptance_window",
+    "player_model_policy": "inherit_parent",
+    "source_coordinator_model_policy": "inherit_parent",
+    "source_leaf_model_policy": "inherit_parent"
+  },
+  "lanes": {
+    "fast_iteration": {
+      "recommended_model_ids": ["gpt-5.6-luna"],
+      "purpose": "high-frequency window-equivalent regression with explicit acceptance boundaries",
+      "may_support_claims": [
+        "three_minute_actionable_opening",
+        "source_lifecycle",
+        "rules_and_state_integrity",
+        "prompt_contract_recurrence"
+      ],
+      "does_not_by_itself_claim": [
+        "sol_or_terra_parity",
+        "final_keeper_quality",
+        "cross_model_parity"
+      ]
+    },
+    "quality_confirmation": {
+      "recommended_model_ids": ["gpt-5.6-sol", "gpt-5.6-terra"],
+      "purpose": "final semantic Keeper craft and complex improvisation review",
+      "minimum_runs_after_fast_iteration": 1
+    }
+  },
+  "run_metadata": {
+    "field": "host_model",
+    "allowed_fields": [
+      "provider",
+      "model_id",
+      "reasoning_effort",
+      "lane",
+      "selected_before_activation",
+      "switched_during_run",
+      "background_model_policy"
+    ],
+    "required_for_model_scoped_claim": [
+      "model_id",
+      "lane",
+      "selected_before_activation",
+      "switched_during_run",
+      "background_model_policy"
+    ],
+    "background_model_policy": "inherit_parent"
+  },
+  "failure_policy": {
+    "authority": "prompt_first_advisory",
+    "single_failure": "transient_allowed",
+    "same_failure_escalation_threshold": 3,
+    "threshold_outcome": "design_issue",
+    "runtime_gate": false
+  }
+}

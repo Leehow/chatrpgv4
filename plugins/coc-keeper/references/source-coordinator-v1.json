@@ -82,6 +82,7 @@
     },
     "leaf_worker": {
       "agent_type": "coc-source-pack-worker",
+      "model_policy": "inherit_parent",
       "run_in_background": false,
       "prompt_binding": "one exact returned packets[] value",
       "result_binding": "each exact usable results[] value through progressive.fulfill_host_work once"
@@ -138,9 +139,11 @@
       "adapter_mode": "codex_nested_cli_exact_forward",
       "coordinator_runner": "codex_collaboration_subagent",
       "coordinator_fork_turns": "none",
+      "coordinator_model_policy": "inherit_parent",
       "coordinator_task_contract": "coc.codex-source-coordinator-task.v1",
       "coordinator_instruction_ref": "runtime_absolute_plugin_path",
       "leaf_task_contract": "coc.codex-source-pack-task.v1",
+      "leaf_model_policy": "inherit_parent",
       "leaf_instruction_ref": "runtime_absolute_plugin_path",
       "nested_task_proven": true,
       "canonical_toolbox_cli_proven": true,

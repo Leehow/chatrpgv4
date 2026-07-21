@@ -169,6 +169,8 @@ When capability discovery returns `coc_source_coordinator_v1=true`, status
 `background=true`. On Codex use a context-free collaboration subagent with
 `fork_turns=none` and pass the exact repository-produced
 `background_takeover.coordinator_dispatch.codex_task` as its entire message.
+Do not set a model override; its `model_policy=inherit_parent` preserves the
+current parent-window model.
 On a supported custom-agent host use `coc-source-coordinator` and the exact
 `packet`. Do not fill, rewrite, or add transcript context. The coordinator
 claims once, runs exact

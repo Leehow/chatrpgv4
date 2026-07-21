@@ -19,6 +19,11 @@ uv run --frozen python plugins/coc-keeper/skills/coc-export-battle-report/script
 The run directory may use `run.json` or `playtest.json` for identity. It should
 contain:
 
+- allowlisted `host_model` metadata recording the exact model, reasoning
+  effort, acceptance lane, pre-activation selection, mid-run switch status,
+  and `background_model_policy=inherit_parent`; this remains structured
+  development evidence and is not rendered into the player report;
+
 - `transcript.jsonl` with ordered Keeper and player dialogue;
 - `sandbox/.coc/campaigns/<campaign-id>/logs/rolls.jsonl` as the authoritative
   structured dice log;

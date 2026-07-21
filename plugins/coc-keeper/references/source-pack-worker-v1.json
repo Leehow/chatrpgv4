@@ -697,6 +697,7 @@
       "coordinator_leaf_task_contract": "coc.codex-source-pack-task.v1",
       "coordinator_leaf_instruction_ref": "runtime_absolute_plugin_path",
       "coordinator_leaf_background": false,
+      "coordinator_leaf_model_policy": "inherit_parent",
       "coordinator_leaf_result_delivery": "return_to_parent"
     }
   }

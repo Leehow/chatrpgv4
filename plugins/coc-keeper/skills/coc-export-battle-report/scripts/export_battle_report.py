@@ -1117,6 +1117,27 @@ def _play_conduct_signals(
     }
 
 
+def _safe_host_model(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    safe: dict[str, Any] = {}
+    for key in (
+        "provider",
+        "model_id",
+        "reasoning_effort",
+        "lane",
+        "background_model_policy",
+    ):
+        item = value.get(key)
+        if isinstance(item, str) and item.strip():
+            safe[key] = item
+    for key in ("selected_before_activation", "switched_during_run"):
+        item = value.get(key)
+        if isinstance(item, bool):
+            safe[key] = item
+    return safe
+
+
 def _safe_metadata(metadata: Any) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         return {}
@@ -1132,7 +1153,11 @@ def _safe_metadata(metadata: Any) -> dict[str, Any]:
         "finished_at",
         "status",
     )
-    return {key: metadata[key] for key in allowed if key in metadata}
+    safe = {key: metadata[key] for key in allowed if key in metadata}
+    host_model = _safe_host_model(metadata.get("host_model"))
+    if host_model:
+        safe["host_model"] = host_model
+    return safe
 
 
 def _first(mapping: Any, keys: tuple[str, ...]) -> Any:

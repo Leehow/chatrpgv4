@@ -424,7 +424,9 @@ capabilities explicitly advertise `coc_source_coordinator_v1=true`, status
 On Codex the main KP launches one context-free collaboration subagent with
 `fork_turns=none` in the background and passes the exact
 `progressive.background_takeover.coordinator_dispatch.codex_task` as its entire
-message. A supported custom-agent host instead launches
+message without a model override; `model_policy=inherit_parent` preserves the
+current parent-window model through coordinator and leaf. A supported custom-agent
+host instead launches
 `coc-source-coordinator` with the exact `packet`. Both are produced by the
 canonical scene projection; the KP never builds or edits them. The manager
 calls claim once, invokes one exact

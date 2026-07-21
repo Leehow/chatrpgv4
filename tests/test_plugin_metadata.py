@@ -278,6 +278,7 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "runtime_absolute_plugin_path"
     )
     assert codex_leaf["coordinator_leaf_background"] is False
+    assert codex_leaf["coordinator_leaf_model_policy"] == "inherit_parent"
     assert codex_leaf["coordinator_leaf_result_delivery"] == "return_to_parent"
     assert contract["lifecycle"]["max_parallel_packets"] == 4
     assert contract["lifecycle"]["grok_direct_submit_parent_waits"] is False
@@ -594,10 +595,12 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert codex["adapter_mode"] == "codex_nested_cli_exact_forward"
     assert codex["coordinator_runner"] == "codex_collaboration_subagent"
     assert codex["coordinator_fork_turns"] == "none"
+    assert codex["coordinator_model_policy"] == "inherit_parent"
     assert codex["coordinator_instruction_ref"] == (
         "runtime_absolute_plugin_path"
     )
     assert codex["leaf_instruction_ref"] == "runtime_absolute_plugin_path"
+    assert codex["leaf_model_policy"] == "inherit_parent"
     assert codex["nested_task_proven"] is True
     assert codex["canonical_toolbox_cli_proven"] is True
     assert codex["json_transport"] == "stdin"
@@ -1296,8 +1299,46 @@ def test_playtest_skill_defines_real_plugin_context_free_player_acceptance():
         "fresh isolated workspace",
         "coc-export-battle-report",
         "structured ending",
+        "references/playtest-model-lanes-v1.json",
+        "gpt-5.6-luna",
+        "fast_iteration",
+        "quality_confirmation",
+        "selected_before_activation",
+        "switched_during_run",
+        "background_model_policy",
+        "inherit_parent",
+        "no model override",
+        "three observations",
+        "design issue",
     ):
         assert phrase in compact
+
+    contract = _json(
+        PLUGIN_ROOT / "references" / "playtest-model-lanes-v1.json"
+    )
+    assert contract["contract_id"] == "coc.playtest-model-lanes.v1"
+    assert contract["authority"]["advisory_only"] is True
+    assert contract["authority"]["runtime_gate"] is False
+    assert contract["authority"]["player_output_gate"] is False
+    assert contract["window_contract"]["model_locked_for_run"] is True
+    assert contract["window_contract"]["mid_run_switch_policy"] == (
+        "record_mixed_model_and_do_not_claim_single_model_acceptance"
+    )
+    assert contract["window_contract"]["player_model_policy"] == "inherit_parent"
+    assert contract["window_contract"]["source_coordinator_model_policy"] == (
+        "inherit_parent"
+    )
+    assert contract["window_contract"]["source_leaf_model_policy"] == (
+        "inherit_parent"
+    )
+    assert contract["lanes"]["fast_iteration"]["recommended_model_ids"] == [
+        "gpt-5.6-luna"
+    ]
+    assert contract["lanes"]["quality_confirmation"][
+        "recommended_model_ids"
+    ] == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert contract["failure_policy"]["same_failure_escalation_threshold"] == 3
+    assert contract["failure_policy"]["threshold_outcome"] == "design_issue"
     for obsolete in (
         "coc_eval.py",
         "haunting_module",
@@ -1318,6 +1359,9 @@ def test_final_report_skill_is_the_single_readable_report_owner():
     assert "battle-report-evidence.json" in text
     assert "public" in text and "consequence_public" in text
     assert "read `battle-report.md` end to end" in text
+    assert "host_model" in text
+    assert "structured development evidence" in compact
+    assert "not rendered into the player report" in compact
     assert "coc_eval.py" not in text
     assert "supplementary" not in compact
 

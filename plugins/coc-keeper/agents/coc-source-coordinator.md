@@ -51,8 +51,9 @@ Validate the closed packet before tools. It must use schema 1, contract
 `max_leaves` no greater than four, the exact
 `progressive.claim_host_work` card with no missing arguments and
 `result_delivery=return_to_parent`, the exact incomplete
-`progressive.fulfill_host_work` card, the `coc-source-pack-worker` leaf, and the
-prompt-first failure policy with threshold three. On any mismatch, call no tool
+`progressive.fulfill_host_work` card, the `coc-source-pack-worker` leaf with
+`model_policy=inherit_parent`, and the prompt-first failure policy with
+threshold three. On any mismatch, call no tool
 and return one compact failure summary with `failure_class=invalid_packet`.
 
 Use only the packet's `claim_operation`. On Codex invoke it exactly once with
@@ -76,7 +77,8 @@ bare `coc.codex-source-pack-task.v1` JSON object containing only fixed
 the exact returned packet. On a custom-agent adapter, invoke exactly one custom
 `coc-source-pack-worker` Task with `run_in_background=false` and the serialized
 packet as its entire prompt. Add no transcript, source excerpt, schema hint, or
-campaign state. Do not override the host model. Leaves cannot spawn. This is
+campaign state. Do not set or override a child model: inherit the current
+parent-window model. Leaves cannot spawn. This is
 the only nested level: main KP -> this coordinator -> source-pack leaf.
 
 Read each Task result once. It must be exactly one bare JSON object with schema

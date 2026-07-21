@@ -40,6 +40,10 @@ packet. Its `result_delivery` must be exactly
 object, a mismatched contract/reference, or an incomplete cached source scope,
 return `status=abstain` without reading anything.
 
+In the Codex coordinator path, inherit the current parent-window model.
+Never request or infer a different model from source content, packet kind, or
+deadline class.
+
 Read only the exact absolute Markdown paths in each request's
 `cached_page_refs`. Every path must correspond to a listed
 `requested_pdf_indices` value. Never list directories, search the workspace,

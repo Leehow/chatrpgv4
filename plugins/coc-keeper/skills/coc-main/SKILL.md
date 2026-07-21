@@ -119,6 +119,8 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    exactly one coordinator with `background=true`. On Codex use a context-free
    collaboration subagent with `fork_turns=none`; its entire message is the
    exact `background_takeover.coordinator_dispatch.codex_task`. On a supported
+   Codex run, do not set a model override: the task's
+   `model_policy=inherit_parent` preserves the current window model. On a supported
    custom-agent host use `coc-source-coordinator` with the exact `packet`. Do
    not construct, fill, add transcript context, wait for, poll, or retrieve
    that task. The manager claims once,

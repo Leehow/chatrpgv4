@@ -133,6 +133,40 @@ def test_accepts_simplified_run_or_legacy_playtest_metadata(tmp_path, metadata_n
     assert report["source_identity"]["run_id"] == "run-1"
 
 
+def test_exports_allowlisted_model_evidence_without_rendering_it(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    fixture = _fixture(run)
+    metadata = dict(fixture["metadata"])
+    metadata["host_model"] = {
+        "provider": "openai",
+        "model_id": "gpt-5.6-luna",
+        "reasoning_effort": "low",
+        "lane": "fast_iteration",
+        "selected_before_activation": True,
+        "switched_during_run": False,
+        "background_model_policy": "inherit_parent",
+        "unexpected_secret": "DO_NOT_EXPORT",
+    }
+    _write_json(run / "run.json", metadata)
+
+    report = module.export_battle_report(run)
+    assert report["run_metadata"]["host_model"] == {
+        "provider": "openai",
+        "model_id": "gpt-5.6-luna",
+        "reasoning_effort": "low",
+        "lane": "fast_iteration",
+        "background_model_policy": "inherit_parent",
+        "selected_before_activation": True,
+        "switched_during_run": False,
+    }
+    evidence = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "DO_NOT_EXPORT" not in evidence
+    assert "gpt-5.6-luna" not in markdown
+    assert "fast_iteration" not in markdown
+
+
 def test_final_report_is_readable_actual_play_not_raw_payload_dump(tmp_path):
     module = _load()
     run = tmp_path / "run"
