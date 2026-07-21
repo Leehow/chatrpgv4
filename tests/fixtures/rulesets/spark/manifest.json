@@ -1,0 +1,33 @@
+{
+  "ruleset_id": "spark",
+  "name": "Spark Test Ruleset",
+  "version": "0.1.0",
+  "resolution_model": "additive-vs-target",
+  "schema_versions": {
+    "campaign": 2,
+    "actor": 1
+  },
+  "entry_points": {
+    "resolver": "resolver.py",
+    "skills": "skills/",
+    "data": "rules-json/"
+  },
+  "resources": [
+    {
+      "key": "energy",
+      "display": "Energy",
+      "kind": "pool",
+      "reset": "session",
+      "projected": true,
+      "recovery_rule": "Test fixture: recover at the explicit session boundary."
+    }
+  ],
+  "state_dirs": [
+    {
+      "name": "actor-state",
+      "create_on_init": true,
+      "role": "actor_state"
+    }
+  ],
+  "boundary_terms": []
+}

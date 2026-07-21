@@ -7,9 +7,11 @@ a ruleset packages its L1 data, L1 resolver code, L2 behavioral material,
 L3 index, state extensions, audit snapshots, and character creation under
 one directory, and the kernel binds exactly one ruleset per campaign.
 
-Status: contract v1. `coc7` is the reference package; `cpr` (Cyberpunk RED)
-is the proving second package. Everything here is binding on new rulesets;
-deviations require amending this document, not silent exceptions.
+Status: contract v1. `coc7` is the reference production package. A deliberately
+small test package proves the public multi-ruleset vertical without advertising
+an unimplemented second game system. Everything here is binding on new
+production rulesets; deviations require amending this document, not silent
+exceptions.
 
 ## 1. Package layout
 
@@ -52,10 +54,14 @@ at conformance time. Required fields:
 Optional fields (absent means the documented default, never an error):
 
 - `state_dirs` — package-owned campaign state directories under `save/`
-  (§6). Entries: `{ "name": "sanity-state", "create_on_init": false }`.
+  (§6). Every package declares exactly one semantic actor owner, for example
+  `{ "name": "actor-state", "create_on_init": true,
+  "role": "actor_state" }`; additional entries such as
+  `{ "name": "sanity-state", "create_on_init": false }` are optional.
   `create_on_init` defaults to `false`: the kernel creates the dir at campaign
   creation only when flagged; otherwise the owning subsystem creates it
-  lazily. Default when `state_dirs` is absent: no package directories.
+  lazily. A missing or ambiguous `actor_state` role fails conformance and
+  runtime state resolution rather than selecting a directory by name.
 - `boundary_terms` — ASCII machine-facing terms that table-language
   localization rewrites only on ASCII token boundaries (§6). Default when
   absent: the empty set (every term localizes by plain replacement).
@@ -63,13 +69,16 @@ Optional fields (absent means the documented default, never an error):
   kernel projects `current_<key>` into the runtime player-safe investigator
   surface. Defaults to `false` when absent.
 
-A campaign records its bound ruleset at creation: `campaign.json` persists
-`ruleset_id` (default `coc7`) and the kernel resolves all rules-data paths
+A campaign records its bound ruleset at creation: public `campaign.create`
+accepts `ruleset_id` (default `coc7`), `campaign.json` persists it, and the
+kernel resolves all rules-data paths
 through the single registry in `scripts/coc_rulesets.py`
 (`known_rulesets` / `ruleset_data_dir` / `get_campaign_ruleset_id`).
 Campaign-less contexts (char-gen previews, rule lookups before a campaign
-exists) resolve the default package; an unknown or unregistered id never
-silently selects a different package's tables.
+exists) resolve the default package. Every schema-v2 campaign must contain a
+non-empty registered binding whose manifest declares campaign schema 2;
+missing/unknown/incompatible bindings fail closed and never select another
+package's tables.
 
 ## 3. L1 data — rules-json/
 
@@ -100,8 +109,29 @@ the active campaign's resolver through the kernel registry
 - `public_api_index()` — discoverability of supported operations, so the
   toolbox can refuse cleanly when a ruleset does not implement an optional
   subsystem (chases, sanity, netrunning).
+- Optional `validate_actor(sheet)` — package validation/normalization for the
+  public `setup.invoke` / `actor.create` path. It returns exactly
+  `{ "sheet": {...}, "resources": {...} }`, with one integer value for every
+  manifest resource. CoC7 preserves its established `investigator.create`
+  path and does not advertise this optional operation.
 - Optional subsystem session types (combat/chase/sanity equivalents) behind
   the same context/execute/end tool pattern the kernel already exposes.
+
+The cross-ruleset MCP/toolbox primitives are `rules.check` and
+`rules.resource_delta`. Each accepts a required canonical `actor`, a
+package-defined keyword `request`, an optional kernel-injected deterministic
+`seed`, and an exact non-empty string `decision_id`. Request objects may not
+supply kernel-owned identity, RNG, receipt, actor, or `current` fields.
+`rules.check` persists a canonical version-bound roll source receipt and
+public `logs/rolls.jsonl` row consumed by `turn.output_context` /
+`turn.finalize`. `rules.resource_delta` reads current from canonical actor
+state, atomically writes the new resource plus its version-bound receipt, then
+materializes the toolbox ledger; replay repairs a missing roll row or ledger
+without rerolling or reapplying arithmetic. Package-specific tools remain
+available only when
+`public_api_index()` advertises their resolver capability; otherwise the
+toolbox returns `unsupported_ruleset_operation` rather than raising a missing
+attribute error or substituting CoC behavior.
 
 Dice and all numeric authority stay inside the resolver — this is hard rule
 #1 of the toolbox architecture, unchanged. Resolvers must be pure functions
@@ -111,15 +141,15 @@ of their inputs plus an injectable RNG; no global state, no campaign I/O
 The CoC reference implementation wraps the existing `coc_rules.py` /
 `coc_roll.py` / `coc_sanity.py` / ... modules rather than rewriting them.
 
-## 5. L3 index — rule-index.json namespacing
+## 5. L3 index — rule-index.json identity
 
 Each package's `rule-index.json` keeps the existing record shape (`id`,
-`category`, `source_table`, `source_note`, optional `numeric`). At load the
-kernel namespaces ids as `<ruleset_id>.<record_id>`
-(`coc7.core.percentile_check`, `cpr.combat.dv_table`). Play-log `rule_refs`
-must resolve within the campaign's ruleset namespace;
-`resolve_rule_refs()` enforces this. Cross-ruleset references are invalid
-by construction.
+`category`, `source_table`, `source_note`, optional `numeric`). Record ids are
+package-local today; selection of the package is carried separately by the
+campaign binding and by generic rules receipts (`ruleset_id`, version).
+Cross-package rule-ref resolution is not yet a kernel API, so callers must not
+claim `<ruleset_id>.<record_id>` namespacing or `resolve_rule_refs()` enforcement
+until that API is implemented.
 
 ## 6. State extension and the resource registry
 
@@ -140,6 +170,12 @@ Package-owned state is declared, not hardcoded:
 - Actor sheet schema (characteristics/stats/qualities) is package-defined
   and versioned in `schema_versions`; kernel validation only checks the
   envelope (id, ruleset_id, version), never the sheet's internal fields.
+- The directory carrying `role: "actor_state"` is the sole kernel-resolved
+  actor state owner. Package-neutral actors use an identity/version-bound
+  envelope with opaque normalized `sheet`, manifest-keyed integer `resources`,
+  and state mutation `decisions`. CoC7 maps the same role to its existing
+  `investigator-state/` shape; generic resource writes update its authoritative
+  `current_<resource>` field and retain the state-bound receipt there.
 - Package-specific state directories (e.g. CoC's `sanity-state/`) are
   declared by the package in `state_dirs` and created under the campaign
   workspace by the kernel — kernel code contains no package directory names.
@@ -152,7 +188,8 @@ lists from the package `boundary_terms` field (CoC's STR/CON/.../SAN/LUCK list
 lives in the `coc7` manifest). Kernel machinery resolves all three registries
 through `scripts/coc_rulesets.py` (`ruleset_resources`,
 `ruleset_projected_resource_fields`, `ruleset_state_dirs`,
-`ruleset_campaign_init_dirs`, `ruleset_boundary_terms`).
+`ruleset_actor_state_dir`, `ruleset_campaign_init_dirs`,
+`ruleset_boundary_terms`).
 
 ## 7. L2 behavior — skill pack and checklist
 
@@ -184,7 +221,8 @@ through `scripts/coc_rulesets.py` (`ruleset_resources`,
 `plugins/coc-keeper/rulesets/` and asserts, per package:
 
 1. `manifest.json` validates against the schema; `ruleset_id` equals the
-   directory name; resources are well-formed.
+   directory name; resources are well-formed; exactly one state directory owns
+   the `actor_state` role.
 2. `resolver.py` exposes the required interface (`check`, `resource_delta`,
    `public_api_index`) with call signatures the toolbox can invoke.
 3. `rules-json/metadata.json` matches the manifest id; `rule-index.json`

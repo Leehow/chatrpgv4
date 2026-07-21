@@ -17,6 +17,7 @@ import re
 import shutil
 import tempfile
 from contextlib import ExitStack
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -81,7 +82,7 @@ SESSION_OPERATION_KINDS = frozenset({
 SETUP_OPERATION_KINDS = frozenset({
     "onboarding.inspect", "rules.inspect", "campaign.create",
     "campaign.quick_start", "scenario.bind_pdf", "campaign.render_briefing",
-    "investigator.create", "investigator.render_card",
+    "actor.create", "investigator.create", "investigator.render_card",
     "campaign.link_investigator",
 })
 
@@ -3293,7 +3294,10 @@ def execute_setup_operation(
             ],
         }
     if kind == "campaign.create":
-        allowed = {"campaign_id", "title", "era", "play_language", "start_clock"}
+        allowed = {
+            "campaign_id", "title", "era", "play_language", "start_clock",
+            "ruleset_id",
+        }
         if set(payload) - allowed or not {"campaign_id", "title"} <= set(payload):
             raise RuntimeOperationError("campaign.create has unsupported or missing fields")
         campaign_id = _id(payload.get("campaign_id"), "campaign_id")
@@ -3303,19 +3307,101 @@ def execute_setup_operation(
         path = root / ".coc" / "campaigns" / campaign_id / "campaign.json"
         if path.exists():
             raise FileExistsError(f"campaign already exists: {campaign_id}")
-        created = coc_state.create_campaign(
-            root,
-            campaign_id,
-            title.strip(),
-            era=str(payload.get("era") or "1920s"),
-            play_language=str(payload.get("play_language") or "zh-Hans"),
-            start_clock=payload.get("start_clock"),
+        ruleset_id = payload.get("ruleset_id")
+        if ruleset_id is not None and (
+            not isinstance(ruleset_id, str) or not ruleset_id.strip()
+        ):
+            raise RuntimeOperationError(
+                "campaign.create ruleset_id must be a non-empty string"
+            )
+        try:
+            created = coc_state.create_campaign(
+                root,
+                campaign_id,
+                title.strip(),
+                era=str(payload.get("era") or "1920s"),
+                play_language=str(payload.get("play_language") or "zh-Hans"),
+                start_clock=payload.get("start_clock"),
+                ruleset_id=(
+                    ruleset_id.strip()
+                    if isinstance(ruleset_id, str)
+                    else coc_state.coc_rulesets.DEFAULT_RULESET_ID
+                ),
+            )
+        except ValueError as exc:
+            raise RuntimeOperationError(str(exc)) from exc
+        return {
+            "schema_version": 1,
+            "status": "PASS",
+            "kind": kind,
+            "result": {
+                "campaign_id": campaign_id,
+                "ruleset_id": (
+                    ruleset_id.strip()
+                    if isinstance(ruleset_id, str)
+                    else coc_state.coc_rulesets.DEFAULT_RULESET_ID
+                ),
+            },
+            "state_refs": [str(created.relative_to(root))],
+        }
+    if kind == "actor.create":
+        if set(payload) != {"campaign_id", "actor_id", "sheet"}:
+            raise RuntimeOperationError(
+                "actor.create requires exactly campaign_id, actor_id, and sheet"
+            )
+        campaign_id = _id(payload.get("campaign_id"), "campaign_id")
+        actor_id = _id(payload.get("actor_id"), "actor_id")
+        sheet = payload.get("sheet")
+        if not isinstance(sheet, dict):
+            raise RuntimeOperationError("actor.create sheet must be an object")
+        campaign_dir = root / ".coc" / "campaigns" / campaign_id
+        if not campaign_dir.is_dir():
+            raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+        campaign = coc_state.load_campaign_state(campaign_dir)
+        ruleset_id = coc_state.coc_rulesets.get_campaign_ruleset_id(campaign)
+        resolver = coc_state.coc_rulesets.get_resolver(campaign)
+        try:
+            advertised = resolver.public_api_index()
+        except Exception as exc:
+            raise RuntimeOperationError(
+                "active ruleset public_api_index failed"
+            ) from exc
+        if (
+            not isinstance(advertised, dict)
+            or "validate_actor" not in advertised
+            or not callable(getattr(resolver, "validate_actor", None))
+        ):
+            raise RuntimeOperationError(
+                f"ruleset {ruleset_id!r} does not support actor.create"
+            )
+        try:
+            normalized = resolver.validate_actor(deepcopy(sheet))
+        except (TypeError, ValueError) as exc:
+            raise RuntimeOperationError(str(exc)) from exc
+        if (
+            not isinstance(normalized, dict)
+            or set(normalized) != {"sheet", "resources"}
+            or not isinstance(normalized.get("sheet"), dict)
+            or not isinstance(normalized.get("resources"), dict)
+        ):
+            raise RuntimeOperationError(
+                "ruleset validate_actor must return exactly sheet and resources objects"
+            )
+        created = coc_state.create_ruleset_actor(
+            campaign_dir,
+            actor_id,
+            sheet=deepcopy(normalized["sheet"]),
+            resources=deepcopy(normalized["resources"]),
         )
         return {
             "schema_version": 1,
             "status": "PASS",
             "kind": kind,
-            "result": {"campaign_id": campaign_id},
+            "result": {
+                "campaign_id": campaign_id,
+                "actor_id": actor_id,
+                "ruleset_id": ruleset_id,
+            },
             "state_refs": [str(created.relative_to(root))],
         }
     if kind == "investigator.create":

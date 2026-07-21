@@ -51,7 +51,8 @@
   "state_dirs": [
     {
       "name": "investigator-state",
-      "create_on_init": true
+      "create_on_init": true,
+      "role": "actor_state"
     },
     {
       "name": "sanity-state",

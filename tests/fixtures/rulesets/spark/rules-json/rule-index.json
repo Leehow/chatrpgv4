@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "core.basic_check",
+      "category": "core_resolution",
+      "source_table": "core-table.json",
+      "source_note": "deterministic test fixture"
+    }
+  ]
+}

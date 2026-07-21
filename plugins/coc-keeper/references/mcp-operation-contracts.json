@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:4b90f0dec03baeb0cf544a92f69f722e0baf328de157cdfeab510c4a4f004811",
+  "content_sha256": "sha256:cf56d5f39e1f4350c4731607aba3ce0465436c8c6e99e089b098c6927788c84e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 87,
+  "operation_count": 89,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -1517,6 +1517,49 @@
       "needs_campaign": false,
       "summary": "Credit Rating to cash/assets/spending level and living standard (Table II, p.45-47). Read-only lookup; use when lifestyle, affordable purchases, or wealth-based social access matter."
     },
+    "rules.check": {
+      "canonical_operation": "rules.check",
+      "description": "Run the active ruleset's generic deterministic check primitive and persist canonical public roll evidence. The request follows the package signature; the kernel binds actor, package version, idempotency, rolls.jsonl, and finalization. Canonical operation `rules.check`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "description": "campaign actor id created through the active ruleset setup path",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "request": {
+            "additionalProperties": true,
+            "description": "package-defined check keyword arguments (rng is injected by the kernel)",
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "actor",
+          "request",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Run the active ruleset's generic deterministic check primitive and persist canonical public roll evidence. The request follows the package signature; the kernel binds actor, package version, idempotency, rolls.jsonl, and finalization."
+    },
     "rules.damage": {
       "canonical_operation": "rules.damage",
       "description": "Apply damage or healing to an investigator's HP. Amount may be an integer or a dice expression. Canonical operation `rules.damage`; the result envelope is authoritative.",
@@ -1867,6 +1910,49 @@
       },
       "needs_campaign": true,
       "summary": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them."
+    },
+    "rules.resource_delta": {
+      "canonical_operation": "rules.resource_delta",
+      "description": "Apply the active ruleset's generic resource arithmetic to canonical actor state. Current state is kernel-owned; callers provide only the requested change. Canonical operation `rules.resource_delta`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "actor": {
+            "description": "campaign actor id whose canonical resource state changes",
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "request": {
+            "additionalProperties": true,
+            "description": "package-defined resource_delta arguments; current/rng and identity fields are kernel-reserved",
+            "type": "object"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign",
+          "actor",
+          "request",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Apply the active ruleset's generic resource arithmetic to canonical actor state. Current state is kernel-owned; callers provide only the requested change."
     },
     "rules.roll": {
       "canonical_operation": "rules.roll",
@@ -2518,6 +2604,7 @@
             "description": "exact custom setup operation kind",
             "enum": [
               "campaign.create",
+              "actor.create",
               "investigator.create",
               "campaign.link_investigator",
               "scenario.bind_pdf",
@@ -2528,8 +2615,11 @@
           },
           "payload": {
             "additionalProperties": false,
-            "description": "exact payload for the selected kind: campaign.create requires campaign_id/title and optionally era/play_language/start_clock; investigator.create requires investigator_id/sheet and optionally creation; campaign.link_investigator requires exactly campaign_id/investigator_ids; scenario.bind_pdf requires campaign_id/scenario_id/title/source_bundle_path and optionally compile_now; campaign.render_briefing requires campaign_id and optionally language; investigator.render_card requires campaign_id/investigator_id and optionally language/html_mode. Per-kind allowed fields are enforced by the canonical setup runtime. For installed-host progressive binding, omit compile_now or pass false; true requires the repository cold compiler runtime and is not part of the opening critical path",
+            "description": "exact payload for the selected kind: campaign.create requires campaign_id/title and optionally ruleset_id/era/play_language/start_clock; actor.create requires campaign_id/actor_id/sheet and delegates validation to that campaign's ruleset; investigator.create requires investigator_id/sheet and optionally creation; campaign.link_investigator requires exactly campaign_id/investigator_ids; scenario.bind_pdf requires campaign_id/scenario_id/title/source_bundle_path and optionally compile_now; campaign.render_briefing requires campaign_id and optionally language; investigator.render_card requires campaign_id/investigator_id and optionally language/html_mode. Per-kind allowed fields are enforced by the canonical setup runtime. For installed-host progressive binding, omit compile_now or pass false; true requires the repository cold compiler runtime and is not part of the opening critical path",
             "properties": {
+              "actor_id": {
+                "type": "string"
+              },
               "campaign_id": {
                 "type": "string"
               },
@@ -2568,6 +2658,9 @@
                 "type": "string"
               },
               "play_language": {
+                "type": "string"
+              },
+              "ruleset_id": {
                 "type": "string"
               },
               "scenario_id": {

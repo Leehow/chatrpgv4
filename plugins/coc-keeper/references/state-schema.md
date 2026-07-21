@@ -135,8 +135,17 @@ Campaigns store temporary and scenario-specific state:
 directories, declared by the active ruleset's `manifest.json` `state_dirs`
 (docs/ruleset-contract.md §6) rather than by kernel literals: the kernel
 creates `save/investigator-state/` at campaign init because coc7 flags it
-`create_on_init`, while `save/sanity-state/` is created lazily by the sanity
-subsystem that owns it.
+`create_on_init` and gives it semantic `role: actor_state`. Every ruleset has
+exactly one such role. Package-neutral actors are created through
+`setup.invoke` / `actor.create` after resolver `validate_actor`, and persist an
+identity/version-bound envelope containing opaque `sheet`, manifest-keyed
+integer `resources`, and state-bound mutation `decisions`. CoC7 keeps the
+existing investigator-state shape; the shared actor accessor maps the role to
+that directory without changing its schema. Generic `rules.resource_delta`
+reads current state itself, atomically writes the new value and receipt there,
+and only then materializes its toolbox ledger entry.
+`save/sanity-state/` remains lazy and is created by the sanity subsystem that
+owns it.
 
 Subsystem session files (`combat.json`, `chase.json`, and
 `sanity-state/<investigator-id>.json`) are owned by the corresponding session
@@ -213,7 +222,7 @@ written by the apply layer when a plan carries memory_write intents.
 strategy payload: `generic`, `time_loop` (non-negative loop number plus unique
 memory IDs), or `multi_faction` (unique ranked faction IDs). Malformed roots,
 versions, unknown fields, and duplicate IDs are not persisted.
-`create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, scene unlock/visit/history (`unlocked_scene_ids`, `visited_scene_ids`, `exhausted_scene_ids`, `scene_history`), decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, spoiler-reveal flags, and a structured `flags` map (truthy keys feed `flag_set` exit/unlock conditions). `campaign.json` (current `schema_version: 2`) persists `ruleset_id` — the ruleset package the campaign binds from creation (default `coc7`, resolved through `coc_rulesets`; older generations are rejected, never migrated) — plus `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
+`create_campaign` initializes the minimal resume contract: `world-state.json` tracks active scene, subsystem, clue ids, scene unlock/visit/history (`unlocked_scene_ids`, `visited_scene_ids`, `exhausted_scene_ids`, `scene_history`), decisions, memory refs, log refs, and investigator-state refs; `active-scene.json` stores the current player-safe scene pointer; `flags.json` stores clue, decision, spoiler-reveal flags, and a structured `flags` map (truthy keys feed `flag_set` exit/unlock conditions). `campaign.json` (current `schema_version: 2`) persists `ruleset_id` — the registered ruleset package selected by public `campaign.create` (default `coc7`, resolved through `coc_rulesets`). A current-schema campaign with a missing, malformed, unknown, manifest-mismatched, or campaign-schema-incompatible binding is rejected as `unsupported_save_schema`; persisted campaigns never fall back to the default and are never migrated. Package `state_dirs` marked `create_on_init` are resolved from this binding at creation time rather than from an import-time default. The campaign also persists `play_language`, `language_profile`, and a `localized_terms` map keyed by language, so resumed campaigns keep the same visible narration language, output instruction, name policy, term policy, report labels, and name/term localization. Logs and memory may include `localized_text[play_language]` for player-visible prose that should be rendered directly before falling back to `localized_terms`.
 
 `pending_choices` is Keeper-facing resume state, not a player menu. It may record
 latent affordances, unresolved pressures, or rules choices for continuity, but

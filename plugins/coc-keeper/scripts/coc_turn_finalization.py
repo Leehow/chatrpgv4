@@ -23,19 +23,6 @@ import coc_rulesets
 import coc_turn_manifest
 
 
-# Resource registry (docs/ruleset-contract.md §6): display names and their
-# player-visible order come from the active ruleset manifest, never from
-# kernel literals. Tool→resource bindings below stay keyed on the stable
-# machine ``key``; only displays/enumeration are manifest-derived.
-_RULESET_RESOURCES = coc_rulesets.ruleset_resources(coc_rulesets.DEFAULT_RULESET_ID)
-_RESOURCE_PROJECTION_ORDER = tuple(
-    (str(resource["display"]), str(resource["key"]))
-    for resource in _RULESET_RESOURCES
-    if isinstance(resource.get("display"), str) and isinstance(resource.get("key"), str)
-)
-_RESOURCE_DISPLAY = {key: display for display, key in _RESOURCE_PROJECTION_ORDER}
-
-
 FINALIZATION_SCHEMA_VERSION = 1
 FINALIZATION_FILENAME = "turn-finalizations.jsonl"
 FINALIZATION_FIELDS = frozenset({
@@ -72,6 +59,41 @@ class TurnContractError(ValueError):
         super().__init__(message)
         self.code = code
         self.violations = violations
+
+
+def _resource_projection_order(ruleset_id: str | None = None) -> tuple[tuple[str, str], ...]:
+    """Resolve resource display order lazily for the active package."""
+    active = ruleset_id or coc_rulesets.DEFAULT_RULESET_ID
+    return tuple(
+        (str(resource["display"]), str(resource["key"]))
+        for resource in coc_rulesets.ruleset_resources(active)
+        if isinstance(resource.get("display"), str)
+        and isinstance(resource.get("key"), str)
+    )
+
+
+def _resource_display_map(ruleset_id: str | None = None) -> dict[str, str]:
+    return {
+        key: display for display, key in _resource_projection_order(ruleset_id)
+    }
+
+
+def _campaign_ruleset_id(campaign_dir: Path) -> str:
+    path = Path(campaign_dir) / "campaign.json"
+    try:
+        campaign = json.loads(path.read_text(encoding="utf-8"))
+        ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+        schema_version = campaign.get("schema_version")
+        if isinstance(schema_version, bool) or not isinstance(schema_version, int):
+            raise ValueError("campaign schema version is invalid")
+        return coc_rulesets.require_registered_ruleset(
+            ruleset_id,
+            campaign_schema_version=schema_version,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise TurnContractError(
+            "state_corrupt", "campaign ruleset binding is missing or invalid"
+        ) from exc
 
 
 def canonical_digest(value: Any) -> str:
@@ -565,14 +587,18 @@ def _project_conditions(
 
 
 def _project_player_state_receipt(
-    effects: dict[str, dict[str, Any]], decision_id: str, receipt: Any
+    effects: dict[str, dict[str, Any]],
+    decision_id: str,
+    receipt: Any,
+    *,
+    resource_projection_order: tuple[tuple[str, str], ...],
 ) -> None:
     if not isinstance(receipt, dict):
         return
     investigator_id = str(receipt.get("investigator_id") or "").strip()
     if not investigator_id:
         return
-    for resource, key in _RESOURCE_PROJECTION_ORDER:
+    for resource, key in resource_projection_order:
         values = receipt.get(key)
         if isinstance(values, dict):
             effect = _scalar_effect(
@@ -628,9 +654,14 @@ def _project_state_deltas(
     window: list[dict[str, Any]],
     *,
     superseded_roll_ids: set[str] | None = None,
+    ruleset_id: str | None = None,
 ) -> list[dict[str, Any]]:
     effects: dict[str, dict[str, Any]] = {}
     hidden_rolls = superseded_roll_ids or set()
+    resource_projection_order = _resource_projection_order(ruleset_id)
+    resource_display = {
+        key: display for display, key in resource_projection_order
+    }
     for call in window:
         if call.get("ok") is not True:
             continue
@@ -650,7 +681,7 @@ def _project_state_deltas(
             ):
                 continue
             effect = _scalar_effect(
-                decision_id, _RESOURCE_DISPLAY["hp"], data.get("hp_before"), data.get("hp_after"),
+                decision_id, resource_display.get("hp", "HP"), data.get("hp_before"), data.get("hp_after"),
                 investigator_id=investigator_id,
             )
             if effect:
@@ -664,14 +695,14 @@ def _project_state_deltas(
             )
         elif tool == "rules.sanity_check" and investigator_id:
             effect = _scalar_effect(
-                decision_id, _RESOURCE_DISPLAY["san"], data.get("san_before"), data.get("san_after"),
+                decision_id, resource_display.get("san", "SAN"), data.get("san_before"), data.get("san_after"),
                 investigator_id=investigator_id,
             )
             if effect:
                 _add_effect(effects, effect)
         elif tool == "rules.luck_spend" and investigator_id:
             effect = _scalar_effect(
-                decision_id, _RESOURCE_DISPLAY["luck"], data.get("luck_before"), data.get("luck_after"),
+                decision_id, resource_display.get("luck", "Luck"), data.get("luck_before"), data.get("luck_after"),
                 investigator_id=investigator_id,
             )
             if effect:
@@ -689,7 +720,7 @@ def _project_state_deltas(
             event = data.get("event") if isinstance(data.get("event"), dict) else {}
             effect = _scalar_effect(
                 decision_id,
-                _RESOURCE_DISPLAY["hp"],
+                resource_display.get("hp", "HP"),
                 event.get("hp_before"),
                 event.get("hp_after"),
                 investigator_id=investigator_id,
@@ -802,7 +833,33 @@ def _project_state_deltas(
                 before=data.get("conditions_before"),
                 after=data.get("conditions_after"),
             )
-        _project_player_state_receipt(effects, decision_id, data.get("player_state_receipt"))
+        elif tool == "rules.resource_delta":
+            result = data.get("result") if isinstance(data.get("result"), dict) else {}
+            resource_key = str(result.get("resource") or "").strip()
+            if (
+                data.get("ruleset_id") == (ruleset_id or coc_rulesets.DEFAULT_RULESET_ID)
+                and data.get("state_bound") is True
+                and bool(investigator_id)
+                and resource_key in resource_display
+            ):
+                effect = _scalar_effect(
+                    decision_id,
+                    resource_display[resource_key],
+                    result.get("before"),
+                    result.get("after"),
+                    investigator_id=investigator_id,
+                )
+                if effect:
+                    effect["ruleset_id"] = str(data["ruleset_id"])
+                    effect["resource_key"] = resource_key
+                    effect["source_receipt_id"] = data.get("receipt_id")
+                    _add_effect(effects, effect)
+        _project_player_state_receipt(
+            effects,
+            decision_id,
+            data.get("player_state_receipt"),
+            resource_projection_order=resource_projection_order,
+        )
     # Dict insertion order is the canonical successful toolbox-call order from
     # ``window``.  Keep it for non-time effects: effect ids are content hashes
     # and sorting by them can scramble causal chains such as
@@ -1149,7 +1206,13 @@ def _render_state_delta(
     kind = effect["effect_kind"]
     if kind == "scalar":
         resource = effect["resource"]
-        if resource == _RESOURCE_DISPLAY["luck"]:
+        try:
+            default_display = _resource_display_map()
+        except ValueError:
+            # A relocated/test registry may intentionally contain no coc7
+            # package. Scalar rendering must remain package-neutral.
+            default_display = {}
+        if resource == default_display.get("luck"):
             resource = chrome.get("luck", resource)
         return f"【{tag}】{resource}：{effect['before']} → {effect['after']}（{effect['delta']:+d}）"
     if kind in {"time", "time_appearance"}:
@@ -1163,7 +1226,7 @@ def _render_state_delta(
             reset = "；理智日计数已重置" if effect.get("sanity_day_reset") else ""
             return f"【{tag}】休息：完成安全的整夜睡眠{reset}"
         reset = (
-            f"; {_RESOURCE_DISPLAY['san']} day counter reset"
+            f"; {_resource_display_map().get('san', 'SAN')} day counter reset"
             if effect.get("sanity_day_reset") else ""
         )
         return f"【{tag}】rest: completed a safe full sleep{reset}"
@@ -1345,6 +1408,7 @@ def _pending_modifier_consumptions(
 
 
 def build_output_context(campaign_dir: Path) -> dict[str, Any]:
+    ruleset_id = _campaign_ruleset_id(campaign_dir)
     try:
         manifest, window, journal = coc_turn_manifest.refresh_pending_window(
             campaign_dir
@@ -1360,6 +1424,7 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     state_deltas = _project_state_deltas(
         window,
         superseded_roll_ids=_superseded_roll_ids(campaign_dir),
+        ruleset_id=ruleset_id,
     )
     context_effects = _project_context_effects(window)
     exceptional_events, exceptional_applies = _project_exceptional_effects(window)

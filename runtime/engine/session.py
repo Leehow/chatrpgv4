@@ -274,9 +274,11 @@ class SessionRegistry:
             if brain in {"debug", "pi"}:
                 return str(brain)
             raise ValueError("session record is not recoverable")
-        expected = {"schema_version", "planner", "rules", "narrator", "player"}
+        required = {"schema_version", "planner", "rules", "narrator", "player"}
+        allowed = required | {"plugin_root"}
         if (
-            set(config) != expected
+            not required.issubset(config)
+            or not set(config).issubset(allowed)
             or isinstance(config.get("schema_version"), bool)
             or not isinstance(config.get("schema_version"), int)
             or config.get("schema_version") != 2
@@ -293,6 +295,13 @@ class SessionRegistry:
                 raise ValueError("session record is not recoverable")
             if component.get("kind") not in kinds:
                 raise ValueError("session record is not recoverable")
+        plugin_root = config.get("plugin_root")
+        if plugin_root is not None and (
+            not isinstance(plugin_root, str)
+            or not plugin_root
+            or Path(plugin_root).is_absolute()
+        ):
+            raise ValueError("session record is not recoverable")
         return "pi" if config["narrator"]["kind"] == "pi" else "debug"
 
     @classmethod
@@ -422,6 +431,11 @@ class SessionRegistry:
                 if character_relpath != item["character_relpath"]:
                     raise ValueError("invalid character_path")
                 self._serialize_record(item)
+                _load_plugin_locator().keeper_skill_dirs(
+                    root,
+                    item["campaign_id"],
+                    resolved_config=item["resolved_config"],
+                )
             except (KeyError, TypeError, ValueError):
                 raise ValueError("invalid session snapshot")
             restored_record = self._copy_record(item)
@@ -511,9 +525,16 @@ def _load_telemetry_module():
     return _load_module("runtime_session_telemetry", path)
 
 
-def _load_runtime_ops_module(workspace: Path | str | None = None):
-    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_runtime_ops.py"
-    return _load_module("runtime_session_coc_runtime_ops", path)
+def _load_runtime_ops_module(
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
+    path = _load_plugin_locator().plugin_scripts_dir(
+        workspace, resolved_config=resolved_config
+    ) / "coc_runtime_ops.py"
+    return _load_plugin_locator().load_plugin_module(
+        "runtime_session_coc_runtime_ops", path
+    )
 
 
 def _load_operation_router_module():
@@ -695,6 +716,7 @@ def _project_keeper_turn_events(
     finalization: dict[str, Any],
     workspace: Path,
     campaign_id: str,
+    resolved_config: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build one finalized player output plus keeper audit/state events.
 
@@ -724,7 +746,7 @@ def _project_keeper_turn_events(
     events.append(events_mod.make_event("narration", {"text": narration_text}))
     try:
         state = _load_public_state().build_public_state(
-            workspace, campaign_id, None,
+            workspace, campaign_id, None, resolved_config=resolved_config,
         )
     except Exception:
         state = None
@@ -789,6 +811,9 @@ def _validated_session_record(session_id: str, record: dict[str, Any]) -> dict[s
         raise ValueError("invalid frozen runtime config")
     if SessionRegistry._brain_label_for_config(config) != record.get("brain_at_create"):
         raise ValueError("invalid frozen runtime config")
+    _load_plugin_locator().keeper_skill_dirs(
+        root, campaign_id, resolved_config=config
+    )
     return {
         "session_id": session_id,
         "workspace": root,
@@ -828,6 +853,9 @@ def create_session(
     )
     paths.campaign_save_paths(campaign_dir, investigator_id)
     cfg = copy.deepcopy(_load_config().load_runtime_config(root))
+    _load_plugin_locator().keeper_skill_dirs(
+        root, campaign_id, resolved_config=cfg
+    )
     brain = SessionRegistry._brain_label_for_config(cfg)
     return _REGISTRY.create({
         "workspace": root,
@@ -946,7 +974,8 @@ def send(
     play_language = "zh-Hans"
     try:
         state = _load_public_state().build_public_state(
-            workspace, campaign_id, record["investigator_id"]
+            workspace, campaign_id, record["investigator_id"],
+            resolved_config=record["resolved_config"],
         )
         if isinstance(state.get("play_language"), str) and state["play_language"]:
             play_language = state["play_language"]
@@ -961,6 +990,21 @@ def send(
         "play_language": play_language,
         "transcript_tail": _recent_public_transcript(campaign_dir),
     }
+    resolved_config = record.get("resolved_config")
+    if isinstance(resolved_config, dict):
+        locator = _load_plugin_locator()
+        skill_dirs = locator.keeper_skill_dirs(
+            workspace,
+            campaign_id,
+            resolved_config=resolved_config,
+        )
+        request["skills_dir"] = str(skill_dirs[0])
+        request["skills_dirs"] = [str(path) for path in skill_dirs]
+        request["toolbox_path"] = str(locator.plugin_scripts_dir(
+            workspace,
+            resolved_config=resolved_config,
+        ) / "coc_toolbox.py")
+        request["runtime_project_root"] = str(_repo_root())
     if player_intent is not None:
         request["player_intent"] = player_intent
     if rng_seed is not None:
@@ -1021,6 +1065,7 @@ def send(
         campaign_dir, offsets, narration_text,
         finalization=finalization,
         workspace=workspace, campaign_id=campaign_id,
+        resolved_config=record["resolved_config"],
     )
     decision_ids = _keeper_turn_decision_ids(campaign_dir, offsets["toolbox"])
     try:
@@ -1053,7 +1098,9 @@ def interact(
     if not isinstance(player_input, str) or not player_input.strip():
         raise ValueError("player_input must be non-empty")
     record = get_session(session_id)
-    ops = _load_runtime_ops_module(record["workspace"])
+    ops = _load_runtime_ops_module(
+        record["workspace"], record["resolved_config"]
+    )
     provenance: dict[str, Any] = {"source": "host_semantic_evidence"}
     if semantic_route is None:
         pipeline = record["resolved_config"]
@@ -1064,7 +1111,8 @@ def interact(
             routed = _load_operation_router_module().route_player_action(
                 player_input,
                 _load_public_state().build_public_state(
-                    record["workspace"], record["campaign_id"], record["investigator_id"]
+                    record["workspace"], record["campaign_id"], record["investigator_id"],
+                    resolved_config=record["resolved_config"],
                 ),
             )
             semantic_route = routed["semantic_route"]
@@ -1121,7 +1169,9 @@ def operate(
     Codex, Cursor, and Claude plugin hosts.
     """
     record = get_session(session_id)
-    return _load_runtime_ops_module(record["workspace"]).execute_operation(
+    return _load_runtime_ops_module(
+        record["workspace"], record["resolved_config"]
+    ).execute_operation(
         record["workspace"],
         campaign_id=record["campaign_id"],
         investigator_id=record["investigator_id"],
@@ -1367,6 +1417,7 @@ def get_state(session_id: str) -> dict[str, Any]:
     record = get_session(session_id)
     state = _load_public_state().build_public_state(
         record["workspace"], record["campaign_id"], record["investigator_id"],
+        resolved_config=record["resolved_config"],
     )
     state["brain"] = record["brain_at_create"]
     return state

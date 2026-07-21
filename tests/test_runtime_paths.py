@@ -26,7 +26,11 @@ def _seed_workspace(workspace: Path, *, brain: str = "debug") -> Path:
         json.dumps({"schema_version": 1, "brain": brain}), encoding="utf-8"
     )
     (campaign / "campaign.json").write_text(
-        json.dumps({"schema_version": 1, "campaign_id": "camp-1"}), encoding="utf-8"
+        json.dumps({
+            "schema_version": 2,
+            "campaign_id": "camp-1",
+            "ruleset_id": "coc7",
+        }), encoding="utf-8"
     )
     (save / "world-state.json").write_text(
         json.dumps({"schema_version": 1, "active_scene_id": "scene-1"}),
@@ -63,6 +67,15 @@ def test_runtime_rejects_noncanonical_ids_before_session_registration(tmp_path, 
         session.create_session(tmp_path, campaign_id=bad_id, investigator_id="inv-1")
 
     assert session._SESSIONS == {}
+
+
+def test_package_actor_state_path_uses_declared_directory(tmp_path):
+    paths = _load("runtime_paths_actor_state", "runtime/engine/paths.py")
+    campaign = tmp_path / ".coc" / "campaigns" / "spark"
+    expected = campaign / "save" / "actor-state" / "nova.json"
+    assert paths.actor_state_path(campaign, "nova", "actor-state") == expected
+    with pytest.raises(ValueError, match="actor_state_dirname"):
+        paths.actor_state_path(campaign, "nova", "../escape")
 
 
 @pytest.mark.parametrize("bad_id", ["../camp", "/tmp/camp", r"camp\\next", "café"])

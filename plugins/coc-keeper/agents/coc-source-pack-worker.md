@@ -234,10 +234,14 @@ Rules:
   `mechanics_locator_scope` when complete. Empty roster coverage is never
   complete.
 - `mechanics.status`:
-  - `unresolved` / `located`: locator-thin only
+  - `unresolved`: locator-thin only
     (`status`, optional `source_page_indices` / `source_refs` /
     `locator_pass_status` / `locator_scope` / `provenance`). **No**
     characteristics, skills, weapons, spells, profile, or fields_* payload.
+  - `located`: locator-thin only and requires non-empty
+    `source_page_indices`; `source_refs` / `locator_pass_status` /
+    `locator_scope` / `provenance` remain optional. **No** characteristics,
+    skills, weapons, spells, profile, or fields_* payload.
   - `authored`: requires `profile`, `source_refs`, `fields_observed`,
     `fields_extracted`, `fields_not_authored`, and
     `provenance.authority=source_authored`. Never pair authored with

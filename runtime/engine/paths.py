@@ -166,3 +166,21 @@ def campaign_save_paths(campaign: Path | str, investigator_id: str) -> dict[str,
             for name in [*dirnames, *filenames]:
                 contained_path(save, Path(directory) / name)
     return paths
+
+
+def actor_state_path(
+    campaign: Path | str,
+    actor_id: str,
+    actor_state_dirname: str,
+) -> Path:
+    """Resolve a package-declared actor-state file under campaign ``save``."""
+    actor_id = validate_id(actor_id, "actor_id")
+    if (
+        not isinstance(actor_state_dirname, str)
+        or not ID_RE.fullmatch(actor_state_dirname)
+    ):
+        raise ValueError("invalid actor_state_dirname")
+    resolved_campaign = Path(campaign).resolve(strict=False)
+    save = contained_path(resolved_campaign, resolved_campaign / "save")
+    state_dir = contained_path(save, save / actor_state_dirname)
+    return contained_path(state_dir, state_dir / f"{actor_id}.json")

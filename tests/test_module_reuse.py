@@ -73,6 +73,7 @@ def _skeleton():
         "handouts": [],
         "threats": [],
         "conclusion_buckets": [],
+        "mechanics_locator_pass_status": "pending",
     }
 
 
@@ -90,6 +91,15 @@ def _deep(loc_id: str, clue_id: str):
                 "clue_id": clue_id,
                 "delivery_kind": "handout",
                 "player_safe_summary": f"Handout text for {clue_id}",
+                "discovery": {
+                    "mode": "automatic",
+                    "skill": None,
+                    "difficulty": None,
+                },
+                "provenance": {
+                    "authority": "campaign_generated",
+                    "basis": "synthetic reuse fixture",
+                },
             }
         ],
         "npcs": [],

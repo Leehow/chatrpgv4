@@ -41,6 +41,39 @@ def _record(tmp_path: Path, *, campaign_id: str = "case", investigator_id: str =
     }
 
 
+def _ruleset_bound_record(
+    tmp_path: Path,
+    *,
+    campaign_id: str = "case",
+    investigator_id: str = "ada",
+) -> dict:
+    campaign = tmp_path / ".coc" / "campaigns" / campaign_id
+    campaign.mkdir(parents=True, exist_ok=True)
+    (campaign / "campaign.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "campaign_id": campaign_id,
+                "ruleset_id": "coc7",
+            }
+        ),
+        encoding="utf-8",
+    )
+    record = _record(
+        tmp_path,
+        campaign_id=campaign_id,
+        investigator_id=investigator_id,
+    )
+    record["resolved_config"] = {
+        "schema_version": 2,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+    }
+    return record
+
+
 def _valid_player_intent() -> dict:
     return {
         "primary_intent": "investigate",
@@ -267,10 +300,10 @@ def test_registry_snapshot_restore_is_workspace_scoped_and_secret_free(tmp_path)
     session = _load_session()
     clock = FakeClock()
     registry = session.SessionRegistry(monotonic=clock)
-    live = _record(tmp_path)
+    live = _ruleset_bound_record(tmp_path)
     live.update({"player_input": "secret", "adapter_handle": object(), "api_key": "nope"})
     registry.create(live, session_id="sess-live")
-    registry.create(_record(tmp_path), session_id="sess-closed")
+    registry.create(_ruleset_bound_record(tmp_path), session_id="sess-closed")
     registry.close("sess-closed")
 
     path = registry.snapshot(tmp_path)

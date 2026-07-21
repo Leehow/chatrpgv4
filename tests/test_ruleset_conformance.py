@@ -105,6 +105,11 @@ def _build_minimal_package(package_dir: Path) -> None:
                     "recovery_rule": "natural healing 1/day (test ref)",
                 }
             ],
+            "state_dirs": [{
+                "name": "actor-state",
+                "create_on_init": True,
+                "role": "actor_state",
+            }],
         },
     )
     _write(

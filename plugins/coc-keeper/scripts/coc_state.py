@@ -35,6 +35,10 @@ CURRENT_SCHEMA_VERSIONS: dict[str, int] = {
 }
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def _is_exact_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 _RUNTIME_SESSION_KEYS = {
     "session_id",
     "campaign_id",
@@ -78,12 +82,11 @@ TOP_LEVEL_DIRS = (
     "exports",
 )
 
-# Package-owned campaign dirs are declared by the active ruleset manifest
-# (docs/ruleset-contract.md §6 ``state_dirs`` entries with create_on_init);
-# the kernel owns only the generic remainder. For coc7 this yields exactly
-# the historical tuple ("save/investigator-state" first).
-CAMPAIGN_DIRS = (
-    *coc_rulesets.ruleset_campaign_init_dirs(coc_rulesets.DEFAULT_RULESET_ID),
+# The kernel owns only these generic directories. Package-owned campaign dirs
+# are resolved from the selected manifest at campaign creation time; keeping
+# them out of this import-time constant prevents the default package from
+# freezing every later campaign's layout.
+KERNEL_CAMPAIGN_DIRS = (
     "save/continuation/checkpoints",
     "scenario",
     "index",
@@ -91,6 +94,18 @@ CAMPAIGN_DIRS = (
     "logs",
     "snapshots",
 )
+
+# Historical public name retained for generic kernel directories only.
+# Package additions are intentionally absent and resolved by
+# ``_campaign_dirs_for`` at the actual creation boundary.
+CAMPAIGN_DIRS = KERNEL_CAMPAIGN_DIRS
+
+
+def _campaign_dirs_for(ruleset_id: str) -> tuple[str, ...]:
+    return (
+        *coc_rulesets.ruleset_campaign_init_dirs(ruleset_id),
+        *KERNEL_CAMPAIGN_DIRS,
+    )
 
 SNAPSHOT_DIRS = ("save", "scenario", "index", "memory", "logs")
 
@@ -415,6 +430,18 @@ def validate_state_schema(data: dict[str, Any], kind: str) -> dict[str, Any]:
             kind=kind,
             reason=f"schema_version_mismatch:{raw_version}!={current}",
         )
+    if kind == "campaign":
+        try:
+            ruleset_id = coc_rulesets.get_campaign_ruleset_id(data)
+            coc_rulesets.require_registered_ruleset(
+                ruleset_id,
+                campaign_schema_version=current,
+            )
+        except ValueError as exc:
+            raise UnsupportedSaveSchema(
+                kind=kind,
+                reason="invalid_ruleset_binding",
+            ) from exc
     return data
 
 
@@ -581,10 +608,180 @@ def load_investigator_state(campaign_dir: Path, investigator_id: str) -> dict[st
     )
 
 
+def ruleset_actor_state_path(campaign_dir: Path, actor_id: str) -> Path:
+    """Resolve one actor file from the package's semantic manifest role."""
+    campaign_dir = Path(campaign_dir)
+    if not isinstance(actor_id, str) or _SAFE_ID.fullmatch(actor_id) is None:
+        raise ValueError("actor_id must be a stable safe id")
+    campaign = load_campaign_state(campaign_dir)
+    ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+    state_dir = coc_rulesets.ruleset_actor_state_dir(ruleset_id)
+    return campaign_dir / "save" / state_dir / f"{actor_id}.json"
+
+
+def load_ruleset_actor_state(
+    campaign_dir: Path, actor_id: str,
+) -> dict[str, Any]:
+    """Load exact actor state for the campaign-bound ruleset.
+
+    CoC7 retains its established investigator-state schema. Other packages use
+    the small kernel envelope created by :func:`create_ruleset_actor`; package
+    sheet content remains opaque while resources and mutation receipts are
+    structurally auditable by the kernel.
+    """
+    campaign_dir = Path(campaign_dir)
+    campaign = load_campaign_state(campaign_dir)
+    ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+    path = ruleset_actor_state_path(campaign_dir, actor_id)
+    if ruleset_id == "coc7":
+        return load_investigator_state(campaign_dir, actor_id)
+    if path.is_symlink() or not path.is_file():
+        raise UnsupportedSaveSchema(
+            kind="actor", path=path, reason="missing_or_unsafe_actor_state"
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise UnsupportedSaveSchema(
+            kind="actor", path=path, reason="json_decode_error"
+        ) from exc
+    manifest = coc_rulesets.load_manifest(ruleset_id)
+    schema_versions = manifest.get("schema_versions")
+    actor_schema = (
+        schema_versions.get("actor") if isinstance(schema_versions, dict) else None
+    )
+    required = {
+        "schema_version", "campaign_id", "actor_id", "ruleset_id",
+        "ruleset_version", "sheet", "resources", "decisions",
+    }
+    valid_resources = isinstance(payload, dict) and isinstance(
+        payload.get("resources"), dict
+    ) and all(
+        isinstance(key, str) and _is_exact_int(value)
+        for key, value in payload.get("resources", {}).items()
+    )
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != required
+        or not _is_exact_int(actor_schema)
+        or payload.get("schema_version") != actor_schema
+        or payload.get("campaign_id") != campaign_dir.name
+        or payload.get("actor_id") != actor_id
+        or payload.get("ruleset_id") != ruleset_id
+        or payload.get("ruleset_version") != manifest.get("version")
+        or not isinstance(payload.get("sheet"), dict)
+        or not valid_resources
+        or not isinstance(payload.get("decisions"), dict)
+    ):
+        raise UnsupportedSaveSchema(
+            kind="actor", path=path, reason="invalid_ruleset_actor_state"
+        )
+    declared = {
+        str(resource.get("key"))
+        for resource in coc_rulesets.ruleset_resources(ruleset_id)
+        if isinstance(resource.get("key"), str)
+    }
+    if set(payload["resources"]) != declared:
+        raise UnsupportedSaveSchema(
+            kind="actor", path=path, reason="actor_resource_registry_mismatch"
+        )
+    return payload
+
+
+def create_ruleset_actor(
+    campaign_dir: Path,
+    actor_id: str,
+    *,
+    sheet: dict[str, Any],
+    resources: dict[str, Any],
+) -> Path:
+    """Create a package-neutral actor envelope after resolver validation."""
+    campaign_dir = Path(campaign_dir)
+    campaign = load_campaign_state(campaign_dir)
+    ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+    if ruleset_id == "coc7":
+        raise ValueError("coc7 actor creation uses investigator.create")
+    path = ruleset_actor_state_path(campaign_dir, actor_id)
+    if path.exists() or path.is_symlink():
+        raise FileExistsError(f"actor already exists: {actor_id}")
+    manifest = coc_rulesets.load_manifest(ruleset_id)
+    schema_versions = manifest.get("schema_versions")
+    actor_schema = (
+        schema_versions.get("actor") if isinstance(schema_versions, dict) else None
+    )
+    declared = {
+        str(resource.get("key"))
+        for resource in coc_rulesets.ruleset_resources(ruleset_id)
+        if isinstance(resource.get("key"), str)
+    }
+    if (
+        not _is_exact_int(actor_schema)
+        or not isinstance(sheet, dict)
+        or not isinstance(resources, dict)
+        or set(resources) != declared
+        or not all(_is_exact_int(value) for value in resources.values())
+    ):
+        raise ValueError("validated actor resources do not match the manifest registry")
+    write_json_atomic(path, {
+        "schema_version": actor_schema,
+        "campaign_id": campaign_dir.name,
+        "actor_id": actor_id,
+        "ruleset_id": ruleset_id,
+        "ruleset_version": str(manifest.get("version") or ""),
+        "sheet": sheet,
+        "resources": resources,
+        "decisions": {},
+    })
+    return path
+
+
+def ruleset_actor_resource_value(
+    ruleset_id: str, actor_state: dict[str, Any], resource_key: str,
+) -> int:
+    """Read a declared integer resource from either supported actor shape."""
+    if ruleset_id == "coc7":
+        value = actor_state.get(f"current_{resource_key}")
+    else:
+        resources = actor_state.get("resources")
+        value = resources.get(resource_key) if isinstance(resources, dict) else None
+    if not _is_exact_int(value):
+        raise ValueError(f"actor state has no integer resource {resource_key!r}")
+    return value
+
+
+def write_ruleset_actor_resource_receipt(
+    campaign_dir: Path,
+    actor_id: str,
+    *,
+    resource_key: str,
+    after: int,
+    decision_id: str,
+    receipt: dict[str, Any],
+) -> Path:
+    """Atomically bind a resource value and its exact idempotency receipt."""
+    campaign_dir = Path(campaign_dir)
+    campaign = load_campaign_state(campaign_dir)
+    ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+    state = load_ruleset_actor_state(campaign_dir, actor_id)
+    if ruleset_id == "coc7":
+        state[f"current_{resource_key}"] = after
+        decisions = state.setdefault("ruleset_resource_receipts", {})
+    else:
+        state["resources"][resource_key] = after
+        decisions = state["decisions"]
+    if not isinstance(decisions, dict):
+        raise ValueError("actor resource receipt index is invalid")
+    decisions[decision_id] = receipt
+    path = ruleset_actor_state_path(campaign_dir, actor_id)
+    write_json_atomic(path, state)
+    return path
+
+
 def validate_campaign_generation(
     campaign_dir: Path,
     *,
     investigator_id: str | None = None,
+    actor_id: str | None = None,
 ) -> dict[str, Any]:
     """Read-only preflight for the central campaign generation.
 
@@ -600,27 +797,52 @@ def validate_campaign_generation(
     campaign = load_campaign_state(campaign_dir)
     world = load_world_state(campaign_dir)
     pacing = load_pacing_state(campaign_dir)
-    inv_dir = campaign_dir / "save" / "investigator-state"
-    if not inv_dir.is_dir() or inv_dir.is_symlink():
+    ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+    if investigator_id is not None and actor_id is not None:
         raise UnsupportedSaveSchema(
-            kind="investigator", path=inv_dir, reason="missing_or_unsafe_store"
+            kind="actor", path=campaign_dir, reason="ambiguous_actor_identity"
         )
-    if investigator_id is not None:
-        investigator_ids = [investigator_id]
+    requested_actor = actor_id if actor_id is not None else investigator_id
+    actor_dir = (
+        campaign_dir
+        / "save"
+        / coc_rulesets.ruleset_actor_state_dir(ruleset_id)
+    )
+    if not actor_dir.is_dir() or actor_dir.is_symlink():
+        raise UnsupportedSaveSchema(
+            kind="actor", path=actor_dir, reason="missing_or_unsafe_store"
+        )
+    if requested_actor is not None:
+        actor_ids = [requested_actor]
     else:
-        investigator_ids = [
-            path.stem for path in sorted(inv_dir.glob("*.json")) if path.is_file()
+        actor_ids = [
+            path.stem for path in sorted(actor_dir.glob("*.json")) if path.is_file()
         ]
-    investigators = {
-        item: load_investigator_state(campaign_dir, item)
-        for item in investigator_ids
+    actors = {
+        item: load_ruleset_actor_state(campaign_dir, item)
+        for item in actor_ids
     }
+    if ruleset_id == "coc7":
+        investigators = actors
+        if not actor_dir.is_dir() or actor_dir.is_symlink():
+            raise UnsupportedSaveSchema(
+                kind="investigator", path=actor_dir, reason="missing_or_unsafe_store"
+            )
+    elif investigator_id is not None:
+        raise UnsupportedSaveSchema(
+            kind="actor",
+            path=actor_dir,
+            reason="ruleset_has_no_investigator_state_adapter",
+        )
+    else:
+        investigators = {}
     return {
         "schema_version": 1,
         "campaign_id": campaign_dir.name,
         "campaign": campaign,
         "world": world,
         "pacing": pacing,
+        "actors": actors,
         "investigators": investigators,
     }
 
@@ -1129,18 +1351,23 @@ def _create_campaign_at(
     play_language: str = DEFAULT_PLAY_LANGUAGE,
     start_clock: dict[str, Any] | None = None,
     *,
+    ruleset_id: str = coc_rulesets.DEFAULT_RULESET_ID,
     update_index: bool = False,
 ) -> Path:
     """Build a complete campaign generation at an explicit directory."""
     campaign_dir = Path(campaign_dir)
     era_key = normalize_era(era)
-    for directory in CAMPAIGN_DIRS:
+    ruleset_id = coc_rulesets.require_registered_ruleset(
+        ruleset_id,
+        campaign_schema_version=int(CURRENT_SCHEMA_VERSIONS["campaign"]),
+    )
+    for directory in _campaign_dirs_for(ruleset_id):
         (campaign_dir / directory).mkdir(parents=True, exist_ok=True)
     created_at = now_iso()
     campaign = {
         "schema_version": int(CURRENT_SCHEMA_VERSIONS["campaign"]),
         "campaign_id": campaign_id,
-        "ruleset_id": coc_rulesets.DEFAULT_RULESET_ID,
+        "ruleset_id": ruleset_id,
         "title": title,
         "mode": "keeper",
         "status": "setup",
@@ -1174,8 +1401,13 @@ def create_campaign(
     play_language: str = DEFAULT_PLAY_LANGUAGE,
     start_clock: dict[str, Any] | None = None,
     *,
+    ruleset_id: str = coc_rulesets.DEFAULT_RULESET_ID,
     fresh_start: bool = False,
 ) -> Path:
+    ruleset_id = coc_rulesets.require_registered_ruleset(
+        ruleset_id,
+        campaign_schema_version=int(CURRENT_SCHEMA_VERSIONS["campaign"]),
+    )
     ensure_workspace(root)
     campaign_dir = coc_root(root) / "campaigns" / campaign_id
     if campaign_dir.exists() or fresh_start:
@@ -1191,6 +1423,7 @@ def create_campaign(
         era=normalize_era(era),
         play_language=play_language,
         start_clock=start_clock,
+        ruleset_id=ruleset_id,
         update_index=True,
     )
 
