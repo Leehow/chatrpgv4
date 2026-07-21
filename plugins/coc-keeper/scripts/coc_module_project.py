@@ -975,13 +975,120 @@ def _refresh_character_creation_briefing_if_stale(
     return str(rendered_path)
 
 
+def _validate_changed_opening_sources_before_write(
+    campaign_dir: Path,
+    ir: dict[str, Any],
+    asset_root_id: str | None,
+    *,
+    opening_start_location_id: str | None = None,
+    opening_source_scope: dict[str, Any] | None = None,
+) -> None:
+    """Keep every IR writer behind the selected-opening source boundary.
+
+    Deep packs are also merged by the detached progressive queue worker.  That
+    path does not call ``project_selected_opening``, so its final common write
+    boundary must reject a changed start scene whose pack does not cover the
+    source-authored opening window.  Unchanged start scenes and Tier-1 skeleton
+    projection remain outside this guard.
+    """
+    if not asset_root_id:
+        return
+    scenario = _load_json(campaign_dir / "scenario" / "scenario.json", {})
+    if not isinstance(scenario, dict) or not str(
+        scenario.get("source_cache_asset_root_id") or ""
+    ).strip():
+        return
+    candidate_graph = ir.get("story-graph.json")
+    if not isinstance(candidate_graph, dict):
+        return
+    candidate_scenes = {
+        str(row.get("scene_id") or ""): row
+        for row in (candidate_graph.get("scenes") or [])
+        if isinstance(row, dict) and str(row.get("scene_id") or "")
+    }
+    current_graph = _load_json(
+        campaign_dir / "scenario" / "story-graph.json", {},
+    )
+    current_scenes = {
+        str(row.get("scene_id") or ""): row
+        for row in (
+            (current_graph.get("scenes") or [])
+            if isinstance(current_graph, dict)
+            else []
+        )
+        if isinstance(row, dict) and str(row.get("scene_id") or "")
+    }
+    workspace = campaign_dir.parents[2]
+    root_info = resolve_opening_preparation_root(workspace, campaign_dir.name)
+    if str(root_info["asset_root_id"]) != str(asset_root_id):
+        raise OpeningPreparationError(
+            "opening_source_identity_mismatch",
+            "IR projection root does not match the campaign-bound source root",
+        )
+    skeleton = coc_module_assets.get_skeleton(workspace, str(asset_root_id))
+    if not isinstance(skeleton, dict):
+        return
+    for candidate in opening_start_candidates(skeleton):
+        start_id = candidate["location_id"]
+        scene = candidate_scenes.get(start_id)
+        if not isinstance(scene, dict) or str(scene.get("parse_state") or "") not in {
+            "body_parsed", "deep",
+        }:
+            continue
+        if scene == current_scenes.get(start_id):
+            continue
+        if (
+            opening_source_scope is not None
+            and start_id == opening_start_location_id
+        ):
+            scope = coc_module_assets.validate_opening_source_scope(
+                workspace, str(asset_root_id), opening_source_scope,
+            )
+        else:
+            scope = resolve_opening_source_window(
+                workspace, root_info, skeleton, start_id, None,
+            )["scope"]
+        readiness = opening_pack_readiness(
+            workspace,
+            str(asset_root_id),
+            start_id,
+            required_source_scope=scope,
+        )
+        source_blocker = next(
+            (
+                row for row in (readiness.get("blocking") or [])
+                if str(row.get("code") or "").startswith("opening_pack_source_")
+                or str(row.get("code") or "") in {
+                    "opening_source_scope_required",
+                    "opening_source_scope_invalid",
+                    "opening_pack_evidence_stale",
+                }
+            ),
+            None,
+        )
+        if source_blocker is not None:
+            raise OpeningPreparationError(
+                str(source_blocker["code"]),
+                "changed opening projection is not qualified for its source scope",
+            )
+
+
 def write_ir_to_campaign(
     campaign_dir: Path,
     ir: dict[str, Any],
     *,
     asset_root_id: str | None = None,
     publish_compiled_archive: bool = True,
+    opening_start_location_id: str | None = None,
+    opening_source_scope: dict[str, Any] | None = None,
 ) -> list[str]:
+    _validate_changed_opening_sources_before_write(
+        campaign_dir,
+        ir,
+        asset_root_id,
+        opening_start_location_id=opening_start_location_id,
+        opening_source_scope=opening_source_scope,
+    )
     scenario_dir = campaign_dir / "scenario"
     scenario_dir.mkdir(parents=True, exist_ok=True)
     ir = dict(ir)
@@ -3126,7 +3233,13 @@ def project_selected_opening(
             "opening_projection_incomplete",
             "canonical selected opening candidate did not pass its slice check",
         )
-    paths = write_ir_to_campaign(campaign_dir, ir, asset_root_id=asset_root_id)
+    paths = write_ir_to_campaign(
+        campaign_dir,
+        ir,
+        asset_root_id=asset_root_id,
+        opening_start_location_id=selected,
+        opening_source_scope=binding_result["scope"],
+    )
     if not _selected_opening_projection_is_fresh_for_payload(
         campaign_dir, selected, payload,
     ):

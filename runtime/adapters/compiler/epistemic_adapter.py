@@ -56,9 +56,9 @@ def _default_runner() -> Path:
     return _adapter_dir() / "run_epistemic_compile.mjs"
 
 
-def _contract_path() -> Path:
-    # Import-time binding: no workspace context exists here, so this resolves
-    # the default plugin root through the single locator (Phase 1 seam 4).
+def _contract_path(workspace: Path | str | None = None) -> Path:
+    # Import-time binding has no workspace context and uses the default. Calls
+    # with a workspace honor its located plugin root.
     locator_path = _adapter_dir().parents[1] / "engine" / "plugin_locator.py"
     spec = importlib.util.spec_from_file_location(
         "runtime_plugin_locator_epistemic", locator_path
@@ -66,7 +66,7 @@ def _contract_path() -> Path:
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
-    return mod.plugin_scripts_dir() / "epistemic-contract.json"
+    return mod.plugin_scripts_dir(workspace) / "epistemic-contract.json"
 
 
 def _load_contract() -> dict[str, Any]:
@@ -203,6 +203,7 @@ def _invoke_runner(
     envelope: dict[str, Any],
     *,
     timeout_s: float,
+    workspace: Path | str | None = None,
 ) -> tuple[int, str]:
     try:
         proc = subprocess.run(
@@ -213,7 +214,10 @@ def _invoke_runner(
             timeout=timeout_s,
             cwd=str(_adapter_dir()),
             # Keep the Node runner on the same locator-resolved contract.
-            env={**os.environ, "COC_EPISTEMIC_CONTRACT_PATH": str(_contract_path())},
+            env={
+                **os.environ,
+                "COC_EPISTEMIC_CONTRACT_PATH": str(_contract_path(workspace)),
+            },
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"epistemic compiler timed out after {timeout_s}s") from exc
@@ -228,6 +232,7 @@ def compile_epistemic(
     runner_path: Path | str | None = None,
     timeout_s: float = 900,
     max_attempts: int = 2,
+    workspace: Path | str | None = None,
 ) -> dict[str, Any]:
     """Compile one minimum-privilege request into provenance-bound sidecars."""
     if not isinstance(request, dict) or request.get("kind") != "coc_epistemic_compile_request":
@@ -249,7 +254,14 @@ def compile_epistemic(
         envelope = dict(base_envelope)
         if rejected:
             envelope["correction_feedback"] = rejected[-1]
-        returncode, stdout = _invoke_runner(runner, envelope, timeout_s=timeout_s)
+        if workspace is None:
+            returncode, stdout = _invoke_runner(
+                runner, envelope, timeout_s=timeout_s
+            )
+        else:
+            returncode, stdout = _invoke_runner(
+                runner, envelope, timeout_s=timeout_s, workspace=workspace
+            )
         try:
             raw = json.loads(stdout)
         except json.JSONDecodeError as exc:

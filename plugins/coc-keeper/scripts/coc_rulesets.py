@@ -62,6 +62,35 @@ def _require_known_ruleset(ruleset_id: str) -> str:
     return ruleset_id
 
 
+def require_registered_ruleset(
+    ruleset_id: str,
+    *,
+    campaign_schema_version: int | None = None,
+) -> str:
+    """Validate one package binding before durable state is created.
+
+    Directory presence is registration, but campaign creation also verifies
+    that the registered manifest identifies that directory and explicitly
+    supports the kernel's current campaign schema.  Conformance remains the
+    exhaustive package audit; this is the narrow runtime fail-closed boundary.
+    """
+    ruleset_id = _require_known_ruleset(ruleset_id)
+    manifest = load_manifest(ruleset_id)
+    if manifest.get("ruleset_id") != ruleset_id:
+        raise ValueError(
+            f"ruleset {ruleset_id!r} manifest identity does not match its directory"
+        )
+    if campaign_schema_version is not None:
+        versions = manifest.get("schema_versions")
+        declared = versions.get("campaign") if isinstance(versions, dict) else None
+        if declared != campaign_schema_version or isinstance(declared, bool):
+            raise ValueError(
+                f"ruleset {ruleset_id!r} does not support campaign schema "
+                f"{campaign_schema_version}"
+            )
+    return ruleset_id
+
+
 def ruleset_data_dir(ruleset_id: str) -> Path:
     """Resolve ``rulesets/<id>/rules-json`` for a registered ruleset id."""
     return RULESETS_ROOT / _require_known_ruleset(ruleset_id) / "rules-json"
@@ -135,6 +164,28 @@ def ruleset_state_dirs(ruleset_id: str) -> tuple[str, ...]:
     )
 
 
+def ruleset_actor_state_dir(ruleset_id: str) -> str:
+    """Return the package directory owning kernel-visible actor state.
+
+    The manifest role is semantic; callers never infer it from a CoC-specific
+    directory name.  Ambiguous or missing ownership fails closed because
+    silently selecting a state store would make resource receipts unauditable.
+    """
+    state_dirs = load_manifest(ruleset_id).get("state_dirs")
+    matches = [
+        entry.get("name")
+        for entry in (state_dirs if isinstance(state_dirs, list) else [])
+        if isinstance(entry, dict)
+        and entry.get("role") == "actor_state"
+        and isinstance(entry.get("name"), str)
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"ruleset {ruleset_id!r} must declare exactly one actor_state directory"
+        )
+    return str(matches[0])
+
+
 def ruleset_campaign_init_dirs(ruleset_id: str) -> tuple[str, ...]:
     """Campaign-relative package dirs the kernel creates at campaign init.
 
@@ -162,19 +213,21 @@ def ruleset_boundary_terms(ruleset_id: str) -> frozenset[str]:
 
 
 def get_campaign_ruleset_id(campaign: dict[str, Any] | None) -> str:
-    """Return the campaign's bound ruleset id, or the default.
+    """Return the exact package bound to a campaign.
 
-    Campaign-less contexts (char-gen previews, rule lookups before a
-    campaign exists) and campaigns predating the binding keep working by
-    falling back to ``DEFAULT_RULESET_ID``. An id that is present but not
-    registered also falls back rather than failing closed here — path
-    resolution through ``ruleset_data_dir`` is the fail-closed boundary.
+    ``None`` is the only campaign-less preview context and resolves the
+    documented default.  Once a campaign object exists, a missing, malformed,
+    or unregistered binding is corruption rather than permission to substitute
+    CoC7 silently.
     """
-    if isinstance(campaign, dict):
-        ruleset_id = campaign.get("ruleset_id")
-        if isinstance(ruleset_id, str) and ruleset_id in known_rulesets():
-            return ruleset_id
-    return DEFAULT_RULESET_ID
+    if campaign is None:
+        return DEFAULT_RULESET_ID
+    if not isinstance(campaign, dict):
+        raise ValueError("campaign ruleset binding requires an object")
+    ruleset_id = campaign.get("ruleset_id")
+    if not isinstance(ruleset_id, str) or not ruleset_id:
+        raise ValueError("campaign ruleset_id must be a non-empty string")
+    return _require_known_ruleset(ruleset_id)
 
 
 # Required resolver callables, mirroring ruleset_conformance.REQUIRED_RESOLVER_ATTRS
@@ -188,8 +241,8 @@ _RESOLVER_CACHE: dict[str, ModuleType] = {}
 def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:
     """Return the active campaign's ruleset resolver module (contract §4).
 
-    Resolves the campaign's ``ruleset_id`` (the default when the key is
-    absent, so pre-binding campaigns and campaign-less contexts keep working),
+    Resolves the campaign's ``ruleset_id`` (the default only when no campaign
+    exists),
     loads ``rulesets/<id>/resolver.py`` via importlib, and caches one module
     per ruleset id. Fail-closed with ``ValueError``: an id that is present
     but not registered, a missing/unloadable resolver, or a resolver lacking
@@ -202,12 +255,7 @@ def get_resolver(campaign: dict[str, Any] | None = None) -> ModuleType:
     lookup point once a second ruleset actually needs it; that machinery is
     deliberately descoped in Phase 1 seam 2.
     """
-    ruleset_id: Any = None
-    if isinstance(campaign, dict):
-        ruleset_id = campaign.get("ruleset_id")
-    if not isinstance(ruleset_id, str) or not ruleset_id:
-        ruleset_id = DEFAULT_RULESET_ID
-    _require_known_ruleset(ruleset_id)
+    ruleset_id = get_campaign_ruleset_id(campaign)
     if ruleset_id in _RESOLVER_CACHE:
         return _RESOLVER_CACHE[ruleset_id]
     path = RULESETS_ROOT / ruleset_id / "resolver.py"

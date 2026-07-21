@@ -41,6 +41,27 @@ def test_exact_current_generation_loads_without_rewrite(tmp_path, state):
     assert world_path.read_bytes() == before
 
 
+@pytest.mark.parametrize("binding", [None, "unknown-ruleset"])
+def test_current_campaign_requires_registered_ruleset_binding(
+    tmp_path, state, binding,
+):
+    campaign = _seed_current_generation(state, tmp_path)
+    path = campaign / "campaign.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if binding is None:
+        payload.pop("ruleset_id")
+    else:
+        payload["ruleset_id"] = binding
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(state.UnsupportedSaveSchema) as error:
+        state.load_campaign_state(campaign)
+
+    assert error.value.reason == "invalid_ruleset_binding"
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize(
     "payload",
     [

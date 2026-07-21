@@ -340,6 +340,10 @@ def default_skills_dir(workspace: Path | str | None = None) -> Path:
     return _load_plugin_locator().plugin_skills_dir(workspace)
 
 
+def active_skill_dirs(workspace: Path | str, campaign_id: str) -> tuple[Path, Path]:
+    return _load_plugin_locator().keeper_skill_dirs(workspace, campaign_id)
+
+
 def default_toolbox_path(workspace: Path | str | None = None) -> Path:
     return _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_toolbox.py"
 
@@ -376,7 +380,24 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     if run_policy not in {"single_session", "continue_until_scenario_terminal"}:
         raise ValueError("run_policy must be single_session or continue_until_scenario_terminal")
     prepared["run_policy"] = run_policy
+    prepared.setdefault("runtime_project_root", str(_repo_root()))
+    runtime_project_root = Path(prepared["runtime_project_root"]).resolve(strict=False)
+    if runtime_project_root != _repo_root():
+        raise ValueError("runtime_project_root must identify the runtime installation")
+    prepared["runtime_project_root"] = str(runtime_project_root)
     prepared.setdefault("skills_dir", str(default_skills_dir(prepared["workspace"])))
+    if "skills_dirs" not in prepared:
+        _kernel, ruleset = active_skill_dirs(
+            prepared["workspace"], prepared["campaign_id"]
+        )
+        prepared["skills_dirs"] = [prepared["skills_dir"], str(ruleset)]
+    skills_dirs = prepared.get("skills_dirs")
+    if (
+        not isinstance(skills_dirs, list)
+        or len(skills_dirs) != 2
+        or not all(isinstance(path, str) and path for path in skills_dirs)
+    ):
+        raise ValueError("skills_dirs must contain kernel and active ruleset paths")
     prepared.setdefault("toolbox_path", str(default_toolbox_path(prepared["workspace"])))
     tail = prepared.get("transcript_tail")
     if tail is None:

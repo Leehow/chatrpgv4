@@ -20,7 +20,8 @@
  *     run_policy?,          // single_session | continue_until_scenario_terminal
  *     transcript_tail?,     // [{role, text}] recent public transcript
  *     finalization_offset,  // pre-turn turn-finalizations.jsonl byte offset
- *     skills_dir,           // plugins/coc-keeper/skills (absolute)
+ *     skills_dirs,          // kernel skills + active ruleset skills (absolute)
+ *     runtime_project_root, // runtime installation root containing uv.lock
  *     toolbox_path          // plugins/coc-keeper/scripts/coc_toolbox.py (absolute)
  *   }
  * stdout: { ok: true, narration, finalization, model_identity?, usage? }
@@ -381,25 +382,30 @@ export function resolveRequestedModel({ agentDir, provider, modelId }) {
   return { model, modelRegistry };
 }
 
-function keeperSystemPrompt(request) {
-  const projectRoot = path.resolve(path.dirname(request.toolbox_path), "../../..");
+export function keeperSystemPrompt(request) {
+  const projectRoot = path.resolve(String(request.runtime_project_root));
+  const installedProjectRoot = path.resolve(__dirname, "../../..");
+  if (projectRoot !== installedProjectRoot) {
+    throw new Error("runtime_project_root does not identify this runtime installation");
+  }
   const pythonCommand = `uv run --project ${JSON.stringify(projectRoot)} --frozen python`;
   const continuationPolicy = request.run_policy === "continue_until_scenario_terminal"
     ? [
         "This is a continuous operator long-play run. Do not create an optional",
-        "cliffhanger merely because a combat ended or a living investigator became",
-        "temporarily unplayable. Continue established rescue/aftermath toward the",
-        "scenario conclusion unless a real session boundary or hard rules blocker exists.",
-        "A player's explicit decision to abandon the investigation is a real retreat",
-        "boundary even when the scenario threat survives; record it as such instead of",
+        "cliffhanger merely because one encounter ended or an actor became temporarily",
+        "unplayable. Continue established aftermath toward the scenario conclusion unless",
+        "a real session boundary or hard rules blocker exists. A player's explicit decision",
+        "to abandon the objective is a real retreat boundary; record it instead of",
         "leaving the host waiting after closed prose.",
       ]
     : [];
   return [
-    "You are the KEEPER (game master) of a Call of Cthulhu 7e tabletop session,",
+    "You are the KEEPER (game master) of the active campaign's tabletop ruleset,",
     "running inside an AI coding agent with shell access to the project workspace.",
     "",
-    "Canonical behavior contract: the coc-keeper-play skill (already loaded).",
+    "The loaded kernel protocol skills define table duties; the loaded active-ruleset",
+    "skill pack defines package-specific mechanics and craft. Use those active skills",
+    "semantically when their cases arise; no advisory or package skill is mandatory per turn.",
     "Your toolbox is the CLI at:",
     `  ${pythonCommand} ${request.toolbox_path} <tool> --root . --campaign ${request.campaign_id} --json '<args>'`,
     ...(request.run_id
@@ -419,37 +425,17 @@ function keeperSystemPrompt(request) {
     "the reply itself proves delivery; continue normally and let state.journal record it.",
     "",
     "Hard rules (everything else is your judgment):",
-    "1. Dice are real: never invent roll numbers or HP/SAN arithmetic; use rules.* tools and quote results faithfully.",
-    "2. State writes go through state.* / rules.* tools, never hand edits.",
+    "1. Dice and deterministic arithmetic are real: never invent or adjust them; use the",
+    "   active rules.* operations and render their authoritative public results faithfully.",
+    "2. Persistent state writes go through canonical state/rules operations, never hand edits.",
     "3. Module truth is read-only: fields marked secret are your reference; reveal through play, never as exposition.",
     "4. No played turn reaches the player without one canonical turn.finalize receipt.",
     "   When calling state.journal, copy this request's Player input byte-for-byte into player_text; keep player_action as a separate summary, and pass run_id when supplied.",
     "",
-    "Turn shape: ground yourself, resolve risk, and decide the narration and consequences.",
-    "Generic rules.opposed is noncombat-only and requires contest_kind=noncombat.",
-    "Every attack, Dodge, or Fight Back uses combat.resolve with the exact",
-    "structured defense_kind: equal success levels favor a dodger but favor the",
-    "attacker against Fight Back. Never route melee through generic opposed dice.",
-    "Then synchronously finish every rules.* resource change and critical state.* write.",
-    "A critical, fumble, or failed pushed roll is not closed by prose alone.",
-    "Before state.journal, apply one source-bound state.exceptional_effect with a",
-    "real benefit/cost, causal link, and explicit boundary. Plain elapsed time or",
-    "a named flag is insufficient. A one-shot bonus/penalty must be carried by the",
-    "next exact-scope rules.roll and consumed through state.exceptional_effect before journaling.",
-    "Read scene.context.continuity.active_exceptional_effects and honor active bounded",
-    "conditions, restrictions, events, and modifiers as canonical continuity.",
-    "For every investigator/NPC pair's first substantive contact, call npc.reaction",
-    "once with a localized npc_display_name and structured semantic context, then bind",
-    "that receipt plus a causal first_impression_realization in its own",
-    "state.record_npc_engagement. A journal may have 0..N NPC engagements, interleaved",
-    "NPC speech, and NPC-to-NPC dialogue; never keep only the first or last NPC.",
-    "Each critical/fumble first-impression roll owns an independent exceptional effect.",
-    "Later relationship change uses state.npc_update. An earned NPC-scoped bonus die",
-    "must link that update, match rules.roll npc_id+skill, and be consumed explicitly;",
-    "no keyword in free prose automatically changes trust or grants a reward.",
-    "A completed full sleep in a safe place needs two structured writes: advance its",
-    "actual minutes with state.advance_time, then call state.mark_safe_rest with",
-    "rest_kind=full_sleep. Never infer completed rest from reason/player prose.",
+    "Turn shape: ground yourself in recovered state, interpret the player's intent",
+    "semantically, resolve only the risks the active package supports, apply every",
+    "authoritative state change, and own the fictional causality and final prose.",
+    "Do not infer structured facts, permissions, or rewards from keyword hits in prose.",
     "Every played turn closes synchronously with state.journal. On a terminal turn,",
     "call state.end_session first, then still call state.journal; terminal settlement",
     "does not replace the journal boundary.",
@@ -458,23 +444,16 @@ function keeperSystemPrompt(request) {
     "state.journal is not a substitute: call state.end_session exactly once with the",
     "matching structured kind. A retreat may leave the scenario unresolved. Never write",
     "a definitive closing narration while leaving the structured ending receipt absent.",
-    "state.end_session synchronously returns development PASS or PENDING; a PENDING result",
-    "does not reopen or invalidate the ending and may be replayed with the same identity.",
     ...continuationPolicy,
-    "Never defer dice, HP/SAN/Luck, clues, NPC state, time, scene, journal, ending,",
-    "or development writes. Only append-only JSONL audit/mirror flushing may happen",
+    "Never defer authoritative dice, resources, campaign/actor state, journal, ending,",
+    "or finalization writes. Only append-only JSONL audit/mirror flushing may happen",
     "in the background; it must not change the already-settled game state.",
     "After state settlement and state.journal, call turn.output_context, draft causal",
     "fiction as paragraphs covering every returned obligation. In turn.finalize, place",
-    "every deterministic mechanic exactly once with mechanics_placements. Put each public",
-    "roll after the paragraph that establishes the action/risk and before the later paragraph",
-    "that narrates its result; never collect a turn's rolls after all consequences. Then call",
-    "npc_performance_constraints are Keeper-only portrayal context: realize each observable_manner",
-    "naturally through action or dialogue, but never quote or expose its causal_explanation,",
-    "opportunity_or_friction, or boundary_preserved as a structured player-facing block.",
-    "turn.finalize. Do not call",
-    "another tool afterward. Director, Storylet, narration.brief, and narration.review",
-    "remain optional craft methods, never a mandatory pipeline.",
+    "every deterministic mechanic and player-visible change exactly once, with causal",
+    "coverage and secrecy-preserving dispositions for concealed obligations. Then call",
+    "turn.finalize and do not call another tool afterward. Director, Storylet, narration",
+    "and package advisory methods remain optional craft aids, never a mandatory pipeline.",
     `Narrate in ${request.play_language || "zh-Hans"}.`,
     "",
     "Your FINAL assistant message must echo turn.finalize.rendered_text byte-for-byte.",
@@ -536,8 +515,8 @@ function selectedModelIdentity(session) {
 
 export async function runKeeperTurn(request) {
   for (const key of [
-    "workspace", "campaign_id", "player_input", "play_language", "skills_dir",
-    "toolbox_path", "finalization_offset",
+    "workspace", "campaign_id", "player_input", "play_language", "skills_dirs",
+    "toolbox_path", "runtime_project_root", "finalization_offset",
   ]) {
     if (!(key in request)) throw new Error(`request missing ${key}`);
   }
@@ -551,8 +530,17 @@ export async function runKeeperTurn(request) {
     delete process.env.COC_PLAYTEST_RUN_ID;
   }
 
-  // Same experience as other coding hosts: load the canonical keeper skill
-  // tree; keep project context files and unrelated extensions out.
+  const skillDirs = request.skills_dirs;
+  if (
+    !Array.isArray(skillDirs) ||
+    skillDirs.length !== 2 ||
+    skillDirs.some((dir) => typeof dir !== "string" || !dir.trim())
+  ) {
+    throw new Error("skills_dirs must contain kernel and active ruleset paths");
+  }
+
+  // Same experience as other coding hosts: load kernel protocol skills and
+  // the active campaign ruleset pack; keep unrelated extensions out.
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
@@ -562,10 +550,22 @@ export async function runKeeperTurn(request) {
     noThemes: true,
     noContextFiles: true,
     systemPromptOverride: () => keeperSystemPrompt(request),
-    skillsOverride: () => loadSkillsFromDir({
-      dir: path.resolve(String(request.skills_dir)),
-      source: "coc-keeper",
-    }),
+    skillsOverride: () => {
+      const loaded = skillDirs.map((dir, index) => loadSkillsFromDir({
+        dir: path.resolve(dir),
+        source: index === 0 ? "coc-keeper-kernel" : "coc-keeper-ruleset",
+      }));
+      const skills = loaded.flatMap((result) => result.skills);
+      const diagnostics = loaded.flatMap((result) => result.diagnostics);
+      const names = new Set();
+      for (const skill of skills) {
+        if (names.has(skill.name)) {
+          throw new Error(`duplicate keeper skill name: ${skill.name}`);
+        }
+        names.add(skill.name);
+      }
+      return { skills, diagnostics };
+    },
     extensionsOverride: () => ({
       extensions: [],
       errors: [],

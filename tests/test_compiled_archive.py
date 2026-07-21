@@ -66,6 +66,7 @@ def _skeleton() -> dict:
         "handouts": [],
         "threats": [],
         "conclusion_buckets": [],
+        "mechanics_locator_pass_status": "pending",
     }
 
 
@@ -101,7 +102,15 @@ def _deep(loc_id: str, *, with_secret: bool = False) -> dict:
                 "clue_id": f"clue-{loc_id}",
                 "delivery_kind": "obvious",
                 "player_safe_summary": f"A real clue in {loc_id}.",
-                "source_refs": [{"source_id": "pdf:ca-demo", "pdf_index": 2}],
+                "discovery": {
+                    "mode": "automatic",
+                    "skill": None,
+                    "difficulty": None,
+                },
+                "provenance": {
+                    "authority": "campaign_generated",
+                    "basis": "synthetic archive fixture",
+                },
             }
         ],
         "npcs": [

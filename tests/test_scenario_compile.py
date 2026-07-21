@@ -131,7 +131,7 @@ def test_validate_mechanics_accepts_sparse_unresolved_locator(tmp_path):
     sc = _make_valid_scenario(tmp_path)
     path = sc / "npc-agendas.json"
     data = json.loads(path.read_text())
-    data["npcs"][0]["mechanics"] = {"status": "located"}
+    data["npcs"][0]["mechanics"] = {"status": "unresolved"}
     path.write_text(json.dumps(data))
 
     result = coc_scenario_compile.validate_scenario(sc)

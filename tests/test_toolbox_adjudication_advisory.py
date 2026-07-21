@@ -175,7 +175,7 @@ def test_record_clue_warns_when_skill_check_clue_has_no_roll(campaign_ws):
     assert envelope["ok"] is True
     matched = [
         w for w in envelope["warnings"]
-        if "delivery_kind=skill_check" in w and "no matching skill roll" in w
+        if "authored with roll gate" in w and "no matching skill roll" in w
     ]
     assert matched, envelope["warnings"]
     assert clue_id in matched[0]

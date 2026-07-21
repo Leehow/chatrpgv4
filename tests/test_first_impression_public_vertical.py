@@ -614,7 +614,7 @@ def test_state_delta_preserves_canonical_tool_call_order(tmp_path: Path) -> None
             "decision_id": "turn25-grant-kelleher-report",
         }),
         ("state.advance_time", {
-            "minutes": 30,
+            "minutes": 120,
             "reason": "limited gas inspection",
             "decision_id": "turn25-gas-inspection-duration",
         }),
@@ -631,13 +631,18 @@ def test_state_delta_preserves_canonical_tool_call_order(tmp_path: Path) -> None
     output = call("turn.output_context")["data"]
     deltas = output["mechanics_bundle"]["state_delta"]
     assert [row["source_decision_id"] for row in deltas] == [
-        args["decision_id"] for _, args in calls
+        calls[2][1]["decision_id"],
+        calls[3][1]["decision_id"],
     ]
+    hidden_same_phase = {calls[0][1]["decision_id"], calls[1][1]["decision_id"]}
+    assert hidden_same_phase.isdisjoint(
+        row["source_decision_id"] for row in deltas
+    )
     time_chain = [
         (row["before"], row["after"], row["delta_minutes"])
         for row in deltas if row["effect_kind"] == "time"
     ]
-    assert time_chain == [(0, 25, 25), (25, 40, 15), (40, 70, 30)]
+    assert time_chain == [(40, 160, 120)]
     assert output["composition_mode"] == "causal_paragraph_placements"
     assert set(output["placement_segment_types"]) == {
         "public_check", "state_delta", "exceptional_effect",

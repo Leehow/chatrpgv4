@@ -89,6 +89,20 @@ def _check_resolver(package_dir: Path, problems: list[str]) -> None:
             )
 
 
+def _check_actor_state_role(manifest: dict | None, problems: list[str]) -> None:
+    """Every mandatory resource primitive needs one unambiguous state owner."""
+    state_dirs = (manifest or {}).get("state_dirs")
+    matches = [
+        entry
+        for entry in (state_dirs if isinstance(state_dirs, list) else [])
+        if isinstance(entry, dict) and entry.get("role") == "actor_state"
+    ]
+    if len(matches) != 1:
+        problems.append(
+            "manifest.json: exactly one state_dirs entry must declare role 'actor_state'"
+        )
+
+
 def _check_rules_json(
     package_dir: Path, manifest: dict | None, problems: list[str]
 ) -> None:
@@ -179,6 +193,7 @@ def validate_package(package_dir: Path) -> list[str]:
     if not package_dir.is_dir():
         return [f"package directory {package_dir} does not exist"]
     manifest = _check_manifest(package_dir, problems)
+    _check_actor_state_role(manifest, problems)
     _check_resolver(package_dir, problems)
     _check_rules_json(package_dir, manifest, problems)
     _check_skills(package_dir, problems)

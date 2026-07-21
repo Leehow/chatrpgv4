@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "basic_check",
+      "formula": "1d10 + stat + skill >= difficulty"
+    }
+  ]
+}

@@ -30,6 +30,7 @@ def _seed_campaign(workspace: Path, campaign_id: str = "camp-1") -> Path:
         json.dumps({
             "schema_version": 2,
             "campaign_id": campaign_id,
+            "ruleset_id": "coc7",
             "play_language": "zh-CN",
         }),
         encoding="utf-8",
@@ -90,7 +91,9 @@ def test_build_public_state_round_trips_hp_san_and_scene(tmp_path):
     }
 
     assert len(state["investigators"]) == 1
+    assert state["actors"] == state["investigators"]
     inv = state["investigators"][0]
+    assert inv["resources"] == {"hp": 11, "san": 55, "mp": 10}
     assert inv["id"] == "inv-alice"
     assert inv["current_hp"] == 11
     assert inv["current_san"] == 55
@@ -351,6 +354,7 @@ def test_public_state_drops_untyped_fields_and_raw_legacy_pending_choice(tmp_pat
         json.dumps({
             "schema_version": 2,
             "campaign_id": "camp-1",
+            "ruleset_id": "coc7",
             "play_language": ["not", "a", "string"],
         }),
         encoding="utf-8",

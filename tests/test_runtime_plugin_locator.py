@@ -31,6 +31,34 @@ def _write_runtime_json(workspace: Path, payload: dict) -> None:
     (coc / "runtime.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _seed_runtime_workspace(
+    workspace: Path,
+    *,
+    plugin_root: str | None = None,
+    campaign_payload: dict | None = None,
+) -> None:
+    config = {
+        "schema_version": 2,
+        "planner": {"kind": "deterministic"},
+        "rules": {"kind": "deterministic"},
+        "narrator": {"kind": "template"},
+        "player": {"kind": "human"},
+    }
+    if plugin_root is not None:
+        config["plugin_root"] = plugin_root
+    _write_runtime_json(workspace, config)
+    campaign = workspace / ".coc" / "campaigns" / "camp-1"
+    (campaign / "save" / "investigator-state").mkdir(parents=True)
+    (campaign / "campaign.json").write_text(json.dumps(
+        campaign_payload or {
+            "schema_version": 2,
+            "campaign_id": "camp-1",
+            "ruleset_id": "coc7",
+        }
+    ), encoding="utf-8")
+    (workspace / ".coc" / "investigators" / "inv-1").mkdir(parents=True)
+
+
 def test_default_resolution_matches_builtin_layout():
     locator = _locator()
     assert locator.plugin_root() == ROOT / "plugins" / "coc-keeper"
@@ -103,7 +131,10 @@ def test_config_accepts_optional_plugin_root_and_round_trips(tmp_path):
         "plugin_root": "/opt/plugins/other",
     })
     cfg = _config().load_runtime_config(tmp_path)
-    assert cfg["plugin_root"] == "/opt/plugins/other"
+    assert not Path(cfg["plugin_root"]).is_absolute()
+    assert _locator().plugin_root(
+        tmp_path, resolved_config=cfg
+    ) == Path("/opt/plugins/other")
     assert cfg["narrator"] == {"kind": "template"}
 
 
@@ -130,6 +161,110 @@ def test_config_without_plugin_root_keeps_exact_pipeline_shape(tmp_path):
     })
     cfg = _config().load_runtime_config(tmp_path)
     assert "plugin_root" not in cfg
+
+
+def test_public_session_accepts_absolute_plugin_root_and_recovers_without_leak(
+    tmp_path,
+):
+    plugin = ROOT / "plugins" / "coc-keeper"
+    _seed_runtime_workspace(tmp_path, plugin_root=str(plugin))
+    api = _load("runtime_sdk_plugin_root_test", "runtime/sdk/api.py")
+
+    session_id = api.create_session(
+        tmp_path, campaign_id="camp-1", investigator_id="inv-1"
+    )
+    record = api._session.get_session(session_id)
+    frozen_root = record["resolved_config"]["plugin_root"]
+    assert not Path(frozen_root).is_absolute()
+    assert api._session._load_plugin_locator().plugin_root(
+        tmp_path, resolved_config=record["resolved_config"]
+    ) == plugin
+
+    snapshot = api._session._REGISTRY.snapshot(tmp_path)
+    snapshot_payload = json.loads(snapshot.read_text(encoding="utf-8"))
+    persisted_root = snapshot_payload["sessions"][0]["resolved_config"]["plugin_root"]
+    assert persisted_root.startswith("@workspace/")
+    assert not Path(persisted_root).is_absolute()
+    restored = api._session.SessionRegistry()
+    assert restored.restore(tmp_path) == [session_id]
+    assert restored.get(session_id)["resolved_config"]["plugin_root"] == frozen_root
+
+
+def test_active_keeper_skills_include_kernel_and_manifest_pack(tmp_path):
+    _seed_runtime_workspace(
+        tmp_path, plugin_root=str(ROOT / "plugins" / "coc-keeper")
+    )
+    adapter = _load(
+        "runtime_keeper_active_skills_test", "runtime/adapters/keeper/adapter.py"
+    )
+    prepared = adapter.prepare_keeper_request({
+        "workspace": str(tmp_path),
+        "campaign_id": "camp-1",
+        "player_input": "look",
+        "play_language": "en",
+        "finalization_offset": 0,
+    })
+    assert [Path(path) for path in prepared["skills_dirs"]] == [
+        ROOT / "plugins" / "coc-keeper" / "skills",
+        ROOT / "plugins" / "coc-keeper" / "rulesets" / "coc7" / "skills",
+    ]
+
+
+@pytest.mark.parametrize(
+    "campaign_payload,match",
+    [
+        ({"schema_version": 2, "campaign_id": "camp-1"}, "missing ruleset_id"),
+        (
+            {
+                "schema_version": 2,
+                "campaign_id": "camp-1",
+                "ruleset_id": "not-installed",
+            },
+            "unknown or unreadable ruleset",
+        ),
+    ],
+)
+def test_active_keeper_skills_fail_closed_without_bound_package(
+    tmp_path, campaign_payload, match,
+):
+    _seed_runtime_workspace(tmp_path, campaign_payload=campaign_payload)
+    locator = _locator()
+    with pytest.raises(ValueError, match=match):
+        locator.active_ruleset_skills_dir(tmp_path, "camp-1")
+
+
+def test_epistemic_contract_uses_workspace_plugin_override(tmp_path, monkeypatch):
+    plugin = tmp_path / "relocated-plugin"
+    contract = plugin / "scripts" / "epistemic-contract.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text("{}", encoding="utf-8")
+    _write_runtime_json(tmp_path, {"plugin_root": str(plugin)})
+    adapter = _load(
+        "runtime_epistemic_plugin_root_test",
+        "runtime/adapters/compiler/epistemic_adapter.py",
+    )
+    observed = {}
+
+    class _Proc:
+        returncode = 0
+        stdout = ""
+
+    def fake_run(*_args, **kwargs):
+        observed.update(kwargs)
+        return _Proc()
+
+    monkeypatch.setattr(adapter.subprocess, "run", fake_run)
+    adapter._invoke_runner(Path("runner.mjs"), {}, timeout_s=1, workspace=tmp_path)
+    assert observed["env"]["COC_EPISTEMIC_CONTRACT_PATH"] == str(contract)
+
+
+def test_headless_keeper_loads_two_explicit_skill_roots():
+    source = (ROOT / "runtime" / "adapters" / "keeper" / "run_keeper_turn.mjs").read_text(
+        encoding="utf-8"
+    )
+    assert "skills_dirs" in source
+    assert "coc-keeper-ruleset" in source
+    assert "rulesets/coc7" not in source
 
 
 def test_session_runtime_ops_loads_through_locator_with_override(tmp_path):

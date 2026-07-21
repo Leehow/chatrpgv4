@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 def _load_config_module():
@@ -24,18 +24,25 @@ def _load_plugin_locator():
     return mod
 
 
-def _load_plugin_script(name: str, filename: str, workspace: Path | str | None):
-    path = _load_plugin_locator().plugin_scripts_dir(workspace) / filename
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod
+def _load_plugin_script(
+    name: str,
+    filename: str,
+    workspace: Path | str | None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
+    path = _load_plugin_locator().plugin_scripts_dir(
+        workspace, resolved_config=resolved_config
+    ) / filename
+    return _load_plugin_locator().load_plugin_module(name, path)
 
 
-def _load_subsystem_executor(workspace: Path | str | None = None):
+def _load_subsystem_executor(
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
     return _load_plugin_script(
-        "runtime_subsystem_executor", "coc_subsystem_executor.py", workspace
+        "runtime_subsystem_executor", "coc_subsystem_executor.py", workspace,
+        resolved_config,
     )
 
 
@@ -57,20 +64,31 @@ def _load_paths():
     return mod
 
 
-def _load_scene_graph(workspace: Path | str | None = None):
+def _load_scene_graph(
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
     return _load_plugin_script(
-        "runtime_public_scene_graph", "coc_scene_graph.py", workspace
+        "runtime_public_scene_graph", "coc_scene_graph.py", workspace,
+        resolved_config,
     )
 
 
-def _load_scenario_validator(workspace: Path | str | None = None):
+def _load_scenario_validator(
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
     return _load_plugin_script(
-        "runtime_public_scenario_validator", "coc_scenario_compile.py", workspace
+        "runtime_public_scenario_validator", "coc_scenario_compile.py", workspace,
+        resolved_config,
     )
 
 
 def _terminal_evidence(
-    campaign_dir: Path, world: dict[str, Any], workspace: Path | str | None = None
+    campaign_dir: Path,
+    world: dict[str, Any],
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Project canonical structured ending facts without source/narration prose."""
     path_mod = _load_paths()
@@ -87,7 +105,9 @@ def _terminal_evidence(
         return empty, False
     story: dict[str, Any] = {}
     try:
-        validation = _load_scenario_validator(workspace).validate_scenario(scenario)
+        validation = _load_scenario_validator(
+            workspace, resolved_config
+        ).validate_scenario(scenario)
     except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
         return empty, True
     if not isinstance(validation, dict) or validation.get("errors"):
@@ -131,7 +151,9 @@ def _terminal_evidence(
                     events.append({"event_type": "session_ending"})
         except (OSError, UnicodeError, json.JSONDecodeError):
             return empty, True
-    evidence = _load_scene_graph(workspace).terminal_evidence(story, world, events)
+    evidence = _load_scene_graph(
+        workspace, resolved_config
+    ).terminal_evidence(story, world, events)
     return {
         "reached_terminal": evidence["reached_terminal"],
         "active_scene_id": evidence["active_scene_id"],
@@ -141,7 +163,9 @@ def _terminal_evidence(
 
 
 def _canonical_player_pending_choice(
-    campaign_dir: Path, workspace: Path | str | None = None
+    campaign_dir: Path,
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
 ) -> tuple[bool, dict[str, Any] | None]:
     # The caller has already validated the campaign tree; re-resolve the exact
     # consumed file immediately before handing the campaign to the projector.
@@ -151,7 +175,9 @@ def _canonical_player_pending_choice(
     if not path.exists():
         return False, None
     try:
-        choice = _load_subsystem_executor(workspace).project_player_pending_choice(campaign_dir)
+        choice = _load_subsystem_executor(
+            workspace, resolved_config
+        ).project_player_pending_choice(campaign_dir)
     except (OSError, UnicodeError, ValueError, RuntimeError):
         return True, None
     return True, choice
@@ -161,6 +187,7 @@ def _combat_defense_choice(
     campaign_dir: Path,
     investigator_id: str | None,
     workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not investigator_id:
         return None
@@ -170,7 +197,9 @@ def _combat_defense_choice(
     if not path.exists():
         return None
     try:
-        return _load_subsystem_executor(workspace).project_player_combat_defense(
+        return _load_subsystem_executor(
+            workspace, resolved_config
+        ).project_player_combat_defense(
             campaign_dir, investigator_id
         )
     except (OSError, UnicodeError, ValueError, RuntimeError):
@@ -188,9 +217,11 @@ def build_public_state(
     workspace: Path | str,
     campaign_id: str,
     investigator_id: str | None = None,
+    *,
+    resolved_config: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     gateway = _load_state_gateway().RuntimeStateGateway(
-        workspace, campaign_id, investigator_id
+        workspace, campaign_id, investigator_id, resolved_config=resolved_config
     )
     gateway.validate_consumed_paths()
     snapshot = gateway.load()
@@ -198,9 +229,9 @@ def build_public_state(
     meta = snapshot["campaign"]
     world = snapshot["world"]
     pacing = snapshot["pacing"]
-    investigators = snapshot["investigators"]
-    if investigator_id is None and len(investigators) == 1:
-        investigator_id = investigators[0]["id"]
+    actors = snapshot["actors"]
+    if investigator_id is None and len(actors) == 1:
+        investigator_id = actors[0]["id"]
 
     raw_clue_ids = world.get("discovered_clue_ids")
     if raw_clue_ids is None:
@@ -232,16 +263,22 @@ def build_public_state(
         _has_canonical_pending_state, pending = True, None
     else:
         _has_canonical_pending_state, pending = _canonical_player_pending_choice(
-            campaign_dir, gateway.workspace
+            campaign_dir, gateway.workspace, resolved_config
         )
     if (pending is None and "subsystem" not in blocking_aux
             and "combat" not in blocking_aux):
-        pending = _combat_defense_choice(campaign_dir, investigator_id, gateway.workspace)
+        pending = _combat_defense_choice(
+            campaign_dir, investigator_id, gateway.workspace, resolved_config
+        )
 
-    cfg = _load_config_module().load_runtime_config(gateway.workspace)
+    cfg = (
+        dict(resolved_config)
+        if resolved_config is not None
+        else _load_config_module().load_runtime_config(gateway.workspace)
+    )
 
     terminal_evidence, invalid_terminal_evidence = _terminal_evidence(
-        campaign_dir, world, gateway.workspace
+        campaign_dir, world, gateway.workspace, resolved_config
     )
     if invalid_terminal_evidence:
         gateway.record_invalid_fields("terminal")
@@ -255,7 +292,9 @@ def build_public_state(
         "tension_level": _nullable_string(pacing.get("tension_level"), gateway, "pacing"),
         "turn_number": turn_number,
         "discovered_clue_ids": list(clue_ids),
-        "investigators": investigators,
+        "actors": actors,
+        # Compatibility alias: existing CoC7 SDK consumers retain this key.
+        "investigators": actors,
         # Compatibility display only.  Dispatch is determined by the frozen
         # session pipeline, never by this public projection.
         "brain": (

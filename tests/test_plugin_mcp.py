@@ -505,6 +505,7 @@ def test_grok_mcp_uses_canonical_launcher_and_capabilities(monkeypatch):
     assert custom_schema["required"] == ["kind", "payload"]
     assert custom_schema["properties"]["kind"]["enum"] == [
         "campaign.create",
+        "actor.create",
         "investigator.create",
         "campaign.link_investigator",
         "scenario.bind_pdf",

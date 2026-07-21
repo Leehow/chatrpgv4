@@ -89,6 +89,10 @@
           "create_on_init": {
             "type": "boolean",
             "description": "When true, the kernel creates save/<name> at campaign creation; otherwise the owning subsystem creates it lazily. Optional; defaults to false when absent."
+          },
+          "role": {
+            "enum": ["actor_state"],
+            "description": "Semantic kernel role for this package directory. Exactly one actor_state directory is required for the package-neutral actor.create and state-authoritative rules.resource_delta path."
           }
         }
       }

@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 def _load_module(name: str, path: Path):
@@ -27,14 +27,28 @@ def _load_plugin_locator():
     return _load_module("runtime_plugin_locator_gateway", _engine_dir() / "plugin_locator.py")
 
 
-def _load_coc_state(workspace: Path | str | None = None):
-    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_state.py"
-    return _load_module("runtime_coc_state_gateway", path)
+def _load_coc_state(
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
+    path = _load_plugin_locator().plugin_scripts_dir(
+        workspace, resolved_config=resolved_config
+    ) / "coc_state.py"
+    return _load_plugin_locator().load_plugin_module(
+        "runtime_coc_state_gateway", path
+    )
 
 
-def _load_coc_rulesets(workspace: Path | str | None = None):
-    path = _load_plugin_locator().plugin_scripts_dir(workspace) / "coc_rulesets.py"
-    return _load_module("runtime_coc_rulesets_gateway", path)
+def _load_coc_rulesets(
+    workspace: Path | str | None = None,
+    resolved_config: Mapping[str, Any] | None = None,
+):
+    path = _load_plugin_locator().plugin_scripts_dir(
+        workspace, resolved_config=resolved_config
+    ) / "coc_rulesets.py"
+    return _load_plugin_locator().load_plugin_module(
+        "runtime_coc_rulesets_gateway", path
+    )
 
 
 def _default_investigator_resource_fields() -> tuple[str, ...]:
@@ -66,12 +80,17 @@ class RuntimeStateGateway:
         workspace: Path | str,
         campaign_id: str,
         investigator_id: str | None = None,
+        *,
+        resolved_config: Mapping[str, Any] | None = None,
     ) -> None:
         self._paths = _load_paths()
         self.workspace = self._paths.workspace_root(workspace)
-        self._state = _load_coc_state(self.workspace)
-        self._rulesets = _load_coc_rulesets(self.workspace)
+        self.resolved_config = dict(resolved_config) if resolved_config is not None else None
+        self._state = _load_coc_state(self.workspace, self.resolved_config)
+        self._rulesets = _load_coc_rulesets(self.workspace, self.resolved_config)
         self._resource_fields: tuple[str, ...] | None = None
+        self._ruleset_id: str | None = None
+        self._actor_state_dirname: str | None = None
         self.campaign_id = self._paths.validate_id(campaign_id, "campaign_id")
         self.investigator_id = (
             self._paths.validate_id(investigator_id, "investigator_id")
@@ -96,10 +115,10 @@ class RuntimeStateGateway:
             return self._paths.contained_path(save, save / "world-state.json")
         if state == "pacing":
             return self._paths.contained_path(save, save / "pacing-state.json")
-        if state == "investigator" and investigator_id is not None:
-            investigator_id = self._paths.validate_id(investigator_id, "investigator_id")
-            inv_dir = self._paths.contained_path(save, save / self._paths.INVESTIGATOR_STATE_DIRNAME)
-            return self._paths.contained_path(inv_dir, inv_dir / f"{investigator_id}.json")
+        if state in {"actor", "investigator"} and investigator_id is not None:
+            return self._paths.actor_state_path(
+                self.campaign_dir, investigator_id, self._actor_state_dir()
+            )
         raise ValueError("invalid runtime state kind")
 
     def load_campaign(self) -> dict[str, Any]:
@@ -133,45 +152,84 @@ class RuntimeStateGateway:
             self._resource_fields = tuple(
                 self._rulesets.ruleset_projected_resource_fields(ruleset_id)
             )
+            self._ruleset_id = ruleset_id
         return self._resource_fields
 
-    def load_investigator(self, investigator_id: str) -> dict[str, Any]:
-        investigator_id = self._paths.validate_id(investigator_id, "investigator_id")
-        payload = self._state.load_investigator_state(
+    def _active_ruleset_id(self) -> str:
+        if self._ruleset_id is None:
+            campaign = self.load_campaign()
+            self._ruleset_id = self._rulesets.get_campaign_ruleset_id(campaign)
+        return self._ruleset_id
+
+    def _actor_state_dir(self) -> str:
+        if self._actor_state_dirname is None:
+            self._actor_state_dirname = self._rulesets.ruleset_actor_state_dir(
+                self._active_ruleset_id()
+            )
+        return self._actor_state_dirname
+
+    def _actor_issue_name(self) -> str:
+        return "investigator" if self._active_ruleset_id() == "coc7" else "actor"
+
+    def load_actor(self, investigator_id: str) -> dict[str, Any]:
+        investigator_id = self._paths.validate_id(investigator_id, "actor_id")
+        payload = self._state.load_ruleset_actor_state(
             self.campaign_dir, investigator_id
         )
         conditions = payload.get("conditions")
-        if not isinstance(conditions, list) or not all(
+        if conditions is None:
+            conditions = []
+        elif not isinstance(conditions, list) or not all(
             isinstance(condition, str) for condition in conditions
         ):
-            self._issue("investigator", "invalid_fields")
+            self._issue(self._actor_issue_name(), "invalid_fields")
             conditions = []
         resource_fields = self._investigator_resource_fields()
-        entry = {"id": investigator_id}
+        resource_values = payload.get("resources")
+        entry: dict[str, Any] = {
+            "id": investigator_id,
+            "resources": {},
+        }
         for field in resource_fields:
-            entry[field] = _typed_int(payload.get(field))
+            key = field.removeprefix("current_")
+            raw_value = (
+                resource_values.get(key)
+                if isinstance(resource_values, dict)
+                else payload.get(field)
+            )
+            value = _typed_int(raw_value)
+            entry["resources"][key] = value
+            # Flat projected fields are retained for existing CoC7 consumers.
+            entry[field] = value
         entry["conditions"] = list(conditions)
         if any(
-            payload.get(key) is not None and entry[key] is None
-            for key in resource_fields
+            value is None for value in entry["resources"].values()
         ):
-            self._issue("investigator", "invalid_fields")
+            self._issue(self._actor_issue_name(), "invalid_fields")
         return entry
 
-    def load_investigators(self) -> list[dict[str, Any]]:
+    def load_investigator(self, investigator_id: str) -> dict[str, Any]:
+        """Compatibility alias for the package-neutral actor projection."""
+        return self.load_actor(investigator_id)
+
+    def load_actors(self) -> list[dict[str, Any]]:
         save = self._paths.contained_path(self.campaign_dir, self.campaign_dir / "save")
-        inv_dir = self._paths.contained_path(save, save / self._paths.INVESTIGATOR_STATE_DIRNAME)
-        if not inv_dir.is_dir():
+        actor_dir = self._paths.contained_path(save, save / self._actor_state_dir())
+        if not actor_dir.is_dir():
             return []
         entries: list[dict[str, Any]] = []
-        for path in sorted(inv_dir.glob("*.json")):
+        for path in sorted(actor_dir.glob("*.json")):
             try:
-                investigator_id = self._paths.validate_id(path.stem, "investigator_id")
+                investigator_id = self._paths.validate_id(path.stem, "actor_id")
             except ValueError:
-                self._issue("investigator", "invalid_identifier")
+                self._issue(self._actor_issue_name(), "invalid_identifier")
                 continue
-            entries.append(self.load_investigator(investigator_id))
+            entries.append(self.load_actor(investigator_id))
         return entries
+
+    def load_investigators(self) -> list[dict[str, Any]]:
+        """Compatibility alias for callers using the historical key."""
+        return self.load_actors()
 
     def health(self) -> dict[str, Any]:
         codes = {issue["code"] for issue in self._issues}
@@ -203,7 +261,7 @@ class RuntimeStateGateway:
         """
         self._state.validate_campaign_generation(
             self.campaign_dir,
-            investigator_id=self.investigator_id,
+            actor_id=self.investigator_id,
         )
         state_paths = self.validate_consumed_paths()
         for state_name, expected in (
@@ -223,13 +281,14 @@ class RuntimeStateGateway:
                     or version != expected):
                 self._issue(state_name.removesuffix("_state"), "invalid_schema")
         if self.investigator_id is not None:
-            investigators = [self.load_investigator(self.investigator_id)]
+            actors = [self.load_actor(self.investigator_id)]
         else:
-            investigators = self.load_investigators()
+            actors = self.load_actors()
         return {
             "campaign": self.load_campaign(),
             "world": self.load_world(),
             "pacing": self.load_pacing(),
-            "investigators": investigators,
+            "actors": actors,
+            "investigators": actors,
             "state_health": self.health(),
         }

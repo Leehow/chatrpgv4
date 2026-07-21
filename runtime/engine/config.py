@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,28 @@ def default_runtime_config() -> dict[str, Any]:
     return copy.deepcopy(_DEFAULT_PIPELINE)
 
 
+_WORKSPACE_PLUGIN_ROOT_PREFIX = "@workspace/"
+
+
+def _canonical_plugin_root(value: str, workspace: Path | str) -> str:
+    """Freeze a plugin location without persisting an absolute host path.
+
+    Runtime ``plugin_root`` values are resolved against the installation root,
+    just like ``plugin_locator``. The frozen session form is a tagged POSIX path
+    relative to the workspace supplied again at recovery. That keeps snapshots
+    recoverable without leaking an absolute host path while preserving the
+    exact selected plugin location.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    resolved = candidate.resolve(strict=False)
+    workspace_root = Path(workspace).expanduser().resolve(strict=False)
+    relative = Path(os.path.relpath(resolved, workspace_root)).as_posix()
+    return _WORKSPACE_PLUGIN_ROOT_PREFIX + relative
+
+
 def _validate_component(name: str, value: Any) -> dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind"}:
         raise ValueError(f"runtime.json {name} must be exactly {{'kind': ...}}")
@@ -62,7 +85,7 @@ def _validate_component(name: str, value: Any) -> dict[str, str]:
     return {"kind": kind}
 
 
-def _validate_v2(raw: dict[str, Any]) -> dict[str, Any]:
+def _validate_v2(raw: dict[str, Any], workspace: Path | str) -> dict[str, Any]:
     if set(raw) - set(_OPTIONAL_KEYS) != set(_PIPELINE_KEYS):
         raise ValueError(
             "runtime.json v2 keys must be exactly " + ", ".join(_PIPELINE_KEYS)
@@ -79,7 +102,9 @@ def _validate_v2(raw: dict[str, Any]) -> dict[str, Any]:
     if plugin_root is not None:
         if not isinstance(plugin_root, str) or not plugin_root.strip():
             raise ValueError("runtime.json plugin_root must be a non-empty path string")
-        resolved["plugin_root"] = plugin_root
+        resolved["plugin_root"] = _canonical_plugin_root(
+            plugin_root.strip(), workspace
+        )
     return resolved
 
 
@@ -127,5 +152,5 @@ def load_runtime_config(workspace: Path | str) -> dict[str, Any]:
     if version == 1:
         return migrate_legacy_brain(raw)
     if version == CURRENT_SCHEMA_VERSION:
-        return _validate_v2(raw)
+        return _validate_v2(raw, root)
     raise ValueError("runtime.json schema_version must be integer 1 or 2")

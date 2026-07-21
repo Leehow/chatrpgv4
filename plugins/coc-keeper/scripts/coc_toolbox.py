@@ -555,7 +555,7 @@ def _rng(args: dict[str, Any]) -> random.Random:
     return random.Random(seed) if seed is not None else random.Random()
 
 
-def _rules_resolver(ctx: Ctx):
+def _rules_resolver(ctx: Ctx, capability: str | None = None):
     """Resolver of the ruleset bound to the active campaign (contract §4).
 
     Phase 1 seam 2: ``rules.*`` handlers obtain every ruleset behavior
@@ -569,7 +569,73 @@ def _rules_resolver(ctx: Ctx):
     campaign = None
     if ctx.campaign_dir is not None:
         campaign = coc_state.load_campaign_state(ctx.campaign_dir)
-    return coc_rulesets.get_resolver(campaign)
+    resolver = coc_rulesets.get_resolver(campaign)
+    if capability is None:
+        return resolver
+    try:
+        advertised = resolver.public_api_index()
+    except Exception as exc:
+        raise ToolError(
+            "invalid_ruleset",
+            "active ruleset public_api_index failed",
+        ) from exc
+    if isinstance(advertised, dict):
+        supported = capability in advertised
+    elif isinstance(advertised, (list, tuple, set, frozenset)):
+        supported = capability in {
+            value for value in advertised if isinstance(value, str)
+        }
+    else:
+        raise ToolError(
+            "invalid_ruleset",
+            "active ruleset public_api_index must be an object or string list",
+        )
+    if not supported or not callable(getattr(resolver, capability, None)):
+        ruleset_id = coc_rulesets.get_campaign_ruleset_id(campaign)
+        raise ToolError(
+            "unsupported_ruleset_operation",
+            f"ruleset {ruleset_id!r} does not support {capability!r}",
+        )
+    return resolver
+
+
+def _active_ruleset_id(ctx: Ctx) -> str:
+    campaign = (
+        coc_state.load_campaign_state(ctx.campaign_dir)
+        if ctx.campaign_dir is not None
+        else None
+    )
+    return coc_rulesets.get_campaign_ruleset_id(campaign)
+
+
+_RULE_TOOL_CAPABILITIES = {
+    "rules.check": "check",
+    "rules.resource_delta": "resource_delta",
+    "rules.skill_describe": "skill_describe",
+    "rules.cash_assets": "cash_assets",
+    "rules.build_scale": "build_scale",
+    "rules.roll": "check",
+    "rules.push": "push_policy",
+    "rules.roll_dice": "roll_dice",
+    "rules.opposed": "opposed",
+    "rules.sanity_check": "sanity_check",
+    "rules.damage": "damage",
+    "rules.luck_spend": "luck_spend",
+    "rules.first_aid": "first_aid",
+    "rules.medicine": "medicine",
+    "rules.weekly_recovery": "weekly_recovery",
+    "rules.dying_check": "dying_check",
+}
+
+_RULE_TOOL_RESOURCE_REQUIREMENTS = {
+    "rules.sanity_check": frozenset({"san"}),
+    "rules.damage": frozenset({"hp"}),
+    "rules.luck_spend": frozenset({"luck"}),
+    "rules.first_aid": frozenset({"hp"}),
+    "rules.medicine": frozenset({"hp"}),
+    "rules.weekly_recovery": frozenset({"hp"}),
+    "rules.dying_check": frozenset({"hp"}),
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -1069,6 +1135,26 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
+            rules_capability = _RULE_TOOL_CAPABILITIES.get(name)
+            if rules_capability is not None:
+                _rules_resolver(ctx, rules_capability)
+                required_resources = _RULE_TOOL_RESOURCE_REQUIREMENTS.get(name)
+                if required_resources:
+                    ruleset_id = _active_ruleset_id(ctx)
+                    declared_resources = {
+                        str(resource.get("key"))
+                        for resource in coc_rulesets.ruleset_resources(ruleset_id)
+                        if isinstance(resource.get("key"), str)
+                    }
+                    missing_resources = sorted(
+                        required_resources - declared_resources
+                    )
+                    if missing_resources:
+                        raise ToolError(
+                            "unsupported_ruleset_operation",
+                            f"ruleset {ruleset_id!r} lacks resources required by {name}: "
+                            + ", ".join(missing_resources),
+                        )
             pending_turn_manifest = None
             pending_exact_replay = None
             context_rehydration_advisory = None
@@ -2162,7 +2248,9 @@ def _source_receipt_manifest(receipt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_ROLL_RECEIPT_TOOLS = frozenset({"rules.roll", "rules.push", "rules.roll_dice"})
+_ROLL_RECEIPT_TOOLS = frozenset({
+    "rules.roll", "rules.push", "rules.roll_dice", "rules.check",
+})
 _ROLL_RECEIPT_SCHEMA_VERSION = 5
 _ROLL_RECEIPT_DOCUMENT_SCHEMA_VERSION = 6
 _ROLL_RECEIPT_DOCUMENT_FIELDS = frozenset({
@@ -2939,8 +3027,10 @@ def _validate_roll_receipt(
     if (
         set(receipt) != set(_ROLL_RECEIPT_FIELDS)
         or receipt.get("schema_version") != _ROLL_RECEIPT_SCHEMA_VERSION
-        or str(receipt.get("tool")) != str(tool_name)
-        or str(receipt.get("decision_id")) != str(decision_id)
+        or not isinstance(receipt.get("tool"), str)
+        or receipt.get("tool") != tool_name
+        or not isinstance(receipt.get("decision_id"), str)
+        or receipt.get("decision_id") != decision_id
         or tool_name not in _ROLL_RECEIPT_TOOLS
         or not isinstance(operation, dict)
         or not isinstance(resolution, dict)
@@ -2971,7 +3061,10 @@ def _validate_roll_receipt(
             "state_corrupt",
             f"roll source receipt for {tool_name} decision_id '{decision_id}' is invalid",
         )
-    _validate_roll_resolution_consistency(receipt)
+    if tool_name == "rules.check":
+        _validate_generic_check_receipt(receipt)
+    else:
+        _validate_roll_resolution_consistency(receipt)
     if (
         current_operation is not None
         and receipt.get("fingerprint")
@@ -2980,6 +3073,75 @@ def _validate_roll_receipt(
         raise ToolError(
             "idempotency_conflict",
             f"decision_id '{decision_id}' was already applied to a different {tool_name} semantic operation",
+        )
+
+
+def _validate_generic_check_receipt(receipt: dict[str, Any]) -> None:
+    """Validate the package-neutral evidence frozen by ``rules.check``."""
+    operation = receipt.get("operation")
+    resolution = receipt.get("resolution")
+    data = receipt.get("data")
+    record = receipt.get("roll_record")
+    payload = record.get("payload") if isinstance(record, dict) else None
+    dice = data.get("dice") if isinstance(data, dict) else None
+    required_operation = {
+        "ruleset_id", "ruleset_version", "actor_id", "request", "seed",
+    }
+    required_resolution = {
+        "label", "outcome", "success", "expression", "faces", "total", "target",
+    }
+    invalid = (
+        not isinstance(operation, dict)
+        or set(operation) != required_operation
+        or not all(
+            isinstance(operation.get(key), str) and bool(operation[key])
+            for key in ("ruleset_id", "ruleset_version", "actor_id")
+        )
+        or not isinstance(operation.get("request"), dict)
+        or (
+            operation.get("seed") is not None
+            and not _is_exact_int(operation.get("seed"))
+        )
+        or not isinstance(resolution, dict)
+        or set(resolution) != required_resolution
+        or not isinstance(resolution.get("label"), str)
+        or not resolution.get("label")
+        or not isinstance(resolution.get("outcome"), str)
+        or not resolution.get("outcome")
+        or not isinstance(resolution.get("success"), bool)
+        or not isinstance(resolution.get("expression"), str)
+        or not resolution.get("expression")
+        or not isinstance(resolution.get("faces"), list)
+        or not resolution.get("faces")
+        or not all(_is_exact_int(value) for value in resolution.get("faces", []))
+        or not _is_exact_int(resolution.get("total"))
+        or (
+            resolution.get("target") is not None
+            and not _is_exact_int(resolution.get("target"))
+        )
+        or not isinstance(data, dict)
+        or not isinstance(payload, dict)
+        or not isinstance(dice, dict)
+        or dice != {
+            "expression": resolution.get("expression"),
+            "raw": resolution.get("faces"),
+            "total": resolution.get("total"),
+        }
+        or data.get("ruleset_id") != operation.get("ruleset_id")
+        or data.get("ruleset_version") != operation.get("ruleset_version")
+        or data.get("actor_id") != operation.get("actor_id")
+        or data.get("investigator_id") != operation.get("actor_id")
+        or data.get("skill") != resolution.get("label")
+        or data.get("outcome") != resolution.get("outcome")
+        or data.get("success") is not resolution.get("success")
+        or data.get("roll") != resolution.get("total")
+        or data.get("target") != resolution.get("target")
+        or payload.get("dice") != dice
+    )
+    if invalid:
+        raise ToolError(
+            "state_corrupt",
+            f"generic check source receipt decision_id '{receipt.get('decision_id')}' has contradictory evidence",
         )
 
 
@@ -5485,7 +5647,7 @@ def _compile_new_percentile_invocation(
             == original_check_decision_id
             for existing in existing_pushes.values()
         )
-        push_verdict = _rules_resolver(ctx).push_policy(
+        push_verdict = _rules_resolver(ctx, "push_policy").push_policy(
             original["data"].get("outcome"), already_pushed
         )
         if push_verdict is not None:
@@ -6148,7 +6310,9 @@ def _roll_common(
             ),
             None,
         )
-    result = _rules_resolver(ctx).check(target, difficulty, bonus, penalty, rng=_rng(args))
+    result = _rules_resolver(ctx, "check").check(
+        target, difficulty, bonus, penalty, rng=_rng(args)
+    )
     result["investigator_id"] = investigator_id
     result["skill"] = label
     result["target_source"] = target_source
@@ -6321,6 +6485,7 @@ def _roll_common(
 
 _CUSTOM_SETUP_OPERATION_KINDS = (
     "campaign.create",
+    "actor.create",
     "investigator.create",
     "campaign.link_investigator",
     "scenario.bind_pdf",
@@ -6431,7 +6596,9 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
             "required": True,
             "desc": (
                 "exact payload for the selected kind: campaign.create requires "
-                "campaign_id/title and optionally era/play_language/start_clock; "
+                "campaign_id/title and optionally ruleset_id/era/play_language/start_clock; "
+                "actor.create requires campaign_id/actor_id/sheet and delegates "
+                "validation to that campaign's ruleset; "
                 "investigator.create requires investigator_id/sheet and optionally "
                 "creation; campaign.link_investigator requires exactly "
                 "campaign_id/investigator_ids; scenario.bind_pdf requires "
@@ -6446,9 +6613,11 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
             ),
             "properties": {
                 "campaign_id": {"type": "string"},
+                "actor_id": {"type": "string"},
                 "title": {"type": "string"},
                 "era": {"type": "string"},
                 "play_language": {"type": "string"},
+                "ruleset_id": {"type": "string"},
                 "start_clock": {
                     "type": "object",
                     "additionalProperties": True,
@@ -6555,6 +6724,364 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
 # rules.* — hard parameter rules
 # --------------------------------------------------------------------------- #
 
+_RULESET_REQUEST_RESERVED_FIELDS = frozenset({
+    "rng", "current", "actor", "actor_id", "decision_id", "receipt_id",
+    "roll_id", "ruleset_id", "ruleset_version",
+})
+
+
+def _ruleset_mutation_identity(
+    ctx: Ctx, args: dict[str, Any], *, tool_name: str,
+) -> tuple[str, str, str, str, dict[str, Any], int | None]:
+    """Validate exact transport identity before package code is called."""
+    decision_id = args.get("decision_id")
+    actor_id = args.get("actor")
+    if (
+        not isinstance(decision_id, str)
+        or not decision_id
+        or decision_id != decision_id.strip()
+    ):
+        raise ToolError("invalid_param", "decision_id must be an exact non-empty string")
+    if not isinstance(actor_id, str) or _SAFE_ID.fullmatch(actor_id) is None:
+        raise ToolError("invalid_param", "actor must be a stable safe id")
+    request = args.get("request")
+    if not isinstance(request, dict):
+        raise ToolError("invalid_param", "request must be an object")
+    reserved = sorted(set(request) & _RULESET_REQUEST_RESERVED_FIELDS)
+    if reserved:
+        raise ToolError(
+            "invalid_param",
+            "request contains kernel-reserved fields: " + ", ".join(reserved),
+        )
+    seed = args.get("seed")
+    if seed is not None and not _is_exact_int(seed):
+        raise ToolError("invalid_param", "seed must be an integer")
+    ruleset_id = _active_ruleset_id(ctx)
+    manifest = coc_rulesets.load_manifest(ruleset_id)
+    ruleset_version = manifest.get("version")
+    if not isinstance(ruleset_version, str) or not ruleset_version:
+        raise ToolError("invalid_ruleset", "active ruleset version must be non-empty")
+    try:
+        coc_state.load_ruleset_actor_state(ctx.campaign_dir, actor_id)
+    except coc_state.UnsupportedSaveSchema as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    operation = {
+        "ruleset_id": ruleset_id,
+        "ruleset_version": ruleset_version,
+        "actor_id": actor_id,
+        "request": deepcopy(request),
+        "seed": seed,
+    }
+    return decision_id, actor_id, ruleset_id, ruleset_version, operation, seed
+
+
+def _generic_check_resolution(
+    result: dict[str, Any], request: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize one small public check evidence contract."""
+    nested = result.get("roll")
+    if isinstance(nested, dict):
+        expression = nested.get("expression")
+        faces = nested.get("faces")
+        total = nested.get("total")
+    else:
+        expression = "1D100"
+        faces = [nested]
+        total = nested
+    success = result.get("success")
+    outcome = result.get("outcome")
+    if outcome is None and isinstance(success, bool):
+        outcome = "success" if success else "failure"
+    label = result.get("label") or request.get("label") or "check"
+    target = result.get("target", result.get("difficulty"))
+    resolution = {
+        "label": label,
+        "outcome": outcome,
+        "success": success,
+        "expression": expression,
+        "faces": faces,
+        "total": total,
+        "target": target,
+    }
+    if (
+        not isinstance(label, str) or not label.strip()
+        or not isinstance(outcome, str) or not outcome.strip()
+        or not isinstance(success, bool)
+        or not isinstance(expression, str) or not expression.strip()
+        or not isinstance(faces, list) or not faces
+        or not all(_is_exact_int(value) for value in faces)
+        or not _is_exact_int(total)
+        or (target is not None and not _is_exact_int(target))
+    ):
+        raise ToolError(
+            "invalid_ruleset",
+            "ruleset check must return success/outcome and integer roll evidence",
+        )
+    return {
+        "label": label.strip(),
+        "outcome": outcome.strip(),
+        "success": success,
+        "expression": expression.strip().upper(),
+        "faces": list(faces),
+        "total": total,
+        "target": target,
+    }
+
+
+def _resource_receipt_integrity(data: dict[str, Any]) -> str:
+    return _canonical_digest({
+        key: value for key, value in data.items() if key != "integrity_digest"
+    })
+
+
+@tool(
+    "rules.check",
+    "Run the active ruleset's generic deterministic check primitive and persist canonical public roll evidence. The request follows the package signature; the kernel binds actor, package version, idempotency, rolls.jsonl, and finalization.",
+    {
+        "actor": {
+            "type": "string",
+            "required": True,
+            "desc": "campaign actor id created through the active ruleset setup path",
+        },
+        "request": {
+            "type": "object",
+            "required": True,
+            "desc": "package-defined check keyword arguments (rng is injected by the kernel)",
+        },
+        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
+        "decision_id": {
+            "type": "string",
+            "required": True,
+            "desc": "idempotency key",
+        },
+    },
+)
+def _tool_rules_check(ctx: Ctx, args: dict[str, Any]):
+    unsupported = sorted(set(args) - {"actor", "request", "seed", "decision_id"})
+    if unsupported:
+        raise ToolError(
+            "invalid_param", "rules.check has unsupported fields: " + ", ".join(unsupported)
+        )
+    (
+        decision_id, actor_id, ruleset_id, ruleset_version, operation, _seed,
+    ) = _ruleset_mutation_identity(ctx, args, tool_name="rules.check")
+    document, receipt = _existing_roll_receipt(
+        ctx,
+        tool_name="rules.check",
+        decision_id=decision_id,
+        operation=operation,
+    )
+    if receipt is not None:
+        return _replay_roll_receipt(ctx, document, receipt)
+    resolver = _rules_resolver(ctx, "check")
+    try:
+        result = resolver.check(**deepcopy(operation["request"]), rng=_rng(args))
+    except (TypeError, ValueError) as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    if not isinstance(result, dict):
+        raise ToolError("invalid_ruleset", "ruleset check must return an object")
+    resolution = _generic_check_resolution(result, operation["request"])
+    data = {
+        "schema_version": 1,
+        "receipt_id": _operation_event_id(
+            f"{ruleset_id}@{ruleset_version}.rules.check", decision_id
+        ),
+        "ruleset_id": ruleset_id,
+        "ruleset_version": ruleset_version,
+        "operation": "check",
+        "decision_id": decision_id,
+        "actor_id": actor_id,
+        "investigator_id": actor_id,
+        "kind": "ruleset_check",
+        "skill": resolution["label"],
+        "display_skill": resolution["label"],
+        "outcome": resolution["outcome"],
+        "success": resolution["success"],
+        "roll": resolution["total"],
+        "target": resolution["target"],
+        "dice": {
+            "expression": resolution["expression"],
+            "raw": deepcopy(resolution["faces"]),
+            "total": resolution["total"],
+        },
+        "request": {
+            "request": deepcopy(operation["request"]),
+            "seed": operation["seed"],
+        },
+        "result": deepcopy(result),
+    }
+    roll_record = ctx.prepare_roll({
+        "event_type": "roll",
+        "type": "ruleset_check",
+        "kind": "ruleset_check",
+        "actor": actor_id,
+        "visibility": "public",
+        "payload": deepcopy(data),
+        **data,
+    })
+    data["roll_id"] = roll_record["roll_id"]
+    roll_record.update(deepcopy(data))
+    roll_record["payload"].update(deepcopy(data))
+    receipt = _new_roll_receipt(
+        tool_name="rules.check",
+        decision_id=decision_id,
+        operation=operation,
+        resolution=resolution,
+        roll_record=roll_record,
+        data=data,
+        warnings=[],
+        hints=[],
+    )
+    _commit_new_roll_receipt(ctx, document, receipt)
+    return data, [], []
+
+
+@tool(
+    "rules.resource_delta",
+    "Apply the active ruleset's generic resource arithmetic to canonical actor state. Current state is kernel-owned; callers provide only the requested change.",
+    {
+        "actor": {
+            "type": "string",
+            "required": True,
+            "desc": "campaign actor id whose canonical resource state changes",
+        },
+        "request": {
+            "type": "object",
+            "required": True,
+            "desc": "package-defined resource_delta arguments; current/rng and identity fields are kernel-reserved",
+        },
+        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
+        "decision_id": {
+            "type": "string",
+            "required": True,
+            "desc": "idempotency key",
+        },
+    },
+)
+def _tool_rules_resource_delta(ctx: Ctx, args: dict[str, Any]):
+    unsupported = sorted(set(args) - {"actor", "request", "seed", "decision_id"})
+    if unsupported:
+        raise ToolError(
+            "invalid_param",
+            "rules.resource_delta has unsupported fields: " + ", ".join(unsupported),
+        )
+    (
+        decision_id, actor_id, ruleset_id, ruleset_version, operation, _seed,
+    ) = _ruleset_mutation_identity(ctx, args, tool_name="rules.resource_delta")
+    request = operation["request"]
+    resource_key = request.get("resource")
+    declared_resources = {
+        str(resource.get("key"))
+        for resource in coc_rulesets.ruleset_resources(ruleset_id)
+        if isinstance(resource.get("key"), str)
+    }
+    if not isinstance(resource_key, str) or resource_key not in declared_resources:
+        raise ToolError("invalid_param", "request.resource is not declared by the ruleset")
+    actor_state = coc_state.load_ruleset_actor_state(ctx.campaign_dir, actor_id)
+    decisions = (
+        actor_state.get("ruleset_resource_receipts")
+        if ruleset_id == "coc7"
+        else actor_state.get("decisions")
+    )
+    if decisions is None:
+        decisions = {}
+    if not isinstance(decisions, dict):
+        raise ToolError("state_corrupt", "actor resource receipt index is invalid")
+    frozen = decisions.get(decision_id)
+    prior = ctx.ledger_lookup("rules.resource_delta", decision_id)
+    if frozen is not None:
+        if not isinstance(frozen, dict):
+            raise ToolError("state_corrupt", "actor resource receipt is invalid")
+        expected_integrity = _resource_receipt_integrity(frozen)
+        result = frozen.get("result")
+        try:
+            current = coc_state.ruleset_actor_resource_value(
+                ruleset_id, actor_state, resource_key
+            )
+        except ValueError as exc:
+            raise ToolError("state_corrupt", str(exc)) from exc
+        if (
+            frozen.get("integrity_digest") != expected_integrity
+            or frozen.get("ruleset_id") != ruleset_id
+            or frozen.get("ruleset_version") != ruleset_version
+            or frozen.get("actor_id") != actor_id
+            or frozen.get("decision_id") != decision_id
+            or frozen.get("request") != {
+                "request": request, "seed": operation["seed"]
+            }
+            or not isinstance(result, dict)
+            or result.get("resource") != resource_key
+            or result.get("after") != current
+        ):
+            raise ToolError(
+                "idempotency_conflict",
+                f"decision_id {decision_id!r} owns different actor resource evidence",
+            )
+        if prior is not None and prior.get("data") != frozen:
+            raise ToolError("state_corrupt", "toolbox ledger conflicts with actor state")
+        if prior is None:
+            ctx.ledger_record(decision_id, "rules.resource_delta", frozen)
+        return deepcopy(frozen), [
+            "duplicate decision_id: recovered the state-bound original receipt"
+        ], []
+    if prior is not None:
+        raise ToolError(
+            "state_corrupt",
+            "toolbox ledger resource entry has no canonical actor-state receipt",
+        )
+    try:
+        current = coc_state.ruleset_actor_resource_value(
+            ruleset_id, actor_state, resource_key
+        )
+    except ValueError as exc:
+        raise ToolError("state_corrupt", str(exc)) from exc
+    resolver = _rules_resolver(ctx, "resource_delta")
+    try:
+        result = resolver.resource_delta(
+            **deepcopy(request), current=current, rng=_rng(args)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    if not isinstance(result, dict):
+        raise ToolError("invalid_ruleset", "ruleset resource_delta must return an object")
+    before, after, delta = result.get("before"), result.get("after"), result.get("delta")
+    if (
+        result.get("resource") != resource_key
+        or not all(_is_exact_int(value) for value in (before, after, delta))
+        or before != current
+        or after - before != delta
+    ):
+        raise ToolError(
+            "invalid_ruleset",
+            "ruleset resource_delta returned contradictory state arithmetic",
+        )
+    data = {
+        "schema_version": 1,
+        "receipt_id": _operation_event_id(
+            f"{ruleset_id}@{ruleset_version}.rules.resource_delta", decision_id
+        ),
+        "ruleset_id": ruleset_id,
+        "ruleset_version": ruleset_version,
+        "operation": "resource_delta",
+        "decision_id": decision_id,
+        "actor_id": actor_id,
+        "investigator_id": actor_id,
+        "request": {"request": deepcopy(request), "seed": operation["seed"]},
+        "result": deepcopy(result),
+        "state_bound": True,
+    }
+    data["integrity_digest"] = _resource_receipt_integrity(data)
+    coc_state.write_ruleset_actor_resource_receipt(
+        ctx.campaign_dir,
+        actor_id,
+        resource_key=resource_key,
+        after=after,
+        decision_id=decision_id,
+        receipt=deepcopy(data),
+    )
+    ctx.ledger_record(decision_id, "rules.resource_delta", data)
+    return data, [], []
+
 @tool(
     "rules.skill_describe",
     "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll.",
@@ -6576,7 +7103,7 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
 )
 def _tool_rules_skill_describe(ctx: Ctx, args: dict[str, Any]):
     try:
-        catalog = _rules_resolver(ctx).skill_describe()
+        catalog = _rules_resolver(ctx, "skill_describe").skill_describe()
     except (OSError, json.JSONDecodeError) as exc:
         raise ToolError("state_corrupt", f"skill-descriptions.json unreadable: {exc}") from exc
     if not isinstance(catalog, dict):
@@ -6666,7 +7193,9 @@ def _tool_rules_cash_assets(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "credit_rating must be an integer")
     period = str(args.get("period") or "1920s").strip() or "1920s"
     try:
-        data = _rules_resolver(ctx).cash_assets(credit_rating, period=period)
+        data = _rules_resolver(ctx, "cash_assets").cash_assets(
+            credit_rating, period=period
+        )
     except ValueError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
     return data, [], [
@@ -6701,7 +7230,7 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "actor_build and target_build must be given together")
     if build is None and actor_build is None:
         raise ToolError("invalid_param", "provide build, or actor_build and target_build")
-    data = _rules_resolver(ctx).build_scale(
+    data = _rules_resolver(ctx, "build_scale").build_scale(
         build, actor_build=actor_build, target_build=target_build
     )
     return data, [], [
@@ -6793,7 +7322,9 @@ def _tool_rules_roll_dice(ctx: Ctx, args: dict[str, Any]):
     )
     if receipt is not None:
         return _replay_roll_receipt(ctx, document, receipt)
-    result = _rules_resolver(ctx).roll_dice(str(args["expression"]), rng=_rng(args))
+    result = _rules_resolver(ctx, "roll_dice").roll_dice(
+        str(args["expression"]), rng=_rng(args)
+    )
     if args.get("reason"):
         result["reason"] = str(args["reason"])
     payload = {
@@ -6866,7 +7397,9 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
     investigator_id = _resolve_investigator(ctx, args)
     target, label, target_source = _resolve_target_value(ctx, investigator_id, args)
     rng = _rng(args)
-    settled = _rules_resolver(ctx).opposed(target, int(args["opponent_value"]), rng=rng)
+    settled = _rules_resolver(ctx, "opposed").opposed(
+        target, int(args["opponent_value"]), rng=rng
+    )
     mine = settled["investigator_roll"]
     theirs = settled["opponent_roll"]
     winner = settled["winner"]
@@ -6930,7 +7463,7 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     rng = _rng(args)
     state = ctx.inv_state(investigator_id)
     current_san = int(state.get("current_san", 0))
-    settled = _rules_resolver(ctx).sanity_check(
+    settled = _rules_resolver(ctx, "sanity_check").sanity_check(
         current_san,
         args.get("loss_success", "0"),
         args["loss_failure"],
@@ -7307,7 +7840,7 @@ def _tool_rules_damage(ctx: Ctx, args: dict[str, Any]):
     sheet = ctx.sheet(investigator_id)
     max_hp = int((sheet.get("derived") or {}).get("HP") or 10)
     before = int(state.get("current_hp", max_hp))
-    settled = _rules_resolver(ctx).damage(
+    settled = _rules_resolver(ctx, "damage").damage(
         args["amount"], before, max_hp, kind=kind, rng=_rng(args)
     )
     amount = settled["amount"]
@@ -7568,7 +8101,7 @@ def _tool_rules_luck_spend(ctx: Ctx, args: dict[str, Any]):
             source,
             points=points,
             luck_before=current_luck,
-            resolver=_rules_resolver(ctx),
+            resolver=_rules_resolver(ctx, "luck_spend"),
         )
     except ValueError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
@@ -7859,7 +8392,7 @@ def _tool_rules_first_aid(ctx: Ctx, args: dict[str, Any]):
                     "missing_param",
                     f"pushed First Aid requires non-empty {field}",
                 )
-    request = _rules_resolver(ctx).first_aid(
+    request = _rules_resolver(ctx, "first_aid").first_aid(
         decision_id,
         int(args["skill_value"]),
         rescuer_id,
@@ -7935,7 +8468,7 @@ def _tool_rules_medicine(ctx: Ctx, args: dict[str, Any]):
         ctx,
         investigator_id=investigator_id,
         decision_id=decision_id,
-        requests=[_rules_resolver(ctx).medicine(
+        requests=[_rules_resolver(ctx, "medicine").medicine(
             decision_id,
             int(args["skill_value"]),
             rescuer_id,
@@ -8018,7 +8551,7 @@ def _tool_rules_weekly_recovery(ctx: Ctx, args: dict[str, Any]):
         raise ToolError(
             "invalid_param", "caregiver_id requires medicine_skill_value"
         )
-    request = _rules_resolver(ctx).weekly_recovery(
+    request = _rules_resolver(ctx, "weekly_recovery").weekly_recovery(
         decision_id,
         complete_rest,
         poor_environment,
@@ -8097,7 +8630,11 @@ def _tool_rules_dying_check(ctx: Ctx, args: dict[str, Any]):
         ctx,
         investigator_id=investigator_id,
         decision_id=decision_id,
-        requests=[_rules_resolver(ctx).dying_check(decision_id, clock_kind)],
+        requests=[
+            _rules_resolver(ctx, "dying_check").dying_check(
+                decision_id, clock_kind
+            )
+        ],
         seed=args.get("seed"),
         tool_name="rules.dying_check",
     )
@@ -17657,7 +18194,10 @@ def _validated_exceptional_mechanics(
             for value in normalized["source_decision_ids"]
         ]
         if effect_kind == "resource_delta":
-            projected = coc_turn_finalization._project_state_deltas(calls)
+            projected = coc_turn_finalization._project_state_deltas(
+                calls,
+                ruleset_id=_active_ruleset_id(ctx),
+            )
             material = [
                 row for row in projected
                 if row.get("effect_kind") != "time"
@@ -19478,6 +20018,8 @@ _MUTATING_TOOLS = frozenset({
     "session.delivery_ack",
     "npc.reaction",
     "rules.roll",
+    "rules.check",
+    "rules.resource_delta",
     "rules.push",
     "rules.roll_dice",
     "rules.opposed",

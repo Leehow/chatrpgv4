@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "COC Runtime PublicState",
+  "title": "Ruleset-neutral Runtime PublicState",
   "type": "object",
   "required": [
     "schema_version",
@@ -10,6 +10,7 @@
     "tension_level",
     "turn_number",
     "discovered_clue_ids",
+    "actors",
     "investigators",
     "brain",
     "pending_choice",
@@ -42,33 +43,14 @@
         "type": "string"
       }
     },
+    "actors": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/actor"}
+    },
     "investigators": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "current_hp", "current_san", "current_mp", "conditions"],
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "current_hp": {
-            "type": ["integer", "null"]
-          },
-          "current_san": {
-            "type": ["integer", "null"]
-          },
-          "current_mp": {
-            "type": ["integer", "null"]
-          },
-          "conditions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      }
+      "description": "Compatibility alias of actors for existing CoC7 SDK consumers.",
+      "items": {"$ref": "#/$defs/actor"}
     },
     "brain": {
       "type": "string",
@@ -136,7 +118,7 @@
             "required": ["state", "code"],
             "additionalProperties": false,
             "properties": {
-              "state": {"type": "string", "enum": ["campaign", "world", "pacing", "investigator", "subsystem", "combat", "sanity", "chase", "terminal"]},
+              "state": {"type": "string", "enum": ["campaign", "world", "pacing", "actor", "investigator", "subsystem", "combat", "sanity", "chase", "terminal"]},
               "code": {"type": "string", "enum": ["missing", "corrupt", "invalid_utf8", "invalid_json", "non_object", "forward_version", "invalid_schema", "invalid_fields", "invalid_identifier"]}
             }
           }
@@ -145,6 +127,25 @@
     }
   },
   "$defs": {
+    "actor": {
+      "type": "object",
+      "required": ["id", "resources", "conditions"],
+      "properties": {
+        "id": {"type": "string"},
+        "resources": {
+          "type": "object",
+          "additionalProperties": {"type": ["integer", "null"]}
+        },
+        "conditions": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "patternProperties": {
+        "^current_[a-z][a-z0-9_]*$": {"type": ["integer", "null"]}
+      },
+      "additionalProperties": false
+    },
     "playerOptions": {
       "type": "array",
       "minItems": 1,
