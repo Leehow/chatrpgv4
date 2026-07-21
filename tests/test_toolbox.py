@@ -9783,7 +9783,7 @@ def test_progressive_fulfill_resolve_mechanics_preserves_narrative_depth(tmp_pat
     host_dir = workspace / ".coc" / "module-assets" / asset_root / "host-work"
     host_dir.mkdir(parents=True, exist_ok=True)
     (host_dir / f"{job_id}.json").write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
         "job_id": job_id,
         "kind": "resolve_npc_mechanics",
         "target_id": "npc-subject",
@@ -9798,6 +9798,7 @@ def test_progressive_fulfill_resolve_mechanics_preserves_narrative_depth(tmp_pat
             "text_sha256": hashlib.sha256(page_bytes).hexdigest(),
         }],
         "batch_subjects": [],
+        "work_level": "near_term",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     campaign_id = "prog-camp"

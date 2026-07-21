@@ -786,7 +786,7 @@ def _write_opening_host_request(
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     assets._write_json(path, {
-        "schema_version": 1,
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
         "job_id": job_id,
         "asset_root_id": asset_root_id,
         "kind": "partial_opening",
@@ -802,6 +802,14 @@ def _write_opening_host_request(
         "source_scope_signature": assets.opening_source_scope_signature(scope),
         "cached_page_refs": json.loads(json.dumps(scope["page_refs"])),
         "cached_scope_complete": True,
+        "work_level": "current_dependency",
+        "dependency_ref": {
+            "operation": "progressive.project_opening",
+            "subject": {"kind": "location", "id": "opening"},
+            "source_scope_signature": assets.opening_source_scope_signature(
+                scope
+            ),
+        },
     })
     return path
 

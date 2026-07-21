@@ -862,48 +862,6 @@ def _cached_page_refs(
     return refs
 
 
-def _host_work_dependency_projection(
-    *,
-    job_kind: str,
-    entity_kind: str | None,
-    target_id: str,
-    work_group_id: str,
-) -> dict[str, Any]:
-    """Map structured queue kinds to durable urgency and exact consumers."""
-    if job_kind == "partial_opening":
-        work_level, consumer_kind = "L1_current_dependency", "opening_settlement"
-    elif job_kind.startswith("resolve_"):
-        work_level, consumer_kind = "L1_current_dependency", "mechanics_settlement"
-    elif job_kind == "locate_mechanics_index":
-        work_level, consumer_kind = (
-            "L3_bounded_warm", "mechanics_locator_readiness",
-        )
-    else:
-        work_level, consumer_kind = "L2_near_term", "entity_readiness"
-    canonical_entity_kind = entity_kind or (
-        "mechanics_index" if job_kind == "locate_mechanics_index" else "entity"
-    )
-    return {
-        "work_level": work_level,
-        "consumer": {
-            "kind": consumer_kind,
-            "entity_kind": canonical_entity_kind,
-            "target_id": target_id,
-        },
-        "dependency": {
-            "dependency_id": (
-                f"{work_group_id}:{job_kind}:{canonical_entity_kind}:{target_id}"
-            ),
-            "kind": "source_pack",
-            "blocking_scope": (
-                "exact_consumer"
-                if work_level == "L1_current_dependency"
-                else "none"
-            ),
-        },
-    }
-
-
 def _write_host_work_request(
     workspace: Path,
     asset_root_id: str,
@@ -1011,15 +969,6 @@ def _write_host_work_request(
         if job_kind.startswith("resolve_") or job_kind == "locate_mechanics_index"
         else "body"
     )
-    deadline_class = (
-        "blocking_micro"
-        if job_kind.startswith("resolve_") or job_kind == "partial_opening"
-        else "idle_warm"
-        if job_kind == "locate_mechanics_index"
-        else "hot_ring"
-        if job_kind == "partial_neighbor"
-        else "next_turn_hot"
-    )
     group_material = json.dumps(
         {
             "file_sha256": source.get("file_sha256") or identity.get("file_sha256"),
@@ -1036,11 +985,19 @@ def _write_host_work_request(
         separators=(",", ":"),
     ).encode("utf-8")
     work_group_id = "source-work-" + hashlib.sha256(group_material).hexdigest()[:16]
-    dependency_projection = _host_work_dependency_projection(
-        job_kind=job_kind,
-        entity_kind=entity_kind,
-        target_id=target_id,
-        work_group_id=work_group_id,
+    work_level, dependency_ref = coc_module_assets.validate_host_work_contract(
+        job.get("work_level")
+        or coc_module_assets._default_host_work_level(job_kind),
+        job.get("dependency_ref"),
+    )
+    deadline_class = (
+        "blocking_micro"
+        if work_level == "current_dependency"
+        else "idle_warm"
+        if work_level == "bounded_warm"
+        else "hot_ring"
+        if job_kind == "partial_neighbor"
+        else "next_turn_hot"
     )
     dispatch_state = (
         "awaiting_scope"
@@ -1050,7 +1007,7 @@ def _write_host_work_request(
         else "awaiting_cache"
     )
     payload = {
-        "schema_version": 1,
+        "schema_version": coc_module_assets.HOST_WORK_SCHEMA_VERSION,
         "job_id": jid,
         "asset_root_id": asset_root_id,
         "kind": job.get("kind"),
@@ -1072,7 +1029,7 @@ def _write_host_work_request(
         "batch_subjects": batch_subjects,
         "source_aspect": source_aspect,
         "deadline_class": deadline_class,
-        **dependency_projection,
+        "work_level": work_level,
         "work_group_id": work_group_id,
         "dispatch_state": dispatch_state,
         "dispatch_attempts": 0,
@@ -1160,6 +1117,9 @@ def _write_host_work_request(
             "scope. Do not invent handout/secret bodies without page evidence."
         ),
     }
+    if dependency_ref is not None:
+        payload["dependency_ref"] = dependency_ref
+    coc_module_assets.validate_host_work_request_shape(payload)
     if job_kind == "partial_opening":
         payload["result_contract"] = _foreground_opening_result_contract()
     elif job_kind == "locate_mechanics_index":
