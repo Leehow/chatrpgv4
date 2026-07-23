@@ -1,17 +1,18 @@
 # Investigator sheet schema discovery — architecture debt
 
-Status: **recorded debt, not yet scheduled**. This note captures the root
-cause, evidence, and the correct migration exit discovered during live
-pi-coc KP testing (2026-07-23). It is a design starting point for a future
-ruleset-migration task, not an approved plan.
+Status: **discoverability slice implemented; validator migration deferred**.
+Commit `fdedca8` publishes and connects the package-owned construction
+contract without changing `investigator.create` persistence or enabling coc7
+`actor.create`. The remaining package-boundary migration is recorded below
+but is not yet scheduled.
 
 ## Symptom (observed in real play)
 
-A self-driving KP calling `investigator.create` through the gateway could
-not see the required sheet shape. `coc_discover` exposes `sheet` and
-`creation` as `{"type":"object","additionalProperties":true}` empty shells,
-so the KP learned the schema only by repeated failure. In one opening run
-the KP failed `investigator.create` six times before succeeding, walking
+A self-driving KP calling `investigator.create` through the gateway did not
+use an upfront machine-readable request shape. `coc_discover` exposes `sheet`
+and `creation` as `{"type":"object","additionalProperties":true}` empty
+shells, so that run learned the schema by repeated failure. In one opening
+run the KP failed `investigator.create` six times before succeeding, walking
 the validation layers one at a time:
 
 ```
@@ -24,22 +25,27 @@ the validation layers one at a time:
 7. (success)
 ```
 
-Three commits (`2b85f91`, `40d75bf`) made the aggregate error messages list
+Two commits (`2b85f91`, `40d75bf`) made the aggregate error messages list
 the full required structure at once, which lets a KP self-correct faster
 within a layer. But this is treatment of symptoms: each layer the KP clears
-exposes the next, because the KP still has no upfront schema to consult.
+exposes the next.
 
-## Root cause
+The incident also exposed a separate skill-adoption problem. Pi loads the
+active coc7 skill pack, `coc-main` routes character creation to
+`coc-character`, and that skill already carried the full human/agent-readable
+checklist. The new machine contract is a necessary host-neutral construction
+surface, but it does not erase the need to verify that the canonical skill is
+loaded and followed in real play.
 
-The investigator sheet schema is **implicitly hard-coded in
-`plugins/coc-keeper/scripts/coc_character.py`** (a kernel directory), not
-declared as machine-readable data on the coc7 ruleset package, and
-`investigator.create` calls it directly, **bypassing the ruleset dispatch
-path** the contract already defines.
+## Root causes and remaining debt
 
-Two facts compound:
+Three facts were previously conflated:
 
-1. The sheet fields are coc7 rules living in kernel code.
+1. The generic gateway deliberately cannot publish coc7 fields. Before
+   `fdedca8`, the coc7 package had no separate machine-readable construction
+   contract, so a gateway-only KP had no typed payload source to query.
+2. The executable investigator validator/materializer remains in
+   `plugins/coc-keeper/scripts/coc_character.py`.
    `coc_character.py:19` `REQUIRED_CHARACTERISTICS = ("STR","CON","SIZ","DEX",
    "APP","INT","POW","EDU")` and `coc_character.py:281`
    `required_derived = ("HP","MP","SAN","Luck","DB","Build","MOV")` are
@@ -48,15 +54,11 @@ Two facts compound:
    package (`coc_rules.py:7-13`). AGENTS.md (`plugins/coc-keeper/...` single-
    track law) and `docs/ruleset-contract.md:170` require the kernel to stay
    ruleset-agnostic and the actor sheet schema to be package-defined.
-
-2. `investigator.create` does not dispatch through the ruleset resolver.
-   `coc_runtime_ops.py:3412-3435` calls
+3. `investigator.create` does not dispatch validation/materialization through
+   a package capability.
+   `coc_runtime_ops.py:3470-3493` calls
    `coc_character.materialize_quick_fire_create_sheet` and
-   `coc_character.validate_character_create_sheet` directly. There is no
-   `get_campaign_ruleset_id` / `get_resolver` call on this path. By contrast
-   `actor.create` (`coc_runtime_ops.py:3366-3385`) does dispatch correctly:
-   `resolver = get_resolver(campaign)` → `resolver.public_api_index()` →
-   `resolver.validate_actor(sheet)`.
+   `coc_character.validate_character_create_sheet` directly.
 
 The contract acknowledges this as established history:
 `docs/ruleset-contract.md:112-116` —
@@ -69,11 +71,12 @@ And `docs/ruleset-contract.md:170`:
 
 > Actor sheet schema (characteristics/stats/qualities) is package-defined.
 
-So today the coc7 resolver advertises no `validate_actor`
-(`rulesets/coc7/resolver.py` has zero occurrences of `validate_actor`;
-`public_api_index` at `resolver.py:405` does not list it), and the only
-machine-executable sheet definition lives in kernel Python that the gateway
-never surfaces to the KP.
+The previous draft proposed advertising coc7 `validate_actor`, but that is not
+a valid shortcut: `actor.create` treats that advertisement as permission to
+use the generic actor persistence path, while `coc_state.create_ruleset_actor`
+explicitly rejects coc7. In addition, the reusable `investigator.create`
+payload has no `campaign_id` or `ruleset_id`, so it cannot simply call
+`get_resolver(campaign)`.
 
 ## Why the empty discover shell is intentional (and why that is fine)
 
@@ -83,44 +86,56 @@ never surfaces to the KP.
 whose `payload.sheet` / `payload.creation` are deliberately
 `additionalProperties:true` because the toolbox must stay ruleset-agnostic —
 it must not hard-code coc7 fields into a kernel-owned contract. So the empty
-shell is correct *for the kernel*; the missing piece is that the **coc7
-ruleset never publishes its own sheet schema** for the KP to read.
+shell is correct *for the kernel*. `fdedca8` keeps it unchanged:
+`coc_discover` now exposes only the small static input contract for
+`setup.investigator_contract(campaign_id)`, while executing that read-only
+operation returns the active ruleset's full construction contract.
 
-## Correct migration exit (already in place, unused)
+## Chosen staged exit
 
-The ruleset-agnostic dispatch path `actor.create` uses already exists and is
-the intended home for this:
+### Phase A — discoverability vertical slice: Done
 
-1. Declare a machine-readable coc7 investigator sheet schema under
-   `rulesets/coc7/` (JSON or JSON-Schema) covering the fields
-   `coc_character.py` currently validates in code: `id`, `name`,
-   `characteristics` (the eight), `derived` (HP/MP/SAN/Luck/DB/Build/MOV),
-   `skills` (dict, must include `Credit Rating`, canonical-English keys,
-   non-negative integers), optional `age`, optional `creation`
-   (`method` + per-method constraints from
-   `rulesets/coc7/rules-json/characteristic-dice.json`).
-2. Implement `validate_actor(sheet)` on the coc7 resolver and advertise it in
-   `public_api_index()` (`rulesets/coc7/resolver.py:405`), returning the
-   contract shape `{ "sheet": {...}, "resources": {...} }`.
-3. Route `investigator.create` validation through
-   `get_resolver(campaign)` → `validate_actor`, mirroring `actor.create`
-   (`coc_runtime_ops.py:3366-3385`), instead of the direct
-   `coc_character.*` calls.
-4. Surface the published sheet schema to the KP — e.g. a read-only
-   `setup.sheet_template` operation, or a `coc_discover` extension that
-   returns the active ruleset's sheet schema — so the KP can construct a
-   valid sheet without trial and error.
+- `rulesets/coc7/investigator-create-contract.json` owns a versioned JSON
+  Schema for the complete `investigator.create` payload, not merely `sheet`.
+  It distinguishes deterministic Quick Fire input from the complete-sheet
+  path and states that executable arithmetic/validation remains authoritative.
+- The coc7 resolver advertises the distinct read-only
+  `investigator_create_contract()` capability. It does **not** advertise
+  `validate_actor`.
+- `setup.investigator_contract` accepts exactly `campaign_id`, resolves the
+  active ruleset, verifies contract identity/version against the manifest, and
+  returns an independent contract object.
+- `coc-main` and `coc-character` direct custom creation to query and retain
+  this contract once after campaign creation.
+- `investigator.create`, generic `actor.create`, reusable investigator storage,
+  Quick Fire materialization, and state writes are unchanged.
 
-After this, `coc_character.py`'s field literals become coc7 package data,
-the kernel stays agnostic, and the KP sees the schema upfront regardless of
-host.
+### Phase B — package executable validation/materialization: Deferred
+
+If pursued, add a distinct coc7 investigator capability such as
+`materialize_validate_investigator(sheet, creation)`. Do not reuse
+`validate_actor` unless the project deliberately unifies generic actor and
+coc7 investigator persistence as a separate migration.
+
+Before moving behavior, freeze an exact accept/reject matrix. Current runtime
+behavior is looser than a strict schema in several places: it checks trimmed
+ASCII skill keys rather than catalog membership, allows extra sheet fields,
+and does not apply identical age/derived validation in every creation variant.
+The migration must preserve or explicitly change those semantics.
+
+### Phase C — reusable investigator ruleset identity: Deferred decision
+
+Reusable investigators are workspace-level and may be linked after creation.
+Generalizing them beyond coc7 requires an explicit durable `ruleset_id` and
+schema-version ownership design. Until that product decision is approved,
+`investigator.create` remains the established coc7 path.
 
 ## Why this is not a quick fix
 
-This is a multi-file migration across the ruleset contract boundary
-(schema file + resolver + runtime dispatch + discover surface), with
-non-trivial regression surface: `investigator.create` is on every campaign's
-opening critical path, coc7's Quick Fire materialization
+Phase A was intentionally small because it adds an upfront query without
+changing the opening write path. Phase B remains a non-trivial migration:
+`investigator.create` is on every custom campaign's opening critical path,
+coc7's Quick Fire materialization
 (`materialize_quick_fire_create_sheet`, `coc_character.py:114-185`) carries
 deterministic rules-layer arithmetic, and the derived-consistency check
 (`coc_character.py:335-357`) must survive the move. It should be designed,
@@ -135,8 +150,19 @@ inside a playtest session.
   characteristics errors list the full required structure.
 - `40d75bf` made the `missing skills` error list the full skills shape.
 
-These reduce, but do not eliminate, KP trial-and-error. Each cleared layer
-still exposes the next until the schema is published upfront.
+These remain useful fallback diagnostics. The package-owned construction
+contract now supplies the upfront shape.
+
+## Phase A validation
+
+- Integrated commit: `fdedca8`.
+- Focused runtime/MCP/ruleset selection: `11 passed`.
+- MCP archive: `91` operations; `check` PASS; content SHA
+  `sha256:a936db0a67d73494cf398e4608e83d1bbf917df4129a87e4d6c9a4aa29478ddf`.
+- Required `tests/test_plugin_metadata.py`: `26 passed, 1 failed`. The same
+  `test_cursor_thin_entry_requires_kp_craft_parity_with_codex` failure occurs
+  unchanged at base `c7e9f3a`; it is inherited Pi README parity debt, not a
+  Phase A regression.
 
 ## Evidence index
 
@@ -145,13 +171,17 @@ still exposes the next until the schema is published upfront.
   after capture).
 - coc7 sheet fields in kernel code: `plugins/coc-keeper/scripts/coc_character.py:19`,
   `:281`, `:242-358`, `:114-185`.
-- `investigator.create` bypass: `plugins/coc-keeper/scripts/coc_runtime_ops.py:3412-3435`.
-- Correct dispatch (the exit): `plugins/coc-keeper/scripts/coc_runtime_ops.py:3366-3385`.
-- coc7 resolver does not advertise `validate_actor`:
-  `plugins/coc-keeper/rulesets/coc7/resolver.py` (0 occurrences),
-  `public_api_index` at `:405`.
+- `investigator.create` bypass: `plugins/coc-keeper/scripts/coc_runtime_ops.py:3470-3493`.
+- Published payload contract:
+  `plugins/coc-keeper/rulesets/coc7/investigator-create-contract.json`.
+- Read-only query runtime/tool:
+  `plugins/coc-keeper/scripts/coc_runtime_ops.py` (`investigator.contract`),
+  `plugins/coc-keeper/scripts/coc_toolbox.py`
+  (`setup.investigator_contract`).
+- coc7 resolver advertises `investigator_create_contract`, not
+  `validate_actor`: `plugins/coc-keeper/rulesets/coc7/resolver.py`.
 - Contract acknowledgment: `docs/ruleset-contract.md:112-116`, `:170`.
-- Discover returns flattened contract only:
+- Static discovery remains archive-backed:
   `plugins/coc-keeper/mcp/server.py:346-384`,
   `plugins/coc-keeper/scripts/coc_mcp_contract_archive.py`,
   `plugins/coc-keeper/references/mcp-operation-contracts.json`.
