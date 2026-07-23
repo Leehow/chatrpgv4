@@ -304,7 +304,11 @@ def validate_character_create_sheet(
 
     skills = sheet.get("skills")
     if not isinstance(skills, dict):
-        errors.append("missing skills")
+        errors.append(
+            "missing skills (a dict of canonical English skill name -> "
+            "non-negative integer; must include 'Credit Rating'; put "
+            "localized labels in player_facing_sheet_zh, not as skill keys)"
+        )
     else:
         if "Credit Rating" not in skills:
             errors.append("missing canonical skill Credit Rating")
