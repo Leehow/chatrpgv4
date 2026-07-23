@@ -152,7 +152,12 @@ def _now() -> str:
 def _id(value: Any, label: str) -> str:
     text = str(value or "")
     if not _SAFE_ID.fullmatch(text):
-        raise RuntimeOperationError(f"{label} must be a stable safe id")
+        raise RuntimeOperationError(
+            f"{label} must be a stable safe id matching "
+            f"^[A-Za-z0-9][A-Za-z0-9._:-]{{0,127}}$; got {text!r}. "
+            f"Use a slug like 'amaranthine-desire' (ASCII letters, digits, "
+            f"hyphen, dot, colon, underscore only; no spaces or CJK)."
+        )
     return text
 
 

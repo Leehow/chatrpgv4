@@ -61,7 +61,9 @@ def _manifest_path(bundle: Path | str) -> tuple[Path, Path]:
     manifest = candidate / MANIFEST_NAME
     if not candidate.is_dir() or not manifest.is_file():
         raise PdfSourceBundleError(
-            "host source bundle must be a directory containing manifest.json"
+            f"host source bundle must be a directory (not a file) containing "
+            f"manifest.json; got {candidate}. Pass the bundle directory, not "
+            f"manifest.json or normalized.json."
         )
     return manifest.parent.resolve(), manifest
 

@@ -20,6 +20,7 @@ import {
 } from "../lib/runtime.ts";
 import { compactToolRenderers } from "../lib/tool-render.ts";
 import { registerCocHud } from "../lib/hud.ts";
+import { registerCocWelcome } from "../lib/welcome.ts";
 
 const emptySchema = { type: "object", properties: {}, additionalProperties: false } as const;
 const OCR_TIMEOUT_MS = 15 * 60 * 1000;
@@ -205,6 +206,8 @@ export default function mainExtension(pi: ExtensionAPI) {
   });
   // Game table HUD replaces the coding-agent token/path footer in TUI sessions.
   registerCocHud(pi, (ctx) => client(ctx));
+  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
+  registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   pi.on("session_start", () => pi.setActiveTools(["coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr"]));
   pi.on("session_shutdown", async () => { await manager?.shutdown(); manager = null; await mcp?.close(); mcp = null; });
 }

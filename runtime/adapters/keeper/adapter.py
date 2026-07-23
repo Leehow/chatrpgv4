@@ -769,6 +769,33 @@ def close_warm_sessions_for(runtime_session_id: str) -> None:
         _WARM_POOL.close_session(runtime_session_id.strip())
 
 
+def _recover_committed_receipt(prepared: dict[str, Any]) -> dict[str, Any]:
+    """Recover a successful result when the runner crashed after turn.finalize."""
+    workspace = Path(prepared["workspace"])
+    campaign_id = str(prepared["campaign_id"])
+    offset = prepared["finalization_offset"]
+    log_path = (
+        workspace / ".coc" / "campaigns" / campaign_id / "logs" / "turn-finalizations.jsonl"
+    )
+    receipt = load_new_finalization_receipt(log_path, offset)
+    narration = receipt["rendered_text"]
+    projection = {
+        "finalization_id": receipt["finalization_id"],
+        "journal_decision_id": receipt["journal_decision_id"],
+        "rendered_sha256": receipt["rendered_sha256"],
+        "integrity_digest": receipt["integrity_digest"],
+        "segments": [
+            {
+                "segment_type": seg["segment_type"],
+                "text": seg["text"],
+                "source_ids": list(seg["source_ids"]),
+            }
+            for seg in receipt["segments"]
+        ],
+    }
+    return {"ok": True, "narration": narration, "finalization": projection}
+
+
 def keeper_send_turn(
     request: dict[str, Any],
     *,
@@ -898,6 +925,9 @@ def keeper_send_turn(
             except json.JSONDecodeError:
                 pass
         if parsed is not None and parsed.get("error_code") == KeeperFinalizationError.kind:
+            if parsed.get("turn_committed") is True:
+                receipt = _recover_committed_receipt(prepared)
+                return receipt
             reason = parsed.get("error_reason")
             raise KeeperFinalizationError(
                 f"keeper runner failed: {detail}",

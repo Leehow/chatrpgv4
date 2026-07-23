@@ -1141,7 +1141,11 @@ def init_module_root(
             for key in ("source_id", "file_sha256", "page_count", "producer"):
                 if previous_source.get(key) != source_identity.get(key):
                     raise ModuleAssetsError(
-                        f"source identity {key} differs from the existing asset root"
+                        f"source identity {key} differs from the existing asset "
+                        f"root {root_id!r}: existing={previous_source.get(key)!r}, "
+                        f"new={source_identity.get(key)!r}. Reuse the existing "
+                        f"{key} value in the bundle manifest, or delete "
+                        f".coc/module-assets/{root_id}/ to re-register from scratch."
                     )
         if isinstance(prev.get("source_bundles"), list):
             identity_doc["source_bundles"] = json.loads(
@@ -1844,7 +1848,11 @@ def put_page(
         if existing_digest != digest:
             raise ModuleAssetsError(
                 f"cached page {pdf_index} content drift; bind a different PDF "
-                "identity instead of overwriting page evidence"
+                "identity instead of overwriting page evidence. The existing "
+                "page was registered by a different producer/extraction. To "
+                "re-extract, remove this pdf_index from the new bundle, or use "
+                "a fresh asset root id (a different scenario_id) for this "
+                "extraction run."
             )
         reused = True
         if meta_path.is_file():

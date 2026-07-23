@@ -16,18 +16,89 @@ Do not wire progressive source, coordinator/leaf, or OCR product behavior into
 Narrator Bridge. That path is frozen (kept, not deleted) until Headless Runtime
 no longer needs the legacy narrator role.
 
-Install the npm/Pi package from the repository root. The manifest packages the
-canonical plugin plus the shared Python and headless runtime contracts:
+## Dual entry: `pi` (coding) vs `pi-coc` (this campaign)
+
+Do **not** `pi install` this repository into the global coding agent home
+(`~/.pi/agent`). Coding and COC play use separate Pi config homes:
+
+| Command | Config home | Role |
+|---|---|---|
+| `pi` | `~/.pi/agent` | Global coding agent — no COC package |
+| `pi-coc` | `~/.pi/coc-agent` (override with `PI_COC_AGENT_DIR`) | This repo only — COC Keeper package |
+
+`pi-coc` is [`bin/pi-coc`](bin/pi-coc). It sets `PI_CODING_AGENT_DIR` to the COC
+home, forces cwd to this repository root, and launches with desktop defaults:
 
 ```bash
-pi install /absolute/path/to/chatrpgv4
+pi --no-builtin-tools --approve --no-context-files \
+  --append-system-prompt plugins/coc-keeper/pi/prompts/host-system.md \
+  --session-id coc-keeper "$@"
 ```
 
-The package exposes the canonical `coc_capabilities`, `coc_discover`, and
-`coc_invoke` gateway tools through one lazy, session-scoped MCP JSONL child. It
-also exposes the closed `coc_dispatch_source_work` hierarchy and
-`coc_progressive_ocr` host bridge. It never exposes a generic subagent prompt,
-model, tool, or workspace surface.
+Built-in coding tools (`read` / `bash` / `edit` / `write`) stay off; extension
+gateway tools from this package remain. Repository `AGENTS.md` is not injected
+(short host prompt is). `--session-id coc-keeper` reopens the same desktop
+session when it exists. Use `pi-coc --new` for a fresh session. To change
+repository code, open a separate `pi` session.
+
+On interactive start the package shows a short header + welcome/usage guide
+(`/welcome` to repeat), sets `quietStartup` so skills are not dumped to the
+screen, and prewarms MCP via `coc_capabilities`. Entering `pi-coc` **is** COC
+activation: a fresh desktop auto-opens `coc-main` onboarding and never asks the
+player to type「激活 COC」.
+
+### One-time bootstrap
+
+```bash
+REPO=/absolute/path/to/chatrpgv4
+COC_HOME=$HOME/.pi/coc-agent
+AGENT_HOME=$HOME/.pi/agent
+
+mkdir -p "$COC_HOME/sessions"
+cat > "$COC_HOME/settings.json" <<EOF
+{
+  "defaultProvider": "grok-relay",
+  "defaultModel": "grok-4.5",
+  "packages": ["$REPO"],
+  "theme": "light",
+  "quietStartup": true
+}
+EOF
+
+ln -sfn "$AGENT_HOME/auth.json" "$COC_HOME/auth.json"
+ln -sfn "$AGENT_HOME/models.json" "$COC_HOME/models.json"
+ln -sfn "$AGENT_HOME/models-store.json" "$COC_HOME/models-store.json"
+# Share fd/rg tool binaries; without this, pi-coc downloads into an empty home.
+ln -sfn "$AGENT_HOME/bin" "$COC_HOME/bin"
+
+chmod +x "$REPO/plugins/coc-keeper/pi/bin/pi-coc"
+ln -sfn "$REPO/plugins/coc-keeper/pi/bin/pi-coc" "$HOME/.npm-global/bin/pi-coc"
+```
+
+If the package was previously installed into the global coding home, remove it:
+
+```bash
+pi remove /absolute/path/to/chatrpgv4
+```
+
+Do not add a project-local `.pi/settings.json` for this package: keeping the
+package only under `~/.pi/coc-agent` lets `pi` inside this repo stay a coding
+agent.
+
+### Daily use
+
+```bash
+pi            # write code anywhere (including this repo)
+pi-coc        # COC desktop (continues session-id coc-keeper)
+pi-coc --new  # fresh COC desktop session
+```
+
+The root `package.json` manifest packages the canonical plugin plus the shared
+Python and headless runtime contracts. The package exposes the canonical
+`coc_capabilities`, `coc_discover`, and `coc_invoke` gateway tools through one
+lazy, session-scoped MCP JSONL child. It also exposes the closed
+`coc_dispatch_source_work` hierarchy and `coc_progressive_ocr` host bridge. It
+never exposes a generic subagent prompt, model, tool, or workspace surface.
 
 ### Tool output (TUI fold)
 
@@ -64,10 +135,11 @@ regression: the live KP cannot repair a stuck turn from them.
 
 ## Workspace and session
 
-Open Pi in the repository/workspace that owns the campaign. The adapter passes
-that exact `ctx.cwd` as `COC_PROJECT_ROOT`, sets `COC_HOST=pi`, and binds the MCP
-child to the current Pi session id. No child starts merely by loading the
-package.
+Use `pi-coc` so the process cwd is this repository root (the campaign
+workspace). The adapter passes that exact `ctx.cwd` as `COC_PROJECT_ROOT`, sets
+`COC_HOST=pi`, and binds the MCP child to the current Pi session id. No child
+starts merely by loading the package. COC sessions live under
+`~/.pi/coc-agent/sessions`, separate from coding sessions.
 
 ## Progressive OCR
 

@@ -1431,6 +1431,18 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     obligations, concealed = _build_obligations(
         rolls, context_effects, exceptional_applies
     )
+    if not obligations and not rolls:
+        window_roll_calls = [
+            c for c in window
+            if c.get("ok") is True and c.get("tool") in ("rules.roll", "rules.push")
+        ]
+        if window_roll_calls:
+            raise TurnContractError(
+                "state_corrupt",
+                "source window contains successful roll calls but no obligations "
+                "could be built; the source log may be polluted by failed retry "
+                "attempts — remove orphaned pending-turn state and retry",
+            )
     missing_effects = [
         {
             "obligation_id": row["obligation_id"],

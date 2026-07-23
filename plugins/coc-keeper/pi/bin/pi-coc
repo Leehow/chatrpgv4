@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# pi-coc — project-local COC Keeper entry for Pi (scheme C).
+# Isolated PI_CODING_AGENT_DIR, no built-in coding tools, fixed session + host prompt.
+set -euo pipefail
+
+SCRIPT_PATH=$0
+if [ -L "$SCRIPT_PATH" ]; then
+  # Resolve one level of symlink (PATH install) without requiring readlink -f.
+  LINK_TARGET=$(ls -l "$SCRIPT_PATH" | sed 's/.* -> //')
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH=$LINK_TARGET ;;
+    *) SCRIPT_PATH=$(CDPATH= cd -- "$(dirname "$SCRIPT_PATH")" && pwd)/$LINK_TARGET ;;
+  esac
+fi
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$SCRIPT_PATH")" && pwd)
+
+is_repo_root() {
+  dir=$1
+  pkg=$dir/package.json
+  [ -f "$pkg" ] || return 1
+  grep -q '"name"[[:space:]]*:[[:space:]]*"@chatrpg/coc-keeper-pi"' "$pkg"
+}
+
+REPO_ROOT=
+probe=$SCRIPT_DIR
+while [ "$probe" != "/" ]; do
+  if is_repo_root "$probe"; then
+    REPO_ROOT=$probe
+    break
+  fi
+  probe=$(CDPATH= cd -- "$probe/.." && pwd)
+done
+
+if [ -z "$REPO_ROOT" ]; then
+  printf '%s\n' "pi-coc: cannot locate chatrpgv4 repo root from $SCRIPT_DIR" >&2
+  exit 1
+fi
+
+PI_CODING_AGENT_DIR=${PI_COC_AGENT_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/coc-agent}}
+export PI_CODING_AGENT_DIR
+
+HOST_SYSTEM_PROMPT=$REPO_ROOT/plugins/coc-keeper/pi/prompts/host-system.md
+DEFAULT_SESSION_ID=${PI_COC_SESSION_ID:-coc-keeper}
+
+if [ ! -f "$PI_CODING_AGENT_DIR/settings.json" ]; then
+  cat <<EOF >&2
+pi-coc: missing COC agent home settings: $PI_CODING_AGENT_DIR/settings.json
+
+One-time bootstrap (example):
+  mkdir -p "\$HOME/.pi/coc-agent/sessions"
+  cat > "\$HOME/.pi/coc-agent/settings.json" <<'JSON'
+  {
+    "defaultProvider": "grok-relay",
+    "defaultModel": "grok-4.5",
+    "packages": ["$REPO_ROOT"],
+    "theme": "light",
+    "quietStartup": true
+  }
+  JSON
+  ln -sfn "\$HOME/.pi/agent/auth.json" "\$HOME/.pi/coc-agent/auth.json"
+  ln -sfn "\$HOME/.pi/agent/models.json" "\$HOME/.pi/coc-agent/models.json"
+  ln -sfn "\$HOME/.pi/agent/models-store.json" "\$HOME/.pi/coc-agent/models-store.json"
+  ln -sfn "\$HOME/.pi/agent/bin" "\$HOME/.pi/coc-agent/bin"
+  ln -sfn "$REPO_ROOT/plugins/coc-keeper/pi/bin/pi-coc" "\$HOME/.npm-global/bin/pi-coc"
+
+See plugins/coc-keeper/pi/README.md for the dual-entry workflow.
+EOF
+  exit 1
+fi
+
+if [ ! -f "$HOST_SYSTEM_PROMPT" ]; then
+  printf '%s\n' "pi-coc: missing host system prompt: $HOST_SYSTEM_PROMPT" >&2
+  exit 1
+fi
+
+case "$(pwd -P)/" in
+  "$REPO_ROOT"/*|"$REPO_ROOT"/) ;;
+  *) cd -- "$REPO_ROOT" || exit 1 ;;
+esac
+
+if ! command -v pi >/dev/null 2>&1; then
+  printf '%s\n' "pi-coc: 'pi' not found on PATH (install @earendil-works/pi-coding-agent)" >&2
+  exit 1
+fi
+
+# Pi looks up fd/rg under $PI_CODING_AGENT_DIR/bin. Share coding-home binaries
+# instead of letting interactive startup download into an empty COC home.
+if [ ! -x "$PI_CODING_AGENT_DIR/bin/fd" ] || [ ! -x "$PI_CODING_AGENT_DIR/bin/rg" ]; then
+  printf '%s\n' "pi-coc: missing fd/rg under $PI_CODING_AGENT_DIR/bin" >&2
+  printf '%s\n' "Fix: ln -sfn \"\$HOME/.pi/agent/bin\" \"$PI_CODING_AGENT_DIR/bin\"" >&2
+  exit 1
+fi
+
+# Wrapper-only --new: open a fresh Pi session (omit default session-id).
+WANT_NEW=0
+USER_SESSION_OPT=0
+USER_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --new)
+      WANT_NEW=1
+      shift
+      continue
+      ;;
+    --session|--session-id|--fork|-c|--continue|--resume|-r|--no-session)
+      USER_SESSION_OPT=1
+      ;;
+  esac
+  USER_ARGS+=("$1")
+  shift
+done
+
+PI_ARGS=(
+  --no-builtin-tools
+  --approve
+  --no-context-files
+  --append-system-prompt "$HOST_SYSTEM_PROMPT"
+)
+if [[ "$WANT_NEW" -eq 0 && "$USER_SESSION_OPT" -eq 0 ]]; then
+  PI_ARGS+=(--session-id "$DEFAULT_SESSION_ID")
+fi
+# Under `set -u`, expanding an empty array as "${USER_ARGS[@]}" is unbound on
+# some bash builds (e.g. macOS). Only append when the user passed args.
+if ((${#USER_ARGS[@]} > 0)); then
+  PI_ARGS+=("${USER_ARGS[@]}")
+fi
+
+exec pi "${PI_ARGS[@]}"

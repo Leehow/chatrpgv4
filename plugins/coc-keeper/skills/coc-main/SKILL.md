@@ -17,6 +17,8 @@ does not make repository code a PDF parser.
 
 Use this skill after an explicit COC activation request such as `activate COC mode`, `enter COC mode`, `start COC game`, `continue COC campaign`, or equivalent Chinese natural language.
 
+**Dedicated `pi-coc` desktop:** entering the session **is** activation. COC mode is already on. Do **not** ask the player to say「激活 COC」or wait for an activation phrase. On a fresh desktop, begin this skill’s onboarding immediately; on resume, continue the table (prefer `session.resume` when a campaign is bound). Host-injected `coc-pi-table-open` messages are activation equivalents.
+
 Also treat **host try / plugin demo** prompts as activation. Cursor (and similar hosts) may inject prompts like:
 
 - `Use the Coc Keeper plugin in one concrete, useful way that shows why it's valuable in this workspace.`
@@ -24,7 +26,7 @@ Also treat **host try / plugin demo** prompts as activation. Cursor (and similar
 
 For those prompts: run this skill’s normal onboarding workflow below. Do **not** answer with a standalone rules-engine roll demo, capability catalog, or “why this plugin is valuable” essay. The valuable first contact is the welcome + campaign/scenario wizard.
 
-Do not proactively offer COC mode during ordinary coding or repository work unrelated to COC.
+Do not proactively offer COC mode during ordinary coding or repository work unrelated to COC. On `pi-coc`, offering COC is not “proactive during coding”—the whole process is the table.
 
 ## Workflow
 

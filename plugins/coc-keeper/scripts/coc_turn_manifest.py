@@ -826,7 +826,6 @@ def refresh_pending_window(
             journal_position = position
             journal_row = row
             journal_end_offset = row_end
-            break
     if journal_position is None or journal_row is None or journal_end_offset is None:
         raise TurnManifestError(
             "journal_receipt_pending",
@@ -835,6 +834,7 @@ def refresh_pending_window(
 
     selected = [deepcopy(row) for row, _end in rows[: journal_position + 1]]
     repairs: list[dict[str, Any]] = []
+    retry_boundary_seen = False
     for row, _row_end in rows[journal_position + 1 :]:
         if row.get("ok") is not True:
             continue
@@ -857,10 +857,14 @@ def refresh_pending_window(
                     "unsupported post-journal idempotent replay marker",
                 )
             continue
-        if (
-            tool == "state.journal"
-            and args.get("decision_id") == manifest["journal_decision_id"]
-        ):
+        if tool == "state.journal":
+            if args.get("decision_id") == manifest["journal_decision_id"]:
+                continue
+            # A different journal after ours means a retry attempt started.
+            # All subsequent rows belong to that retry, not to our turn.
+            retry_boundary_seen = True
+            continue
+        if retry_boundary_seen:
             continue
         if tool in POST_JOURNAL_REPAIR_TOOLS:
             repairs.append(deepcopy(row))

@@ -77,6 +77,48 @@ def test_player_safe_hud_model_hides_secrets_and_coding_chrome():
     assert any("物品 2" in line for line in result["footer"])
 
 
+def test_pi_coc_host_prompt_and_wrapper_defaults():
+    host_prompt = PLUGIN / "pi" / "prompts" / "host-system.md"
+    wrapper = PLUGIN / "pi" / "bin" / "pi-coc"
+    assert host_prompt.is_file()
+    text = host_prompt.read_text(encoding="utf-8")
+    assert "pi-coc" in text
+    assert "already active" in text.lower() or "已经" in text or "already active" in text
+    assert "Never ask" in text or "无需" in text or "never ask" in text.lower()
+    assert "coc_capabilities" in text
+    assert "zh-Hans" in text
+    script = wrapper.read_text(encoding="utf-8")
+    assert "--no-context-files" in script
+    assert "host-system.md" in script
+    assert "--session-id" in script
+    assert "coc-keeper" in script
+    assert "quietStartup" in script
+    assert wrapper.stat().st_mode & 0o111
+    main = (PLUGIN / "skills" / "coc-main" / "SKILL.md").read_text(encoding="utf-8")
+    assert "pi-coc" in main
+    assert "entering the session **is** activation" in main
+
+
+def test_pi_coc_welcome_guide_copy():
+    result = _node(ROOT / "tests/pi/welcome-smoke.mjs", str(ROOT))
+    assert result["ok"] is True
+    assert result["fullHasWelcome"] is True
+    assert result["fullHasAlreadyActive"] is True
+    assert result["fullNoActivatePrompt"] is True
+    assert result["fullHasTools"] is True
+    assert result["fullHasNew"] is True
+    assert result["resumeIsShort"] is True
+    assert result["resumeAlreadyActive"] is True
+    assert result["resumeReason"] is True
+    assert result["newReasonIsFull"] is True
+    assert result["headerHasTitle"] is True
+    assert result["headerSaysActive"] is True
+    assert result["customType"] == "coc-pi-welcome"
+    assert result["tableOpenNoAskActivate"] is True
+    assert result["autoOpenFreshStartup"] is True
+    assert result["noAutoOpenResumeHistory"] is True
+
+
 def test_revision_component_chain_bindings_activation_roles_and_secrets():
     result = _node(ROOT / "tests/pi/revision-probe.mjs", str(ROOT))
     assert result["strictHappy"] == "usable"
