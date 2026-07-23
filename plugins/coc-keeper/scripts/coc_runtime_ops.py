@@ -83,7 +83,7 @@ SETUP_OPERATION_KINDS = frozenset({
     "onboarding.inspect", "rules.inspect", "campaign.create",
     "campaign.quick_start", "scenario.bind_pdf", "campaign.render_briefing",
     "actor.create", "investigator.create", "investigator.render_card",
-    "campaign.link_investigator",
+    "investigator.contract", "campaign.link_investigator",
 })
 
 
@@ -3348,6 +3348,64 @@ def execute_setup_operation(
                 ),
             },
             "state_refs": [str(created.relative_to(root))],
+        }
+    if kind == "investigator.contract":
+        if set(payload) != {"campaign_id"}:
+            raise RuntimeOperationError(
+                "investigator.contract requires exactly campaign_id"
+            )
+        campaign_id = _id(payload.get("campaign_id"), "campaign_id")
+        campaign_dir = root / ".coc" / "campaigns" / campaign_id
+        if not campaign_dir.is_dir():
+            raise FileNotFoundError(f"unknown campaign: {campaign_id}")
+        campaign = coc_state.load_campaign_state(campaign_dir)
+        ruleset_id = coc_state.coc_rulesets.get_campaign_ruleset_id(campaign)
+        resolver = coc_state.coc_rulesets.get_resolver(campaign)
+        try:
+            advertised = resolver.public_api_index()
+        except Exception as exc:
+            raise RuntimeOperationError(
+                "active ruleset public_api_index failed"
+            ) from exc
+        capability = "investigator_create_contract"
+        provider = getattr(resolver, capability, None)
+        if (
+            not isinstance(advertised, dict)
+            or capability not in advertised
+            or not callable(provider)
+        ):
+            raise RuntimeOperationError(
+                f"ruleset {ruleset_id!r} does not support investigator contracts"
+            )
+        try:
+            contract = provider()
+        except (OSError, TypeError, ValueError) as exc:
+            raise RuntimeOperationError(
+                f"ruleset {ruleset_id!r} investigator contract failed"
+            ) from exc
+        manifest = coc_state.coc_rulesets.load_manifest(ruleset_id)
+        versions = manifest.get("schema_versions")
+        investigator_version = (
+            versions.get("investigator") if isinstance(versions, dict) else None
+        )
+        if (
+            not isinstance(contract, dict)
+            or contract.get("schema_version") != 1
+            or contract.get("kind") != "investigator_create_payload_contract"
+            or contract.get("ruleset_id") != ruleset_id
+            or contract.get("ruleset_version") != manifest.get("version")
+            or contract.get("investigator_schema_version") != investigator_version
+            or not isinstance(contract.get("payload_schema"), dict)
+            or not isinstance(contract.get("runtime_authority"), dict)
+        ):
+            raise RuntimeOperationError(
+                f"ruleset {ruleset_id!r} investigator contract identity is invalid"
+            )
+        return {
+            "schema_version": 1,
+            "status": "PASS",
+            "kind": kind,
+            "result": deepcopy(contract),
         }
     if kind == "actor.create":
         if set(payload) != {"campaign_id", "actor_id", "sheet"}:

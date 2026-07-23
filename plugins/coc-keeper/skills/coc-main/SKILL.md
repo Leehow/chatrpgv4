@@ -102,7 +102,15 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    it, and fail closed as an installation/contract defect if it is missing. If
    the confirmed sheet omits the localized view required by
    `investigator.render_card`, skip rendering and continue: the card is not an
-   opening gate.
+   opening gate. For a custom investigator, immediately after
+   `campaign.create` succeeds, invoke the exact read-only
+   `setup.investigator_contract` operation once with only that
+   `campaign_id`. Retain its ruleset-identity-bound
+   `result.payload_schema` for the creation flow and use it to construct the
+   final `investigator.create` payload; do not guess coc7 fields from the
+   kernel `setup.invoke` shell or requery the contract before creation.
+   Built-in `setup.quick_start` already supplies its pregen and does not need
+   this query.
 
    For a fresh PDF on Codex, prefer the experimental document-lane capability
    when `coc_opening_source_coordinator_v1=true`. The main KP establishes only

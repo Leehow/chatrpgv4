@@ -15,6 +15,15 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
 
 - Full guided creation: characteristics, age, occupation, skills, backstory, equipment, derived values.
 - Quick creation: ask for a concept, generate a valid investigator, then ask for confirmation.
+- After the custom campaign exists and before constructing the final creation
+  payload, invoke `coc_invoke` once with
+  `operation="setup.investigator_contract"` and `arguments` containing exactly
+  that `campaign_id`. Retain the returned package-owned
+  `result.payload_schema` through confirmation. It is the upfront machine
+  contract for both deterministic Quick Fire and complete-sheet input; do not
+  infer the shape from `setup.invoke`'s ruleset-agnostic object shell or query
+  it again before `investigator.create`. Existing deterministic runtime
+  validation and arithmetic remain authoritative.
 - If the campaign has a bound scenario or PDF module, show the player-safe
   character creation briefing before rolling characteristics or choosing an
   occupation. Prefer the exact
@@ -54,18 +63,20 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   assignment, occupation, backstory, and final character craft remain live
   semantic Keeper work.
 - After the player confirms the final parameters, reuse the canonical
-  `setup.invoke` card already returned by setup inspection; do not rediscover
-  or guess a second setup shape. Invoke `investigator.create` once with a JSON
-  object (never a JSON-encoded string) whose payload contains only
-  `investigator_id`, `sheet`, and optional sibling `creation`. Before sending,
-  ensure the machine `sheet` itself contains `id` equal to that same
-  `investigator_id` and a non-empty `name`. Except for the deterministic Quick
-  Fire materialization shape above, include all eight `characteristics`
-  (`STR`, `CON`, `SIZ`, `DEX`, `APP`, `INT`, `POW`, `EDU`), while preserving
-  the rest of the confirmed sheet. Before the create call, do one machine-sheet
-  checklist: `derived` has `HP`, `MP`, `SAN`, `Luck`, `DB`, `Build`, and `MOV`;
-  a named creation method still validates against its rules array/budget; and
-  every `skills` key is the canonical English machine key, including exact
+  `setup.invoke` card already returned by setup inspection and construct its
+  `investigator.create` payload from the retained
+  `setup.investigator_contract` schema; do not rediscover either operation or
+  guess a second setup shape. Invoke `investigator.create` once with a JSON
+  object (never a JSON-encoded string) whose payload contains only the fields
+  allowed by the selected contract branch. Before sending, ensure the machine
+  `sheet` itself contains `id` equal to that same `investigator_id` and a
+  non-empty `name`. Except for the deterministic Quick Fire materialization
+  shape above, include all eight `characteristics` (`STR`, `CON`, `SIZ`, `DEX`,
+  `APP`, `INT`, `POW`, `EDU`), while preserving the rest of the confirmed
+  sheet. Before the create call, follow the returned schema's machine-sheet
+  requirements: `derived` has `HP`, `MP`, `SAN`, `Luck`, `DB`, `Build`, and
+  `MOV`; a named creation method still validates against its rules array/budget;
+  and every `skills` key is the canonical English machine key, including exact
   `Credit Rating`. Never put Chinese labels such as `信用评级` or `侦查` in
   `sheet.skills`; localized labels belong only in `player_facing_sheet_zh`.
   Compute derived values through the COC7 rules contract rather than translating

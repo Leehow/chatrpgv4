@@ -6819,6 +6819,56 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "setup.investigator_contract",
+    "Return the active campaign ruleset's package-owned, versioned construction "
+    "contract for the complete investigator.create payload. Query this once "
+    "after campaign creation instead of guessing ruleset-specific sheet fields.",
+    {
+        "campaign_id": {
+            "type": "string",
+            "required": True,
+            "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "desc": "exact existing campaign id whose bound ruleset owns the contract",
+        },
+    },
+    needs_campaign=False,
+    access="query",
+    read_domains=("setup",),
+    write_domains=(),
+    recovery_domains=(),
+    response_mode="full",
+    audit_mode="reference",
+    strict_read_only=True,
+)
+def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
+    if set(args) != {"campaign_id"}:
+        raise ToolError(
+            "invalid_param",
+            "setup.investigator_contract requires exactly campaign_id",
+        )
+    try:
+        receipt = coc_runtime_ops.execute_setup_operation(
+            ctx.root,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.contract",
+                "payload": {"campaign_id": args["campaign_id"]},
+            },
+        )
+    except (
+        coc_runtime_ops.RuntimeOperationError,
+        FileNotFoundError,
+    ) as exc:
+        raise ToolError("setup_failed", str(exc)) from exc
+    return receipt, [], [
+        "use result.payload_schema to construct the final investigator.create "
+        "payload; deterministic runtime validation remains authoritative",
+        "retain this campaign-bound contract for the current creation flow; "
+        "do not rediscover or requery it before investigator.create",
+    ]
+
+
+@tool(
     "setup.invoke",
     "Invoke one existing canonical custom-campaign setup operation. This thin "
     "MCP-facing gateway delegates schema, source-bundle, path, and state "

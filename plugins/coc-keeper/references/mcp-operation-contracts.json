@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:0235923601b70010e275dc088892aac2c09db5cad1279dc37fe762b03863ea60",
+  "content_sha256": "sha256:a936db0a67d73494cf398e4608e83d1bbf917df4129a87e4d6c9a4aa29478ddf",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 90,
+  "operation_count": 91,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -2652,6 +2652,34 @@
       },
       "needs_campaign": false,
       "summary": "Inspect canonical pre-session onboarding state: campaigns, investigators, built-in starters/pregens, and setup operation ids. Use in an empty or unknown workspace instead of searching files."
+    },
+    "setup.investigator_contract": {
+      "canonical_operation": "setup.investigator_contract",
+      "description": "Return the active campaign ruleset's package-owned, versioned construction contract for the complete investigator.create payload. Query this once after campaign creation instead of guessing ruleset-specific sheet fields. Canonical operation `setup.investigator_contract`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "campaign_id": {
+            "description": "exact existing campaign id whose bound ruleset owns the contract",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": false,
+      "summary": "Return the active campaign ruleset's package-owned, versioned construction contract for the complete investigator.create payload. Query this once after campaign creation instead of guessing ruleset-specific sheet fields."
     },
     "setup.invoke": {
       "canonical_operation": "setup.invoke",

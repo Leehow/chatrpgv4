@@ -905,6 +905,57 @@ def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
     assert json.loads(check.stdout)["ok"] is True
 
 
+def test_investigator_contract_discovery_exposes_only_campaign_identity(tmp_path):
+    server = _load_server()
+    discovered = server._call_tool(
+        "coc_discover",
+        {"operation": "setup.investigator_contract"},
+    )["data"]
+
+    full_schema = discovered["operation"]["inputSchema"]
+    assert set(full_schema["properties"]) == {
+        "root",
+        "campaign",
+        "campaign_id",
+    }
+    assert full_schema["required"] == ["campaign_id"]
+    assert "sheet" not in full_schema["properties"]
+    assert "creation" not in full_schema["properties"]
+
+    invoke_card = discovered["invoke_card"]
+    assert invoke_card["operation"] == "setup.investigator_contract"
+    assert invoke_card["missing_arguments"] == ["campaign_id"]
+    assert invoke_card["arguments_schema"]["required"] == ["campaign_id"]
+    assert set(invoke_card["arguments_schema"]["properties"]) == {"campaign_id"}
+
+    created = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.invoke",
+            "root": os.fspath(tmp_path),
+            "arguments": {
+                "kind": "campaign.create",
+                "payload": {
+                    "campaign_id": "contract-discovery",
+                    "title": "Contract Discovery",
+                },
+            },
+        },
+    )
+    assert created["ok"] is True, created
+    queried = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.investigator_contract",
+            "root": os.fspath(tmp_path),
+            "arguments": {"campaign_id": "contract-discovery"},
+        },
+    )
+    assert queried["ok"] is True, queried
+    assert queried["data"]["result"]["ruleset_id"] == "coc7"
+    assert queried["data"]["result"]["payload_schema"]["oneOf"]
+
+
 def test_opening_selector_and_page_schemas_match_every_mcp_projection():
     archive_mod = _load_archive_module()
     server = _load_server()

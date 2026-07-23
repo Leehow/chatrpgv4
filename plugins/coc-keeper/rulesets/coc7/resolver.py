@@ -47,6 +47,7 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 PLUGIN_ROOT = PACKAGE_DIR.parents[1]
 SCRIPTS_DIR = PLUGIN_ROOT / "scripts"
 RULES_DIR = PACKAGE_DIR / "rules-json"
+INVESTIGATOR_CREATE_CONTRACT_PATH = PACKAGE_DIR / "investigator-create-contract.json"
 
 
 def _load_sibling(name: str, filename: str):
@@ -333,6 +334,23 @@ def skill_describe() -> dict[str, Any]:
     )
 
 
+def investigator_create_contract() -> dict[str, Any]:
+    """Return this package's versioned ``investigator.create`` payload contract.
+
+    The package-owned JSON is construction guidance for the Keeper. Existing
+    deterministic materialization and validation remain authoritative in the
+    established ``investigator.create`` runtime path. Parsing on each call
+    guarantees callers receive independent data that cannot mutate resolver
+    state or another caller's result.
+    """
+    contract = json.loads(
+        INVESTIGATOR_CREATE_CONTRACT_PATH.read_text(encoding="utf-8")
+    )
+    if not isinstance(contract, dict):
+        raise ValueError("investigator create contract must be an object")
+    return contract
+
+
 def first_aid(
     decision_id: str,
     skill_value: int,
@@ -466,6 +484,14 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "aliases": ["skill_descriptions"],
             "signature": "skill_describe()",
             "returns": "parsed skill-descriptions.json catalog for this package",
+        },
+        "investigator_create_contract": {
+            "aliases": [],
+            "signature": "investigator_create_contract()",
+            "returns": (
+                "package-owned versioned construction contract for the complete "
+                "investigator.create payload"
+            ),
         },
         "first_aid": {
             "aliases": [],

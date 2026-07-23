@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "kind": "investigator_create_payload_contract",
+  "ruleset_id": "coc7",
+  "ruleset_version": "1.0.0",
+  "investigator_schema_version": 1,
+  "runtime_authority": {
+    "authoritative_validator": "plugins/coc-keeper/scripts/coc_character.py",
+    "schema_role": "upfront machine-readable construction guidance",
+    "note": "This schema describes the supported payload shapes. Existing deterministic runtime materialization, arithmetic, derived-value consistency, creation-method validation, and state-write checks remain authoritative."
+  },
+  "payload_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "COC7 investigator.create payload",
+    "description": "Complete payload passed as setup.invoke payload when kind is investigator.create. The runtime also requires sheet.id to equal investigator_id; JSON Schema cannot express that cross-field equality.",
+    "oneOf": [
+      {
+        "title": "Deterministic Quick Fire input",
+        "type": "object",
+        "required": [
+          "investigator_id",
+          "sheet",
+          "creation"
+        ],
+        "properties": {
+          "investigator_id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "sheet": {
+            "$ref": "#/$defs/quick_fire_sheet"
+          },
+          "creation": {
+            "$ref": "#/$defs/quick_fire_creation"
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "title": "Complete legacy sheet input",
+        "type": "object",
+        "required": [
+          "investigator_id",
+          "sheet"
+        ],
+        "properties": {
+          "investigator_id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "sheet": {
+            "$ref": "#/$defs/complete_sheet"
+          },
+          "creation": {
+            "$ref": "#/$defs/complete_sheet_creation"
+          }
+        },
+        "additionalProperties": false
+      }
+    ],
+    "$defs": {
+      "safe_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+        "description": "Stable safe id. sheet.id must contain the same string."
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": ".*\\S.*",
+        "description": "Non-empty investigator name."
+      },
+      "age": {
+        "type": "integer",
+        "minimum": 15,
+        "maximum": 89,
+        "description": "Optional age supported by the current COC7 age-adjustment brackets when creation arithmetic is evaluated."
+      },
+      "characteristics": {
+        "type": "object",
+        "required": [
+          "STR",
+          "CON",
+          "SIZ",
+          "DEX",
+          "APP",
+          "INT",
+          "POW",
+          "EDU"
+        ],
+        "properties": {
+          "STR": {
+            "type": "integer"
+          },
+          "CON": {
+            "type": "integer"
+          },
+          "SIZ": {
+            "type": "integer"
+          },
+          "DEX": {
+            "type": "integer"
+          },
+          "APP": {
+            "type": "integer"
+          },
+          "INT": {
+            "type": "integer"
+          },
+          "POW": {
+            "type": "integer"
+          },
+          "EDU": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true,
+        "description": "The eight required COC7 characteristic keys. Method-specific arrays, budgets, and derived arithmetic are checked by the runtime."
+      },
+      "derived": {
+        "type": "object",
+        "required": [
+          "HP",
+          "MP",
+          "SAN",
+          "Luck",
+          "DB",
+          "Build",
+          "MOV"
+        ],
+        "properties": {
+          "HP": {
+            "type": "integer"
+          },
+          "MP": {
+            "type": "integer"
+          },
+          "SAN": {
+            "type": "integer"
+          },
+          "Luck": {
+            "type": "integer"
+          },
+          "DB": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*"
+              }
+            ],
+            "description": "Damage bonus. Canonical zero is the string \"none\"; runtime derived-value consistency is authoritative."
+          },
+          "Build": {
+            "type": "integer"
+          },
+          "MOV": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true
+      },
+      "skills": {
+        "type": "object",
+        "required": [
+          "Credit Rating"
+        ],
+        "propertyNames": {
+          "pattern": "^(?=\\S)(?=[\\s\\S]*\\S$)[\\x00-\\x7F]+$"
+        },
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": "Canonical English machine skill keys mapped to non-negative integers, including exact Credit Rating. The current runtime checks non-empty trimmed ASCII keys but does not prove every key belongs to a canonical skill catalog."
+      },
+      "quick_fire_sheet": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "skills"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "name": {
+            "$ref": "#/$defs/name"
+          },
+          "age": {
+            "$ref": "#/$defs/age"
+          },
+          "skills": {
+            "$ref": "#/$defs/skills"
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "characteristics"
+              ]
+            },
+            {
+              "required": [
+                "derived"
+              ]
+            }
+          ]
+        },
+        "additionalProperties": true,
+        "description": "Quick Fire must omit characteristics and derived; the deterministic runtime materializes both."
+      },
+      "quick_fire_creation": {
+        "type": "object",
+        "required": [
+          "method",
+          "characteristic_assignment_order",
+          "luck_roll_total"
+        ],
+        "properties": {
+          "method": {
+            "const": "quick_fire_array"
+          },
+          "characteristic_assignment_order": {
+            "type": "array",
+            "minItems": 8,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "STR",
+                "CON",
+                "SIZ",
+                "DEX",
+                "APP",
+                "INT",
+                "POW",
+                "EDU"
+              ]
+            },
+            "description": "Each canonical characteristic exactly once, in descending Quick Fire array-slot priority order."
+          },
+          "luck_roll_total": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 18,
+            "description": "Authoritative 3D6 total. The runtime multiplies it by five."
+          }
+        },
+        "additionalProperties": true
+      },
+      "complete_sheet": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "characteristics",
+          "derived",
+          "skills"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/safe_id"
+          },
+          "name": {
+            "$ref": "#/$defs/name"
+          },
+          "age": {
+            "$ref": "#/$defs/age"
+          },
+          "characteristics": {
+            "$ref": "#/$defs/characteristics"
+          },
+          "derived": {
+            "$ref": "#/$defs/derived"
+          },
+          "skills": {
+            "$ref": "#/$defs/skills"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Complete legacy machine sheet. When a non-empty creation object is supplied, the runtime validates method constraints and derived-value consistency."
+      },
+      "complete_sheet_creation": {
+        "description": "Optional legacy creation record. An empty object preserves the historical no-method path; a populated object requires one supported method. Quick Fire materialization fields belong only to the deterministic Quick Fire branch.",
+        "oneOf": [
+          {
+            "type": "object",
+            "maxProperties": 0
+          },
+          {
+            "type": "object",
+            "required": [
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "rolled_in_order",
+                  "rolled_pool_assignment",
+                  "point_buy_460",
+                  "quick_fire_array"
+                ]
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "characteristic_assignment_order"
+                  ]
+                },
+                {
+                  "required": [
+                    "luck_roll_total"
+                  ]
+                }
+              ]
+            },
+            "additionalProperties": true
+          }
+        ]
+      }
+    }
+  }
+}
