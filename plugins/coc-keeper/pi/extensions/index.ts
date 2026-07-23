@@ -154,7 +154,7 @@ async function runOcr(params: JsonObject, signal?: AbortSignal): Promise<JsonObj
 export default function mainExtension(pi: ExtensionAPI) {
   let mcp: McpJsonlClient | null = null;
   let manager: CoordinatorDispatchManager | null = null;
-  const client = (ctx: ExtensionContext) => mcp ??= new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId());
+  const client = (ctx: ExtensionContext) => mcp ??= new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui");
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => result(await client(ctx).callTool(name, params, signal));
   pi.registerTool({
     name: "coc_capabilities", label: "COC capabilities",

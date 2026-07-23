@@ -697,7 +697,8 @@ export class McpJsonlClient {
   private pending = new Map<number, { resolve: (value: JsonObject) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly cwd: string;
   private readonly sessionId: string;
-  constructor(cwd: string, sessionId: string) { this.cwd = cwd; this.sessionId = sessionId; }
+  private readonly canSpawnSourceChild: boolean;
+  constructor(cwd: string, sessionId: string, canSpawnSourceChild: boolean = true) { this.cwd = cwd; this.sessionId = sessionId; this.canSpawnSourceChild = canSpawnSourceChild; }
   private failAll(error: Error) {
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
     this.pending.clear();
@@ -725,7 +726,7 @@ export class McpJsonlClient {
     if (this.child) return;
     const child = spawn(MCP_LAUNCH, [], {
       cwd: this.cwd, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
-      env: safeEnv({ COC_HOST: "pi", COC_PROJECT_ROOT: this.cwd, COC_RUNTIME_ROOT: RUNTIME_ROOT, COC_HOST_SESSION_ID: this.sessionId }),
+      env: safeEnv({ COC_HOST: "pi", COC_PROJECT_ROOT: this.cwd, COC_RUNTIME_ROOT: RUNTIME_ROOT, COC_HOST_SESSION_ID: this.sessionId, ...(this.canSpawnSourceChild ? {} : { COC_PI_HEADLESS: "1" }) }),
     });
     this.child = child;
     child.stdout.on("data", (chunk) => this.consume(chunk));

@@ -13405,30 +13405,51 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
     result_delivery = str(args.get("result_delivery") or "named_submit")
+    is_headless = str(os.environ.get("COC_PI_HEADLESS") or "").lower() in {"1", "true", "yes"}
     if result_delivery in {"named_submit", "task_return_to_parent"}:
         packets = [
             packet for packet in result.pop("packets", [])
             if isinstance(packet, dict)
         ]
-        task_builder = (
-            _pi_source_pack_dispatch_task
-            if str(os.environ.get("COC_HOST") or "").lower() == "pi"
-            else _source_pack_dispatch_task
-        )
-        result["dispatch_tasks"] = [task_builder(packet) for packet in packets]
-        result["dispatch_task_count"] = len(result["dispatch_tasks"])
-    hints = [
-        "for named_submit, spawn one background source-pack child per exact "
-        "returned dispatch_tasks[] value and continue play; add no transcript, "
-        "prefix, suffix, or reconstructed wrapper",
-        "for task_return_to_parent, spawn the exact dispatch task immediately; "
-        "do not poll or retrieve output, and on its natural completion forward "
-        "each exact results[i] once through progressive.fulfill_host_work",
-        "return_to_parent is reserved for a capability-advertised lifecycle "
-        "or source owner; it receives bare packets[] values and follows the "
-        "exact returned takeover card before forwarding results[i] through "
-        "progressive.fulfill_host_work",
-    ]
+        if is_headless:
+            # Headless/RPC mode has no host spawn-child capability. Keep the
+            # raw packets (with cached_page_refs) so the KP can read the source
+            # pages directly, but do NOT emit dispatch_tasks that would instruct
+            # spawning a background source-pack child the host cannot create.
+            result["packets"] = packets
+            result["dispatch_task_count"] = 0
+        else:
+            task_builder = (
+                _pi_source_pack_dispatch_task
+                if str(os.environ.get("COC_HOST") or "").lower() == "pi"
+                else _source_pack_dispatch_task
+            )
+            result["dispatch_tasks"] = [task_builder(packet) for packet in packets]
+            result["dispatch_task_count"] = len(result["dispatch_tasks"])
+    if is_headless:
+        hints = [
+            "headless mode: this host cannot spawn a background source-pack child. "
+            "Each packets[] entry carries cached_page_refs (paths to cached source "
+            "page text). Read those pages directly, extract the location/clue/NPC "
+            "pack semantically, and submit it once via progressive.fulfill_host_work.",
+            "if you cannot produce a valid pack, do NOT loop on claim/fulfill: fall "
+            "back to the existing skeleton topology plus cached page text and continue "
+            "the opening narration directly. Unfinished progressive work stays queued "
+            "and never blocks play.",
+        ]
+    else:
+        hints = [
+            "for named_submit, spawn one background source-pack child per exact "
+            "returned dispatch_tasks[] value and continue play; add no transcript, "
+            "prefix, suffix, or reconstructed wrapper",
+            "for task_return_to_parent, spawn the exact dispatch task immediately; "
+            "do not poll or retrieve output, and on its natural completion forward "
+            "each exact results[i] once through progressive.fulfill_host_work",
+            "return_to_parent is reserved for a capability-advertised lifecycle "
+            "or source owner; it receives bare packets[] values and follows the "
+            "exact returned takeover card before forwarding results[i] through "
+            "progressive.fulfill_host_work",
+        ]
     if not result.get("dispatch_tasks") and not result.get("packets"):
         hints.append(
             "no exact cached-page group is ready; unresolved or uncached requests "
