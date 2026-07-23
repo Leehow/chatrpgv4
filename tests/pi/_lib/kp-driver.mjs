@@ -87,28 +87,34 @@ const unsub = session.subscribe((event) => {
 });
 
 function waitForSettled(timeoutMs) {
-  // A KP turn completes when the agent stops emitting events for a quiet period
-  // after having produced at least one assistant message_end. We poll lastEventAt.
+  // A KP turn completes on agent_end (definitive) or agent_settled. We also
+  // poll for a quiet period after the LAST event seen, but cap with a HARD
+  // absolute timeout (not reset by streaming events) so a long thinking stream
+  // cannot extend the wait indefinitely.
   return new Promise((resolve) => {
+    const startedAt = Date.now();
     let lastEventAt = Date.now();
-    let sawAssistant = false;
+    let sawAssistantText = false;
     const u = session.subscribe((ev) => {
       lastEventAt = Date.now();
-      if (ev.type === "message_end" && (ev.message || {}).role === "assistant") sawAssistant = true;
-      // agent_settled is the definitive "turn fully done" signal.
-      if (ev.type === "agent_settled" && sawAssistant) { cleanup(); resolve("settled"); }
+      if (ev.type === "message_end" && (ev.message || {}).role === "assistant") {
+        const c = (ev.message || {}).content;
+        const hasText = typeof c === "string" ? c.trim() : Array.isArray(c) && c.some((p) => p.type === "text" && (p.text || "").trim());
+        if (hasText) sawAssistantText = true;
+      }
+      if (ev.type === "agent_end" || ev.type === "agent_settled") { cleanup(); resolve("settled"); }
     });
-    const cleanup = () => u();
+    const cleanup = () => { u(); clearInterval(interval); };
     const interval = setInterval(() => {
-      // Quiet for 8s after seeing assistant output => treat as settled.
-      if (sawAssistant && Date.now() - lastEventAt > 8000) {
-        clearInterval(interval); cleanup(); resolve("quiet");
+      // Quiet for 12s after seeing assistant TEXT (not just tool calls) => done.
+      if (sawAssistantText && Date.now() - lastEventAt > 12000) {
+        cleanup(); resolve("quiet_after_text");
       }
+      // HARD absolute timeout: never reset by events.
       if (Date.now() - startedAt > timeoutMs) {
-        clearInterval(interval); cleanup(); resolve("timeout");
+        cleanup(); resolve("timeout");
       }
-    }, 500);
-    const startedAt = Date.now();
+    }, 1000);
   });
 }
 
