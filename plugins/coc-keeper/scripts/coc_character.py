@@ -132,7 +132,11 @@ def materialize_quick_fire_create_sheet(
     if creation.get("method") != "quick_fire_array":
         raise ValueError(
             "characteristic_assignment_order/luck_roll_total require "
-            "creation.method=quick_fire_array"
+            "creation.method=quick_fire_array. Full Quick Fire creation = "
+            "{method:'quick_fire_array', characteristic_assignment_order:"
+            "[STR,CON,SIZ,DEX,APP,INT,POW,EDU in the Keeper's chosen priority "
+            "order], luck_roll_total: integer 3..18}. Sheet must omit "
+            "characteristics/derived; the deterministic layer computes them."
         )
     if "characteristics" in materialized or "derived" in materialized:
         raise ValueError(
@@ -243,7 +247,10 @@ def validate_character_sheet(sheet: dict) -> list[str]:
         errors.append("missing name")
     characteristics = sheet.get("characteristics")
     if not isinstance(characteristics, dict):
-        errors.append("missing characteristics")
+        errors.append(
+            "missing characteristics (requires each of "
+            "STR,CON,SIZ,DEX,APP,INT,POW,EDU as integers)"
+        )
         return errors
     for key in REQUIRED_CHARACTERISTICS:
         if key not in characteristics:
@@ -273,7 +280,10 @@ def validate_character_create_sheet(
     derived = sheet.get("derived")
     required_derived = ("HP", "MP", "SAN", "Luck", "DB", "Build", "MOV")
     if not isinstance(derived, dict):
-        errors.append("missing derived")
+        errors.append(
+            "missing derived (requires HP,MP,SAN,Luck,DB,Build,MOV; "
+            "or use Quick Fire creation to auto-derive them)"
+        )
     else:
         for key in required_derived:
             if key not in derived:

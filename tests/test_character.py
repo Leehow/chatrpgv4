@@ -252,7 +252,7 @@ def test_apply_age_modifiers_rejects_missing_required_characteristic_reductions(
 def test_validate_character_sheet_reports_missing_required_fields():
     errors = coc_character.validate_character_sheet({"name": "Ada"})
     assert "missing id" in errors
-    assert "missing characteristics" in errors
+    assert any("missing characteristics" in e for e in errors)
 
 
 def _complete_quick_fire_sheet() -> dict:
@@ -289,7 +289,7 @@ def test_validate_character_create_sheet_rejects_localized_skills_and_missing_de
 
     errors = coc_character.validate_character_create_sheet(sheet)
 
-    assert "missing derived" in errors
+    assert any("missing derived" in e for e in errors)
     assert "missing canonical skill Credit Rating" in errors
     assert any("canonical English" in error for error in errors)
 
