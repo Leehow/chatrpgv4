@@ -3,10 +3,24 @@
 Headless agent interface for Call of Cthulhu play. Hosts send player input and
 receive structured Events; campaign state lives under `.coc/`.
 
+## Surfaces (do not conflate with "Pi")
+
+| Official name | Path | Role |
+|---|---|---|
+| **Pi Package** | repo-root package + `plugins/coc-keeper/pi/` | Interactive Pi product host (skills, gateway, private source lifecycle) |
+| **Headless Runtime** | this tree (`sdk`, `engine`, `adapters/keeper`) | Python Event API and skills-enabled Keeper turns |
+| **Narrator Bridge** | `runtime/adapters/pi/` | Frozen bounded narrator compatibility only — **not** the Pi product |
+
+Progressive multi-agent source work for host `pi` is owned by **Pi Package**,
+not by Narrator Bridge. Do not add product behavior only under
+`runtime/adapters/pi/`.
+
 Brain selection is project-level only: `.coc/runtime.json` with
 `"brain": "debug" | "pi"`. Missing config defaults to `debug`. The brain is
 bound when you call `create_session`; changing `runtime.json` later does not
-affect an open session (takes effect on the next `create_session`).
+affect an open session (takes effect on the next `create_session`). Legacy
+`brain: "pi"` labels the resolved pipeline; it is not permission to treat
+Narrator Bridge as full KP or Pi Package.
 
 Plugin location resolves from one point (`runtime/engine/plugin_locator.py`):
 the canonical plugin defaults to `<repo>/plugins/coc-keeper`, and every

@@ -255,6 +255,58 @@ def test_validate_character_sheet_reports_missing_required_fields():
     assert "missing characteristics" in errors
 
 
+def _complete_quick_fire_sheet() -> dict:
+    characteristics = {
+        "STR": 80,
+        "CON": 70,
+        "SIZ": 60,
+        "DEX": 60,
+        "APP": 50,
+        "INT": 50,
+        "POW": 50,
+        "EDU": 40,
+    }
+    return {
+        "id": "ada",
+        "name": "Ada",
+        "age": 29,
+        "characteristics": characteristics,
+        "derived": coc_character.derive_values(characteristics, luck=60),
+        "skills": {"Credit Rating": 20, "Spot Hidden": 50},
+    }
+
+
+def test_validate_character_create_sheet_accepts_complete_canonical_sheet():
+    assert coc_character.validate_character_create_sheet(
+        _complete_quick_fire_sheet(), {"method": "quick_fire_array"}
+    ) == []
+
+
+def test_validate_character_create_sheet_rejects_localized_skills_and_missing_derived():
+    sheet = _complete_quick_fire_sheet()
+    sheet["derived"] = None
+    sheet["skills"] = {"信用评级": 20, "侦查": 50}
+
+    errors = coc_character.validate_character_create_sheet(sheet)
+
+    assert "missing derived" in errors
+    assert "missing canonical skill Credit Rating" in errors
+    assert any("canonical English" in error for error in errors)
+
+
+def test_validate_character_create_sheet_rejects_wrong_quick_fire_array_and_derived_values():
+    sheet = _complete_quick_fire_sheet()
+    sheet["characteristics"]["STR"] = 60
+    sheet["derived"]["DB"] = "0"
+
+    errors = coc_character.validate_character_create_sheet(
+        sheet, {"method": "quick_fire_array"}
+    )
+
+    assert any("quick_fire_array values" in error for error in errors)
+    assert "derived DB '0' does not match rules value 'none'" in errors
+
+
 def test_characteristic_generation_methods_include_point_buy_and_quick_fire():
     methods = coc_character.characteristic_generation_methods()
 
@@ -334,3 +386,76 @@ def test_validate_quick_fire_array_accepts_same_values_in_any_assignment():
     )
 
     assert errors == []
+
+
+def test_materialize_quick_fire_sheet_owns_fixed_numbers_and_derived_values():
+    compact = {
+        "id": "ada",
+        "name": "Ada",
+        "age": 29,
+        "skills": {"Credit Rating": 20, "Spot Hidden": 50},
+    }
+    creation = {
+        "method": "quick_fire_array",
+        "characteristic_assignment_order": [
+            "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "STR",
+        ],
+        "luck_roll_total": 12,
+    }
+
+    sheet = coc_character.materialize_quick_fire_create_sheet(compact, creation)
+
+    assert sheet["characteristics"] == {
+        "DEX": 80,
+        "INT": 70,
+        "POW": 60,
+        "EDU": 60,
+        "CON": 50,
+        "SIZ": 50,
+        "APP": 50,
+        "STR": 40,
+    }
+    assert sheet["derived"] == coc_character.derive_values(
+        sheet["characteristics"], luck=60,
+    )
+    assert compact == {
+        "id": "ada",
+        "name": "Ada",
+        "age": 29,
+        "skills": {"Credit Rating": 20, "Spot Hidden": 50},
+    }
+    assert coc_character.validate_character_create_sheet(sheet, creation) == []
+
+
+@pytest.mark.parametrize(
+    ("creation", "message"),
+    [
+        (
+            {
+                "method": "quick_fire_array",
+                "characteristic_assignment_order": [
+                    "DEX", "INT", "POW", "EDU", "CON", "SIZ", "APP", "APP",
+                ],
+                "luck_roll_total": 12,
+            },
+            "each of STR, CON, SIZ, DEX, APP, INT, POW, EDU exactly once",
+        ),
+        (
+            {
+                "method": "quick_fire_array",
+                "characteristic_assignment_order": list(
+                    coc_character.REQUIRED_CHARACTERISTICS
+                ),
+                "luck_roll_total": 19,
+            },
+            "luck_roll_total must be an integer from 3 through 18",
+        ),
+    ],
+)
+def test_materialize_quick_fire_sheet_rejects_invalid_semantic_inputs(
+    creation: dict, message: str,
+):
+    with pytest.raises(ValueError, match=message):
+        coc_character.materialize_quick_fire_create_sheet(
+            {"id": "ada", "name": "Ada"}, creation,
+        )

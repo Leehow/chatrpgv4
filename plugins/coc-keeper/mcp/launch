@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PACKAGE_ROOT="$(cd "$PLUGIN_ROOT/../.." && pwd)"
 
 # Grok starts plugin MCP servers with the opened workspace as cwd, but does not
 # inject its hook-only workspace variables into MCP children. Resolve only a
@@ -24,10 +25,19 @@ fi
 # explicitly instead of deriving it from the managed plugin cache path.
 if [[ -n "${COC_PROJECT_ROOT:-}" && -d "${COC_PROJECT_ROOT}/runtime" ]]; then
   export COC_RUNTIME_ROOT="${COC_PROJECT_ROOT}/runtime"
+elif [[ -d "$PACKAGE_ROOT/runtime" ]]; then
+  export COC_RUNTIME_ROOT="$PACKAGE_ROOT/runtime"
 fi
 
 if [[ -n "${COC_PROJECT_ROOT:-}" && -f "${COC_PROJECT_ROOT}/uv.lock" ]]; then
   exec uv run --project "$COC_PROJECT_ROOT" --frozen python "$PLUGIN_ROOT/mcp/server.py"
+fi
+
+# The repository-root Pi Package ships the exact Python project and lockfile.
+# A clean installation must execute against that frozen packaged project while
+# retaining the opened campaign directory as cwd; never bypass its uv.lock.
+if [[ -f "$PACKAGE_ROOT/pyproject.toml" && -f "$PACKAGE_ROOT/uv.lock" ]]; then
+  exec uv run --project "$PACKAGE_ROOT" --frozen python "$PLUGIN_ROOT/mcp/server.py"
 fi
 
 exec uv run --python 3.14.6 --no-project python "$PLUGIN_ROOT/mcp/server.py"

@@ -1,6 +1,6 @@
 ---
 name: coc-keeper-play
-description: Run immersive Call of Cthulhu play after COC mode is active. Use for scene narration, NPC portrayal, player action handling, clue reveal, pacing, subsystem transitions, and campaign memory updates.
+description: Run immersive COC play after scenario/character readiness. Use for narration, NPCs, actions, clues, pacing, and subsystem transitions; never select during fresh raw-PDF setup owned by coc-main.
 ---
 
 # COC Keeper Play
@@ -43,6 +43,7 @@ routed**, not optional; ordinary turns stay here and do not re-read them all.
    `discovery_required=false` cards directly; exact discovery's `invoke_card` is already
    nested for `coc_invoke.arguments`, so merge it without translating, adding fields, or rediscovering.
 3. **Do not mix MCP and shell** toolbox transport for the same mutation or retry path.
+4. Every `coc_invoke.root` is the absolute host workspace, never plugin storage.
 
 **Pi/headless or no-plugin-MCP parity path** (on-demand, not list-everything each turn):
 
@@ -138,12 +139,11 @@ output evidence boundary, not a replacement prose engine:
    first-contact context lines. Never recompute, omit, duplicate, prepend to,
    append to, or rewrite those deterministic segments.
 
-Before delivering a new run's opening scene, freely draft its narrative but do
-not hand-write or recompute deterministic first-impression lines. Call
+Before a run's opening, draft narrative but not deterministic first impressions.
+Batch `npc.reaction`, then engagement writes, per the typed reference. Call
 `evidence.table_opening` with that narrative, the current `run_id`, and the
-ordered public `roll_id` values returned by opening `npc.reaction` calls as
-`presented_roll_ids` (`[]` is valid). The tool canonical-renders APP, Credit
-Rating, the governing higher value, D100, and level, inserts that block before a
+opening `npc.reaction` `roll_id` values as `presented_roll_ids` (`[]` is valid).
+The tool renders APP, Credit Rating, governing value, D100, and level before a
 final `[/in_game]` marker when present, records the exact result, and closes the
 pre-turn setup/opening evidence prefix. Deliver its returned `text` unchanged.
 Ordinary replies remain owned by `state.journal` plus `turn.finalize`; never
@@ -248,6 +248,15 @@ settled finalization.
    never become player prose. Once a bounded lookup establishes that an
    incidental detail is absent, improvise campaign-local canon and journal it;
    do not repeatedly rescan the same corpus.
+   When `scene.context.progressive.source_scope_takeover` is present and host
+   capability discovery says `coc_source_scope_locator_v1=true`, spawn its
+   exact `next_host_action.task` once in a context-free background Codex task.
+   Use the stable `dispatch_key` to avoid duplicate spawns while that job is
+   open. The locator—not this KP—reads the PDF, registers the smallest reviewed
+   page window, and wakes the existing host-work lifecycle. Never wait, poll,
+   retrieve its source output, or call `progressive.claim_host_work` while
+   `ready_for_background_count=0`; continue ordinary play. A later normal
+   `scene.context` will expose `background_takeover` after the locator succeeds.
 3. **Checks when failure is interesting.** Apply the always-on professional
    inference boundary before selecting a skill. `rules.roll` /
    `rules.opposed(contest_kind="noncombat")` / `sanity.execute` /
@@ -266,9 +275,9 @@ settled finalization.
    profile is not ready. This is not for every NPC or every turn; non-dependent
    observation, positioning, and parley continue. If `mechanics.ensure` returns
    `source_work_required`, or `combat.resolve` returns `mechanics_not_ready`,
-   immediately dispatch the exact repository-produced coordinator packet when
-   `coc_source_coordinator_v1=true`; otherwise use the separately advertised
-   direct-leaf claim path. Never
+   execute the exact returned `background_takeover`: `coordinator_fanout` when
+   its coordinator capability is true, `parent_flat_fanout` when its parent
+   capability is true, otherwise its advertised direct-leaf claim. Never
    substitute `rules.roll`, `rules.opposed`, copied stub values, or a generic
    profile. The existing `blocking_micro` semantics apply only to the current
    mechanics-dependent settlement. This adds no new narrative or output gate.
@@ -304,7 +313,6 @@ settled finalization.
    order, never in parallel for dice/resources/journal/finalization.
 
 For deep tool procedure, combat/dying/recovery, and typed operations, load `references/turn-tooling-and-typed-ops.md`. For compound chains and causal finalization field detail, load `references/compound-and-causal-finalization.md`.
-
 Check `secrets.briefing` at session start and after big reveals. `/.coc/investigators/` and starter character gates live in `references/investigators-horror-npc.md`.
 
 Use `[meta]` only for table/system questions. Subsystem depth remains in `coc-combat`, `coc-chase`, `coc-sanity`, `coc-development` — rule-craft skills loaded by reference from the active ruleset's skill pack (`rulesets/<id>/skills/`, default `coc7`) — as cases arise.

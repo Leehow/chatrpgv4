@@ -1,6 +1,6 @@
 ---
 name: coc-campaign-state
-description: Manage project-local COC JSON state. Use for creating, reading, validating, snapshotting, or explaining .coc workspaces, campaigns, reusable investigators, logs, memory, indexes, and playtest sandboxes.
+description: Explicitly inspect, validate, snapshot, restore, or explain project-local COC JSON state. Normal coc-main setup and play use typed gateways and must not select this skill merely to create a campaign, investigator, log, or playtest sandbox.
 ---
 
 # COC Campaign State

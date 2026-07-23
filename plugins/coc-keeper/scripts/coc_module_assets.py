@@ -292,21 +292,30 @@ def _same_entity_work(row: dict[str, Any], job_kind: str, target_id: str) -> boo
     )
 
 
-def _source_ref_signature(rows: Any) -> tuple[tuple[str, int, str], ...]:
+def _source_ref_signature(rows: Any) -> tuple[tuple[str, int, str, str, int, str, str], ...]:
     """Return the source identity that makes one host request reusable."""
     if not isinstance(rows, list):
         return ()
-    normalized: list[tuple[str, int, str]] = []
+    normalized: list[tuple[str, int, str, str, int, str, str]] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
         pdf_index = row.get("pdf_index")
         if isinstance(pdf_index, bool) or not isinstance(pdf_index, int):
             continue
+        revision = row.get("ocr_revision")
+        revision = revision if isinstance(revision, dict) else {}
         normalized.append((
             str(row.get("source_id") or ""),
             pdf_index,
             str(row.get("text_sha256") or ""),
+            str(revision.get("layer") or ""),
+            int(revision.get("revision") or 0),
+            str(revision.get("content_sha256") or ""),
+            str(
+                (row.get("structured_data") or {}).get("sha256")
+                if isinstance(row.get("structured_data"), dict) else ""
+            ),
         ))
     return tuple(sorted(normalized))
 
@@ -551,11 +560,11 @@ def _validate_locator_scope_object(
 
 def _validated_fact_ref_signature(
     rows: Any, *, field: str,
-) -> tuple[tuple[str, int, str], ...]:
+) -> tuple[tuple[str, int, str, str, int, str, str], ...]:
     """Validate and normalize one fact's exact source-id/page/text identity."""
     if not isinstance(rows, list) or not rows:
         raise ModuleAssetsError(f"{field} must be a non-empty list")
-    normalized: list[tuple[str, int, str]] = []
+    normalized: list[tuple[str, int, str, str, int, str, str]] = []
     seen_indices: set[int] = set()
     for position, ref in enumerate(rows):
         if not isinstance(ref, dict):
@@ -582,7 +591,18 @@ def _validated_fact_ref_signature(
             raise ModuleAssetsError(
                 f"{field}[{position}].text_sha256 must be a 64-char hex digest"
             )
-        normalized.append((source_id, pdf_index, text_sha256))
+        revision_ref = ref.get("ocr_revision")
+        revision_ref = revision_ref if isinstance(revision_ref, dict) else {}
+        normalized.append((
+            source_id, pdf_index, text_sha256,
+            str(revision_ref.get("layer") or ""),
+            int(revision_ref.get("revision") or 0),
+            str(revision_ref.get("content_sha256") or ""),
+            str(
+                (ref.get("structured_data") or {}).get("sha256")
+                if isinstance(ref.get("structured_data"), dict) else ""
+            ),
+        ))
     return tuple(sorted(normalized))
 
 
@@ -1634,6 +1654,152 @@ def get_skeleton(workspace: Path, asset_root_id: str) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _put_revisioned_page_unlocked(
+    mod: Path,
+    pdf_index: int,
+    stem: str,
+    normalized: str,
+    digest: str,
+    supplied_meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Publish one immutable page revision while its stable-id lock is held."""
+    revision_ref = supplied_meta.get("ocr_revision")
+    if not isinstance(revision_ref, dict):
+        raise ModuleAssetsError("ocr_revision must be an object")
+    layer = str(revision_ref.get("layer") or "")
+    revision = revision_ref.get("revision")
+    if (
+        layer not in coc_pdf_bundle.OCR_REVISION_LAYERS
+        or revision_ref.get("stable_id") != f"page:{pdf_index}:{layer}"
+        or revision_ref.get("pdf_index") != pdf_index
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision <= 0
+    ):
+        raise ModuleAssetsError("ocr_revision identity is invalid")
+    content_sha256 = _require_sha256(
+        revision_ref.get("content_sha256"), "ocr_revision.content_sha256",
+    )
+    structured_text = supplied_meta.pop("_structured_text", None)
+    structured_sha256 = str(
+        supplied_meta.get("structured_data_sha256") or ""
+    ).strip().lower()
+    if structured_text is not None:
+        if not isinstance(structured_text, str):
+            raise ModuleAssetsError("structured page content must be text")
+        actual_structured = hashlib.sha256(
+            structured_text.encode("utf-8")
+        ).hexdigest()
+        if actual_structured != structured_sha256:
+            raise ModuleAssetsError(
+                f"structured page {pdf_index} content hash drift"
+            )
+    revision_dir = (
+        mod / "pages" / stem / layer / "revisions" / f"{revision:06d}"
+    )
+    md_path = revision_dir / "page.md"
+    structured_path = revision_dir / "structured.json"
+    revision_meta_path = revision_dir / "meta.json"
+    head_path = mod / "pages" / stem / layer / "head.json"
+    current_head = (
+        json.loads(head_path.read_text(encoding="utf-8"))
+        if head_path.is_file() else None
+    )
+    active_revision = int(
+        (current_head or {}).get("ocr_revision", {}).get("revision") or 0
+    )
+    if revision_meta_path.is_file():
+        existing_revision_meta = json.loads(
+            revision_meta_path.read_text(encoding="utf-8")
+        )
+        if not md_path.is_file():
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} immutable revision is incomplete"
+            )
+        existing_digest = hashlib.sha256(md_path.read_bytes()).hexdigest()
+        existing_structured = (
+            hashlib.sha256(structured_path.read_bytes()).hexdigest()
+            if structured_path.is_file() else ""
+        )
+        immutable_meta_keys = (
+            "source_id", "file_sha256", "producer_text_sha256",
+            "review_state", "parse_confidence", "grep_anchors",
+            "printed_page", "printed_label", "structured_data_sha256",
+            "structured_data_format", "structured_data_producer",
+            "structured_data_model",
+        )
+        if (
+            existing_digest != digest
+            or existing_structured != structured_sha256
+            or existing_revision_meta.get("ocr_revision") != revision_ref
+            or str(existing_revision_meta.get("text_sha256") or "") != digest
+            or str(existing_revision_meta.get("structured_data_sha256") or "")
+            != structured_sha256
+            or any(
+                existing_revision_meta.get(key) != supplied_meta.get(key)
+                for key in immutable_meta_keys
+            )
+        ):
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} immutable revision hash drift"
+            )
+        reused = True
+    else:
+        coc_fileio.write_text_atomic(md_path, normalized)
+        if structured_text is not None:
+            coc_fileio.write_text_atomic(structured_path, structured_text)
+        revision_meta_doc = {
+            **supplied_meta,
+            "schema_version": SCHEMA_VERSION,
+            "pdf_index": pdf_index,
+            "ocr_revision": json.loads(json.dumps(revision_ref)),
+            "text_sha256": digest,
+            "structured_data_sha256": structured_sha256 or None,
+            "path": str(md_path),
+            "structured_data_path": (
+                str(structured_path) if structured_text is not None else None
+            ),
+            "published_at": _now_iso(),
+        }
+        _write_json(revision_meta_path, revision_meta_doc)
+        reused = False
+
+    if revision > active_revision:
+        _write_json(head_path, {
+            "schema_version": SCHEMA_VERSION,
+            "pdf_index": pdf_index,
+            "layer": layer,
+            "active_revision": revision,
+            "latest_revision": revision,
+            "ocr_revision": json.loads(json.dumps(revision_ref)),
+            "text_sha256": digest,
+            "structured_data_sha256": structured_sha256 or None,
+            "revision_meta_path": str(revision_meta_path),
+            "updated_at": _now_iso(),
+        })
+    elif revision == active_revision and (
+        not isinstance(current_head, dict)
+        or current_head.get("ocr_revision") != revision_ref
+        or current_head.get("text_sha256") != digest
+        or str(current_head.get("structured_data_sha256") or "")
+        != structured_sha256
+    ):
+        raise ModuleAssetsError(
+            f"cached page {pdf_index} {layer} active head hash drift"
+        )
+    # An already-known lower revision is immutable history, not an attempted
+    # active downgrade.  It may be verified or backfilled without moving head.
+    return {
+        "pdf_index": pdf_index,
+        "text_sha256": digest,
+        "path": str(md_path),
+        "reused": reused,
+        "ocr_revision": json.loads(json.dumps(revision_ref)),
+        "content_sha256": content_sha256,
+        "structured_data_sha256": structured_sha256 or None,
+    }
+
+
 def put_page(
     workspace: Path,
     asset_root_id: str,
@@ -1654,6 +1820,20 @@ def put_page(
     if not normalized.endswith("\n"):
         normalized += "\n"
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    supplied_meta = dict(meta or {})
+    revision_ref = supplied_meta.get("ocr_revision")
+    if revision_ref is not None:
+        if not isinstance(revision_ref, dict):
+            raise ModuleAssetsError("ocr_revision must be an object")
+        layer = str(revision_ref.get("layer") or "")
+        if layer not in coc_pdf_bundle.OCR_REVISION_LAYERS:
+            raise ModuleAssetsError("ocr_revision identity is invalid")
+        lock_path = mod / "pages" / stem / layer / "publication.lock"
+        with coc_fileio.advisory_file_lock(lock_path):
+            return _put_revisioned_page_unlocked(
+                mod, pdf_index, stem, normalized, digest, supplied_meta,
+            )
+
     md_path = mod / "pages" / f"{stem}.md"
     meta_path = mod / "pages" / f"{stem}.meta.json"
     existing_meta: dict[str, Any] = {}
@@ -1674,7 +1854,6 @@ def put_page(
     else:
         coc_fileio.write_text_atomic(md_path, normalized)
 
-    supplied_meta = dict(meta or {})
     bundle_hashes = {
         str(value)
         for value in (existing_meta.get("bundle_sha256s") or [])
@@ -1710,12 +1889,117 @@ def get_page(
 ) -> dict[str, Any] | None:
     mod = _module_dir(workspace, asset_root_id)
     stem = f"{pdf_index:04d}"
+    for layer in ("detail", "fast"):
+        head_path = mod / "pages" / stem / layer / "head.json"
+        if not head_path.is_file():
+            continue
+        head = json.loads(head_path.read_text(encoding="utf-8"))
+        revision_ref = head.get("ocr_revision")
+        if (
+            not isinstance(revision_ref, dict)
+            or revision_ref.get("stable_id") != f"page:{pdf_index}:{layer}"
+            or revision_ref.get("pdf_index") != pdf_index
+            or revision_ref.get("layer") != layer
+        ):
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} {layer} head identity mismatch"
+            )
+        meta_path = Path(str(head.get("revision_meta_path") or "")).resolve()
+        expected_parent = (mod / "pages" / stem / layer / "revisions").resolve()
+        try:
+            meta_path.relative_to(expected_parent)
+        except ValueError as exc:
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} {layer} revision path escapes cache"
+            ) from exc
+        if not meta_path.is_file():
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} {layer} revision metadata is missing"
+            )
+        revision_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if revision_meta.get("ocr_revision") != revision_ref:
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} {layer} revision identity drift"
+            )
+        md_path = Path(str(revision_meta.get("path") or "")).resolve()
+        if not md_path.is_file():
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} {layer} revision text is missing"
+            )
+        text = md_path.read_text(encoding="utf-8")
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if digest != revision_meta.get("text_sha256") or digest != head.get("text_sha256"):
+            raise ModuleAssetsError(
+                f"cached page {pdf_index} {layer} immutable revision hash drift"
+            )
+        structured_path_text = str(revision_meta.get("structured_data_path") or "")
+        if structured_path_text:
+            structured_path = Path(structured_path_text).resolve()
+            try:
+                structured_path.relative_to(meta_path.parent.resolve())
+            except ValueError as exc:
+                raise ModuleAssetsError(
+                    f"cached page {pdf_index} {layer} structured path escapes revision"
+                ) from exc
+            if (
+                not structured_path.is_file()
+            ):
+                raise ModuleAssetsError(
+                    f"cached page {pdf_index} {layer} structured artifact hash drift"
+                )
+            structured_digest = hashlib.sha256(structured_path.read_bytes()).hexdigest()
+            if (
+                structured_digest != revision_meta.get("structured_data_sha256")
+                or structured_digest != head.get("structured_data_sha256")
+            ):
+                raise ModuleAssetsError(
+                    f"cached page {pdf_index} {layer} structured artifact hash drift"
+                )
+        return {"pdf_index": pdf_index, "text": text, "meta": revision_meta}
     md_path = mod / "pages" / f"{stem}.md"
     if not md_path.is_file():
         return None
     meta_path = mod / "pages" / f"{stem}.meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
     return {"pdf_index": pdf_index, "text": md_path.read_text(encoding="utf-8"), "meta": meta}
+
+
+def cached_page_ref(
+    workspace: Path, asset_root_id: str, pdf_index: int,
+) -> dict[str, Any] | None:
+    """Project one active cached page into an exact host-readable artifact ref."""
+    page = get_page(workspace, asset_root_id, pdf_index)
+    if page is None:
+        return None
+    meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+    revision_ref = meta.get("ocr_revision")
+    revision_ref = revision_ref if isinstance(revision_ref, dict) else None
+    if revision_ref is not None:
+        artifact_path = Path(str(meta.get("path") or "")).resolve()
+    else:
+        artifact_path = (
+            _module_dir(workspace, asset_root_id)
+            / "pages"
+            / f"{pdf_index:04d}.md"
+        ).resolve()
+    if not artifact_path.is_file():
+        raise ModuleAssetsError(
+            f"cached page {pdf_index} active Markdown artifact is missing"
+        )
+    ref: dict[str, Any] = {
+        "source_id": meta.get("source_id"),
+        "pdf_index": pdf_index,
+        "path": str(artifact_path),
+        "text_sha256": meta.get("text_sha256"),
+        "bundle_sha256s": list(meta.get("bundle_sha256s") or []),
+        "review_state": meta.get("review_state"),
+        "parse_confidence": meta.get("parse_confidence"),
+        "grep_anchors": list(meta.get("grep_anchors") or []),
+    }
+    if revision_ref is not None:
+        ref["ocr_revision"] = json.loads(json.dumps(revision_ref))
+        ref["content_sha256"] = revision_ref.get("content_sha256")
+    return ref
 
 
 def register_source_bundle(
@@ -1766,70 +2050,164 @@ def register_source_bundle(
     if not existing:
         identity.setdefault("canonical_module_id", root_id)
         identity.setdefault("canonical_title", source.get("title") or root_id)
-    mod = init_module_root(
-        workspace,
-        asset_root_id=root_id,
-        identity=identity,
-        file_sha256=file_sha256,
-        source=source,
-    )
+    # Lock order is intentionally non-nested: initialize/merge identity under
+    # source-bundles.lock, release it, publish pages under their stable-id
+    # locks, then reacquire source-bundles.lock to append the bundle row.
+    # This prevents lost rows without holding one advisory lock inside another.
+    bundle_identity_lock = _module_dir(workspace, root_id) / "source-bundles.lock"
+    with coc_fileio.advisory_file_lock(bundle_identity_lock):
+        mod = init_module_root(
+            workspace,
+            asset_root_id=root_id,
+            identity=identity,
+            file_sha256=file_sha256,
+            source=source,
+        )
 
     page_results: list[dict[str, Any]] = []
     for page in bundle["pages"]:
         if not isinstance(page, dict):
             raise ModuleAssetsError("source bundle page must be an object")
-        page_results.append(
-            put_page(
-                workspace,
-                root_id,
-                page.get("pdf_index"),
-                page.get("text"),
-                meta={
-                    "source_id": source.get("source_id"),
-                    "file_sha256": file_sha256,
-                    "bundle_sha256": bundle_sha256,
-                    "producer_text_sha256": page.get("producer_text_sha256"),
-                    "review_state": page.get("review_state"),
-                    "parse_confidence": page.get("parse_confidence"),
-                    "grep_anchors": list(page.get("grep_anchors") or []),
-                    "printed_page": page.get("printed_page"),
-                    "printed_label": page.get("printed_label"),
-                    "source_bundle_path": source.get("source_bundle_path"),
-                    "markdown_path": page.get("markdown_path"),
-                },
+        pdf_index = page.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise ModuleAssetsError(
+                "source bundle page pdf_index must be a non-negative integer"
             )
+        structured = (
+            page.get("structured_data")
+            if isinstance(page.get("structured_data"), dict)
+            else None
         )
+        structured_meta: dict[str, Any] = {}
+        if structured is not None:
+            structured_text = structured.get("text")
+            structured_sha256 = str(structured.get("sha256") or "")
+            if not isinstance(structured_text, str):
+                raise ModuleAssetsError(
+                    f"structured page {pdf_index} is missing validated JSON text"
+                )
+            actual_structured_sha256 = hashlib.sha256(
+                structured_text.encode("utf-8")
+            ).hexdigest()
+            if actual_structured_sha256 != structured_sha256:
+                raise ModuleAssetsError(
+                    f"structured page {pdf_index} content hash drift"
+                )
+            revisioned = isinstance(page.get("ocr_revision"), dict)
+            structured_path = mod / "pages" / f"{int(pdf_index):04d}.structured.json"
+            if not revisioned:
+                if structured_path.is_file():
+                    existing_sha256 = hashlib.sha256(
+                        structured_path.read_bytes()
+                    ).hexdigest()
+                    if existing_sha256 != structured_sha256:
+                        raise ModuleAssetsError(
+                            f"cached structured page {pdf_index} content drift; "
+                            "reuse the accepted page artifact instead of overwriting it"
+                        )
+                else:
+                    coc_fileio.write_text_atomic(structured_path, structured_text)
+            structured_meta = {
+                "structured_data_path": (
+                    str(structured_path) if not revisioned else None
+                ),
+                "structured_data_sha256": structured_sha256,
+                "structured_data_format": structured.get("format"),
+                "structured_data_producer": structured.get("producer"),
+                "structured_data_model": structured.get("model"),
+                **({"_structured_text": structured_text} if revisioned else {}),
+            }
+        page_result = put_page(
+            workspace,
+            root_id,
+            pdf_index,
+            page.get("text"),
+            meta={
+                "source_id": source.get("source_id"),
+                "file_sha256": file_sha256,
+                "bundle_sha256": bundle_sha256,
+                "producer_text_sha256": page.get("producer_text_sha256"),
+                "review_state": page.get("review_state"),
+                "parse_confidence": page.get("parse_confidence"),
+                "grep_anchors": list(page.get("grep_anchors") or []),
+                "printed_page": page.get("printed_page"),
+                "printed_label": page.get("printed_label"),
+                "source_bundle_path": source.get("source_bundle_path"),
+                "markdown_path": page.get("markdown_path"),
+                "ocr_revision": page.get("ocr_revision"),
+                **structured_meta,
+            },
+        )
+        if structured_meta:
+            page_result["structured_data"] = {
+                key: value for key, value in structured_meta.items()
+                if not key.startswith("_")
+            }
+        page_results.append(page_result)
 
     identity_path = mod / "identity.json"
-    identity_doc = json.loads(identity_path.read_text(encoding="utf-8"))
-    bundle_rows = [
-        row
-        for row in (identity_doc.get("source_bundles") or [])
-        if isinstance(row, dict) and row.get("bundle_sha256") != bundle_sha256
-    ]
-    previous = next(
-        (
+    with coc_fileio.advisory_file_lock(bundle_identity_lock):
+        identity_doc = json.loads(identity_path.read_text(encoding="utf-8"))
+        bundle_rows = [
             row
             for row in (identity_doc.get("source_bundles") or [])
-            if isinstance(row, dict) and row.get("bundle_sha256") == bundle_sha256
-        ),
-        None,
-    )
-    bundle_rows.append({
-        "bundle_sha256": bundle_sha256,
-        "source_bundle_path": source.get("source_bundle_path"),
-        "pdf_indices": sorted(int(page["pdf_index"]) for page in bundle["pages"]),
-        "registered_at": (
-            previous.get("registered_at")
-            if isinstance(previous, dict) and previous.get("registered_at")
-            else _now_iso()
-        ),
-    })
-    identity_doc["source_bundles"] = sorted(
-        bundle_rows, key=lambda row: str(row.get("bundle_sha256") or "")
-    )
-    identity_doc["updated_at"] = _now_iso()
-    _write_json(identity_path, identity_doc)
+            if isinstance(row, dict) and row.get("bundle_sha256") != bundle_sha256
+        ]
+        previous = next(
+            (
+                row
+                for row in (identity_doc.get("source_bundles") or [])
+                if isinstance(row, dict)
+                and row.get("bundle_sha256") == bundle_sha256
+            ),
+            None,
+        )
+        bundle_rows.append({
+            "bundle_sha256": bundle_sha256,
+            "source_bundle_path": source.get("source_bundle_path"),
+            "pdf_indices": sorted(
+                int(page["pdf_index"]) for page in bundle["pages"]
+            ),
+            "page_revisions": [
+                {
+                    "pdf_index": int(page["pdf_index"]),
+                    "text_sha256": str(page.get("text_sha256") or ""),
+                    **(
+                        {
+                            "ocr_revision": json.loads(
+                                json.dumps(page["ocr_revision"])
+                            )
+                        }
+                        if isinstance(page.get("ocr_revision"), dict) else {}
+                    ),
+                    **(
+                        {
+                            "structured_data_sha256": page[
+                                "structured_data"
+                            ]["sha256"]
+                        }
+                        if isinstance(page.get("structured_data"), dict) else {}
+                    ),
+                }
+                for page in sorted(
+                    bundle["pages"], key=lambda row: int(row["pdf_index"])
+                )
+            ],
+            "registered_at": (
+                previous.get("registered_at")
+                if isinstance(previous, dict) and previous.get("registered_at")
+                else _now_iso()
+            ),
+        })
+        identity_doc["source_bundles"] = sorted(
+            bundle_rows, key=lambda row: str(row.get("bundle_sha256") or "")
+        )
+        identity_doc["updated_at"] = _now_iso()
+        _write_json(identity_path, identity_doc)
     elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
     return {
         "asset_root_id": root_id,
@@ -1837,6 +2215,21 @@ def register_source_bundle(
         "reused_existing_root": bool(existing),
         "bundle_sha256": bundle_sha256,
         "cached_pdf_indices": [row["pdf_index"] for row in page_results],
+        "page_revisions": [
+            {
+                "pdf_index": row["pdf_index"],
+                **(
+                    {"ocr_revision": json.loads(json.dumps(row["ocr_revision"]))}
+                    if isinstance(row.get("ocr_revision"), dict) else {}
+                ),
+                "text_sha256": row["text_sha256"],
+                **(
+                    {"structured_data_sha256": row["structured_data_sha256"]}
+                    if row.get("structured_data_sha256") else {}
+                ),
+            }
+            for row in page_results
+        ],
         "new_page_count": sum(not row["reused"] for row in page_results),
         "reused_page_count": sum(bool(row["reused"]) for row in page_results),
         "bundle_validation_and_cache_ms": elapsed_ms,
@@ -1940,10 +2333,28 @@ def _cached_source_refs(
         if isinstance(row, dict)
     ]
     registered_page_bundles: dict[int, set[str]] = {}
+    registered_revision_bundles: dict[tuple[int, str, int, str, str, str], set[str]] = {}
     for bundle_row in bundle_rows:
         bundle_sha256 = str(bundle_row.get("bundle_sha256") or "").strip()
         if not bundle_sha256:
             continue
+        page_revisions = bundle_row.get("page_revisions")
+        if isinstance(page_revisions, list) and page_revisions:
+            for page_revision in page_revisions:
+                if not isinstance(page_revision, dict):
+                    continue
+                revision_ref = page_revision.get("ocr_revision")
+                if not isinstance(revision_ref, dict):
+                    continue
+                key = (
+                    int(page_revision.get("pdf_index")),
+                    str(revision_ref.get("layer") or ""),
+                    int(revision_ref.get("revision") or 0),
+                    str(revision_ref.get("content_sha256") or ""),
+                    str(page_revision.get("text_sha256") or ""),
+                    str(page_revision.get("structured_data_sha256") or ""),
+                )
+                registered_revision_bundles.setdefault(key, set()).add(bundle_sha256)
         for raw_index in bundle_row.get("pdf_indices") or []:
             if isinstance(raw_index, bool) or not isinstance(raw_index, int):
                 continue
@@ -1965,6 +2376,8 @@ def _cached_source_refs(
                 "source bundle window before accepting the entity pack"
             )
         meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+        revision_ref = meta.get("ocr_revision")
+        revision_ref = revision_ref if isinstance(revision_ref, dict) else None
         supplied = input_refs.get(pdf_index) or {}
         supplied_source_id = str(supplied.get("source_id") or source_id).strip()
         if not source_id or supplied_source_id != source_id:
@@ -1989,19 +2402,33 @@ def _cached_source_refs(
             raise ModuleAssetsError(
                 f"{field} cached pdf_index {pdf_index} content hash drift"
             )
-        registered = registered_page_bundles.get(pdf_index) or set()
+        if revision_ref is not None:
+            revision_key = (
+                pdf_index,
+                str(revision_ref.get("layer") or ""),
+                int(revision_ref.get("revision") or 0),
+                str(revision_ref.get("content_sha256") or ""),
+                cached_digest,
+                str(meta.get("structured_data_sha256") or ""),
+            )
+            registered = registered_revision_bundles.get(revision_key) or set()
+        else:
+            registered = registered_page_bundles.get(pdf_index) or set()
         cached_bundle_hashes = {
             str(value)
             for value in (meta.get("bundle_sha256s") or [])
             if isinstance(value, str) and value
         }
-        unregistered_bundle_hashes = cached_bundle_hashes - registered
-        if unregistered_bundle_hashes:
-            raise ModuleAssetsError(
-                f"{field} cached pdf_index {pdf_index} claims unregistered "
-                "source bundle coverage"
-            )
-        canonical_bundle_hashes = sorted(registered & cached_bundle_hashes)
+        if revision_ref is not None:
+            canonical_bundle_hashes = sorted(registered)
+        else:
+            unregistered_bundle_hashes = cached_bundle_hashes - registered
+            if unregistered_bundle_hashes:
+                raise ModuleAssetsError(
+                    f"{field} cached pdf_index {pdf_index} claims unregistered "
+                    "source bundle coverage"
+                )
+            canonical_bundle_hashes = sorted(registered & cached_bundle_hashes)
         if not canonical_bundle_hashes:
             raise ModuleAssetsError(
                 f"{field} cached pdf_index {pdf_index} is not covered by a "
@@ -2010,6 +2437,13 @@ def _cached_source_refs(
         if supplied.get("text_sha256") not in (None, cached_digest):
             raise ModuleAssetsError(
                 f"{field}.source_refs for pdf_index {pdf_index} do not match cached text"
+            )
+        if revision_ref is not None and supplied.get("ocr_revision") not in (
+            None, revision_ref,
+        ):
+            raise ModuleAssetsError(
+                f"{field}.source_refs for pdf_index {pdf_index} do not match "
+                "the active OCR revision"
             )
         ref: dict[str, Any] = {
             "source_id": source_id,
@@ -2020,6 +2454,37 @@ def _cached_source_refs(
             "parse_confidence": meta.get("parse_confidence"),
             "grep_anchors": list(meta.get("grep_anchors") or []),
         }
+        if revision_ref is not None:
+            ref["ocr_revision"] = json.loads(json.dumps(revision_ref))
+        structured_path_text = str(meta.get("structured_data_path") or "").strip()
+        structured_sha256 = str(
+            meta.get("structured_data_sha256") or ""
+        ).strip().lower()
+        if structured_path_text or structured_sha256:
+            structured_path = Path(structured_path_text).resolve()
+            expected_path = (
+                Path(structured_path_text).resolve()
+                if revision_ref is not None
+                else (mod / "pages" / f"{pdf_index:04d}.structured.json").resolve()
+            )
+            if structured_path != expected_path or not structured_path.is_file():
+                raise ModuleAssetsError(
+                    f"{field} cached pdf_index {pdf_index} structured artifact is missing"
+                )
+            actual_structured_sha256 = hashlib.sha256(
+                structured_path.read_bytes()
+            ).hexdigest()
+            if actual_structured_sha256 != structured_sha256:
+                raise ModuleAssetsError(
+                    f"{field} cached pdf_index {pdf_index} structured artifact hash drift"
+                )
+            ref["structured_data"] = {
+                "path": str(structured_path),
+                "sha256": structured_sha256,
+                "format": meta.get("structured_data_format"),
+                "producer": meta.get("structured_data_producer"),
+                "model": meta.get("structured_data_model"),
+            }
         for key in ("printed_page", "printed_label"):
             if meta.get(key) is not None:
                 ref[key] = meta[key]
@@ -2033,6 +2498,36 @@ def _cached_source_refs(
             ref["grep_anchor"] = anchor
         refs.append(ref)
     return refs
+
+
+def accepted_cached_pdf_indices(
+    workspace: Path,
+    asset_root_id: str,
+) -> list[int]:
+    """Return only page indices whose complete cached evidence still validates."""
+    pages_dir = _module_dir(workspace, asset_root_id) / "pages"
+    if not pages_dir.is_dir():
+        return []
+    accepted: list[int] = []
+    candidate_indices = {
+        int(path.stem) for path in pages_dir.glob("*.md") if path.stem.isdigit()
+    }
+    candidate_indices.update(
+        int(path.name) for path in pages_dir.iterdir()
+        if path.is_dir() and path.name.isdigit()
+    )
+    for pdf_index in sorted(candidate_indices):
+        try:
+            _cached_source_refs(
+                workspace,
+                asset_root_id,
+                {"source_page_indices": [pdf_index]},
+                field="accepted_cached_pdf_indices",
+            )
+        except ModuleAssetsError:
+            continue
+        accepted.append(pdf_index)
+    return accepted
 
 
 def opening_page_candidate_catalog(
@@ -2142,17 +2637,30 @@ def opening_page_candidate_catalog(
 
     candidates: list[dict[str, Any]] = []
     for pdf_index in pdf_indices:
-        meta_path = module_root / "pages" / f"{pdf_index:04d}.meta.json"
-        if not meta_path.is_file():
-            raise ModuleAssetsError(
-                f"opening cached pdf_index {pdf_index} metadata is missing"
-            )
-        try:
+        meta = None
+        for layer in ("detail", "fast"):
+            head_path = module_root / "pages" / f"{pdf_index:04d}" / layer / "head.json"
+            if not head_path.is_file():
+                continue
+            head = json.loads(head_path.read_text(encoding="utf-8"))
+            revision_meta_path = Path(str(head.get("revision_meta_path") or ""))
+            if not revision_meta_path.is_file():
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} metadata is missing"
+                )
+            meta = json.loads(revision_meta_path.read_text(encoding="utf-8"))
+            if meta.get("ocr_revision") != head.get("ocr_revision"):
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} metadata is invalid"
+                )
+            break
+        if meta is None:
+            meta_path = module_root / "pages" / f"{pdf_index:04d}.meta.json"
+            if not meta_path.is_file():
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} metadata is missing"
+                )
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ModuleAssetsError(
-                f"opening cached pdf_index {pdf_index} metadata is unreadable"
-            ) from exc
         if (
             not isinstance(meta, dict)
             or meta.get("schema_version") != SCHEMA_VERSION
@@ -2191,22 +2699,40 @@ def opening_page_candidate_catalog(
             raise ModuleAssetsError(
                 f"opening cached pdf_index {pdf_index} grep_anchors are invalid"
             )
-        cached_bundle_hashes = {
-            str(value)
-            for value in (meta.get("bundle_sha256s") or [])
-            if isinstance(value, str) and value
-        }
-        if isinstance(meta.get("bundle_sha256"), str) and meta["bundle_sha256"]:
-            cached_bundle_hashes.add(str(meta["bundle_sha256"]))
-        registered = registered_page_bundles.get(pdf_index) or set()
-        if bundle_digest not in cached_bundle_hashes or bundle_digest not in registered:
-            raise ModuleAssetsError(
-                f"opening cached pdf_index {pdf_index} is not bound to the selected source bundle"
+        revision_ref = meta.get("ocr_revision")
+        if isinstance(revision_ref, dict):
+            selected_revision = next(
+                (
+                    row for row in (selected_rows[0].get("page_revisions") or [])
+                    if isinstance(row, dict)
+                    and row.get("pdf_index") == pdf_index
+                    and row.get("ocr_revision") == revision_ref
+                    and row.get("text_sha256") == meta.get("text_sha256")
+                    and str(row.get("structured_data_sha256") or "")
+                    == str(meta.get("structured_data_sha256") or "")
+                ),
+                None,
             )
-        if cached_bundle_hashes - registered:
-            raise ModuleAssetsError(
-                f"opening cached pdf_index {pdf_index} claims unregistered source bundle coverage"
-            )
+            if selected_revision is None:
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} is not bound to the selected source bundle"
+                )
+        else:
+            cached_bundle_hashes = {
+                str(value) for value in (meta.get("bundle_sha256s") or [])
+                if isinstance(value, str) and value
+            }
+            if isinstance(meta.get("bundle_sha256"), str) and meta["bundle_sha256"]:
+                cached_bundle_hashes.add(str(meta["bundle_sha256"]))
+            registered = registered_page_bundles.get(pdf_index) or set()
+            if bundle_digest not in cached_bundle_hashes or bundle_digest not in registered:
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} is not bound to the selected source bundle"
+                )
+            if cached_bundle_hashes - registered:
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} claims unregistered source bundle coverage"
+                )
         candidates.append({
             "pdf_index": pdf_index,
             "review_state": review_state,
@@ -2294,16 +2820,20 @@ def validate_opening_source_window(
                 f"opening cached pdf_index {ref.get('pdf_index')} is not bound "
                 "to the selected source bundle"
             )
-    page_refs = [
-        {
+    page_refs = []
+    for ref in refs:
+        page_ref = {
             "source_id": str(ref.get("source_id") or ""),
             "pdf_index": int(ref["pdf_index"]),
             "text_sha256": str(ref.get("text_sha256") or ""),
             "review_state": ref.get("review_state"),
             "parse_confidence": ref.get("parse_confidence"),
         }
-        for ref in refs
-    ]
+        if isinstance(ref.get("ocr_revision"), dict):
+            page_ref["ocr_revision"] = json.loads(json.dumps(ref["ocr_revision"]))
+        if isinstance(ref.get("structured_data"), dict):
+            page_ref["structured_data_sha256"] = ref["structured_data"].get("sha256")
+        page_refs.append(page_ref)
     return {
         "source_id": str(source.get("source_id") or ""),
         "file_sha256": _require_sha256(
@@ -3098,23 +3628,12 @@ def _refresh_host_work_cache(
         for value in requested
     ):
         return False
-    module_root = _module_dir(workspace, asset_root_id)
     refs: list[dict[str, Any]] = []
     for pdf_index in sorted(set(requested)):
-        page = get_page(workspace, asset_root_id, pdf_index)
-        if page is None:
+        ref = cached_page_ref(workspace, asset_root_id, pdf_index)
+        if ref is None:
             continue
-        meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
-        refs.append({
-            "source_id": meta.get("source_id"),
-            "pdf_index": pdf_index,
-            "path": str(module_root / "pages" / f"{pdf_index:04d}.md"),
-            "text_sha256": meta.get("text_sha256"),
-            "bundle_sha256s": list(meta.get("bundle_sha256s") or []),
-            "review_state": meta.get("review_state"),
-            "parse_confidence": meta.get("parse_confidence"),
-            "grep_anchors": list(meta.get("grep_anchors") or []),
-        })
+        refs.append(ref)
     changed = refs != list(request.get("cached_page_refs") or [])
     request["cached_page_refs"] = refs
     request["pages_cached"] = [f"{row['pdf_index']:04d}.md" for row in refs]
@@ -3675,9 +4194,6 @@ def put_entity(
         kind,
         doc,
     )
-    fulfilled_entity_receipt = canonical_fulfilled_entity_receipt(
-        kind, eid, doc,
-    )
     matched_host_work_job_id: str | None = None
     needs_host_work_boundary = (
         doc["parse_state"] in {"partial", "body_parsed", "deep"}
@@ -3732,7 +4248,37 @@ def put_entity(
             asset_root_id=asset_root_id,
             entity_id=eid,
         )
+        pending_mechanics_head: tuple[Path, dict[str, Any]] | None = None
+        if (
+            kind == "npc"
+            and isinstance(doc.get("mechanics"), dict)
+            and doc["mechanics"].get("status") == "authored"
+        ):
+            (
+                doc["mechanics_revision_ref"],
+                pending_mechanics_head,
+            ) = _prepare_npc_mechanics_revision(
+                mod, eid, doc, previous=previous,
+            )
+            if (
+                matched_host_work_job_id is not None
+                and isinstance(doc.get("ingest_timing"), dict)
+            ):
+                doc["ingest_timing"][FULFILLED_PACK_INGEST_FIELD] = (
+                    canonical_ingest_fulfillment_receipt(
+                        matched_host_work_job_id, kind, eid, doc,
+                    )
+                )
+        fulfilled_entity_receipt = canonical_fulfilled_entity_receipt(
+            kind, eid, doc,
+        )
+        # Publication order is deliberate: immutable revision artifact first
+        # (prepared above), current entity projection second, active head last.
+        # A crash can therefore leave harmless unreferenced history or a
+        # fail-closed projection/head mismatch, never a silently current head.
         _write_json(path, doc)
+        if pending_mechanics_head is not None:
+            _write_json(*pending_mechanics_head)
         repository_put_ms = max(
             0, round((time.perf_counter() - started) * 1000),
         )
@@ -3748,11 +4294,21 @@ def put_entity(
         )
         return repository_put_ms
 
+    mechanics_lock = mod / "entities" / f"npc-{eid}-mechanics.lock"
+
+    def commit_with_entity_lock() -> int:
+        if kind != "npc":
+            return commit_entity()
+        with coc_fileio.advisory_file_lock(mechanics_lock):
+            return commit_entity()
+
+    # Lock order is fixed and never reversed: host-work.lock, then the
+    # stable NPC mechanics lock.  Page and source-bundle locks are disjoint.
     if needs_host_work_boundary:
         with coc_fileio.advisory_file_lock(mod / "host-work.lock"):
-            repository_put_ms = commit_entity()
+            repository_put_ms = commit_with_entity_lock()
     else:
-        repository_put_ms = commit_entity()
+        repository_put_ms = commit_with_entity_lock()
     out: dict[str, Any] = {
         "path": str(path),
         "kind": kind,
@@ -3791,6 +4347,167 @@ def put_entity(
     return out
 
 
+def _npc_mechanics_revision_content(doc: dict[str, Any]) -> dict[str, Any]:
+    mechanics = doc.get("mechanics")
+    mechanics = mechanics if isinstance(mechanics, dict) else {}
+    refs = mechanics.get("source_refs")
+    if not isinstance(refs, list) or not refs:
+        refs = doc.get("source_refs") if isinstance(doc.get("source_refs"), list) else []
+    return {
+        "mechanics": json.loads(json.dumps(mechanics)),
+        "source_refs": json.loads(json.dumps(refs)),
+    }
+
+
+def _npc_mechanics_revision_digest(
+    content: dict[str, Any],
+) -> str:
+    encoded = json.dumps(
+        content, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _write_npc_mechanics_revision_artifact(
+    root: Path,
+    *,
+    stable_id: str,
+    revision: int,
+    content: dict[str, Any],
+) -> tuple[Path, str]:
+    """Write or verify one immutable revision while the stable-id lock is held."""
+    content_sha256 = _npc_mechanics_revision_digest(content)
+    revision_path = root / "revisions" / f"{revision:06d}.json"
+    if revision_path.is_file():
+        stored = json.loads(revision_path.read_text(encoding="utf-8"))
+        if (
+            stored.get("stable_id") != stable_id
+            or stored.get("revision") != revision
+            or stored.get("content_sha256") != content_sha256
+            or stored.get("content") != content
+        ):
+            raise ModuleAssetsError("NPC mechanics immutable revision hash drift")
+        return revision_path, content_sha256
+    _write_json(revision_path, {
+        "schema_version": 1,
+        "stable_id": stable_id,
+        "revision": revision,
+        "content_sha256": content_sha256,
+        "authority": "source_authored",
+        "content": content,
+        "published_at": _now_iso(),
+    })
+    return revision_path, content_sha256
+
+
+def _prepare_npc_mechanics_revision(
+    module_dir: Path,
+    npc_id: str,
+    doc: dict[str, Any],
+    *,
+    previous: dict[str, Any] | None,
+) -> tuple[dict[str, Any], tuple[Path, dict[str, Any]]]:
+    """Prepare artifacts/ref/head while the stable NPC lock is held.
+
+    The caller writes the current entity projection before committing the
+    returned head document.
+    """
+    stable_id = f"npc:{npc_id}:mechanics"
+    root = module_dir / "entities" / f"npc-{npc_id}-mechanics"
+    head_path = root / "head.json"
+    head = (
+        json.loads(head_path.read_text(encoding="utf-8"))
+        if head_path.is_file() else {}
+    )
+    if head and head.get("stable_id") != stable_id:
+        raise ModuleAssetsError("NPC mechanics head identity mismatch")
+    active_revision = int(head.get("active_revision") or 0)
+    active_content_sha256 = str(head.get("content_sha256") or "")
+
+    if active_revision > 0:
+        active_path = root / "revisions" / f"{active_revision:06d}.json"
+        if not active_path.is_file():
+            raise ModuleAssetsError("NPC mechanics active revision is missing")
+        active_doc = json.loads(active_path.read_text(encoding="utf-8"))
+        active_content = active_doc.get("content")
+        actual_active_sha256 = (
+            _npc_mechanics_revision_digest(active_content)
+            if isinstance(active_content, dict) else ""
+        )
+        if (
+            active_doc.get("stable_id") != stable_id
+            or active_doc.get("revision") != active_revision
+            or active_doc.get("content_sha256") != actual_active_sha256
+            or active_content_sha256 != actual_active_sha256
+        ):
+            raise ModuleAssetsError("NPC mechanics immutable revision hash drift")
+    elif isinstance(previous, dict):
+        previous_mechanics = previous.get("mechanics")
+        previous_ref = previous.get("mechanics_revision_ref")
+        previous_is_authored = (
+            isinstance(previous_mechanics, dict)
+            and previous_mechanics.get("status") == "authored"
+        )
+        if previous_is_authored and not isinstance(previous_ref, dict):
+            # Pre-feature authored entities bootstrap their own canonical
+            # mechanics as revision 1 before the incoming candidate is compared.
+            previous_content = _npc_mechanics_revision_content(previous)
+            _, active_content_sha256 = _write_npc_mechanics_revision_artifact(
+                root, stable_id=stable_id, revision=1, content=previous_content,
+            )
+            active_revision = 1
+        elif previous_is_authored and isinstance(previous_ref, dict):
+            # Recover a crash after current projection but before head publish.
+            prior_revision = previous_ref.get("revision")
+            if (
+                previous_ref.get("stable_id") != stable_id
+                or isinstance(prior_revision, bool)
+                or not isinstance(prior_revision, int)
+                or prior_revision <= 0
+            ):
+                raise ModuleAssetsError("NPC mechanics revision ref is invalid")
+            previous_content = _npc_mechanics_revision_content(previous)
+            _, actual_previous_sha256 = _write_npc_mechanics_revision_artifact(
+                root,
+                stable_id=stable_id,
+                revision=prior_revision,
+                content=previous_content,
+            )
+            if previous_ref.get("content_sha256") != actual_previous_sha256:
+                raise ModuleAssetsError("NPC mechanics immutable revision hash drift")
+            active_revision = prior_revision
+            active_content_sha256 = actual_previous_sha256
+
+    content = _npc_mechanics_revision_content(doc)
+    content_sha256 = _npc_mechanics_revision_digest(content)
+    if active_revision > 0 and active_content_sha256 == content_sha256:
+        revision = active_revision
+        revision_path, _ = _write_npc_mechanics_revision_artifact(
+            root, stable_id=stable_id, revision=revision, content=content,
+        )
+    else:
+        revision = active_revision + 1
+        revision_path, content_sha256 = _write_npc_mechanics_revision_artifact(
+            root, stable_id=stable_id, revision=revision, content=content,
+        )
+    ref = {
+        "stable_id": stable_id,
+        "revision": revision,
+        "content_sha256": content_sha256,
+        "authority": "source_authored",
+    }
+    head_doc = {
+        "schema_version": 1,
+        "stable_id": stable_id,
+        "active_revision": revision,
+        "latest_revision": revision,
+        "content_sha256": content_sha256,
+        "revision_path": str(revision_path),
+        "updated_at": _now_iso(),
+    }
+    return ref, (head_path, head_doc)
+
+
 def get_entity(
     workspace: Path, asset_root_id: str, kind: str, entity_id: str,
 ) -> dict[str, Any] | None:
@@ -3801,7 +4518,45 @@ def get_entity(
     )
     if not path.is_file():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if kind == "npc" and isinstance(doc.get("mechanics_revision_ref"), dict):
+        ref = doc["mechanics_revision_ref"]
+        stable_id = f"npc:{entity_id}:mechanics"
+        revision = ref.get("revision")
+        if (
+            ref.get("stable_id") != stable_id
+            or isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision <= 0
+        ):
+            raise ModuleAssetsError("NPC mechanics revision ref is invalid")
+        revision_root = path.parent / f"npc-{entity_id}-mechanics"
+        head_path = revision_root / "head.json"
+        revision_path = revision_root / "revisions" / f"{revision:06d}.json"
+        if not head_path.is_file() or not revision_path.is_file():
+            raise ModuleAssetsError("NPC mechanics active revision is missing")
+        head = json.loads(head_path.read_text(encoding="utf-8"))
+        stored = json.loads(revision_path.read_text(encoding="utf-8"))
+        content = stored.get("content")
+        encoded = json.dumps(
+            content, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        if (
+            head.get("stable_id") != stable_id
+            or not isinstance(head.get("active_revision"), int)
+            or head.get("active_revision") != revision
+            or head.get("content_sha256") != digest
+            or not isinstance(head.get("latest_revision"), int)
+            or head.get("latest_revision") < head.get("active_revision")
+            or stored.get("stable_id") != stable_id
+            or stored.get("revision") != revision
+            or stored.get("content_sha256") != digest
+            or digest != ref.get("content_sha256")
+            or content != _npc_mechanics_revision_content(doc)
+        ):
+            raise ModuleAssetsError("NPC mechanics immutable revision hash drift")
+    return doc
 
 
 def revalidate_entity_pack(
@@ -3998,6 +4753,7 @@ def enqueue_job(
     requested_source_scope: dict[str, Any] | None = None,
     work_level: str | None = None,
     dependency_ref: dict[str, Any] | None = None,
+    kick_worker: bool = True,
 ) -> dict[str, Any]:
     if kind not in JOB_KINDS:
         raise ModuleAssetsError(f"unknown job kind {kind!r}")
@@ -4244,6 +5000,8 @@ def enqueue_job(
     kick: dict[str, Any] | None = None
     if dedupe_state == "awaiting_host_pack":
         kick = {"started": False, "reason": "host_request_already_open"}
+    elif not kick_worker:
+        kick = {"started": False, "reason": "caller_owns_materialization"}
     else:
         try:
             worker = _load_sibling(

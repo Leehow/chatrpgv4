@@ -6,6 +6,7 @@ import importlib.util
 import hashlib
 import json
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -220,6 +221,138 @@ def _clear_queue(tmp_path: Path, asset_root: str = "qw-demo") -> None:
     )
 
 
+def test_revision_bundle_bind_deepen_projects_immutable_path_to_pi_preload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    campaign_id = "revision-pi-camp"
+    asset_root_id = "revision-pi-module"
+    pdf = tmp_path / "revision-pi.pdf"
+    pdf.write_bytes(b"%PDF revision source fixture")
+    file_sha256 = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    bundle = tmp_path / "revision-pi-bundle"
+    (bundle / "pages").mkdir(parents=True)
+    page_text = "# Cellar\n\nImmutable progressive OCR evidence.\n"
+    page_bytes = page_text.encode("utf-8")
+    page_sha256 = hashlib.sha256(page_bytes).hexdigest()
+    (bundle / "pages" / "0001.md").write_bytes(page_bytes)
+    revision_ref = {
+        "stable_id": "page:1:fast",
+        "pdf_index": 1,
+        "layer": "fast",
+        "revision": 1,
+        "content_sha256": page_sha256,
+        "fast_confidence_revision": 1,
+    }
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:revision-pi-module",
+            "title": "Revision Pi Module",
+            "path": str(pdf),
+            "file_sha256": file_sha256,
+            "page_count": 2,
+        },
+        "pages": [{
+            "pdf_index": 1,
+            "markdown_path": "pages/0001.md",
+            "text_sha256": page_sha256,
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.95,
+            "grep_anchors": ["Immutable progressive OCR evidence."],
+            "ocr_revision": revision_ref,
+        }],
+    }), encoding="utf-8")
+
+    created = toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "campaign.create",
+        "payload": {"campaign_id": campaign_id, "title": "Revision Pi Campaign"},
+    })
+    assert created["ok"] is True, created
+    bound = toolbox.run_tool("setup.invoke", tmp_path, None, {
+        "kind": "scenario.bind_pdf",
+        "payload": {
+            "campaign_id": campaign_id,
+            "scenario_id": asset_root_id,
+            "title": "Revision Pi Module",
+            "source_bundle_path": str(bundle),
+            "compile_now": False,
+        },
+    })
+    assert bound["ok"] is True, bound
+    skeleton = _skeleton()
+    skeleton["module_identity"] = {"canonical_module_id": asset_root_id}
+    skeleton["source"] = {
+        "source_id": "pdf:revision-pi-module",
+        "path": str(pdf),
+        "file_sha256": file_sha256,
+        "page_count": 2,
+        "producer": "codex-pdf-skill",
+    }
+    skeleton["start_clock_status"] = "unresolved"
+    published = toolbox.run_tool(
+        "progressive.publish_skeleton", tmp_path, campaign_id,
+        {
+            "asset_root_id": asset_root_id,
+            "source_file_sha256": file_sha256,
+            "skeleton": skeleton,
+        },
+    )
+    assert published["ok"] is True, published
+    _clear_queue(tmp_path, asset_root_id)
+    requested = toolbox.run_tool(
+        "progressive.request_deepen", tmp_path, campaign_id,
+        {"kind": "location", "target_id": "cellar", "reason": "pi preload"},
+    )
+    assert requested["ok"] is True, requested
+    materialized = worker.run_worker_once(tmp_path, parallel=1)
+    assert materialized["claimed"] == 1
+
+    monkeypatch.setenv("COC_HOST", "pi")
+    claimed = toolbox.run_tool(
+        "progressive.claim_host_work", tmp_path, campaign_id,
+        {
+            "executor_id": "pi:revision-path-test",
+            "limit": 1,
+            "result_delivery": "task_return_to_parent",
+        },
+    )
+    assert claimed["ok"] is True, claimed
+    task = claimed["data"]["dispatch_tasks"][0]
+    assert task["contract_id"] == "coc.pi-source-pack-task.v1"
+    ref = task["packet"]["requests"][0]["cached_page_refs"][0]
+    expected_path = (
+        tmp_path / ".coc" / "module-assets" / asset_root_id / "pages"
+        / "0001" / "fast" / "revisions" / "000001" / "page.md"
+    ).resolve()
+    assert Path(ref["path"]) == expected_path
+    assert expected_path.is_file()
+    assert not (
+        tmp_path / ".coc" / "module-assets" / asset_root_id / "pages" / "0001.md"
+    ).exists()
+    assert ref["ocr_revision"] == revision_ref
+    assert ref["content_sha256"] == page_sha256
+
+    task_path = tmp_path / "pi-leaf-task.json"
+    task_path.write_text(json.dumps(task), encoding="utf-8")
+    preloaded = subprocess.run(
+        [
+            "node", "--experimental-strip-types",
+            "tests/pi/repository-ref-preload.mjs", str(Path.cwd()), str(task_path),
+        ],
+        cwd=Path.cwd(), check=True, capture_output=True, text=True,
+    )
+    preload = json.loads(preloaded.stdout)
+    assert preload == {
+        "contract_id": "coc.pi-leaf-evidence-context.v1",
+        "page_count": 1,
+        "path": str(expected_path),
+        "text_sha256": page_sha256,
+        "content_sha256": page_sha256,
+        "ocr_revision": revision_ref,
+    }
+
+
 def _accepted_scope(tmp_path: Path, pdf_index: int) -> tuple[dict, dict]:
     identity = json.loads(
         (tmp_path / ".coc/module-assets/qw-demo/identity.json").read_text(
@@ -334,15 +467,32 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     )
     assert status["host_work"]["open_count"] == 1
     assert status["host_work"]["ready_for_background_count"] == 1
+    status_takeover = status["background_takeover"]
+    assert status_takeover["dispatch_mode"] == "direct_single_leaf"
+    assert "coordinator_dispatch" not in status_takeover
+    direct = status_takeover["direct_single_leaf_dispatch"]
+    assert direct["run_in_background"] is True
+    claim_task = direct["codex_task"]
+    assert claim_task["contract_id"] == "coc.codex-source-pack-claim-task.v1"
+    assert claim_task["claim_operation"]["prefilled_arguments"]["limit"] == 1
+    assert claim_task["claim_operation"]["prefilled_arguments"][
+        "result_delivery"
+    ] == "task_return_to_parent"
+    assert direct["codex_parent_claims"] is False
+    assert direct["completion_operation"]["operation"] == (
+        "progressive.fulfill_host_work"
+    )
     assert any("not completed parses" in hint for hint in hints)
 
     claimed, _warnings, claim_hints = toolbox.TOOLS[
         "progressive.claim_host_work"
     ]["handler"](
-        ctx, {"executor_id": "test-host", "limit": 4},
+        ctx, claim_task["claim_operation"]["prefilled_arguments"],
     )
     assert claimed["leased_group_count"] == 1
-    packet = claimed["packets"][0]
+    task = claimed["dispatch_tasks"][0]
+    assert task["contract_id"] == "coc.codex-source-pack-task.v1"
+    packet = task["packet"]
     assert packet["contract_id"] == "coc.source-pack-worker.v1"
     assert packet["cached_scope_complete"] is True
     assert packet["requested_pdf_indices"] == [1]
@@ -380,7 +530,9 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert first_timing["producer"] == "host_background_subagent"
     assert first_timing["source_timing_measurement"] == "exact_host_task_runtime"
     assert first_timing["source_task_id"] == "grok-task-test-1"
-    assert first_timing["source_executor_id"] == "test-host"
+    assert first_timing["source_executor_id"] == (
+        claim_task["claim_operation"]["prefilled_arguments"]["executor_id"]
+    )
     assert first_timing["source_dispatch_to_pack_ms"] >= 0
     assert fulfilled["measured_host_timing"]["duration_ms"] == (
         first_timing["source_compile_ms"]
@@ -512,12 +664,23 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
             "location_fields": ["title", "player_safe_summary"],
             "materially_present_npc_fields": ["npc_id", "agenda"],
             "npc_policy": "source_supported_and_materially_present_only",
+            "opening_completeness_pass": [
+                "current_situation",
+                "authored_choices_or_investigation_paths",
+                "information_each_path_can_establish",
+                "named_conditional_contacts_as_mentions",
+                "materially_present_npcs",
+            ],
         },
-        "forced_empty_fields": {
-            "scene_edges": [],
-            "affordances": [],
+        "semantic_default_replacement": {
+            "clues": "populate every source-authored clue needed to play the current beat",
+            "affordances": "populate source-authored immediately usable courses of action",
+            "mentions": "populate source-authored named people or places referenced but not materially present",
+            "scene_edges": "populate only source-established destination locations",
         },
-        "infer_structured_clock_or_routes_from_prose": False,
+        "all_empty_semantic_arrays_allowed_only_when_source_authors_none": True,
+        "semantic_judgment_not_keyword_gate": True,
+        "invent_unsupported_clock_route_person_or_fact": False,
         "self_check_before_status_usable": True,
         "unsatisfied_required_fields_result": {
             "status": "abstain",
@@ -573,6 +736,9 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
     }
     assert result_contract["missing_agenda_disposition"] == "soft_deferred"
     assert result_contract["replacement_before_opening"] is False
+    assert result_contract["worker_result_pack_shape"] == (
+        "direct_location_entity; never nest it under a location key"
+    )
     assert "closed result_contract" in request["instruction"]
     source_worker_contract = json.loads(
         Path(
@@ -1264,7 +1430,7 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
         ctx, {"executor_id": "host-a", "limit": 1, "lease_seconds": 600},
     )
     assert claimed["leased_group_count"] == 1
-    packet = claimed["packets"][0]
+    packet = claimed["dispatch_tasks"][0]["packet"]
     assert {row["target_id"] for row in packet["requests"]} == {
         "cellar", "annex",
     }
@@ -1275,7 +1441,7 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
     ]["handler"](
         ctx, {"executor_id": "host-b", "limit": 4},
     )
-    assert unavailable["packets"] == []
+    assert unavailable["dispatch_tasks"] == []
 
     work_dir = tmp_path / ".coc/module-assets/qw-demo/host-work"
     for path in work_dir.glob("*.json"):
@@ -1291,7 +1457,9 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
         ctx, {"executor_id": "host-b", "limit": 1},
     )
     assert recovered["leased_group_count"] == 1
-    assert recovered["packets"][0]["packet_id"] != packet["packet_id"]
+    assert recovered["dispatch_tasks"][0]["packet"]["packet_id"] != (
+        packet["packet_id"]
+    )
     refreshed = assets.list_host_work_requests(tmp_path, "qw-demo")
     assert {row["dispatch_attempts"] for row in refreshed} == {2}
     assert {row["executor_id"] for row in refreshed} == {"host-b"}
@@ -1610,18 +1778,15 @@ def test_mechanics_request_batches_same_page_and_reuses_durable_profiles(
     takeover = progressive["background_takeover"]
     assert takeover["authority"] == "advisory"
     assert takeover["hard_gate"] is False
-    assert takeover["claim_operation"] == {
-        "operation": "progressive.claim_host_work",
-        "invoke_via": "coc_invoke",
-        "prefilled_arguments": {"limit": 1},
-        "missing_arguments": ["executor_id"],
-        "authority": "advisory",
-        "hard_gate": False,
-    }
+    assert "claim_operation" not in takeover
+    assert takeover["direct_single_leaf_dispatch"]["codex_parent_claims"] is False
     assert takeover["host_dispatch"] == {
         "worker_profile": "coc-source-pack-worker",
         "background": True,
-        "packet_binding": "one exact returned packets[] value per child",
+            "packet_binding": (
+                "one exact returned dispatch_tasks[] value per child when "
+                "result_delivery=named_submit"
+            ),
         "direct_submit_parent_waits": False,
         "direct_submit_parent_result_polls": 0,
         "direct_submit_parent_output_retrieval": False,

@@ -4190,7 +4190,7 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             }
             optional = {
                 "firearms_skill", "has_ready_firearm", "damage_bonus",
-                "magic_points", "armor", "armor_rule",
+                "magic_points", "armor", "armor_rule", "mechanics_revision_ref",
             }
             for offset, participant in enumerate(participants):
                 ppath = f"{base}.participants[{offset}]"
@@ -4232,6 +4232,17 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
                     raise _error("invalid_command_payload", f"{ppath}.damage_bonus", "expected string")
                 if participant.get("armor_rule") not in coc_combat.VALID_ARMOR_RULES:
                     raise _error("invalid_command_payload", f"{ppath}.armor_rule", "invalid armor rule")
+                if "mechanics_revision_ref" in participant:
+                    try:
+                        coc_combat.validate_mechanics_revision_ref(
+                            participant["mechanics_revision_ref"], actor_id=actor_id,
+                        )
+                    except ValueError as exc:
+                        raise _error(
+                            "invalid_command_payload",
+                            f"{ppath}.mechanics_revision_ref",
+                            str(exc),
+                        ) from exc
             preparations = payload.get("preparations", [])
             if not isinstance(preparations, list):
                 raise _error("invalid_command_payload", f"{base}.preparations", "expected a list")
@@ -7304,6 +7315,7 @@ def _dispatch_combat(
                 magic_points=spec.get("magic_points", 0),
                 armor=spec.get("armor", 0),
                 armor_rule=spec.get("armor_rule"),
+                mechanics_revision_ref=spec.get("mechanics_revision_ref"),
             )
             session.participants[spec["actor_id"]]["hp_current"] = spec["hp_current"]
         for preparation in payload.get("preparations", []) or []:

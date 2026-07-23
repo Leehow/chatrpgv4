@@ -872,6 +872,41 @@ def get_session(session_id: str) -> dict[str, Any]:
     return _validated_session_record(session_id, _REGISTRY.get(session_id))
 
 
+def _keeper_language_guidance(
+    workspace: Path,
+    play_language: str,
+    resolved_config: Mapping[str, Any] | None = None,
+) -> list[str]:
+    """Best-effort canonical language-craft lines for the keeper prompt.
+
+    The plugin's ``coc_language.language_profile`` owns the wording (output
+    language, name transliteration, localized term usage). Any failure to
+    load it simply omits the guidance; the runner's fallback line remains.
+    """
+    try:
+        scripts = _load_plugin_locator().plugin_scripts_dir(
+            workspace, resolved_config=resolved_config
+        )
+        spec = importlib.util.spec_from_file_location(
+            "runtime_coc_language", scripts / "coc_language.py"
+        )
+        if spec is None or spec.loader is None:
+            return []
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        profile = mod.language_profile(play_language)
+        if not isinstance(profile, dict):
+            return []
+        lines = [
+            str(profile.get("output_instruction") or "").strip(),
+            str(profile.get("name_policy") or "").strip(),
+            str(profile.get("term_policy") or "").strip(),
+        ]
+        return [line for line in lines if line]
+    except Exception:
+        return []
+
+
 _KEEPER_TURN_RETRY_MAX = 1
 
 
@@ -921,9 +956,30 @@ def _finalized_keeper_texts_by_turn(campaign_dir: Path) -> dict[int, str]:
     return result
 
 
-def _recent_public_transcript(campaign_dir: Path, limit: int = 12) -> list[dict[str, str]]:
-    """Rebuild a public tail, preferring exact finalized text over summaries."""
-    tail: list[dict[str, str]] = []
+def _recent_public_transcript(campaign_dir: Path, limit: int = 48) -> list[dict[str, str]]:
+    """Rebuild public history for a cold-start keeper turn.
+
+    Prefer exact ``table-transcript.jsonl`` rows (full player/keeper prose). Fall
+    back to events + finalizations when the exact log is missing. Cold-start
+    headless turns need a long enough public tail that prior access, rolls, and
+    scene changes are not invented from thin summaries.
+    """
+    table_path = campaign_dir / "logs" / "table-transcript.jsonl"
+    table_rows = _read_new_jsonl_rows(table_path, 0)
+    if table_rows:
+        tail: list[dict[str, str]] = []
+        for row in table_rows:
+            role = row.get("role")
+            text = row.get("text")
+            if role not in {"player", "keeper"} or not isinstance(text, str):
+                continue
+            clean = text.strip()
+            if clean:
+                tail.append({"role": str(role), "text": clean})
+        if tail:
+            return tail[-limit:] if limit > 0 else tail
+
+    tail = []
     finalized_by_turn = _finalized_keeper_texts_by_turn(campaign_dir)
     rows = _read_new_jsonl_rows(campaign_dir / "logs" / "events.jsonl", 0)
     for row in rows:
@@ -943,7 +999,7 @@ def _recent_public_transcript(campaign_dir: Path, limit: int = 12) -> list[dict[
             tail.append({"role": "keeper", "text": finalized})
         elif isinstance(summary, str) and summary.strip():
             tail.append({"role": "keeper", "text": summary.strip()})
-    return tail[-limit:]
+    return tail[-limit:] if limit > 0 else tail
 
 
 def send(
@@ -952,6 +1008,7 @@ def send(
     *,
     player_intent: dict[str, Any] | None = None,
     rng_seed: int | str | None = None,
+    on_keeper_stream: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run one keeper turn through the skills-enabled keeper coding agent.
 
@@ -960,6 +1017,8 @@ def send(
     ``turn.finalize`` output. There is no alternate narration envelope or
     deterministic template fallback. A pre-settlement spawn failure retains
     one bounded retry; any possibly settled failure is blocked without replay.
+    ``on_keeper_stream`` receives best-effort live keeper progress events;
+    it never changes the returned events.
     """
     total_started = time.perf_counter()
     if player_intent is not None:
@@ -989,6 +1048,8 @@ def send(
         "player_input": player_input,
         "play_language": play_language,
         "transcript_tail": _recent_public_transcript(campaign_dir),
+        # Warm headless workers key on this so turns keep agent memory.
+        "runtime_session_id": session_id,
     }
     resolved_config = record.get("resolved_config")
     if isinstance(resolved_config, dict):
@@ -1009,6 +1070,11 @@ def send(
         request["player_intent"] = player_intent
     if rng_seed is not None:
         request["rng_seed"] = rng_seed
+    language_guidance = _keeper_language_guidance(
+        workspace, play_language, record.get("resolved_config")
+    )
+    if language_guidance:
+        request["language_guidance"] = language_guidance
 
     offsets = {
         "toolbox": _file_size(campaign_dir / "logs" / "toolbox-calls.jsonl"),
@@ -1025,7 +1091,12 @@ def send(
     last_error: Exception | None = None
     for _ in range(_KEEPER_TURN_RETRY_MAX + 1):
         try:
-            result = keeper.keeper_send_turn(request, runner_path=runner_override)
+            result = keeper.keeper_send_turn(
+                request,
+                runner_path=runner_override,
+                on_stream=on_keeper_stream,
+                prefer_warm=True,
+            )
             break
         except keeper.KeeperFinalizationError as exc:
             raise KeeperFinalizationBlockedError() from exc
@@ -1437,4 +1508,9 @@ def restore_workspace_sessions(workspace: Path | str) -> list[str]:
 
 def close_session(session_id: str) -> None:
     _load_paths().validate_id(session_id, "session_id")
+    try:
+        _load_keeper_adapter().close_warm_sessions_for(session_id)
+    except Exception:
+        # Warm worker cleanup must not block session close.
+        pass
     _REGISTRY.close(session_id)

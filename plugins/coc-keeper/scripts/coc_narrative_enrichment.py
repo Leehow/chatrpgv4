@@ -984,6 +984,11 @@ def _combat_participant_from_operation(
                 actor_id,
                 mechanics_profile,
                 side=str(operation.get("side") or "npc"),
+                mechanics_revision_ref=(
+                    operation.get("mechanics_revision_ref")
+                    if isinstance(operation.get("mechanics_revision_ref"), dict)
+                    else None
+                ),
             )
         except (ValueError, TypeError):
             return None

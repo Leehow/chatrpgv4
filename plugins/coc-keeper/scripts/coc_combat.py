@@ -218,6 +218,27 @@ VALID_OUTCOMES = {"investigators_win", "monsters_win", "fled", "stalemate", None
 VALID_ARMOR_RULES = {"fixed", "degrades_1_per_damage", None}
 
 
+def validate_mechanics_revision_ref(value: Any, *, actor_id: str) -> None:
+    if not isinstance(value, dict) or set(value) != {
+        "stable_id", "revision", "content_sha256", "authority",
+    }:
+        raise ValueError("mechanics_revision_ref must use the exact schema")
+    if value.get("stable_id") != f"npc:{actor_id}:mechanics":
+        raise ValueError("mechanics_revision_ref stable_id does not match actor")
+    revision = value.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision <= 0:
+        raise ValueError("mechanics_revision_ref revision must be positive")
+    digest = value.get("content_sha256")
+    if (
+        not isinstance(digest, str)
+        or len(digest) != 64
+        or any(ch not in "0123456789abcdef" for ch in digest)
+    ):
+        raise ValueError("mechanics_revision_ref content hash is invalid")
+    if value.get("authority") not in {"source_authored", "campaign_generated"}:
+        raise ValueError("mechanics_revision_ref authority is invalid")
+
+
 class CombatSession:
     """Single source of truth for one combat scene.
 
@@ -283,7 +304,8 @@ class CombatSession:
                         firearms_skill: int | None = None,
                         has_ready_firearm: bool = False,
                         damage_bonus: str = "none",
-                        con: int = 50) -> None:
+                        con: int = 50,
+                        mechanics_revision_ref: dict[str, Any] | None = None) -> None:
         if side not in VALID_SIDES:
             raise ValueError(f"invalid side {side!r}")
         if armor_rule not in VALID_ARMOR_RULES:
@@ -318,6 +340,13 @@ class CombatSession:
             "_ammo": {},  # weapon_id → rounds currently loaded
             "_reload_remaining": {},  # weapon_id → rounds left to finish reload
         }
+        if mechanics_revision_ref is not None:
+            validate_mechanics_revision_ref(
+                mechanics_revision_ref, actor_id=actor_id,
+            )
+            self.participants[actor_id]["mechanics_revision_ref"] = dict(
+                mechanics_revision_ref
+            )
 
     # ------------------------------------------------------------------ #
     # Round / initiative
@@ -2885,13 +2914,21 @@ class CombatSession:
                 "_defended_this_round", "_dived_for_cover", "_forfeit_next_attack",
                 "_aiming", "_ammo", "_reload_remaining",
             }
-            if set(participant) not in (participant_keys, participant_keys | {"major_wound_con"}):
+            optional_participant_keys = {"major_wound_con", "mechanics_revision_ref"}
+            if (
+                not participant_keys <= set(participant)
+                or set(participant) - participant_keys - optional_participant_keys
+            ):
                 raise ValueError("combat participant must use the exact schema")
             actor_id = participant.get("actor_id")
             if not isinstance(actor_id, str) or actor_id in session.participants:
                 raise ValueError("combat participant IDs must be unique strings")
             if participant.get("side") not in VALID_SIDES:
                 raise ValueError("combat participant side is invalid")
+            if "mechanics_revision_ref" in participant:
+                validate_mechanics_revision_ref(
+                    participant["mechanics_revision_ref"], actor_id=actor_id,
+                )
             conditions = participant.get("conditions")
             if (not isinstance(conditions, list)
                     or len(conditions) != len(set(conditions))

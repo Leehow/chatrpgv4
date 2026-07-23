@@ -111,6 +111,76 @@ def derive_values(
     }
 
 
+def materialize_quick_fire_create_sheet(
+    sheet: dict[str, Any],
+    creation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Materialize fixed Quick Fire numbers from a semantic assignment order.
+
+    The Keeper chooses which characteristic receives each priority slot and
+    supplies the authoritative 3D6 Luck total. The deterministic rules layer
+    owns copying the configured array, multiplying Luck, and deriving stats.
+    Legacy callers that submit a complete sheet remain unchanged.
+    """
+    materialized = json.loads(json.dumps(sheet))
+    if not isinstance(creation, dict):
+        return materialized
+    assignment = creation.get("characteristic_assignment_order")
+    luck_roll_total = creation.get("luck_roll_total")
+    if assignment is None and luck_roll_total is None:
+        return materialized
+    if creation.get("method") != "quick_fire_array":
+        raise ValueError(
+            "characteristic_assignment_order/luck_roll_total require "
+            "creation.method=quick_fire_array"
+        )
+    if "characteristics" in materialized or "derived" in materialized:
+        raise ValueError(
+            "deterministic Quick Fire materialization requires sheet to omit "
+            "characteristics and derived"
+        )
+    if (
+        not isinstance(assignment, list)
+        or len(assignment) != len(REQUIRED_CHARACTERISTICS)
+        or any(not isinstance(key, str) for key in assignment)
+        or set(assignment) != set(REQUIRED_CHARACTERISTICS)
+    ):
+        raise ValueError(
+            "characteristic_assignment_order must contain each of STR, CON, "
+            "SIZ, DEX, APP, INT, POW, EDU exactly once"
+        )
+    if (
+        isinstance(luck_roll_total, bool)
+        or not isinstance(luck_roll_total, int)
+        or not 3 <= luck_roll_total <= 18
+    ):
+        raise ValueError("luck_roll_total must be an integer from 3 through 18")
+    method = characteristic_generation_methods().get("quick_fire_array") or {}
+    values = method.get("array")
+    if (
+        not isinstance(values, list)
+        or len(values) != len(REQUIRED_CHARACTERISTICS)
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in values)
+    ):
+        raise ValueError("quick_fire_array rule data is invalid")
+    characteristics = {
+        key: int(value) for key, value in zip(assignment, values, strict=True)
+    }
+    age_mov_penalty = 0
+    age = materialized.get("age")
+    if age is not None:
+        if isinstance(age, bool) or not isinstance(age, int):
+            raise ValueError("age must be an integer when supplied")
+        age_mov_penalty = int(coc_rules.age_adjustment(age).get("mov_penalty", 0))
+    materialized["characteristics"] = characteristics
+    materialized["derived"] = derive_values(
+        characteristics,
+        luck=luck_roll_total * 5,
+        age_mov_penalty=age_mov_penalty,
+    )
+    return materialized
+
+
 def apply_age_modifiers(
     characteristics: dict[str, int],
     age: int,
@@ -178,4 +248,97 @@ def validate_character_sheet(sheet: dict) -> list[str]:
     for key in REQUIRED_CHARACTERISTICS:
         if key not in characteristics:
             errors.append(f"missing characteristic {key}")
+    return errors
+
+
+def validate_character_create_sheet(
+    sheet: dict[str, Any],
+    creation: dict[str, Any] | None = None,
+) -> list[str]:
+    """Validate the complete machine sheet accepted by investigator.create."""
+    errors = validate_character_sheet(sheet)
+    if errors:
+        return errors
+
+    name = sheet.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append("name must be a non-empty string")
+
+    characteristics = sheet["characteristics"]
+    for key in REQUIRED_CHARACTERISTICS:
+        value = characteristics.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            errors.append(f"characteristic {key} must be an integer")
+
+    derived = sheet.get("derived")
+    required_derived = ("HP", "MP", "SAN", "Luck", "DB", "Build", "MOV")
+    if not isinstance(derived, dict):
+        errors.append("missing derived")
+    else:
+        for key in required_derived:
+            if key not in derived:
+                errors.append(f"missing derived {key}")
+        for key in ("HP", "MP", "SAN", "Luck", "Build", "MOV"):
+            value = derived.get(key)
+            if key in derived and (
+                isinstance(value, bool) or not isinstance(value, int)
+            ):
+                errors.append(f"derived {key} must be an integer")
+        db = derived.get("DB")
+        if "DB" in derived and (
+            isinstance(db, bool)
+            or not isinstance(db, (int, str))
+            or (isinstance(db, str) and not db.strip())
+        ):
+            errors.append("derived DB must be a non-empty string or integer")
+
+    skills = sheet.get("skills")
+    if not isinstance(skills, dict):
+        errors.append("missing skills")
+    else:
+        if "Credit Rating" not in skills:
+            errors.append("missing canonical skill Credit Rating")
+        for key, value in skills.items():
+            if not isinstance(key, str) or not key.strip():
+                errors.append("skill keys must be non-empty strings")
+                continue
+            if key != key.strip() or not key.isascii():
+                errors.append(
+                    f"skill key {key!r} must use canonical English; put localized labels in player_facing_sheet_zh"
+                )
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                errors.append(f"skill {key!r} must be a non-negative integer")
+
+    if errors or not creation:
+        return errors
+
+    method_id = creation.get("method")
+    if not isinstance(method_id, str) or not method_id.strip():
+        errors.append("creation method must be a non-empty string")
+        return errors
+    errors.extend(validate_characteristic_generation(method_id, characteristics))
+
+    luck = derived["Luck"]
+    age_mov_penalty = 0
+    age = sheet.get("age")
+    if age is not None:
+        if isinstance(age, bool) or not isinstance(age, int):
+            errors.append("age must be an integer when supplied")
+            return errors
+        try:
+            age_mov_penalty = int(coc_rules.age_adjustment(age).get("mov_penalty", 0))
+        except ValueError as exc:
+            errors.append(str(exc))
+            return errors
+
+    expected = derive_values(
+        characteristics,
+        luck=luck,
+        age_mov_penalty=age_mov_penalty,
+    )
+    for key in ("HP", "MP", "SAN", "Luck", "DB", "Build", "MOV"):
+        if derived.get(key) != expected[key]:
+            errors.append(
+                f"derived {key} {derived.get(key)!r} does not match rules value {expected[key]!r}"
+            )
     return errors

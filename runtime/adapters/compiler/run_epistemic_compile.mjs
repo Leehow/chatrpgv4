@@ -6,8 +6,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import {
-  AuthStorage, createAgentSession, createExtensionRuntime, DefaultResourceLoader,
-  ModelRegistry, SessionManager, defineTool, getAgentDir,
+  createAgentSession, createExtensionRuntime, DefaultResourceLoader,
+  ModelRuntime, SessionManager, defineTool, getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -209,20 +209,22 @@ export function validateResult(result, requestSha, modelIdentity = null) {
   return result;
 }
 
-function resolveModel(agentDir, provider, modelId) {
-  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const registry = ModelRegistry.create(authStorage, path.join(agentDir, "models.json"));
-  let model = registry.find(provider, modelId);
+async function resolveModel(agentDir, provider, modelId) {
+  const modelRuntime = await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
+  let model = modelRuntime.getModel(provider, modelId);
   if (!model && provider === "coding-relay") {
-    const template = registry.getAll().find(
-      (candidate) => candidate.provider === provider && registry.hasConfiguredAuth(candidate),
+    const template = modelRuntime.getModels(provider).find(
+      (candidate) => modelRuntime.hasConfiguredAuth(candidate.provider),
     );
     if (template) model = { ...template, id: modelId, name: modelId };
   }
-  if (!model || !registry.hasConfiguredAuth(model)) {
+  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new Error("requested_model_unavailable");
   }
-  return { model, registry };
+  return { model, modelRuntime };
 }
 
 export function buildSubmissionTool(envelope, holder, modelIdentity) {
@@ -251,7 +253,7 @@ export function buildSubmissionTool(envelope, holder, modelIdentity) {
         holder.pendingExecutions.push({ kind: "halted", diagnostic: holder.rejection });
         return neutralResult(envelope.request_sha256);
       }
-      // pi 0.79.9 applies Value.Convert before TypeBox validation. Reject raw
+      // Pi applies Value.Convert before TypeBox validation. Reject raw
       // values here so true can never be converted to numeric literal 1. An
       // invalid raw call is carried to execute through a private neutral value,
       // allowing this tool to terminate the session with a bounded diagnostic.
@@ -343,10 +345,11 @@ export async function run(envelope, dependencies = {}) {
   const provider = dependencies.provider || process.env.COC_COMPILER_MODEL_PROVIDER || "coding-relay";
   const modelId = dependencies.modelId || process.env.COC_COMPILER_MODEL_ID || "gpt-5.6";
   const agentDir = dependencies.agentDir || getAgentDir();
-  const resolved = dependencies.resolveModel
+  const resolved = await (dependencies.resolveModel
     ? dependencies.resolveModel(agentDir, provider, modelId)
-    : resolveModel(agentDir, provider, modelId);
-  const { model, registry } = resolved;
+    : resolveModel(agentDir, provider, modelId));
+  const { model } = resolved;
+  const modelRuntime = resolved.modelRuntime ?? resolved.registry;
   const modelIdentity = { provider: model.provider, id: model.id };
   const holder = {
     result: null, rejection: null, rawAttempts: 0, validatedCandidates: 0,
@@ -356,7 +359,7 @@ export async function run(envelope, dependencies = {}) {
   const tool = buildSubmissionTool(envelope, holder, modelIdentity);
   let created;
   if (dependencies.sessionFactory) {
-    created = await dependencies.sessionFactory({ tool, model, registry });
+    created = await dependencies.sessionFactory({ tool, model, modelRuntime });
   } else {
     const loader = new DefaultResourceLoader({
       cwd: __dirname, agentDir, noExtensions: true, noSkills: true,
@@ -367,7 +370,7 @@ export async function run(envelope, dependencies = {}) {
     await loader.reload();
     created = await createAgentSession({
       cwd: __dirname, agentDir, tools: ["coc_submit_epistemic_result"], customTools: [tool],
-      model, modelRegistry: registry, resourceLoader: loader,
+      model, modelRuntime, resourceLoader: loader,
       sessionManager: SessionManager.inMemory(__dirname),
     });
   }

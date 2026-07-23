@@ -1504,13 +1504,18 @@ def _opening_campaign_local_row(value: Any) -> bool:
 
 
 def _opening_scope_page_ref(value: dict[str, Any]) -> dict[str, Any]:
-    return {
+    result = {
         "source_id": str(value.get("source_id") or ""),
         "pdf_index": value.get("pdf_index"),
         "text_sha256": str(value.get("text_sha256") or ""),
         "review_state": value.get("review_state"),
         "parse_confidence": value.get("parse_confidence"),
     }
+    if isinstance(value.get("ocr_revision"), dict):
+        result["ocr_revision"] = json.loads(json.dumps(value["ocr_revision"]))
+    if isinstance(value.get("structured_data"), dict):
+        result["structured_data_sha256"] = value["structured_data"].get("sha256")
+    return result
 
 
 def _opening_pack_claims_match_revalidation(
@@ -4252,6 +4257,169 @@ def request_deepen(
     if result.get("followed"):
         result["status"] = result["followed"][0].get("status")
     return result
+
+
+def resolve_source_scope(
+    workspace: Path,
+    campaign_id: str,
+    *,
+    job_id: str,
+    kind: str,
+    target_id: str,
+    source_bundle_path: Path | None,
+    pdf_indices: list[int],
+) -> dict[str, Any]:
+    """Attach one host-located page window and wake existing deep work.
+
+    This is the narrow bridge between an external PDF locator and the existing
+    host-work lifecycle.  It does not inspect PDF bytes or compile an entity
+    pack: it validates the locator's reviewed bundle, enriches the named-only
+    stub with the exact page scope, and synchronously materializes the normal
+    replacement request so the old ``awaiting_scope`` row cannot be stranded.
+    """
+    campaign_dir = _campaign_dir(workspace, campaign_id)
+    root_id = campaign_asset_root_id(campaign_dir)
+    if not root_id:
+        raise ModuleProjectError("campaign is not progressive / no asset_root_id")
+    if kind not in coc_module_assets.ENTITY_KINDS:
+        raise ModuleProjectError(
+            f"kind must be one of {sorted(coc_module_assets.ENTITY_KINDS)}"
+        )
+    target_id = str(target_id or "").strip()
+    job_id = str(job_id or "").strip()
+    if not target_id or not job_id:
+        raise ModuleProjectError("job_id and target_id are required")
+    if (
+        not isinstance(pdf_indices, list)
+        or not 1 <= len(pdf_indices) <= 3
+        or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in pdf_indices
+        )
+        or pdf_indices != sorted(set(pdf_indices))
+    ):
+        raise ModuleProjectError(
+            "pdf_indices must contain 1..3 unique ascending non-negative integers"
+        )
+
+    rows = coc_module_assets.list_host_work_requests(
+        workspace, root_id, include_closed=True, limit=None,
+    )
+    request = next(
+        (row for row in rows if str(row.get("job_id") or "") == job_id),
+        None,
+    )
+    if not isinstance(request, dict):
+        raise ModuleProjectError("source-scope job is missing")
+    if str(request.get("status") or "open") in coc_module_assets.HOST_WORK_CLOSED_STATUSES:
+        raise ModuleProjectError("source-scope job is already closed")
+    job_kind = str(request.get("kind") or "")
+    if (
+        coc_module_assets._job_entity_kind(job_kind) != kind
+        or str(request.get("target_id") or "") != target_id
+    ):
+        raise ModuleProjectError("source-scope job target does not match")
+    if coc_module_assets.host_work_operational_class(request) != "awaiting_scope":
+        raise ModuleProjectError("source-scope job is no longer awaiting_scope")
+
+    cached_before = set(
+        coc_module_assets.accepted_cached_pdf_indices(workspace, root_id)
+    )
+    missing_indices = [
+        pdf_index for pdf_index in pdf_indices if pdf_index not in cached_before
+    ]
+    registration = None
+    if source_bundle_path is not None:
+        registration = coc_module_assets.register_source_bundle(
+            workspace,
+            source_bundle_path,
+            asset_root_id=root_id,
+        )
+        if str(registration.get("asset_root_id") or "") != root_id:
+            raise ModuleProjectError("source bundle resolved to another asset root")
+        registered_indices = list(registration.get("cached_pdf_indices") or [])
+        if registered_indices != pdf_indices:
+            raise ModuleProjectError(
+                "source bundle pages must exactly match the selected pdf_indices"
+            )
+    elif missing_indices:
+        raise ModuleProjectError(
+            "source_bundle_path is required for uncached pdf_indices: "
+            + ", ".join(str(value) for value in missing_indices)
+        )
+
+    # Revalidate every selected page after optional registration. This is the
+    # stable evidence boundary: (source file hash, pdf_index) resolves to one
+    # accepted canonical page artifact, never a second LLM transcription.
+    coc_module_assets._cached_source_refs(
+        workspace,
+        root_id,
+        {"source_page_indices": pdf_indices},
+        field="resolve_source_scope",
+    )
+
+    stub = coc_module_assets.ensure_stub(
+        workspace,
+        root_id,
+        kind,
+        target_id,
+        reason="source_scope_locator",
+        source_scope={"source_page_indices": pdf_indices},
+    )
+    enqueue = coc_module_assets.enqueue_job(
+        workspace,
+        root_id,
+        kind=job_kind,
+        target_id=target_id,
+        priority=int(request.get("priority") or 50),
+        reason=str(request.get("reason") or "source_scope_locator"),
+        work_level=str(request.get("work_level") or "near_term"),
+        dependency_ref=request.get("dependency_ref"),
+        kick_worker=False,
+    )
+    worker = _load_sibling(
+        "coc_module_queue_worker_source_scope", "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(workspace, parallel=1)
+    after = coc_module_assets.list_host_work_requests(
+        workspace, root_id, include_closed=True, limit=None,
+    )
+    replacement = next(
+        (
+            row for row in reversed(after)
+            if str(row.get("status") or "open") not in (
+                coc_module_assets.HOST_WORK_CLOSED_STATUSES
+            )
+            and coc_module_assets._same_entity_work(row, job_kind, target_id)
+            and list(row.get("requested_pdf_indices") or []) == pdf_indices
+        ),
+        None,
+    )
+    if not isinstance(replacement, dict):
+        raise ModuleProjectError(
+            "source scope registered but replacement host work was not materialized"
+        )
+    return {
+        "asset_root_id": root_id,
+        "resolved_job_id": job_id,
+        "replacement_job_id": replacement.get("job_id"),
+        "kind": kind,
+        "target_id": target_id,
+        "pdf_indices": pdf_indices,
+        "source_reuse": source_bundle_path is None,
+        "reused_pdf_indices": [
+            value for value in pdf_indices if value in cached_before
+        ],
+        "registered_pdf_indices": pdf_indices if source_bundle_path is not None else [],
+        "registration": registration,
+        "stub": stub,
+        "enqueue": enqueue,
+        "materialized": materialized,
+        "replacement": replacement,
+        "lifecycle": coc_module_assets.host_work_lifecycle_summary(
+            workspace, root_id,
+        ),
+    }
 
 
 def request_mechanics(

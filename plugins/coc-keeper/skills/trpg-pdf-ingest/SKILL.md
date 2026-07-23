@@ -125,6 +125,74 @@ Preferred host workflow (any producer that reaches the same quality):
 - Multimodal page review is the default understanding path; OCR is optional
   and only for scans or hosts without adequate page vision.
 
+### Cold-start locator order
+
+For a newly attached large PDF, locate before rendering. Inspect document
+outline/bookmarks first; if absent or insufficient, inspect the smallest
+plausible TOC/front-matter window, then use a text-layer title lookup only as a
+locator. Do not raster-render speculative 20–32-page ranges to discover where a
+named scenario starts, and do not rasterize a sequence of guessed ranges. Once
+the scenario start is located but the outline has no explicit playable-opening
+bookmark, inspect one smallest text-layer locator window from the scenario
+start through its first scene heading. Use it only to identify the first
+player-facing situation; background, timeline, motivation, and recent-events
+pages may support concepts but are not themselves a playable opening.
+On Codex when `coc_opening_source_coordinator_v1=true`, the main KP creates the
+empty campaign and dispatches one context-free
+`coc-opening-source-coordinator` immediately after source identity and the
+user's requested scenario title is accepted as the named target—without main-KP
+outline/text verification and before the main KP performs a title crawl,
+page render, visual review, locator selection, or concept drafting. The task may
+carry zero to four locator candidates; an empty list delegates the cold locator
+order above to that same child. After its premise page passes visual review, the
+child's first task turn naturally returns one bare spoiler-free
+`coc.opening-character-concepts.v1` result and stops; it does not rely on an
+in-turn callback. The main KP forwards those concepts and exact-forwards the
+result's `continue_task` via `followup_task` to the same idle child. That
+source-build follow-up continues without player context. The child—not the main
+KP—selects and visually accepts the whole final cold-start opening page set,
+normally one or two pages and never more than three. "Sufficient" means the
+complete current player-facing beat, not merely its heading or first boxed-text
+paragraph: include authored date/time, every NPC materially present in that
+beat, the full briefing/commission/pressure, and at least one actionable route
+when those elements exist. If a sentence, boxed passage, briefing, or
+immediately actionable choice continues across a page boundary, the
+continuation page is part of the minimum. An adjacent later encounter, travel
+beat, overnight scene, or appendix is not opening evidence merely because it
+is contiguous. The child renders the bounded locator candidates in one batch,
+extracts the selected text layer in one batch, and visually inspects every
+selected page. The main KP immediately continues character work and must not
+duplicate the child lane. Locator metadata and text search are not accepted
+source evidence by themselves; every selected page still requires the child's
+normal visual review and hashes below.
+
+On a host without that capability, the main KP retains the same bounded final
+page selection, one-batch rendering/extraction, visual review, and bundle
+assembly before using the legacy warm-start path. Do not serialize one render
+command and one extraction command per page.
+
+If the current window-equivalent acceptance uses a protocol-isolated player
+agent, spawn that one player and deliver the concept choice at this early
+boundary before writing the bundle manifest, binding the scenario, or building
+the opening skeleton. A human player receives the same concepts directly. This
+is only who supplies the player line; it never creates a parallel Keeper.
+
+For a cold campaign start, accepted identity/introduction evidence that already
+establishes premise, setting, and investigator fit is an **early player-response
+boundary**. If a player is waiting for character concepts, deliver those
+source-grounded concepts immediately before assembling or validating the
+bundle, binding the scenario, reading a generated briefing, or preparing the
+opening pack. Treat that delivery as an intermediate player-visible update,
+not the end of the host turn. With the Codex opening coordinator, natural task
+completion delivers this boundary to the parent; the main KP forwards it,
+starts the exact same-child source-build follow-up, and begins characteristic
+rolls, sheet creation, and character confirmation while that document lane
+continues. On the fallback path, continue the
+remaining source setup until the minimum opening request is dispatched before
+switching to character mechanics. The first useful player choice is itself the
+milestone; the work behind it must be genuinely concurrent where the host
+advertises the coordinator, not merely reordered inside one main-KP turn.
+
 ## Two-stage workflow
 
 1. Invoke the chosen host PDF skill (priority above). It owns page rendering,
@@ -133,7 +201,17 @@ Preferred host workflow (any producer that reaches the same quality):
 2. Visually verify every selected page against the rendered PDF. Write one
    UTF-8 Markdown file per page plus `manifest.json`. For each page, record the
    host's accepted review state, a realistic confidence (never manufacture
-   `1.0`), and exact grep anchors checked during review.
+   `1.0`), and exact grep anchors checked during review. Copy every anchor
+   directly from the finished page Markdown; never retype, normalize,
+   paraphrase, or reconstruct it from the PDF image. After writing the
+   manifest, reopen the exact Markdown substring and run the validator below
+   before any campaign or bind call. The latency-bounded Codex opening
+   coordinator is the sole exception: its `scenario.bind_pdf` performs the
+   same deterministic validation before hydration or state mutation, and any
+   validation failure terminates that coordinator without retry. In all other
+   paths a bind attempt is not the bundle author's first validator. In an installed plugin workspace, resolve the known sibling
+   `scripts/coc_pdf_bundle.py` from this skill's plugin root directly; do not
+   search the user's workspace for a repository-relative copy.
 3. Validate and normalize the bundle:
 
 ```bash

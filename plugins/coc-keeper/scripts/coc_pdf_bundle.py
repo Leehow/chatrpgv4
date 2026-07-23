@@ -22,7 +22,14 @@ PRODUCER = "codex-pdf-skill"
 MANIFEST_NAME = "manifest.json"
 MAX_PAGES = 32
 MAX_CHARACTERS = 300_000
+MAX_STRUCTURED_PAGE_BYTES = 5_000_000
 ACCEPTED_REVIEW_STATES = frozenset({"auto_accepted", "manual_accepted"})
+STRUCTURED_PAGE_FORMATS = frozenset({"paddleocr-vl-layout-v1"})
+OCR_REVISION_LAYERS = frozenset({"fast", "detail"})
+OCR_REVISION_KEYS = frozenset({
+    "stable_id", "pdf_index", "layer", "revision", "content_sha256",
+    "fast_confidence_revision",
+})
 _HEX = frozenset("0123456789abcdef")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
@@ -96,6 +103,14 @@ def _canonical_digest(
         for key in ("printed_page", "printed_label"):
             if key in page:
                 item[key] = page[key]
+        if isinstance(page.get("structured_data"), dict):
+            structured = page["structured_data"]
+            item["structured_data"] = {
+                key: structured[key]
+                for key in ("sha256", "format", "producer", "model")
+            }
+        if isinstance(page.get("ocr_revision"), dict):
+            item["ocr_revision"] = dict(page["ocr_revision"])
         digest_pages.append(item)
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -230,6 +245,126 @@ def load_host_bundle(bundle: Path | str) -> dict[str, Any]:
             "parse_confidence": parse_confidence,
             "grep_anchors": list(grep_anchors),
         })
+        raw_revision = raw_page.get("ocr_revision")
+        if raw_revision is not None:
+            if not isinstance(raw_revision, dict):
+                raise PdfSourceBundleError(f"{field}.ocr_revision must be an object")
+            unknown = sorted(set(raw_revision) - OCR_REVISION_KEYS)
+            if unknown:
+                raise PdfSourceBundleError(
+                    f"{field}.ocr_revision rejects unknown keys: {', '.join(unknown)}"
+                )
+            layer = raw_revision.get("layer")
+            if layer not in OCR_REVISION_LAYERS:
+                raise PdfSourceBundleError(
+                    f"{field}.ocr_revision.layer must be fast or detail"
+                )
+            stable_id = raw_revision.get("stable_id")
+            if stable_id != f"page:{pdf_index}:{layer}":
+                raise PdfSourceBundleError(
+                    f"{field}.ocr_revision.stable_id does not match pdf_index/layer"
+                )
+            revision_pdf_index = raw_revision.get("pdf_index")
+            if revision_pdf_index != pdf_index:
+                raise PdfSourceBundleError(
+                    f"{field}.ocr_revision.pdf_index must match page pdf_index"
+                )
+            revision = raw_revision.get("revision")
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision <= 0:
+                raise PdfSourceBundleError(
+                    f"{field}.ocr_revision.revision must be a positive integer"
+                )
+            content_sha256 = _require_sha256(
+                raw_revision.get("content_sha256"),
+                f"{field}.ocr_revision.content_sha256",
+            )
+            normalized_revision = {
+                "stable_id": stable_id,
+                "pdf_index": pdf_index,
+                "layer": layer,
+                "revision": revision,
+                "content_sha256": content_sha256,
+            }
+            if "fast_confidence_revision" in raw_revision:
+                fast_revision = raw_revision.get("fast_confidence_revision")
+                if (
+                    isinstance(fast_revision, bool)
+                    or not isinstance(fast_revision, int)
+                    or fast_revision <= 0
+                ):
+                    raise PdfSourceBundleError(
+                        f"{field}.ocr_revision.fast_confidence_revision must be "
+                        "a positive integer"
+                    )
+                normalized_revision["fast_confidence_revision"] = fast_revision
+            page["ocr_revision"] = normalized_revision
+        raw_structured = raw_page.get("structured_data")
+        if raw_structured is not None:
+            if not isinstance(raw_structured, dict):
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data must be an object"
+                )
+            structured_path = _bundle_file(
+                root,
+                raw_structured.get("path"),
+                f"{field}.structured_data.path",
+            )
+            structured_bytes = structured_path.read_bytes()
+            if len(structured_bytes) > MAX_STRUCTURED_PAGE_BYTES:
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data exceeds "
+                    f"{MAX_STRUCTURED_PAGE_BYTES} bytes"
+                )
+            structured_sha256 = _require_sha256(
+                raw_structured.get("sha256"),
+                f"{field}.structured_data.sha256",
+            )
+            if hashlib.sha256(structured_bytes).hexdigest() != structured_sha256:
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data SHA-256 does not match manifest"
+                )
+            try:
+                structured_text = structured_bytes.decode("utf-8")
+                structured_doc = json.loads(structured_text)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data must be UTF-8 JSON"
+                ) from exc
+            structured_format = raw_structured.get("format")
+            if structured_format not in STRUCTURED_PAGE_FORMATS:
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data.format is unsupported"
+                )
+            producer = raw_structured.get("producer")
+            model = raw_structured.get("model")
+            if producer != "baidu-paddleocr-jobs":
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data.producer must equal "
+                    "'baidu-paddleocr-jobs'"
+                )
+            if not isinstance(model, str) or not model.strip():
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data.model must be non-empty"
+                )
+            if (
+                not isinstance(structured_doc, dict)
+                or structured_doc.get("schema_version") != 1
+                or structured_doc.get("producer") != producer
+                or structured_doc.get("model") != model
+                or not isinstance(structured_doc.get("prunedResult"), dict)
+            ):
+                raise PdfSourceBundleError(
+                    f"{field}.structured_data does not match the declared "
+                    "PaddleOCR page contract"
+                )
+            page["structured_data"] = {
+                "path": str(structured_path.relative_to(root)),
+                "sha256": structured_sha256,
+                "format": structured_format,
+                "producer": producer,
+                "model": model.strip(),
+                "text": structured_text,
+            }
         if "printed_page" in raw_page:
             printed_page = raw_page["printed_page"]
             if isinstance(printed_page, bool) or not isinstance(printed_page, int):

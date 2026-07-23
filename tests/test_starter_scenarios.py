@@ -527,6 +527,16 @@ def test_quick_start_pregens_render_complete_zh_hans_cards(tmp_path, pregen_id):
     assert len(display["skills"]) == len(sheet["skills"])
     assert display["backstory_summary"]
     assert display["backstory_details"]
+    assert isinstance(display.get("equipment"), list)
+    assert display["equipment"]
+    # Display labels must be zh-Hans, not the machine-sheet English strings.
+    machine_equipment = {
+        str(item).strip()
+        for item in (sheet.get("equipment") or [])
+        if isinstance(item, str) and item.strip()
+    }
+    assert not any(label in machine_equipment for label in display["equipment"])
+    assert all(any("\u4e00" <= ch <= "\u9fff" for ch in label) for label in display["equipment"])
 
     import coc_runtime_ops
     receipt = coc_runtime_ops.execute_setup_operation(
@@ -549,6 +559,33 @@ def test_quick_start_pregens_render_complete_zh_hans_cards(tmp_path, pregen_id):
     assert "## 属性" in card
     assert "## 技能" in card
     assert "## 背景" in card
+
+
+def test_ensure_pregen_fills_missing_equipment_on_existing_player_facing_sheet():
+    """Older pregens may already have pf sheets without equipment."""
+    sheet = json.loads(
+        coc_starter._pregen_character_path(
+            "the-haunting", "eleanor-reed"
+        ).read_text(encoding="utf-8")
+    )
+    sheet["player_facing_sheet_zh"] = {
+        "display_name": sheet["name"],
+        "occupation": sheet["occupation"],
+        "skills": [],
+        "weapons": [],
+        # deliberately omit equipment
+    }
+    ensured = coc_starter.ensure_pregen_player_facing_sheet(sheet)
+    equipment = ensured["player_facing_sheet_zh"]["equipment"]
+    assert equipment == [
+        "采访本",
+        "钢笔",
+        "箱式相机与闪光药",
+        "致两位城市编辑的介绍信",
+    ]
+    # Other authored fields stay untouched.
+    assert ensured["player_facing_sheet_zh"]["display_name"] == sheet["name"]
+    assert ensured["player_facing_sheet_zh"]["skills"] == []
 
 
 def test_quick_start_installs_campaign_and_pregen(tmp_path):

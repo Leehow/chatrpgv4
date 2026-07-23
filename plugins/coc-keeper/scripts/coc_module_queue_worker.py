@@ -51,6 +51,9 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
             "source_refs",
         ],
         "exact_source_scope": True,
+        "worker_result_pack_shape": (
+            "direct_location_entity; never nest it under a location key"
+        ),
         "location_pack": {
             "fixed_fields": {
                 "parse_state": "partial",
@@ -223,12 +226,30 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
                 "location_fields": ["title", "player_safe_summary"],
                 "materially_present_npc_fields": ["npc_id", "agenda"],
                 "npc_policy": "source_supported_and_materially_present_only",
+                "opening_completeness_pass": [
+                    "current_situation",
+                    "authored_choices_or_investigation_paths",
+                    "information_each_path_can_establish",
+                    "named_conditional_contacts_as_mentions",
+                    "materially_present_npcs",
+                ],
             },
-            "forced_empty_fields": {
-                "scene_edges": [],
-                "affordances": [],
+            "semantic_default_replacement": {
+                "clues": (
+                    "populate every source-authored clue needed to play the current beat"
+                ),
+                "affordances": (
+                    "populate source-authored immediately usable courses of action"
+                ),
+                "mentions": (
+                    "populate source-authored named people or places referenced "
+                    "but not materially present"
+                ),
+                "scene_edges": "populate only source-established destination locations",
             },
-            "infer_structured_clock_or_routes_from_prose": False,
+            "all_empty_semantic_arrays_allowed_only_when_source_authors_none": True,
+            "semantic_judgment_not_keyword_gate": True,
+            "invent_unsupported_clock_route_person_or_fact": False,
             "self_check_before_status_usable": True,
             "unsatisfied_required_fields_result": {
                 "status": "abstain",
@@ -836,7 +857,6 @@ def _cached_page_refs(
     *,
     requested_indices: list[int],
 ) -> list[dict[str, Any]]:
-    module_root = coc_module_assets.assets_root(workspace) / asset_root_id
     # An absent exact source scope is not permission to scan the whole cache.
     # Keep the handoff open until a structured skeleton/mention supplies page
     # indices instead of turning one vague neighbor into an all-module read.
@@ -845,20 +865,12 @@ def _cached_page_refs(
     candidate_indices = requested_indices
     refs: list[dict[str, Any]] = []
     for pdf_index in candidate_indices:
-        page = coc_module_assets.get_page(workspace, asset_root_id, pdf_index)
-        if page is None:
+        ref = coc_module_assets.cached_page_ref(
+            workspace, asset_root_id, pdf_index,
+        )
+        if ref is None:
             continue
-        meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
-        refs.append({
-            "source_id": meta.get("source_id"),
-            "pdf_index": pdf_index,
-            "path": str(module_root / "pages" / f"{pdf_index:04d}.md"),
-            "text_sha256": meta.get("text_sha256"),
-            "bundle_sha256s": list(meta.get("bundle_sha256s") or []),
-            "review_state": meta.get("review_state"),
-            "parse_confidence": meta.get("parse_confidence"),
-            "grep_anchors": list(meta.get("grep_anchors") or []),
-        })
+        refs.append(ref)
     return refs
 
 

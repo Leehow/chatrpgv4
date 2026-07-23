@@ -1,4 +1,4 @@
-"""A30 contracts: Pi is a bounded narrator, never a live-turn rules proxy."""
+"""Narrator Bridge contracts: frozen bounded narrator, never full Pi product."""
 from __future__ import annotations
 
 import importlib.util
@@ -13,6 +13,8 @@ REPO = Path(__file__).resolve().parents[1]
 PI_DIR = REPO / "runtime" / "adapters" / "pi"
 ADAPTER_PATH = PI_DIR / "adapter.py"
 RUN_TURN = PI_DIR / "run_turn.mjs"
+README_PATH = PI_DIR / "README.md"
+PACKAGE_PI_README = REPO / "plugins" / "coc-keeper" / "pi" / "README.md"
 
 
 def _load_adapter():
@@ -76,3 +78,34 @@ def test_pi_runner_is_narrator_wrapper_with_jsonl_server_and_no_debug_proxy():
     assert "call_debug" not in source
     assert "debug_send_turn" not in source
     assert "coc_live_turn" not in source
+
+
+def test_narrator_bridge_readme_declares_freeze_and_surface_boundary():
+    text = README_PATH.read_text(encoding="utf-8")
+    assert "Narrator Bridge" in text
+    assert "**frozen**" in text or "Status:** **frozen**" in text
+    assert "Pi Package" in text
+    assert "Headless Runtime" in text
+    assert "do not expand" in text.lower() or "Forbidden" in text
+    assert "not** the Pi product" in text or "not the Pi product" in text.lower()
+
+
+def test_narrator_bridge_exports_only_bounded_surface():
+    adapter = _load_adapter()
+    assert set(adapter.__all__) == {"pi_narrate", "pi_send_turn"}
+    source = ADAPTER_PATH.read_text(encoding="utf-8")
+    for banned in (
+        "coc_dispatch_source_work",
+        "claim_host_work",
+        "source-coordinator",
+        "progressive.fulfill",
+        "coc_progressive_ocr",
+    ):
+        assert banned not in source
+
+
+def test_pi_package_readme_points_away_from_narrator_bridge_as_product():
+    text = PACKAGE_PI_README.read_text(encoding="utf-8")
+    assert "Pi Package" in text
+    assert "Narrator Bridge" in text
+    assert "Frozen" in text or "frozen" in text

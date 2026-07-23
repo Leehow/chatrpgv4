@@ -280,10 +280,16 @@ def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None
             "scale": start_clock.get("scale", "scene"),
             "calendar_mode": start_clock.get("calendar_mode", era_clock["calendar_mode"]),
             "local_datetime": start_clock.get("local_datetime", era_clock["local_datetime"]),
+            "local_date": start_clock.get("local_date"),
             "timezone": start_clock.get("timezone", era_clock["timezone"]),
             "location_id": start_clock.get("location_id"),
             "display": start_clock.get("display", era_clock["display"]),
             "day_phase_boundaries": start_clock.get("day_phase_boundaries"),
+            "time_precision": start_clock.get("time_precision"),
+            "day_phase_hint": start_clock.get("day_phase_hint"),
+            "civil_anchor_elapsed": 0,
+            "civil_segment_id": start_clock.get("civil_segment_id", "civil-start"),
+            "discontinuity_sequence": 0,
             "appearance_mode": start_clock.get("appearance_mode", "normal"),
             "appearance_display_label": start_clock.get("appearance_display_label"),
             "appearance_source_ref": start_clock.get("appearance_source_ref"),
@@ -293,9 +299,18 @@ def initial_clock_for_era(era: str = "1920s", start_clock: dict[str, Any] | None
         "scale": "scene",
         "calendar_mode": era_clock["calendar_mode"],
         "local_datetime": era_clock["local_datetime"],
+        "local_date": (
+            str(era_clock["local_datetime"]).split("T", 1)[0]
+            if era_clock["local_datetime"] else None
+        ),
         "timezone": era_clock["timezone"],
         "location_id": None,
         "display": era_clock["display"],
+        "time_precision": "minute" if era_clock["local_datetime"] else "unknown",
+        "day_phase_hint": None,
+        "civil_anchor_elapsed": 0,
+        "civil_segment_id": "civil-start",
+        "discontinuity_sequence": 0,
         "appearance_mode": "normal",
         "appearance_display_label": None,
         "appearance_source_ref": None,
@@ -1638,7 +1653,9 @@ def _seed_investigator_state_at(
             derived.get("MP")
             or max(1, int(characteristics.get("POW") or 50) // 5)
         ),
-        "current_luck": int(characteristics.get("LUCK") or 50),
+        "current_luck": int(
+            derived.get("Luck") or characteristics.get("LUCK") or 50
+        ),
         "conditions": [],
         "skill_checks_earned": [],
     }

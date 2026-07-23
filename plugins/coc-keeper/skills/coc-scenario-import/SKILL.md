@@ -1,6 +1,6 @@
 ---
 name: coc-scenario-import
-description: Import and index authored Call of Cthulhu scenarios for COC mode. Use for rulebook scenarios, external module PDFs, scenario skeletons, source maps, Keeper-only separation, and on-demand PDF lookup.
+description: Import and index authored COC scenarios when coc-main routes a manual/fallback import or later source lookup. Do not select it in the main session for a fresh Codex raw-PDF opening when the advertised opening source coordinator owns the closed import path.
 ---
 
 # COC Scenario Import
@@ -56,7 +56,11 @@ its complete `opening_page_candidates` only as bounded selection hints—not
 provenance. The host Keeper semantically chooses the shortest sufficient
 accepted contiguous current-opening window from `pdf_index`, `review_state`,
 `parse_confidence`, and `grep_anchor_preview`. Prefer one page whenever it alone
-establishes the playable opening. Three pages is a maximum, never a target:
+contains the complete current player-facing beat—not merely its heading or
+first paragraph. Include authored date/time, all NPCs materially present, the
+complete briefing/commission/pressure, and an actionable route when those
+exist. A sentence, boxed passage, briefing, or immediate choice continuing over
+the page boundary makes the continuation page mandatory. Three pages is a maximum, never a target:
 never pad forward or backward merely to fill it. Include an adjacent page only
 when its preview semantically shows that necessary current-opening setup crosses
 the page boundary; exclude previews belonging to later travel, overnight beats,
@@ -68,7 +72,13 @@ campaign-bound window and returns only its exact hash-bound
 `cached_page_refs[].path` entries. Exact-read only those paths. For the first
 `progressive.publish_skeleton` submission, copy the closed
 `skeleton_argument_contract.prefilled_template`, replace only its location
-placeholders, and omit every optional source-evidenced field. Then reinvoke
+placeholders, and omit every optional source-evidenced field except the
+contract's narrow source-clock exception: when the selected pages explicitly
+author the opening date/time or phase, set `start_clock_status=source` and add
+only `start_clock` plus exact `start_clock_source_refs`. A time/phase without a
+date uses `local_datetime=null`, `local_date=null`, a relative calendar,
+`time_precision=day_phase`, semantic `day_phase_hint`, and the exact display;
+never retain a contradictory era-default date or phase. Then reinvoke
 `prepare_opening` with the selected `start_location_id` and
 `opening_pdf_indices` and continue through its returned cards. Never read a
 source manifest, the full module, neighboring or unselected pages, or
@@ -106,10 +116,35 @@ input.
 
 ### Pre-confirmation opening warm start
 
-For a fresh campaign with an accepted source bundle, use the player's character
+On Codex with `coc_opening_source_coordinator_v1=true`, this section is owned
+by the one context-free `coc-opening-source-coordinator` dispatched immediately
+after the empty campaign and before any main-KP locator, render, visual review,
+or concept drafting. The main KP has already created the empty
+campaign and passes only the closed
+`coc.codex-opening-source-task.v1` object by copying the retained
+`coc_capabilities.data.cold_start.opening_source_coordinator.task_static`
+verbatim and adding only current PDF/campaign variable fields. Never synthesize
+the coordinator or source-pack agent paths under `skills/`. Its fixed bootstrap instruction
+makes the generic context-free child load the exact coordinator instruction
+before any response or tool call; task naming alone is not activation. The child owns bounded named-scenario
+location, premise/opening review, source-bundle validation, bind, skeleton, Tier 1 request,
+same-context foreground source compile, fulfillment, and projection. The child's first task turn
+naturally returns one bare `coc.opening-character-concepts.v1`; it does not use
+an in-turn callback. The main KP forwards those concepts to the player, then
+exact-forwards the returned `continue_task` via `followup_task` to that same idle
+child. It starts character/rules work while this source-build follow-up runs and
+performs none of those document/source
+steps itself. It waits only if character confirmation beats the natural Tier 1
+completion. Document parsing, rules/character work, and Director/narration are
+separate responsibilities; this child never becomes a Keeper.
+
+For hosts without that exact capability, a fresh campaign with an accepted source bundle uses the player's character
 confirmation interval as real overlap. From the completed `scenario.bind_pdf`
 call until the pending-confirmation investigator card is delivered, the main KP
-does only this bounded setup work:
+does only this bounded setup work. Character concepts may be delivered first as
+an intermediate player-visible update, but an unusually fast player answer must
+not divert the KP into characteristic rolls, investigator creation/linking, or
+card rendering until the minimum opening request is dispatched:
 
 1. Invoke `progressive.prepare_opening`. If it reports
    `opening_skeleton_missing` with no source window, choose from its bounded
@@ -125,33 +160,48 @@ does only this bounded setup work:
    `request_purpose=foreground_opening_slice` request over the exact accepted
    contiguous 1–3-page window. Do not read the full module, neighboring-location
    packets, or appendix/mechanics pages.
-3. If host capabilities advertise `coc_source_coordinator_v1=true`, status
-   `experimental`, a supported exact-forward adapter, and a positive leaf
-   maximum, spawn exactly one coordinator with `background=true`. On Codex use
-   a context-free collaboration subagent with `fork_turns=none` and the exact
-   repository-produced `background_takeover.coordinator_dispatch.codex_task`
-   as its entire message. On a supported custom-agent host use
-   `coc-source-coordinator` with the exact `packet`. Do not construct, fill, add
-   transcript context, wait for, poll, or retrieve it. The manager owns one claim, exact leaves,
-   and exact-row fulfillment. Its classified failures are audit evidence: one
-   may be transient, while three observed occurrences of the same class are a
-   design issue rather than model variance. This never gates player input or
-   the opening. Task support alone is insufficient; never infer nested MCP
-   access from a host brand, model name, or successful generic child Task.
-   Otherwise, if and only if the separate host capability
-   advertises `coc_source_pack_worker_v1=true`, invoke
-   `progressive.claim_host_work` once.
-   The serialized claimed packet JSON is the entire child task prompt: add no
-   prefix, suffix, transcript, optional-row request, or schema hint. For each
-   returned packet, actually spawn the existing
-   `coc-source-pack-worker` with `background=true`. On Grok, use the focused
-   unqualified user-agent projection of that installed plugin definition; Grok
-   0.2.106 suppresses MCPs on the plugin-qualified form. Keep its narrow read
-   plus named-submit profile without overriding it to read-only. Keep the real
-   host task ID only in volatile host-session
-   context—never in module truth, campaign truth, or the worker packet.
+3. Consume `background_takeover` directly from the opening-request response.
+   Only when it is absent may the KP invoke `progressive.status` exactly once
+   to acquire dispatch. Follow the repository-selected `dispatch_mode`:
+   `direct_single_leaf` executes the one host-selected `next_host_action`
+   before any other host operation. On Codex it spawns the exact returned
+   `action=spawn_background_task` task as one context-free background source
+   child; do not claim in the parent, because the small child atomically claims
+   and compiles its packet. Its inner claim remains canonical
+   `progressive.claim_host_work`. A named-submit host receives only its own
+   claim-and-spawn action. During player
+   confirmation do not wait or poll. On natural child completion, forward each
+   exact returned `results[i]` once as
+   `next_host_action.on_natural_completion.operation` without an
+   output-retrieval or operation-discovery call;
+   `coordinator_fanout` spawns one exact coordinator for multiple independent
+   groups. Add no prefix, suffix, transcript, optional-row request, reconstructed
+   wrapper, or model override. A one-group request must not pay a
+   manager-to-one-leaf hop. Task support alone is insufficient; require the separately
+   advertised source-worker or coordinator capability matching the selected
+   mode. Keep real task IDs only in volatile host-session context.
 4. Deliver the pending player-confirmation character card immediately. Do not
    wait for, repeatedly inspect, or foreground the child result.
+
+The request response is authoritative for immediate dispatch. If neither it nor
+the one acquisition status exposes a takeover, deliver the confirmation card
+without waiting; a later natural `session.resume` or `scene.context` may expose
+the same shared projection. Never loop on status or discover an operation whose
+exact card was already returned.
+
+A source-task completion notice is liveness only. When the opening is next
+actually needed, distinguish the pre-confirmation nonblocking interval from the
+post-confirmation blocking minimum. Once the player confirms, an already-running
+current opening source task becomes the only permitted `blocking_micro`
+dependency: tell the player the opening is finishing, keep the host turn alive,
+and await its natural completion notification within the opening budget. This
+is not a status poll or task-output retrieval. Do not call
+`progressive.prepare_opening` while that known source task is still running.
+After its completion notice, call `progressive.prepare_opening` exactly once
+and execute its exact returned projection card. Do not guess
+`progressive.project_opening` arguments, probe it repeatedly, or declare the
+opening failed merely because the coordinator was not done at character
+confirmation.
 
 Claim transfers the exact packet pages to the child for that attempt. After a
 claim, the main KP must not read those claimed packet pages itself, manually
@@ -294,7 +344,11 @@ mentions. Until the host puts a deep pack, play continues with
 - Uncached requests are not leased in v1. The host PDF skill prepares the
   smallest exact page window, registers it with
   `progressive.register_source_bundle`, then claims again. Unknown scopes stay
-  unresolved and never broaden to the whole cache or PDF.
+  unresolved and never broaden to the whole cache or PDF. On Codex, normal
+  play may instead expose the closed nonblocking `source_scope_takeover`: its
+  dedicated locator registers the reviewed window through
+  `progressive.resolve_source_scope`, which attaches the scope and atomically
+  supersedes the old `awaiting_scope` row. The live KP never reads those pages.
 
 Tier-1 `mechanics_index` is deliberately a locator, not an eager full parse.
 When a source NPC with armed or combat potential is materially present and

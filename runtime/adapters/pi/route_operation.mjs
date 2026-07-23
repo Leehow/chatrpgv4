@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   defineTool,
   getAgentDir,
@@ -123,19 +122,25 @@ async function run(request) {
     extensionsOverride: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
   });
   await loader.reload();
-  const auth = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const registry = ModelRegistry.create(auth, path.join(agentDir, "models.json"));
+  const modelRuntime = await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
   const provider = process.env.COC_OPERATION_ROUTER_MODEL_PROVIDER || "coding-relay";
   const id = process.env.COC_OPERATION_ROUTER_MODEL_ID || "gpt-5.6-luna";
-  let model = registry.find(provider, id);
+  let model = modelRuntime.getModel(provider, id);
   if (!model && (provider === "coding-relay" || provider === "cursor-relay")) {
-    const template = registry.getAll().find((item) => item.provider === provider && registry.hasConfiguredAuth(item));
+    const template = modelRuntime.getModels(provider).find(
+      (item) => modelRuntime.hasConfiguredAuth(item.provider),
+    );
     if (template) model = { ...template, id, name: id };
   }
-  if (!model || !registry.hasConfiguredAuth(model)) throw new Error(`requested model unavailable: ${provider}/${id}`);
+  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
+    throw new Error(`requested model unavailable: ${provider}/${id}`);
+  }
   const created = await createAgentSession({
     cwd, agentDir, tools: ["coc_route_player_action"], customTools: [tool],
-    model, modelRegistry: registry, resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
+    model, modelRuntime, resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
   });
   try {
     await created.session.prompt([
@@ -150,10 +155,12 @@ async function run(request) {
   }
 }
 
-try {
-  const result = await run(await readStdinJson());
-  process.stdout.write(JSON.stringify(result) + "\n");
-} catch (error) {
-  process.stdout.write(JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) }) + "\n");
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    const result = await run(await readStdinJson());
+    process.stdout.write(JSON.stringify(result) + "\n");
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) }) + "\n");
+    process.exitCode = 1;
+  }
 }

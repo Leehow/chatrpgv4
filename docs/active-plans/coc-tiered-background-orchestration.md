@@ -2,7 +2,7 @@
 
 Work ID: `coc-tiered-background-orchestration`
 Status: `In Progress`
-Last updated: `2026-07-21`
+Last updated: `2026-07-22`
 
 ## Product question
 
@@ -41,10 +41,13 @@ or component tests with no normal host path consuming the feature.
    leaves. Codex now advertises an experimental adapter after a real
    claim -> nested leaf -> exact fulfillment run. It uses a context-free Codex
    collaboration subagent and the canonical toolbox JSON-stdin gateway. Grok
-   still cannot spawn the required nested leaf, and Cursor's interactive nested
-   Task cannot access the configured COC MCP. The coordinator does not select
-   player actions, read campaign transcripts, compile packs itself, or become a
-   second KP.
+   cannot nest coordinator -> leaf (platform depth limit one); multi-group
+   ready work instead uses experimental `parent_flat_fanout` /
+   `coc_source_parent_fanout_v1`: the main KP claims once with
+   `named_submit` and spawns top-level source-pack workers only. Cursor's
+   interactive nested Task still cannot access the configured COC MCP. The
+   coordinator does not select player actions, read campaign transcripts,
+   compile packs itself, or become a second KP.
 6. Rules orchestration is initially a compact deterministic readiness
    projection, not another LLM agent. Director remains optional, advisory, and
    nonblocking. This preserves domain separation without adding three new
@@ -187,8 +190,14 @@ It may not:
 - replace repository queue grouping, leasing, validation, or fulfillment;
 - wait for L2/L3 results before allowing the KP to answer.
 
-Maximum nesting depth is two (`KP -> source coordinator -> source-pack leaf`).
-Leaves remain unable to spawn. The contract is prompt-first: one classified
+Maximum nesting depth remains two for independent multi-group background work
+(`KP -> source coordinator -> source-pack leaves`). The cold-start foreground
+exception is deliberately flatter: the opening source coordinator already owns
+the accepted opening text, so it leases and compiles its sole packet in the same
+context instead of paying a manager-to-one-leaf hop. The main KP loads only
+`coc-main` for setup, defers `coc-keeper-play` until opening craft, and never
+reads the source/PDF/campaign-state manuals owned by other roles. Leaves remain unable to
+spawn. The contract is prompt-first: one classified
 failure may be treated as transient, but three observations of the same class
 on the same adapter are a design issue. That threshold was reached for
 Cursor's nested MCP access, so Cursor is `unavailable`, not `experimental`.
@@ -226,9 +235,9 @@ The KP may ignore late advice and does not call every domain every turn.
 | A. Correct host-work state classes and counters | Done (component) | Empty/unknown scope cannot be `ready`; claim skips no runnable work; stranded ready is zero; awakening/superseding is atomic under the existing host-work lock. |
 | B. Durable L1/L2/L3 projection and wake policy | Done (component) | Existing requests add one `work_level` plus exact L1 `dependency_ref`; detached worker restart/idle exit loses no work; L1 is not a global gate. |
 | C. First-contact readiness vertical | Partial | Normal single-NPC query exposes requested-pair readiness and an unrolled impression card; authored truth is the fast path. Improvised persona persistence and plugin-native replay remain incomplete. |
-| D. Source coordinator manager-to-leaf vertical | Done (Codex experimental) | The repository produces a closed Codex task and exact `return_to_parent` transport. A context-free Codex coordinator claimed one cached `partial_opening` group, spawned one nested source-pack leaf, forwarded one exact result, and canonically fulfilled it; status then reported zero open/ready/leased work. Cursor remains disabled after three nested-MCP `capability_mismatch` observations, and Grok cannot perform nested Task. |
+| D. Source ownership and bounded fan-out | In revision (Codex experimental); Grok parent fanout live-path proven under focused GROK_HOME | Multi-group/background work retains the closed coordinator-to-leaf route. The cold-start single foreground group now projects `inline_single_owner`: the already-informed opening coordinator claims one `return_to_parent` packet, compiles it in the same context, and exact-forwards one result through canonical fulfillment. This removes the measured redundant leaf hop without changing queue, leases, validators, or background orchestration. Cursor remains disabled after three nested-MCP `capability_mismatch` observations. Grok multi-group projects `parent_flat_fanout` + exact `claim_then_spawn_named_workers`. Isolated live probe `/tmp/coc-isolated/grok-live-parent-fanout-654f911923`: claim two deepen groups; ordinary multi-MCP session plugin subagents hit `submit_transport_unavailable` (Grok 0.2.106 plugin-subagent MCP suppress); focused `GROK_HOME` headless user-agent `coc-source-pack-worker` named_submit fulfilled both packs (`open_count=0`, alley/cellar `parse_state=deep`). The new cold-start route still needs fresh window-equivalent acceptance. |
 | E. Bounded appendix consumers | Deferred/Partial | Existing roster/mechanics locator warming belongs to B. At most one typed `combat_damage_multiplier` current-region vertical may proceed; generic special-rule packs and NPC graph are deferred until a normal rules/Director consumer exists. |
-| F. Real plugin-native replay | Not Done | Fresh campaign reaches actionable opening within 180 s and replays the multi-NPC first-contact path without late parse/persona construction. Exact reaction rolls still occur at contact. |
+| F. Real plugin-native replay | Not Done | From raw PDF submission, a fresh campaign reaches an actionable opening within 300 s, including host LLM parsing, and replays the multi-NPC first-contact path without late parse/persona construction. Exact reaction rolls still occur at contact. |
 
 Integrated component evidence on `0.4.3a`:
 
@@ -268,6 +277,31 @@ Codex adapter evidence:
 - This proves the bounded source lifecycle adapter, not the three-minute
   opening SLO, multi-NPC first-contact quality, or whole-product acceptance.
 
+Pi Package implementation slice (approved 2026-07-22):
+
+- Ship one installable Pi Package from the canonical
+  `plugins/coc-keeper/` tree. It points at the existing kernel/ruleset skills
+  and exposes the same typed gateway; it must not copy a Pi-only skill tree or
+  add product behavior to the narrator-only `runtime/adapters/pi/` component.
+- The only supported hierarchy is bounded depth two:
+  `main Pi KP -> source coordinator -> source-pack leaves`. The coordinator
+  receives the closed repository packet and no player transcript; leaves read
+  only packet-scoped cached pages and cannot spawn. Queue, lease, claim, and
+  fulfillment authority remain in the existing repository operations.
+- The Pi transport inherits the exact parent model/thinking policy, accepts no
+  arbitrary subagent prompt/tool/model/workspace input, caps leaf concurrency
+  at four, forwards accepted results unchanged, and performs no same-task
+  retry or parent polling.
+- Progressive OCR remains an external host skill. The Pi package may expose a
+  narrow OCR host tool and user-local env-file loading, but the plugin still
+  receives only versioned source bundles and must not gain a repository PDF
+  parser. Minor OCR prose/layout noise is acceptable and is not a binding
+  gate; source identity, page scope, hashes, and bundle integrity remain hard.
+- Component/package smoke must leave Pi capability `unavailable`. Only a real
+  Pi 0.81.1 `claim -> nested leaf -> exact fulfill` run may promote the adapter
+  to `experimental`; real window-equivalent play is still required before any
+  Pi parity or Slice F acceptance claim.
+
 ## Validation order
 
 Acceptance evidence is model-scoped. Use a fresh `gpt-5.6-luna`
@@ -296,10 +330,11 @@ single-model acceptance run.
    protocol-isolated Agent supplies one natural player reply at a time. No
    settle script, batch player, fake KP, or alternate harness is acceptance.
 
-Use `t0` when the host receives the exact final investigator-confirmation
-message, `t_open` when it delivers the first complete actionable opening, and
+Use `t0` when the host receives the raw-PDF cold-start request,
+`t_open` when it delivers the first complete actionable opening, and
 `t_input` when the same task/window visibly accepts the next natural player
-reply. Acceptance is `max(t_open, t_input) - t0 <= 180 s`; a character status
+reply. Acceptance is `max(t_open, t_input) - t0 <= 300 s`; character creation
+may overlap foreground parsing, but its completion does not reset the clock. A character status
 or early input prompt does not count. Record source dispatch, durable
 fulfillment, and first substantive multi-NPC contact separately. Component
 tests support but do not establish the SLO or KP quality.

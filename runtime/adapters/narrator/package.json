@@ -6,6 +6,6 @@
     "test": "node smoke_test.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.79.9"
+    "@earendil-works/pi-coding-agent": "0.81.1"
   }
 }

@@ -1,0 +1,86 @@
+{
+  "engineering_probe": true,
+  "acceptance": false,
+  "note": "Real isolated Pi 0.81.1 source-coordinator lifecycle proof required by the coc_source_coordinator_v1 promotion gate. Produced by tests/pi/real-lifecycle-probe.mjs (mode=run). NOT acceptance or playtest evidence.",
+  "probe": {
+    "script": "tests/pi/real-lifecycle-probe.mjs",
+    "mode": "run",
+    "prepared_by": "tests/pi/prepare_probe_workspace.py"
+  },
+  "environment": {
+    "node": "v22.19.0",
+    "pi_cli_version": "0.81.1",
+    "pi_cli_path": "runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+    "model": {
+      "provider": "coding-relay",
+      "model_id": "gpt-5.6-luna",
+      "thinking": "low"
+    }
+  },
+  "identifiers": {
+    "campaign_id": "pi-probe-camp",
+    "asset_root_id": "pi-probe-module",
+    "packet_id": "source-coordinator-9810eeaff2c3441a67d9",
+    "job_id": "job-5f89836c0dff",
+    "work_group_id": "source-work-2bf4fb1af847b8a9",
+    "requested_pdf_indices": [0]
+  },
+  "receipt": {
+    "schema_version": 1,
+    "contract_id": "coc.source-coordinator-result.v1",
+    "packet_id": "source-coordinator-9810eeaff2c3441a67d9",
+    "status": "fulfilled",
+    "claim_calls": 1,
+    "claimed_packet_count": 1,
+    "leaf_task_count": 1,
+    "fulfilled_result_count": 1,
+    "failure_class": null,
+    "design_issue_threshold": 3
+  },
+  "evidence": {
+    "ok": true,
+    "strict_framing_parsed": true,
+    "claim_calls": 1,
+    "nested_leaf_spawns": 1,
+    "fulfilled_result_count": 1,
+    "duration_ms": 29859,
+    "coordinator_isolation": {
+      "isolation_flags": true,
+      "exact_allowlist": true,
+      "has_coordinator_extension": true,
+      "no_task_in_argv": true
+    },
+    "leaf_isolation": [
+      {
+        "isolation_flags": true,
+        "no_tools": true,
+        "has_leaf_extension": true
+      }
+    ],
+    "workspace_fulfilled": true,
+    "durable_host_work_row": {
+      "schema_version": 2,
+      "job_id": "job-5f89836c0dff",
+      "kind": "partial_opening",
+      "request_purpose": "foreground_opening_slice",
+      "work_level": "current_dependency",
+      "work_group_id": "source-work-2bf4fb1af847b8a9",
+      "dispatch_state": "fulfilled",
+      "status": "fulfilled",
+      "dispatch_attempts": 1,
+      "executor_id": "source-coordinator:f9d1d5ad361017fc0dc3",
+      "leased_at": "2026-07-22T14:53:25.193043+00:00",
+      "fulfilled_at": "2026-07-22T14:53:48.390133+00:00",
+      "fulfilled_entity": {
+        "schema_version": 1,
+        "kind": "location",
+        "entity_id": "opening",
+        "digest_kind": "canonical_entity_pack",
+        "digest_version": 1,
+        "fulfilled_pack_sha256": "6ac9fd502e7006614c6e48aab704eadb621bd535b8ed31eb95f9e698ecd647b2",
+        "source_evidence_sha256": "42c5186c468c4abf59c4be6708334d7f2ffba8dec2509a4070148ece87d68f71"
+      },
+      "repository_put_ms": 7
+    }
+  }
+}

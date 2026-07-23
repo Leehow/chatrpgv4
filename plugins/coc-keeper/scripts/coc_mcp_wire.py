@@ -337,6 +337,8 @@ def _compact_npc(value: Any) -> dict[str, Any]:
             "agenda",
             "voice",
             "relationship_to_investigators",
+            "identity_ref",
+            "profile_revision_ref",
             "impression",
             "presence",
             "availability",
@@ -507,6 +509,8 @@ def _compact_scene(
             "tension_level",
             "turn_number",
             "clues_here",
+            "discovered_clue_count",
+            "discovered_clues_public",
             "pending_san_triggers",
             "action_routes",
             "operation_opportunities",
@@ -527,6 +531,20 @@ def _compact_scene(
             for row in value.get("clues_here") or []
             if isinstance(row, dict)
         ]
+        # Keep a small player-safe discovered index for table HUD hosts.
+        public_discovered = []
+        for row in value.get("discovered_clues_public") or []:
+            if not isinstance(row, dict):
+                continue
+            public_discovered.append(
+                _pick(
+                    row,
+                    ("clue_id", "discovered", "player_safe_summary", "localized_text"),
+                )
+            )
+            if len(public_discovered) >= 16:
+                break
+        projected["discovered_clues_public"] = public_discovered
         for empty_field in (
             "pending_san_triggers",
             "operation_opportunities",
@@ -562,6 +580,69 @@ def _compact_scene(
         projected["full_projection_operation"] = _operation_card(
             "scene.context"
         )
+    return projected
+
+
+def _project_progressive_status(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    projected = _pick(
+        value,
+        (
+            "progressive",
+            "asset_root_id",
+            "worker",
+            "source_cache",
+            "start_clock_status",
+            "background_takeover",
+            "entity",
+        ),
+    )
+    queue = value.get("queue")
+    if isinstance(queue, dict):
+        projected["queue"] = _pick(
+            queue,
+            (
+                "schema_version",
+                "pending",
+                "in_flight",
+                "done_count",
+                "awaiting_host_count",
+                "historical_host_handoff_count",
+                "timing_ms",
+            ),
+        )
+    host_work = value.get("host_work")
+    if isinstance(host_work, dict):
+        projected["host_work"] = _pick(
+            host_work,
+            (
+                "open_count",
+                "ready_for_background_count",
+                "leased_count",
+                "needs_source_window_count",
+                "claim_operation",
+            ),
+        )
+        projected["host_work"]["requests"] = [
+            _pick(
+                row,
+                (
+                    "job_id",
+                    "kind",
+                    "target_id",
+                    "requested_pdf_indices",
+                    "source_aspect",
+                    "deadline_class",
+                    "work_group_id",
+                    "dispatch_state",
+                    "dispatch_attempts",
+                    "cached_scope_complete",
+                ),
+            )
+            for row in (host_work.get("requests") or [])[:4]
+            if isinstance(row, dict)
+        ]
     return projected
 
 
@@ -960,6 +1041,8 @@ def _project_scene_recovery_index(scene: Any) -> dict[str, Any] | None:
                     "npc_id",
                     "name",
                     "relationship_to_investigators",
+                    "identity_ref",
+                    "profile_revision_ref",
                 ),
             )
             for row in npcs[:16]
@@ -1330,6 +1413,8 @@ def project_envelope(
         projector = lambda value: _project_resume(value, tight=False)
     elif operation == "scene.context":
         projector = lambda value: _compact_scene(value, tight=True)
+    elif operation == "progressive.status":
+        projector = _project_progressive_status
     elif operation == "actions.advise":
         projector = _project_actions
     elif operation == "npc.reaction":

@@ -2,11 +2,14 @@
 """Tests for progressive module-assets store (slice 1)."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import re
+import shutil
+import threading
 
 import pytest
 
@@ -571,6 +574,51 @@ def _write_host_bundle(
         "pages": pages,
     }), encoding="utf-8")
     return bundle, file_sha, hashlib.sha256(page_bytes).hexdigest()
+
+
+def _write_revision_bundle(
+    tmp_path: Path,
+    *,
+    name: str,
+    pdf_index: int,
+    revision: int,
+    text: bytes,
+) -> Path:
+    pdf = tmp_path / "revision-source.pdf"
+    if not pdf.is_file():
+        pdf.write_bytes(b"%PDF revision source fixture")
+    bundle = tmp_path / name
+    bundle.mkdir()
+    (bundle / "page.md").write_bytes(text)
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:revision-source",
+            "title": "Revision Source",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 2,
+        },
+        "pages": [{
+            "pdf_index": pdf_index,
+            "markdown_path": "page.md",
+            "text_sha256": hashlib.sha256(text).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 1.0,
+            "grep_anchors": [],
+            "ocr_revision": {
+                "stable_id": f"page:{pdf_index}:fast",
+                "pdf_index": pdf_index,
+                "layer": "fast",
+                "revision": revision,
+                "content_sha256": hashlib.sha256(
+                    b"ocr:" + text
+                ).hexdigest(),
+            },
+        }],
+    }), encoding="utf-8")
+    return bundle
 
 
 def test_exact_opening_window_and_partial_job_are_scope_bound(
@@ -1222,7 +1270,6 @@ def test_source_bundle_bridge_caches_once_and_normalizes_deep_pack_evidence(
             "parse_state": "deep",
             "evidence_gap": False,
         })
-
     stored_result = assets.put_entity(
         tmp_path,
         "bound-module",
@@ -1338,6 +1385,453 @@ def test_source_bundle_bridge_caches_once_and_normalizes_deep_pack_evidence(
 
     with pytest.raises(assets.ModuleAssetsError, match="content drift"):
         assets.put_page(tmp_path, "bound-module", 0, "different page text")
+
+
+def test_source_bundle_caches_structured_ocr_once_and_projects_bounded_ref(
+    tmp_path: Path,
+):
+    bundle, _file_sha, _producer_page_sha = _write_host_bundle(tmp_path)
+    structured = {
+        "schema_version": 1,
+        "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6",
+        "source_page_ordinal": 0,
+        "dataInfo": {"width": 1200, "height": 1600, "type": "image"},
+        "prunedResult": {
+            "parsing_res_list": [{
+                "block_label": "text",
+                "block_content": "Dr Percival guards a source-bound secret.",
+                "block_bbox": [1, 2, 3, 4],
+            }],
+        },
+    }
+    structured_bytes = (
+        json.dumps(structured, ensure_ascii=False, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    structured_path = bundle / "page-0000.ocr.json"
+    structured_path.write_bytes(structured_bytes)
+    manifest = json.loads(
+        (bundle / "manifest.json").read_text(encoding="utf-8")
+    )
+    manifest["pages"][0]["structured_data"] = {
+        "path": "page-0000.ocr.json",
+        "sha256": hashlib.sha256(structured_bytes).hexdigest(),
+        "format": "paddleocr-vl-layout-v1",
+        "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6",
+    }
+    (bundle / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    registered = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="bound-module-ocr",
+    )
+    page = assets.get_page(tmp_path, registered["asset_root_id"], 0)
+    assert page is not None
+    structured_cache_path = Path(page["meta"]["structured_data_path"])
+    assert structured_cache_path.read_bytes() == structured_bytes
+    refs = assets._cached_source_refs(
+        tmp_path,
+        registered["asset_root_id"],
+        {"source_page_indices": [0]},
+        field="test_structured_ocr",
+    )
+    assert refs[0]["structured_data"] == {
+        "path": str(structured_cache_path.resolve()),
+        "sha256": hashlib.sha256(structured_bytes).hexdigest(),
+        "format": "paddleocr-vl-layout-v1",
+        "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6",
+    }
+
+
+def test_revisioned_pages_publish_fast_then_detail_and_pin_exact_refs(tmp_path: Path):
+    bundle, _file_sha, _ = _write_host_bundle(tmp_path)
+    manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
+    manifest["pages"][0]["ocr_revision"] = {
+        "stable_id": "page:0:fast", "pdf_index": 0, "layer": "fast",
+        "revision": 1, "content_sha256": "a" * 64,
+        "fast_confidence_revision": 1,
+    }
+    (bundle / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    first = assets.register_source_bundle(tmp_path, bundle, asset_root_id="revisioned")
+    fast_ref = assets._cached_source_refs(
+        tmp_path, "revisioned", {"source_page_indices": [0]}, field="fast",
+    )[0]
+    assert fast_ref["ocr_revision"]["layer"] == "fast"
+
+    detail = tmp_path / "detail-source"
+    detail.mkdir()
+    detail_bytes = b"# Hospital\n\nDetailed layout-backed text.\n"
+    (detail / "page.md").write_bytes(detail_bytes)
+    structured = {
+        "schema_version": 1, "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6", "prunedResult": {"blocks": []},
+    }
+    structured_bytes = (json.dumps(structured, sort_keys=True) + "\n").encode()
+    (detail / "layout.json").write_bytes(structured_bytes)
+    detail_manifest = {
+        **manifest,
+        "pages": [{
+            "pdf_index": 0, "markdown_path": "page.md",
+            "text_sha256": hashlib.sha256(detail_bytes).hexdigest(),
+            "review_state": "manual_accepted", "parse_confidence": 0.95,
+            "grep_anchors": ["Detailed layout-backed text."],
+            "ocr_revision": {
+                "stable_id": "page:0:detail", "pdf_index": 0,
+                "layer": "detail", "revision": 1,
+                "content_sha256": "b" * 64,
+                "fast_confidence_revision": 1,
+            },
+            "structured_data": {
+                "path": "layout.json",
+                "sha256": hashlib.sha256(structured_bytes).hexdigest(),
+                "format": "paddleocr-vl-layout-v1",
+                "producer": "baidu-paddleocr-jobs",
+                "model": "PaddleOCR-VL-1.6",
+            },
+        }],
+    }
+    (detail / "manifest.json").write_text(json.dumps(detail_manifest), encoding="utf-8")
+    second = assets.register_source_bundle(tmp_path, detail, asset_root_id="revisioned")
+    page = assets.get_page(tmp_path, "revisioned", 0)
+    assert page["text"] == detail_bytes.decode()
+    detail_ref = assets._cached_source_refs(
+        tmp_path, "revisioned", {"source_page_indices": [0]}, field="detail",
+    )[0]
+    assert detail_ref["ocr_revision"]["layer"] == "detail"
+    assert detail_ref["ocr_revision"]["revision"] == 1
+    assert detail_ref["bundle_sha256s"] == [second["bundle_sha256"]]
+    assert detail_ref["bundle_sha256s"] != [first["bundle_sha256"]]
+
+    (detail / "page.md").write_bytes(b"changed same revision\n")
+    detail_manifest["pages"][0]["text_sha256"] = hashlib.sha256(
+        b"changed same revision\n"
+    ).hexdigest()
+    detail_manifest["pages"][0]["grep_anchors"] = []
+    (detail / "manifest.json").write_text(json.dumps(detail_manifest), encoding="utf-8")
+    with pytest.raises(assets.ModuleAssetsError, match="immutable revision hash drift"):
+        assets.register_source_bundle(tmp_path, detail, asset_root_id="revisioned")
+
+
+def test_revisioned_page_same_revision_is_noop_and_history_does_not_move_head(
+    tmp_path: Path,
+):
+    assets.init_module_root(
+        tmp_path, asset_root_id="revision-order",
+        identity={"canonical_module_id": "revision-order"},
+        file_sha256=FAKE_SHA,
+    )
+    base_meta = {
+        "source_id": "pdf:revision-order", "file_sha256": FAKE_SHA,
+        "review_state": "manual_accepted", "parse_confidence": 1.0,
+        "grep_anchors": [], "bundle_sha256": "b" * 64,
+    }
+    revision_one = {
+        "stable_id": "page:0:fast", "pdf_index": 0, "layer": "fast",
+        "revision": 1, "content_sha256": "d" * 64,
+    }
+    first = assets.put_page(
+        tmp_path, "revision-order", 0, "older\n",
+        meta={**base_meta, "ocr_revision": revision_one},
+    )
+    revision_two = {
+        "stable_id": "page:0:fast", "pdf_index": 0, "layer": "fast",
+        "revision": 2, "content_sha256": "c" * 64,
+    }
+    second = assets.put_page(
+        tmp_path, "revision-order", 0, "stable\n",
+        meta={**base_meta, "ocr_revision": revision_two},
+    )
+    repeated = assets.put_page(
+        tmp_path, "revision-order", 0, "older\n",
+        meta={**base_meta, "ocr_revision": revision_one},
+    )
+    assert first["reused"] is False
+    assert second["reused"] is False
+    assert repeated["reused"] is True
+    head = json.loads((
+        tmp_path / ".coc/module-assets/revision-order/pages/0000/fast/head.json"
+    ).read_text(encoding="utf-8"))
+    assert head["active_revision"] == 2
+
+
+def test_historical_page_bundle_reregistration_and_backfill_keep_active_head(
+    tmp_path: Path,
+):
+    revision_one = _write_revision_bundle(
+        tmp_path, name="revision-one", pdf_index=0, revision=1,
+        text=b"Fast revision one\n",
+    )
+    revision_two = _write_revision_bundle(
+        tmp_path, name="revision-two", pdf_index=0, revision=2,
+        text=b"Fast revision two\n",
+    )
+    first = assets.register_source_bundle(
+        tmp_path, revision_one, asset_root_id="historical-reregister",
+    )
+    second = assets.register_source_bundle(
+        tmp_path, revision_two, asset_root_id="historical-reregister",
+    )
+    repeated = assets.register_source_bundle(
+        tmp_path, revision_one, asset_root_id="historical-reregister",
+    )
+    assert repeated["reused_page_count"] == 1
+    root = tmp_path / ".coc/module-assets/historical-reregister"
+    head = json.loads((root / "pages/0000/fast/head.json").read_text())
+    assert head["active_revision"] == 2
+    identity = json.loads((root / "identity.json").read_text())
+    assert {row["bundle_sha256"] for row in identity["source_bundles"]} == {
+        first["bundle_sha256"], second["bundle_sha256"],
+    }
+
+    backfill_root = "historical-backfill"
+    backfill_workspace = tmp_path / "backfill-workspace"
+    backfill_workspace.mkdir()
+    assets.register_source_bundle(
+        backfill_workspace, revision_two, asset_root_id=backfill_root,
+    )
+    backfilled = assets.register_source_bundle(
+        backfill_workspace, revision_one, asset_root_id=backfill_root,
+    )
+    assert backfilled["new_page_count"] == 1
+    backfill_path = backfill_workspace / ".coc/module-assets" / backfill_root
+    backfill_head = json.loads((
+        backfill_path / "pages/0000/fast/head.json"
+    ).read_text())
+    assert backfill_head["active_revision"] == 2
+    assert sorted(path.name for path in (
+        backfill_path / "pages/0000/fast/revisions"
+    ).iterdir()) == ["000001", "000002"]
+
+
+def test_concurrent_page_publications_cannot_overwrite_one_revision_slot(
+    tmp_path: Path,
+):
+    assets.init_module_root(
+        tmp_path, asset_root_id="page-concurrency",
+        identity={"canonical_module_id": "page-concurrency"},
+        file_sha256=FAKE_SHA,
+    )
+    barrier = threading.Barrier(2)
+
+    def publish(text: str) -> str:
+        barrier.wait()
+        content_sha = hashlib.sha256(text.encode()).hexdigest()
+        assets.put_page(
+            tmp_path, "page-concurrency", 0, text,
+            meta={
+                "source_id": "pdf:page-concurrency",
+                "file_sha256": FAKE_SHA,
+                "review_state": "manual_accepted",
+                "parse_confidence": 1.0,
+                "grep_anchors": [],
+                "ocr_revision": {
+                    "stable_id": "page:0:fast", "pdf_index": 0,
+                    "layer": "fast", "revision": 1,
+                    "content_sha256": content_sha,
+                },
+            },
+        )
+        return text
+
+    successes: list[str] = []
+    failures: list[Exception] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(publish, text) for text in ("alpha", "beta")]
+        for future in futures:
+            try:
+                successes.append(future.result())
+            except Exception as exc:  # noqa: BLE001 - assertion captures contract
+                failures.append(exc)
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert "immutable revision hash drift" in str(failures[0])
+    stored = assets.get_page(tmp_path, "page-concurrency", 0)
+    assert stored["text"] == successes[0] + "\n"
+
+
+def test_concurrent_bundle_registrations_retain_both_identity_rows(tmp_path: Path):
+    first_bundle = _write_revision_bundle(
+        tmp_path, name="concurrent-bundle-zero", pdf_index=0, revision=1,
+        text=b"Concurrent page zero\n",
+    )
+    second_bundle = _write_revision_bundle(
+        tmp_path, name="concurrent-bundle-one", pdf_index=1, revision=1,
+        text=b"Concurrent page one\n",
+    )
+    barrier = threading.Barrier(2)
+
+    def register(bundle: Path) -> dict:
+        barrier.wait()
+        return assets.register_source_bundle(
+            tmp_path, bundle, asset_root_id="bundle-concurrency",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(register, (first_bundle, second_bundle)))
+    identity = json.loads((
+        tmp_path / ".coc/module-assets/bundle-concurrency/identity.json"
+    ).read_text(encoding="utf-8"))
+    assert {row["bundle_sha256"] for row in identity["source_bundles"]} == {
+        row["bundle_sha256"] for row in results
+    }
+    assert {tuple(row["pdf_indices"]) for row in identity["source_bundles"]} == {
+        (0,), (1,),
+    }
+
+
+def test_authored_npc_mechanics_revisions_are_semantic_and_immutable(tmp_path: Path):
+    bundle, _file_sha, _ = _write_host_bundle(tmp_path)
+    root_id = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="npc-revisions",
+    )["asset_root_id"]
+    first_payload = {
+        "parse_state": "named_only",
+        "mechanics": _source_actor_record(0),
+    }
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", first_payload)
+    first = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    assert first["mechanics_revision_ref"]["revision"] == 1
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", first)
+    repeated = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    assert repeated["mechanics_revision_ref"] == first["mechanics_revision_ref"]
+
+    second_payload = json.loads(json.dumps(first_payload))
+    second_payload["mechanics"]["profile"]["characteristics"]["DEX"] = 65
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", second_payload)
+    second = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    assert second["mechanics_revision_ref"]["revision"] == 2
+    assert second["mechanics_revision_ref"]["content_sha256"] != first[
+        "mechanics_revision_ref"
+    ]["content_sha256"]
+    history = (
+        tmp_path / ".coc/module-assets" / root_id /
+        "entities/npc-keeper-mechanics/revisions"
+    )
+    assert sorted(path.name for path in history.glob("*.json")) == [
+        "000001.json", "000002.json",
+    ]
+
+
+def _make_authored_npc_legacy(
+    tmp_path: Path, root_id: str, npc_id: str, payload: dict,
+) -> dict:
+    assets.put_entity(tmp_path, root_id, "npc", npc_id, payload)
+    entity_path = (
+        tmp_path / ".coc/module-assets" / root_id / "entities" /
+        f"npc-{npc_id}.json"
+    )
+    legacy = json.loads(entity_path.read_text(encoding="utf-8"))
+    legacy.pop("mechanics_revision_ref", None)
+    entity_path.write_text(json.dumps(legacy), encoding="utf-8")
+    revision_root = entity_path.parent / f"npc-{npc_id}-mechanics"
+    shutil.rmtree(revision_root)
+    return legacy
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_legacy_authored_npc_bootstraps_previous_mechanics_before_candidate(
+    tmp_path: Path, changed: bool,
+):
+    bundle, _file_sha, _ = _write_host_bundle(tmp_path)
+    root_id = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id=f"legacy-npc-{changed}",
+    )["asset_root_id"]
+    original_payload = {
+        "parse_state": "named_only", "mechanics": _source_actor_record(0),
+    }
+    legacy = _make_authored_npc_legacy(
+        tmp_path, root_id, "keeper", original_payload,
+    )
+    candidate = json.loads(json.dumps(legacy))
+    if changed:
+        candidate["mechanics"]["profile"]["characteristics"]["DEX"] = 75
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", candidate)
+
+    current = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    assert current["mechanics_revision_ref"]["revision"] == (2 if changed else 1)
+    revision_root = (
+        tmp_path / ".coc/module-assets" / root_id /
+        "entities/npc-keeper-mechanics/revisions"
+    )
+    paths = sorted(revision_root.glob("*.json"))
+    assert [path.name for path in paths] == (
+        ["000001.json", "000002.json"] if changed else ["000001.json"]
+    )
+    first = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert first["content"]["mechanics"]["profile"]["characteristics"]["DEX"] == 55
+    if changed:
+        second = json.loads(paths[1].read_text(encoding="utf-8"))
+        assert second["content"]["mechanics"]["profile"]["characteristics"]["DEX"] == 75
+
+
+def test_current_npc_projection_must_equal_active_head_and_retry_repairs_it(
+    tmp_path: Path,
+):
+    bundle, _file_sha, _ = _write_host_bundle(tmp_path)
+    root_id = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="npc-current-head",
+    )["asset_root_id"]
+    first_payload = {
+        "parse_state": "named_only", "mechanics": _source_actor_record(0),
+    }
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", first_payload)
+    first = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    second_payload = json.loads(json.dumps(first_payload))
+    second_payload["mechanics"]["profile"]["characteristics"]["DEX"] = 65
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", second_payload)
+
+    entity_path = (
+        tmp_path / ".coc/module-assets" / root_id /
+        "entities/npc-keeper.json"
+    )
+    stale = json.loads(entity_path.read_text(encoding="utf-8"))
+    stale["mechanics"] = first["mechanics"]
+    stale["mechanics_revision_ref"] = first["mechanics_revision_ref"]
+    entity_path.write_text(json.dumps(stale), encoding="utf-8")
+    with pytest.raises(assets.ModuleAssetsError, match="immutable revision hash drift"):
+        assets.get_entity(tmp_path, root_id, "npc", "keeper")
+
+    assets.put_entity(tmp_path, root_id, "npc", "keeper", second_payload)
+    repaired = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    assert repaired["mechanics_revision_ref"]["revision"] == 2
+
+
+def test_concurrent_npc_mechanics_publications_use_distinct_revision_slots(
+    tmp_path: Path,
+):
+    bundle, _file_sha, _ = _write_host_bundle(tmp_path)
+    root_id = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="npc-concurrency",
+    )["asset_root_id"]
+    barrier = threading.Barrier(2)
+
+    def publish(dex: int) -> None:
+        payload = {
+            "parse_state": "named_only", "mechanics": _source_actor_record(0),
+        }
+        payload["mechanics"]["profile"]["characteristics"]["DEX"] = dex
+        barrier.wait()
+        assets.put_entity(tmp_path, root_id, "npc", "keeper", payload)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(publish, (65, 75)))
+    current = assets.get_entity(tmp_path, root_id, "npc", "keeper")
+    assert current["mechanics_revision_ref"]["revision"] == 2
+    root = (
+        tmp_path / ".coc/module-assets" / root_id /
+        "entities/npc-keeper-mechanics"
+    )
+    head = json.loads((root / "head.json").read_text(encoding="utf-8"))
+    assert head["active_revision"] == 2
+    assert head["content_sha256"] == current[
+        "mechanics_revision_ref"
+    ]["content_sha256"]
+    assert sorted(path.name for path in (root / "revisions").glob("*.json")) == [
+        "000001.json", "000002.json",
+    ]
 
 
 def test_source_bound_skeleton_requires_explicit_start_clock_semantics(tmp_path: Path):

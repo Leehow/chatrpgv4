@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.source-scope-locator.v1",
+  "status": "experimental",
+  "product_complete": false,
+  "parity_claim": false,
+  "canonical_caller": {
+    "owner": "main_keeper",
+    "trigger": "scene.context.progressive.source_scope_takeover",
+    "background": true,
+    "player_gate": false
+  },
+  "task": {
+    "closed": true,
+    "contract_id": "coc.codex-source-scope-locator-task.v1",
+    "contract_revision": "sha256 of exact instruction_ref bytes, one NUL byte, and exact contract_ref bytes",
+    "adapter_mode": "codex_background_pdf_locator",
+    "model_policy": "inherit_parent",
+    "max_selected_pages": 3,
+    "result_delivery": "natural_completion_notification_only",
+    "forbidden_context": [
+      "player_transcript",
+      "campaign_save",
+      "keeper_reasoning",
+      "cached_module_pages",
+      "unrelated_pdf_body"
+    ]
+  },
+  "authority": {
+    "may_run_locator_only_text_search": true,
+    "may_render_bounded_pdf_pages": true,
+    "may_write_reviewed_source_bundle": true,
+    "may_invoke_progressive_resolve_source_scope": true,
+    "may_compile_entity_pack": false,
+    "may_claim_or_fulfill_host_work": false,
+    "may_read_campaign_state": false,
+    "may_choose_player_action_or_keeper_prose": false
+  },
+  "source_bundle_manifest_contract": {
+    "schema_version": 1,
+    "producer": "codex-pdf-skill",
+    "review_state": "manual_accepted",
+    "parse_confidence": "number_from_0_through_1",
+    "text_sha256": "sha256_of_exact_markdown_file_bytes",
+    "assets": []
+  },
+  "lifecycle": {
+    "stable_dispatch_key": "source-scope-locator:<job_id>",
+    "spawn_once_while_job_open": true,
+    "main_keeper_waits": false,
+    "main_keeper_polls": false,
+    "main_keeper_retrieves_output": false,
+    "success_wakes_existing_source_pack_lifecycle": true,
+    "not_located_leaves_awaiting_scope": true
+  },
+  "failure_policy": {
+    "authority": "prompt_first_advisory",
+    "same_task_retry": false,
+    "single_failure": "transient_allowed",
+    "same_failure_escalation_threshold": 3,
+    "threshold_outcome": "design_issue",
+    "runtime_gate": false,
+    "player_output_gate": false
+  },
+  "host_adapters": {
+    "codex": {
+      "status": "experimental",
+      "adapter_mode": "codex_background_pdf_locator",
+      "fork_turns": "none",
+      "model_policy": "inherit_parent"
+    },
+    "default": {
+      "status": "unavailable",
+      "adapter_mode": "unsupported"
+    }
+  }
+}

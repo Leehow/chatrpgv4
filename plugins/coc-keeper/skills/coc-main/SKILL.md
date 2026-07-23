@@ -1,9 +1,17 @@
 ---
 name: coc-main
-description: Activate and orchestrate COC mode. Use for activate/enter/continue/pause/save/exit Call of Cthulhu play, and for host try/demo prompts that ask to use COC Keeper in a concrete/useful way or show why the plugin is valuable. Prefer this over rules-engine demos for first contact.
+description: Activate and orchestrate COC mode. This is the only main-session skill selected initially for a fresh raw-PDF campaign; it routes source, state, character, and live-play instructions only when their owner or phase arises. Also use for continue/pause/save/exit and host try/demo prompts.
 ---
 
 # COC Main
+
+For Pi hosts, the repository-root package manifest loads this canonical plugin
+skill and the active ruleset skills directly. Its extension forwards
+`coc_capabilities`, `coc_discover`, and `coc_invoke` to the canonical persistent
+MCP gateway. If a normal projection returns an exact Pi source task, pass it
+unchanged to `coc_dispatch_source_work`; never synthesize a prompt, model,
+workspace, or tool list. `coc_progressive_ocr` is an external host bridge and
+does not make repository code a PDF parser.
 
 ## Activation
 
@@ -29,6 +37,10 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    `../../scripts/coc_runtime_ops.py --setup` with `onboarding.inspect`. Use
    `rules.inspect` when only helper discovery is needed. Do not recreate
    onboarding state with host-specific filesystem writes.
+   When the current request already names an imported raw-PDF scenario and the
+   retained capability card exposes `custom_campaign_setup`, invoke that card
+   directly; do not call `setup.inspect` merely to enumerate starters or
+   rediscover Quick Fire metadata already owned by `coc-character`.
 3. Select the visible play language at campaign setup, defaulting to `zh-Hans`, and persist it as `play_language`.
 4. Select or create a campaign before character creation or play.
 5. **Scenario onboarding (mandatory for new campaigns).** If the selected campaign is newly created and has no bound scenario (`active_scenario_id` is empty), you MUST proactively present a clear, beginner-facing choice before doing anything else:
@@ -85,18 +97,75 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    [coc-character](../../rulesets/coc7/skills/coc-character/SKILL.md). Nested
    ruleset skills are not Grok short-name catalog entries. Resolve this known
    reference once; never use a shell command or directory enumeration to locate
-   it, and fail closed as an installation/contract defect if it is missing.
+   it, and fail closed as an installation/contract defect if it is missing. If
+   the confirmed sheet omits the localized view required by
+   `investigator.render_card`, skip rendering and continue: the card is not an
+   opening gate.
 
-   For a fresh source-bundle campaign, use the scenario-import
+   For a fresh PDF on Codex, prefer the experimental document-lane capability
+   when `coc_opening_source_coordinator_v1=true`. The main KP establishes only
+   the attached file's absolute path and SHA-256 before dispatch; it does not
+   load the PDF skill, inspect pages, or render. The child coordinator is the
+   sole PDF/source-skill consumer. On this route the main KP does not load
+   `coc-scenario-import`, `trpg-pdf-ingest`, or `coc-campaign-state`; this
+   section plus the returned closed task is sufficient. The main KP accepts the
+   user's requested scenario title as the named target. Do not verify that title
+   by outline or text lookup in the main window. It creates the empty campaign, then immediately—before any title
+   crawl, page render, visual page read, or character-concept drafting—spawns one context-free
+   `coc-opening-source-coordinator` with `fork_turns=none`, the current model,
+   and one bare `coc.codex-opening-source-task.v1` object. Copy
+   `coc_capabilities.data.cold_start.opening_source_coordinator.task_static`
+   verbatim, then add every field named by its sibling `task_variable_fields`.
+   Do not spawn until both identity fields named by
+   `pdf_identity_before_dispatch` are present. Never synthesize an agent
+   path under `skills/`, search for these known files, or alter any returned
+   static path. Its exact fixed
+   `bootstrap_instruction` tells the generic context-free child to read the
+   absolute `instruction_ref` completely before any response or tool call;
+   task naming alone does not activate custom-agent instructions. Pass no transcript,
+   character choice, sheet, save, or Keeper reasoning. That child exclusively
+   owns the named-scenario locator, premise/opening visual review, final
+   opening-page selection, bundle writing/validation,
+   scenario binding, skeleton publication, the Tier 1 request, same-context
+   foreground source compile, and opening projection. Its first task turn is the
+   blocking concept-locator phase and naturally returns one bare
+   `coc.opening-character-concepts.v1` result; it does not rely on an in-turn
+   callback. The main KP forwards those spoiler-free concepts to the player and
+   immediately exact-forwards the returned `continue_task` through
+   `followup_task` to that same idle child. Source build then runs nonblocking
+   while the main KP continues characteristic rolls and investigator creation;
+   the main KP must not do
+   any of the child's document/source work in parallel. This is the intended
+   nonblocking split: document parsing and character/rules work are independent
+   lanes, while Director and final narration remain with the main KP. If the
+   player finishes first, wait only for this already-running Tier 1 minimum.
+   Consume the follow-up's natural compact completion once; execute its returned exact
+   initial-move card without rediscovery, and never poll or retrieve output.
+   Immediately honor its `opening_delivery_boundary`: after any opening
+   first-impression rolls and before sending opening prose or accepting the
+   first player action, call `evidence.table_opening`;
+   `presented_roll_ids=[]` is valid. This closes the setup/opening evidence
+   prefix so character-creation rolls cannot leak into the first ordinary turn.
+
+   On hosts without that exact capability, retain the scenario-import
    **pre-confirmation opening warm start** after bind and before delivering the
    investigator card that is pending player confirmation. The main KP performs
-   only the bounded minimum-skeleton semantics. If the first
+   only the bounded minimum-skeleton semantics. Character concepts may already
+   have been delivered as an intermediate update; even if the player answers
+   immediately, finish dispatching this minimum opening request before rolling
+   characteristics, creating the investigator, linking it, or rendering its
+   card. If the first
    `progressive.prepare_opening` reports `opening_skeleton_missing` with no
    source window, treat its complete `opening_page_candidates` only as bounded
    selection hints—not provenance—and semantically choose the shortest
    sufficient accepted contiguous current-opening window from `pdf_index`,
    `review_state`, `parse_confidence`, and `grep_anchor_preview`. Prefer one
-   page whenever it alone establishes the playable opening. Three pages is a
+   page only when it contains the complete current player-facing beat—not just
+   a heading or the first paragraph. Include authored date/time, all NPCs
+   materially present, the complete briefing/commission/pressure, and an
+   actionable route when those exist. A sentence, boxed passage, briefing, or
+   immediate choice continuing over the page boundary makes the continuation
+   page mandatory. Three pages is a
    maximum, never a target: never pad forward or backward merely to fill it.
    Include an adjacent page only when its preview semantically shows that
    necessary current-opening setup crosses the page boundary; exclude previews
@@ -108,37 +177,54 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    `cached_page_refs[].path` entries. Exact-read only those paths. For the first
    `progressive.publish_skeleton` submission, copy the returned closed
    `prefilled_template`, replace only its location placeholders, and omit every
-   optional source-evidenced field. Then reinvoke `prepare_opening` with the
+   optional source-evidenced field except the contract's narrow source-clock
+   exception: when these selected pages explicitly author the opening date/time
+   or phase, set `start_clock_status=source` and add only `start_clock` plus
+   exact `start_clock_source_refs`. When a time/phase is authored without a
+   date, preserve `local_datetime=null` and `local_date=null`; use a relative
+   calendar, `time_precision=day_phase`, a semantic `day_phase_hint`, and the
+   exact source-supported display rather than retaining the era's default date
+   or night phase. Then reinvoke `prepare_opening` with the
    selected `start_location_id` and `opening_pdf_indices` and continue through
    its returned cards. Never read a source manifest, use Bash,
    `run_terminal_command`, `find`, `ls`, `rg`, globbing, directory enumeration,
    repository search, speculative page reads, or any unselected/all-module body
-   read. Then create the exact contiguous
-   1–3-page `partial_opening` request. When capabilities advertise the
-   experimental `coc_source_coordinator_v1=true` exact-forward adapter, spawn
-   exactly one coordinator with `background=true`. On Codex use a context-free
-   collaboration subagent with `fork_turns=none`; its entire message is the
-   exact `background_takeover.coordinator_dispatch.codex_task`. On a supported
-   Codex run, do not set a model override: the task's
-   `model_policy=inherit_parent` preserves the current window model. On a supported
-   custom-agent host use `coc-source-coordinator` with the exact `packet`. Do
-   not construct, fill, add transcript context, wait for, poll, or retrieve
-   that task. The manager claims once,
-   runs exact leaves, and forwards valid result rows through canonical
-   fulfillment. Its failure classes are audit evidence: one occurrence may be
-   transient, while three observed occurrences of the same class are a design
-   issue. None of this gates player input, narration, or unrelated play.
-   Task support alone is insufficient; never infer nested MCP access from a
-   host brand, model name, or successful generic child task.
-   Otherwise make one host-work claim only when the separately advertised
-   source-worker capability is available. A claimed packet must launch a real
-   `coc-source-pack-worker` with
-   `background=true`; on Grok, use the focused unqualified user-agent projection
-   of the installed definition because 0.2.106 suppresses MCPs on plugin
-   subagents. Keep its narrow read plus named-submit profile without overriding
-   it to read-only. Retain its real task ID
-   only in the host session and return the character confirmation text
-   immediately without waiting. The
+   read. Then create the exact contiguous 1–3-page `partial_opening` request.
+   The request response is the first dispatch source: consume its returned
+   `background_takeover` directly. Only when that response lacks a takeover may
+   the KP invoke `progressive.status` exactly once as dispatch acquisition, never
+   as a completion poll or discovery round trip.
+
+   Dispatch by the repository-selected `dispatch_mode`. For
+   `direct_single_leaf`, execute the returned host-selected
+   `next_host_action` before any other host operation. On Codex its exact
+   `action=spawn_background_task` task is one context-free background child;
+   do not claim in the parent, because that
+   small child task atomically claims and compiles its one packet, so no lease
+   clock runs during parent reasoning. On a named-submit host the selected
+   action instead claims once and immediately spawns every exact returned task.
+   Do not choose among alternate host routes because none are returned. Add no
+   prefix, suffix, transcript, reconstructed wrapper, or model override. This
+   is the normal path for one ready work group and avoids a manager whose only
+   job would be to create one leaf. During character confirmation do not wait.
+   When that child completes naturally, do not call an output-retrieval tool;
+   forward each exact returned `results[i]` once through
+   `next_host_action.on_natural_completion.operation`; do not rediscover it.
+   If the player has already
+   confirmed and the current opening still is not ready, waiting for that
+   already-running Tier 1 child is the permitted blocking minimum. For
+   `coordinator_fanout`, spawn exactly one
+   background coordinator from the exact
+   `coordinator_dispatch.codex_task` (Codex) or exact coordinator packet
+   (supported custom-agent host); the coordinator is reserved for multiple
+   independent groups. Task support alone is insufficient: require the
+   separately advertised source-worker or coordinator capability matching the
+   selected mode. Retain real task IDs only in volatile host context and do not
+   poll or retrieve output from the main KP. The
+   same dispatch failure may remain transient once; three observed occurrences
+   of the same class are a design issue rather than acceptable model variance.
+   This escalation is diagnostic and never gates player input.
+   The
    `coc-character` skill does not own this source lifecycle. Never read all
    module pages, neighboring locations, or appendices for this warm start.
    Returned cards remain advisory and never create a player-action or output
@@ -157,6 +243,23 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    Unfinished work does not delay character flow. A host without an applicable
    coordinator or direct-child capability must not fake a Task or claim work
    for an imaginary child.
+
+   If neither the request nor the one acquisition status exposes a takeover,
+   deliver the pending confirmation card without waiting; a later natural
+   `session.resume` or `scene.context` may expose it. Never loop on status.
+   A source-task completion notice is liveness only. When the opening is next
+   actually needed, distinguish the pre-confirmation nonblocking interval from
+   the post-confirmation blocking minimum. If the player has confirmed and the
+   one current opening source task is still running, tell the player that the
+   opening is finishing, keep the host turn alive, and await its natural
+   completion notification within the opening budget. This is the permitted
+   residual Tier 1A wait, not a status poll or task-output retrieval. Do not
+   call `progressive.prepare_opening` while that known source task is still
+   running. After its completion notice, call `progressive.prepare_opening`
+   exactly once and execute its exact returned projection card. Do not guess
+   `progressive.project_opening` arguments, probe it repeatedly, or declare the
+   opening failed merely because the already-running coordinator was not done
+   at character confirmation.
 8. Route ordinary play to `coc-keeper-play`.
 9. Route rules questions and challenges to `coc-meta`.
 10. Route combat, chase, sanity, and spell events to their subsystem skills;

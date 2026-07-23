@@ -1,0 +1,30 @@
+{
+  "name": "@chatrpg/coc-keeper-pi",
+  "version": "0.4.0-alpha.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Canonical COC Keeper skills, runtime, and Pi integration",
+  "keywords": ["pi-package", "coc", "trpg"],
+  "files": [
+    ".python-version",
+    "pyproject.toml",
+    "uv.lock",
+    "runtime/**",
+    "!runtime/**/node_modules/**",
+    "!runtime/**/__pycache__/**",
+    "!runtime/**/*.pyc",
+    "plugins/coc-keeper/**",
+    "!plugins/coc-keeper/**/__pycache__/**",
+    "!plugins/coc-keeper/**/*.pyc"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "0.81.1"
+  },
+  "pi": {
+    "extensions": ["./plugins/coc-keeper/pi/extensions/index.ts"],
+    "skills": [
+      "./plugins/coc-keeper/skills",
+      "./plugins/coc-keeper/rulesets/coc7/skills"
+    ]
+  }
+}

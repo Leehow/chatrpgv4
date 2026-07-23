@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "contract_id": "coc.opening-source-coordinator.v1",
+  "status": "experimental",
+  "product_complete": false,
+  "parity_claim": false,
+  "canonical_caller": {
+    "owner": "main_keeper",
+    "trigger": "empty campaign created and named raw-PDF scenario identified",
+    "agent_type": "coc-opening-source-coordinator",
+    "background": true,
+    "parallel_consumer": "main_keeper_character_creation"
+  },
+  "task": {
+    "closed": true,
+    "required_fields": [
+      "schema_version",
+      "contract_id",
+      "bootstrap_instruction",
+      "instruction_ref",
+      "contract_ref",
+      "adapter_mode",
+      "model_policy",
+      "workspace_root",
+      "pdf_path",
+      "pdf_sha256",
+      "campaign_id",
+      "scenario_id",
+      "title",
+      "era",
+      "play_language",
+      "source_bundle_id",
+      "source_bundle_path",
+      "opening_locator_pdf_indices",
+      "max_selected_opening_pages",
+      "instruction_refs",
+      "result_delivery"
+    ],
+    "fixed_fields": {
+      "schema_version": 1,
+      "contract_id": "coc.codex-opening-source-task.v1",
+      "bootstrap_instruction": "Before any response or tool call, read instruction_ref completely, then execute this closed task under that instruction.",
+      "adapter_mode": "codex_context_free_inline_source",
+      "model_policy": "inherit_parent",
+      "max_selected_opening_pages": 3,
+      "result_delivery": "task_return_to_parent"
+    },
+    "path_fields_must_be_absolute": [
+      "instruction_ref",
+      "contract_ref",
+      "workspace_root",
+      "pdf_path",
+      "source_bundle_path",
+      "instruction_refs.pdf_skill"
+    ],
+    "opening_locator_pdf_indices": {
+      "coordinate_system": "zero_based_pdf_index",
+      "minimum_count": 0,
+      "maximum_count": 4,
+      "accepted_evidence": false,
+      "empty_list_meaning": "coordinator_owns_named_scenario_cold_locator",
+      "selection": "shortest sufficient contiguous one-to-three-page opening window after visual review"
+    },
+    "opening_window_semantics": {
+      "semantic_judgment": true,
+      "keeper_facing_scenario_synopsis_is_complete_playable_opening": false,
+      "requires_complete_current_player_facing_beat": true,
+      "requires_source_authored_actionable_routes_when_available": true,
+      "requires_route_information_for_the_current_beat": true,
+      "adjacent_current_opening_page_replaces_or_extends_synopsis": true,
+      "source_clock_replaces_era_default": true,
+      "ungrounded_default_exact_clock_allowed": false
+    },
+    "render_output_path_binding": {
+      "batch_directory_is_task_local_and_exact": true,
+      "capture_actual_paths_once": true,
+      "visual_tool_receives_exact_returned_paths": true,
+      "forbid_batch_position_filename_derivation": true,
+      "forbid_pdf_index_filename_derivation": true,
+      "forbid_guessed_zero_padding": true,
+      "missing_or_ambiguous_path_failure_class": "pdf_scope_failed"
+    },
+    "forbidden_context": [
+      "player_transcript",
+      "player_choice",
+      "investigator_sheet",
+      "campaign_save",
+      "keeper_reasoning",
+      "module_body_outside_locator_candidates"
+    ]
+  },
+  "authority": {
+    "may_render_bounded_pdf_pages_with_external_host_skill": true,
+    "may_write_and_validate_source_bundle": true,
+    "may_bind_existing_campaign": true,
+    "may_publish_opening_skeleton": true,
+    "may_request_and_fulfill_one_opening_source_group": true,
+    "may_project_opening_source": true,
+    "may_create_or_link_investigator": false,
+    "may_roll_rules": false,
+    "may_move_live_scene": false,
+    "may_choose_player_action_or_keeper_prose": false,
+    "max_nesting_depth": 1,
+    "nested_agent_types": [],
+    "foreground_single_group_execution": "same_coordinator_inline"
+  },
+  "source_bundle_manifest_contract": {
+    "closed_minimum": true,
+    "exact_relative_path": "manifest.json",
+    "alternate_filenames_allowed": false,
+    "template": {
+      "schema_version": 1,
+      "producer": "codex-pdf-skill",
+      "source": {
+        "source_id": "pdf:<source_bundle_id>",
+        "title": "<task title>",
+        "path": "<absolute task pdf_path>",
+        "file_sha256": "<task pdf_sha256>",
+        "page_count": "<positive host-observed PDF page count>"
+      },
+      "pages": [
+        {
+          "pdf_index": "<selected zero-based PDF index>",
+          "markdown_path": "<bundle-relative Markdown path>",
+          "text_sha256": "<SHA-256 of exact Markdown file bytes>",
+          "review_state": "manual_accepted",
+          "parse_confidence": "<host-declared number from 0 through 1>",
+          "grep_anchors": [
+            "<non-empty exact Markdown phrase, or no rows when none is reliable>"
+          ]
+        }
+      ],
+      "assets": []
+    },
+    "one_page_row_per_selected_index": true,
+    "grep_anchor_must_occur_verbatim_in_normalized_markdown": true,
+    "optional_printed_page_fields_only_when_visually_established": true,
+    "forbidden_shortcut_fields": [
+      "source_bundle_id",
+      "pdf_sha256",
+      "pages[].path"
+    ],
+    "forbidden_manifest_filenames": [
+      "source_bundle_manifest.json"
+    ]
+  },
+  "lifecycle": {
+    "main_keeper_dispatches_before_pdf_locator_or_concepts": true,
+    "blocking_phase": "concept_locator_natural_return",
+    "blocking_result_contract": "coc.opening-character-concepts.v1",
+    "background_phase": "same_child_exact_followup_source_build",
+    "background_followup_contract": "coc.opening-source-continue.v1",
+    "main_keeper_exact_forwards_continue_task": true,
+    "no_in_turn_parent_callback": true,
+    "binding_call": {
+      "operation": "setup.invoke",
+      "kind": "scenario.bind_pdf",
+      "required_payload_fields": [
+        "campaign_id",
+        "scenario_id",
+        "title",
+        "source_bundle_path"
+      ],
+      "values_from_retained_closed_task": true
+    },
+    "main_keeper_waits_only_for_concept_result_before_character_choice": true,
+    "main_keeper_character_flow_continues_without_waiting": true,
+    "coordinator_owns_document_and_source_lane": true,
+    "main_keeper_blocks_only_after_character_confirmation_when_source_pending": true,
+    "main_keeper_retrieves_task_output": false,
+    "natural_completion_delivery": true,
+    "foreground_source_execution": "same_coordinator_inline",
+    "foreground_source_nested_task": false,
+    "foreground_source_claim_delivery": "return_to_parent",
+    "coordinator_instruction_reads": [
+      "contract_ref",
+      "instruction_refs.pdf_skill"
+    ],
+    "forbidden_redundant_instruction_reads": [
+      "trpg-pdf-ingest",
+      "coc-scenario-import",
+      "coc-source-pack-worker"
+    ],
+    "prepare_opening_calls": [
+      "once_after_bind_with_selected_opening_pdf_indices",
+      "once_after_skeleton_with_start_location_id_and_same_indices",
+      "once_after_source_fulfillment_for_projection"
+    ],
+    "opening_delivery_boundary": {
+      "operation": "evidence.table_opening",
+      "before_first_player_action": true,
+      "empty_presented_roll_ids_valid": true,
+      "authority": "existing_operation_timely_guidance"
+    }
+  },
+  "failure_policy": {
+    "authority": "prompt_first_advisory",
+    "same_task_retry": false,
+    "single_failure": "transient_allowed",
+    "same_failure_escalation_threshold": 3,
+    "threshold_outcome": "design_issue"
+  },
+  "host_adapters": {
+    "codex": {
+      "status": "experimental",
+      "adapter_mode": "codex_context_free_inline_source",
+      "fork_turns": "none",
+      "model_policy": "inherit_parent",
+      "nested_source_worker": false,
+      "inline_foreground_source": true,
+      "player_path_acceptance": false
+    },
+    "default": {
+      "status": "unavailable",
+      "adapter_mode": "unsupported"
+    }
+  }
+}

@@ -110,10 +110,12 @@ via `module-assets` without re-extract when `file_sha256` hits.
   `coc_toolbox.py` registry.
 - Deterministic tools enforce only rules arithmetic, transactional state, and
   read-only/secret module truth. Narrative advice remains warnings and hints.
-- `runtime/` exposes the open headless Event SDK. Its canonical Pi/headless turn
-  path is the same skills-enabled Keeper agent and `coc_toolbox.py` registry;
-  the narrow `runtime/adapters/pi/` narrator bridge is a compatibility
-  component, not a second or reduced Keeper product.
+- `runtime/` exposes the open headless Event SDK. Its canonical headless turn
+  path is the same skills-enabled Keeper agent and `coc_toolbox.py` registry.
+  Name the three surfaces explicitly: **Pi Package**
+  (`plugins/coc-keeper/pi/`), **Headless Runtime** (`runtime/`), **Narrator
+  Bridge** (`runtime/adapters/pi/`, **frozen** compatibility only — keep, do
+  not expand or treat as the Pi product; deletion is a later deprecation).
 - The canonical toolbox now exposes rich optional Director plans, the existing
   Storylet scheduler, NPC agency, personal-horror hooks, threat clocks,
   epistemic questions/belief application, full ChaseSession/SanitySession

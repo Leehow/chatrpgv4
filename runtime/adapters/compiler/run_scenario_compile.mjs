@@ -6,11 +6,10 @@ import path from "node:path";
 import { parseSingleJsonObject } from "./single_json_object.mjs";
 import { buildPrompt } from "./scenario_compile_prompt.mjs";
 import {
-  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   defineTool,
   getAgentDir,
@@ -49,20 +48,22 @@ function readStdinJson() {
   });
 }
 
-function resolveModel(agentDir, provider, modelId) {
-  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const registry = ModelRegistry.create(authStorage, path.join(agentDir, "models.json"));
-  let model = registry.find(provider, modelId);
+async function resolveModel(agentDir, provider, modelId) {
+  const modelRuntime = await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
+  let model = modelRuntime.getModel(provider, modelId);
   if (!model && provider === "coding-relay") {
-    const template = registry.getAll().find(
-      (candidate) => candidate.provider === provider && registry.hasConfiguredAuth(candidate),
+    const template = modelRuntime.getModels(provider).find(
+      (candidate) => modelRuntime.hasConfiguredAuth(candidate.provider),
     );
     if (template) model = { ...template, id: modelId, name: modelId };
   }
-  if (!model || !registry.hasConfiguredAuth(model)) {
+  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new Error(`requested model unavailable: ${provider}/${modelId}`);
   }
-  return { model, registry };
+  return { model, modelRuntime };
 }
 
 function validateBundle(bundle, requiredFiles) {
@@ -122,10 +123,10 @@ export async function run(request) {
   await loader.reload();
   const provider = process.env.COC_COMPILER_MODEL_PROVIDER || "coding-relay";
   const modelId = process.env.COC_COMPILER_MODEL_ID || "gpt-5.6";
-  const { model, registry } = resolveModel(agentDir, provider, modelId);
+  const { model, modelRuntime } = await resolveModel(agentDir, provider, modelId);
   const created = await createAgentSession({
     cwd: __dirname, agentDir, tools: ["coc_submit_scenario_ir"], customTools: [tool],
-    model, modelRegistry: registry, resourceLoader: loader,
+    model, modelRuntime, resourceLoader: loader,
     sessionManager: SessionManager.inMemory(__dirname),
   });
   try { await created.session.prompt(buildPrompt(request)); }

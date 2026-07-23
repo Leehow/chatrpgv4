@@ -217,6 +217,11 @@ def _default_root() -> Path:
     return Path(value).expanduser().resolve()
 
 
+def _implicit_root_is_plugin_storage(root: Path) -> bool:
+    """Reject the managed plugin package as implicit campaign storage."""
+    return root == PLUGIN_ROOT or PLUGIN_ROOT in root.parents
+
+
 def _capabilities() -> dict[str, Any]:
     try:
         data = json.loads(CAPABILITIES_PATH.read_text(encoding="utf-8"))
@@ -237,9 +242,80 @@ def _capabilities() -> dict[str, Any]:
         card["optional_arguments"] = list(optional_arguments or [])
         return card
 
+    host = _host_name()
+    capabilities = data.get(host, data.get("default", {}))
+    cold_start: dict[str, Any] = {
+        "empty_or_unknown_workspace": setup_card(
+            "setup.inspect",
+            missing_arguments=[],
+        ),
+        "built_in_quick_start": setup_card(
+            "setup.quick_start",
+            missing_arguments=["scenario_id", "pregen_id"],
+            optional_arguments=["campaign_id", "title"],
+        ),
+        "custom_campaign_setup": setup_card(
+            "setup.invoke",
+            missing_arguments=["kind", "payload"],
+        ),
+        "campaign_resume": {
+            "operation": "session.resume",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {},
+            "missing_arguments": ["campaign"],
+            "contract_ref": f"session.resume@{contract_suffix}",
+            "discovery_required": False,
+        },
+    }
+    if capabilities.get("coc_opening_source_coordinator_v1") is True:
+        codex_root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+        cold_start["opening_source_coordinator"] = {
+            "copy_task_static_verbatim": True,
+            "task_variable_fields": [
+                "workspace_root",
+                "pdf_path",
+                "pdf_sha256",
+                "campaign_id",
+                "scenario_id",
+                "title",
+                "era",
+                "play_language",
+                "source_bundle_id",
+                "source_bundle_path",
+                "opening_locator_pdf_indices",
+            ],
+            "pdf_identity_before_dispatch": {
+                "required": True,
+                "fields": ["pdf_path", "pdf_sha256"],
+                "page_or_title_read_by_main_keeper": False,
+            },
+            "task_static": {
+                "schema_version": 1,
+                "contract_id": "coc.codex-opening-source-task.v1",
+                "bootstrap_instruction": (
+                    "Before any response or tool call, read instruction_ref "
+                    "completely, then execute this closed task under that "
+                    "instruction."
+                ),
+                "instruction_ref": os.fspath(
+                    PLUGIN_ROOT / "agents" / "coc-opening-source-coordinator.md"
+                ),
+                "contract_ref": os.fspath(
+                    PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
+                ),
+                "adapter_mode": "codex_context_free_inline_source",
+                "model_policy": "inherit_parent",
+                "max_selected_opening_pages": 3,
+                "instruction_refs": {
+                    "pdf_skill": os.fspath(codex_root / "skills" / "pdf" / "SKILL.md"),
+                },
+                "result_delivery": "task_return_to_parent",
+            },
+        }
+
     return {
-        "host": _host_name(),
-        "capabilities": data.get(_host_name(), data.get("default", {})),
+        "host": host,
+        "capabilities": capabilities,
         "source": "plugins/coc-keeper/references/host-capabilities.json",
         "mcp_wire": {
             "profile": wire_projection.PROFILE_ID,
@@ -247,35 +323,23 @@ def _capabilities() -> dict[str, Any]:
             "contract_archive_sha256": CONTRACTS["content_sha256"],
             "progressive_discovery": True,
             "tool_surface": (
-                "gateway_only_v1" if _host_name() == "grok" else "hotset_v1"
+                "gateway_only_v1" if host == "grok" else "hotset_v1"
             ),
             "gateway_tools": [
                 "coc_capabilities", "coc_discover", "coc_invoke",
             ],
-        },
-        "cold_start": {
-            "empty_or_unknown_workspace": setup_card(
-                "setup.inspect",
-                missing_arguments=[],
-            ),
-            "built_in_quick_start": setup_card(
-                "setup.quick_start",
-                missing_arguments=["scenario_id", "pregen_id"],
-                optional_arguments=["campaign_id", "title"],
-            ),
-            "custom_campaign_setup": setup_card(
-                "setup.invoke",
-                missing_arguments=["kind", "payload"],
-            ),
-            "campaign_resume": {
-                "operation": "session.resume",
-                "invoke_via": "coc_invoke",
-                "prefilled_arguments": {},
-                "missing_arguments": ["campaign"],
-                "contract_ref": f"session.resume@{contract_suffix}",
-                "discovery_required": False,
+            "transport_contract": {
+                "root": (
+                    "pass the current host workspace absolute path on every "
+                    "coc_invoke call"
+                ),
+                "campaign": (
+                    "pass the active campaign id on every campaign-bound "
+                    "coc_invoke call"
+                ),
             },
         },
+        "cold_start": cold_start,
     }
 
 
@@ -334,11 +398,28 @@ def _run_canonical_operation(
             "tool": name,
             "error": {"code": "unknown_tool", "message": name},
         }
+    root_was_explicit = bool(root_value)
     root = (
         Path(root_value).expanduser().resolve()
-        if root_value
+        if root_was_explicit
         else _default_root()
     )
+    if _implicit_root_is_plugin_storage(root):
+        return {
+            "ok": False,
+            "tool": name,
+            "error": {
+                "code": "workspace_root_required",
+                "message": (
+                    "plugin storage is not a campaign workspace; pass the "
+                    "current workspace absolute path in coc_invoke.root"
+                ),
+            },
+            "hints": [
+                "keep the same absolute workspace root on every coc_invoke "
+                "call for this campaign"
+            ],
+        }
     if not root.is_dir():
         return {
             "ok": False,
@@ -386,6 +467,23 @@ def _run_canonical_operation(
     )
     with _host_session_binding(bound_session_id):
         envelope = toolbox.run_tool(canonical_name, root, campaign, call_args)
+    setup_payload = (
+        call_args.get("payload")
+        if canonical_name == "setup.invoke"
+        and call_args.get("kind") == "campaign.create"
+        else None
+    )
+    setup_campaign_id = (
+        str(setup_payload.get("campaign_id") or "").strip()
+        if isinstance(setup_payload, dict)
+        else ""
+    )
+    if envelope.get("ok") is True and setup_campaign_id:
+        # A campaign created in this MCP process has no prior recovery context
+        # to rehydrate. Treat it as the active fresh context so its immediate
+        # setup/opening operations are not distracted by a contradictory
+        # session.resume advisory.
+        _PROCESS_ACTIVE_CAMPAIGN = (os.fspath(root), setup_campaign_id)
     if (
         canonical_name == "session.resume"
         and campaign_key is not None
@@ -618,8 +716,9 @@ def _meta_tools() -> list[dict[str, Any]]:
                     "root": {
                         "type": "string",
                         "description": (
-                            "Project root containing .coc; defaults to the "
-                            "host workspace."
+                            "Absolute host workspace root containing .coc. "
+                            "Pass it on every invocation; managed plugin "
+                            "storage is never a campaign workspace."
                         ),
                     },
                     "campaign": {

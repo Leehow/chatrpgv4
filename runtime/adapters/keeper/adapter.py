@@ -15,8 +15,9 @@ import importlib.util
 import json
 import re
 import subprocess
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 KEEPER_REQUEST_KEYS = (
     "workspace",
@@ -380,6 +381,10 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     if run_policy not in {"single_session", "continue_until_scenario_terminal"}:
         raise ValueError("run_policy must be single_session or continue_until_scenario_terminal")
     prepared["run_policy"] = run_policy
+    if "runtime_session_id" in prepared:
+        prepared["runtime_session_id"] = str(prepared["runtime_session_id"]).strip()
+        if not prepared["runtime_session_id"]:
+            prepared.pop("runtime_session_id", None)
     prepared.setdefault("runtime_project_root", str(_repo_root()))
     runtime_project_root = Path(prepared["runtime_project_root"]).resolve(strict=False)
     if runtime_project_root != _repo_root():
@@ -405,8 +410,10 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
     elif not isinstance(tail, list):
         raise ValueError("transcript_tail must be a list")
     else:
+        # Cold-start turns need far more than a few beats; keep a long public
+        # tail so prior access, rolls, and scene moves are not re-invented.
         safe_tail: list[dict[str, str]] = []
-        for item in tail[-12:]:
+        for item in tail[-48:]:
             if not isinstance(item, dict):
                 continue
             role = item.get("role")
@@ -416,6 +423,12 @@ def prepare_keeper_request(request: dict[str, Any]) -> dict[str, Any]:
             if text.strip():
                 safe_tail.append({"role": role, "text": text.strip()})
         prepared["transcript_tail"] = safe_tail
+    guidance = prepared.get("language_guidance")
+    if guidance is not None and (
+        not isinstance(guidance, list)
+        or not all(isinstance(line, str) and line.strip() for line in guidance)
+    ):
+        raise ValueError("language_guidance must be a list of non-empty strings")
     return prepared
 
 
@@ -513,36 +526,366 @@ def parse_runner_response(raw: Any) -> dict[str, Any]:
     return result
 
 
+_STREAM_PREFIX = '{"$stream":'
+
+
+class _WarmWorker:
+    __slots__ = ("process", "lock", "stderr_thread", "key")
+
+    def __init__(
+        self,
+        process: subprocess.Popen[str],
+        *,
+        key: str,
+        on_stream_holder: list[Callable[[dict[str, Any]], None] | None],
+    ) -> None:
+        self.process = process
+        self.lock = threading.RLock()
+        self.key = key
+        self.stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            args=(on_stream_holder,),
+            daemon=True,
+        )
+        self.stderr_thread.start()
+
+    def _drain_stderr(
+        self,
+        on_stream_holder: list[Callable[[dict[str, Any]], None] | None],
+    ) -> None:
+        assert self.process.stderr is not None
+        for line in self.process.stderr:
+            if line.startswith(_STREAM_PREFIX):
+                callback = on_stream_holder[0]
+                if callback is None:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    callback(event)
+                except Exception:
+                    pass
+
+
+class _KeeperWarmServerPool:
+    """Keep one ``run_keeper_turn.mjs --server`` process warm per runtime session.
+
+    Keyed by runtime session + campaign + model so model switches start a fresh
+    agent (system prompt / auth bind at process start). Streaming progress still
+    flows on stderr; results are one JSONL response per request on stdout.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._workers: dict[str, _WarmWorker] = {}
+        # Mutable holder so the drain thread always sees the current callback.
+        self._on_stream_holder: list[Callable[[dict[str, Any]], None] | None] = [
+            None
+        ]
+
+    @staticmethod
+    def make_key(
+        *,
+        runtime_session_id: str,
+        campaign_id: str,
+        workspace: str,
+        provider: str,
+        model_id: str,
+    ) -> str:
+        return "|".join(
+            [
+                runtime_session_id.strip(),
+                campaign_id.strip(),
+                str(Path(workspace).resolve()),
+                provider.strip(),
+                model_id.strip(),
+            ]
+        )
+
+    def _retire(self, key: str, worker: _WarmWorker | None = None) -> None:
+        with self._lock:
+            current = self._workers.get(key)
+            if worker is not None and current is not worker:
+                return
+            worker = self._workers.pop(key, None)
+        if worker is None:
+            return
+        process = worker.process
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    pass
+        for stream in (process.stdin, process.stdout, process.stderr):
+            try:
+                if stream is not None:
+                    stream.close()
+            except OSError:
+                pass
+
+    def close_session(self, runtime_session_id: str) -> None:
+        prefix = f"{runtime_session_id.strip()}|"
+        with self._lock:
+            keys = [key for key in self._workers if key.startswith(prefix)]
+        for key in keys:
+            self._retire(key)
+
+    def _start(
+        self,
+        key: str,
+        *,
+        runner: Path,
+        workspace: str,
+    ) -> _WarmWorker:
+        cmd = [*_runner_cmd(runner), "--server"]
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                cwd=workspace,
+            )
+        except FileNotFoundError as exc:
+            raise KeeperAdapterError(f"failed to start keeper runner: {cmd[0]}") from exc
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            process.kill()
+            raise KeeperAdapterError("keeper warm runner lacks stdio pipes")
+        worker = _WarmWorker(
+            process, key=key, on_stream_holder=self._on_stream_holder
+        )
+        with self._lock:
+            self._workers[key] = worker
+        return worker
+
+    def request(
+        self,
+        key: str,
+        prepared: dict[str, Any],
+        *,
+        runner: Path,
+        timeout_s: float,
+        on_stream: Callable[[dict[str, Any]], None] | None,
+    ) -> dict[str, Any]:
+        import uuid
+
+        request_id = uuid.uuid4().hex
+        try:
+            encoded = json.dumps(
+                {"request_id": request_id, "payload": prepared},
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise KeeperAdapterError(
+                "keeper warm request is not JSON serializable"
+            ) from exc
+
+        self._on_stream_holder[0] = on_stream
+        with self._lock:
+            worker = self._workers.get(key)
+            if worker is None or worker.process.poll() is not None:
+                if worker is not None:
+                    self._retire(key, worker)
+                worker = self._start(
+                    key, runner=runner, workspace=prepared["workspace"]
+                )
+
+        try:
+            with worker.lock:
+                if worker.process.poll() is not None:
+                    raise KeeperAdapterError("keeper warm runner exited before request")
+                assert worker.process.stdin is not None
+                assert worker.process.stdout is not None
+                worker.process.stdin.write(encoded + "\n")
+                worker.process.stdin.flush()
+
+                # Wait for the matching response line with a timeout.
+                deadline = __import__("time").monotonic() + float(timeout_s)
+                while True:
+                    remaining = deadline - __import__("time").monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            f"keeper warm runner timed out after {timeout_s}s"
+                        )
+                    import select
+
+                    ready, _, _ = select.select(
+                        [worker.process.stdout], [], [], min(remaining, 1.0)
+                    )
+                    if not ready:
+                        if worker.process.poll() is not None:
+                            raise KeeperAdapterError(
+                                "keeper warm runner exited during request"
+                            )
+                        continue
+                    line = worker.process.stdout.readline()
+                    if not line:
+                        raise KeeperAdapterError(
+                            "keeper warm runner closed stdout during request"
+                        )
+                    try:
+                        parsed = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise KeeperAdapterError(
+                            f"keeper warm runner stdout is not JSON: {line[:200]!r}"
+                        ) from exc
+                    if not isinstance(parsed, dict):
+                        raise KeeperAdapterError(
+                            "keeper warm runner response must be a JSON object"
+                        )
+                    if parsed.get("request_id") != request_id:
+                        # Ignore stale/out-of-band lines rather than cross-talk fail.
+                        continue
+                    parsed.pop("request_id", None)
+                    return parse_runner_response(parsed)
+        except (BrokenPipeError, OSError, TimeoutError, KeeperAdapterError) as exc:
+            self._retire(key, worker)
+            if isinstance(exc, KeeperAdapterError):
+                raise
+            if isinstance(exc, TimeoutError):
+                raise KeeperAdapterError(str(exc)) from exc
+            raise KeeperAdapterError(str(exc)) from exc
+        finally:
+            self._on_stream_holder[0] = None
+
+
+_WARM_POOL = _KeeperWarmServerPool()
+
+
+def close_warm_sessions_for(runtime_session_id: str) -> None:
+    """Retire warm keeper workers owned by one runtime session_id."""
+    if isinstance(runtime_session_id, str) and runtime_session_id.strip():
+        _WARM_POOL.close_session(runtime_session_id.strip())
+
+
 def keeper_send_turn(
     request: dict[str, Any],
     *,
     runner_path: Path | str | None = None,
     timeout_s: float = 900,
+    on_stream: Callable[[dict[str, Any]], None] | None = None,
+    prefer_warm: bool = True,
 ) -> dict[str, Any]:
-    """Run one full keeper turn through the skills-enabled Pi coding agent."""
+    """Run one full keeper turn through the skills-enabled Pi coding agent.
+
+    ``on_stream`` receives best-effort live progress dicts parsed from runner
+    stderr marker lines (``{"$stream":...}``). Stream delivery never alters the
+    result contract and callback failures never fail the turn.
+
+    When ``prefer_warm`` is true and the request carries ``runtime_session_id``,
+    the adapter reuses a long-lived ``--server`` agent process so later turns
+    keep CLI-like chat memory (still gated by ``turn.finalize`` for output).
+    """
     prepared = prepare_keeper_request(request)
     runner = Path(runner_path).resolve() if runner_path is not None else _default_runner()
     if not runner.exists():
         raise KeeperAdapterError(f"keeper runner not found: {runner}")
 
+    runtime_session_id = prepared.get("runtime_session_id")
+    use_warm = (
+        prefer_warm
+        and isinstance(runtime_session_id, str)
+        and runtime_session_id.strip()
+        and runner.suffix.lower() in {".mjs", ".js"}
+    )
+    if use_warm:
+        import os
+
+        provider = str(os.environ.get("COC_KEEPER_MODEL_PROVIDER") or "coding-relay")
+        model_id = str(os.environ.get("COC_KEEPER_MODEL_ID") or "gpt-5.6-luna")
+        key = _WARM_POOL.make_key(
+            runtime_session_id=runtime_session_id.strip(),
+            campaign_id=prepared["campaign_id"],
+            workspace=prepared["workspace"],
+            provider=provider,
+            model_id=model_id,
+        )
+        try:
+            return _WARM_POOL.request(
+                key,
+                prepared,
+                runner=runner,
+                timeout_s=timeout_s,
+                on_stream=on_stream,
+            )
+        except KeeperAdapterError:
+            # Fall through to one-shot cold spawn when warm worker is unhealthy
+            # and no state may have been settled yet is the caller's concern;
+            # here we only try cold if warm failed before a usable response.
+            raise
+
     cmd = _runner_cmd(runner)
     payload = json.dumps(prepared, ensure_ascii=False)
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            input=payload,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_s,
             cwd=prepared["workspace"],
         )
-    except subprocess.TimeoutExpired as exc:
-        raise KeeperAdapterError(f"keeper runner timed out after {timeout_s}s") from exc
     except FileNotFoundError as exc:
         raise KeeperAdapterError(f"failed to start keeper runner: {cmd[0]}") from exc
 
-    stdout = (proc.stdout or "").strip()
-    stderr = (proc.stderr or "").strip()
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+
+    def _drain_stdout() -> None:
+        assert proc.stdout is not None
+        stdout_parts.append(proc.stdout.read())
+
+    def _drain_stderr() -> None:
+        assert proc.stderr is not None
+        for line in proc.stderr:
+            if line.startswith(_STREAM_PREFIX):
+                if on_stream is not None:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        on_stream(event)
+                    except Exception:
+                        pass
+                continue
+            stderr_parts.append(line)
+
+    stdout_thread = threading.Thread(target=_drain_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+    timed_out = False
+    try:
+        assert proc.stdin is not None
+        try:
+            proc.stdin.write(payload)
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
+        proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        proc.kill()
+        proc.wait()
+    stdout_thread.join()
+    stderr_thread.join()
+    if timed_out:
+        raise KeeperAdapterError(f"keeper runner timed out after {timeout_s}s")
+
+    stdout = "".join(stdout_parts).strip()
+    stderr = "".join(stderr_parts).strip()
     if proc.returncode != 0:
         detail = stderr or stdout or f"exit {proc.returncode}"
         parsed: dict[str, Any] | None = None

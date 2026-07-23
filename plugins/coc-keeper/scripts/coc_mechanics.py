@@ -10,6 +10,7 @@ one.  No player prose or PDF text is scanned here.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -122,6 +123,53 @@ class MechanicsError(ValueError):
     """A mechanics record or profile violates the source/runtime contract."""
 
 
+def mechanics_revision_ref(
+    npc_id: str,
+    revision: int,
+    content: Any,
+    *,
+    authority: str,
+) -> dict[str, Any]:
+    """Create one stable immutable NPC mechanics revision reference."""
+    if authority not in {"source_authored", "campaign_generated"}:
+        raise MechanicsError("mechanics revision authority is invalid")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision <= 0:
+        raise MechanicsError("mechanics revision must be a positive integer")
+    encoded = json.dumps(
+        content, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "stable_id": f"npc:{npc_id}:mechanics",
+        "revision": revision,
+        "content_sha256": hashlib.sha256(encoded).hexdigest(),
+        "authority": authority,
+    }
+
+
+def validate_mechanics_revision_ref(
+    value: Any,
+    *,
+    npc_id: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "stable_id", "revision", "content_sha256", "authority",
+    }:
+        raise MechanicsError("mechanics_revision_ref must use the exact schema")
+    stable_id = str(value.get("stable_id") or "")
+    if npc_id is not None and stable_id != f"npc:{npc_id}:mechanics":
+        raise MechanicsError("mechanics_revision_ref stable_id does not match NPC")
+    if not stable_id.startswith("npc:") or not stable_id.endswith(":mechanics"):
+        raise MechanicsError("mechanics_revision_ref stable_id is invalid")
+    revision = value.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision <= 0:
+        raise MechanicsError("mechanics_revision_ref revision must be positive")
+    if not _is_hex64(value.get("content_sha256")):
+        raise MechanicsError("mechanics_revision_ref content_sha256 is invalid")
+    if value.get("authority") not in {"source_authored", "campaign_generated"}:
+        raise MechanicsError("mechanics_revision_ref authority is invalid")
+    return value
+
+
 def _nonempty(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
@@ -215,11 +263,11 @@ def _scopes_exactly_bound(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 def _fact_source_ref_signature(
     rows: Any, *, field: str,
-) -> tuple[tuple[str, int, str], ...]:
+) -> tuple[tuple[str, int, str, str, int, str, str], ...]:
     """Return one strict fact-source signature without interpreting prose."""
     if not isinstance(rows, list) or not rows:
         raise MechanicsError(f"{field} must be a non-empty list")
-    normalized: list[tuple[str, int, str]] = []
+    normalized: list[tuple[str, int, str, str, int, str, str]] = []
     seen_indices: set[int] = set()
     for index, ref in enumerate(rows):
         if not isinstance(ref, dict):
@@ -242,7 +290,18 @@ def _fact_source_ref_signature(
             raise MechanicsError(
                 f"{field}[{index}].text_sha256 must be a 64-char hex digest"
             )
-        normalized.append((source_id, pdf_index, text_sha256.lower()))
+        revision_ref = ref.get("ocr_revision")
+        revision_ref = revision_ref if isinstance(revision_ref, dict) else {}
+        normalized.append((
+            source_id, pdf_index, text_sha256.lower(),
+            str(revision_ref.get("layer") or ""),
+            int(revision_ref.get("revision") or 0),
+            str(revision_ref.get("content_sha256") or ""),
+            str(
+                (ref.get("structured_data") or {}).get("sha256")
+                if isinstance(ref.get("structured_data"), dict) else ""
+            ),
+        ))
     return tuple(sorted(normalized))
 
 
@@ -924,6 +983,7 @@ def actor_combat_participant(
     profile: dict[str, Any],
     *,
     side: str = "npc",
+    mechanics_revision_ref: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_actor_profile(profile)
     characteristics = _int_map(
@@ -966,6 +1026,11 @@ def actor_combat_participant(
         "weapons": weapons,
         "conditions": list(profile.get("conditions") or []),
     }
+    if mechanics_revision_ref is not None:
+        validate_mechanics_revision_ref(
+            mechanics_revision_ref, npc_id=str(actor_id),
+        )
+        participant["mechanics_revision_ref"] = deepcopy(mechanics_revision_ref)
     # Preserve authored attacks-per-round as data only; no combat rule here.
     if profile.get("attacks_per_round") is not None:
         participant["attacks_per_round"] = profile["attacks_per_round"]

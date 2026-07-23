@@ -45,6 +45,33 @@ def test_combat_session_add_participant_records_full_state():
     assert hero["active_effects"] == []
 
 
+def test_npc_mechanics_revision_is_pinned_in_combat_snapshot(tmp_path: Path):
+    session = coc_combat.CombatSession(
+        "revision-fight", "scene/revision", 1, rng=random.Random(7),
+    )
+    session.add_participant(
+        "hero", "investigator", 70, 60, 0, 10,
+    )
+    revision_one = {
+        "stable_id": "npc:harris:mechanics", "revision": 1,
+        "content_sha256": "a" * 64, "authority": "source_authored",
+    }
+    session.add_participant(
+        "harris", "npc", 50, 40, 0, 9,
+        mechanics_revision_ref=revision_one,
+    )
+    session.begin_round()
+    session.save(tmp_path)
+
+    revision_one["revision"] = 2
+    revision_one["content_sha256"] = "b" * 64
+    loaded = coc_combat.CombatSession.load(tmp_path, rng=random.Random(9))
+    assert loaded.participants["harris"]["mechanics_revision_ref"] == {
+        "stable_id": "npc:harris:mechanics", "revision": 1,
+        "content_sha256": "a" * 64, "authority": "source_authored",
+    }
+
+
 def test_combat_session_begin_round_records_initiative_by_dex():
     s = _make_session()
     rnd = s.begin_round()

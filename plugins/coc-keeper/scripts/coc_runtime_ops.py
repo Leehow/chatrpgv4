@@ -3415,7 +3415,15 @@ def execute_setup_operation(
             creation is not None and not isinstance(creation, dict)
         ):
             raise RuntimeOperationError("investigator.create requires object sheet/creation")
-        errors = coc_character.validate_character_sheet(sheet)
+        try:
+            sheet = coc_character.materialize_quick_fire_create_sheet(
+                sheet, creation,
+            )
+        except ValueError as exc:
+            raise RuntimeOperationError(
+                "invalid investigator sheet: " + str(exc)
+            ) from exc
+        errors = coc_character.validate_character_create_sheet(sheet, creation)
         if errors:
             raise RuntimeOperationError("invalid investigator sheet: " + "; ".join(errors))
         if str(sheet.get("id")) != investigator_id:
@@ -3558,8 +3566,18 @@ def execute_setup_operation(
 
     allowed = {"campaign_id", "scenario_id", "title", "source_bundle_path", "compile_now"}
     required = {"campaign_id", "scenario_id", "title", "source_bundle_path"}
-    if set(payload) - allowed or not required <= set(payload):
-        raise RuntimeOperationError("scenario.bind_pdf has unsupported or missing fields")
+    unsupported = sorted(set(payload) - allowed)
+    missing = sorted(required - set(payload))
+    if unsupported or missing:
+        details = []
+        if missing:
+            details.append("missing: " + ", ".join(missing))
+        if unsupported:
+            details.append("unsupported: " + ", ".join(unsupported))
+        details.append("allowed: " + ", ".join(sorted(allowed)))
+        raise RuntimeOperationError(
+            "scenario.bind_pdf payload fields invalid (" + "; ".join(details) + ")"
+        )
     campaign_id = _id(payload.get("campaign_id"), "campaign_id")
     scenario_id = _id(payload.get("scenario_id"), "scenario_id")
     title = payload.get("title")

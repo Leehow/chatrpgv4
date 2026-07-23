@@ -9,6 +9,7 @@ import random
 import subprocess
 import sys
 import time
+import uuid
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -149,6 +150,13 @@ def _finalize_pending_turn_for_test(
     output = _run(ws, "turn.output_context")
     assert output["ok"] is True, output
     context = output["data"]
+    finalize_card = context["finalize_operation"]
+    assert finalize_card["operation"] == "turn.finalize"
+    assert finalize_card["discovery_required"] is False
+    assert finalize_card["prefilled_arguments"]["decision_id"] == (
+        f"{context['journal_decision_id']}:finalize"
+    )
+    assert "draft" in finalize_card["missing_arguments"]
     result_paragraph = "已结算的测试结果按其原有因果关系发生。"
     draft = "测试中的行动继续推进。\n\n" + result_paragraph
     coverage = [
@@ -790,6 +798,19 @@ def test_missing_required_arg_returns_machine_readable_error(campaign_ws):
     assert envelope["tool"] == "rules.roll_dice"
     assert envelope["error"]["code"] == "missing_param"
     assert "expression" in envelope["error"]["message"]
+    assert envelope["error"]["details"]["missing_parameters"] == [
+        "expression", "decision_id",
+    ]
+
+
+def test_missing_required_args_are_reported_together(campaign_ws):
+    envelope = _run(campaign_ws, "turn.finalize", {"text": "wrong alias"})
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "missing_param"
+    assert envelope["error"]["details"]["missing_parameters"] == [
+        "draft", "coverage", "decision_id",
+    ]
+    assert envelope["error"]["details"]["provided_parameters"] == ["text"]
 
 
 @pytest.mark.parametrize(
@@ -8762,6 +8783,40 @@ def test_attack_present_improvised_npc_uses_frozen_mechanics(campaign_ws):
     })
     assert generated["ok"] is True, generated
     assert generated["data"]["authority"] == "campaign_generated"
+    revision_ref = generated["data"]["mechanics_revision_ref"]
+    assert revision_ref["stable_id"] == f"npc:{npc_id}:mechanics"
+    assert revision_ref["revision"] == 1
+
+    npc_state_path = campaign_ws["campaign_dir"] / "save" / "npc-state.json"
+    legacy = json.loads(npc_state_path.read_text(encoding="utf-8"))
+    legacy["npcs"][npc_id]["mechanics"].pop("mechanics_revision_ref")
+    npc_state_path.write_text(json.dumps(legacy), encoding="utf-8")
+    reused = _run(campaign_ws, "mechanics.ensure", {
+        "subject_kind": "npc", "subject_id": npc_id, "purpose": "combat",
+        "decision_id": "reuse-legacy-improvised-enforcer",
+    })
+    assert reused["ok"] is True, reused
+    assert reused["data"]["mechanics_revision_ref"] == revision_ref
+    agendas_path = campaign_ws["campaign_dir"] / "scenario" / "npc-agendas.json"
+    agendas = json.loads(agendas_path.read_text(encoding="utf-8"))
+    agendas.setdefault("npcs", []).append({
+        "npc_id": npc_id,
+        "name": "Source Enforcer",
+        "mechanics": {
+            "status": "authored",
+            "profile": generated["data"]["profile"],
+            "source_refs": [{"source_id": "pdf:later", "pdf_index": 7}],
+        },
+    })
+    agendas_path.write_text(json.dumps(agendas), encoding="utf-8")
+    conflict = _run(campaign_ws, "mechanics.ensure", {
+        "subject_kind": "npc", "subject_id": npc_id, "purpose": "combat",
+        "decision_id": "observe-later-authored-enforcer",
+    })
+    assert conflict["ok"] is True, conflict
+    assert conflict["data"]["authority"] == "campaign_generated"
+    assert conflict["data"]["mechanics_revision_ref"] == revision_ref
+    assert conflict["data"]["source_conflict"]["kind"] == "continuity_contradiction"
 
     result = _run(campaign_ws, "combat.resolve", {
         "target_npc_id": npc_id,
@@ -8776,6 +8831,11 @@ def test_attack_present_improvised_npc_uses_frozen_mechanics(campaign_ws):
         row["actor_id"] for row in result["data"]["combat"]["participants"]
     }
     assert npc_id in actors
+    pinned = next(
+        row for row in result["data"]["combat"]["participants"]
+        if row["actor_id"] == npc_id
+    )
+    assert pinned["mechanics_revision_ref"] == revision_ref
 
 
 def test_authored_weapon_effect_reaches_deterministic_combat_damage(campaign_ws):
@@ -9890,6 +9950,16 @@ def test_scene_context_exposes_party_investigator_briefs(campaign_ws):
     ctx = coc_toolbox.Ctx(
         campaign_ws["workspace"], campaign_ws["campaign_id"]
     )
+    sheet_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    sheet = json.loads(sheet_path.read_text(encoding="utf-8"))
+    sheet["derived"].pop("BUILD", None)
+    sheet["derived"]["Build"] = 3
+    _write_json(sheet_path, sheet)
     state = ctx.inv_state(campaign_ws["investigator_id"])
     state["current_luck"] = 17
     ctx.save_inv_state(campaign_ws["investigator_id"], state)
@@ -9908,13 +9978,24 @@ def test_scene_context_exposes_party_investigator_briefs(campaign_ws):
     assert brief["credit_tier"] in {
         "penniless", "poor", "average", "wealthy", "rich", "super_rich",
     }
-    assert "build" in brief
+    assert brief["build"] == 3
     assert "mov" in brief
     assert brief["luck"] == 17
+    assert isinstance(brief.get("hp"), dict)
+    assert "current" in brief["hp"] and "max" in brief["hp"]
+    assert isinstance(brief.get("mp"), dict)
+    assert "current" in brief["mp"] and "max" in brief["mp"]
     assert set(brief["madness"]) >= {
         "bout_active", "temporary_insane", "indefinite_insane", "delusion_active",
     }
     assert brief["madness"]["bout_active"] is False
+    assert isinstance(data.get("discovered_clue_count"), int)
+    assert data["discovered_clue_count"] >= 0
+    assert isinstance(data.get("discovered_clues_public"), list)
+    for row in data["discovered_clues_public"]:
+        assert row.get("discovered") is True
+        assert "clue_id" in row
+        assert "secret" not in row or row.get("secret") is not True
 
 
 def test_rules_build_scale_lookup_and_comparison(tmp_path):
@@ -10447,6 +10528,678 @@ def test_source_coordinator_dispatch_is_closed_deterministic_and_advisory():
     assert codex_task["packet"] == packet
 
 
+def test_unknown_scope_projects_locator_and_resolution_wakes_existing_queue(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "codex")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(2,))
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    dig = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "archive",
+        "title": "Archive",
+        "reason": "player follows the archive lead",
+    })
+    assert dig["ok"] is True, dig
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_scope_wake_test",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1, materialized
+
+    status = _run(ws, "progressive.status")
+    assert status["ok"] is True, status
+    assert status["data"]["host_work"]["ready_for_background_count"] == 0
+    takeover = status["data"]["source_scope_takeover"]
+    assert takeover["dispatch_mode"] == "background_single_locator"
+    action = takeover["next_host_action"]
+    assert action["dispatch_key"].startswith("source-scope-locator:job-")
+    assert action["spawn_once_while_job_open"] is True
+    assert action["parent_waits"] is False
+    task = action["task"]
+    assert task["contract_id"] == "coc.codex-source-scope-locator-task.v1"
+    assert task["contract_revision"].startswith("sha256:")
+    assert len(task["contract_revision"]) == 71
+    assert task["contract_revision"].removeprefix("sha256:")[:16] in (
+        task["source_bundle_path"]
+    )
+    assert task["kind"] == "location"
+    assert task["target_id"] == "archive"
+    assert task["target_label"] == "Archive"
+    assert task["source_bundle_manifest_contract"]["review_state"] == (
+        "manual_accepted"
+    )
+    assert task["source_bundle_manifest_contract"]["parse_confidence"] == (
+        "number_from_0_through_1"
+    )
+    assert task["resolve_operation"]["prefilled_arguments"]["job_id"] == (
+        task["job_id"]
+    )
+
+    locator_bundle = tmp_path / "archive-locator-bundle"
+    locator_bundle.mkdir()
+    page = b"# Appendix 2\n\nAccepted extra source page.\n"
+    (locator_bundle / "page-0002.md").write_bytes(page)
+    (locator_bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:opening-component",
+            "title": "Opening Component",
+            "path": str(ws["workspace"] / "opening-module.pdf"),
+            "file_sha256": ws["file_sha256"],
+            "page_count": 3,
+        },
+        "pages": [{
+            "pdf_index": 2,
+            "markdown_path": "page-0002.md",
+            "text_sha256": hashlib.sha256(page).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.99,
+            "grep_anchors": ["Accepted extra source page."],
+        }],
+        "assets": [],
+    }), encoding="utf-8")
+    resolved = _run(ws, "progressive.resolve_source_scope", {
+        "job_id": task["job_id"],
+        "kind": "location",
+        "target_id": "archive",
+        "source_bundle_path": str(locator_bundle),
+        "pdf_indices": [2],
+    })
+    assert resolved["ok"] is True, resolved
+    assert resolved["data"]["resolved_job_id"] == task["job_id"]
+    assert resolved["data"]["replacement_job_id"] != task["job_id"]
+    assert resolved["data"]["lifecycle"]["awaiting_scope_count"] == 0
+    assert resolved["data"]["lifecycle"]["runnable_count"] == 1
+    assert resolved["data"]["lifecycle"]["stranded_ready_count"] == 0
+    assert resolved["data"]["replacement"]["requested_pdf_indices"] == [2]
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    old = next(
+        row for row in assets.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row["job_id"] == task["job_id"]
+    )
+    assert old["status"] == "superseded"
+
+    after = _run(ws, "progressive.status")
+    assert "source_scope_takeover" not in after["data"]
+    assert after["data"]["background_takeover"]["dispatch_mode"] == (
+        "direct_single_leaf"
+    )
+    assert after["data"]["host_work"]["ready_for_background_count"] == 1
+
+
+def test_source_direct_single_dispatch_is_closed_and_needs_no_manager():
+    first = coc_toolbox._source_direct_single_dispatch(
+        workspace_root="/workspace",
+        campaign_id="campaign-a",
+        asset_root_id="asset-a",
+    )
+    second = coc_toolbox._source_direct_single_dispatch(
+        workspace_root="/workspace",
+        campaign_id="campaign-a",
+        asset_root_id="asset-a",
+    )
+    assert first == second
+    assert first["agent_type"] == "coc-source-pack-worker"
+    assert first["run_in_background"] is True
+    assert first["dispatch_mode"] == "direct_single_leaf"
+    task = first["codex_task"]
+    assert task["contract_id"] == "coc.codex-source-pack-claim-task.v1"
+    assert task["workspace_root"] == "/workspace"
+    assert task["campaign_id"] == "campaign-a"
+    assert task["asset_root_id"] == "asset-a"
+    claim = task["claim_operation"]
+    assert claim["operation"] == "progressive.claim_host_work"
+    assert claim["missing_arguments"] == []
+    assert claim["prefilled_arguments"] == {
+        "executor_id": claim["prefilled_arguments"]["executor_id"],
+        "limit": 1,
+        "result_delivery": "task_return_to_parent",
+    }
+    assert claim["prefilled_arguments"]["executor_id"].startswith(
+        "source-direct:"
+    )
+    assert first["codex_parent_claims"] is False
+    assert "spawn exact codex_task immediately" in first["codex_task_binding"]
+    named_claim = first["named_submit_claim_operation"]
+    assert named_claim["prefilled_arguments"]["result_delivery"] == (
+        "named_submit"
+    )
+    assert first["completion_operation"]["operation"] == (
+        "progressive.fulfill_host_work"
+    )
+    assert first["completion_operation"]["missing_arguments"] == [
+        "worker_result"
+    ]
+    assert first["model_policy"] == "inherit_parent"
+    assert first["preconfirmation_parent_waits"] is False
+    assert first["postconfirmation_blocking_minimum"] is True
+    assert first["parent_result_polls"] == 0
+    assert first["parent_output_retrieval"] is False
+    assert first["parent_calls_fulfill_host_work"] is True
+
+
+def test_source_inline_single_dispatch_reuses_the_opening_owner():
+    first = coc_toolbox._source_inline_single_dispatch(
+        workspace_root="/workspace",
+        campaign_id="campaign-a",
+        asset_root_id="asset-a",
+    )
+    second = coc_toolbox._source_inline_single_dispatch(
+        workspace_root="/workspace",
+        campaign_id="campaign-a",
+        asset_root_id="asset-a",
+    )
+    assert first == second
+    assert first["dispatch_mode"] == "inline_single_owner"
+    action = first["next_host_action"]
+    assert action["action"] == "claim_and_compile_inline"
+    assert action["owner"] == "opening_source_coordinator"
+    assert action["nested_agent"] is False
+    assert action["packet_count"] == 1
+    claim = action["operation"]
+    assert claim["operation"] == "progressive.claim_host_work"
+    assert claim["root"] == "/workspace"
+    assert claim["campaign"] == "campaign-a"
+    assert claim["prefilled_arguments"] == {
+        "executor_id": claim["prefilled_arguments"]["executor_id"],
+        "limit": 1,
+        "result_delivery": "return_to_parent",
+    }
+    assert claim["prefilled_arguments"]["executor_id"].startswith(
+        "source-opening:"
+    )
+    assert action["on_completion"]["operation"]["operation"] == (
+        "progressive.fulfill_host_work"
+    )
+
+
+def test_source_projection_uses_coordinator_only_for_multiple_groups(
+    tmp_path: Path,
+):
+    ctx = coc_toolbox.Ctx(tmp_path, None)
+    rows = [
+        {
+            "job_id": f"job-{suffix}",
+            "kind": "deepen_location",
+            "target_id": suffix,
+            "priority": 50,
+            "requested_pdf_indices": [index],
+            "source_aspect": "body",
+            "deadline_class": "idle_warm",
+            "work_group_id": f"group-{suffix}",
+            "dispatch_state": "ready",
+            "dispatch_attempts": 0,
+            "cached_scope_complete": True,
+        }
+        for index, suffix in enumerate(("a", "b"))
+    ]
+    projection = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=rows,
+    )
+    takeover = projection["background_takeover"]
+    assert takeover["dispatch_mode"] == "coordinator_fanout"
+    assert "direct_single_leaf_dispatch" not in takeover
+    assert "next_host_action" not in takeover
+    coordinator = takeover["coordinator_dispatch"]
+    assert coordinator["run_in_background"] is True
+    assert coordinator["packet"]["max_leaves"] == 2
+    assert coordinator["packet"]["claim_operation"]["prefilled_arguments"][
+        "result_delivery"
+    ] == "return_to_parent"
+
+
+def test_source_projection_uses_parent_flat_fanout_for_grok_multi_group(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_HOST", "grok")
+    ctx = coc_toolbox.Ctx(tmp_path, None)
+    rows = [
+        {
+            "job_id": f"job-{suffix}",
+            "kind": "deepen_location",
+            "target_id": suffix,
+            "priority": 50,
+            "requested_pdf_indices": [index],
+            "source_aspect": "body",
+            "deadline_class": "idle_warm",
+            "work_group_id": f"group-{suffix}",
+            "dispatch_state": "ready",
+            "dispatch_attempts": 0,
+            "cached_scope_complete": True,
+        }
+        for index, suffix in enumerate(("a", "b", "c"))
+    ]
+    projection = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=rows,
+    )
+    takeover = projection["background_takeover"]
+    assert takeover["dispatch_mode"] == "parent_flat_fanout"
+    assert takeover["host_adapter"] == "grok"
+    assert "coordinator_dispatch" not in takeover
+    action = takeover["next_host_action"]
+    assert action["action"] == "claim_then_spawn_named_workers"
+    assert action["execute_before_any_other_host_operation"] is True
+    claim = action["operation"]
+    assert claim["operation"] == "progressive.claim_host_work"
+    assert claim["prefilled_arguments"] == {
+        "executor_id": claim["prefilled_arguments"]["executor_id"],
+        "limit": 3,
+        "result_delivery": "named_submit",
+    }
+    assert claim["prefilled_arguments"]["executor_id"].startswith(
+        "source-parent-fanout:"
+    )
+    assert action["max_workers"] == 3
+    assert action["agent_type"] == "coc-source-pack-worker"
+    assert action["run_in_background"] is True
+    assert action["parent_waits"] is False
+    assert action["parent_result_polls"] == 0
+    assert action["parent_output_retrieval"] is False
+    assert action["parent_calls_fulfill_host_work"] is False
+    assert "unqualified" in action["spawn_binding"]
+    assert "never nest" in action["spawn_binding"]
+
+
+def _isolated_coc_workspace(label: str) -> Path:
+    """Create a durable probe root outside the repository tree.
+
+    Live/adapter probes must not touch the repo-local ``.coc`` tree. Paths live
+    under ``/tmp/coc-isolated/<label>-<id>/`` so operators can inspect leftovers.
+    """
+    root = Path("/tmp/coc-isolated") / f"{label}-{uuid.uuid4().hex[:10]}"
+    root.mkdir(parents=True, exist_ok=False)
+    (root / "README.md").write_text(
+        "# Isolated COC probe workspace\n\n"
+        f"label: `{label}`\n\n"
+        "This directory is outside the repository. Progressive campaign state "
+        "lives only under `workspace/.coc/` here. It is not a live Grok KP "
+        "session and not acceptance play evidence.\n",
+        encoding="utf-8",
+    )
+    workspace = root / "workspace"
+    workspace.mkdir()
+    return root
+
+
+def _grok_multi_location_isolated_workspace(iso_root: Path) -> dict:
+    """Build a progressive campaign with two independent ready host-work groups."""
+    workspace = iso_root / "workspace"
+    campaign_id = "grok-parent-fanout"
+    asset_root_id = "fanout-asset"
+    coc_state.create_campaign(
+        workspace,
+        campaign_id,
+        "Grok Parent Fanout Isolation",
+        play_language="zh-Hans",
+    )
+    pdf = workspace / "module.pdf"
+    pdf.write_bytes(b"%PDF grok parent flat fanout isolation fixture")
+    file_sha = hashlib.sha256(pdf.read_bytes()).hexdigest()
+    bundle = workspace / "source-bundle"
+    bundle.mkdir()
+    page_bodies = {
+        0: "# Opening\n\nLobby and desk.\n",
+        1: "# Alley\n\nSide alley and crates.\n",
+        2: "# Cellar\n\nDamp cellar steps.\n",
+    }
+    pages = []
+    for pdf_index, text in page_bodies.items():
+        markdown_path = f"page-{pdf_index:04d}.md"
+        body = text.encode("utf-8")
+        (bundle / markdown_path).write_bytes(body)
+        pages.append({
+            "pdf_index": pdf_index,
+            "markdown_path": markdown_path,
+            "text_sha256": hashlib.sha256(body).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.99,
+            "grep_anchors": [text.strip().splitlines()[-1]],
+        })
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:fanout-asset",
+            "title": "Fanout Isolation Module",
+            "path": str(pdf),
+            "file_sha256": file_sha,
+            "page_count": 3,
+        },
+        "pages": pages,
+    }), encoding="utf-8")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    registration = assets.register_source_bundle(
+        workspace,
+        bundle,
+        asset_root_id=asset_root_id,
+        module_identity={"canonical_module_id": asset_root_id},
+    )
+    identity = json.loads(
+        (
+            workspace / ".coc" / "module-assets" / asset_root_id
+            / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    campaign_dir = workspace / ".coc" / "campaigns" / campaign_id
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    scenario = (
+        json.loads(scenario_path.read_text(encoding="utf-8"))
+        if scenario_path.is_file() else {"schema_version": 1}
+    )
+    scenario.update({
+        "source_cache_asset_root_id": asset_root_id,
+        "source": {
+            **identity["source"],
+            "bundle_sha256": registration["bundle_sha256"],
+        },
+    })
+    _write_json(scenario_path, scenario)
+    skeleton = {
+        "schema_version": 1,
+        "parse_tier": 1,
+        "module_identity": {
+            "canonical_module_id": asset_root_id,
+            "canonical_title": "Fanout Isolation Module",
+        },
+        "structure_type": "branching_investigation",
+        "source": identity["source"],
+        "start_candidates": ["opening"],
+        "finale_buckets": [
+            {"id": "end", "title": "End", "importance": "critical"},
+        ],
+        "locations": [
+            {
+                "location_id": "opening",
+                "title": "Opening",
+                "parse_state": "toc_only",
+                "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+            },
+            {
+                "location_id": "alley",
+                "title": "Alley",
+                "parse_state": "toc_only",
+                "source_span": {"pdf_index_start": 1, "pdf_index_end": 1},
+            },
+            {
+                "location_id": "cellar",
+                "title": "Cellar",
+                "parse_state": "toc_only",
+                "source_span": {"pdf_index_start": 2, "pdf_index_end": 2},
+            },
+        ],
+        "edges_provisional": [],
+        "npc_roster": [],
+        "handouts": [],
+        "threats": [],
+        "conclusion_buckets": [],
+        "mechanics_locator_pass_status": "pending",
+        "start_clock_status": "unresolved",
+    }
+    return {
+        "iso_root": iso_root,
+        "workspace": workspace,
+        "campaign_id": campaign_id,
+        "campaign_dir": campaign_dir,
+        "asset_root_id": asset_root_id,
+        "file_sha256": file_sha,
+        "skeleton": skeleton,
+    }
+
+
+def test_grok_parent_flat_fanout_isolated_claim_dispatch_and_fulfill(
+    monkeypatch,
+):
+    """End-to-end Grok multi-group path in an isolated /tmp workspace.
+
+    This is repository adapter evidence (projection → claim → multi leaf
+    packets → durable fulfill), not a live Grok KP session and not
+    acceptance play. Campaign state lives only under ``/tmp/coc-isolated/``.
+    """
+    monkeypatch.setenv("COC_HOST", "grok")
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    iso_root = _isolated_coc_workspace("grok-parent-fanout")
+    ws = _grok_multi_location_isolated_workspace(iso_root)
+    (iso_root / "probe-kind.txt").write_text(
+        "component-adapter-vertical\nnot-live-kp\nnot-acceptance\n",
+        encoding="utf-8",
+    )
+
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    for target_id in ("alley", "cellar"):
+        dig = _run(ws, "progressive.request_deepen", {
+            "kind": "location",
+            "target_id": target_id,
+            "reason": "isolated_parent_flat_fanout_probe",
+        })
+        assert dig["ok"] is True, dig
+
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_grok_parent_fanout_isolation",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=2)
+    assert materialized["claimed"] == 2, materialized
+
+    status = _run(ws, "progressive.status")
+    assert status["ok"] is True, status
+    host_work = status["data"]["host_work"]
+    assert host_work["open_count"] == 2
+    assert host_work["ready_for_background_count"] == 2
+    takeover = status["data"]["background_takeover"]
+    assert takeover["dispatch_mode"] == "parent_flat_fanout"
+    assert takeover["host_adapter"] == "grok"
+    assert "coordinator_dispatch" not in takeover
+    action = takeover["next_host_action"]
+    assert action["action"] == "claim_then_spawn_named_workers"
+    assert action["parent_calls_fulfill_host_work"] is False
+    assert action["parent_output_retrieval"] is False
+    assert action["max_workers"] == 2
+    claim_card = action["operation"]
+    assert claim_card["operation"] == "progressive.claim_host_work"
+    assert claim_card["prefilled_arguments"]["limit"] == 2
+    assert claim_card["prefilled_arguments"]["result_delivery"] == (
+        "named_submit"
+    )
+    assert claim_card["prefilled_arguments"]["executor_id"].startswith(
+        "source-parent-fanout:"
+    )
+
+    claimed = _run(
+        ws,
+        claim_card["operation"],
+        claim_card["prefilled_arguments"],
+    )
+    assert claimed["ok"] is True, claimed
+    assert claimed["data"]["dispatch_task_count"] == 2
+    assert claimed["data"]["leased_group_count"] == 2
+    assert "packets" not in claimed["data"]
+    tasks = claimed["data"]["dispatch_tasks"]
+    assert len(tasks) == 2
+    targets = set()
+    for task in tasks:
+        assert task["contract_id"] == "coc.codex-source-pack-task.v1"
+        assert task["model_policy"] == "inherit_parent"
+        packet = task["packet"]
+        assert packet["contract_id"] == "coc.source-pack-worker.v1"
+        assert packet["result_delivery"] == "named_submit"
+        assert packet["cached_scope_complete"] is True
+        assert len(packet["requested_pdf_indices"]) == 1
+        request = packet["requests"][0]
+        assert request["kind"] == "deepen_location"
+        targets.add(request["target_id"])
+        page = request["cached_page_refs"][0]
+        # Named-submit children own merge in live Grok; the repository
+        # fulfillment boundary is the same durable put used by submit.
+        # This probe exercises that boundary with exact packs, not a KP.
+        pack = {
+            "location_id": request["target_id"],
+            "title": request["target_id"].title(),
+            "parse_state": "deep",
+            "evidence_gap": False,
+            "origin": "source",
+            "source_page_indices": list(packet["requested_pdf_indices"]),
+            "source_refs": [{
+                "source_id": page["source_id"],
+                "pdf_index": page["pdf_index"],
+                "text_sha256": page["text_sha256"],
+            }],
+            "player_safe_summary": (
+                f"Isolated deep pack for {request['target_id']}."
+            ),
+            "available_clue_ids": [],
+            "npc_ids": [],
+            "clues": [],
+            "npcs": [],
+            "scene_edges": [],
+            "affordances": [],
+            "keeper_secret_refs": [],
+            "pressure_moves": [],
+            "tone": [],
+            "mentions": [],
+            "host_work_job_id": request["job_id"],
+        }
+        fulfilled = _run(ws, "progressive.fulfill_host_work", {
+            "job_id": request["job_id"],
+            "pack": pack,
+            "related_packs": [],
+        })
+        assert fulfilled["ok"] is True, fulfilled
+        assert fulfilled["data"]["request_status"] == "fulfilled"
+    assert targets == {"alley", "cellar"}
+
+    after = _run(ws, "progressive.status")
+    assert after["ok"] is True, after
+    assert after["data"]["host_work"]["open_count"] == 0
+    assert after["data"]["host_work"]["ready_for_background_count"] == 0
+    assert after["data"].get("background_takeover") is None
+    assert after["data"]["host_work"].get("leased_count", 0) == 0
+
+    evidence = {
+        "probe": "grok_parent_flat_fanout_isolated",
+        "iso_root": str(iso_root),
+        "workspace": str(ws["workspace"]),
+        "campaign_id": ws["campaign_id"],
+        "dispatch_mode": "parent_flat_fanout",
+        "claimed_targets": sorted(targets),
+        "open_count_after": 0,
+        "live_kp": False,
+        "acceptance": False,
+    }
+    (iso_root / "evidence.json").write_text(
+        json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    # Keep the isolated root for inspection; never write into the repo tree.
+    workspace_text = str(ws["workspace"].resolve())
+    assert workspace_text.startswith("/tmp/coc-isolated/") or workspace_text.startswith(
+        "/private/tmp/coc-isolated/"
+    )
+    assert REPO.resolve() not in ws["workspace"].resolve().parents
+
+
+def test_opening_request_returns_inline_takeover_for_source_coordinator(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "codex")
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    first = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+        "execution_owner": "opening_source_coordinator",
+    })
+    assert first["ok"] is True, first
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_direct_request_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+
+    repeated = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+        "execution_owner": "opening_source_coordinator",
+    })
+    assert repeated["ok"] is True, repeated
+    assert repeated["data"]["host_request_id"] == first["data"]["job_id"]
+    takeover = repeated["data"]["background_takeover"]
+    assert takeover["dispatch_mode"] == "inline_single_owner"
+    assert "coordinator_dispatch" not in takeover
+    assert takeover["host_adapter"] == "codex"
+    assert "direct_single_leaf_dispatch" not in takeover
+    action = takeover["next_host_action"]
+    assert action["action"] == "claim_and_compile_inline"
+    assert action["execute_before_any_other_host_operation"] is True
+    assert action["owner"] == "opening_source_coordinator"
+    assert action["nested_agent"] is False
+    claim_card = action["operation"]
+    assert claim_card["invoke_via"] == "coc_invoke"
+    assert claim_card["root"] == str(ws["workspace"].resolve())
+    assert claim_card["campaign"] == ws["campaign_id"]
+    claimed = _run(
+        ws,
+        claim_card["operation"],
+        claim_card["prefilled_arguments"],
+    )
+    assert claimed["ok"] is True, claimed
+    assert "dispatch_tasks" not in claimed["data"]
+    assert len(claimed["data"]["packets"]) == 1
+    packet = claimed["data"]["packets"][0]
+    assert packet["result_delivery"] == "return_to_parent"
+    assert packet["requests"][0]["job_id"] == first["data"]["job_id"]
+    assert action["on_completion"]["operation"]["operation"] == (
+        "progressive.fulfill_host_work"
+    )
+    fulfilled = _run(ws, action["on_completion"]["operation"]["operation"], {
+        "worker_result": {
+            "job_id": packet["requests"][0]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["selected_start_pack_ready"] is True
+    assert "background_takeover" not in repeated["data"]["host_work"]
+    assert len(json.dumps(
+        repeated["data"], ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")) < 8 * 1024
+
+
 def _opening_component_pack(**overrides) -> dict:
     pack = {
         "location_id": "opening",
@@ -10575,13 +11328,31 @@ def test_prepare_opening_is_strict_read_only_and_skips_recovery(
         "mechanics_index": [],
         "start_clock_status": "unresolved",
     }
+    assert skeleton_contract["start_clock_source_ref_template"] == {
+        "source_id": "pdf:opening-component",
+        "pdf_index": "<selected-zero-based-pdf-index>",
+    }
     assert skeleton_contract["first_submission_guidance"] == {
         "authority": "advisory",
         "hard_gate": False,
         "copy_prefilled_template": True,
         "replace_placeholders_only": True,
         "omit_optional_source_evidenced_fields": True,
+        "source_clock_exception": (
+            "when the selected opening pages explicitly author the starting "
+            "date/time or day phase, set start_clock_status=source and add only "
+            "start_clock plus start_clock_source_refs copied from "
+            "start_clock_source_ref_template once per supporting selected page; "
+            "when a time or phase "
+            "is authored without a date, keep local_datetime/local_date null and "
+            "use calendar_mode=relative, time_precision=day_phase, a semantic "
+            "day_phase_hint, and the exact source-supported display"
+        ),
     }
+    assert skeleton_contract["start_clock_source_ref_required_fields"] == [
+        "source_id",
+        "pdf_index",
+    ]
     assert skeleton_contract["required_fields"] == [
         "schema_version",
         "parse_tier",
@@ -10944,7 +11715,13 @@ def test_mechanics_locator_vertical_is_exact_nonblocking_and_reused(
         "executor_id": "locator-test-host", "limit": 1,
     })
     assert claimed["ok"] is True, claimed
-    packet = claimed["data"]["packets"][0]
+    task = claimed["data"]["dispatch_tasks"][0]
+    assert task["contract_id"] == "coc.codex-source-pack-task.v1"
+    assert task["model_policy"] == "inherit_parent"
+    assert Path(task["instruction_ref"]) == (
+        REPO / "plugins/coc-keeper/agents/coc-source-pack-worker.md"
+    ).resolve()
+    packet = task["packet"]
     assert packet["contract_id"] == "coc.source-pack-worker.v1"
     assert packet["requested_pdf_indices"] == [1, 2]
     assert packet["source_aspect"] == "mechanics"
@@ -11387,7 +12164,7 @@ def test_empty_locator_window_closes_and_only_new_window_requeues(
     claimed = _run(ws, "progressive.claim_host_work", {
         "executor_id": "empty-locator-test-host", "limit": 1,
     })
-    request = claimed["data"]["packets"][0]["requests"][0]
+    request = claimed["data"]["dispatch_tasks"][0]["packet"]["requests"][0]
     empty_scope = {
         "scope_kind": "explicit_pdf_indices",
         "pdf_indices": [1],
@@ -12097,8 +12874,13 @@ def test_partial_opening_fulfill_hint_claims_only_explicit_projection(
     assert materialized["claimed"] == 1
 
     fulfilled = _run(ws, "progressive.fulfill_host_work", {
-        "job_id": requested["data"]["job_id"],
-        "pack": _opening_component_pack(parse_state="partial"),
+        "worker_result": {
+            "job_id": requested["data"]["job_id"],
+            "pack": {
+                "location": _opening_component_pack(parse_state="partial"),
+            },
+            "related_packs": [],
+        },
     })
     assert fulfilled["ok"] is True, fulfilled
     assert len(fulfilled["hints"]) == 1

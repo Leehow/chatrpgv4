@@ -717,7 +717,7 @@ _CONTINUATION_DOMAINS = (
     "scene", "world", "pacing", "clues", "npc", "npc_presence", "time",
     "active_effects", "attempts", "flags", "party", "module_progressive",
 )
-_SESSION_RESUME_DATA_MAX_BYTES = 40 * 1024
+_SESSION_RESUME_DATA_MAX_BYTES = 128 * 1024
 
 
 def _wire_bytes(value: Any) -> int:
@@ -817,9 +817,11 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
     capsule = bounded.get("semantic_capsule")
     if over() and isinstance(capsule, dict):
         summaries = capsule.get("recent_summaries")
-        if isinstance(summaries, list) and len(summaries) > 2:
-            capsule["recent_summaries"] = summaries[-2:]
-            capsule["older_summary_count"] = len(summaries) - 2
+        # Keep a longer continuity window for cold-start hosts; only compress
+        # when still over budget after other reductions.
+        if isinstance(summaries, list) and len(summaries) > 8:
+            capsule["recent_summaries"] = summaries[-8:]
+            capsule["older_summary_count"] = len(summaries) - 8
             reductions.append("older_semantic_summaries_to_count")
 
     if over() and bounded.get("pending_output_context") is not None:
@@ -1378,9 +1380,27 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
     try:
         if spec["needs_campaign"] and not campaign_id:
             raise ToolError("missing_campaign", "this tool requires --campaign <id>")
-        for pname, pspec in spec["params"].items():
-            if pspec.get("required") and args.get(pname) in (None, ""):
-                raise ToolError("missing_param", f"required parameter: {pname}")
+        required_params = [
+            pname
+            for pname, pspec in spec["params"].items()
+            if pspec.get("required")
+        ]
+        missing_params = [
+            pname
+            for pname in required_params
+            if args.get(pname) in (None, "")
+        ]
+        if missing_params:
+            label = "parameter" if len(missing_params) == 1 else "parameters"
+            raise ToolError(
+                "missing_param",
+                f"required {label}: {', '.join(missing_params)}",
+                details={
+                    "missing_parameters": missing_params,
+                    "required_parameters": required_params,
+                    "provided_parameters": sorted(args),
+                },
+            )
     except ToolError as exc:
         details = exc.details
         if details is None and name == "progressive.publish_skeleton":
@@ -6819,7 +6839,9 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
                 "actor.create requires campaign_id/actor_id/sheet and delegates "
                 "validation to that campaign's ruleset; "
                 "investigator.create requires investigator_id/sheet and optionally "
-                "creation; campaign.link_investigator requires exactly "
+                "creation; Quick Fire may omit sheet characteristics/derived when "
+                "creation supplies characteristic_assignment_order and luck_roll_total; "
+                "campaign.link_investigator requires exactly "
                 "campaign_id/investigator_ids; scenario.bind_pdf requires "
                 "campaign_id/scenario_id/title/source_bundle_path and optionally "
                 "compile_now; campaign.render_briefing requires campaign_id and "
@@ -8899,8 +8921,41 @@ def _runtime_generated_npc_mechanics(ctx: Ctx, npc_id: str) -> dict[str, Any] | 
     card = (document.get("npcs") or {}).get(str(npc_id))
     mechanics = card.get("mechanics") if isinstance(card, dict) else None
     if isinstance(mechanics, dict) and mechanics.get("status") == "generated":
+        if not isinstance(mechanics.get("mechanics_revision_ref"), dict):
+            mechanics["mechanics_revision_ref"] = coc_mechanics.mechanics_revision_ref(
+                str(npc_id), 1, mechanics.get("profile") or {},
+                authority="campaign_generated",
+            )
+            coc_npc_state.save_npc_state(ctx.campaign_dir, document)
+        try:
+            coc_mechanics.validate_mechanics_revision_ref(
+                mechanics["mechanics_revision_ref"], npc_id=str(npc_id),
+            )
+        except coc_mechanics.MechanicsError as exc:
+            raise ToolError("state_corrupt", str(exc)) from exc
         return mechanics
     return None
+
+
+def _authored_npc_mechanics_revision_ref(
+    subject: dict[str, Any], npc_id: str,
+) -> dict[str, Any]:
+    existing = subject.get("mechanics_revision_ref")
+    if isinstance(existing, dict):
+        try:
+            coc_mechanics.validate_mechanics_revision_ref(existing, npc_id=npc_id)
+        except coc_mechanics.MechanicsError as exc:
+            raise ToolError("invalid_scenario", str(exc)) from exc
+        return deepcopy(existing)
+    mechanics = subject.get("mechanics")
+    mechanics = mechanics if isinstance(mechanics, dict) else {}
+    refs = mechanics.get("source_refs")
+    if not isinstance(refs, list) or not refs:
+        refs = subject.get("source_refs") if isinstance(subject.get("source_refs"), list) else []
+    return coc_mechanics.mechanics_revision_ref(
+        npc_id, 1, {"mechanics": mechanics, "source_refs": refs},
+        authority="source_authored",
+    )
 
 
 def _with_mechanics_locator_discovery(
@@ -9053,8 +9108,12 @@ def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
                 "subject_kind": subject_kind,
                 "subject_id": subject_id,
                 "profile": deepcopy(generated["profile"]),
+                "mechanics_revision_ref": deepcopy(
+                    generated["mechanics_revision_ref"]
+                ),
                 "combat_participant": coc_mechanics.actor_combat_participant(
                     subject_id, generated["profile"], side="npc",
+                    mechanics_revision_ref=generated["mechanics_revision_ref"],
                 ),
                 "reused": True,
             }
@@ -9138,8 +9197,11 @@ def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
             "reused": True,
         }
         if subject_kind == "npc":
+            revision_ref = _authored_npc_mechanics_revision_ref(subject, subject_id)
+            data["mechanics_revision_ref"] = revision_ref
             data["combat_participant"] = coc_mechanics.actor_combat_participant(
                 subject_id, profile, side="npc",
+                mechanics_revision_ref=revision_ref,
             )
         else:
             data["mechanics_ref"] = f"module-item:{subject_id}"
@@ -9220,6 +9282,11 @@ def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
             "decision_id": decision_id,
             "source_status": source_status,
         }
+        card["mechanics"]["mechanics_revision_ref"] = (
+            coc_mechanics.mechanics_revision_ref(
+                subject_id, 1, profile, authority="campaign_generated",
+            )
+        )
         document["npcs"][subject_id] = card
         coc_npc_state.save_npc_state(ctx.campaign_dir, document)
         ctx.log_event({
@@ -9234,8 +9301,12 @@ def _tool_mechanics_ensure(ctx: Ctx, args: dict[str, Any]):
             "subject_kind": subject_kind,
             "subject_id": subject_id,
             "profile": profile,
+            "mechanics_revision_ref": deepcopy(
+                card["mechanics"]["mechanics_revision_ref"]
+            ),
             "combat_participant": coc_mechanics.actor_combat_participant(
                 subject_id, profile, side="npc",
+                mechanics_revision_ref=card["mechanics"]["mechanics_revision_ref"],
             ),
             "reused": False,
         }
@@ -9402,11 +9473,17 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
         source_mechanics = agenda.get("mechanics") if isinstance(agenda, dict) else None
         if generated is not None:
             profile = generated.get("profile")
+            opponent_revision_ref = deepcopy(
+                generated.get("mechanics_revision_ref")
+            )
         elif (
             isinstance(source_mechanics, dict)
             and source_mechanics.get("status") == "authored"
         ):
             profile = source_mechanics.get("profile")
+            opponent_revision_ref = _authored_npc_mechanics_revision_ref(
+                agenda, target_npc_id,
+            )
         else:
             raise ToolError(
                 "mechanics_not_ready",
@@ -9439,6 +9516,7 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
                 "actor_id": target_npc_id,
                 "side": "npc",
                 "mechanics_profile": deepcopy(profile),
+                "mechanics_revision_ref": opponent_revision_ref,
             },
             "module_weapons": module_weapons + [
                 {key: deepcopy(value) for key, value in weapon.items()}
@@ -9463,6 +9541,30 @@ def _tool_combat_resolve(ctx: Ctx, args: dict[str, Any]):
                 "unknown_combat_affordance",
                 f"'{affordance_id}' has no authored combat_engagement operation in the active scene",
             )
+        operation = deepcopy(operation)
+        opponent = operation.get("opponent")
+        if (
+            isinstance(opponent, dict)
+            and isinstance(opponent.get("mechanics_profile"), dict)
+            and not isinstance(opponent.get("mechanics_revision_ref"), dict)
+        ):
+            opponent_id = str(opponent.get("actor_id") or "")
+            generated = _runtime_generated_npc_mechanics(ctx, opponent_id)
+            authored = _npc_by_id(ctx.npc_agendas, opponent_id) or {}
+            authored_mechanics = (
+                authored.get("mechanics") if isinstance(authored, dict) else None
+            )
+            if generated is not None:
+                opponent["mechanics_revision_ref"] = deepcopy(
+                    generated["mechanics_revision_ref"]
+                )
+            elif (
+                isinstance(authored_mechanics, dict)
+                and authored_mechanics.get("status") == "authored"
+            ):
+                opponent["mechanics_revision_ref"] = (
+                    _authored_npc_mechanics_revision_ref(authored, opponent_id)
+                )
 
     warnings: list[str] = []
     selected_effect_ids = args.get("weapon_effect_ids") or []
@@ -9718,6 +9820,7 @@ def _source_coordinator_dispatch(
     campaign_id: str,
     asset_root_id: str,
     ready_background: list[dict[str, Any]],
+    claim_result_delivery: str = "return_to_parent",
 ) -> dict[str, Any]:
     """Build the exact prompt packet for one host-native source coordinator.
 
@@ -9726,6 +9829,10 @@ def _source_coordinator_dispatch(
     Keeping construction here prevents the Keeper from synthesizing a packet
     from prose or host-specific assumptions.
     """
+    if claim_result_delivery not in {
+        "return_to_parent", "task_return_to_parent",
+    }:
+        raise ValueError("unsupported coordinator claim transport")
     group_ids = sorted({
         str(row.get("work_group_id") or row.get("job_id") or "")
         for row in ready_background
@@ -9775,7 +9882,7 @@ def _source_coordinator_dispatch(
             "prefilled_arguments": {
                 "executor_id": f"source-coordinator:{executor_digest}",
                 "limit": max_leaves,
-                "result_delivery": "return_to_parent",
+                "result_delivery": claim_result_delivery,
             },
             "missing_arguments": [],
             "authority": "advisory",
@@ -9800,7 +9907,12 @@ def _source_coordinator_dispatch(
             ),
             "model_policy": "inherit_parent",
             "run_in_background": False,
-            "prompt_binding": "one exact returned packets[] value",
+            "prompt_binding": (
+                "one exact repository-produced dispatch_tasks[] "
+                "coc.pi-source-pack-task.v1 value"
+                if claim_result_delivery == "task_return_to_parent"
+                else "one exact returned packets[] value"
+            ),
             "result_binding": (
                 "forward every exact usable results[] value once through "
                 "progressive.fulfill_host_work"
@@ -9836,6 +9948,720 @@ def _source_coordinator_dispatch(
             "packet": packet,
         },
     }
+
+
+def _pi_source_coordinator_dispatch(
+    *,
+    workspace_root: str,
+    campaign_id: str,
+    asset_root_id: str,
+    ready_background: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Project the same closed coordinator packet for the Pi Package."""
+    dispatch = _source_coordinator_dispatch(
+        workspace_root=workspace_root,
+        campaign_id=campaign_id,
+        asset_root_id=asset_root_id,
+        ready_background=ready_background,
+        claim_result_delivery="task_return_to_parent",
+    )
+    codex_task = dispatch.pop("codex_task")
+    dispatch["pi_task"] = {
+        **codex_task,
+        "contract_id": "coc.pi-source-coordinator-task.v1",
+        "packet": codex_task["packet"],
+    }
+    return dispatch
+
+
+def _source_scope_locator_dispatch(
+    *,
+    workspace_root: str,
+    campaign_id: str,
+    asset_root_id: str,
+    request: dict[str, Any],
+    target_label: str,
+) -> dict[str, Any]:
+    """Build one closed Codex task for an unresolved exact PDF locator.
+
+    The task owns only source-page discovery and the reviewed bundle handoff.
+    It cannot compile entity data, read campaign state, or block play.
+    """
+    job_id = str(request.get("job_id") or "")
+    job_kind = str(request.get("kind") or "")
+    entity_kind = str(
+        coc_module_project.coc_module_assets._job_entity_kind(job_kind) or ""
+    )
+    target_id = str(request.get("target_id") or "")
+    codex_root = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    instruction_path = (
+        _HERE.parent / "agents" / "coc-source-scope-locator.md"
+    ).resolve()
+    contract_path = (
+        _HERE.parent / "references" / "source-scope-locator-v1.json"
+    ).resolve()
+    contract_digest = hashlib.sha256(
+        instruction_path.read_bytes() + b"\0" + contract_path.read_bytes()
+    ).hexdigest()
+    bundle_path = (
+        Path(workspace_root)
+        / ".tmp"
+        / "coc-source-scope"
+        / campaign_id
+        / job_id
+        / contract_digest[:16]
+    ).resolve()
+    cached_pdf_indices = (
+        coc_module_project.coc_module_assets.accepted_cached_pdf_indices(
+            Path(workspace_root), asset_root_id,
+        )
+    )
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.codex-source-scope-locator-task.v1",
+        "bootstrap_instruction": (
+            "Before any response or tool call, read instruction_ref completely, "
+            "then execute this closed task under that instruction."
+        ),
+        "instruction_ref": str(instruction_path),
+        "contract_ref": str(contract_path),
+        "contract_revision": f"sha256:{contract_digest}",
+        "adapter_mode": "codex_background_pdf_locator",
+        "model_policy": "inherit_parent",
+        "workspace_root": workspace_root,
+        "campaign_id": campaign_id,
+        "asset_root_id": asset_root_id,
+        "job_id": job_id,
+        "job_kind": job_kind,
+        "kind": entity_kind,
+        "target_id": target_id,
+        "target_label": target_label or target_id,
+        "reason": str(request.get("reason") or ""),
+        "source": {
+            "path": str(request.get("source_pdf") or ""),
+            "source_id": str(request.get("source_id") or ""),
+            "file_sha256": str(request.get("file_sha256") or ""),
+        },
+        "source_bundle_path": str(bundle_path),
+        "cached_pdf_indices": cached_pdf_indices,
+        "max_selected_pages": 3,
+        "instruction_refs": {
+            "pdf_skill": str((codex_root / "skills" / "pdf" / "SKILL.md").resolve()),
+            "baiduocr_skill": str(
+                (codex_root / "skills" / "baiduocr" / "SKILL.md").resolve()
+            ),
+            "baiduocr_script": str(
+                (
+                    codex_root
+                    / "skills"
+                    / "baiduocr"
+                    / "scripts"
+                    / "baiduocr.py"
+                ).resolve()
+            ),
+        },
+        "page_ocr": {
+            "provider": "baidu-paddleocr-jobs",
+            "model": "PaddleOCR-VL-1.6",
+            "credential_env": "BAIDUOCR_TOKEN",
+            "structured_data_format": "paddleocr-vl-layout-v1",
+            "blocking": False,
+        },
+        "source_bundle_manifest_contract": {
+            "schema_version": 1,
+            "producer": "codex-pdf-skill",
+            "source_required": [
+                "source_id", "path", "file_sha256", "page_count",
+            ],
+            "page_required": [
+                "pdf_index", "markdown_path", "text_sha256",
+                "review_state", "parse_confidence", "grep_anchors",
+            ],
+            "review_state": "manual_accepted",
+            "parse_confidence": "number_from_0_through_1",
+            "text_sha256": "sha256_of_exact_markdown_file_bytes",
+            "assets": [],
+        },
+        "resolve_operation": {
+            "operation": "progressive.resolve_source_scope",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "job_id": job_id,
+                "kind": entity_kind,
+                "target_id": target_id,
+            },
+            "missing_arguments": [
+                "pdf_indices",
+                "source_bundle_path_if_any_selected_page_is_uncached",
+            ],
+            "authority": "source_scope_only",
+            "hard_gate": False,
+        },
+        "result_delivery": "natural_completion_notification_only",
+    }
+    return {
+        "schema_version": 1,
+        "kind": "awaiting_source_scope",
+        "dispatch_mode": "background_single_locator",
+        "host_adapter": "codex",
+        "authority": "advisory",
+        "hard_gate": False,
+        "next_host_action": {
+            "action": "spawn_background_task",
+            "execute_before_any_other_host_operation": False,
+            "dispatch_key": f"source-scope-locator:{job_id}",
+            "spawn_once_while_job_open": True,
+            "agent_type": "coc-source-scope-locator",
+            "fork_turns": "none",
+            "model_policy": "inherit_parent",
+            "task": task,
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+            "on_natural_completion": (
+                "notification only; the locator calls resolve_source_scope, then "
+                "the next ordinary scene.context exposes normal background_takeover"
+            ),
+        },
+        "play_boundary": {
+            "player_action_gate": False,
+            "narrative_gate": False,
+            "output_gate": False,
+            "nondependent_play_may_continue": True,
+        },
+    }
+
+
+def _source_pack_dispatch_task(packet: dict[str, Any]) -> dict[str, Any]:
+    """Wrap one leased packet as an exact host-dispatchable source task."""
+    instruction_ref = str(
+        (_HERE.parent / "agents" / "coc-source-pack-worker.md").resolve()
+    )
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.codex-source-pack-task.v1",
+        "instruction_ref": instruction_ref,
+        "model_policy": "inherit_parent",
+        "packet": deepcopy(packet),
+    }
+
+
+def _pi_source_pack_dispatch_task(packet: dict[str, Any]) -> dict[str, Any]:
+    """Wrap one leased packet as an exact Pi Package source task."""
+    task = _source_pack_dispatch_task(packet)
+    task["contract_id"] = "coc.pi-source-pack-task.v1"
+    return task
+
+
+def _source_claiming_pack_task(
+    *,
+    workspace_root: str,
+    campaign_id: str,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Return a small Codex task that leases its own single source packet."""
+    executor_digest = hashlib.sha256(
+        f"{campaign_id}:{asset_root_id}:direct-single".encode("utf-8")
+    ).hexdigest()[:20]
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.codex-source-pack-claim-task.v1",
+        "instruction_ref": str(
+            (_HERE.parent / "agents" / "coc-source-pack-worker.md").resolve()
+        ),
+        "model_policy": "inherit_parent",
+        "workspace_root": workspace_root,
+        "python_executable": sys.executable,
+        "toolbox_script": str((_HERE / "coc_toolbox.py").resolve()),
+        "campaign_id": campaign_id,
+        "asset_root_id": asset_root_id,
+        "claim_operation": {
+            "operation": "progressive.claim_host_work",
+            "invoke_via": "coc_invoke",
+            "root": workspace_root,
+            "campaign": campaign_id,
+            "prefilled_arguments": {
+                "executor_id": f"source-direct:{executor_digest}",
+                "limit": 1,
+                "result_delivery": "task_return_to_parent",
+            },
+            "missing_arguments": [],
+            "authority": "advisory",
+            "hard_gate": False,
+        },
+        "claimed_task_binding": (
+            "compile dispatch_tasks[0].packet in this same child; do not spawn "
+            "another child"
+        ),
+        "result_binding": (
+            "return the complete bare coc.source-pack-worker.v1 object"
+        ),
+    }
+
+
+def _source_direct_single_dispatch(
+    *,
+    workspace_root: str,
+    campaign_id: str,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Return the closed direct-worker routes for one ready source group."""
+    executor_digest = hashlib.sha256(
+        f"{campaign_id}:{asset_root_id}:direct-single".encode("utf-8")
+    ).hexdigest()[:20]
+    return {
+        "agent_type": "coc-source-pack-worker",
+        "run_in_background": True,
+        "dispatch_mode": "direct_single_leaf",
+        "codex_task": _source_claiming_pack_task(
+            workspace_root=workspace_root,
+            campaign_id=campaign_id,
+            asset_root_id=asset_root_id,
+        ),
+        "codex_task_binding": (
+            "spawn exact codex_task immediately; the child claims and compiles "
+            "its packet in one task"
+        ),
+        "codex_parent_claims": False,
+        "named_submit_claim_operation": {
+            "operation": "progressive.claim_host_work",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {
+                "executor_id": f"source-direct:{executor_digest}",
+                "limit": 1,
+                "result_delivery": "named_submit",
+            },
+            "missing_arguments": [],
+            "authority": "advisory",
+            "hard_gate": False,
+        },
+        "named_submit_task_binding": (
+            "spawn each exact returned dispatch_tasks[] value immediately"
+        ),
+        "model_policy": "inherit_parent",
+        "preconfirmation_parent_waits": False,
+        "postconfirmation_blocking_minimum": True,
+        "parent_result_polls": 0,
+        "parent_output_retrieval": False,
+        "parent_calls_fulfill_host_work": True,
+        "completion_binding": (
+            "on natural child completion, forward each exact results[i] once "
+            "as progressive.fulfill_host_work.worker_result"
+        ),
+        "completion_operation": {
+            "operation": "progressive.fulfill_host_work",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {},
+            "missing_arguments": ["worker_result"],
+            "exact_forward_binding": (
+                "worker_result=one exact natural child results[i] value"
+            ),
+            "authority": "source_fulfillment",
+            "hard_gate": False,
+            "arguments_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "worker_result": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "job_id": {"type": "string"},
+                            "pack": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            },
+                            "related_packs": {"type": "array"},
+                        },
+                        "required": ["job_id", "pack", "related_packs"],
+                    },
+                },
+                "required": ["worker_result"],
+            },
+        },
+    }
+
+
+def _source_inline_single_dispatch(
+    *,
+    workspace_root: str,
+    campaign_id: str,
+    asset_root_id: str,
+) -> dict[str, Any]:
+    """Return one closed claim/fulfill route for the opening source owner.
+
+    The opening coordinator already retains the visually reviewed foreground
+    page text.  Leasing the sole packet back to that same semantic owner avoids
+    a redundant coordinator-to-leaf hop while preserving the authoritative
+    queue, result contract, validation, and fulfillment boundary.
+    """
+    executor_digest = hashlib.sha256(
+        f"{campaign_id}:{asset_root_id}:opening-inline".encode("utf-8")
+    ).hexdigest()[:20]
+    direct = _source_direct_single_dispatch(
+        workspace_root=workspace_root,
+        campaign_id=campaign_id,
+        asset_root_id=asset_root_id,
+    )
+    return {
+        "dispatch_mode": "inline_single_owner",
+        "host_adapter": "codex",
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "claim_and_compile_inline",
+            "execute_before_any_other_host_operation": True,
+            "owner": "opening_source_coordinator",
+            "operation": {
+                "operation": "progressive.claim_host_work",
+                "invoke_via": "coc_invoke",
+                "root": workspace_root,
+                "campaign": campaign_id,
+                "prefilled_arguments": {
+                    "executor_id": f"source-opening:{executor_digest}",
+                    "limit": 1,
+                    "result_delivery": "return_to_parent",
+                },
+                "missing_arguments": [],
+                "authority": "advisory",
+                "hard_gate": False,
+            },
+            "packet_binding": (
+                "compile exactly packets[0] in this same opening source "
+                "coordinator from its retained accepted page text and closed "
+                "result_contract; do not spawn another agent"
+            ),
+            "packet_count": 1,
+            "nested_agent": False,
+            "on_completion": {
+                "result_binding": (
+                    "forward the one exact compiled results[i] once as "
+                    "progressive.fulfill_host_work.worker_result"
+                ),
+                "operation": direct["completion_operation"],
+            },
+        },
+    }
+
+
+def _source_parent_flat_fanout_dispatch(
+    *,
+    campaign_id: str,
+    asset_root_id: str,
+    ready_group_count: int,
+) -> dict[str, Any]:
+    """Return top-level multi-leaf named-submit routes for depth-1 hosts.
+
+    Grok cannot nest coordinator -> leaf. The main KP claims once and spawns
+    one top-level source-pack worker per returned dispatch task. Leaves own
+    named submit; the parent never retrieves packs or fulfills.
+    """
+    max_workers = min(4, max(1, int(ready_group_count)))
+    executor_digest = hashlib.sha256(
+        f"{campaign_id}:{asset_root_id}:parent-flat-fanout".encode("utf-8")
+    ).hexdigest()[:20]
+    return {
+        "dispatch_mode": "parent_flat_fanout",
+        "host_adapter": "grok",
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "claim_then_spawn_named_workers",
+            "execute_before_any_other_host_operation": True,
+            "operation": {
+                "operation": "progressive.claim_host_work",
+                "invoke_via": "coc_invoke",
+                "prefilled_arguments": {
+                    "executor_id": f"source-parent-fanout:{executor_digest}",
+                    "limit": max_workers,
+                    "result_delivery": "named_submit",
+                },
+                "missing_arguments": [],
+                "authority": "advisory",
+                "hard_gate": False,
+            },
+            "spawn_binding": (
+                "spawn each exact returned dispatch_tasks[] value immediately "
+                "as one background unqualified coc-source-pack-worker; never "
+                "nest a coordinator, second spawn level, or plugin-qualified "
+                "agent name"
+            ),
+            "agent_type": "coc-source-pack-worker",
+            "agent_name_binding": "unqualified_installed_plugin_projection",
+            "run_in_background": True,
+            "model_policy": "inherit_parent",
+            "max_workers": max_workers,
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+            "parent_calls_fulfill_host_work": False,
+            "completion_binding": (
+                "named_submit child owns submit_source_result; treat host "
+                "completion as liveness only and never retrieve or fulfill"
+            ),
+        },
+    }
+
+
+def _source_host_work_projection(
+    ctx: Ctx,
+    asset_root_id: str,
+    *,
+    all_open_host_work: list[dict[str, Any]] | None = None,
+    execution_owner: str | None = None,
+) -> dict[str, Any]:
+    """Project one shared host-work handoff for every canonical reader."""
+    assets_mod = coc_module_project.coc_module_assets
+    open_rows = (
+        all_open_host_work
+        if all_open_host_work is not None
+        else assets_mod.list_host_work_requests(
+            ctx.root, asset_root_id, limit=None,
+        )
+    )
+    host_work_fields = (
+        "job_id", "kind", "target_id", "priority",
+        "requested_pdf_indices", "source_aspect", "deadline_class",
+        "work_group_id", "dispatch_state", "dispatch_attempts",
+        "cached_scope_complete",
+    )
+    compact_host_work = [
+        {
+            key: deepcopy(row.get(key))
+            for key in host_work_fields
+            if key in row
+        }
+        for row in open_rows
+    ]
+    ready_background = [
+        compact
+        for row, compact in zip(
+            open_rows, compact_host_work, strict=True,
+        )
+        if row.get("dispatch_state") == "ready"
+        and row.get("cached_scope_complete") is True
+        and bool(row.get("requested_pdf_indices"))
+    ]
+    operational_classes = [
+        assets_mod.host_work_operational_class(row) for row in open_rows
+    ]
+    awaiting_scope = [
+        row for row, operational_class in zip(
+            open_rows, operational_classes, strict=True,
+        )
+        if operational_class == "awaiting_scope"
+    ]
+    projection: dict[str, Any] = {
+        "asset_root_id": asset_root_id,
+        "open_host_work_count": len(open_rows),
+        "open_host_work": compact_host_work[:3],
+        "ready_for_background_count": len(ready_background),
+        "runnable_count": operational_classes.count("runnable"),
+        "leased_count": operational_classes.count("leased"),
+        "awaiting_scope_count": len(awaiting_scope),
+        "awaiting_cache_count": operational_classes.count("awaiting_cache"),
+        "stale_count": operational_classes.count("stale"),
+        "stranded_ready_count": sum(
+            str(row.get("dispatch_state") or "") == "ready"
+            and operational_class != "runnable"
+            for row, operational_class in zip(
+                open_rows, operational_classes, strict=True,
+            )
+        ),
+        "blocking_micro_ready_count": sum(
+            row.get("deadline_class") == "blocking_micro"
+            for row in ready_background
+        ),
+        "ready_background_requests": ready_background[:4],
+    }
+    host_adapter = str(os.environ.get("COC_HOST") or "unknown").lower()
+    if awaiting_scope and host_adapter == "codex":
+        locator_request = min(
+            awaiting_scope,
+            key=lambda row: (
+                assets_mod.HOST_WORK_LEVELS.index(
+                    str(row.get("work_level") or "near_term")
+                ),
+                -int(row.get("priority") or 0),
+                str(row.get("created_at") or ""),
+                str(row.get("job_id") or ""),
+            ),
+        )
+        entity_kind = str(
+            assets_mod._job_entity_kind(str(locator_request.get("kind") or ""))
+            or ""
+        )
+        target_id = str(locator_request.get("target_id") or "")
+        entity = (
+            assets_mod.get_entity(ctx.root, asset_root_id, entity_kind, target_id)
+            if entity_kind else None
+        ) or {}
+        names = entity.get("names") if isinstance(entity.get("names"), list) else []
+        target_label = str(
+            entity.get("title")
+            or entity.get("label")
+            or (names[0] if names else "")
+            or target_id
+        )
+        projection["source_scope_takeover"] = _source_scope_locator_dispatch(
+            workspace_root=str(ctx.root),
+            campaign_id=str(ctx.campaign_id),
+            asset_root_id=asset_root_id,
+            request=locator_request,
+            target_label=target_label,
+        )
+    if not ready_background:
+        return projection
+    ready_group_count = len({
+        str(row.get("work_group_id") or row.get("job_id"))
+        for row in ready_background
+    })
+    if (
+        ready_group_count == 1
+        and host_adapter == "codex"
+        and execution_owner == "opening_source_coordinator"
+    ):
+        route = _source_inline_single_dispatch(
+            workspace_root=str(ctx.root),
+            campaign_id=str(ctx.campaign_id),
+            asset_root_id=asset_root_id,
+        )
+    elif ready_group_count == 1:
+        direct = _source_direct_single_dispatch(
+            workspace_root=str(ctx.root),
+            campaign_id=str(ctx.campaign_id),
+            asset_root_id=asset_root_id,
+        )
+        if host_adapter == "codex":
+            route = {
+                "dispatch_mode": "direct_single_leaf",
+                "host_adapter": "codex",
+                "next_host_action": {
+                    "schema_version": 1,
+                    "action": "spawn_background_task",
+                    "execute_before_any_other_host_operation": True,
+                    "task": direct["codex_task"],
+                    "parent_claims": False,
+                    "on_natural_completion": {
+                        "result_binding": direct["completion_binding"],
+                        "operation": direct["completion_operation"],
+                        "polls": 0,
+                        "output_retrieval": False,
+                    },
+                },
+            }
+        elif host_adapter == "pi":
+            coordinator = _pi_source_coordinator_dispatch(
+                workspace_root=str(ctx.root),
+                campaign_id=str(ctx.campaign_id),
+                asset_root_id=asset_root_id,
+                ready_background=ready_background,
+            )
+            route = {
+                "dispatch_mode": "coordinator_fanout",
+                "host_adapter": "pi",
+                "capability_status": "unavailable_pending_real_lifecycle_probe",
+                "coordinator_dispatch": coordinator,
+                "next_host_action": {
+                    "schema_version": 1,
+                    "action": "invoke_coc_dispatch_source_work",
+                    "execute_before_any_other_host_operation": True,
+                    "task": coordinator["pi_task"],
+                    "parent_claims": False,
+                    "parent_waits": False,
+                    "parent_result_polls": 0,
+                    "parent_output_retrieval": False,
+                },
+            }
+        elif host_adapter == "grok":
+            route = {
+                "dispatch_mode": "direct_single_leaf",
+                "host_adapter": "grok",
+                "next_host_action": {
+                    "schema_version": 1,
+                    "action": "claim_then_spawn_named_worker",
+                    "execute_before_any_other_host_operation": True,
+                    "operation": direct["named_submit_claim_operation"],
+                    "spawn_binding": direct["named_submit_task_binding"],
+                    "parent_waits": False,
+                    "parent_result_polls": 0,
+                    "parent_output_retrieval": False,
+                },
+            }
+        else:
+            route = {
+                "dispatch_mode": "direct_single_leaf",
+                "host_adapter": host_adapter,
+                "direct_single_leaf_dispatch": direct,
+            }
+    elif host_adapter == "grok":
+        # Depth-1 hosts cannot run coordinator -> leaf. The main KP is the
+        # flat manager: one named_submit claim, then one top-level worker per
+        # returned dispatch task.
+        route = _source_parent_flat_fanout_dispatch(
+            campaign_id=str(ctx.campaign_id),
+            asset_root_id=asset_root_id,
+            ready_group_count=ready_group_count,
+        )
+    else:
+        coordinator_builder = (
+            _pi_source_coordinator_dispatch
+            if host_adapter == "pi"
+            else _source_coordinator_dispatch
+        )
+        coordinator = coordinator_builder(
+            workspace_root=str(ctx.root),
+            campaign_id=str(ctx.campaign_id),
+            asset_root_id=asset_root_id,
+            ready_background=ready_background,
+        )
+        route = {
+            "dispatch_mode": "coordinator_fanout",
+            "coordinator_dispatch": coordinator,
+        }
+        if host_adapter == "pi":
+            route.update({
+                "host_adapter": "pi",
+                "capability_status": "unavailable_pending_real_lifecycle_probe",
+                "next_host_action": {
+                    "schema_version": 1,
+                    "action": "invoke_coc_dispatch_source_work",
+                    "task": coordinator["pi_task"],
+                    "parent_waits": False,
+                    "parent_result_polls": 0,
+                    "parent_output_retrieval": False,
+                },
+            })
+    takeover: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "ready_background_source_work",
+        **route,
+        "authority": "advisory",
+        "hard_gate": False,
+        "host_dispatch": {
+            "worker_profile": "coc-source-pack-worker",
+            "background": True,
+            "packet_binding": (
+                "one exact returned dispatch_tasks[] value per child when "
+                "result_delivery=named_submit"
+            ),
+            "direct_submit_parent_waits": False,
+            "direct_submit_parent_result_polls": 0,
+            "direct_submit_parent_output_retrieval": False,
+            "direct_submit_parent_calls_fulfill_host_work": False,
+            "fallback_without_direct_submit": (
+                "forward exact completed results[i] once through "
+                "progressive.fulfill_host_work"
+            ),
+        },
+        "play_boundary": {
+            "player_action_gate": False,
+            "narrative_gate": False,
+            "output_gate": False,
+            "nondependent_play_may_continue": True,
+            "blocking_micro_applies_only_to_current_dependent_settlement": True,
+        },
+    }
+    projection["background_takeover"] = takeover
+    return projection
 
 @tool(
     "scene.context",
@@ -10209,11 +11035,14 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             madness["mania"] = san_signal["mania"]
         member_luck = member_derived.get("Luck", member_chars.get("LUCK"))
         try:
-            live_luck = ctx.inv_state(member_id).get("current_luck")
+            member_live = ctx.inv_state(member_id)
         except ToolError:
-            live_luck = None
+            member_live = {}
+        live_luck = member_live.get("current_luck")
         if _is_exact_int(live_luck) and live_luck >= 0:
             member_luck = live_luck
+        hp_max = member_live.get("hp_max", member_derived.get("HP"))
+        mp_max = member_derived.get("MP")
         party_investigators.append({
             "investigator_id": member_id,
             "name": member_sheet.get("name"),
@@ -10222,9 +11051,17 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "app": member_chars.get("APP"),
             "credit_rating": member_cr,
             "credit_tier": coc_rule_signals.read_credit_tier(member_cr),
-            "build": member_derived.get("BUILD"),
+            "build": member_derived.get("Build", member_derived.get("BUILD")),
             "mov": member_derived.get("MOV"),
             "luck": member_luck,
+            "hp": {
+                "current": member_live.get("current_hp", member_derived.get("HP")),
+                "max": hp_max,
+            },
+            "mp": {
+                "current": member_live.get("current_mp", mp_max),
+                "max": mp_max,
+            },
             "san": {
                 "current": san_signal.get("current_san"),
                 "max": san_signal.get("max_san"),
@@ -10256,95 +11093,46 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     if ctx.campaign_dir is not None:
         asset_root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
         if asset_root_id:
-            assets_mod = coc_module_project.coc_module_assets
-            all_open_host_work = assets_mod.list_host_work_requests(
-                ctx.root, asset_root_id, limit=None,
+            progressive_projection = _source_host_work_projection(
+                ctx, asset_root_id,
             )
-            host_work_fields = (
-                "job_id", "kind", "target_id", "priority",
-                "requested_pdf_indices", "source_aspect", "deadline_class",
-                "work_group_id", "dispatch_state", "dispatch_attempts",
-                "cached_scope_complete",
-            )
-            compact_host_work = [
-                {
-                    key: deepcopy(row.get(key))
-                    for key in host_work_fields
-                    if key in row
-                }
-                for row in all_open_host_work
-            ]
-            ready_background = [
-                compact
-                for row, compact in zip(
-                    all_open_host_work, compact_host_work, strict=True,
-                )
-                if row.get("dispatch_state") == "ready"
-                and row.get("cached_scope_complete") is True
-                and bool(row.get("requested_pdf_indices"))
-            ]
-            progressive_projection = {
-                "asset_root_id": asset_root_id,
-                "open_host_work_count": len(all_open_host_work),
-                "open_host_work": compact_host_work[:3],
-                "ready_for_background_count": len(ready_background),
-                "blocking_micro_ready_count": sum(
-                    row.get("deadline_class") == "blocking_micro"
-                    for row in ready_background
-                ),
-                "leased_count": sum(
-                    row.get("dispatch_state") == "leased"
-                    for row in all_open_host_work
-                ),
-                "ready_background_requests": ready_background[:4],
-            }
-            if ready_background:
-                ready_group_count = len({
-                    str(row.get("work_group_id") or row.get("job_id"))
-                    for row in ready_background
-                })
-                progressive_projection["background_takeover"] = {
-                    "schema_version": 1,
-                    "kind": "ready_background_source_work",
-                    "authority": "advisory",
-                    "hard_gate": False,
-                    "claim_operation": {
-                        "operation": "progressive.claim_host_work",
-                        "invoke_via": "coc_invoke",
-                        "prefilled_arguments": {
-                            "limit": min(4, ready_group_count),
-                        },
-                        "missing_arguments": ["executor_id"],
-                        "authority": "advisory",
-                        "hard_gate": False,
-                    },
-                    "coordinator_dispatch": _source_coordinator_dispatch(
-                        workspace_root=str(ctx.root),
-                        campaign_id=str(ctx.campaign_id),
-                        asset_root_id=asset_root_id,
-                        ready_background=ready_background,
-                    ),
-                    "host_dispatch": {
-                        "worker_profile": "coc-source-pack-worker",
-                        "background": True,
-                        "packet_binding": "one exact returned packets[] value per child",
-                        "direct_submit_parent_waits": False,
-                        "direct_submit_parent_result_polls": 0,
-                        "direct_submit_parent_output_retrieval": False,
-                        "direct_submit_parent_calls_fulfill_host_work": False,
-                        "fallback_without_direct_submit": (
-                            "forward exact completed results[i] once through "
-                            "progressive.fulfill_host_work"
-                        ),
-                    },
-                    "play_boundary": {
-                        "player_action_gate": False,
-                        "narrative_gate": False,
-                        "output_gate": False,
-                        "nondependent_play_may_continue": True,
-                        "blocking_micro_applies_only_to_current_dependent_settlement": True,
-                    },
-                }
+    # Player-safe discovered-clue index for table HUD / compact hosts.
+    # Full clues.query may be payload-projected on coding hosts; this list is
+    # intentionally small (id + public summary only, never undiscovered text).
+    discovered_clues_public: list[dict[str, Any]] = []
+    for clue_id in sorted(discovered):
+        clue_row = _clue_by_id(ctx.clue_graph, str(clue_id))
+        if clue_row is None:
+            discovered_clues_public.append({
+                "clue_id": str(clue_id),
+                "discovered": True,
+                "player_safe_summary": None,
+            })
+            continue
+        view = _clue_public_view(clue_row, discovered)
+        summary = view.get("player_safe_summary")
+        if isinstance(summary, str) and len(summary) > 160:
+            summary = summary[:157] + "..."
+        localized = view.get("localized_text")
+        if isinstance(localized, dict):
+            trimmed: dict[str, str] = {}
+            for lang, text in localized.items():
+                if isinstance(text, str) and text.strip():
+                    trimmed[str(lang)] = (
+                        text if len(text) <= 160 else text[:157] + "..."
+                    )
+            localized = trimmed or None
+        else:
+            localized = None
+        discovered_clues_public.append({
+            "clue_id": str(clue_id),
+            "discovered": True,
+            "player_safe_summary": summary,
+            "localized_text": localized,
+        })
+    if len(discovered_clues_public) > 32:
+        discovered_clues_public = discovered_clues_public[:32]
+
     data = {
         "campaign_id": ctx.campaign_id,
         "active_scene_id": active_id,
@@ -10359,6 +11147,8 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         } if scene else None,
         "npcs_present": npcs,
         "clues_here": clues,
+        "discovered_clue_count": len(discovered),
+        "discovered_clues_public": discovered_clues_public,
         "exits": exits,
         "party": ctx.party_ids(),
         "party_investigators": party_investigators,
@@ -10399,6 +11189,37 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
         ),
         "drilldown_refs": drilldown_refs,
     }
+    # Lightweight next-beat recommendation so the KP always has a forward nudge
+    # without a separate director.advise call.
+    _undiscovered_here = [c for c in clues if not c.get("discovered")]
+    _agenda_npcs = [
+        n for n in npcs
+        if n.get("agenda") and n.get("mechanics_status") != "resolved"
+    ]
+    _pressure = (scene or {}).get("pressure_moves") or []
+    _turn = pacing.get("turn_number") or 0
+    _next_beat: dict[str, Any] = {"action": "CONTINUE", "reason": "no urgent signal"}
+    if _agenda_npcs:
+        _top_npc = _agenda_npcs[0]
+        _next_beat = {
+            "action": "NPC_MOVE",
+            "npc_id": _top_npc["npc_id"],
+            "agenda": _top_npc.get("agenda"),
+            "reason": "present NPC has an unresolved agenda; advance it this turn",
+        }
+    elif _undiscovered_here and _turn > 2:
+        _next_beat = {
+            "action": "REVEAL",
+            "clue_ids": [c.get("clue_id") for c in _undiscovered_here[:2]],
+            "reason": "undiscovered clues exist and the scene has had time; surface one",
+        }
+    elif _pressure:
+        _next_beat = {
+            "action": "PRESSURE",
+            "moves": _pressure[:2],
+            "reason": "authored pressure moves are available; escalate tension",
+        }
+    data["recommended_next_beat"] = _next_beat
     hints: list[str] = []
     undiscovered = [c for c in clues if not c.get("discovered")]
     if undiscovered:
@@ -11151,12 +11972,26 @@ def _opening_skeleton_argument_contract(
             "mechanics_index": [],
             "start_clock_status": "unresolved",
         },
+        "start_clock_source_ref_template": {
+            "source_id": root_info["source_id"],
+            "pdf_index": "<selected-zero-based-pdf-index>",
+        },
         "first_submission_guidance": {
             "authority": "advisory",
             "hard_gate": False,
             "copy_prefilled_template": True,
             "replace_placeholders_only": True,
             "omit_optional_source_evidenced_fields": True,
+            "source_clock_exception": (
+                "when the selected opening pages explicitly author the starting "
+                "date/time or day phase, set start_clock_status=source and add only "
+                "start_clock plus start_clock_source_refs copied from "
+                "start_clock_source_ref_template once per supporting selected page; "
+                "when a time or phase "
+                "is authored without a date, keep local_datetime/local_date null and "
+                "use calendar_mode=relative, time_precision=day_phase, a semantic "
+                "day_phase_hint, and the exact source-supported display"
+            ),
         },
         "required_fields": [
             "schema_version",
@@ -11170,6 +12005,7 @@ def _opening_skeleton_argument_contract(
         "source_required_fields": [
             "source_id", "file_sha256", "page_count", "producer",
         ],
+        "start_clock_source_ref_required_fields": ["source_id", "pdf_index"],
         "location_required_fields": [
             "location_id", "title", "parse_state",
         ],
@@ -11186,7 +12022,7 @@ def _opening_skeleton_argument_contract(
         "rules": [
             "start_candidates must be non-empty and each id must match a locations[].location_id",
             "mechanics_index=[] is valid while mechanics_locator_pass_status=pending",
-            "for the first submission, copy the prefilled template, replace only its placeholders, and omit every optional source-evidenced field",
+            "for the first submission, copy the prefilled template, replace only its placeholders, and omit optional source-evidenced fields except an explicitly authored start_clock plus exact source refs",
             "add optional roster, edges, mechanics locators, or start_clock only when supported by accepted source evidence",
             "do not guess unresolved facts or scan the full module",
         ],
@@ -11857,6 +12693,14 @@ def _tool_progressive_publish_skeleton(ctx: Ctx, args: dict[str, Any]):
             "type": "string", "required": True,
             "enum": ["foreground_opening_slice"],
         },
+        "execution_owner": {
+            "type": "string",
+            "enum": ["opening_source_coordinator"],
+            "desc": (
+                "optional capability-advertised semantic owner; it leases and "
+                "compiles the sole foreground packet in the same context"
+            ),
+        },
     },
 )
 def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
@@ -11958,17 +12802,41 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
         )
         raise ToolError(code, str(exc)) from exc
     job_id = str((queued.get("job") or {}).get("job_id") or "")
+    all_open_host_work = assets_mod.list_host_work_requests(
+        ctx.root, root_id, limit=None,
+    )
     open_request = next(
         (
-            row
-            for row in assets_mod.list_host_work_requests(
-                ctx.root, root_id, include_closed=True, limit=None,
-            )
+            row for row in all_open_host_work
             if str(row.get("job_id") or "") == job_id
         ),
         None,
     )
-    return {
+    worker_kick = queued.get("worker_kick") or {}
+    if open_request is None and (
+        worker_kick.get("started") is True
+        or worker_kick.get("already_running") is True
+    ):
+        # The detached queue worker only converts deterministic queue state into
+        # a host-work row.  Give that local handoff a very small grace interval
+        # so this same response can carry the dispatch card instead of forcing
+        # another LLM status/discovery round trip.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            time.sleep(0.05)
+            all_open_host_work = assets_mod.list_host_work_requests(
+                ctx.root, root_id, limit=None,
+            )
+            open_request = next(
+                (
+                    row for row in all_open_host_work
+                    if str(row.get("job_id") or "") == job_id
+                ),
+                None,
+            )
+            if open_request is not None:
+                break
+    data = {
         "status": "queued" if queued.get("enqueued") else "coalesced",
         "idempotent": bool(queued.get("deduped")),
         "asset_root_id": root_id,
@@ -11985,7 +12853,25 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
             str((open_request or {}).get("job_id") or "") or None
         ),
         "stub_created": bool(stub.get("created")),
-    }, [], [
+    }
+    if open_request is not None:
+        host_projection = _source_host_work_projection(
+            ctx,
+            root_id,
+            all_open_host_work=all_open_host_work,
+            execution_owner=(
+                str(args.get("execution_owner") or "").strip() or None
+            ),
+        )
+        takeover = host_projection.get("background_takeover")
+        data["host_work"] = {
+            key: value
+            for key, value in host_projection.items()
+            if key != "background_takeover"
+        }
+        if takeover is not None:
+            data["background_takeover"] = takeover
+    return data, [], [
         "the queue kick may materialize a host request; a host source worker must still return the exact partial pack"
     ]
 
@@ -12339,11 +13225,77 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "progressive.resolve_source_scope",
+    "Reuse accepted cached pages or register one externally reviewed missing "
+    "1..3-page locator window, attach its exact "
+    "scope to an existing named-only target, and atomically replace that target's "
+    "awaiting_scope host work with normal claimable work. This operation never "
+    "opens PDF bytes or compiles an entity pack.",
+    {
+        "job_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact open awaiting_scope host-work job id",
+        },
+        "kind": {
+            "type": "string",
+            "required": True,
+            "desc": "location | npc | item | clue | handout | threat",
+        },
+        "target_id": {
+            "type": "string",
+            "required": True,
+            "desc": "exact structured target id from the awaiting_scope request",
+        },
+        "source_bundle_path": {
+            "type": "string",
+            "desc": "absolute path to the host-produced reviewed OCR bundle; "
+            "omit when every selected pdf_index is already accepted in cache",
+        },
+        "pdf_indices": {
+            "type": "array",
+            "required": True,
+            "desc": "exact ascending 1..3 zero-based PDF indices in that bundle",
+        },
+    },
+)
+def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    try:
+        result = coc_module_project.resolve_source_scope(
+            ctx.root,
+            ctx.campaign_id,
+            job_id=str(args.get("job_id") or ""),
+            kind=str(args.get("kind") or ""),
+            target_id=str(args.get("target_id") or ""),
+            source_bundle_path=(
+                Path(str(args["source_bundle_path"])).expanduser().resolve()
+                if str(args.get("source_bundle_path") or "").strip()
+                else None
+            ),
+            pdf_indices=list(args.get("pdf_indices") or []),
+        )
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    return result, [], [
+        "the exact scope is attached and the old awaiting_scope row is superseded; "
+        "continue play while the existing background_takeover handles the replacement",
+    ]
+
+
+@tool(
     "progressive.claim_host_work",
     "Atomically lease up to four exact cached-page work groups for bounded "
-    "host-native source-pack subagents. Returns bare coc.source-pack-worker.v1 "
-    "packets; children never write campaign/module state and the parent Keeper "
-    "must submit accepted packs through progressive.fulfill_host_work.",
+    "host-native source-pack subagents. named_submit returns exact dispatch "
+    "tasks whose child submits directly; task_return_to_parent returns exact "
+    "dispatch tasks whose natural completion is strictly fulfilled once by the "
+    "parent; return_to_parent returns bare coc.source-pack-worker.v1 packets "
+    "for the lifecycle coordinator. Children never write campaign/module state "
+    "directly. A capability-advertised lifecycle/source owner may instead "
+    "compile one returned bare packet in its existing semantic context.",
     {
         "executor_id": {
             "type": "string",
@@ -12364,10 +13316,13 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
         },
         "result_delivery": {
             "type": "string",
-            "enum": ["named_submit", "return_to_parent"],
+            "enum": [
+                "named_submit", "task_return_to_parent", "return_to_parent",
+            ],
             "desc": (
-                "worker result transport: direct named submit by default, or "
-                "exact return to a lifecycle coordinator"
+                "worker result transport: direct named submit by default, "
+                "exact task return to the spawning parent, or exact packet "
+                "return to a lifecycle coordinator"
             ),
         },
     },
@@ -12380,6 +13335,14 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", "campaign is not progressive")
     assets_mod = coc_module_project.coc_module_assets
     try:
+        requested_delivery = str(
+            args.get("result_delivery") or "named_submit"
+        )
+        packet_delivery = (
+            "return_to_parent"
+            if requested_delivery == "task_return_to_parent"
+            else requested_delivery
+        )
         result = assets_mod.claim_host_work_requests(
             ctx.root,
             root_id,
@@ -12387,19 +13350,36 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
             limit=args.get("limit", 1),
             lease_seconds=args.get("lease_seconds", 600),
             cached_only=True,
-            result_delivery=str(args.get("result_delivery") or "named_submit"),
+            result_delivery=packet_delivery,
         )
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
+    result_delivery = str(args.get("result_delivery") or "named_submit")
+    if result_delivery in {"named_submit", "task_return_to_parent"}:
+        packets = [
+            packet for packet in result.pop("packets", [])
+            if isinstance(packet, dict)
+        ]
+        task_builder = (
+            _pi_source_pack_dispatch_task
+            if str(os.environ.get("COC_HOST") or "").lower() == "pi"
+            else _source_pack_dispatch_task
+        )
+        result["dispatch_tasks"] = [task_builder(packet) for packet in packets]
+        result["dispatch_task_count"] = len(result["dispatch_tasks"])
     hints = [
-        "spawn one background source-pack child per returned packet and continue "
-        "play; give the child that one bare packet without transcript or prose wrapper",
-        "obey each packet's result_delivery exactly: named_submit lets the child "
-        "submit itself without parent polling, while return_to_parent is reserved "
-        "for a capability-advertised lifecycle coordinator that reads once and "
-        "forwards each exact results[i] through progressive.fulfill_host_work",
+        "for named_submit, spawn one background source-pack child per exact "
+        "returned dispatch_tasks[] value and continue play; add no transcript, "
+        "prefix, suffix, or reconstructed wrapper",
+        "for task_return_to_parent, spawn the exact dispatch task immediately; "
+        "do not poll or retrieve output, and on its natural completion forward "
+        "each exact results[i] once through progressive.fulfill_host_work",
+        "return_to_parent is reserved for a capability-advertised lifecycle "
+        "or source owner; it receives bare packets[] values and follows the "
+        "exact returned takeover card before forwarding results[i] through "
+        "progressive.fulfill_host_work",
     ]
-    if not result.get("packets"):
+    if not result.get("dispatch_tasks") and not result.get("packets"):
         hints.append(
             "no exact cached-page group is ready; unresolved or uncached requests "
             "remain visible in progressive.status for a bounded host PDF window"
@@ -12558,6 +13538,16 @@ def _fulfill_host_work_for_asset_unlocked(
             else "invalid_param",
             "pack must be an object",
         )
+    # The job already binds the entity kind, so a sole matching wrapper is
+    # redundant transport structure rather than semantic source data. Accept
+    # and normalize that common worker serialization without weakening any
+    # entity, source-scope, or receipt validation below.
+    if (
+        entity_kind
+        and set(pack) == {entity_kind}
+        and isinstance(pack.get(entity_kind), dict)
+    ):
+        pack = deepcopy(pack[entity_kind])
     measured_host_timing = None
     leased_at = str(request.get("leased_at") or "").strip()
     if leased_at:
@@ -13688,6 +14678,19 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
             },
         },
     }
+    host_work_projection = _source_host_work_projection(
+        ctx,
+        root_id,
+        all_open_host_work=all_host_work,
+    )
+    if host_work_projection.get("background_takeover"):
+        data["background_takeover"] = host_work_projection[
+            "background_takeover"
+        ]
+    if host_work_projection.get("source_scope_takeover"):
+        data["source_scope_takeover"] = host_work_projection[
+            "source_scope_takeover"
+        ]
     kind = str(args.get("kind") or "").strip()
     tid = str(args.get("target_id") or "").strip()
     if kind or tid:
@@ -13702,10 +14705,20 @@ def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
     ]
     if all_host_work:
         hints.append(
-            "open host_work requests are not completed parses: claim exact cached "
-            "work for a source child. On a direct-submit host the parent does not "
-            "wait, retrieve, poll, or call progressive.fulfill_host_work; only a "
-            "host without direct submit uses the exact-forward fallback"
+            "open host_work requests are not completed parses. When "
+            "background_takeover is present, execute its exact next_host_action "
+            "or coordinator_dispatch by dispatch_mode "
+            "(direct_single_leaf, parent_flat_fanout, or coordinator_fanout); "
+            "do not invent a nested coordinator on a depth-1 host. On a "
+            "named-submit host the parent does not wait, retrieve, poll, or "
+            "call progressive.fulfill_host_work; only a host without direct "
+            "submit uses the exact-forward fallback"
+        )
+    if host_work_projection.get("source_scope_takeover"):
+        hints.append(
+            "source_scope_takeover is a nonblocking document-locator task; spawn "
+            "its stable dispatch_key at most once while the job remains open and "
+            "continue player-facing play without waiting or polling"
         )
     return data, [], hints
 
@@ -19672,6 +20685,31 @@ def _tool_turn_output_context(ctx: Ctx, args: dict[str, Any]):
     data["narrative_opportunity"] = _latest_narrative_opportunity(
         current_window
     )
+    required_obligation_ids = [
+        str(obligation_id)
+        for obligation_id in data.get("required_obligation_ids") or []
+        if isinstance(obligation_id, str) and obligation_id
+    ]
+    prefilled_arguments: dict[str, Any] = {}
+    journal_decision_id = data.get("journal_decision_id")
+    if isinstance(journal_decision_id, str) and journal_decision_id:
+        prefilled_arguments["decision_id"] = (
+            f"{journal_decision_id}:finalize"
+        )
+    missing_arguments = ["draft"]
+    if required_obligation_ids:
+        missing_arguments.append("coverage")
+    else:
+        prefilled_arguments["coverage"] = []
+    data["finalize_operation"] = {
+        "operation": "turn.finalize",
+        "invoke_via": "coc_invoke",
+        "prefilled_arguments": prefilled_arguments,
+        "missing_arguments": missing_arguments,
+        "discovery_required": False,
+        "authority": "settled_output_completeness",
+        "hard_gate": True,
+    }
     return data, [], [
         "draft fiction from obligations; related sources may share an exact_excerpt, but every obligation_id needs exactly one coverage row",
         "npc_performance_constraints are Keeper-only: portray observable_manner naturally, but never print causal_explanation, opportunity_or_friction, or boundary_preserved as a player-facing analysis block",

@@ -69,7 +69,23 @@
         "limit",
         "result_delivery"
       ],
-      "result_delivery": "return_to_parent",
+      "result_delivery_values": [
+        "return_to_parent",
+        "task_return_to_parent"
+      ],
+      "default_result_delivery": "return_to_parent",
+      "transport_variations": {
+        "bare_packet_coordinator": {
+          "result_delivery": "return_to_parent",
+          "claim_result_field": "packets"
+        },
+        "pi_private_lifecycle": {
+          "result_delivery": "task_return_to_parent",
+          "claim_result_field": "dispatch_tasks",
+          "task_contract": "coc.pi-source-pack-task.v1",
+          "repository_produced_wrappers_only": true
+        }
+      },
       "limit_minimum": 1,
       "limit_maximum": 4
     },
@@ -85,6 +101,10 @@
       "model_policy": "inherit_parent",
       "run_in_background": false,
       "prompt_binding": "one exact returned packets[] value",
+      "prompt_binding_by_transport": {
+        "bare_packet_coordinator": "one exact bare coc.source-pack-worker.v1 value from packets[]",
+        "pi_private_lifecycle": "one exact repository-produced coc.pi-source-pack-task.v1 value from dispatch_tasks[]"
+      },
       "result_binding": "each exact usable results[] value through progressive.fulfill_host_work once"
     }
   },
@@ -112,7 +132,14 @@
     "manager_repairs_or_retries": false,
     "main_keeper_waits": false,
     "main_keeper_retrieves_result": false,
-    "manager_completion_meaning": "notification_and_audit_only"
+    "manager_completion_meaning": "notification_and_audit_only",
+    "pi_leaf_evidence_transport": "transient_context_custom_user_message",
+    "pi_leaf_active_tools": 0,
+    "pi_leaf_failure_collection": "indexed_all_settled",
+    "pi_parent_terminal_delivery": "append_entry_and_next_turn_message_without_trigger",
+    "pi_terminal_authority": "exact_deterministic_lifecycle_tool_result_with_deep_equal_terminal_echo",
+    "pi_notification_failure_effect": "retain_completed_receipt_and_record_bounded_delivery_status",
+    "pi_shutdown_ownership": "closing_gate_and_exact_owned_run_cleanup"
   },
   "failure_policy": {
     "authority": "prompt_first_advisory",
@@ -178,11 +205,24 @@
     },
     "grok": {
       "status": "unavailable",
-      "adapter_mode": "nested_task_depth_unsupported"
+      "adapter_mode": "nested_task_depth_unsupported",
+      "alternate_multi_group_path": "parent_flat_fanout",
+      "alternate_capability": "coc_source_parent_fanout_v1",
+      "alternate_adapter": "grok_top_level_named_submit",
+      "note": "Grok max nesting depth is one; multi-group ready work uses main-KP claim plus parallel top-level source-pack workers, not this nested coordinator"
     },
     "pi": {
-      "status": "unavailable",
-      "adapter_mode": "unsupported"
+      "status": "experimental",
+      "adapter_mode": "pi_private_lifecycle",
+      "version_checked": "0.81.1",
+      "component_route_present": true,
+      "claim_transport": "pi_private_lifecycle",
+      "claim_result_delivery": "task_return_to_parent",
+      "claim_result_field": "dispatch_tasks",
+      "end_to_end_claim_leaf_fulfill_proven": true,
+      "proof_scope": "one cached partial_opening work group via real isolated Pi 0.81.1 lifecycle probe (tests/pi/real-lifecycle-probe.mjs)",
+      "player_path_acceptance": false,
+      "same_failure_observations": 0
     }
   }
 }

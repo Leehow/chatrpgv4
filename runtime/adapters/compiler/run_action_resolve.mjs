@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /** Private Keeper planning plus capability-bound semantic adjudication. */
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import {
-  AuthStorage, createAgentSession, createExtensionRuntime, DefaultResourceLoader,
-  ModelRegistry, SessionManager, defineTool, getAgentDir,
+  createAgentSession, createExtensionRuntime, DefaultResourceLoader,
+  ModelRuntime, SessionManager, defineTool, getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -92,20 +92,22 @@ function readStdinJson() {
   });
 }
 
-function resolveModel(agentDir, provider, modelId) {
-  const auth = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const registry = ModelRegistry.create(auth, path.join(agentDir, "models.json"));
-  let model = registry.find(provider, modelId);
+async function resolveModel(agentDir, provider, modelId) {
+  const modelRuntime = await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
+  let model = modelRuntime.getModel(provider, modelId);
   if (!model && provider === "coding-relay") {
-    const template = registry.getAll().find(
-      (candidate) => candidate.provider === provider && registry.hasConfiguredAuth(candidate),
+    const template = modelRuntime.getModels(provider).find(
+      (candidate) => modelRuntime.hasConfiguredAuth(candidate.provider),
     );
     if (template) model = { ...template, id: modelId, name: modelId };
   }
-  if (!model || !registry.hasConfiguredAuth(model)) {
+  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new Error(`requested model unavailable: ${provider}/${modelId}`);
   }
-  return { model, registry };
+  return { model, modelRuntime };
 }
 
 function allowedIds(request, key, idKey) {
@@ -660,10 +662,10 @@ async function run(request) {
     extensionsOverride: () => ({ extensions: [], errors: [], runtime: createExtensionRuntime() }),
   });
   await loader.reload();
-  const { model, registry } = resolveModel(agentDir, provider, modelId);
+  const { model, modelRuntime } = await resolveModel(agentDir, provider, modelId);
   const created = await createAgentSession({
     cwd: __dirname, agentDir, tools: ["coc_submit_action_resolution"], customTools: [tool],
-    model, modelRegistry: registry, resourceLoader: loader,
+    model, modelRuntime, resourceLoader: loader,
     sessionManager: SessionManager.inMemory(__dirname),
   });
   let unsubscribe;
@@ -714,9 +716,11 @@ async function run(request) {
   };
 }
 
-try {
-  process.stdout.write(`${JSON.stringify(await run(await readStdinJson()))}\n`);
-} catch (error) {
-  process.stdout.write(`${JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) })}\n`);
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    process.stdout.write(`${JSON.stringify(await run(await readStdinJson()))}\n`);
+  } catch (error) {
+    process.stdout.write(`${JSON.stringify({ ok: false, error: error && error.message ? error.message : String(error) })}\n`);
+    process.exitCode = 1;
+  }
 }

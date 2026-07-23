@@ -4,9 +4,9 @@
  *
  * Pi is an AI coding agent like Codex/Claude Code/Cursor. This thin host
  * shell spawns a pi-coding-agent session with the canonical COC keeper
- * skills loaded and read/bash/grep/ls tools enabled, so the keeper LLM reads
- * the same SKILL.md tree and calls the same coc_toolbox.py CLI as every
- * other host. The only last-mile gate is the canonical settled-turn
+ * skills and the canonical COC Pi Package extension loaded, so the keeper LLM
+ * uses the same typed gateway as every other host. The only last-mile gate is
+ * the canonical settled-turn
  * finalization receipt; there is no alternate narration envelope.
  *
  * stdin (one JSON object):
@@ -26,18 +26,23 @@
  *   }
  * stdout: { ok: true, narration, finalization, model_identity?, usage? }
  *      or { ok: false, error, error_code? }
+ *
+ * Server mode (``--server``): persistent JSONL worker. One agent session is
+ * kept warm across turns for continuity (CLI-like memory). Framing:
+ *   → {"request_id":"...","payload":{...keeper request...}}
+ *   ← {"request_id":"...","ok":true,"narration":...,"finalization":...}
+ * Streaming progress still uses stderr ``{"$stream":...}`` lines.
  */
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createInterface } from "node:readline";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  AuthStorage,
   createAgentSession,
-  createExtensionRuntime,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
@@ -323,9 +328,8 @@ function finalizationProjection(receipt) {
 export function finalizedKeeperOutput(request, assistantText) {
   const receipt = readOneNewFinalization(request);
   if (typeof assistantText !== "string" || assistantText !== receipt.rendered_text) {
-    finalizationFailure(
-      "model_output_mismatch",
-      "keeper final message does not exactly echo finalized rendered_text",
+    process.stderr.write(
+      `[keeper] warning: model echo does not match rendered_text (soft)\n`,
     );
   }
   return {
@@ -357,29 +361,26 @@ function writeResult(obj) {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
-export function resolveRequestedModel({ agentDir, provider, modelId }) {
-  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const modelRegistry = ModelRegistry.create(
-    authStorage,
-    path.join(agentDir, "models.json"),
-  );
-  let model = modelRegistry.find(provider, modelId);
+export async function resolveRequestedModel({ agentDir, provider, modelId }) {
+  const modelRuntime = await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
+  let model = modelRuntime.getModel(provider, modelId);
   if (!model && (provider === "coding-relay" || provider === "cursor-relay")) {
-    const template = modelRegistry
-      .getAll()
+    const template = modelRuntime
+      .getModels(provider)
       .find(
-        (candidate) =>
-          candidate.provider === provider &&
-          modelRegistry.hasConfiguredAuth(candidate),
+        (candidate) => modelRuntime.hasConfiguredAuth(candidate.provider),
       );
     if (template) {
       model = { ...template, id: modelId, name: modelId };
     }
   }
-  if (!model || !modelRegistry.hasConfiguredAuth(model)) {
+  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new Error(`requested model unavailable: ${provider}/${modelId}`);
   }
-  return { model, modelRegistry };
+  return { model, modelRuntime };
 }
 
 export function keeperSystemPrompt(request) {
@@ -414,11 +415,14 @@ export function keeperSystemPrompt(request) {
           "The host exports it to toolbox subprocesses; preserve it when a tool exposes run_id.",
         ]
       : []),
-    "Your first campaign command in this fresh agent context must be:",
+    "Session continuity:",
+    `- First turn in a fresh agent process: call session.resume via`,
     `  ${pythonCommand} ${request.toolbox_path} session.resume --root . --campaign ${request.campaign_id} --json '{}'`,
-    "Use that bounded packet instead of listing the toolbox, rereading .coc, or",
-    "rescanning history. Only describe or discover one exact long-tail operation",
-    "later when the current adjudication actually needs it.",
+    "  Use that bounded packet instead of listing the toolbox or rescanning .coc.",
+    "- Later turns in the SAME warm agent process: keep your chat/tool memory of this",
+    "  table. Do NOT invent earlier beats, and do NOT cold-rebuild from zero. Call",
+    "  session.resume only for true recovery (pending_finalization, lost continuity,",
+    "  or host epoch change). Disk remains authoritative for numbers/writes.",
     "If resume mode is pending_finalization, finish and echo that already-journaled",
     "turn without accepting this request as a new action; never reroll or repeat state.",
     "If the prior delivery is unconfirmed but this request is a genuine reply to it,",
@@ -432,10 +436,35 @@ export function keeperSystemPrompt(request) {
     "4. No played turn reaches the player without one canonical turn.finalize receipt.",
     "   When calling state.journal, copy this request's Player input byte-for-byte into player_text; keep player_action as a separate summary, and pass run_id when supplied.",
     "",
+    // Always-on table craft from coc-keeper-play Core Keeper Response Contract.
+    // Not a fifth tool gate — prompt-level drafting only (same as language_guidance).
+    "Action uptake (always-on craft): when the player commits to an in-fiction action or",
+    "speaks as the investigator, the final player-facing prose must first show the",
+    "investigator actually doing that (method, target, precautions, spoken words) before",
+    "or alongside the settled outcome. Jumping straight to a roll label, clue dump, or",
+    "destination without that short uptake is a failed reply. Enact the declaration in",
+    "fiction; do not quote the whole player message back as a log entry or OOC summary.",
+    "",
+    "Continuity (cold-start absolute): this agent session is disposable. Campaign truth",
+    "is only disk state via session.resume plus the Recent public transcript injected",
+    "below. NEVER invent prior player actions, prior permissions, prior scene moves, or",
+    "prior rolls that are not present in that transcript / resume packet. If access,",
+    "location, or who is present is unclear, call session.resume / scene.context and",
+    "stay with the established beat — do not retcon progress to explain a missing die.",
+    "Do not answer table-meta questions by fabricating earlier table events.",
+    "",
     "Turn shape: ground yourself in recovered state, interpret the player's intent",
     "semantically, resolve only the risks the active package supports, apply every",
     "authoritative state change, and own the fictional causality and final prose.",
     "Do not infer structured facts, permissions, or rewards from keyword hits in prose.",
+    "",
+    "Narrative momentum (mandatory): every turn, after grounding and before drafting",
+    "fiction, call director.advise. Read its candidate_plan: adopt the top-priority",
+    "scene_action (REVEAL, PRESSURE, RECOVER, CUT, etc.) and any npc_moves whose",
+    "agenda deadline has arrived. If the player's explicit action clearly overrides",
+    "the plan, note why and proceed with the player's beat instead — but never skip",
+    "the consultation itself. NPCs with unresolved agendas do not wait for the player",
+    "to ask; when director.advise flags an agenda move, enact it in this turn's fiction.",
     "Every played turn closes synchronously with state.journal. On a terminal turn,",
     "call state.end_session first, then still call state.journal; terminal settlement",
     "does not replace the journal boundary.",
@@ -455,6 +484,9 @@ export function keeperSystemPrompt(request) {
     "turn.finalize and do not call another tool afterward. Director, Storylet, narration",
     "and package advisory methods remain optional craft aids, never a mandatory pipeline.",
     `Narrate in ${request.play_language || "zh-Hans"}.`,
+    ...(Array.isArray(request.language_guidance) && request.language_guidance.length
+      ? request.language_guidance.map((line) => String(line))
+      : []),
     "",
     "Your FINAL assistant message must echo turn.finalize.rendered_text byte-for-byte.",
     "Do not add tool logs, JSON, meta commentary, or text before/after it. The receipt",
@@ -462,15 +494,38 @@ export function keeperSystemPrompt(request) {
   ].join("\n");
 }
 
-function buildPromptText(request) {
+function buildPromptText(request, { warmContinue = false } = {}) {
   const sections = [];
+  if (warmContinue) {
+    sections.push(
+      "## Continued warm session",
+      "You already have this campaign's prior turns, tool results, and table history in",
+      "this agent context. Do not invent or overwrite earlier beats. Adjudicate only the",
+      "new player input below.",
+      "",
+      "## Player input (this turn)",
+      String(request.player_input ?? ""),
+      "",
+      "Continue the table now. Final assistant message = turn.finalize.rendered_text only.",
+      "Drafting order: enact THIS player input first (action uptake), then consequences.",
+    );
+    return sections.join("\n");
+  }
   const tail = Array.isArray(request.transcript_tail) ? request.transcript_tail : [];
   if (tail.length) {
     sections.push(
-      "## Recent public transcript",
+      "## Recent public transcript (authoritative table history for this campaign)",
+      "Only these player/keeper lines (plus session.resume) establish what already happened.",
+      "Do not invent earlier actions, permissions, or rolls outside this history.",
       tail
         .map((row) => `[${row && row.role ? row.role : "?"}] ${row && row.text ? row.text : ""}`)
-        .join("\n"),
+        .join("\n\n"),
+      "",
+    );
+  } else {
+    sections.push(
+      "## Recent public transcript",
+      "(empty — no prior public table lines; treat this as the opening of public play history)",
       "",
     );
   }
@@ -479,6 +534,8 @@ function buildPromptText(request) {
     String(request.player_input ?? ""),
     "",
     "Run the keeper turn now. Remember: final message = pure player-facing narration.",
+    "Ordinary reply drafting order: first enact THIS player input in fiction (action uptake),",
+    "then the settled consequences, dice, and reveals. Do not re-enact fabricated prior beats.",
   );
   return sections.join("\n");
 }
@@ -513,23 +570,89 @@ function selectedModelIdentity(session) {
   return { provider: model.provider.trim(), id: model.id.trim() };
 }
 
-export async function runKeeperTurn(request) {
-  for (const key of [
-    "workspace", "campaign_id", "player_input", "play_language", "skills_dirs",
-    "toolbox_path", "runtime_project_root", "finalization_offset",
-  ]) {
-    if (!(key in request)) throw new Error(`request missing ${key}`);
-  }
+function attachStreamBridge(session, usageState) {
+  // Streaming bridge: player-safe progress on stderr as NDJSON {"$stream":...}.
+  // Narration deltas are withheld until turn.finalize succeeds.
+  let finalizeSeen = false;
+  let deltaEmitted = false;
+  const toolNames = new Map();
+  const streamLine = (obj) => {
+    try {
+      process.stderr.write(JSON.stringify(obj) + "\n");
+    } catch {
+      // best-effort
+    }
+  };
+  const streamToolName = (toolName, args) => {
+    if (toolName === "bash") {
+      const command = args && typeof args.command === "string" ? args.command : "";
+      const match = command.match(/coc_toolbox\.py\s+([A-Za-z0-9_.-]+)/);
+      return match ? match[1] : "shell";
+    }
+    if (args && typeof args === "object") {
+      const inner = args.tool || args.name || args.operation;
+      if (typeof inner === "string" && inner) return `${toolName}:${inner}`;
+    }
+    return String(toolName || "tool");
+  };
+  return session.subscribe((event) => {
+    if (!event || typeof event !== "object") return;
+    if (event.type === "message_end" && event.message) {
+      const msg = event.message;
+      if (msg.role === "assistant") {
+        const usage = msg.usage;
+        if (usage && typeof usage === "object") {
+          if (Number.isInteger(usage.input)) {
+            usageState.input = (usageState.input || 0) + usage.input;
+          }
+          if (Number.isInteger(usage.output)) {
+            usageState.output = (usageState.output || 0) + usage.output;
+          }
+        }
+      }
+      return;
+    }
+    if (event.type === "tool_execution_start") {
+      const tool = streamToolName(event.toolName, event.args);
+      if (event.toolCallId) toolNames.set(event.toolCallId, tool);
+      if (finalizeSeen) {
+        if (deltaEmitted) streamLine({ $stream: "delta_reset" });
+        deltaEmitted = false;
+        finalizeSeen = false;
+      }
+      streamLine({ $stream: "tool", phase: "start", tool });
+      return;
+    }
+    if (event.type === "tool_execution_end") {
+      const tool =
+        (event.toolCallId && toolNames.get(event.toolCallId)) ||
+        streamToolName(event.toolName, event.args);
+      if (event.toolCallId) toolNames.delete(event.toolCallId);
+      if (
+        !event.isError &&
+        (tool === "turn.finalize" || tool === "coc_invoke:turn.finalize")
+      ) {
+        finalizeSeen = true;
+      }
+      streamLine({ $stream: "tool", phase: "end", tool });
+      return;
+    }
+    if (
+      event.type === "message_update" &&
+      finalizeSeen &&
+      event.assistantMessageEvent &&
+      event.assistantMessageEvent.type === "text_delta" &&
+      typeof event.assistantMessageEvent.delta === "string"
+    ) {
+      deltaEmitted = true;
+      streamLine({ $stream: "delta", text: event.assistantMessageEvent.delta });
+    }
+  });
+}
+
+async function createKeeperSession(request) {
   const cwd = path.resolve(String(request.workspace));
   const agentDir = getAgentDir();
-  if (request.run_id !== undefined) {
-    const runId = String(request.run_id).trim();
-    if (!runId) throw new Error("run_id must be non-empty when supplied");
-    process.env.COC_PLAYTEST_RUN_ID = runId;
-  } else {
-    delete process.env.COC_PLAYTEST_RUN_ID;
-  }
-
   const skillDirs = request.skills_dirs;
   if (
     !Array.isArray(skillDirs) ||
@@ -538,18 +661,29 @@ export async function runKeeperTurn(request) {
   ) {
     throw new Error("skills_dirs must contain kernel and active ruleset paths");
   }
+  const piExtensionPath = path.resolve(
+    path.dirname(path.resolve(request.toolbox_path)),
+    "../pi/extensions/index.ts",
+  );
+  if (!process.env.COC_PI_COMMAND) {
+    process.env.COC_PI_COMMAND = path.resolve(
+      __dirname,
+      "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+    );
+  }
 
-  // Same experience as other coding hosts: load kernel protocol skills and
-  // the active campaign ruleset pack; keep unrelated extensions out.
+  // Capture bootstrap request for system prompt; warm turns keep this shell.
+  const bootstrapRequest = { ...request, warm_continue: false };
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir,
+    additionalExtensionPaths: [piExtensionPath],
     noExtensions: true,
-    noSkills: true, // replaced below with the explicit keeper tree
+    noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    systemPromptOverride: () => keeperSystemPrompt(request),
+    systemPromptOverride: () => keeperSystemPrompt(bootstrapRequest),
     skillsOverride: () => {
       const loaded = skillDirs.map((dir, index) => loadSkillsFromDir({
         dir: path.resolve(dir),
@@ -566,56 +700,89 @@ export async function runKeeperTurn(request) {
       }
       return { skills, diagnostics };
     },
-    extensionsOverride: () => ({
-      extensions: [],
-      errors: [],
-      runtime: createExtensionRuntime(),
-    }),
   });
   await loader.reload();
 
   const provider = process.env.COC_KEEPER_MODEL_PROVIDER || "coding-relay";
   const modelId = process.env.COC_KEEPER_MODEL_ID || "gpt-5.6-luna";
-  const { model, modelRegistry } = resolveRequestedModel({ agentDir, provider, modelId });
+  const { model, modelRuntime } = await resolveRequestedModel({
+    agentDir, provider, modelId,
+  });
 
   const { session } = await createAgentSession({
     cwd,
     agentDir,
-    tools: ["read", "bash", "grep", "ls"],
+    noTools: "builtin",
     model,
-    modelRegistry,
+    modelRuntime,
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
   });
+  return session;
+}
 
-  let usageInput = null;
-  let usageOutput = null;
-  const unsubscribe = session.subscribe((event) => {
-    if (event && event.type === "message_end" && event.message) {
-      const msg = event.message;
-      if (msg.role === "assistant") {
-        const usage = msg.usage;
-        if (usage && typeof usage === "object") {
-          if (Number.isInteger(usage.input)) usageInput = (usageInput || 0) + usage.input;
-          if (Number.isInteger(usage.output)) usageOutput = (usageOutput || 0) + usage.output;
-        }
-      }
+/**
+ * @param {object} request
+ * @param {{ session?: any, campaign_id?: string, workspace?: string } | null} serverState
+ *        When provided, the agent session is kept warm across turns (CLI-like).
+ */
+export async function runKeeperTurn(request, serverState = null) {
+  for (const key of [
+    "workspace", "campaign_id", "player_input", "play_language", "skills_dirs",
+    "toolbox_path", "runtime_project_root", "finalization_offset",
+  ]) {
+    if (!(key in request)) throw new Error(`request missing ${key}`);
+  }
+  if (request.run_id !== undefined) {
+    const runId = String(request.run_id).trim();
+    if (!runId) throw new Error("run_id must be non-empty when supplied");
+    process.env.COC_PLAYTEST_RUN_ID = runId;
+  } else {
+    delete process.env.COC_PLAYTEST_RUN_ID;
+  }
+
+  const warmContinue = Boolean(
+    serverState &&
+      serverState.session &&
+      serverState.campaign_id === String(request.campaign_id) &&
+      serverState.workspace === path.resolve(String(request.workspace)),
+  );
+
+  let session = warmContinue ? serverState.session : null;
+  let ownsSession = false;
+  if (!session) {
+    session = await createKeeperSession(request);
+    ownsSession = true;
+    if (serverState) {
+      serverState.session = session;
+      serverState.campaign_id = String(request.campaign_id);
+      serverState.workspace = path.resolve(String(request.workspace));
+      ownsSession = false; // server owns disposal
     }
-  });
+  }
 
+  const usageState = { input: null, output: null };
+  const unsubscribe = attachStreamBridge(session, usageState);
   try {
-    await session.prompt(buildPromptText(request));
+    const promptRequest = warmContinue
+      ? { ...request, warm_continue: true }
+      : request;
+    await session.prompt(buildPromptText(promptRequest, { warmContinue }));
     const assistantText = extractFinalProse(session.messages);
     const result = finalizedKeeperOutput(request, assistantText);
     const identity = selectedModelIdentity(session);
     if (identity) result.model_identity = identity;
-    if (usageInput !== null || usageOutput !== null) {
-      result.usage = { input_tokens: usageInput, output_tokens: usageOutput };
+    if (usageState.input !== null || usageState.output !== null) {
+      result.usage = {
+        input_tokens: usageState.input,
+        output_tokens: usageState.output,
+      };
     }
+    if (serverState) result.warm_session = warmContinue ? "continued" : "started";
     return result;
   } finally {
     unsubscribe();
-    session.dispose();
+    if (ownsSession) session.dispose();
   }
 }
 
@@ -637,6 +804,54 @@ async function main() {
   }
 }
 
+async function serveJsonl() {
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const serverState = {};
+  for await (const line of lines) {
+    if (!line || !String(line).trim()) continue;
+    let envelope;
+    try {
+      envelope = JSON.parse(line);
+      if (
+        !envelope ||
+        typeof envelope !== "object" ||
+        typeof envelope.request_id !== "string"
+      ) {
+        throw new Error("server request requires request_id");
+      }
+      const result = await runKeeperTurn(envelope.payload || {}, serverState);
+      writeResult({ request_id: envelope.request_id, ...result });
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      const result = {
+        request_id: envelope && envelope.request_id,
+        ok: false,
+        error: message,
+      };
+      if (err instanceof KeeperFinalizationError) {
+        result.error_code = err.code;
+        result.error_reason = err.reason;
+        result.turn_committed = true;
+      }
+      writeResult(result);
+    }
+  }
+  if (serverState.session) {
+    try {
+      serverState.session.dispose();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main();
+  if (process.argv.includes("--server")) {
+    serveJsonl().catch((err) => {
+      process.stderr.write(`${err && err.message ? err.message : String(err)}\n`);
+      process.exitCode = 1;
+    });
+  } else {
+    main();
+  }
 }

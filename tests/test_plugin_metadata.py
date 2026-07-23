@@ -164,6 +164,11 @@ def test_grok_plugin_exposes_shared_mcp_and_safe_host_contract():
             "nested_task_depth_unsupported"
         ),
         "max_source_coordinator_leaves": 0,
+        "coc_source_parent_fanout_v1": True,
+        "coc_source_parent_fanout_v1_status": "experimental",
+        "coc_source_parent_fanout_v1_adapter": (
+            "grok_top_level_named_submit"
+        ),
     }
 
     bootstrap = " ".join(
@@ -280,6 +285,21 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
     assert codex_leaf["coordinator_leaf_background"] is False
     assert codex_leaf["coordinator_leaf_model_policy"] == "inherit_parent"
     assert codex_leaf["coordinator_leaf_result_delivery"] == "return_to_parent"
+    assert codex_leaf["direct_single_task_contract"] == (
+        "coc.codex-source-pack-claim-task.v1"
+    )
+    assert codex_leaf["direct_single_parent_claims"] is False
+    assert codex_leaf["direct_single_child_claim_result_delivery"] == (
+        "task_return_to_parent"
+    )
+    assert codex_leaf["direct_single_child_claim_transport"] == (
+        "coc_invoke_complete_card"
+    )
+    assert codex_leaf["direct_single_packet_result_delivery"] == (
+        "return_to_parent"
+    )
+    assert codex_leaf["direct_single_parent_result_polls"] == 0
+    assert codex_leaf["direct_single_parent_output_retrieval"] is False
     assert contract["lifecycle"]["max_parallel_packets"] == 4
     assert contract["lifecycle"]["grok_direct_submit_parent_waits"] is False
     assert contract["lifecycle"]["grok_direct_submit_parent_result_polls"] == 0
@@ -368,12 +388,23 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
             "location_fields": ["title", "player_safe_summary"],
             "materially_present_npc_fields": ["npc_id", "agenda"],
             "npc_policy": "source_supported_and_materially_present_only",
+            "opening_completeness_pass": [
+                "current_situation",
+                "authored_choices_or_investigation_paths",
+                "information_each_path_can_establish",
+                "named_conditional_contacts_as_mentions",
+                "materially_present_npcs",
+            ],
         },
-        "forced_empty_fields": {
-            "scene_edges": [],
-            "affordances": [],
+        "semantic_default_replacement": {
+            "clues": "populate every source-authored clue needed to play the current beat",
+            "affordances": "populate source-authored immediately usable courses of action",
+            "mentions": "populate source-authored named people or places referenced but not materially present",
+            "scene_edges": "populate only source-established destination locations",
         },
-        "infer_structured_clock_or_routes_from_prose": False,
+        "all_empty_semantic_arrays_allowed_only_when_source_authors_none": True,
+        "semantic_judgment_not_keyword_gate": True,
+        "invent_unsupported_clock_route_person_or_fact": False,
         "self_check_before_status_usable": True,
         "unsatisfied_required_fields_result": {
             "status": "abstain",
@@ -522,8 +553,10 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "request.result_contract",
         "source-bounded immediate agenda",
         "copy `fixed_fields`, `copy_from_request`, and every `empty_defaults` value",
-        "keep `scene_edges=[]` and `affordances=[]`",
-        "do not infer a structured clock or route from prose",
+        "semantically replace defaults",
+        "semantic opening-completeness",
+        "all-empty `clues`/`affordances`/`mentions`",
+        "never keyword matching",
         "return `status=abstain` with `results=[]`",
         "never return a parent-repairable usable result",
         "soft/deferred enrichment",
@@ -576,6 +609,26 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert contract["canonical_caller"]["background"] is True
     assert contract["packet"]["closed"] is True
     assert contract["packet"]["main_keeper_mutation_allowed"] is False
+    claim_contract = contract["packet"]["claim_operation"]
+    assert claim_contract["result_delivery_values"] == [
+        "return_to_parent", "task_return_to_parent",
+    ]
+    assert claim_contract["default_result_delivery"] == "return_to_parent"
+    assert claim_contract["transport_variations"]["pi_private_lifecycle"] == {
+        "result_delivery": "task_return_to_parent",
+        "claim_result_field": "dispatch_tasks",
+        "task_contract": "coc.pi-source-pack-task.v1",
+        "repository_produced_wrappers_only": True,
+    }
+    assert contract["packet"]["leaf_worker"]["prompt_binding_by_transport"] == {
+        "bare_packet_coordinator": (
+            "one exact bare coc.source-pack-worker.v1 value from packets[]"
+        ),
+        "pi_private_lifecycle": (
+            "one exact repository-produced coc.pi-source-pack-task.v1 value "
+            "from dispatch_tasks[]"
+        ),
+    }
     assert contract["lifecycle"]["manager_background"] is True
     assert contract["lifecycle"]["leaf_background"] is False
     assert contract["lifecycle"]["main_keeper_waits"] is False
@@ -611,6 +664,15 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert codex["player_path_acceptance"] is False
     assert codex["same_failure_observations"] == 0
 
+    pi = contract["host_adapters"]["pi"]
+    assert pi["status"] == "experimental"
+    assert pi["adapter_mode"] == "pi_private_lifecycle"
+    assert pi["claim_transport"] == "pi_private_lifecycle"
+    assert pi["claim_result_delivery"] == "task_return_to_parent"
+    assert pi["claim_result_field"] == "dispatch_tasks"
+    assert pi["end_to_end_claim_leaf_fulfill_proven"] is True
+    assert pi["same_failure_observations"] == 0
+
     cursor = contract["host_adapters"]["cursor"]
     assert cursor["status"] == "unavailable"
     assert cursor["adapter_mode"] == "nested_mcp_unavailable_2026_07_17"
@@ -626,6 +688,14 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert contract["host_adapters"]["grok"] == {
         "status": "unavailable",
         "adapter_mode": "nested_task_depth_unsupported",
+        "alternate_multi_group_path": "parent_flat_fanout",
+        "alternate_capability": "coc_source_parent_fanout_v1",
+        "alternate_adapter": "grok_top_level_named_submit",
+        "note": (
+            "Grok max nesting depth is one; multi-group ready work uses "
+            "main-KP claim plus parallel top-level source-pack workers, not "
+            "this nested coordinator"
+        ),
     }
 
     capabilities = _json(
@@ -649,7 +719,21 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "codex_nested_cli_exact_forward"
     )
     assert capabilities["codex"]["max_source_coordinator_leaves"] == 4
+    assert capabilities["codex"]["coc_opening_source_coordinator_v1"] is True
+    assert capabilities["codex"]["coc_opening_source_coordinator_v1_status"] == (
+        "experimental"
+    )
+    assert capabilities["codex"]["coc_opening_source_coordinator_v1_adapter"] == (
+        "codex_context_free_inline_source"
+    )
     assert capabilities["grok"]["coc_source_coordinator_v1"] is False
+    assert capabilities["grok"]["coc_source_parent_fanout_v1"] is True
+    assert capabilities["grok"]["coc_source_parent_fanout_v1_status"] == (
+        "experimental"
+    )
+    assert capabilities["grok"]["coc_source_parent_fanout_v1_adapter"] == (
+        "grok_top_level_named_submit"
+    )
 
     agent = _text(PLUGIN_ROOT / "agents" / "coc-source-coordinator.md")
     compact = " ".join(agent.split()).lower()
@@ -684,11 +768,16 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
             + _text(
                 PLUGIN_ROOT / "skills" / "coc-scenario-import" / "SKILL.md"
             )
+            + _text(PLUGIN_ROOT / "agents" / "coc-keeper-kp.md")
         ).split()
     ).lower()
     for phrase in (
         "`coc_source_coordinator_v1=true`",
-        "`background_takeover.coordinator_dispatch.codex_task`",
+        "`coordinator_dispatch.codex_task`",
+        "`coordinator_fanout`",
+        "`parent_flat_fanout`",
+        "`coc_source_parent_fanout_v1=true`",
+        "`claim_then_spawn_named_workers`",
         "`fork_turns=none`",
         "three observed occurrences of the same class",
         "a design issue",
@@ -697,22 +786,272 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         assert phrase in skill_text, phrase
 
 
+def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
+    contract = _json(
+        PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
+    )
+    assert contract["contract_id"] == "coc.opening-source-coordinator.v1"
+    assert contract["status"] == "experimental"
+    assert contract["product_complete"] is False
+    assert contract["parity_claim"] is False
+    assert contract["task"]["fixed_fields"] == {
+        "schema_version": 1,
+        "contract_id": "coc.codex-opening-source-task.v1",
+        "bootstrap_instruction": (
+            "Before any response or tool call, read instruction_ref completely, "
+            "then execute this closed task under that instruction."
+        ),
+        "adapter_mode": "codex_context_free_inline_source",
+        "model_policy": "inherit_parent",
+        "max_selected_opening_pages": 3,
+        "result_delivery": "task_return_to_parent",
+    }
+    assert contract["authority"]["may_create_or_link_investigator"] is False
+    assert contract["authority"]["may_roll_rules"] is False
+    assert contract["authority"]["may_choose_player_action_or_keeper_prose"] is False
+    assert contract["authority"]["max_nesting_depth"] == 1
+    assert contract["authority"]["nested_agent_types"] == []
+    assert contract["authority"]["foreground_single_group_execution"] == (
+        "same_coordinator_inline"
+    )
+    assert contract["task"]["opening_locator_pdf_indices"]["minimum_count"] == 0
+    assert contract["task"]["opening_locator_pdf_indices"]["empty_list_meaning"] == (
+        "coordinator_owns_named_scenario_cold_locator"
+    )
+    assert contract["task"]["opening_window_semantics"] == {
+        "semantic_judgment": True,
+        "keeper_facing_scenario_synopsis_is_complete_playable_opening": False,
+        "requires_complete_current_player_facing_beat": True,
+        "requires_source_authored_actionable_routes_when_available": True,
+        "requires_route_information_for_the_current_beat": True,
+        "adjacent_current_opening_page_replaces_or_extends_synopsis": True,
+        "source_clock_replaces_era_default": True,
+        "ungrounded_default_exact_clock_allowed": False,
+    }
+    assert contract["task"]["render_output_path_binding"] == {
+        "batch_directory_is_task_local_and_exact": True,
+        "capture_actual_paths_once": True,
+        "visual_tool_receives_exact_returned_paths": True,
+        "forbid_batch_position_filename_derivation": True,
+        "forbid_pdf_index_filename_derivation": True,
+        "forbid_guessed_zero_padding": True,
+        "missing_or_ambiguous_path_failure_class": "pdf_scope_failed",
+    }
+    assert contract["lifecycle"]["main_keeper_dispatches_before_pdf_locator_or_concepts"] is True
+    assert contract["lifecycle"]["blocking_phase"] == "concept_locator_natural_return"
+    assert contract["lifecycle"]["background_phase"] == (
+        "same_child_exact_followup_source_build"
+    )
+    assert contract["lifecycle"]["main_keeper_exact_forwards_continue_task"] is True
+    assert contract["lifecycle"]["no_in_turn_parent_callback"] is True
+    assert contract["lifecycle"]["binding_call"] == {
+        "operation": "setup.invoke",
+        "kind": "scenario.bind_pdf",
+        "required_payload_fields": [
+            "campaign_id",
+            "scenario_id",
+            "title",
+            "source_bundle_path",
+        ],
+        "values_from_retained_closed_task": True,
+    }
+    assert contract["lifecycle"]["main_keeper_character_flow_continues_without_waiting"] is True
+    assert contract["lifecycle"]["foreground_source_execution"] == (
+        "same_coordinator_inline"
+    )
+    assert contract["lifecycle"]["foreground_source_nested_task"] is False
+    assert contract["lifecycle"]["foreground_source_claim_delivery"] == (
+        "return_to_parent"
+    )
+    assert contract["host_adapters"]["codex"]["nested_source_worker"] is False
+    assert contract["host_adapters"]["codex"]["inline_foreground_source"] is True
+    assert contract["failure_policy"]["same_failure_escalation_threshold"] == 3
+    manifest_contract = contract["source_bundle_manifest_contract"]
+    assert manifest_contract["closed_minimum"] is True
+    assert manifest_contract["exact_relative_path"] == "manifest.json"
+    assert manifest_contract["alternate_filenames_allowed"] is False
+    assert manifest_contract["template"]["producer"] == "codex-pdf-skill"
+    assert manifest_contract["template"]["source"] == {
+        "source_id": "pdf:<source_bundle_id>",
+        "title": "<task title>",
+        "path": "<absolute task pdf_path>",
+        "file_sha256": "<task pdf_sha256>",
+        "page_count": "<positive host-observed PDF page count>",
+    }
+    assert manifest_contract["template"]["assets"] == []
+    assert manifest_contract["forbidden_shortcut_fields"] == [
+        "source_bundle_id",
+        "pdf_sha256",
+        "pages[].path",
+    ]
+    assert manifest_contract["forbidden_manifest_filenames"] == [
+        "source_bundle_manifest.json",
+    ]
+
+    agent = _text(PLUGIN_ROOT / "agents" / "coc-opening-source-coordinator.md")
+    compact = " ".join(agent.split()).lower()
+    for phrase in (
+        "name: coc-opening-source-coordinator",
+        "one bounded document lane",
+        "`coc.codex-opening-source-task.v1`",
+        "render every bounded locator candidate in one batch",
+        "capture the actual output paths once with a bounded listing",
+        "pass those returned paths unchanged to visual inspection",
+        "never build an image path from batch position",
+        "do not guess, rerender, or search outside that exact directory",
+        "shortest accepted contiguous one-to-three-page opening window",
+        "scenario synopsis that merely says what the investigators will investigate",
+        "select that page instead of the synopsis",
+        "ungrounded default exact date or phase must never reach the opening",
+        "`coc.opening-character-concepts.v1`",
+        "`coc.opening-source-continue.v1`",
+        "stop this task turn and naturally return",
+        "task name does not activate this file",
+        "one direct `apply_patch` call",
+        "do not discover `scenario.bind_pdf`",
+        "do not omit or move any of those four payload fields",
+        "`execution_owner=opening_source_coordinator`",
+        "`dispatch_mode=inline_single_owner`",
+        "`action=claim_and_compile_inline`",
+        "do not spawn another agent",
+        "do not reopen the pdf",
+        "do not move the live scene",
+        "do not read the full `trpg-pdf-ingest`",
+        "do not make a preliminary no-window call",
+        "`skeleton_argument_contract.start_clock_source_ref_template`",
+        "`source_bundle_manifest_contract.template`",
+        "`<source_bundle_path>/manifest.json`",
+        "never emit the task-oriented shortcut shape",
+        "`opening_delivery_boundary`",
+        "three observed occurrences of the same class are a design issue",
+    ):
+        assert phrase in compact, phrase
+
+    combined = " ".join((
+        _text(PLUGIN_ROOT / "agents" / "coc-keeper-kp.md")
+        + _text(PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md")
+        + _text(PLUGIN_ROOT / "skills" / "coc-scenario-import" / "SKILL.md")
+        + _text(PLUGIN_ROOT / "skills" / "trpg-pdf-ingest" / "SKILL.md")
+    ).split()).lower()
+    for phrase in (
+        "`coc_opening_source_coordinator_v1=true`",
+        "`fork_turns=none`",
+        "before any title crawl",
+        "task naming alone",
+        "copy the retained",
+        "never synthesize",
+        "`followup_task`",
+        "same idle child",
+        "then immediately continue characteristic rolls",
+        "document parsing and character/rules work are independent lanes",
+        "`task_variable_fields`",
+        "`pdf_identity_before_dispatch`",
+        "sole pdf/source-skill consumer",
+        "does not load `coc-scenario-import`, `trpg-pdf-ingest`, or `coc-campaign-state`",
+        "wait only",
+    ):
+        assert phrase in combined, phrase
+
+
+def test_source_scope_locator_is_bounded_nonblocking_and_prompt_first():
+    contract = json.loads(
+        _text(PLUGIN_ROOT / "references" / "source-scope-locator-v1.json")
+    )
+    assert contract["contract_id"] == "coc.source-scope-locator.v1"
+    assert contract["canonical_caller"]["trigger"] == (
+        "scene.context.progressive.source_scope_takeover"
+    )
+    assert contract["authority"]["may_compile_entity_pack"] is False
+    assert contract["lifecycle"]["main_keeper_waits"] is False
+    assert contract["lifecycle"]["success_wakes_existing_source_pack_lifecycle"] is True
+    assert contract["source_bundle_manifest_contract"] == {
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "review_state": "manual_accepted",
+        "parse_confidence": "number_from_0_through_1",
+        "text_sha256": "sha256_of_exact_markdown_file_bytes",
+        "assets": [],
+    }
+    assert contract["failure_policy"]["same_task_retry"] is False
+
+    agent = _text(PLUGIN_ROOT / "agents" / "coc-source-scope-locator.md")
+    compact = " ".join(agent.split()).lower()
+    for phrase in (
+        "name: coc-source-scope-locator",
+        "never the keeper",
+        "locator-only",
+        "one to three zero-based pages",
+        "call no coc operation",
+        "progressive.resolve_source_scope",
+        "`review_state=manual_accepted`",
+        "numeric `parse_confidence` from 0 through 1",
+        "never edit the manifest and call again",
+        "do not claim, fulfill, poll, retry",
+        "three observed occurrences of the same failure class",
+    ):
+        assert phrase in compact, phrase
+
+    play = " ".join(
+        _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").split()
+    ).lower()
+    assert "`scene.context.progressive.source_scope_takeover`" in play
+    assert "`ready_for_background_count=0`" in play
+    assert "use the stable `dispatch_key`" in play
+
+
+def test_fresh_raw_pdf_skill_catalog_routes_only_through_coc_main():
+    descriptions = {}
+    for name in (
+        "coc-main",
+        "coc-keeper-play",
+        "coc-scenario-import",
+        "coc-campaign-state",
+        "coc-playtest",
+    ):
+        text = _text(PLUGIN_ROOT / "skills" / name / "SKILL.md")
+        frontmatter = text.split("---", 2)[1]
+        descriptions[name] = next(
+            line.removeprefix("description:").strip()
+            for line in frontmatter.splitlines()
+            if line.startswith("description:")
+        ).lower()
+
+    assert "only main-session skill selected initially" in descriptions["coc-main"]
+    assert "fresh raw-pdf" in descriptions["coc-main"]
+    assert "never select during fresh raw-pdf setup" in descriptions[
+        "coc-keeper-play"
+    ]
+    assert "do not select it in the main session for a fresh codex raw-pdf opening" in (
+        descriptions["coc-scenario-import"]
+    )
+    assert "must not select this skill merely to create a campaign" in descriptions[
+        "coc-campaign-state"
+    ]
+    assert "select coc-main first" in descriptions["coc-playtest"]
+
+
 def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
     main = " ".join(
         _text(PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md").split()
     ).lower()
     for phrase in (
         "only after confirmation use `investigator.create`",
+        "the card is not an opening gate",
         "pre-confirmation opening warm start",
         "exact contiguous 1–3-page `partial_opening` request",
-        "must launch a real `coc-source-pack-worker` with `background=true`",
-        "real task id only in the host session",
-        "return the character confirmation text immediately without waiting",
+        "`direct_single_leaf`",
+        "host-selected `next_host_action`",
+        "one ready work group",
+        "real task ids only in volatile host context",
         "host completion reminder as notification/liveness only",
         "must not call `get_task_output`",
         "`get_command_or_subagent_output`",
         "never a reassurance query",
-        "must not fake a task or claim work for an imaginary child",
+        "invoke `progressive.status` exactly once as dispatch acquisition",
+        "never loop on status",
+        "keep the host turn alive",
+        "permitted residual tier 1a wait",
+        "declare the opening failed merely because",
     ):
         assert phrase in main, phrase
 
@@ -724,15 +1063,20 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
     for phrase in (
         "pre-confirmation opening warm start",
         "intentionally **not** described as background work",
-        "`progressive.claim_host_work` once",
-        "actually spawn the existing `coc-source-pack-worker` with `background=true`",
-        "narrow read plus named-submit profile without overriding it to read-only",
-        "real host task id only in volatile host-session context",
+        "host-selected `next_host_action`",
+        "child atomically claims and compiles its packet",
+        "a one-group request must not pay a manager-to-one-leaf hop",
+        "real task ids only in volatile host-session context",
         "must not read those claimed packet pages itself",
         "source child submits the complete outer result itself through its named submit-only mcp",
         "host completion reminder as notification/liveness only",
         "never call `get_task_output` or `get_command_or_subagent_output`",
         "retrieve the pack or compact receipt",
+        "invoke `progressive.status` exactly once to acquire dispatch",
+        "request response is authoritative for immediate dispatch",
+        "keep the host turn alive",
+        "only permitted `blocking_micro` dependency",
+        "declare the opening failed merely because",
         "child retains its compact `coc.source-submit-receipt.v1` final output for audit only",
         "never claim source success to the player",
         "naturally needed canonical entity or mechanics query",
@@ -740,8 +1084,7 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "`coc-character` owns character semantics and confirmation, not source work",
         "focused keeper launcher",
         "without parent task-output retrieval",
-        "serialized claimed packet json is the entire child task prompt",
-        "add no prefix, suffix, transcript, optional-row request, or schema hint",
+        "add no prefix, suffix, transcript, optional-row request, reconstructed wrapper, or model override",
         "existing recovery",
         "retain the exact r28 fallback",
         "`worker_result=result` object",
@@ -754,12 +1097,12 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         _text(PLUGIN_ROOT / "agents" / "coc-keeper-kp.md").split()
     ).lower()
     for phrase in (
-        "actually spawn each returned exact packet as a `coc-source-pack-worker` task with `background=true`",
+            "`action=spawn_background_task` task runs with `background=true`",
         "real host task id only in the host session, never module truth",
-        "must not read those claimed packet pages",
+        "claimed dispatch task transfers its exact page read",
         "do not fake a task",
         "without parent task-output retrieval",
-        "serialized claimed packet json is the entire child task prompt",
+            "selected serialized task json is the entire child task prompt",
         "add no prefix, suffix, transcript, optional-row request, or schema hint",
         "existing recovery",
         "source child owns submission through its named submit-only mcp",
@@ -796,7 +1139,7 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "not `coc-character`",
         "focused keeper launcher",
         "without parent task-output retrieval",
-        "serialized claimed packet json is the entire child task prompt",
+        "serialized returned dispatch task json is the entire child task prompt",
         "add no prefix, suffix, transcript, optional-row request, or schema hint",
         "existing recovery",
         "installed-plugin projection's narrow read plus named-submit profile",
@@ -854,8 +1197,7 @@ def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
             "every npc or every turn",
             "`source_work_required`",
             "`mechanics_not_ready`",
-            "`coc_source_coordinator_v1=true`",
-            "`rules.roll`",
+                "`rules.roll`",
             "`rules.opposed`",
             "copied stub values",
             "a generic profile",
@@ -866,6 +1208,7 @@ def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
 
     for surface in (profile, tooling, scenario):
         assert "`progressive.claim_host_work`" in surface
+        assert "dispatch_mode" in surface
 
     for surface in (profile, tooling, scenario, combat):
         for phrase in (
@@ -1310,6 +1653,11 @@ def test_playtest_skill_defines_real_plugin_context_free_player_acceptance():
         "no model override",
         "three observations",
         "design issue",
+        "host-observed user-message submission event",
+        "an in-turn `date` call",
+        "latency boundary as unverified",
+        "defer `coc-keeper-play` until character/source readiness",
+        "the main kp does not load `coc-scenario-import`, `trpg-pdf-ingest`, or `coc-campaign-state`",
     ):
         assert phrase in compact
 
@@ -1371,10 +1719,18 @@ def test_pdf_ingest_is_an_external_skill_source_bundle_boundary():
     ingest = _text(PLUGIN_ROOT / "skills" / "trpg-pdf-ingest" / "SKILL.md")
     playtest = _text(PLUGIN_ROOT / "skills" / "coc-playtest" / "SKILL.md")
     combined = "\n".join((main, ingest, playtest)).lower()
+    compact = " ".join(combined.split())
     assert "external pdf skill" in combined
     assert "source bundle" in combined or "source-bundle" in combined
     assert "repository has no pdf parser fallback" in combined
     assert "coc_pdf_bundle.py" in combined
+    assert "inspect document outline/bookmarks first" in compact
+    assert "do not raster-render speculative 20–32-page ranges" in compact
+    assert "selects and visually accepts the whole final cold-start opening page set" in compact
+    assert "renders the bounded locator candidates in one batch" in compact
+    assert "early player-response boundary" in compact
+    assert "before assembling or validating the bundle" in compact
+    assert "the first useful player choice is itself the milestone" in compact
 
 
 def test_current_skills_reject_legacy_or_mismatched_runtime_state():

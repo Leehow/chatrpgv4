@@ -1,6 +1,6 @@
 ---
 name: coc-playtest
-description: Run a real COC Keeper acceptance session with Codex as Keeper and a context-free Codex collaboration subagent as the player.
+description: Run real window-equivalent COC acceptance with Codex as Keeper and one context-free player. For fresh raw-PDF setup, select coc-main first and defer live-play/source/state skills to their documented phase or owner.
 ---
 
 # COC Playtest
@@ -30,6 +30,14 @@ Never resume an old test save, copy a completed run into a new run, or use a
 historical battle report as runtime state. If current schemas do not match,
 discard that test workspace and start fresh. Never point a playtest at the
 user's real `.coc/campaigns/` or `.coc/investigators/`.
+
+For cold-start latency, the authoritative `t0` is the host-observed user-message
+submission event. The acceptance caller should include that externally captured
+UTC timestamp in the task; otherwise recover the exact event timestamp from
+host session evidence after the run. An in-turn `date` call made after model
+startup, skill loading, or workspace creation is not `t0` and must not support
+a latency PASS. When neither external submission time nor host event evidence
+exists, report the latency boundary as unverified rather than passing it.
 
 ## Model-scoped acceptance
 
@@ -80,8 +88,10 @@ like a coverage harness. Follow the repository `Playtest Experience
 Constitution` in `AGENTS.md`. In this skill that means:
 
 - Load the same path as ordinary play: `coc-main` → mode protocol →
-  `coc-keeper-play` → `coc-story-director`, then other skills as needed. Use
-  the unified toolbox. Do not invent a thinner test-only Keeper.
+  `coc-keeper-play`, then route further instructions only when their case
+  arises. Load `coc-story-director` only when the Keeper is unsure what the
+  next beat should accomplish. Use the unified toolbox. Do not invent a
+  thinner test-only Keeper.
 - Do not thin KP craft to finish more modules, hit a scene checklist, meet a
   turn budget, or ship overnight. Coverage queues never authorize skipping
   director, narration, storylets, uptake, or table prose.
@@ -102,10 +112,14 @@ Constitution` in `AGENTS.md`. In this skill that means:
 
 ## Procedure
 
-1. Create the fresh run directory, select and record the model lane above,
-   then load `coc-main` and the normal gameplay skills, especially
-   `coc-keeper-play` and `coc-story-director`. Do not replace the Keeper with a
-   test driver or a rules/state-only facade.
+1. Create the fresh run directory, select and record the model lane above, then
+   load `coc-main`. For a fresh PDF with the opening-source coordinator, defer
+   `coc-keeper-play` until character/source readiness, but load it before
+   opening narration; the main KP does not load `coc-scenario-import`,
+   `trpg-pdf-ingest`, or `coc-campaign-state` because their owners receive the
+   needed contracts directly. Otherwise load `coc-keeper-play` normally. Load
+   Director and subsystem instructions only when their case arises. Do not
+   replace the Keeper with a test driver or a rules/state-only facade.
 2. Create a fresh isolated workspace and start a campaign through the normal
    plugin setup path.
 3. Spawn one player subagent with `fork_turns: none` and no model override.
@@ -156,8 +170,9 @@ battle report.
 
 ## PDF boundary
 
-The repository does not parse PDFs. When a scenario source is a PDF, an
-external PDF skill on the host performs rendering, visual review, text and
+The repository does not parse PDFs. When a scenario source is a PDF, the
+designated source coordinator uses the external host PDF skill for rendering,
+visual review, text and
 asset extraction, and produces the versioned source bundle (prefer the host's
 existing PDF capability; if none, the open-source openai/skills curated
 `pdf` workflow). The plugin may only validate and hydrate that bundle through

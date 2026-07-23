@@ -28,6 +28,99 @@ state = _load("coc_state_proj_test", str(SCRIPTS / "coc_state.py"))
 time = _load("coc_time_proj_test", str(SCRIPTS / "coc_time.py"))
 
 
+@pytest.fixture(autouse=True)
+def _disable_async_queue_worker_for_projection_tests(monkeypatch):
+    """Keep deterministic projection tests free of real background writers."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+
+
+def _revision_bundle(
+    tmp_path: Path, pdf: Path, *, layer: str, revision: int, text: bytes,
+) -> Path:
+    root = tmp_path / f"bundle-{layer}-{revision}"
+    root.mkdir()
+    (root / "page.md").write_bytes(text)
+    manifest = {
+        "schema_version": 1, "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:revision-scope", "title": "Revision Scope",
+            "path": str(pdf),
+            "file_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+            "page_count": 1,
+        },
+        "pages": [{
+            "pdf_index": 0, "markdown_path": "page.md",
+            "text_sha256": hashlib.sha256(text).hexdigest(),
+            "review_state": "manual_accepted", "parse_confidence": 0.99,
+            "grep_anchors": [],
+            "ocr_revision": {
+                "stable_id": f"page:0:{layer}", "pdf_index": 0,
+                "layer": layer, "revision": revision,
+                "content_sha256": ("a" if layer == "fast" else "b") * 64,
+                "fast_confidence_revision": 1,
+            },
+        }],
+    }
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return root
+
+
+def _exercise_resolve_source_scope_explicit_bundle_upgrade(tmp_path: Path) -> None:
+    pdf = tmp_path / "revision.pdf"
+    pdf.write_bytes(b"%PDF revision fixture")
+    fast = _revision_bundle(
+        tmp_path, pdf, layer="fast", revision=1, text=b"Fast page\n",
+    )
+    detail = _revision_bundle(
+        tmp_path, pdf, layer="detail", revision=1, text=b"Detailed page\n",
+    )
+    registered = assets.register_source_bundle(
+        tmp_path, fast, asset_root_id="revision-scope",
+    )
+    campaign_id = "revision-campaign"
+    campaign_dir = tmp_path / ".coc" / "campaigns" / campaign_id
+    (campaign_dir / "scenario").mkdir(parents=True)
+    (campaign_dir / "scenario" / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "progressive_asset_root_id": registered["asset_root_id"],
+    }), encoding="utf-8")
+    host_work = (
+        tmp_path / ".coc" / "module-assets" / "revision-scope" / "host-work"
+    )
+    host_work.mkdir()
+    old_job = {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-awaiting-scope", "kind": "deepen_location",
+        "target_id": "archive", "priority": 50, "reason": "locator",
+        "status": "open", "dispatch_state": "awaiting_scope",
+        "requested_pdf_indices": [], "cached_page_refs": [],
+        "work_level": "near_term",
+    }
+    (host_work / "job-awaiting-scope.json").write_text(
+        json.dumps(old_job), encoding="utf-8",
+    )
+
+    resolved = project.resolve_source_scope(
+        tmp_path, campaign_id, job_id="job-awaiting-scope",
+        kind="location", target_id="archive",
+        source_bundle_path=detail, pdf_indices=[0],
+    )
+
+    assert resolved["registered_pdf_indices"] == [0]
+    assert resolved["source_reuse"] is False
+    refs = assets._cached_source_refs(
+        tmp_path, "revision-scope", {"source_page_indices": [0]},
+        field="explicit_upgrade",
+    )
+    assert refs[0]["ocr_revision"]["layer"] == "detail"
+
+
+def test_resolve_source_scope_explicit_bundle_can_upgrade_cached_page(
+    tmp_path: Path,
+):
+    _exercise_resolve_source_scope_explicit_bundle_upgrade(tmp_path)
+
+
 def test_compact_queue_reports_current_open_host_work_not_history():
     queue = {
         "schema_version": 1,
@@ -702,6 +795,43 @@ def test_source_start_clock_applies_without_redundant_module_era(tmp_path: Path)
     )
     assert time_state["clock"]["local_datetime"] == "1937-10-13T10:00:00"
     assert time_state["clock"]["timezone"] == "Europe/Samara"
+
+
+def test_source_start_clock_preserves_authored_phase_without_inventing_date(
+    tmp_path: Path,
+):
+    skeleton = json.loads(json.dumps(_skeleton()))
+    skeleton["module_identity"].pop("era", None)
+    skeleton.pop("era", None)
+    skeleton["start_clock_status"] = "source"
+    skeleton["start_clock"] = {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+        "display": "上午十点（日期未注明）",
+        "time_precision": "day_phase",
+        "day_phase_hint": "morning",
+    }
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="prog-demo",
+        identity={"canonical_module_id": "prog-demo"},
+        file_sha256=FAKE_SHA,
+    )
+    assets.put_skeleton(tmp_path, "prog-demo", skeleton)
+    camp = _make_campaign(tmp_path)
+
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+
+    time_state = json.loads(
+        (camp / "save" / "time-state.json").read_text(encoding="utf-8")
+    )
+    assert time_state["clock"]["local_datetime"] is None
+    assert time_state["clock"]["local_date"] is None
+    assert time_state["clock"]["time_precision"] == "day_phase"
+    assert time_state["clock"]["day_phase_hint"] == "morning"
+    assert time.current_stamp(camp)["day_phase"] == "morning"
 
 
 def test_later_progressive_projection_preserves_zero_elapsed_clock_discontinuity(

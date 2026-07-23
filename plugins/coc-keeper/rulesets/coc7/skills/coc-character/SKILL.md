@@ -31,12 +31,23 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   order, roll a pool then assign results, point-buy 460, or Quick Fire array.
   Record the selected method in the creation draft and validate fixed/point-buy
   values with `../../../../scripts/coc_character.py`.
+- **Quick Fire deterministic materialization:** after semantic assignment,
+  submit `creation.method="quick_fire_array"`,
+  `creation.characteristic_assignment_order` as the eight unique canonical
+  characteristic keys in descending array-slot order, and
+  `creation.luck_roll_total` as the authoritative 3D6 total. Omit
+  `sheet.characteristics` and `sheet.derived`; `investigator.create` copies the
+  configured `[80,70,60,60,50,50,50,40]` array, multiplies Luck by five, and
+  derives HP/MP/SAN/DB/Build/MOV deterministically. The Keeper still owns the
+  concept and semantic priority order. Complete-sheet legacy creation remains
+  valid when those two materialization fields are absent.
 - **Quick-Fire Luck exact recipe:** invoke `coc_invoke` exactly once with
   `operation="rules.roll_dice"`, the current campaign, and `arguments`
   containing exactly `expression="3D6"`, a stable creation-scoped
   `decision_id`, and `reason="Quick-Fire investigator Luck"`. Reuse the same
   `decision_id` value on retry. Apply the COC7 creation formula to the
-  authoritative returned total (`Luck = total × 5`). Do not call `rules.roll`,
+  authoritative returned total as `creation.luck_roll_total`; the setup rules
+  layer performs `Luck = total × 5`. Do not call `rules.roll`,
   invent `rules.roll_expression`, browse the `setup` or `rules` catalogs, omit
   `decision_id`, or send the unsupported expression `3D6*5`. This exact dice
   recipe preserves deterministic rolls; investigator concept, characteristic
@@ -48,9 +59,25 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   object (never a JSON-encoded string) whose payload contains only
   `investigator_id`, `sheet`, and optional sibling `creation`. Before sending,
   ensure the machine `sheet` itself contains `id` equal to that same
-  `investigator_id`, a non-empty `name`, and all eight `characteristics`
+  `investigator_id` and a non-empty `name`. Except for the deterministic Quick
+  Fire materialization shape above, include all eight `characteristics`
   (`STR`, `CON`, `SIZ`, `DEX`, `APP`, `INT`, `POW`, `EDU`), while preserving
-  the rest of the confirmed sheet. After its PASS receipt, attach it with the
+  the rest of the confirmed sheet. Before the create call, do one machine-sheet
+  checklist: `derived` has `HP`, `MP`, `SAN`, `Luck`, `DB`, `Build`, and `MOV`;
+  a named creation method still validates against its rules array/budget; and
+  every `skills` key is the canonical English machine key, including exact
+  `Credit Rating`. Never put Chinese labels such as `信用评级` or `侦查` in
+  `sheet.skills`; localized labels belong only in `player_facing_sheet_zh`.
+  Compute derived values through the COC7 rules contract rather than translating
+  or estimating them. In the machine sheet, zero damage bonus is the canonical
+  string `"none"`, never the display value `"0"`; `Build` remains integer `0`.
+  The setup operation rejects an invalid machine sheet
+  before writing reusable character state. If the normal flow will render a Chinese
+  card, put the confirmed localized view in `sheet.player_facing_sheet_zh`
+  before this one create call; do not postpone it until after the machine sheet
+  has been stored. If that localized view is intentionally absent, skip
+  `investigator.render_card` and continue setup—the card is not an opening
+  gate. After the create PASS receipt, attach it with the
   exact `campaign.link_investigator` payload (`campaign_id` and the
   `investigator_ids` array), then call `investigator.render_card` with
   `campaign_id`, `investigator_id`, and only its optional `language` /

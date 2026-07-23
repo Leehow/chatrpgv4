@@ -22,11 +22,10 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import {
-  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   defineTool,
   getAgentDir,
@@ -43,29 +42,26 @@ const { Type } = require("typebox");
 const PROSE_DEGRADE_NOTE =
   "narrator_missing_tool_use: model returned prose without coc_keeper_narration";
 
-export function resolveRequestedModel({ agentDir, provider, modelId }) {
-  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const modelRegistry = ModelRegistry.create(
-    authStorage,
-    path.join(agentDir, "models.json"),
-  );
-  let model = modelRegistry.find(provider, modelId);
+export async function resolveRequestedModel({ agentDir, provider, modelId }) {
+  const modelRuntime = await ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
+  let model = modelRuntime.getModel(provider, modelId);
   if (!model && (provider === "coding-relay" || provider === "cursor-relay")) {
-    const template = modelRegistry
-      .getAll()
+    const template = modelRuntime
+      .getModels(provider)
       .find(
-        (candidate) =>
-          candidate.provider === provider &&
-          modelRegistry.hasConfiguredAuth(candidate),
+        (candidate) => modelRuntime.hasConfiguredAuth(candidate.provider),
       );
     if (template) {
       model = { ...template, id: modelId, name: modelId };
     }
   }
-  if (!model || !modelRegistry.hasConfiguredAuth(model)) {
+  if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
     throw new Error(`requested model unavailable: ${provider}/${modelId}`);
   }
-  return { model, modelRegistry };
+  return { model, modelRuntime };
 }
 
 const AUTHORIZED_RENDERING_EQUIVALENCE_POLICY =
@@ -1411,14 +1407,18 @@ export function buildCompactNarratorCorrectionPrompt(
 }
 
 export async function callDirectNarrator(request, provider, modelId, agentDir) {
-  const { model, modelRegistry } = resolveRequestedModel({
+  const { model, modelRuntime } = await resolveRequestedModel({
     agentDir, provider, modelId,
   });
-  if (model.api !== "openai-completions" || typeof model.baseUrl !== "string") {
+  if (model.api !== "openai-completions") {
     return null;
   }
-  const auth = await modelRegistry.getApiKeyAndHeaders(model);
-  if (!auth.ok) throw new Error(auth.error);
+  const authResult = await modelRuntime.getAuth(model);
+  if (!authResult) throw new Error(`No API key found for "${model.provider}"`);
+  const requestModel = authResult.auth.baseUrl
+    ? { ...model, baseUrl: authResult.auth.baseUrl }
+    : model;
+  if (typeof requestModel.baseUrl !== "string") return null;
   const deadline = createNarratorDeadline();
   const responseShape = {
     final_text: "2-6 short player-visible tabletop sentences in play_language",
@@ -1439,10 +1439,13 @@ export async function callDirectNarrator(request, provider, modelId, agentDir) {
   try {
     const headers = {
       "content-type": "application/json",
-      ...(auth.headers || {}),
+      ...Object.fromEntries(
+        Object.entries(authResult.auth.headers || {}).filter((entry) => entry[1] !== null),
+      ),
     };
-    if (auth.apiKey && !Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
-      headers.authorization = `Bearer ${auth.apiKey}`;
+    if (authResult.auth.apiKey &&
+        !Object.keys(headers).some((key) => key.toLowerCase() === "authorization")) {
+      headers.authorization = `Bearer ${authResult.auth.apiKey}`;
     }
     const allowed = buildAllowedAssertionMap(request.narration_envelope);
     const forbidden = forbiddenRefsFromEnvelope(request.narration_envelope);
@@ -1468,7 +1471,7 @@ export async function callDirectNarrator(request, provider, modelId, agentDir) {
               "use decision different_fact only, or omit the asserted ref if safety is uncertain. " +
               "Never audit an allowed ref unless it is also listed in asserted_fact_refs.",
           ].join("\n\n");
-      const generation = await fetchStructuredJsonCompletion(model, headers, [
+      const generation = await fetchStructuredJsonCompletion(requestModel, headers, [
           {
             role: "system",
             content: SYSTEM_PROMPT +
@@ -1742,14 +1745,14 @@ export async function runNarration(request, serverState = null) {
   let ownsSession = false;
   if (!session) {
     await loader.reload();
-    const { model, modelRegistry } = resolveRequestedModel({
+    const { model, modelRuntime } = await resolveRequestedModel({
       agentDir,
       provider,
       modelId,
     });
     const created = await createAgentSession({
       cwd, agentDir, tools: ["coc_keeper_narration"], customTools: [tool],
-      model, modelRegistry,
+      model, modelRuntime,
       resourceLoader: loader, sessionManager: SessionManager.inMemory(cwd),
     });
     session = created.session;

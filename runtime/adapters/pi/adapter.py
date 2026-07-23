@@ -1,4 +1,4 @@
-"""Compatibility Pi adapter: a bounded narrator, never a rules proxy."""
+"""Narrator Bridge (frozen): a bounded narrator, never a rules proxy or Pi Package."""
 from __future__ import annotations
 
 import importlib.util

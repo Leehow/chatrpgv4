@@ -80,13 +80,64 @@ _ZH_SKILLS = {
     "Stealth": "潜行", "Track": "追踪",
 }
 
+# Authored zh-Hans display labels for the two shipped starter pregens only.
+# Machine sheet ``equipment`` stays English (stable inventory ids); player-
+# facing lists are fixed authored content, not open free-text translation.
+_PREGEN_EQUIPMENT_ZH: dict[str, list[str]] = {
+    "thomas-hayes": [
+        "笔记本与短铅笔",
+        "一套开锁器",
+        "手电筒",
+        "对文员比警察更管用的徽章",
+    ],
+    "eleanor-reed": [
+        "采访本",
+        "钢笔",
+        "箱式相机与闪光药",
+        "致两位城市编辑的介绍信",
+    ],
+}
+
+
+def _pregen_equipment_zh(pregen_id: str) -> list[str] | None:
+    labels = _PREGEN_EQUIPMENT_ZH.get(pregen_id)
+    return list(labels) if labels is not None else None
+
+
+def _player_facing_equipment_labels(equipment: Any) -> list[str]:
+    """Normalize a player-facing equipment list into display strings."""
+    if not isinstance(equipment, list):
+        return []
+    labels: list[str] = []
+    for item in equipment:
+        if isinstance(item, str) and item.strip():
+            labels.append(item.strip())
+        elif isinstance(item, dict):
+            label = item.get("label") or item.get("name")
+            if isinstance(label, str) and label.strip():
+                labels.append(label.strip())
+    return labels
+
 
 def ensure_pregen_player_facing_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
     """Build the complete zh-Hans display layer for shipped starter pregens."""
     if not isinstance(sheet, dict) or str(sheet.get("id") or "") not in KNOWN_STARTER_PREGENS:
         return sheet
-    if isinstance(sheet.get("player_facing_sheet_zh"), dict):
-        return sheet
+    pregen_id = str(sheet.get("id") or "")
+    zh_equipment = _pregen_equipment_zh(pregen_id)
+    existing = sheet.get("player_facing_sheet_zh")
+    if isinstance(existing, dict):
+        # Older pregens already carry a pf sheet without equipment; fill only
+        # the missing display field without rewriting the rest.
+        if _player_facing_equipment_labels(existing.get("equipment")):
+            return sheet
+        if zh_equipment is None:
+            return sheet
+        out = dict(sheet)
+        out_pf = dict(existing)
+        out_pf["equipment"] = zh_equipment
+        out["player_facing_sheet_zh"] = out_pf
+        return out
     out = dict(sheet)
     characteristics = sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
     derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
@@ -136,6 +187,7 @@ def ensure_pregen_player_facing_sheet(sheet: dict[str, Any]) -> dict[str, Any]:
             for key, value in skills.items()
         ],
         "weapons": player_weapons,
+        "equipment": list(zh_equipment or []),
         "backstory_summary": bound.get("description"),
         "backstory_details": details,
     }

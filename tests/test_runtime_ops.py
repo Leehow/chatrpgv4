@@ -2148,6 +2148,26 @@ def test_pi_operation_router_accepts_structured_semantics_and_fails_closed(tmp_p
     }
 
 
+def test_bind_pdf_field_error_names_every_missing_and_unsupported_field(tmp_path):
+    with pytest.raises(
+        ops.RuntimeOperationError,
+        match=(
+            r"missing: scenario_id, title; unsupported: scenario_title; "
+            r"allowed: campaign_id, compile_now, scenario_id, "
+            r"source_bundle_path, title"
+        ),
+    ):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "scenario.bind_pdf",
+            "payload": {
+                "campaign_id": "custom",
+                "scenario_title": "Custom Module",
+                "source_bundle_path": str(tmp_path / "module-source"),
+            },
+        })
+
+
 def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_path):
     campaign = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
@@ -2168,8 +2188,11 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
             "STR": 50, "CON": 50, "SIZ": 50, "DEX": 50,
             "APP": 50, "INT": 50, "POW": 50, "EDU": 50,
         },
-        "derived": {"HP": 10, "SAN": 50, "MP": 10},
-        "skills": {},
+        "derived": {
+            "HP": 10, "SAN": 50, "MP": 10, "Luck": 60,
+            "DB": "none", "Build": 0, "MOV": 8,
+        },
+        "skills": {"Credit Rating": 20},
         "player_facing_sheet_zh": {
             "display_name": "自定义调查员",
             "era": "1920s",
@@ -2199,6 +2222,11 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
         },
     })
     assert linked["result"]["investigator_ids"] == ["custom-inv"]
+    runtime_state = json.loads(
+        (tmp_path / ".coc" / "campaigns" / "custom" / "save"
+         / "investigator-state" / "custom-inv.json").read_text(encoding="utf-8")
+    )
+    assert runtime_state["current_luck"] == 60
 
     card = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
@@ -2211,7 +2239,6 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     assert card["status"] == "PASS"
     assert card["result"]["language"] == "zh-Hans"
     assert (tmp_path / card["result"]["markdown_path"]).is_file()
-
     pdf = tmp_path / "module.pdf"
     pdf.write_bytes(b"%PDF host-owned fixture")
     source_bundle = tmp_path / "module-source"
@@ -2294,6 +2321,76 @@ def test_setup_gateway_creates_campaign_investigator_link_and_pdf_binding(tmp_pa
     })
     assert rerendered["status"] == "PASS"
     assert rerendered["result"]["briefing_path"] == briefing_path
+
+
+def test_investigator_create_rejects_localized_machine_skills_before_write(tmp_path):
+    sheet = {
+        "schema_version": 1,
+        "id": "localized-inv",
+        "name": "Localized Investigator",
+        "characteristics": {
+            "STR": 80, "CON": 70, "SIZ": 60, "DEX": 60,
+            "APP": 50, "INT": 50, "POW": 50, "EDU": 40,
+        },
+        "derived": {
+            "HP": 13, "MP": 10, "SAN": 50, "Luck": 60,
+            "DB": "+1D4", "Build": 1, "MOV": 7,
+        },
+        "skills": {"信用评级": 20, "侦查": 50},
+    }
+
+    with pytest.raises(ops.RuntimeOperationError, match="canonical English"):
+        ops.execute_setup_operation(tmp_path, operation={
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": {
+                "investigator_id": "localized-inv",
+                "sheet": sheet,
+                "creation": {"method": "quick_fire_array"},
+            },
+        })
+
+    assert not (tmp_path / ".coc" / "investigators" / "localized-inv").exists()
+
+
+def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_path):
+    ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "campaign.create",
+        "payload": {"campaign_id": "quick-fire", "title": "Quick Fire"},
+    })
+    receipt = ops.execute_setup_operation(tmp_path, operation={
+        "schema_version": 1,
+        "kind": "investigator.create",
+        "payload": {
+            "investigator_id": "quick-fire-inv",
+            "sheet": {
+                "id": "quick-fire-inv",
+                "name": "Quick Fire Investigator",
+                "age": 29,
+                "skills": {"Credit Rating": 20, "Spot Hidden": 60},
+            },
+            "creation": {
+                "method": "quick_fire_array",
+                "characteristic_assignment_order": [
+                    "DEX", "INT", "POW", "EDU",
+                    "CON", "SIZ", "APP", "STR",
+                ],
+                "luck_roll_total": 12,
+            },
+        },
+    })
+
+    assert receipt["status"] == "PASS"
+    stored = json.loads(
+        (tmp_path / ".coc" / "investigators" / "quick-fire-inv"
+         / "character.json").read_text(encoding="utf-8")
+    )
+    assert sorted(stored["characteristics"].values()) == [
+        40, 50, 50, 50, 60, 60, 70, 80,
+    ]
+    assert stored["derived"]["Luck"] == 60
+    assert stored["derived"]["DB"] == "none"
 
 
 def test_suffocation_lifecycle_is_persisted_and_roll_traced(tmp_path):

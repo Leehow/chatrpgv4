@@ -83,8 +83,16 @@ def _custom_setup_investigator_sheet(investigator_id: str) -> dict:
             "POW": 50,
             "EDU": 50,
         },
-        "derived": {"HP": 10, "SAN": 50, "MP": 10},
-        "skills": {},
+        "derived": {
+            "HP": 10,
+            "SAN": 50,
+            "MP": 10,
+            "Luck": 60,
+            "DB": "none",
+            "Build": 0,
+            "MOV": 8,
+        },
+        "skills": {"Credit Rating": 20},
         "player_facing_sheet_zh": {
             "display_name": "MCP 自定义调查员",
             "era": "1920s",
@@ -477,6 +485,16 @@ def test_grok_mcp_uses_canonical_launcher_and_capabilities(monkeypatch):
     assert envelope["data"]["mcp_wire"]["gateway_tools"] == [
         "coc_capabilities", "coc_discover", "coc_invoke",
     ]
+    assert envelope["data"]["mcp_wire"]["transport_contract"] == {
+        "root": (
+            "pass the current host workspace absolute path on every "
+            "coc_invoke call"
+        ),
+        "campaign": (
+            "pass the active campaign id on every campaign-bound "
+            "coc_invoke call"
+        ),
+    }
     cold_start = envelope["data"]["cold_start"]
     inspect_card = cold_start["empty_or_unknown_workspace"]
     assert {
@@ -518,6 +536,46 @@ def test_grok_mcp_uses_canonical_launcher_and_capabilities(monkeypatch):
     assert payload_schema["properties"]["html_mode"]["enum"] == [
         "never", "auto", "always",
     ]
+
+    monkeypatch.setenv("COC_HOST", "codex")
+    codex = server._call_tool("coc_capabilities", {})["data"]
+    opening = codex["cold_start"]["opening_source_coordinator"]
+    assert opening["copy_task_static_verbatim"] is True
+    assert opening["task_variable_fields"] == [
+        "workspace_root",
+        "pdf_path",
+        "pdf_sha256",
+        "campaign_id",
+        "scenario_id",
+        "title",
+        "era",
+        "play_language",
+        "source_bundle_id",
+        "source_bundle_path",
+        "opening_locator_pdf_indices",
+    ]
+    assert opening["pdf_identity_before_dispatch"] == {
+        "required": True,
+        "fields": ["pdf_path", "pdf_sha256"],
+        "page_or_title_read_by_main_keeper": False,
+    }
+    static = opening["task_static"]
+    assert static["instruction_ref"] == os.fspath(
+        PLUGIN_ROOT / "agents" / "coc-opening-source-coordinator.md"
+    )
+    assert static["contract_ref"] == os.fspath(
+        PLUGIN_ROOT / "references" / "opening-source-coordinator-v1.json"
+    )
+    assert set(static["instruction_refs"]) == {"pdf_skill"}
+    assert all(
+        Path(path).is_absolute()
+        for path in (
+            static["instruction_ref"],
+            static["contract_ref"],
+            *static["instruction_refs"].values(),
+        )
+    )
+    monkeypatch.setenv("COC_HOST", "grok")
 
     listed = server._handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tool_names = [tool["name"] for tool in listed["result"]["tools"]]
@@ -1158,9 +1216,38 @@ def test_coc_invoke_long_tail_and_structured_errors(monkeypatch, tmp_path):
     assert bad_root["error"]["code"] == "invalid_root"
 
 
+def test_coc_invoke_never_uses_plugin_storage_as_campaign_root(monkeypatch):
+    server = _load_server()
+    monkeypatch.setenv("COC_HOST", "codex")
+    monkeypatch.setattr(server, "_default_root", lambda: server.PLUGIN_ROOT)
+
+    implicit = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.inspect",
+            "arguments": {},
+        },
+    )
+    assert implicit["ok"] is False
+    assert implicit["error"]["code"] == "workspace_root_required"
+    assert not (server.PLUGIN_ROOT / ".coc").is_dir()
+
+    explicit = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "setup.inspect",
+            "root": os.fspath(server.PLUGIN_ROOT),
+            "arguments": {},
+        },
+    )
+    assert explicit["ok"] is False
+    assert explicit["error"]["code"] == "workspace_root_required"
+
+
 def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     server = _load_server()
     monkeypatch.setenv("COC_HOST", "grok")
+    monkeypatch.setattr(server, "_PROCESS_ACTIVE_CAMPAIGN", None)
 
     inspected = server._call_tool("coc_invoke", {
         "operation": "setup.inspect",
@@ -1235,6 +1322,15 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         / "scenario"
         / "scenario.json"
     ).is_file()
+
+    fresh_status = server._call_tool("coc_invoke", {
+        "operation": "progressive.status",
+        "root": os.fspath(tmp_path),
+        "campaign": "mcp-custom",
+        "arguments": {},
+    })
+    assert fresh_status["ok"] is True, fresh_status
+    assert "context_rehydration" not in fresh_status
 
     rerendered = invoke("campaign.render_briefing", {
         "campaign_id": "mcp-custom",
@@ -2232,27 +2328,21 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
             "kind": "ready_background_source_work",
             "authority": "advisory",
             "hard_gate": False,
-            "claim_operation": {
-                "operation": "progressive.claim_host_work",
-                "invoke_via": "coc_invoke",
-                "prefilled_arguments": {"limit": 1},
-                "missing_arguments": ["executor_id"],
-                "authority": "advisory",
-                "hard_gate": False,
-            },
-            "coordinator_dispatch": server.toolbox._source_coordinator_dispatch(
-                workspace_root="/workspace",
-                campaign_id="scene-progressive",
-                asset_root_id="source-root",
-                ready_background=[{
-                    "job_id": "job-mechanics",
-                    "work_group_id": "source-work-mechanics",
-                }],
+            "dispatch_mode": "direct_single_leaf",
+            "direct_single_leaf_dispatch": (
+                server.toolbox._source_direct_single_dispatch(
+                    workspace_root="/workspace",
+                    campaign_id="scene-progressive",
+                    asset_root_id="source-root",
+                )
             ),
             "host_dispatch": {
                 "worker_profile": "coc-source-pack-worker",
                 "background": True,
-                "packet_binding": "one exact returned packets[] value per child",
+                "packet_binding": (
+                    "one exact returned dispatch_tasks[] value per child when "
+                    "result_delivery=named_submit"
+                ),
                 "direct_submit_parent_waits": False,
                 "direct_submit_parent_result_polls": 0,
                 "direct_submit_parent_output_retrieval": False,
@@ -2381,37 +2471,36 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert returned["ready_background_requests"][0]["job_id"] == (
         "job-mechanics"
     )
-    claim = returned["background_takeover"]["claim_operation"]
-    assert claim["operation"] == "progressive.claim_host_work"
-    assert claim["missing_arguments"] == ["executor_id"]
-    assert claim["hard_gate"] is False
-    assert claim["discovery_required"] is False
-    assert claim["contract_ref"].startswith("progressive.claim_host_work@")
-    coordinator = returned["background_takeover"]["coordinator_dispatch"]
-    assert coordinator["agent_type"] == "coc-source-coordinator"
-    assert coordinator["run_in_background"] is True
-    assert coordinator["packet"]["contract_id"] == (
-        "coc.source-coordinator.v1"
+    takeover = returned["background_takeover"]
+    assert "claim_operation" not in takeover
+    assert takeover["dispatch_mode"] == "direct_single_leaf"
+    assert "coordinator_dispatch" not in takeover
+    direct = takeover["direct_single_leaf_dispatch"]
+    assert direct["agent_type"] == "coc-source-pack-worker"
+    assert direct["run_in_background"] is True
+    assert direct["codex_parent_claims"] is False
+    assert direct["codex_task"]["contract_id"] == (
+        "coc.codex-source-pack-claim-task.v1"
     )
-    coordinator_claim = coordinator["packet"]["claim_operation"]
-    assert coordinator_claim["operation"] == "progressive.claim_host_work"
-    assert coordinator_claim["missing_arguments"] == []
-    assert coordinator_claim["prefilled_arguments"]["limit"] == 1
-    assert coordinator_claim["prefilled_arguments"]["result_delivery"] == (
-        "return_to_parent"
+    direct_claim = direct["codex_task"]["claim_operation"]
+    assert direct_claim["operation"] == "progressive.claim_host_work"
+    assert direct_claim["missing_arguments"] == []
+    assert direct_claim["prefilled_arguments"]["limit"] == 1
+    assert direct_claim["prefilled_arguments"]["result_delivery"] == (
+        "task_return_to_parent"
     )
-    assert coordinator_claim["discovery_required"] is False
-    assert coordinator_claim["contract_ref"].startswith(
+    assert direct_claim["discovery_required"] is False
+    assert direct_claim["contract_ref"].startswith(
         "progressive.claim_host_work@"
     )
-    coordinator_fulfill = coordinator["packet"]["fulfill_operation"]
-    assert coordinator_fulfill["operation"] == "progressive.fulfill_host_work"
-    assert coordinator_fulfill["missing_arguments"] == ["worker_result"]
-    assert coordinator_fulfill["discovery_required"] is False
-    assert coordinator_fulfill["contract_ref"].startswith(
-        "progressive.fulfill_host_work@"
-    )
-    assert coordinator["codex_task"]["packet"] == coordinator["packet"]
+    completion = direct["completion_operation"]
+    assert completion["operation"] == "progressive.fulfill_host_work"
+    assert completion["discovery_required"] is False
+    assert completion["arguments_schema"]["properties"]["worker_result"][
+        "required"
+    ] == [
+        "job_id", "pack", "related_packs",
+    ]
     boundary = returned["background_takeover"]["play_boundary"]
     assert boundary["player_action_gate"] is False
     assert boundary["narrative_gate"] is False
@@ -2422,6 +2511,85 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert dispatch["direct_submit_parent_result_polls"] == 0
     assert dispatch["direct_submit_parent_output_retrieval"] is False
     assert dispatch["direct_submit_parent_calls_fulfill_host_work"] is False
+
+
+def test_mcp_wire_progressive_status_keeps_coordinator_when_requests_are_large():
+    server = _load_server()
+    coordinator = server.toolbox._source_coordinator_dispatch(
+        workspace_root="/workspace",
+        campaign_id="status-progressive",
+        asset_root_id="source-root",
+        ready_background=[{
+            "job_id": "job-opening",
+            "work_group_id": "source-work-opening",
+        }],
+    )
+    takeover = {
+        "schema_version": 1,
+        "kind": "ready_background_source_work",
+        "authority": "advisory",
+        "hard_gate": False,
+        "claim_operation": {
+            "operation": "progressive.claim_host_work",
+            "invoke_via": "coc_invoke",
+            "prefilled_arguments": {"limit": 1},
+            "missing_arguments": ["executor_id"],
+        },
+        "coordinator_dispatch": coordinator,
+    }
+    huge_request = {
+        "job_id": "job-opening",
+        "kind": "partial_opening",
+        "target_id": "opening",
+        "requested_pdf_indices": [357],
+        "deadline_class": "blocking_micro",
+        "work_group_id": "source-work-opening",
+        "dispatch_state": "ready",
+        "dispatch_attempts": 0,
+        "cached_scope_complete": True,
+        "result_contract": {"oversized": "x" * 200_000},
+    }
+    projected = server.wire_projection.project_envelope(
+        "progressive.status",
+        {
+            "ok": True,
+            "tool": "progressive.status",
+            "data": {
+                "progressive": True,
+                "asset_root_id": "source-root",
+                "queue": {"schema_version": 1, "done_count": 1},
+                "worker": {"running": True},
+                "source_cache": {"cached_pdf_indices": [357]},
+                "host_work": {
+                    "open_count": 1,
+                    "ready_for_background_count": 1,
+                    "leased_count": 0,
+                    "needs_source_window_count": 0,
+                    "requests": [huge_request],
+                },
+                "background_takeover": takeover,
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert projected["wire"]["full_result_bytes"] > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["payload_projected"] is True
+    assert projected["wire"].get("identity_only") is not True
+    returned = projected["data"]["background_takeover"]
+    assert returned["coordinator_dispatch"]["codex_task"]["packet"] == (
+        returned["coordinator_dispatch"]["packet"]
+    )
+    assert returned["coordinator_dispatch"]["packet"]["claim_operation"][
+        "discovery_required"
+    ] is False
+    assert "result_contract" not in projected["data"]["host_work"][
+        "requests"
+    ][0]
 
 
 def test_resume_budget_keeps_progressive_takeover_after_scene_reduction():
@@ -2682,16 +2850,16 @@ def test_mcp_wire_resume_uses_typed_recovery_index_before_identity_only():
                         "background_takeover": {
                             "schema_version": 1,
                             "kind": "ready_background_source_work",
+                            "dispatch_mode": "direct_single_leaf",
+                            "direct_single_leaf_dispatch": (
+                                server.toolbox._source_direct_single_dispatch(
+                                    workspace_root="/workspace",
+                                    campaign_id="recovery-index",
+                                    asset_root_id="recovery-source-root",
+                                )
+                            ),
                             "authority": "advisory",
                             "hard_gate": False,
-                            "claim_operation": {
-                                "operation": "progressive.claim_host_work",
-                                "invoke_via": "coc_invoke",
-                                "prefilled_arguments": {"limit": 1},
-                                "missing_arguments": ["executor_id"],
-                                "authority": "advisory",
-                                "hard_gate": False,
-                            },
                             "play_boundary": {
                                 "player_action_gate": False,
                                 "narrative_gate": False,
@@ -2723,9 +2891,10 @@ def test_mcp_wire_resume_uses_typed_recovery_index_before_identity_only():
     assert progressive["ready_background_requests"][0]["job_id"] == (
         "job-recovery-mechanics"
     )
-    assert progressive["background_takeover"]["claim_operation"][
-        "operation"
-    ] == "progressive.claim_host_work"
+    assert "claim_operation" not in progressive["background_takeover"]
+    assert progressive["background_takeover"][
+        "direct_single_leaf_dispatch"
+    ]["codex_parent_claims"] is False
     assert progressive["background_takeover"]["hard_gate"] is False
     assert data["semantic_capsule"]["detail_operation"]["operation"] == (
         "session.continuation_detail"
@@ -2790,6 +2959,43 @@ def test_mcp_wire_npc_reaction_carries_exact_engagement_contract():
     }
     assert "root" not in card["arguments_schema"]["properties"]
     assert "campaign" not in card["arguments_schema"]["properties"]
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+
+
+def test_mcp_wire_scene_context_keeps_authored_npc_identity_refs():
+    server = _load_server()
+    projected = server.wire_projection.project_envelope(
+        "scene.context",
+        {
+            "ok": True,
+            "tool": "scene.context",
+            "data": {
+                "campaign_id": "identity-projection",
+                "active_scene_id": "opening",
+                "scene": {"scene_type": "investigation"},
+                "npcs_present": [{
+                    "npc_id": "npc-a",
+                    "name": "NPC A",
+                    "origin": "source",
+                    "identity_ref": "npc-identity-v2:abc123",
+                    "profile_revision_ref": "npc-profile-v2:def456",
+                }],
+                "exits": [],
+                "clues_here": [],
+                "action_routes": [],
+            },
+            "warnings": [],
+            "hints": [],
+        },
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    npc = projected["data"]["npcs_present"][0]
+    assert npc["identity_ref"] == "npc-identity-v2:abc123"
+    assert npc["profile_revision_ref"] == "npc-profile-v2:def456"
     assert server.wire_projection.transport_bytes(projected) <= (
         server.wire_projection.MAX_INLINE_BYTES
     )

@@ -4,6 +4,7 @@ pdf/
 __pycache__/
 .pytest_cache/
 node_modules
+web/frontend/dist/
 .venv/
 runtime/adapters/pi/node_modules
 runtime/adapters/narrator/node_modules

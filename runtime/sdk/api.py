@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 def _load_session_module():
@@ -64,8 +64,11 @@ def send(
     *,
     player_intent: dict[str, Any] | None = None,
     rng_seed: int | str | None = None,
+    on_keeper_stream: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Run one full keeper-agent turn for this player input.
+
+    ``on_keeper_stream`` receives best-effort live keeper progress events.
 
     Raises:
         UnknownSessionError: with stable ``kind == "unknown_session"`` when
@@ -74,7 +77,7 @@ def send(
     _load_paths_module().validate_id(session_id, "session_id")
     return _session.send(
         session_id, player_input, player_intent=player_intent,
-        rng_seed=rng_seed,
+        rng_seed=rng_seed, on_keeper_stream=on_keeper_stream,
     )
 
 

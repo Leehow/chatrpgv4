@@ -212,6 +212,10 @@ contract above still applies. This is the natural rhythm:
    value, and achieved level. The realization must explain the NPC's concrete
    immediate response while preserving authored agenda, existing relationship,
    scene/safety/authority constraints, and the investigator's actual conduct.
+   If several first contacts occur in the same opening or beat, keep the
+   pair-specific operations separate but issue all independent `npc.reaction`
+   tool calls in one host batch, followed by all independent engagement writes
+   in one host batch. Never serialize one model round trip per NPC.
    A critical or fumble first impression needs its own independent
    source-bound `state.exceptional_effect`; multiple exceptional first
    impressions in one journal never share or overwrite an effect.
@@ -329,8 +333,13 @@ depend on the missing numbers may continue. A source/special item still calls
 Authored appendix or chapter-end data always wins. If `mechanics.ensure`
 returns `source_work_required`, or `combat.resolve` returns
 `mechanics_not_ready`, immediately invoke `progressive.claim_host_work` and
-spawn its exact packet as the focused unqualified `coc-source-pack-worker` with
-`background=true`. Never bypass the request with `rules.roll`,
+spawn its exact returned `dispatch_tasks[0]` as the focused unqualified
+`coc-source-pack-worker` with
+`background=true` before any other host operation. The successful claim has
+already started the lease clock. On a task-return path, forward each exact
+returned `results[i]` once through `progressive.fulfill_host_work` when the
+child completes naturally; never poll or retrieve output. Never bypass the
+request with `rules.roll`,
 `rules.opposed`, `rules.damage`, copied stub values, or a generic profile. The
 current mechanics-dependent settlement may remain pending under the existing
 `blocking_micro` semantics; this adds no new narrative or output gate, and
@@ -412,6 +421,15 @@ This preserves bounded checkpoint and continuation budgets.
 
 ## Background progressive source packs
 
+An `awaiting_scope` row is advisory locator debt, not claimable source-pack
+work. On Codex, when the scene projection exposes `source_scope_takeover` and
+capabilities advertise `coc_source_scope_locator_v1=true`, launch its exact
+context-free task once using the stable `dispatch_key`. The child performs the
+bounded external-PDF locator and calls `progressive.resolve_source_scope`; the
+main KP never reads pages, waits, polls, or claims while
+`ready_for_background_count=0`. After scope registration, the existing
+claim/leaf/fulfill path handles the replacement row unchanged.
+
 `coc.source-pack-worker.v1` is a separate source-compilation contract, not the
 scene adviser and never a second Keeper. Use it only when host capabilities say
 `coc_source_pack_worker_v1=true`. The canonical machine contract is
@@ -450,27 +468,49 @@ not background work. Do not read the full module, neighboring-location packets,
 or appendix/mechanics pages.
 
 After that setup request, or after an enter/dig/mechanics call exposes open host
-work, prefer the exact coordinator dispatch above when its distinct capability
-is present. Otherwise invoke `progressive.claim_host_work` under the separately
-advertised direct-leaf capability with a stable host/session executor id
+work, follow the projection's `dispatch_mode`. One ready group uses
+`direct_single_leaf`: execute its one host-selected `next_host_action` before
+any other host operation. On Codex this spawns the exact small task; the child
+claims and compiles its one packet in the same task, so the parent never leases
+a full packet before spawn. Its Tier 1 result
+returns naturally to the spawning parent, which forwards each exact
+`results[i]` once through the action's returned natural-completion operation
+without polling, output retrieval, or rediscovery. A named-submit host receives
+only its own claim-and-spawn action. Multiple independent groups use one of two
+host-selected multi-leaf modes:
+- `coordinator_fanout` when `coc_source_coordinator_v1=true` (Codex nested
+  manager -> leaf exact-forward).
+- `parent_flat_fanout` when `coc_source_parent_fanout_v1=true` (Grok depth-1
+  top-level manager): execute the exact `claim_then_spawn_named_workers`
+  `next_host_action` once—claim with the prefilled limit and
+  `result_delivery=named_submit`, then spawn one background unqualified
+  `coc-source-pack-worker` per returned `dispatch_tasks[]` value. Never nest a
+  coordinator, retrieve child output, or call `progressive.fulfill_host_work`.
+If neither multi-leaf capability is advertised, fall back to one direct-leaf
+claim under `coc_source_pack_worker_v1` with a stable host/session executor id
 and a limit no greater than `max_background_source_workers`. During the
 pre-confirmation warm start, claim once only. The operation coalesces exact page
-scopes, leases them for crash recovery, and returns one bare
-`coc.source-pack-worker.v1` packet per independent page group. It only leases
+scopes, leases them for crash recovery, and for `named_submit` returns one exact
+`coc.codex-source-pack-task.v1` dispatch task per independent page group. The
+Codex direct-single child claims with `task_return_to_parent`; its inner packet
+uses `return_to_parent` because a generic native child does not inherit the
+source-submit-only MCP. It only leases
 fully cached scopes in v1. If a request needs uncached pages, the main host PDF
 skill creates the smallest exact source-bundle window, registers it through
 `progressive.register_source_bundle`, and claims again; never let repository
 code or the child parse the original PDF.
 
-The serialized claimed packet JSON is the entire child task prompt: add no
+The serialized returned dispatch task JSON is the entire child task prompt: add no
 prefix, suffix, transcript, optional-row request, or schema hint. On Grok,
 actually spawn the focused unqualified `coc-source-pack-worker` with
 `background=true` and its installed-plugin projection's narrow read plus
 named-submit profile; do not use the plugin-qualified agent (Grok 0.2.106
 suppresses plugin-subagent MCPs) or override it with
-`capability_mode=read-only`. Use one bare packet per task. On Codex, use the native
-background-subagent adapter with the identical packet and workspace-read-only
-authority. Because Codex has no direct text-read tool, its child may use only
+`capability_mode=read-only`. Use one exact dispatch task per child. On Codex,
+use the native background-subagent adapter with the exact small claim task and
+workspace-read-only authority. The child may first invoke the one supplied
+authoritative interpreter/toolbox `--json-stdin` claim command. Because Codex
+has no direct text-read tool, it may otherwise use only
 `/bin/cat -- <exact cached_page_refs.path>` as the read transport—no search,
 pipe, redirect, second command, PDF open, or write. Retain each real task ID only
 in volatile host-session context, never module truth, campaign truth, or the

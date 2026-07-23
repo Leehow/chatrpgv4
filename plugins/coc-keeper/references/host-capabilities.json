@@ -11,7 +11,13 @@
     "coc_source_coordinator_v1": false,
     "coc_source_coordinator_v1_status": "unavailable",
     "coc_source_coordinator_v1_adapter": "unavailable",
-    "max_source_coordinator_leaves": 0
+    "max_source_coordinator_leaves": 0,
+    "coc_source_parent_fanout_v1": false,
+    "coc_source_parent_fanout_v1_status": "unavailable",
+    "coc_source_parent_fanout_v1_adapter": "unavailable",
+    "coc_source_scope_locator_v1": false,
+    "coc_source_scope_locator_v1_status": "unavailable",
+    "coc_source_scope_locator_v1_adapter": "unavailable"
   },
   "codex": {
     "plugin_skills": true,
@@ -25,7 +31,16 @@
     "coc_source_coordinator_v1": true,
     "coc_source_coordinator_v1_status": "experimental",
     "coc_source_coordinator_v1_adapter": "codex_nested_cli_exact_forward",
-    "max_source_coordinator_leaves": 4
+    "max_source_coordinator_leaves": 4,
+    "coc_source_parent_fanout_v1": false,
+    "coc_source_parent_fanout_v1_status": "unavailable",
+    "coc_source_parent_fanout_v1_adapter": "nested_coordinator_preferred",
+    "coc_opening_source_coordinator_v1": true,
+    "coc_opening_source_coordinator_v1_status": "experimental",
+    "coc_opening_source_coordinator_v1_adapter": "codex_context_free_inline_source",
+    "coc_source_scope_locator_v1": true,
+    "coc_source_scope_locator_v1_status": "experimental",
+    "coc_source_scope_locator_v1_adapter": "codex_background_pdf_locator"
   },
   "cursor": {
     "plugin_skills": true,
@@ -39,7 +54,10 @@
     "coc_source_coordinator_v1": false,
     "coc_source_coordinator_v1_status": "unavailable",
     "coc_source_coordinator_v1_adapter": "nested_mcp_unavailable_2026_07_17",
-    "max_source_coordinator_leaves": 0
+    "max_source_coordinator_leaves": 0,
+    "coc_source_parent_fanout_v1": false,
+    "coc_source_parent_fanout_v1_status": "unavailable",
+    "coc_source_parent_fanout_v1_adapter": "unavailable"
   },
   "grok": {
     "plugin_skills": true,
@@ -53,7 +71,27 @@
     "coc_source_coordinator_v1": false,
     "coc_source_coordinator_v1_status": "unavailable",
     "coc_source_coordinator_v1_adapter": "nested_task_depth_unsupported",
-    "max_source_coordinator_leaves": 0
+    "max_source_coordinator_leaves": 0,
+    "coc_source_parent_fanout_v1": true,
+    "coc_source_parent_fanout_v1_status": "experimental",
+    "coc_source_parent_fanout_v1_adapter": "grok_top_level_named_submit"
+  },
+  "pi": {
+    "plugin_skills": true,
+    "plugin_mcp": true,
+    "native_imagegen": false,
+    "isolated_player_agent": false,
+    "native_background_subagent": true,
+    "coc_advisory_sidecar_v1": false,
+    "coc_source_pack_worker_v1": false,
+    "max_background_source_workers": 0,
+    "coc_source_coordinator_v1": true,
+    "coc_source_coordinator_v1_status": "experimental",
+    "coc_source_coordinator_v1_adapter": "pi_private_lifecycle",
+    "max_source_coordinator_leaves": 4,
+    "coc_source_parent_fanout_v1": false,
+    "coc_source_parent_fanout_v1_status": "unavailable",
+    "coc_source_parent_fanout_v1_adapter": "nested_coordinator_component_only"
   },
   "kimi": {
     "plugin_skills": true,
@@ -67,7 +105,10 @@
     "coc_source_coordinator_v1": false,
     "coc_source_coordinator_v1_status": "unavailable",
     "coc_source_coordinator_v1_adapter": "unavailable",
-    "max_source_coordinator_leaves": 0
+    "max_source_coordinator_leaves": 0,
+    "coc_source_parent_fanout_v1": false,
+    "coc_source_parent_fanout_v1_status": "unavailable",
+    "coc_source_parent_fanout_v1_adapter": "unavailable"
   },
   "zcode": {
     "plugin_skills": true,
@@ -81,6 +122,9 @@
     "coc_source_coordinator_v1": false,
     "coc_source_coordinator_v1_status": "unavailable",
     "coc_source_coordinator_v1_adapter": "unavailable",
-    "max_source_coordinator_leaves": 0
+    "max_source_coordinator_leaves": 0,
+    "coc_source_parent_fanout_v1": false,
+    "coc_source_parent_fanout_v1_status": "unavailable",
+    "coc_source_parent_fanout_v1_adapter": "unavailable"
   }
 }

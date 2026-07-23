@@ -91,6 +91,113 @@ def test_valid_bundle_is_deterministically_formatted_and_hydration_ready(tmp_pat
     assert "source_bundle_path" not in source
 
 
+def test_ocr_revision_is_closed_normalized_and_digest_bound(tmp_path):
+    root = _bundle(tmp_path)
+    manifest = _manifest(root)
+    manifest["pages"][0]["ocr_revision"] = {
+        "stable_id": "page:0:fast",
+        "pdf_index": 0,
+        "layer": "fast",
+        "revision": 2,
+        "content_sha256": "a" * 64,
+        "fast_confidence_revision": 2,
+    }
+    _write_manifest(root, manifest)
+    first = bundle_module.load_host_bundle(root)
+    assert first["pages"][0]["ocr_revision"] == manifest["pages"][0]["ocr_revision"]
+
+    manifest["pages"][0]["ocr_revision"]["revision"] = 3
+    _write_manifest(root, manifest)
+    second = bundle_module.load_host_bundle(root)
+    assert second["bundle_sha256"] != first["bundle_sha256"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda row: row.update(extra=True), "unknown keys"),
+        (lambda row: row.update(stable_id="page:1:fast"), "stable_id"),
+        (lambda row: row.update(pdf_index=1), "pdf_index"),
+        (lambda row: row.update(layer="layout"), "layer"),
+        (lambda row: row.update(revision=0), "positive integer"),
+        (lambda row: row.update(content_sha256="A" * 64), "lowercase"),
+        (lambda row: row.update(fast_confidence_revision=0), "positive integer"),
+    ],
+)
+def test_rejects_invalid_ocr_revision_identity(tmp_path, mutation, message):
+    root = _bundle(tmp_path)
+    manifest = _manifest(root)
+    revision = {
+        "stable_id": "page:0:fast", "pdf_index": 0, "layer": "fast",
+        "revision": 1, "content_sha256": "a" * 64,
+    }
+    mutation(revision)
+    manifest["pages"][0]["ocr_revision"] = revision
+    _write_manifest(root, manifest)
+    with pytest.raises(bundle_module.PdfSourceBundleError, match=message):
+        bundle_module.load_host_bundle(root)
+
+
+def test_valid_bundle_preserves_hashed_paddleocr_page_structure(tmp_path):
+    root = _bundle(tmp_path)
+    structured = {
+        "schema_version": 1,
+        "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6",
+        "source_page_ordinal": 0,
+        "dataInfo": {"width": 1200, "height": 1600, "type": "image"},
+        "prunedResult": {
+            "width": 1200,
+            "height": 1600,
+            "parsing_res_list": [{
+                "block_label": "text",
+                "block_content": "Extracted text.",
+                "block_bbox": [1, 2, 3, 4],
+            }],
+        },
+    }
+    structured_bytes = (
+        json.dumps(structured, ensure_ascii=False, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    (root / "pages/0000.ocr.json").write_bytes(structured_bytes)
+    manifest = _manifest(root)
+    manifest["pages"][0]["structured_data"] = {
+        "path": "pages/0000.ocr.json",
+        "sha256": _sha(structured_bytes),
+        "format": "paddleocr-vl-layout-v1",
+        "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6",
+    }
+    _write_manifest(root, manifest)
+
+    formatted = bundle_module.load_host_bundle(root)
+
+    structured_page = formatted["pages"][0]["structured_data"]
+    assert structured_page["sha256"] == _sha(structured_bytes)
+    assert structured_page["format"] == "paddleocr-vl-layout-v1"
+    assert json.loads(structured_page["text"])["prunedResult"][
+        "parsing_res_list"
+    ][0]["block_label"] == "text"
+
+
+def test_rejects_paddleocr_structured_page_hash_drift(tmp_path):
+    root = _bundle(tmp_path)
+    structured_path = root / "pages/0000.ocr.json"
+    structured_path.write_text("{}\n", encoding="utf-8")
+    manifest = _manifest(root)
+    manifest["pages"][0]["structured_data"] = {
+        "path": "pages/0000.ocr.json",
+        "sha256": "0" * 64,
+        "format": "paddleocr-vl-layout-v1",
+        "producer": "baidu-paddleocr-jobs",
+        "model": "PaddleOCR-VL-1.6",
+    }
+    _write_manifest(root, manifest)
+
+    with pytest.raises(bundle_module.PdfSourceBundleError, match="SHA-256"):
+        bundle_module.load_host_bundle(root)
+
+
 def test_hydration_rejects_missing_bundle_with_codex_pdf_skill_instruction():
     with pytest.raises(
         hydration.ScenarioHydrationError,
