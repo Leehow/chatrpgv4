@@ -86,36 +86,20 @@ const unsub = session.subscribe((event) => {
   }
 });
 
-function waitForSettled(timeoutMs) {
-  // A KP turn completes on agent_end (definitive) or agent_settled. We also
-  // poll for a quiet period after the LAST event seen, but cap with a HARD
-  // absolute timeout (not reset by streaming events) so a long thinking stream
-  // cannot extend the wait indefinitely.
-  return new Promise((resolve) => {
-    const startedAt = Date.now();
-    let lastEventAt = Date.now();
-    let sawAssistantText = false;
-    const u = session.subscribe((ev) => {
-      lastEventAt = Date.now();
-      if (ev.type === "message_end" && (ev.message || {}).role === "assistant") {
-        const c = (ev.message || {}).content;
-        const hasText = typeof c === "string" ? c.trim() : Array.isArray(c) && c.some((p) => p.type === "text" && (p.text || "").trim());
-        if (hasText) sawAssistantText = true;
-      }
-      if (ev.type === "agent_end" || ev.type === "agent_settled") { cleanup(); resolve("settled"); }
-    });
-    const cleanup = () => { u(); clearInterval(interval); };
-    const interval = setInterval(() => {
-      // Quiet for 12s after seeing assistant TEXT (not just tool calls) => done.
-      if (sawAssistantText && Date.now() - lastEventAt > 12000) {
-        cleanup(); resolve("quiet_after_text");
-      }
-      // HARD absolute timeout: never reset by events.
-      if (Date.now() - startedAt > timeoutMs) {
-        cleanup(); resolve("timeout");
-      }
-    }, 1000);
+// sendUserMessage's own Promise resolves when the KP turn fully completes
+// (including all internal tool-call rounds). We do NOT need a separate
+// waitForSettled — earlier versions waited for agent_end/agent_settled which
+// the welcome auto-open-table background activity suppresses, hanging forever.
+// A hard timeout races the promise as a safety net only.
+function sendAndWait(content, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
+  return Promise.race([
+    session.sendUserMessage(content).then(() => "completed"),
+    timeout,
+  ]).finally(() => clearTimeout(timer));
 }
 
 const turns = [];
@@ -124,8 +108,7 @@ for (let i = 0; i < messages.length; i++) {
   const t0 = Date.now();
   let status = "unknown";
   try {
-    await session.sendUserMessage(messages[i]);
-    status = await waitForSettled(PER_TURN_TIMEOUT_MS);
+    status = await sendAndWait(messages[i], PER_TURN_TIMEOUT_MS);
   } catch (e) {
     status = `exception: ${e.message}`;
   }
