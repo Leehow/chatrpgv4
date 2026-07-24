@@ -1309,6 +1309,35 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     }
             else:
                 data, warnings, hints = spec["handler"](ctx, args)
+            # For write operations (access=mutation), attach a scene revision
+            # hint so the KP can avoid the redundant scene.context full-fetch
+            # it normally does after every write to "confirm" the new state.
+            # The revision token lets the next scene.context use since_revision
+            # to return not_modified if nothing else changed.
+            if (
+                spec.get("access") != "query"
+                and ctx.campaign_dir is not None
+                and not name.startswith("progressive.")
+            ):
+                try:
+                    ws_domains = _working_set_domain_paths(
+                        ctx, ("scene", "world", "clues", "npc_presence", "party", "time")
+                    )
+                    _rv, _token = coc_working_set_cache.revision_vector(
+                        ctx.campaign_dir, ws_domains
+                    )
+                    revision_token = f"ws-v1-{_token[:24]}"
+                    if not isinstance(hints, list):
+                        hints = list(hints) if hints else []
+                    hints.append(
+                        f"scene state was updated; to check it, call scene.context "
+                        f"with since_revision={revision_token} (returns not_modified "
+                        f"if unchanged, avoiding a full re-fetch) — or simply reuse "
+                        f"the last scene.context result since writes preserve prior "
+                        f"context unless a scene transition occurred"
+                    )
+                except Exception:
+                    pass  # best-effort; never block a successful write
             envelope = {
                 "ok": True,
                 "tool": name,
