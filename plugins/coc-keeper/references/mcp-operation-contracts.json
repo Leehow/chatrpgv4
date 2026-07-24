@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:bb0109073b999c3885fdeb7acd63cfa87931972d9c7faa4f0e22a60138c9df91",
+  "content_sha256": "sha256:de2b2855c0f7853a5a359121abb8ee2ef32a1bd44330d8762de2160d45ecb65d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3586,6 +3586,9 @@
           },
           "rest_kind": {
             "description": "currently exactly full_sleep; a structured KP assertion, not text classification",
+            "enum": [
+              "full_sleep"
+            ],
             "type": "string"
           },
           "root": {

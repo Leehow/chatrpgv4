@@ -19160,7 +19160,7 @@ def _tool_state_time_appearance(ctx: Ctx, args: dict[str, Any]):
             "type": "string",
             "desc": "localized imprecise civil-time display paired with day_phase_after",
         },
-        "decision_id": {"type": "string", "desc": "idempotency key"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_state_advance_time(ctx: Ctx, args: dict[str, Any]):
@@ -19305,8 +19305,8 @@ def _tool_state_clock_discontinuity(ctx: Ctx, args: dict[str, Any]):
     "Record that one investigator completed a full sleep in a safe place after its elapsed time was advanced. Resets the canonical rest anchor read by Director continuity; never inferred from prose.",
     {
         "investigator": {"type": "string", "desc": "investigator id (optional when party has one member)"},
-        "rest_kind": {"type": "string", "required": True, "desc": "currently exactly full_sleep; a structured KP assertion, not text classification"},
-        "decision_id": {"type": "string", "desc": "idempotency key"},
+        "rest_kind": {"type": "string", "required": True, "enum": ["full_sleep"], "desc": "currently exactly full_sleep; a structured KP assertion, not text classification"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
     },
 )
 def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
