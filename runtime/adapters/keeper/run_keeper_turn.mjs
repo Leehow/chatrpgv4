@@ -491,6 +491,13 @@ export function keeperSystemPrompt(request) {
     "Your FINAL assistant message must echo turn.finalize.rendered_text byte-for-byte.",
     "Do not add tool logs, JSON, meta commentary, or text before/after it. The receipt",
     "already owns immersive fiction plus the exact public dice and state/context changes.",
+    "",
+    "CRITICAL OUTPUT DISCIPLINE: Every assistant text block you emit is potentially",
+    "visible to the player. NEVER write internal reasoning, tool-call planning, parameter",
+    "debugging, schema exploration, or decision process as assistant text. Your thinking",
+    "belongs in tool calls only. If you need to reason about which tool to call next,",
+    "just call it — do not narrate your planning to the player. Text like 'Let me create",
+    "the campaign first' or 'Setup returned an identity-only projection' is a defect.",
   ].join("\n");
 }
 
@@ -715,6 +722,7 @@ async function createKeeperSession(request) {
     noTools: "builtin",
     model,
     modelRuntime,
+    thinkingLevel: "off",
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
   });

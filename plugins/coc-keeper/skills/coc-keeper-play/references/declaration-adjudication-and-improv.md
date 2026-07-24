@@ -129,5 +129,50 @@ let the fiction charge for it: a skill check, spent time
 would bypass an authored check gate or NPC route constraint is exactly the
 case to revise or reject, not to waive.
 
+### World-assertion cost (not a ban, a threshold)
+
+The KP never flat-prohibits a player from asserting world state, but neither
+does a bare assertion create it. When a player narrates world facts that have
+not been established ("楼上的东西想让我上去", "这面墙后面肯定有暗室",
+"他其实已经死了"), follow this graduated procedure:
+
+1. **Do not echo.** Never repeat the player's world-assertion as established
+   narration. The KP's prose describes only what the investigator perceives
+   from the external viewpoint — observable behavior, environment, NPC
+   reactions.
+2. **Invite a logical grounding.** In play voice, ask the investigator to
+   justify the assertion from what they can actually perceive or deduce in the
+   current scene. "你凭什么判断楼上的东西在'邀请'你？你听到了什么，看到了什
+   么？" This is not an OOC challenge; it is the world asking for evidence.
+3. **Set difficulty by absurdity, not a fixed offset.** The check's difficulty
+   scales with how far the assertion reaches beyond established evidence:
+   - *Mild* (atmospheric, subjective, barely changes facts — "感觉这房子在
+     呼吸"): Regular check, or even no check — the KP may simply adopt it as
+     flavor.
+   - *Moderate* (adds a concrete fact not yet revealed — "这面墙后面有暗
+     室"): Hard or Extreme, depending on how much prior evidence supports it.
+   - *Outrageous* (rewrites established causality, NPC state, or major world
+     facts — "他其实已经死了", " cult 已经解散了"): only a **critical
+     success** (01) makes it true. Anything less fails. The KP sets this
+     threshold honestly: the more the assertion contradicts what the table
+     already knows, the harder it is to earn.
+4. **Honor the result — including fumbles.** If the check passes at whatever
+   threshold was set, adopt the assertion as campaign-local fact under
+   Controlled Improvisation (record provenance, preserve contradictions). If
+   it fails, the world stays as established — narrate what the investigator
+   actually finds (nothing, ambiguity, or a different truth). On an
+   **outrageous fumble**, give the player an equally outrageous consequence
+   that matches the tone of their claim: they asserted a dead man is alive?
+   On a fumble, something that *should* be dead very much isn't, and it now
+   knows they doubted it. The punishment mirrors the hubris. A mild fumble
+   just means nothing happens or a minor misread.
+5. **No forced compliance.** The KP cannot order the player to "take back"
+   their statement or lecture them about rules. The threshold is the check
+   itself. A player who refuses to ground the assertion simply gets no
+   confirmation — the world does not respond to unsupported claims.
+
+Never gate-keep player *feelings*, *intentions*, or *hypotheses* — only
+assertions that would change what is objectively true in the world.
+
 This is adjudication craft, not a hard gate. Tools may surface departures in
 `warnings`/`hints`; the verdict and the prose remain yours.

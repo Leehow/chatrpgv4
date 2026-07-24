@@ -168,19 +168,23 @@ def _party_ids(party: Any) -> list[str]:
 
 
 def _campaign_relative(run_dir: Path, metadata: Any) -> str | None:
-    campaigns = run_dir / "sandbox" / ".coc" / "campaigns"
     campaign_id = metadata.get("campaign_id") if isinstance(metadata, dict) else None
-    if campaign_id:
-        relative = f"sandbox/.coc/campaigns/{campaign_id}"
-        candidate = _safe_source_path(run_dir, relative)
-        if candidate.is_dir() and not candidate.is_symlink():
-            return relative
-    if not campaigns.is_dir() or campaigns.is_symlink():
-        return None
-    choices = sorted(
-        path for path in campaigns.iterdir() if path.is_dir() and not path.is_symlink()
-    )
-    return choices[0].relative_to(run_dir).as_posix() if len(choices) == 1 else None
+    prefixes = ("sandbox/.coc/campaigns", ".coc/campaigns")
+    for prefix in prefixes:
+        if campaign_id:
+            relative = f"{prefix}/{campaign_id}"
+            candidate = _safe_source_path(run_dir, relative)
+            if candidate.is_dir() and not candidate.is_symlink():
+                return relative
+        campaigns = run_dir / Path(prefix)
+        if not campaigns.is_dir() or campaigns.is_symlink():
+            continue
+        choices = sorted(
+            path for path in campaigns.iterdir() if path.is_dir() and not path.is_symlink()
+        )
+        if len(choices) == 1:
+            return choices[0].relative_to(run_dir).as_posix()
+    return None
 
 
 def _is_dialogue_row(row: Any) -> bool:
@@ -603,6 +607,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
 
     campaign_relative = _campaign_relative(run_dir, raw_metadata)
 
+    if not metadata and campaign_relative:
+        campaign_json_relative = f"{campaign_relative}/campaign.json"
+        campaign_json = _read_source(run_dir, campaign_json_relative, "json", manifest)
+        if isinstance(campaign_json, dict):
+            metadata_source = campaign_json_relative
+            raw_metadata = campaign_json
+            metadata = _safe_metadata(campaign_json)
+
     final_path = run_dir / "transcript.jsonl"
     partial_path = run_dir / "partial-transcript.jsonl"
     canonical_transcript_relative = (
@@ -658,9 +670,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
 
     party = _read_source(run_dir, f"{campaign_relative}/party.json", "json", manifest) if campaign_relative else None
     investigator_ids = _party_ids(party)
-    roots = [run_dir / "sandbox" / ".coc" / "investigators"]
+    roots = [run_dir / "sandbox" / ".coc" / "investigators", run_dir / ".coc" / "investigators"]
     if campaign_relative:
         roots.insert(0, run_dir / campaign_relative / "save" / "investigator-state")
+        roots.insert(1, run_dir / campaign_relative / "investigators")
     for root in roots:
         if not root.is_dir() or root.is_symlink():
             continue
@@ -671,9 +684,20 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
 
     investigators: list[dict[str, Any]] = []
     for investigator_id in investigator_ids:
-        base = f"sandbox/.coc/investigators/{investigator_id}"
-        character = _read_source(run_dir, f"{base}/character.json", "json", manifest)
-        creation = _read_source(run_dir, f"{base}/creation.json", "json", manifest)
+        character = creation = None
+        character_bases = [
+            f"sandbox/.coc/investigators/{investigator_id}",
+            f".coc/investigators/{investigator_id}",
+        ]
+        if campaign_relative:
+            character_bases.insert(1, f"{campaign_relative}/investigators/{investigator_id}")
+        for base in character_bases:
+            if character is None:
+                character = _read_source(run_dir, f"{base}/character.json", "json", manifest)
+            if creation is None:
+                creation = _read_source(run_dir, f"{base}/creation.json", "json", manifest)
+            if character is not None:
+                break
         state = _read_source(
             run_dir, f"{campaign_relative}/save/investigator-state/{investigator_id}.json",
             "json", manifest,

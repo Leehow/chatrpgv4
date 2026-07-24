@@ -42,7 +42,7 @@ def test_style_guard_contract_requires_observable_behavior_before_interpretation
     uptake = guard["action_uptake_review"]
     assert uptake["authority"] == "advisory"
     assert uptake["hard_gate"] is False
-    assert "method, target, precautions, constraints" in uptake["instruction"]
+    assert "method, target, precautions, spoken dialogue" in uptake["instruction"]
 
 
 def test_repetition_policy_does_not_suppress_current_player_action_uptake():

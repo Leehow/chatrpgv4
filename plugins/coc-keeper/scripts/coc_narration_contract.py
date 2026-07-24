@@ -1726,13 +1726,21 @@ def build_narration_envelope(
             "render_policy": {
                 "when": "the player commits to an in-fiction action or speech",
                 "instruction": (
-                    "Naturally enact the player's declared action from the "
-                    "investigator's in-world viewpoint before or while revealing "
-                    "its settled outcome. Preserve the player's method, target, "
-                    "stated precautions, constraints, and meaningful spoken words."
+                    "Enact the player's declared action as independent "
+                    "world-perspective prose: preserve the semantic facts "
+                    "(method, target, precautions, spoken dialogue) but write "
+                    "the scene from the table's external viewpoint — environment "
+                    "reacts, senses engage, NPCs perceive. Spoken dialogue may "
+                    "be rendered verbatim as in-fiction quotes; action "
+                    "description and framing are the KP's own prose, not the "
+                    "player's sentence structure with the pronoun swapped. "
+                    "Player assertions about world state are input to "
+                    "adjudicate, not narration to repeat."
                 ),
                 "do_not": [
+                    "clone_player_sentence_structure_with_pronoun_swap",
                     "quote_or_paraphrase_the_whole_message_as_a_summary",
+                    "repeat_player_world_assertions_as_established_fiction",
                     "invent_additional_investigator_actions",
                     "force_meta_questions_planning_or_hypotheticals_into_fiction",
                     "treat_current_action_uptake_as_semantic_repetition",

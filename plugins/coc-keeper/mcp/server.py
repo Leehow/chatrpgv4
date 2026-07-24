@@ -373,60 +373,11 @@ def _discover(
         full_tool = contract_archive.mcp_tool_from_contract(
             contract, mcp_name=_mcp_tool_name(operation)
         )
-        # Slim the inputSchema: keep param names, types, required, enums —
-        # drop verbose per-param desc/long text. KP rarely needs the full
-        # description on every discover; the tool's top-level description
-        # plus param names are usually enough. This cuts ~61% of schema
-        # bytes from the LLM context (the #1 token consumer).
-        full_schema = full_tool.get("inputSchema") if isinstance(full_tool, dict) else None
-        if isinstance(full_schema, dict) and isinstance(full_schema.get("properties"), dict):
-            slim_props = {}
-            for pname, pspec in full_schema["properties"].items():
-                if not isinstance(pspec, dict):
-                    continue
-                # Truncate verbose descriptions to keep parameter meaning
-                # for the KP while cutting the few very long descriptions
-                # (>120 chars) that dominate schema bytes.
-                _SLIM_DESC_MAX = 80
-                slim_props[pname] = {}
-                for k, v in pspec.items():
-                    if k == "description" and isinstance(v, str) and len(v) > _SLIM_DESC_MAX:
-                        slim_props[pname][k] = v[:_SLIM_DESC_MAX - 3] + "..."
-                    elif k == "examples":
-                        continue  # examples are pure overhead in context
-                    else:
-                        slim_props[pname][k] = v
-            full_tool = dict(full_tool)
-            full_tool["inputSchema"] = {
-                "type": full_schema.get("type", "object"),
-                "properties": slim_props,
-                "required": full_schema.get("required", []),
-                "additionalProperties": full_schema.get("additionalProperties", False),
-            }
-        # Also slim the invoke_card's arguments_schema (it carries a full
-        # duplicate of the inputSchema with descriptions — 3k+ chars).
+        # Progressive disclosure: the catalog (no operation specified) stays
+        # slim, but a specific-operation discover returns the FULL schema with
+        # descriptions and examples. The model has already committed to using
+        # this tool — full information now prevents trial-and-error retries.
         invoke_card = _invoke_card(operation)
-        card_schema = invoke_card.get("arguments_schema") if isinstance(invoke_card, dict) else None
-        if isinstance(card_schema, dict) and isinstance(card_schema.get("properties"), dict):
-            slim_card_props = {}
-            _SLIM_CARD_MAX = 80
-            for pn, ps in card_schema["properties"].items():
-                if not isinstance(ps, dict): continue
-                slim_card_props[pn] = {}
-                for k, v in ps.items():
-                    if k == "description" and isinstance(v, str) and len(v) > _SLIM_CARD_MAX:
-                        slim_card_props[pn][k] = v[:_SLIM_CARD_MAX - 3] + "..."
-                    elif k == "examples":
-                        continue
-                    else:
-                        slim_card_props[pn][k] = v
-            invoke_card = dict(invoke_card)
-            invoke_card["arguments_schema"] = {
-                "type": card_schema.get("type", "object"),
-                "properties": slim_card_props,
-                "required": card_schema.get("required", []),
-                "additionalProperties": card_schema.get("additionalProperties", False),
-            }
         return {
             "ok": True,
             "canonical_operation": operation,

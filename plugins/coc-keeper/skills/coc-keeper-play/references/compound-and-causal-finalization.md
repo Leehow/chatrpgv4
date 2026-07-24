@@ -91,9 +91,12 @@ For every obligation:
 - If the player's declaration was abstract ("I con him with some story"),
   safely complete the concrete words or behavior from the current situation
   and investigator portrayal. Do not add a new goal or consequential choice.
-- If the player supplied concrete words or actions, preserve them. Show why
-  the NPC, obstacle, or world found that exact approach convincing,
-  insufficient, alarming, graceful, clumsy, or otherwise causally effective.
+- If the player supplied concrete words or actions, preserve the semantic
+  facts (what was done, said, and how) and narrate them as independent
+  world-perspective prose. Show why the NPC, obstacle, or world found that
+  approach convincing, insufficient, alarming, graceful, clumsy, or otherwise
+  causally effective. Spoken dialogue may be quoted verbatim; action
+  description is the KP's own prose, not the player's wording restated.
 - A higher achieved success tier buys fictional finesse, speed, confidence,
   discretion, durability, or quality appropriate to the settled goal. It does
   not silently enlarge the authorized goal.

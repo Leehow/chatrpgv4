@@ -255,11 +255,14 @@ def player_visible_style_guard_contract(language: str = "zh-Hans") -> dict[str, 
         "hard_gate": False,
         "required_when": "player_commits_to_in_fiction_action_or_speech",
         "instruction": (
-            "Check semantically whether the draft naturally enacts the current "
-            "player action in the fiction before or alongside its outcome. "
-            "Preserve the declared method, target, precautions, constraints, and "
-            "meaningful spoken words without echoing the whole player message or "
-            "inventing extra investigator actions. Do not require uptake for meta "
+            "Check semantically whether the draft enacts the current player "
+            "action as independent world-perspective prose before or alongside "
+            "its outcome. Preserve the semantic facts (method, target, "
+            "precautions, spoken dialogue) but verify the prose is NOT a "
+            "pronoun-swapped clone of the player's sentence structure. Spoken "
+            "dialogue may appear verbatim as in-fiction quotes; action "
+            "description should be the KP's own narration with environment "
+            "response and sensory detail. Do not require uptake for meta "
             "questions, planning, hypotheticals, or actions not yet committed."
         ),
     }
@@ -328,8 +331,11 @@ def player_facing_style_contract(language: str = "zh-Hans") -> dict[str, Any]:
         "instruction": (
             "Do not restate an already established semantic fact, clue, quotation, "
             "or NPC fear in full. After it is established, summarize ongoing "
-            "repetition in one short sentence. This does not apply to naturally "
-            "enacting the current player action in the fictional world."
+            "repetition in one short sentence. The current player action is "
+            "'not repetition' in the sense that it must be enacted (not skipped), "
+            "but enacted as independent world-perspective prose — not cloned from "
+            "the player's wording. The exemption means 'do narrate it'; it does "
+            "not mean 'reproduce the player's sentence structure.'"
         ),
     }
     guard = player_visible_style_guard_contract(language)

@@ -299,6 +299,12 @@ def _ordinary_turn_operations(mode: Any) -> dict[str, Any]:
     """Return bounded hot contracts appropriate to the resumed lifecycle."""
     if mode in {"awaiting_player", "open_turn_recovery"}:
         return {
+            "turn_sequence": [
+                "1. rules/state tools (rolls, clues, scenes, npc, time, exceptional)",
+                "2. state.journal (closes the turn; player_text byte-for-byte)",
+                "3. turn.output_context (returns obligations + finalize card)",
+                "4. turn.finalize (draft + coverage; then deliver rendered_text)",
+            ],
             "actions.advise": _operation_card(
                 "actions.advise",
                 missing=["player_text", "intent_evidence"],

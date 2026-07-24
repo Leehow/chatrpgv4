@@ -2324,9 +2324,9 @@ def test_mcp_wire_projection_keeps_resume_control_before_bounded_working_set():
     assert capsule["detail_operation"]["discovery_required"] is False
     hot = projected["data"]["ordinary_turn_operations"]
     assert set(hot) == {
-        "actions.advise", "state.journal", "turn.output_context",
+        "turn_sequence", "actions.advise", "state.journal", "turn.output_context",
     }
-    assert all(card["discovery_required"] is False for card in hot.values())
+    assert all(card["discovery_required"] is False for card in hot.values() if isinstance(card, dict))
     intent_schema = hot["actions.advise"]["arguments_schema"][
         "properties"
     ]["intent_evidence"]
@@ -2757,7 +2757,7 @@ def test_mcp_wire_open_turn_recovery_reuses_action_advice_hot_contract():
     )
     hot = projected["data"]["ordinary_turn_operations"]
     assert set(hot) == {
-        "actions.advise", "state.journal", "turn.output_context",
+        "turn_sequence", "actions.advise", "state.journal", "turn.output_context",
     }
     action_card = hot["actions.advise"]
     assert action_card["discovery_required"] is False
@@ -2951,7 +2951,7 @@ def test_mcp_wire_resume_uses_typed_recovery_index_before_identity_only():
         "session.continuation_detail"
     )
     assert set(data["ordinary_turn_operations"]) == {
-        "actions.advise", "state.journal", "turn.output_context",
+        "turn_sequence", "actions.advise", "state.journal", "turn.output_context",
     }
     assert "arguments_schema" in data["ordinary_turn_operations"][
         "actions.advise"
