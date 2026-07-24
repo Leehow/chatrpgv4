@@ -370,13 +370,38 @@ def _discover(
                 "ok": False,
                 "error": {"code": "unknown_tool", "message": operation},
             }
+        full_tool = contract_archive.mcp_tool_from_contract(
+            contract, mcp_name=_mcp_tool_name(operation)
+        )
+        # Slim the inputSchema: keep param names, types, required, enums —
+        # drop verbose per-param desc/long text. KP rarely needs the full
+        # description on every discover; the tool's top-level description
+        # plus param names are usually enough. This cuts ~61% of schema
+        # bytes from the LLM context (the #1 token consumer).
+        full_schema = full_tool.get("inputSchema") if isinstance(full_tool, dict) else None
+        if isinstance(full_schema, dict) and isinstance(full_schema.get("properties"), dict):
+            slim_props = {}
+            for pname, pspec in full_schema["properties"].items():
+                if not isinstance(pspec, dict):
+                    continue
+                # Drop verbose description/examples (~73% of schema bytes);
+                # keep all structural constraints (type, enum, pattern, etc).
+                slim_props[pname] = {
+                    k: v for k, v in pspec.items()
+                    if k not in ("description", "examples")
+                }
+            full_tool = dict(full_tool)
+            full_tool["inputSchema"] = {
+                "type": full_schema.get("type", "object"),
+                "properties": slim_props,
+                "required": full_schema.get("required", []),
+                "additionalProperties": full_schema.get("additionalProperties", False),
+            }
         return {
             "ok": True,
             "canonical_operation": operation,
             "content_sha256": CONTRACTS["content_sha256"],
-            "operation": contract_archive.mcp_tool_from_contract(
-                contract, mcp_name=_mcp_tool_name(operation)
-            ),
+            "operation": full_tool,
             "invoke_card": _invoke_card(operation),
         }
 

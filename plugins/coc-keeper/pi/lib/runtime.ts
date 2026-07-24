@@ -764,7 +764,35 @@ export class McpJsonlClient {
     this.chain = request.then(() => undefined, () => undefined);
     return request;
   }
+  // Client-side cache for static tool results. When a tool returns immutable
+  // data with a content hash (e.g. coc_discover's schema archive), subsequent
+  // identical calls are intercepted here — the full result is never re-sent
+  // to the MCP child or re-injected into the LLM context. The LLM does not
+  // need to pass any special parameter; dedup is automatic.
+  // Pattern: https://fast.io/resources/mcp-server-caching/ (middleware layer)
+  private staticCache = new Map<string, { sha: string; result: JsonObject }>();
+
   async callTool(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
+    // Build a cache key from tool name + sorted args (excluding since_* params).
+    const cacheKey = this._staticCacheKey(name, args);
+    if (cacheKey) {
+      const cached = this.staticCache.get(cacheKey);
+      if (cached) {
+        // Return a compact not_modified envelope instead of the full static
+        // payload. This is what the LLM sees in tool_result — a few bytes
+        // instead of thousands of chars of identical schema data.
+        return {
+          ok: true,
+          tool: name,
+          data: {
+            not_modified: true,
+            content_sha256: cached.sha,
+            hint: "this static result was already delivered earlier in this session; reuse the prior output",
+          },
+        } as unknown as JsonObject;
+      }
+    }
+
     const result = await this.request("tools/call", { name, arguments: args }, signal);
     let envelope: JsonObject | null = null;
     try {
@@ -775,7 +803,34 @@ export class McpJsonlClient {
     if (result.isError === true || envelope.ok !== true) {
       throw new Error(formatCanonicalToolFailure(name, result, envelope));
     }
+
+    // Cache static results that carry a content hash.
+    if (cacheKey) {
+      const sha = this._extractContentSha(envelope);
+      if (sha) this.staticCache.set(cacheKey, { sha, result: envelope });
+    }
     return envelope;
+  }
+
+  /** Build a dedup cache key for tools that return static data.
+   *  Returns null for tools that mutate state or return dynamic data. */
+  private _staticCacheKey(name: string, args: JsonObject): string | null {
+    // Only dedup known-static tools (read-only schema/metadata queries).
+    const staticTools = new Set(["coc_discover", "coc_capabilities"]);
+    if (!staticTools.has(name)) return null;
+    // coc_discover with different operation/domain args are different cache entries.
+    const op = args.operation ?? "";
+    const domain = args.domain ?? "";
+    return `${name}:${op}:${domain}`;
+  }
+
+  private _extractContentSha(envelope: JsonObject): string | null {
+    const data = envelope.data as JsonObject | undefined;
+    if (!data) return null;
+    const sha = data.content_sha256 as string | undefined;
+    if (sha) return sha;
+    const archive = data.archive as JsonObject | undefined;
+    return (archive?.content_sha256 as string) ?? null;
   }
   async close() {
     const child = this.child;
