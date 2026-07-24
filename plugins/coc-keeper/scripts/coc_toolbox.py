@@ -19379,6 +19379,33 @@ def _exceptional_roll_source(
             or payload.get("source_command_id")
             or ""
         )
+        roll_kind = logged_roll.get("kind") or payload.get("kind")
+        # A SAN check fumble is a legitimate exceptional result whose effect
+        # (san_loss) must bind through state.exceptional_effect.  The sanity
+        # check roll lives in logs/rolls.jsonl with kind=sanity_check.
+        if roll_kind == "sanity_check":
+            data = {
+                key: deepcopy(value)
+                for key, value in logged_roll.items()
+                if key != "payload"
+            }
+            for key, value in payload.items():
+                data.setdefault(key, deepcopy(value))
+            actor_id = data.get("actor")
+            if isinstance(actor_id, str) and actor_id in set(ctx.party_ids()):
+                data.setdefault("investigator_id", actor_id)
+            data.setdefault("pushed", False)
+            data.setdefault("visibility", str(logged_roll.get("visibility") or "consequence_public"))
+            return {
+                "tool": "rules.sanity_check",
+                "decision_id": source_command_id,
+                "roll_id": roll_id,
+                "roll_record": deepcopy(logged_roll),
+                "data": data,
+                _SOURCE_RECEIPT_INTEGRITY_KEY: coc_exceptional_effects.canonical_digest(
+                    logged_roll
+                ),
+            }
         if roll_role == "percentile_check" and source_command_id.startswith("combat-"):
             data = {
                 key: deepcopy(value)
