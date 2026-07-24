@@ -150,7 +150,10 @@ export function registerCocWelcome(
     }
 
     // Fresh dedicated desktop: open the table without waiting for「激活 COC」.
-    if (shouldAutoOpenTable(reason, fresh)) {
+    // Only in interactive TUI mode — headless/RPC has no player present, and
+    // auto-open's triggerTurn:true would launch a full KP opening turn that
+    // blocks the RPC prompt channel for minutes ("already processing").
+    if (ctx.mode === "tui" && shouldAutoOpenTable(reason, fresh)) {
       openTable();
     }
   });
