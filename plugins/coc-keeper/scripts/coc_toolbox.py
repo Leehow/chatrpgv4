@@ -11415,7 +11415,6 @@ def _turn_recovery_meaningful_tools() -> frozenset[str]:
     access="query",
     read_domains=_CONTINUATION_DOMAINS,
     recovery_domains=("flags", "time_markers", "npc"),
-    response_mode="full_or_not_modified",
     audit_mode="reference",
 )
 def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
@@ -14714,7 +14713,6 @@ def submit_source_worker_result(root: Path, payload: dict[str, Any]) -> dict[str
     },
     access="query",
     read_domains=("module_progressive",),
-    response_mode="full_or_not_modified",
     audit_mode="reference",
 )
 def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
