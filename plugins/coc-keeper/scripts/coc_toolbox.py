@@ -5978,8 +5978,9 @@ def _compile_new_percentile_invocation(
     if operation["difficulty_basis"] not in _DIFFICULTY_BASIS_VALUES:
         raise ToolError(
             "invalid_param",
-            "difficulty_basis must be one of: "
-            + ", ".join(sorted(_DIFFICULTY_BASIS_VALUES)),
+            "difficulty_basis must be a plain string, one of: "
+            + ", ".join(sorted(_DIFFICULTY_BASIS_VALUES))
+            + " (not an object/dict — just the string value)",
         )
     investigator_id = _resolve_investigator(
         ctx, {"investigator": operation["investigator"]}
@@ -7587,7 +7588,7 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
         "difficulty": {"type": "string", "required": True, "enum": ["regular", "hard", "extreme"], "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
         "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
         "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences", "properties": {"on_success": {"type": "string"}, "on_failure": {"type": "string"}}, "required_fields": ["on_success", "on_failure"]},
-        "difficulty_basis": {"type": "string", "required": True, "enum": ["authored_gate", "opponent_skill", "environment", "keeper_judgment"], "desc": "authored_gate | opponent_skill | environment | keeper_judgment"},
+        "difficulty_basis": {"type": "string", "required": True, "enum": ["authored_gate", "opponent_skill", "environment", "keeper_judgment"], "desc": "a plain string (NOT an object): why this difficulty applies. authored_gate=module预设 | opponent_skill=对抗检定 | environment=环境因素 | keeper_judgment=KP判断"},
         "bonus": {"type": "integer", "desc": "bonus dice 0-2"},
         "penalty": {"type": "integer", "desc": "penalty dice 0-2"},
         "reason": {"type": "string", "desc": "optional audit note distinct from the authoritative goal/stakes contract"},

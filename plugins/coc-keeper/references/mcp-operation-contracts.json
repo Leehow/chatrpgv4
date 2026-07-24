@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:de2b2855c0f7853a5a359121abb8ee2ef32a1bd44330d8762de2160d45ecb65d",
+  "content_sha256": "sha256:0ef485b71323b45e5c870beceec0350b427751e815b52b7d7c3fe50f8cb6cc2a",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -2049,7 +2049,7 @@
             "type": "string"
           },
           "difficulty_basis": {
-            "description": "authored_gate | opponent_skill | environment | keeper_judgment",
+            "description": "a plain string (NOT an object): why this difficulty applies. authored_gate=module预设 | opponent_skill=对抗检定 | environment=环境因素 | keeper_judgment=KP判断",
             "enum": [
               "authored_gate",
               "opponent_skill",
