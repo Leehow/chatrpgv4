@@ -17713,10 +17713,6 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (query instead of an investigator)"},
     },
-    access="query",
-    read_domains=("party",),
-    response_mode="full_or_not_modified",
-    audit_mode="reference",
 )
 def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
     npc_id = str(args.get("npc_id") or "").strip()
