@@ -693,7 +693,6 @@ export class McpJsonlClient {
   private buffer = "";
   private stderr = "";
   private nextId = 1;
-  private chain: Promise<unknown> = Promise.resolve();
   private pending = new Map<number, { resolve: (value: JsonObject) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly cwd: string;
   private readonly sessionId: string;
@@ -760,9 +759,10 @@ export class McpJsonlClient {
     });
   }
   request(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
-    const request = this.chain.then(async () => { await this.ensure(); return this.direct(method, params, signal); });
-    this.chain = request.then(() => undefined, () => undefined);
-    return request;
+    // JSONL supports concurrent requests matched by id. Do NOT serialize through
+    // a chain — that forces Pi to run COC tools one-per-turn even when the model
+    // emits multiple tool_use in one response (native read/bash batch fine).
+    return this.ensure().then(() => this.direct(method, params, signal));
   }
   async callTool(name: string, args: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
     const result = await this.request("tools/call", { name, arguments: args }, signal);
