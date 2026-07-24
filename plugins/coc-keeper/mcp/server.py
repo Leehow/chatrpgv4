@@ -397,12 +397,29 @@ def _discover(
                 "required": full_schema.get("required", []),
                 "additionalProperties": full_schema.get("additionalProperties", False),
             }
+        # Also slim the invoke_card's arguments_schema (it carries a full
+        # duplicate of the inputSchema with descriptions — 3k+ chars).
+        invoke_card = _invoke_card(operation)
+        card_schema = invoke_card.get("arguments_schema") if isinstance(invoke_card, dict) else None
+        if isinstance(card_schema, dict) and isinstance(card_schema.get("properties"), dict):
+            slim_card_props = {
+                pn: {k: v for k, v in ps.items() if k not in ("description", "examples")}
+                for pn, ps in card_schema["properties"].items()
+                if isinstance(ps, dict)
+            }
+            invoke_card = dict(invoke_card)
+            invoke_card["arguments_schema"] = {
+                "type": card_schema.get("type", "object"),
+                "properties": slim_card_props,
+                "required": card_schema.get("required", []),
+                "additionalProperties": card_schema.get("additionalProperties", False),
+            }
         return {
             "ok": True,
             "canonical_operation": operation,
             "content_sha256": CONTRACTS["content_sha256"],
             "operation": full_tool,
-            "invoke_card": _invoke_card(operation),
+            "invoke_card": invoke_card,
         }
 
     try:
