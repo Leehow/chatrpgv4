@@ -21,6 +21,32 @@ Do not duplicate a workflow into a new engine, facade, plugin tree, harness, or
 policy source. If a required source is missing or conflicts with this file,
 stop and report the boundary instead of improvising a replacement.
 
+## Standing Memory: Never Destroy Playtest Evidence Without Authorization
+
+This is permanent project law. A playtest run's campaign state, logs, tool
+calls, transcripts, and session files are the **sole evidence** for battle
+reports, bug diagnosis, and experience claims. Destroying them after a run
+— by habit, by "clean-slate" reflex, or to tidy up — has repeatedly wiped
+out the exact data needed to export reports and root-cause issues. **This
+error has been made four separate times. It must not happen again.**
+
+1. **Never `rm -rf` a campaign, its `.coc/campaigns/<id>/` directory, its
+   logs, its investigators, or its module-assets root after a real run** —
+   not even "to clean up for the next test." Keep it until the user
+   explicitly says to delete it, or until a battle report has been
+   successfully exported from it via `coc-export-battle-report`.
+2. Module-assets (`source-bundles`, `module-assets/`) are reusable parse
+   caches; deleting them invalidates `lookup_by_sha256` reuse and forces
+   re-parse. Do not delete them to "start clean" unless the user asks.
+3. If a new run needs a fresh campaign, **create a new campaign ID** (e.g.
+   `amaranthine-16`) — do not destroy the previous one to reuse its slot.
+4. The `coc-export-battle-report` skill is the **sole** final report owner.
+   A hand-written Markdown summary is a draft, never a substitute. Before
+   writing any report, confirm the campaign evidence still exists; if it
+   was destroyed, state that honestly and do not reconstruct from memory.
+5. This rule survives compaction and handoff. "I forgot" or "I was just
+   cleaning up" is never an acceptable reason for missing run evidence.
+
 ## User Intent Over Deliverables (Read First)
 
 **Deliverables serve intent; intent does not exist to produce deliverables.**
