@@ -1075,7 +1075,8 @@ def _error_recovery_hints(code: str) -> list[str]:
             "call npc.query without npc_id to inspect authored and campaign-local ids; unknown means no authored agenda, first-impression receipt, persona card, or live psych state currently owns that exact id"
         ],
         "unknown_skill": [
-            "inspect the investigator sheet or pass an explicit target; canonical rulebook base chances are used automatically when available"
+            "inspect the investigator sheet or pass an explicit target; canonical rulebook base chances are used automatically when available",
+            "skill names must match the sheet exactly (English, e.g. 'Library Use', 'Psychology', 'Persuade', 'Spot Hidden'); do not translate or abbreviate them"
         ],
         "invalid_param": [
             "call describe for the tool schema, then retry with corrected structured arguments"
@@ -7583,10 +7584,10 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
         "skill": {"type": "string", "desc": "skill name on the sheet (e.g. 'Library Use')"},
         "characteristic": {"type": "string", "desc": "characteristic (STR/CON/.../SAN/LUCK) instead of a skill"},
         "target": {"type": "integer", "desc": "explicit target value override"},
-        "difficulty": {"type": "string", "required": True, "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
+        "difficulty": {"type": "string", "required": True, "enum": ["regular", "hard", "extreme"], "desc": "required success level: regular | hard | extreme; never inferred or defaulted"},
         "goal": {"type": "string", "required": True, "desc": "the concrete fictional objective this one check may settle"},
-        "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences"},
-        "difficulty_basis": {"type": "string", "required": True, "desc": "authored_gate | opponent_skill | environment | keeper_judgment"},
+        "stakes": {"type": "object", "required": True, "desc": "exactly {on_success, on_failure}, both non-empty player-action consequences", "properties": {"on_success": {"type": "string"}, "on_failure": {"type": "string"}}, "required_fields": ["on_success", "on_failure"]},
+        "difficulty_basis": {"type": "string", "required": True, "enum": ["authored_gate", "opponent_skill", "environment", "keeper_judgment"], "desc": "authored_gate | opponent_skill | environment | keeper_judgment"},
         "bonus": {"type": "integer", "desc": "bonus dice 0-2"},
         "penalty": {"type": "integer", "desc": "penalty dice 0-2"},
         "reason": {"type": "string", "desc": "optional audit note distinct from the authoritative goal/stakes contract"},

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:a936db0a67d73494cf398e4608e83d1bbf917df4129a87e4d6c9a4aa29478ddf",
+  "content_sha256": "sha256:bb0109073b999c3885fdeb7acd63cfa87931972d9c7faa4f0e22a60138c9df91",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -2041,10 +2041,21 @@
           },
           "difficulty": {
             "description": "required success level: regular | hard | extreme; never inferred or defaulted",
+            "enum": [
+              "regular",
+              "hard",
+              "extreme"
+            ],
             "type": "string"
           },
           "difficulty_basis": {
             "description": "authored_gate | opponent_skill | environment | keeper_judgment",
+            "enum": [
+              "authored_gate",
+              "opponent_skill",
+              "environment",
+              "keeper_judgment"
+            ],
             "type": "string"
           },
           "fumble_consequence": {
@@ -2091,6 +2102,18 @@
           "stakes": {
             "additionalProperties": true,
             "description": "exactly {on_success, on_failure}, both non-empty player-action consequences",
+            "properties": {
+              "on_failure": {
+                "type": "string"
+              },
+              "on_success": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "on_success",
+              "on_failure"
+            ],
             "type": "object"
           },
           "target": {
