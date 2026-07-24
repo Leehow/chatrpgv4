@@ -384,12 +384,18 @@ def _discover(
             for pname, pspec in full_schema["properties"].items():
                 if not isinstance(pspec, dict):
                     continue
-                # Drop verbose description/examples (~73% of schema bytes);
-                # keep all structural constraints (type, enum, pattern, etc).
-                slim_props[pname] = {
-                    k: v for k, v in pspec.items()
-                    if k not in ("description", "examples")
-                }
+                # Truncate verbose descriptions to keep parameter meaning
+                # for the KP while cutting the few very long descriptions
+                # (>120 chars) that dominate schema bytes.
+                _SLIM_DESC_MAX = 80
+                slim_props[pname] = {}
+                for k, v in pspec.items():
+                    if k == "description" and isinstance(v, str) and len(v) > _SLIM_DESC_MAX:
+                        slim_props[pname][k] = v[:_SLIM_DESC_MAX - 3] + "..."
+                    elif k == "examples":
+                        continue  # examples are pure overhead in context
+                    else:
+                        slim_props[pname][k] = v
             full_tool = dict(full_tool)
             full_tool["inputSchema"] = {
                 "type": full_schema.get("type", "object"),
@@ -402,11 +408,18 @@ def _discover(
         invoke_card = _invoke_card(operation)
         card_schema = invoke_card.get("arguments_schema") if isinstance(invoke_card, dict) else None
         if isinstance(card_schema, dict) and isinstance(card_schema.get("properties"), dict):
-            slim_card_props = {
-                pn: {k: v for k, v in ps.items() if k not in ("description", "examples")}
-                for pn, ps in card_schema["properties"].items()
-                if isinstance(ps, dict)
-            }
+            slim_card_props = {}
+            _SLIM_CARD_MAX = 80
+            for pn, ps in card_schema["properties"].items():
+                if not isinstance(ps, dict): continue
+                slim_card_props[pn] = {}
+                for k, v in ps.items():
+                    if k == "description" and isinstance(v, str) and len(v) > _SLIM_CARD_MAX:
+                        slim_card_props[pn][k] = v[:_SLIM_CARD_MAX - 3] + "..."
+                    elif k == "examples":
+                        continue
+                    else:
+                        slim_card_props[pn][k] = v
             invoke_card = dict(invoke_card)
             invoke_card["arguments_schema"] = {
                 "type": card_schema.get("type", "object"),
