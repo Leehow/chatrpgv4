@@ -11415,6 +11415,7 @@ def _turn_recovery_meaningful_tools() -> frozenset[str]:
     access="query",
     read_domains=_CONTINUATION_DOMAINS,
     recovery_domains=("flags", "time_markers", "npc"),
+    response_mode="full_or_not_modified",
     audit_mode="reference",
 )
 def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
@@ -14711,6 +14712,10 @@ def submit_source_worker_result(root: Path, payload: dict[str, Any]) -> dict[str
             "desc": "optional entity id to inspect (requires kind)",
         },
     },
+    access="query",
+    read_domains=("module_progressive",),
+    response_mode="full_or_not_modified",
+    audit_mode="reference",
 )
 def _tool_progressive_status(ctx: Ctx, args: dict[str, Any]):
     if ctx.campaign_dir is None:
@@ -17708,6 +17713,10 @@ def _tool_state_clear_transient_condition(ctx: Ctx, args: dict[str, Any]):
         "investigator": {"type": "string", "desc": "investigator id"},
         "npc_id": {"type": "string", "desc": "NPC actor id (query instead of an investigator)"},
     },
+    access="query",
+    read_domains=("party",),
+    response_mode="full_or_not_modified",
+    audit_mode="reference",
 )
 def _tool_state_inventory_list(ctx: Ctx, args: dict[str, Any]):
     npc_id = str(args.get("npc_id") or "").strip()
