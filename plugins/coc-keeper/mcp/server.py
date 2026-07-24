@@ -346,7 +346,22 @@ def _capabilities() -> dict[str, Any]:
 def _discover(
     operation: str | None = None,
     domain: str | None = None,
+    since_content_sha256: str | None = None,
 ) -> dict[str, Any]:
+    # The archive is hash-bound and immutable at runtime. If the caller
+    # passes the content_sha256 it received last time and it still matches,
+    # return not_modified — saving the full schema/catalog from re-entering
+    # the LLM context (the #1 token consumer: ~16k tokens/run).
+    if (
+        since_content_sha256 is not None
+        and since_content_sha256 == CONTRACTS.get("content_sha256")
+    ):
+        return {
+            "ok": True,
+            "not_modified": True,
+            "content_sha256": CONTRACTS["content_sha256"],
+        }
+
     if operation:
         operation = _canonical_tool_name(str(operation))
         contract = CONTRACTS["operations"].get(operation)
@@ -358,6 +373,7 @@ def _discover(
         return {
             "ok": True,
             "canonical_operation": operation,
+            "content_sha256": CONTRACTS["content_sha256"],
             "operation": contract_archive.mcp_tool_from_contract(
                 contract, mcp_name=_mcp_tool_name(operation)
             ),
@@ -636,9 +652,17 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
             "tool": name,
-            "data": _discover(operation, domain),
+            "data": _discover(
+                operation,
+                domain,
+                since_content_sha256=arguments.get("since_content_sha256"),
+            ),
             "warnings": [],
-            "hints": [],
+            "hints": [] if arguments.get("since_content_sha256") else [
+                "pass since_content_sha256=<value> on subsequent identical discover "
+                "calls to get not_modified instead of re-fetching the full static "
+                "schema (saves context tokens)"
+            ],
         }
     if name == "coc_invoke":
         return _invoke(arguments)
@@ -689,6 +713,15 @@ def _meta_tools() -> list[dict[str, Any]]:
                         "description": (
                             "Exact toolbox namespace/domain "
                             "(e.g. rules, state, progressive)."
+                        ),
+                    },
+                    "since_content_sha256": {
+                        "type": "string",
+                        "description": (
+                            "The content_sha256 from a previous identical "
+                            "discover call. If it matches the current archive, "
+                            "returns not_modified instead of the full data, "
+                            "saving context tokens (the archive is static)."
                         ),
                     },
                 },
