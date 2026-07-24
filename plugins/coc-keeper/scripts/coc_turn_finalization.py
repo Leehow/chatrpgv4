@@ -1650,7 +1650,7 @@ def _normalize_mechanics_placements(
         source_ids = row.get("source_ids")
         if (
             isinstance(after, bool) or not isinstance(after, int)
-            or after < 0 or after >= paragraph_count
+            or after < -1 or after >= paragraph_count
         ):
             raise TurnContractError(
                 "invalid_mechanics_placement",
@@ -1723,11 +1723,10 @@ def _default_mechanics_placements(
     """Derive a safe causal layout without making a narrative decision.
 
     Public checks are inserted immediately before the first paragraph that
-    contains their already-KP-authored causal excerpt.  Other authoritative
-    changes are grouped after the final fictional paragraph.  If a public
-    result begins in paragraph zero there is no representable safe boundary,
-    so the Keeper must provide an explicit placement instead of the runtime
-    guessing or rewriting prose.
+    contains their already-KP-authored causal excerpt.  When the consequence
+    is in paragraph zero the roll is placed at after_paragraph=-1 (before
+    the first paragraph).  Other authoritative changes are grouped after the
+    final fictional paragraph.
     """
     coverage_by_id = {row["obligation_id"]: row for row in coverage}
     grouped: dict[tuple[int, str], list[str]] = {}
@@ -1739,7 +1738,7 @@ def _default_mechanics_placements(
             for index, paragraph in enumerate(paragraphs)
             if excerpt and excerpt in paragraph
         ]
-        if not result_indices or result_indices[0] == 0:
+        if not result_indices:
             raise TurnContractError(
                 "default_mechanics_placement_unavailable",
                 f"public roll {source_id} has no safe preceding paragraph; "
@@ -1952,7 +1951,7 @@ def _collect_default_placements(
             for index, paragraph in enumerate(paragraphs)
             if excerpt and excerpt in paragraph
         ]
-        if not result_indices or result_indices[0] == 0:
+        if not result_indices:
             violations.append({
                 "stage": "mechanics_placements",
                 "code": "default_mechanics_placement_unavailable",
@@ -2019,7 +2018,7 @@ def _collect_placements_violations(
         row_usable = True
         if (
             isinstance(after, bool) or not isinstance(after, int)
-            or after < 0 or after >= paragraph_count
+            or after < -1 or after >= paragraph_count
         ):
             add(
                 "invalid_mechanics_placement",
@@ -2254,6 +2253,14 @@ def compose_segments(
     for placement in placements:
         by_paragraph.setdefault(placement["after_paragraph"], []).append(placement)
     segments: list[dict[str, Any]] = []
+    for placement in by_paragraph.get(-1, []):
+        segment_type = placement["segment_type"]
+        source_ids = placement["source_ids"]
+        segments.append({
+            "segment_type": segment_type,
+            "text": "\n".join(sources[segment_type][source_id] for source_id in source_ids),
+            "source_ids": list(source_ids),
+        })
     for index, paragraph in enumerate(paragraphs):
         segments.append({
             "segment_type": "fiction",

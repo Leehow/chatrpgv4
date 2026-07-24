@@ -1113,6 +1113,21 @@ def _error_recovery_hints(code: str) -> list[str]:
         "delivery_conflict": [
             "acknowledge only the latest exact rendered_sha256 returned by session.resume; never regenerate or silently replace finalized text"
         ],
+        "roll_after_consequence": [
+            "the roll block auto-inserts BEFORE the paragraph containing exact_excerpt; restructure your draft so the action/attempt is in an earlier paragraph and the consequence/result is in a LATER paragraph, then set exact_excerpt to a verbatim substring of that later consequence paragraph"
+        ],
+        "default_mechanics_placement_unavailable": [
+            "the consequence paragraph (containing exact_excerpt) is paragraph 0, leaving no insertion point before it; add an action/attempt paragraph BEFORE the consequence paragraph so the roll block can insert between them"
+        ],
+        "excerpt_mismatch": [
+            "exact_excerpt must be a character-for-character substring of the draft string; copy-paste it directly from your draft text — do not retype, paraphrase, or alter punctuation"
+        ],
+        "mechanics_text_in_draft": [
+            "remove ALL 【明骰】,【变化】,【特殊影响】 labels and rendered dice/state text from the draft; the draft is pure fiction only — the finalizer auto-inserts authoritative mechanics blocks at paragraph boundaries"
+        ],
+        "invalid_mechanics_placement": [
+            "omit the mechanics_placements parameter entirely to use safe auto-placement; only supply explicit placements when you need deliberate interleaving and can guarantee every source exactly once with valid after_paragraph indices"
+        ],
     }
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
 
@@ -1370,6 +1385,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 "ok": False,
                 "tool": name,
                 "error": error,
+                "hints": _error_recovery_hints(exc.code),
             }
         except coc_working_set_cache.WorkingSetCacheError as exc:
             envelope = {
