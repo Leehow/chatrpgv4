@@ -1118,8 +1118,10 @@ def mark_safe_rest(
     """Mark that the investigator has rested in a safe place.
 
     Updates anchors.last_rest_elapsed and last_safe_place_elapsed,
-    sets safe_place=True, and resets the investigator's sanity period
-    (daily SAN loss counter).
+    sets safe_place=True, and closes the investigator's sanity "day":
+    the SanitySession evaluates the one-fifth-of-day-start-SAN cumulative
+    rule (p.168) and resets the daily loss counter (p.156).  When no sanity
+    snapshot exists yet, the sanity period is reset inline as before.
     """
     path = _time_state_path(campaign_dir)
     state = _read_json(path)
@@ -1132,15 +1134,45 @@ def mark_safe_rest(
     state["anchors"] = anchors
     state["safe_place"] = True
 
-    # Reset sanity period for this investigator
-    periods = state.get("sanity_periods", {})
-    key = investigator_id
-    if key in periods:
-        periods[key]["san_lost"] = 0
-        periods[key]["started_elapsed"] = now
-    state["sanity_periods"] = periods
+    # Sanity day boundary.  Canonical caller: the ``state.mark_safe_rest``
+    # toolbox tool after a completed full sleep.  The SanitySession owns the
+    # 1/5 evaluation and counter reset; this layer only owns the boundary.
+    coc_sanity = _load_sibling_script("coc_sanity", "coc_sanity.py")
+    session = None
+    if coc_sanity.sanity_snapshot_exists(campaign_dir, investigator_id):
+        session = coc_sanity.SanitySession.load(campaign_dir, investigator_id)
 
-    _write_json(path, state)
+    sanity_day: dict[str, Any] = {"closed": False}
+    if session is not None:
+        # Persist the rest anchors first so the session's day-boundary
+        # bookkeeping reads the post-rest clock, then let the session own
+        # the period bookkeeping.
+        _write_json(path, state)
+        daily_lost_before = int(session.daily_san_lost)
+        was_indefinite = bool(session.indefinite_insane)
+        session.end_day()
+        session.save(campaign_dir)
+        state = _read_json(path)
+        sanity_day = {
+            "closed": True,
+            "daily_san_lost_before_reset": daily_lost_before,
+            "indefinite_insanity_triggered": bool(
+                session.indefinite_insane and not was_indefinite
+            ),
+            "day_start_san": int(session.day_start_san),
+        }
+        sanity_day_reset = True
+    else:
+        # Reset sanity period for this investigator
+        periods = state.get("sanity_periods", {})
+        key = investigator_id
+        if key in periods:
+            periods[key]["san_lost"] = 0
+            periods[key]["started_elapsed"] = now
+        state["sanity_periods"] = periods
+        sanity_day_reset = key in periods
+        _write_json(path, state)
+
     log_record = {
         "event_type": "safe_rest",
         "investigator_id": investigator_id,
@@ -1154,7 +1186,8 @@ def mark_safe_rest(
         "investigator_id": investigator_id,
         "at_elapsed": now,
         "rest_kind": rest_kind,
-        "sanity_day_reset": key in periods,
+        "sanity_day_reset": sanity_day_reset,
+        "sanity_day": sanity_day,
     }
 
 

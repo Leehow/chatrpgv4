@@ -326,6 +326,7 @@ class SanitySession:
             lost //= 2
         self.san_current = max(0, self.san_current - lost)
         self.daily_san_lost += lost
+        self._record_time_layer_san_loss(lost)
         if lost >= 1:
             self.delusion_resistant = False
             self.symptoms_suppressed_until_next_san_loss = False
@@ -454,6 +455,7 @@ class SanitySession:
 
         self.san_current = max(0, self.san_current - lost)
         self.daily_san_lost += lost
+        self._record_time_layer_san_loss(lost)
         # p.162-163: delusion resistance and Psychoanalysis symptom suppression
         # both lapse on the next SAN loss of 1+.
         if lost >= 1:
@@ -795,6 +797,7 @@ class SanitySession:
 
         self.san_current = max(0, self.san_current - 1)
         self.daily_san_lost += 1
+        self._record_time_layer_san_loss(1)
         self._start_bout("reality_check", alone=False, module_bout_override=None)
         payload = {
             "success": False,
@@ -1066,6 +1069,41 @@ class SanitySession:
         """True if both the time layer and a campaign_dir are attached."""
         return coc_time is not None and self.campaign_dir is not None
 
+    def _record_time_layer_san_loss(self, amount: int) -> None:
+        """Mirror one applied SAN loss into the time layer's sanity period.
+
+        Canonical caller: the session's own loss paths (``sanity_check``,
+        ``apply_direct_loss``, ``reality_check``) — every authoritative SAN
+        loss flows through them.  The accumulated ``san_lost`` is evaluated
+        and reset at the day boundary owned by ``coc_time.mark_safe_rest``
+        (reached through the ``state.mark_safe_rest`` tool), which closes the
+        day via :meth:`end_day`.
+        """
+        if not self._time_layer_ready() or amount <= 0:
+            return
+        state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        if not state:
+            coc_time.initialize_time_state(self.campaign_dir)  # type: ignore[union-attr]
+            state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+        if not state:
+            return
+        now = int(state.get("clock", {}).get("elapsed_minutes", 0))
+        periods = state.get("sanity_periods", {})
+        period = periods.get(self.investigator_id)
+        if not isinstance(period, dict):
+            period = {"started_elapsed": now, "day_started_elapsed": now, "san_lost": 0}
+        try:
+            prior_lost = int(period.get("san_lost", 0) or 0)
+        except (TypeError, ValueError):
+            prior_lost = 0
+        period["san_lost"] = prior_lost + int(amount)
+        periods[self.investigator_id] = period
+        state["sanity_periods"] = periods
+        path = self.campaign_dir / "save" / "time-state.json"  # type: ignore[union-attr]
+        coc_fileio.write_json_atomic(
+            path, state, indent=2, ensure_ascii=False, trailing_newline=True
+        )
+
     def _schedule_recovery_trigger(self, remaining_hours: int) -> str | None:
         """Schedule a coc_time trigger to recover temporary insanity.
 
@@ -1122,25 +1160,55 @@ class SanitySession:
         return False
 
     def end_day(self) -> None:
-        """Reset daily SAN loss counter (Keeper defines when a 'day' ends).
+        """Close the sanity "day": evaluate the 1/5 rule, reset the counter.
 
-        When the time layer is attached, this also records the day boundary
-        in the investigator's sanity period (the elapsed anchor used to
-        compute 1/5-SAN-per-day indefinite-insanity thresholds).
+        Canonical caller: ``coc_time.mark_safe_rest`` (reached through the
+        ``state.mark_safe_rest`` tool) after a completed full sleep — the
+        time layer's existing rest concept doubles as the day boundary.
+
+        p.168: losing a fifth or more of day-start SAN in one game day means
+        indefinite insanity.  The loss paths already trigger this the moment
+        the threshold is crossed; this boundary evaluation is the authoritative
+        backstop so a day that ends at or over the threshold can never slip
+        through untriggered.  The daily counter is then reset and the
+        one-fifth threshold re-anchored to current SAN (p.156).  When the
+        time layer is attached, the investigator's sanity period is reset in
+        the same write.
         """
+        threshold = max(1, self.day_start_san // 5)
+        accumulated = self.daily_san_lost
+        state: dict[str, Any] | None = None
+        if self._time_layer_ready():
+            state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
+            if state:
+                period = (state.get("sanity_periods") or {}).get(
+                    self.investigator_id
+                )
+                if isinstance(period, dict):
+                    try:
+                        period_lost = int(period.get("san_lost", 0) or 0)
+                    except (TypeError, ValueError):
+                        period_lost = 0
+                    accumulated = max(accumulated, period_lost)
+        if (
+            accumulated >= threshold
+            and not self.indefinite_insane
+            and not self.permanently_insane
+        ):
+            self._trigger_indefinite_insanity()
         self.daily_san_lost = 0
         self.day_start_san = self.san_current  # re-anchor threshold (p.156)
-        if not self._time_layer_ready():
-            return
-        state = coc_time.read_time_state(self.campaign_dir)  # type: ignore[union-attr]
         if not state:
             return
         now = int(state.get("clock", {}).get("elapsed_minutes", 0))
         periods = state.get("sanity_periods", {})
-        key = self.investigator_id
-        period = periods.get(key, {})
+        period = periods.get(self.investigator_id)
+        if not isinstance(period, dict):
+            period = {}
+        period["san_lost"] = 0
+        period["started_elapsed"] = now
         period["day_started_elapsed"] = now
-        periods[key] = period
+        periods[self.investigator_id] = period
         state["sanity_periods"] = periods
         # Persist back through the time layer's own write path.
         path = self.campaign_dir / "save" / "time-state.json"  # type: ignore[union-attr]

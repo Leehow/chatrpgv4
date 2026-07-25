@@ -24162,27 +24162,11 @@ def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
     )
     if result.get("at_elapsed") is None:
         raise ToolError("state_corrupt", "time state is not initialized")
-    sanity_day_reset = False
-    if _rules_resolver(ctx, "sanity_snapshot_exists").sanity_snapshot_exists(
-        ctx.campaign_dir, investigator_id
-    ):
-        sheet = ctx.sheet(investigator_id)
-        characteristics = (
-            sheet.get("characteristics")
-            if isinstance(sheet.get("characteristics"), dict)
-            else {}
-        )
-        sheet_skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
-        sanity_session = _rules_resolver(ctx, "sanity_session_load").sanity_session_load(
-            ctx.campaign_dir,
-            investigator_id,
-            int_value=int(characteristics.get("INT", 50)),
-            rng=None,
-            cm_value=int(sheet_skills.get("Cthulhu Mythos", 0)),
-        )
-        sanity_session.end_day()
-        sanity_session.save(ctx.campaign_dir, strict_mirror=True)
-        sanity_day_reset = True
+    sanity_day = result.get("sanity_day")
+    sanity_day_closed = (
+        isinstance(sanity_day, dict) and bool(sanity_day.get("closed"))
+    )
+    sanity_day_reset = sanity_day_closed or bool(result.get("sanity_day_reset"))
     fired = coc_time.process_due_triggers(ctx.campaign_dir)
     time_state = coc_time.read_time_state(ctx.campaign_dir)
     due = coc_time.peek_due_triggers(ctx.campaign_dir)
@@ -24200,6 +24184,12 @@ def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
         hints.append(
             "the game-day SAN counter reset with this safe rest: the 1/5-per-day "
             "indefinite-insanity window re-anchored at current SAN"
+        )
+    if sanity_day_closed and sanity_day.get("indefinite_insanity_triggered"):
+        hints.append(
+            "the day boundary settled the one-fifth cumulative SAN rule: "
+            "indefinite insanity is now authoritative — portray it and its "
+            "weekly-treatment schedule from the sanity pipeline evidence"
         )
     if fired:
         hints.append(
