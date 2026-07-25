@@ -733,6 +733,215 @@ def ending_settlement_path(
     )
 
 
+# --------------------------------------------------------------------------- #
+# Settlement boundary ledger: one settlement per (session, investigator, type)
+# --------------------------------------------------------------------------- #
+
+SETTLEMENT_TYPES = ("skill_development", "luck_recovery")
+SETTLEMENT_BOUNDARY_LEDGER_SCHEMA_VERSION = 1
+
+
+def settlement_boundary_ledger_path(
+    campaign_dir: Path, investigator_id: str
+) -> Path:
+    if _SAFE_ID.fullmatch(str(investigator_id)) is None:
+        raise ValueError("investigator_id is not a safe persisted identity")
+    return (
+        Path(campaign_dir)
+        / "save"
+        / "development-settlements"
+        / "boundaries"
+        / f"{investigator_id}.json"
+    )
+
+
+def _valid_settlement_boundary_entry(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    types = value.get("settlement_types")
+    return (
+        isinstance(value.get("boundary_id"), str)
+        and bool(value["boundary_id"])
+        and isinstance(value.get("session_ids"), list)
+        and all(isinstance(item, str) for item in value["session_ids"])
+        and isinstance(value.get("first_ending_id"), str)
+        and bool(value["first_ending_id"])
+        and isinstance(value.get("settled_at"), str)
+        and isinstance(value.get("operation_id"), str)
+        and isinstance(value.get("receipt_ref"), str)
+        and bool(value["receipt_ref"])
+        and isinstance(types, dict)
+        and set(types) == set(SETTLEMENT_TYPES)
+        and all(
+            isinstance(item, dict)
+            and item.get("ending_id") == value["first_ending_id"]
+            and item.get("operation_id") == value["operation_id"]
+            and item.get("receipt_ref") == value["receipt_ref"]
+            for item in types.values()
+        )
+    )
+
+
+def _valid_settlement_boundary_ledger(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("schema_version")
+        == SETTLEMENT_BOUNDARY_LEDGER_SCHEMA_VERSION
+        and isinstance(value.get("investigator_id"), str)
+        and isinstance(value.get("boundaries"), list)
+        and all(
+            _valid_settlement_boundary_entry(row)
+            for row in value["boundaries"]
+        )
+    )
+
+
+def load_settlement_boundary_ledger(
+    campaign_dir: Path, investigator_id: str
+) -> dict[str, Any] | None:
+    """Return the validated boundary ledger, or ``None`` when absent.
+
+    Clean-slate: a present but unversioned/foreign ledger is rejected, never
+    migrated or rewritten.
+    """
+    path = settlement_boundary_ledger_path(campaign_dir, investigator_id)
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("settlement boundary ledger is unreadable") from exc
+    if not _valid_settlement_boundary_ledger(value):
+        raise ValueError(
+            "unsupported settlement boundary ledger schema; start a fresh campaign"
+        )
+    return value
+
+
+def settlement_boundary_session_ids(
+    capsule: dict[str, Any], investigator_id: str
+) -> list[str]:
+    """Return the distinct frozen session ids this ending claims for one investigator."""
+    inputs = capsule.get("development_inputs") if isinstance(capsule, dict) else None
+    frozen = inputs.get(investigator_id) if isinstance(inputs, dict) else None
+    events = frozen.get("check_events") if isinstance(frozen, dict) else None
+    if not isinstance(events, list):
+        return []
+    return sorted({
+        str(row["session_id"])
+        for row in events
+        if isinstance(row, dict)
+        and isinstance(row.get("session_id"), str)
+        and row["session_id"]
+    })
+
+
+def _ending_ordinal(campaign_dir: Path, capsule: dict[str, Any]) -> int:
+    line = capsule.get("event_line_at_capture") if isinstance(capsule, dict) else None
+    limit = int(line) if isinstance(line, int) and not isinstance(line, bool) else None
+    ordinal = 0
+    for index, row in _read_event_rows(campaign_dir):
+        if limit is not None and index > limit:
+            break
+        if row.get("event_type") == "session_ending":
+            ordinal += 1
+    return max(ordinal, 1)
+
+
+def settlement_boundary_decision(
+    campaign_dir: Path, capsule: dict[str, Any], investigator_id: str
+) -> dict[str, Any]:
+    """Resolve the settlement boundary for one ending/investigator pair.
+
+    Returns ``{"boundary_id", "session_ids", "replay"}``.  ``replay`` is the
+    already-settled boundary ledger entry whose original receipt must be
+    returned unchanged, or ``None`` when this ending opens a new boundary.
+    An ending that claimed no new earned development inputs does not open a
+    new boundary: it replays the investigator's most recent settled boundary.
+    """
+    campaign_dir = Path(campaign_dir)
+    sessions = settlement_boundary_session_ids(capsule, investigator_id)
+    ledger = load_settlement_boundary_ledger(campaign_dir, investigator_id)
+    boundaries = ledger["boundaries"] if ledger is not None else []
+    if sessions:
+        boundary_id = (
+            sessions[0]
+            if len(sessions) == 1
+            else (
+                f"{_campaign_id(campaign_dir)}:sessions-"
+                + _canonical_sha256(list(sessions))[:16]
+            )
+        )
+        replay = next(
+            (row for row in boundaries if row.get("boundary_id") == boundary_id),
+            None,
+        )
+        return {
+            "boundary_id": boundary_id,
+            "session_ids": list(sessions),
+            "replay": replay,
+        }
+    if boundaries:
+        return {"boundary_id": None, "session_ids": [], "replay": boundaries[-1]}
+    ordinal = _ending_ordinal(campaign_dir, capsule)
+    return {
+        "boundary_id": f"{_campaign_id(campaign_dir)}:session:{ordinal}",
+        "session_ids": [],
+        "replay": None,
+    }
+
+
+def record_settlement_boundary(
+    campaign_dir: Path,
+    investigator_id: str,
+    *,
+    boundary_id: str,
+    session_ids: list[str],
+    ending_id: str,
+    operation_id: str,
+    receipt_ref: str,
+    settled_at: str,
+) -> dict[str, Any]:
+    """Append one settled boundary inside the settlement transaction image."""
+    campaign_dir = Path(campaign_dir)
+    ledger = load_settlement_boundary_ledger(campaign_dir, investigator_id)
+    if ledger is None:
+        ledger = {
+            "schema_version": SETTLEMENT_BOUNDARY_LEDGER_SCHEMA_VERSION,
+            "investigator_id": str(investigator_id),
+            "boundaries": [],
+        }
+    if any(row["boundary_id"] == boundary_id for row in ledger["boundaries"]):
+        raise ValueError(f"settlement boundary is already settled: {boundary_id}")
+    per_type = {
+        settlement_type: {
+            "ending_id": str(ending_id),
+            "operation_id": str(operation_id),
+            "receipt_ref": str(receipt_ref),
+        }
+        for settlement_type in SETTLEMENT_TYPES
+    }
+    ledger["boundaries"].append({
+        "boundary_id": str(boundary_id),
+        "session_ids": [str(item) for item in session_ids],
+        "first_ending_id": str(ending_id),
+        "settled_at": str(settled_at),
+        "operation_id": str(operation_id),
+        "receipt_ref": str(receipt_ref),
+        "settlement_types": per_type,
+    })
+    path = settlement_boundary_ledger_path(campaign_dir, investigator_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        path,
+        ledger,
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return ledger
+
+
 def _safe_campaign_child_target(campaign_dir: Path, path: Path) -> bool:
     """Require a regular/nonexistent target beneath non-symlink parents."""
     campaign_dir = Path(campaign_dir)

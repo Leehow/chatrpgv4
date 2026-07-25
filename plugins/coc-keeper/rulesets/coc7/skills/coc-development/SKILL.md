@@ -44,10 +44,17 @@ available to replay a structured pending settlement.
    check, gain die, Luck recovery, and SAN reward appears there exactly once.
    Do not surface only the SAN reward. Also report skills checked, permanent
    increases, SAN gained, Luck before/after, and state/evidence references.
-4. Retry only through the same idempotent settlement identity. Never settle a
-   completed ending twice. A scenario conclusion reward has a separate durable
-   per-investigator identity, so a later ending may run legitimate development
-   and Luck recovery without paying the same conclusion SAN reward again.
+4. Settle each session/chapter boundary exactly once per investigator per
+   settlement type (`skill_development`, `luck_recovery`). Retry only through
+   the same idempotent settlement identity, and never settle a completed
+   ending twice. A repeat `development.settle` for an already-settled
+   boundary returns the original receipt unchanged — no new rolls, no new
+   state diffs — and a later ending that earned no new development inputs
+   does not open a new boundary at all: do not treat an extra `end_session`
+   receipt as permission to re-run Luck recovery or improvement checks. A
+   scenario conclusion reward has a separate durable per-investigator
+   identity, so a later boundary may run legitimate development and Luck
+   recovery without paying the same conclusion SAN reward again.
 
 ## Persistence and evidence
 
@@ -67,7 +74,12 @@ paths and is never overwritten or truncated. A conflict-free retry reuses the
 original dice.
 
 The authoritative commit receipt and recovery journal are keyed by
-`(ending_id, investigator_id)`. A top-level per-investigator settlement file is
+`(ending_id, investigator_id)`. A durable boundary ledger under
+`save/development-settlements/boundaries/<investigator-id>.json` records each
+settled boundary keyed by `(session_id, investigator_id, settlement_type)`
+with the original receipt reference; a settlement call for an already-settled
+boundary replays that receipt instead of rolling again. A top-level
+per-investigator settlement file is
 only a post-commit latest mirror; it is never used to recover or identify an
 older pending ending.
 

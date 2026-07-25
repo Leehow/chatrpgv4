@@ -581,6 +581,11 @@ def _settlement_projection(value: Any) -> dict[str, Any] | None:
         "luck_recovery": _pick(result.get("luck_recovery"), ("roll", "success", "gained", "luck_before", "luck_after")),
         "san_reward": _pick(result.get("scenario_san_reward") or result.get("san_reward"), ("expression", "rolls", "total", "san_before", "san_gained", "san_after")),
     }
+    boundary = result.get("settlement_boundary")
+    if isinstance(boundary, dict):
+        projected["settlement_boundary"] = _pick(
+            boundary, ("boundary_id", "session_ids", "settlement_types")
+        )
     if isinstance(player_facing, dict):
         projected["player_facing_mechanics"] = _pick(
             player_facing,
@@ -590,6 +595,76 @@ def _settlement_projection(value: Any) -> dict[str, Any] | None:
             ),
         )
     return projected
+
+
+def _boundary_ledger_settlements(
+    run_dir: Path,
+    campaign_relative: str,
+    ledger: Any,
+    seen_refs: set[str],
+    manifest: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """Project canonical per-boundary settlement receipts from the ledger."""
+    if not isinstance(ledger, dict):
+        return None
+    boundaries = ledger.get("boundaries")
+    if not isinstance(boundaries, list) or not boundaries:
+        return None
+    settlements: list[dict[str, Any]] = []
+    for entry in boundaries:
+        if not isinstance(entry, dict):
+            continue
+        ref = entry.get("receipt_ref")
+        if not isinstance(ref, str) or not ref or ref in seen_refs:
+            continue
+        seen_refs.add(ref)
+        settlement = _read_source(
+            run_dir, f"{campaign_relative}/{ref}", "json", manifest
+        )
+        projected = _settlement_projection(settlement)
+        if projected is None:
+            continue
+        if isinstance(entry.get("boundary_id"), str):
+            projected["boundary_id"] = entry["boundary_id"]
+        types = entry.get("settlement_types")
+        if isinstance(types, dict):
+            projected["settlement_types"] = sorted(
+                key for key in types if isinstance(key, str)
+            )
+        settlements.append(projected)
+    return settlements
+
+
+def _historical_ending_settlements(
+    run_dir: Path,
+    campaign_relative: str,
+    investigator_id: str,
+    seen_refs: set[str],
+    manifest: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Project every persisted ending receipt for pre-ledger runs.
+
+    Historical runs predate the boundary ledger; covering every ending's
+    receipt keeps the canonical settlement visible instead of only the last
+    ending's.
+    """
+    root_relative = f"{campaign_relative}/save/development-settlements/endings"
+    root = _safe_source_path(run_dir, root_relative)
+    if not root.is_dir() or root.is_symlink():
+        return []
+    settlements: list[dict[str, Any]] = []
+    for ending_dir in sorted(root.iterdir(), key=lambda path: path.name):
+        if ending_dir.is_symlink() or not ending_dir.is_dir():
+            continue
+        relative = f"{root_relative}/{ending_dir.name}/{investigator_id}.json"
+        if relative in seen_refs:
+            continue
+        seen_refs.add(relative)
+        settlement = _read_source(run_dir, relative, "json", manifest)
+        projected = _settlement_projection(settlement)
+        if projected is not None:
+            settlements.append(projected)
+    return settlements
 
 
 def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
@@ -769,13 +844,28 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         npc_interactions = _npc_projection(npc_receipts)
         ending = _ending_projection(events)
         visible_consequences = _consequence_projection(events, investigator_ids)
-        if ending and isinstance(ending.get("ending_id"), str):
-            for investigator_id in investigator_ids:
-                relative = f"{campaign_relative}/save/development-settlements/endings/{ending['ending_id']}/{investigator_id}.json"
-                settlement = _read_source(run_dir, relative, "json", manifest)
-                projected = _settlement_projection(settlement)
-                if projected:
-                    settlements.append(projected)
+        seen_settlement_refs: set[str] = set()
+        for investigator_id in investigator_ids:
+            ledger_relative = (
+                f"{campaign_relative}/save/development-settlements/"
+                f"boundaries/{investigator_id}.json"
+            )
+            ledger = _read_source(run_dir, ledger_relative, "json", manifest)
+            canonical = _boundary_ledger_settlements(
+                run_dir, campaign_relative, ledger, seen_settlement_refs, manifest
+            )
+            if canonical is not None:
+                settlements.extend(canonical)
+                continue
+            settlements.extend(
+                _historical_ending_settlements(
+                    run_dir,
+                    campaign_relative,
+                    investigator_id,
+                    seen_settlement_refs,
+                    manifest,
+                )
+            )
 
     public_rolls: list[dict[str, Any]] = []
     all_rolls = None
@@ -898,7 +988,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     dimension("character_and_final_state", character_ok, "initial card and final dynamic state are present" if character_ok else "an investigator lacks an initial card or final state")
     progression_ok = isinstance(world, dict) and isinstance(flags, dict) and bool(progression["visited_scene_ids"])
     dimension("progression", progression_ok, "visited scenes and discovered-clue receipts are projected" if progression_ok else "world progression sources or visited path are missing")
-    ending_ok = ending is not None and len(settlements) == len(investigator_ids) and bool(investigator_ids)
+    ending_ok = ending is not None and len(settlements) >= len(investigator_ids) and bool(investigator_ids)
     dimension("ending_and_development", ending_ok, "structured ending and investigator settlements are present" if ending_ok else "structured ending or development settlement is missing")
     projection_ok = isinstance(flags, dict) and (npc_receipts is None or isinstance(npc_receipts, dict))
     dimension("player_safe_projection", projection_ok, "explicit per-source allowlists applied" if projection_ok else "player-safe projection sources are malformed")

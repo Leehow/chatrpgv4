@@ -940,6 +940,11 @@ def _development_transaction_paths(
             campaign_dir, investigator_id
         ),
         "sanity_legacy": coc_sanity.legacy_sanity_snapshot_path(campaign_dir),
+        "settlement_boundaries": (
+            coc_development.settlement_boundary_ledger_path(
+                campaign_dir, investigator_id
+            )
+        ),
         "settlement": settlement_path,
     }
     reward_path = _conclusion_reward_receipt_path(
@@ -2326,6 +2331,7 @@ def _plan_development_postimages(
     rng: random.Random,
     settlement_path: Path,
     ending: dict[str, Any],
+    boundary: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     files, logs = _development_transaction_paths(
         campaign_dir, investigator_id, settlement_path, ending
@@ -2367,6 +2373,7 @@ def _plan_development_postimages(
             rng=rng,
             ending=ending,
             settlement_path=sandbox_settlement,
+            boundary=boundary,
         )
         sandbox_files, sandbox_logs = _development_transaction_paths(
             sandbox_campaign,
@@ -2593,6 +2600,28 @@ def _settled_receipt_for_ending(
     )
 
 
+def _settled_boundary_receipt(
+    campaign_dir: Path,
+    entry: dict[str, Any],
+    investigator_id: str,
+) -> dict[str, Any] | None:
+    """Load the original receipt frozen by a settled boundary entry."""
+    ref = entry.get("receipt_ref") if isinstance(entry, dict) else None
+    if not isinstance(ref, str) or not ref:
+        return None
+    relative = Path(ref)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    path = Path(campaign_dir) / relative
+    if not path.is_file():
+        return None
+    return _settled_receipt_from_value(
+        _read_object(path),
+        str(entry.get("first_ending_id") or ""),
+        investigator_id,
+    )
+
+
 def _conclusion_reward_receipt_path(
     campaign_dir: Path,
     investigator_id: str,
@@ -2619,6 +2648,7 @@ def _development_operation_body(
     rng: random.Random,
     ending: dict[str, Any],
     settlement_path: Path,
+    boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if payload:
         raise RuntimeOperationError("development.settle payload must be empty")
@@ -2921,6 +2951,14 @@ def _development_operation_body(
             + ", ".join(player_facing["missing_roll_ids"])
         )
     result["player_facing_mechanics"] = player_facing
+    if boundary is not None and boundary.get("boundary_id"):
+        result["settlement_boundary"] = {
+            "boundary_id": str(boundary["boundary_id"]),
+            "session_ids": [
+                str(item) for item in boundary.get("session_ids") or []
+            ],
+            "settlement_types": list(coc_development.SETTLEMENT_TYPES),
+        }
     _append_jsonl(campaign_dir / "logs" / "events.jsonl", {
         "type": "development",
         "actor": investigator_id,
@@ -2941,6 +2979,10 @@ def _development_operation_body(
                 "save/development-settlements/endings/"
                 f"{ending['ending_id']}/{investigator_id}.json"
             ),
+            (
+                "save/development-settlements/boundaries/"
+                f"{investigator_id}.json"
+            ),
             f"../../investigators/{investigator_id}/character.json",
             "logs/events.jsonl",
             "logs/rolls.jsonl",
@@ -2958,19 +3000,33 @@ def _development_operation_body(
             reward_receipt_path.relative_to(campaign_dir).as_posix()
         )
     settlement_path.parent.mkdir(parents=True, exist_ok=True)
+    settled_at = _now()
     coc_fileio.write_json_atomic(
         settlement_path,
         {
             "schema_version": 1,
             "ending_id": ending["ending_id"],
             "investigator_id": investigator_id,
-            "settled_at": _now(),
+            "settled_at": settled_at,
             "receipt": receipt,
         },
         indent=2,
         ensure_ascii=False,
         trailing_newline=True,
     )
+    if boundary is not None and boundary.get("boundary_id"):
+        coc_development.record_settlement_boundary(
+            campaign_dir,
+            investigator_id,
+            boundary_id=str(boundary["boundary_id"]),
+            session_ids=[
+                str(item) for item in boundary.get("session_ids") or []
+            ],
+            ending_id=str(ending["ending_id"]),
+            operation_id=operation_id,
+            receipt_ref=settlement_path.relative_to(campaign_dir).as_posix(),
+            settled_at=settled_at,
+        )
     return receipt
 
 
@@ -3072,6 +3128,26 @@ def _development_operation_locked(
             "existing exact development settlement receipt is invalid"
         )
 
+    try:
+        boundary = coc_development.settlement_boundary_decision(
+            campaign_dir, ending, investigator_id
+        )
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    replay_boundary = boundary.get("replay")
+    if replay_boundary is not None:
+        # One settlement per (session, investigator, settlement_type): this
+        # ending closes an already-settled boundary, so replay the original
+        # receipt without new rolls or state diffs.
+        replay_receipt = _settled_boundary_receipt(
+            campaign_dir, replay_boundary, investigator_id
+        )
+        if replay_receipt is None:
+            raise RuntimeOperationError(
+                "canonical settlement boundary receipt is invalid"
+            )
+        return replay_receipt
+
     journal = _capture_development_inflight(
         campaign_dir=campaign_dir,
         investigator_id=investigator_id,
@@ -3090,6 +3166,7 @@ def _development_operation_locked(
             rng=rng,
             settlement_path=settlement_path,
             ending=ending,
+            boundary=boundary,
         )
         journal["status"] = "prepared"
         journal["file_postimages"] = file_postimages
