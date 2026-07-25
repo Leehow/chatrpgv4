@@ -34,7 +34,7 @@ The five rulebook kinds, recorded in `involuntary_action.kind`:
 - `involuntary_combat_action` — when the failed SAN roll happens during a combat round, the investigator's action that round may be dictated by the Keeper.
 - `freeze` — stare disbelievingly for a moment but take no action.
 
-When the SAN failure also triggers temporary insanity (5+ SAN lost in one roll and INT roll failed), the bout of madness follows this involuntary action; the momentary loss of self-control is recorded separately from the bout.
+When the SAN failure also triggers temporary insanity (5+ SAN lost in one roll and INT roll succeeded — INT success means the investigator grasps the full horror, while INT failure means the mind represses it and no temporary insanity occurs), the bout of madness follows this involuntary action; the momentary loss of self-control is recorded separately from the bout.
 
 ## Delusions and Reality Check
 
