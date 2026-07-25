@@ -26,8 +26,8 @@ Markdown 渲染），右侧角色参数 / 物品 / 游戏时间，顶栏可选�
 # 1. 构建前端（只需在源码变化后重新执行）
 cd web/frontend && npm install && npm run build && cd ../..
 
-# 2. 启动服务器（默认 workspace 为仓库根，端口 8765）
-uv run --frozen python web/server/app.py --workspace . --port 8765
+# 2. 启动服务器（默认 workspace 为仓库根，端口 8765；Node 桥）
+node web/server-node/server.mjs --workspace . --port 8765
 
 # 3. 打开 http://127.0.0.1:8765
 ```
@@ -35,13 +35,28 @@ uv run --frozen python web/server/app.py --workspace . --port 8765
 前端联调可用 `cd web/frontend && npm run dev`（Vite 把 `/api` 代理到
 127.0.0.1:8765）。
 
+旧版 Python 桥仍保留为参考实现：`uv run --frozen python web/server/app.py
+--workspace . --port 8765`。两端 API 契约一致，可互换。
+
 ## 架构
 
-- `web/server/app.py` — 纯 stdlib HTTP + SSE 桥（无新增 Python 依赖），只包装
-  `runtime/sdk/api.py`：`onboarding.inspect` / `campaign.quick_start` /
-  `create_session` / `send` / `get_state`，外加只读的角色卡与
-  `save/time-state.json` 投影。所有规则、状态、叙事语义仍属 canonical
-  runtime 与 keeper runner。
+- `web/server-node/server.mjs` — Node HTTP + SSE 桥（零依赖，Node ≥22），
+  是当前默认 web 服务器。只做 HTTP 面、静态文件、multipart PDF 登记、
+  纯文件显示投影（时间/场景/张力/线索/transcript 时序/`models.json`），
+  外加全局回合锁。所有规则、状态、叙事语义仍属 canonical runtime 与
+  keeper runner。
+- `web/server-node/sidecar.mjs` — stdio 换行 JSON-RPC 客户端，长驻一个
+  `runtime/sdk/rpc_server.py` 进程；请求/响应带 id，keeper 流式事件以
+  notification 形式按请求 id 回传。
+- `runtime/sdk/rpc_server.py` — 薄壳 sidecar：把 `runtime/sdk/api.py`
+  的 `setup_workspace` / `create_session` / `get_state` / `send` 等方法
+  暴露为 JSON-RPC；`send` 的 `on_keeper_stream` 回调原样转发为
+  notification。线程派发，长回合不阻塞只读请求。
+- `runtime/sdk/web_views.py` — 只能由 canonical Python 插件完成的投影
+  （角色卡 `player_facing_sheet_zh`、module-library 列表/安装、引擎
+  transcript 回退），经 sidecar 提供给 Node。
+- `web/server/app.py` — 旧版 Python stdlib 桥（保留作黄金参照；行为契约
+  与 Node 桥一致，用于双跑 diff 验收）。
 - `runtime/adapters/keeper/run_keeper_turn.mjs` — 在原有 `session.subscribe`
   上把玩家安全的实时进度以 `{"$stream":...}` NDJSON 标记行写到 stderr：
   工具活动（仅工具名，不含参数）与 `turn.finalize` 成功之后的叙述

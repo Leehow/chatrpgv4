@@ -1129,6 +1129,12 @@ def _error_recovery_hints(code: str) -> list[str]:
         "invalid_mechanics_placement": [
             "omit the mechanics_placements parameter entirely to use safe auto-placement; only supply explicit placements when you need deliberate interleaving and can guarantee every source exactly once with valid after_paragraph indices"
         ],
+        "settlement_after_journal": [
+            "state.journal already committed for this turn — call turn.finalize NOW with your current draft; do NOT call any more state.*/rules.* tools after journal; all mechanical writes must happen BEFORE state.journal"
+        ],
+        "turn_pending_finalization": [
+            "state.journal already committed for this turn — call turn.finalize NOW; no further state mutations are allowed until this turn is finalized"
+        ],
     }
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
 
@@ -1403,6 +1409,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                 "ok": False,
                 "tool": name,
                 "error": {"code": exc.code, "message": str(exc)},
+                "hints": _error_recovery_hints(exc.code),
             }
         except coc_runtime_ops.DevelopmentRecoveryConflict as exc:
             envelope = {

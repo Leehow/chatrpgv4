@@ -92,6 +92,12 @@ dialogue) — but narrate them as **independent world-perspective prose**: the
 environment reacts, senses engage, NPCs perceive, objects respond. The KP's
 paragraph is not the player's paragraph with the pronoun swapped.
 
+**Narration perspective is second person (你).** You are telling the player a
+story about what their investigator experiences: "你推开那扇门，冷风灌进衣领。"
+A brief third-person restatement of the player's declared action is acceptable
+as a one-line setup beat, but all scene description, consequences, NPC
+reactions, sensory detail, and outcome narration address the investigator as 你.
+
 **Preserve means keep the fact, not clone the sentence.** The player writes
 "我把笔记本掏出来，铅笔在纸页上点了两下——不是急着记，是给她一个信号";
 the KP narrates what that looks and feels like from the table's external

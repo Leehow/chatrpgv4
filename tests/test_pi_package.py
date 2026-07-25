@@ -200,6 +200,17 @@ def test_pi_mcp_error_surface_includes_toolbox_code_and_message():
     assert result["cases"]["transport"].startswith("MCP request failed:")
 
 
+def test_pi_mcp_parallel_dispatch_transport():
+    result = _node(ROOT / "tests/pi/mcp-parallel-transport.mjs", str(ROOT))
+    assert result["ok"] is True
+    assert result["queueTolerance"]["ok"] is True
+    assert result["queueTolerance"]["arrivalOrder"] == [1, 2, 3, 4, 5, 6]
+    assert result["hangDetection"]["ok"] is True
+    assert result["hangDetection"]["statuses"] == ["rejected"] * 3
+    assert result["abortIsolation"]["ok"] is True
+    assert result["abortIsolation"]["statuses"] == ["fulfilled", "rejected", "fulfilled"]
+
+
 def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
     result = _node(ROOT / "tests/pi/structural-repair.mjs", str(ROOT))
     assert result["evidence"] == {

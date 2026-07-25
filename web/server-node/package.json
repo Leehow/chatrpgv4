@@ -1,0 +1,14 @@
+{
+  "name": "coc-web-server-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node HTTP + SSE bridge between the React web UI and the canonical runtime SDK (via the stdio JSON-RPC sidecar).",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

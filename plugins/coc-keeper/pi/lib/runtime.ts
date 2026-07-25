@@ -693,15 +693,44 @@ export class McpJsonlClient {
   private buffer = "";
   private stderr = "";
   private nextId = 1;
-  private chain: Promise<unknown> = Promise.resolve();
-  private pending = new Map<number, { resolve: (value: JsonObject) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private starting: Promise<void> | null = null;
+  private pending = new Map<number, { resolve: (value: JsonObject) => void; reject: (error: Error) => void }>();
+  // Head-of-line hang detection. The MCP child is strictly FIFO, so only the
+  // oldest pending request can be in service; younger requests are queued
+  // server-side and their waiting is normal, not a hang. One timer watches
+  // the head request only: if it gets no response within timeoutMs the child
+  // is genuinely wedged and the transport is torn down. (An earlier parallel
+  // version timed every request from write time and closed the transport on
+  // any timeout, so normally-queued requests timed out one after another and
+  // each timeout killed the shared child — the "parallel crash" was that
+  // cascade, not interleaved stdin frames; same-process write() calls on one
+  // stream are queued in order and never interleave chunks.)
+  private hangTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly cwd: string;
   private readonly sessionId: string;
   private readonly canSpawnSourceChild: boolean;
-  constructor(cwd: string, sessionId: string, canSpawnSourceChild: boolean = true) { this.cwd = cwd; this.sessionId = sessionId; this.canSpawnSourceChild = canSpawnSourceChild; }
+  private readonly launchPath: string;
+  private readonly timeoutMs: number;
+  constructor(cwd: string, sessionId: string, canSpawnSourceChild: boolean = true, options: { launchPath?: string; timeoutMs?: number } = {}) {
+    this.cwd = cwd;
+    this.sessionId = sessionId;
+    this.canSpawnSourceChild = canSpawnSourceChild;
+    this.launchPath = options.launchPath ?? MCP_LAUNCH;
+    this.timeoutMs = options.timeoutMs ?? MCP_TIMEOUT_MS;
+  }
+  private armHangTimer() {
+    if (this.hangTimer) { clearTimeout(this.hangTimer); this.hangTimer = null; }
+    if (!this.pending.size) return;
+    this.hangTimer = setTimeout(() => {
+      this.failAll(new Error("MCP request timed out"));
+      void this.close();
+    }, this.timeoutMs);
+  }
   private failAll(error: Error) {
-    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
+    if (this.hangTimer) { clearTimeout(this.hangTimer); this.hangTimer = null; }
+    const pendings = [...this.pending.values()];
     this.pending.clear();
+    for (const pending of pendings) pending.reject(error);
   }
   private consume(chunk: Buffer) {
     try {
@@ -716,53 +745,76 @@ export class McpJsonlClient {
         const pending = this.pending.get(message.id as number);
         if (!pending) continue;
         this.pending.delete(message.id as number);
-        clearTimeout(pending.timer);
+        this.armHangTimer();
         if (message.error) pending.reject(new Error(formatMcpTransportError(message.error)));
         else pending.resolve(asObject(message.result, "MCP result"));
       }
     } catch (error) { this.failAll(error as Error); void this.close(); }
   }
-  private async ensure() {
-    if (this.child) return;
-    const child = spawn(MCP_LAUNCH, [], {
-      cwd: this.cwd, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
-      env: safeEnv({ COC_HOST: "pi", COC_PROJECT_ROOT: this.cwd, COC_RUNTIME_ROOT: RUNTIME_ROOT, COC_HOST_SESSION_ID: this.sessionId, ...(this.canSpawnSourceChild ? {} : { COC_PI_HEADLESS: "1" }) }),
-    });
-    this.child = child;
-    child.stdout.on("data", (chunk) => this.consume(chunk));
-    child.stderr.on("data", (chunk) => { try { this.stderr = appendBounded(this.stderr, chunk, "MCP stderr"); } catch (error) { this.failAll(error as Error); void this.close(); } });
-    child.on("error", (error) => this.failAll(error));
-    child.on("exit", () => { this.child = null; if (this.pending.size) this.failAll(new Error("MCP child exited")); });
-    await this.direct("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "coc-keeper-pi", version: "0.4.0-alpha.0" } });
+  private ensure(): Promise<void> {
+    // The child ref is assigned synchronously at spawn, before initialize
+    // finishes. Every caller must still wait out an in-flight startup;
+    // otherwise requests written before initialize completes are reordered
+    // (later callers skip the wait and overtake the caller that spawned).
+    if (this.child && !this.starting) return Promise.resolve();
+    // Concurrent first callers share one spawn+initialize; the child starts
+    // lazily on the first request and respawns here after any exit.
+    this.starting ??= this.spawnAndInitialize();
+    return this.starting;
+  }
+  private async spawnAndInitialize(): Promise<void> {
+    try {
+      const child = spawn(this.launchPath, [], {
+        cwd: this.cwd, shell: false, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
+        env: safeEnv({ COC_HOST: "pi", COC_PROJECT_ROOT: this.cwd, COC_RUNTIME_ROOT: RUNTIME_ROOT, COC_HOST_SESSION_ID: this.sessionId, ...(this.canSpawnSourceChild ? {} : { COC_PI_HEADLESS: "1" }) }),
+      });
+      this.child = child;
+      child.stdout.on("data", (chunk) => this.consume(chunk));
+      child.stderr.on("data", (chunk) => { try { this.stderr = appendBounded(this.stderr, chunk, "MCP stderr"); } catch (error) { this.failAll(error as Error); void this.close(); } });
+      child.on("error", (error) => this.failAll(error));
+      child.on("exit", () => {
+        // A stale child must not clobber its replacement: after close() the
+        // next request may already have respawned this.child.
+        if (this.child !== child) return;
+        this.child = null;
+        if (this.pending.size) this.failAll(new Error("MCP child exited"));
+      });
+      await this.direct("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "coc-keeper-pi", version: "0.4.0-alpha.0" } });
+    } finally {
+      this.starting = null;
+    }
   }
   private direct(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
     if (!this.child) return Promise.reject(new Error("MCP child unavailable"));
+    // A signal aborted while this request waited on startup is honored before
+    // the write; an abort listener registered now would never see it.
+    if (signal?.aborted) return Promise.reject(new Error("MCP request aborted"));
     const id = this.nextId++;
     return new Promise((resolvePromise, rejectPromise) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        rejectPromise(new Error("MCP request timed out"));
-        void this.close();
-      }, MCP_TIMEOUT_MS);
       const abort = () => {
-        clearTimeout(timer);
+        // Abort isolates this request; the child stays up for its siblings.
+        // The FIFO child may still execute the aborted request, in which case
+        // its response is discarded above as an unknown id.
         this.pending.delete(id);
+        this.armHangTimer();
         rejectPromise(new Error("MCP request aborted"));
-        void this.close();
       };
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(id, {
-        timer,
         resolve: (value) => { signal?.removeEventListener("abort", abort); resolvePromise(value); },
         reject: (error) => { signal?.removeEventListener("abort", abort); rejectPromise(error); },
       });
+      this.armHangTimer();
       this.child!.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
     });
   }
-  request(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
-    const request = this.chain.then(async () => { await this.ensure(); return this.direct(method, params, signal); });
-    this.chain = request.then(() => undefined, () => undefined);
-    return request;
+  async request(method: string, params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
+    // Parallel dispatch: requests are written immediately, in call order, and
+    // matched to responses by id. One complete JSONL frame per write() keeps
+    // frames atomic and ordered on the child's stdin, so the FIFO server sees
+    // exactly the call order the model emitted.
+    await this.ensure();
+    return this.direct(method, params, signal);
   }
   // Client-side cache for static tool results. When a tool returns immutable
   // data with a content hash (e.g. coc_discover's schema archive), subsequent

@@ -129,6 +129,16 @@
   拒绝通过（exit 2），新增 fixture 合同测试；10 个 `verify_*_ocr.py` 全部
   恢复可运行（`cache_all_ocr.sh` 补 monsters-ch14 正确页段 idx 320-355，
   分三段避免 MinerU 长任务断连）。
+- 恢复 Pi MCP 网关并行工具派发（开局回合 -49% 的性能收益回归），并修掉
+  真正的崩溃机制：Python 子进程是 FIFO 串行服务，旧实现从写入时刻给每个
+  请求单独计时，排队中的请求超时后 `close()` 杀掉共享子进程、连带拒绝
+  全部在途请求——崩溃是超时级联，与 stdin 帧交错无关（同一进程对同一
+  stream 的 `write()` 按序排队、不会交错）。现为队首挂起检测（只有最老
+  pending 请求计时，超时=子进程真挂起才拆传输层）、abort 只拒绝单个
+  请求、`ensure()` 让所有并发调用方等待 initialize 完成（修掉先写后至的
+  乱序）、旧子进程 exit 不再误清新生子进程；新增
+  `tests/pi/mcp-parallel-transport.mjs` 假 child 回归探针。
+
 ### Known Issues
 
 - The Haunting 的分发依据和插件图片来源仍为 `UNVERIFIED`；稳定发布前需要外部
