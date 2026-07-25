@@ -593,6 +593,7 @@ class _KeeperWarmServerPool:
         workspace: str,
         provider: str,
         model_id: str,
+        runner_hash: str = "",
     ) -> str:
         return "|".join(
             [
@@ -601,6 +602,7 @@ class _KeeperWarmServerPool:
                 str(Path(workspace).resolve()),
                 provider.strip(),
                 model_id.strip(),
+                runner_hash.strip(),
             ]
         )
 
@@ -827,16 +829,19 @@ def keeper_send_turn(
         and runner.suffix.lower() in {".mjs", ".js"}
     )
     if use_warm:
+        import hashlib
         import os
 
         provider = str(os.environ.get("COC_KEEPER_MODEL_PROVIDER") or "coding-relay")
         model_id = str(os.environ.get("COC_KEEPER_MODEL_ID") or "gpt-5.6-luna")
+        runner_hash = hashlib.sha256(runner.read_bytes()).hexdigest()[:12]
         key = _WARM_POOL.make_key(
             runtime_session_id=runtime_session_id.strip(),
             campaign_id=prepared["campaign_id"],
             workspace=prepared["workspace"],
             provider=provider,
             model_id=model_id,
+            runner_hash=runner_hash,
         )
         try:
             return _WARM_POOL.request(

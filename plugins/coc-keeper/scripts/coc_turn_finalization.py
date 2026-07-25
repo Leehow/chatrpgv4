@@ -10,6 +10,7 @@ or arithmetic to be edited.
 from __future__ import annotations
 
 from copy import deepcopy
+import difflib
 import hashlib
 import json
 from pathlib import Path
@@ -1555,9 +1556,12 @@ def validate_coverage(
                         "invalid_coverage", f"{obligation_id} lacks non-empty {key}"
                     )
             if row["exact_excerpt"] not in draft:
-                raise TurnContractError(
-                    "excerpt_mismatch", f"{obligation_id} exact_excerpt is not verbatim in draft"
-                )
+                repaired = _repair_excerpt(row["exact_excerpt"], draft)
+                if repaired is None:
+                    raise TurnContractError(
+                        "excerpt_mismatch", f"{obligation_id} exact_excerpt is not verbatim in draft"
+                    )
+                row["exact_excerpt"] = repaired
         if required[obligation_id].get("exceptional_required"):
             beat = row.get("exceptional_beat")
             if not isinstance(beat, str) or not beat.strip():
@@ -1571,6 +1575,33 @@ def validate_coverage(
             "missing_obligation", "missing causal coverage: " + ", ".join(missing)
         )
     return [seen[key] for key in sorted(seen)]
+
+
+def _repair_excerpt(excerpt: str, draft: str) -> str | None:
+    """Attempt to recover a verbatim-in-draft substring from a near-miss excerpt.
+
+    Returns a corrected substring that IS verbatim in draft, or None if no
+    paragraph matches well enough.
+    """
+    paragraphs = draft.split("\n\n")
+    best_ratio = 0.0
+    best_para = ""
+    for para in paragraphs:
+        if not para.strip():
+            continue
+        ratio = difflib.SequenceMatcher(None, excerpt, para).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_para = para
+    if best_ratio < 0.5 or not best_para:
+        return None
+    matcher = difflib.SequenceMatcher(None, excerpt, best_para)
+    match = matcher.find_longest_match(0, len(excerpt), 0, len(best_para))
+    if match.size >= 8:
+        return best_para[match.b : match.b + match.size]
+    if len(best_para) <= 80:
+        return best_para
+    return best_para[:60]
 
 
 def _draft_paragraphs(draft: str) -> list[str]:
@@ -1891,6 +1922,7 @@ def _collect_coverage_violations(
             if (
                 isinstance(excerpt, str) and excerpt.strip()
                 and excerpt not in draft
+                and _repair_excerpt(excerpt, draft) is None
             ):
                 add(
                     "excerpt_mismatch",
