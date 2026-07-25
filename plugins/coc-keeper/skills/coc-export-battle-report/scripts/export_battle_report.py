@@ -63,6 +63,28 @@ class ExportError(RuntimeError):
     """Raised when source or destination safety prevents an honest export."""
 
 
+_TURN_FINALIZATION_MODULE: Any = None
+
+
+def _turn_finalization() -> Any:
+    """Read-only access to the canonical roll-visibility contract.
+
+    Canonical caller: the dice finalization-binding gate below, which must
+    share ``is_player_facing_roll`` and ``SUPERSEDED_ROLL_VISIBILITIES`` with
+    the write side. The enum is read dynamically so values added later by the
+    write side (e.g. an abandonment disposition) keep working here unchanged.
+    """
+    global _TURN_FINALIZATION_MODULE
+    if _TURN_FINALIZATION_MODULE is None:
+        scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        import coc_turn_finalization
+
+        _TURN_FINALIZATION_MODULE = coc_turn_finalization
+    return _TURN_FINALIZATION_MODULE
+
+
 def _canonical_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -871,17 +893,69 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     all_rolls = None
     rolls_relative = None
     malformed_lines: list[int] = []
+    bound_roll_ids: set[str] = set()
+    zero_roll_receipt_ids: list[str] = []
+    undispositioned_orphans: list[dict[str, Any]] = []
+    dispositioned_orphan_ids: list[str] = []
     if campaign_relative:
+        turn_finalization = _turn_finalization()
+        superseded_visibilities = {
+            str(value).casefold()
+            for value in turn_finalization.SUPERSEDED_ROLL_VISIBILITIES
+        }
+        # The finalization receipt is the only artifact that binds a roll to a
+        # turn: rolls.jsonl rows carry no turn identity by design, and receipt
+        # validation already enforces seen_sources == expected_sources, so the
+        # bound set is complete by construction. A receipt with an empty
+        # source_roll_ids is the zero-roll attestation for its turn.
+        for row in turn_finalizations or []:
+            if not isinstance(row, dict):
+                continue
+            receipt_roll_ids = [
+                value.strip()
+                for value in row.get("source_roll_ids") or []
+                if isinstance(value, str) and value.strip()
+            ]
+            if receipt_roll_ids:
+                bound_roll_ids.update(receipt_roll_ids)
+            elif row.get("finalization_id"):
+                zero_roll_receipt_ids.append(str(row["finalization_id"]))
         rolls_relative = f"{campaign_relative}/logs/rolls.jsonl"
         all_rolls = _read_source(run_dir, rolls_relative, "jsonl", manifest)
         for source_line, row in enumerate(all_rolls or [], start=1):
             if _roll_visibility(row).casefold() not in PUBLIC_VISIBILITIES:
+                if isinstance(row, dict):
+                    roll_id = _roll_id(row)
+                    visibility = _roll_visibility(row).casefold()
+                    if (
+                        roll_id is not None
+                        and roll_id not in bound_roll_ids
+                        and visibility in superseded_visibilities
+                        and visibility != "keeper_only"
+                    ):
+                        # A would-be-public roll the write side later gave an
+                        # explicit disposition (superseded/voided/abandoned):
+                        # audit-listed only, never player-facing.
+                        dispositioned_orphan_ids.append(roll_id)
                 continue
             if not isinstance(row, dict):
                 malformed_lines.append(source_line)
                 continue
-            if _roll_id(row) is None or not _has_numeric_roll(row):
+            if not turn_finalization.is_player_facing_roll(
+                turn_finalization._flatten_roll(row)
+            ):
+                continue
+            roll_id = _roll_id(row)
+            if roll_id is None or not _has_numeric_roll(row):
                 malformed_lines.append(source_line)
+            if roll_id not in bound_roll_ids:
+                # Fail loud: a player-facing roll bound to no finalization and
+                # carrying no abandonment disposition must never be silently
+                # eaten nor silently rendered.
+                undispositioned_orphans.append(
+                    {"roll_id": roll_id, "source_line": source_line}
+                )
+                continue
             projected = _player_safe(row)
             assert isinstance(projected, dict)
             projected.update(
@@ -891,7 +965,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             )
             public_rolls.append(projected)
         manifest[rolls_relative]["included_record_count"] = len(public_rolls)
-        manifest[rolls_relative]["projection"] = "public_and_consequence_public_only"
+        manifest[rolls_relative]["projection"] = "player_facing_and_bound_to_finalization_receipt"
 
     roll_ids = [_roll_id(row) for row in public_rolls]
     duplicate_roll_ids = sorted(
@@ -983,7 +1057,28 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "every journaled player message and finalized Keeper response is present exactly once"
         ]),
     )
-    dimension("dice", all_rolls is not None and not malformed_lines and not duplicate_roll_ids, "structured public-roll evidence is traceable exactly once" if all_rolls is not None and not malformed_lines and not duplicate_roll_ids else "structured roll evidence is missing or invalid")
+    dice_ok = (
+        all_rolls is not None
+        and not malformed_lines
+        and not duplicate_roll_ids
+        and not undispositioned_orphans
+    )
+    dice_findings: list[str] = []
+    if dice_ok:
+        dice_findings.append(
+            "structured public-roll evidence is traceable exactly once and every rendered roll is bound to a finalization receipt"
+        )
+    else:
+        dice_findings.append("structured roll evidence is missing or invalid")
+    if undispositioned_orphans:
+        dice_findings.append(
+            "public roll rows bound to no finalization and carrying no abandonment disposition: "
+            + ", ".join(
+                f"{orphan['roll_id'] or 'MISSING_ROLL_ID'} (source line {orphan['source_line']})"
+                for orphan in undispositioned_orphans
+            )
+        )
+    dimension("dice", dice_ok, *dice_findings)
     character_ok = bool(investigators) and all(i["source_status"]["character"] == "PRESENT" and i["source_status"]["state"] == "PRESENT" for i in investigators)
     dimension("character_and_final_state", character_ok, "initial card and final dynamic state are present" if character_ok else "an investigator lacks an initial card or final state")
     progression_ok = isinstance(world, dict) and isinstance(flags, dict) and bool(progression["visited_scene_ids"])
@@ -1002,6 +1097,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         reasons.append("public roll rows lack roll_id or numerical evidence at source lines: " + ", ".join(map(str, malformed_lines)))
     if duplicate_roll_ids:
         reasons.append("duplicate public roll IDs: " + ", ".join(duplicate_roll_ids))
+    if undispositioned_orphans:
+        reasons.append(
+            f"{len(undispositioned_orphans)} public roll rows are bound to no finalization and carry no abandonment disposition: "
+            + ", ".join(
+                f"{orphan['roll_id'] or 'MISSING_ROLL_ID'} (source line {orphan['source_line']})"
+                for orphan in undispositioned_orphans
+            )
+        )
 
     turn_capsules: dict[str, dict[str, Any]] = {}
     for call in toolbox_calls or []:
@@ -1099,6 +1202,10 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "turn_capsules": list(turn_capsules.values()),
             "tool_call_count": len(toolbox_calls or []),
             "advisory_adoption_count": len(advisory_adoptions or []),
+            "dispositioned_orphan_rolls": {
+                "count": len(dispositioned_orphan_ids),
+                "roll_ids": sorted(dispositioned_orphan_ids),
+            },
         },
         "public_rolls": {
             "source_path": rolls_relative,
@@ -1108,7 +1215,14 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             "duplicate_roll_ids": duplicate_roll_ids,
             "malformed_source_lines": malformed_lines,
             "records": public_rolls,
-            "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines else "FAIL",
+            "finalization_binding": {
+                "contract": "render iff player-facing and bound to a turn-finalization receipt",
+                "bound_roll_id_count": len(bound_roll_ids),
+                "zero_roll_receipt_ids": zero_roll_receipt_ids,
+                "undispositioned_orphans": undispositioned_orphans,
+                "dispositioned_orphan_count": len(dispositioned_orphan_ids),
+            },
+            "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines and not undispositioned_orphans else "FAIL",
         },
         "run_metadata": metadata,
         "source_identity": {
@@ -1527,7 +1641,7 @@ def _localize_fixed_markdown_zh(markdown: str) -> str:
         "**FAIL**": "**未通过**",
         "run metadata and campaign directory resolved": "已解析运行元数据和战役目录",
         "every journaled player message and finalized Keeper response is present exactly once": "每条已入账玩家消息和已定稿 KP 回复都恰好出现一次",
-        "structured public-roll evidence is traceable exactly once": "结构化公开骰点证据均可追溯且恰好出现一次",
+        "structured public-roll evidence is traceable exactly once and every rendered roll is bound to a finalization receipt": "结构化公开骰点证据均可追溯、恰好出现一次，且每个已渲染骰点都绑定到定稿回执",
         "initial card and final dynamic state are present": "初始角色卡和最终动态状态均存在",
         "visited scenes and discovered-clue receipts are projected": "已投影访问场景和已发现线索回执",
         "structured ending or development settlement is missing": "缺少结构化结局或成长结算",

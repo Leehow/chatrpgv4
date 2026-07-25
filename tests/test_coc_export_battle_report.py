@@ -18,6 +18,26 @@ def _load():
     return module
 
 
+def _finalization_receipt(finalization_id, roll_ids):
+    """Minimal binding receipt: the exporter reads finalization_id and the
+    union of source_roll_ids (receipt completeness is enforced write-side)."""
+    return {
+        "schema_version": 1,
+        "finalization_id": finalization_id,
+        "decision_id": f"{finalization_id}-decision",
+        "journal_decision_id": f"{finalization_id}-journal",
+        "source_roll_ids": list(roll_ids),
+    }
+
+
+def _bind_rolls(run: Path, finalization_id, roll_ids):
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(
+        campaign / "logs" / "turn-finalizations.jsonl",
+        [_finalization_receipt(finalization_id, roll_ids)],
+    )
+
+
 def _write_json(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -73,6 +93,10 @@ def _fixture(run: Path, *, metadata_name="run.json"):
     _write_json(campaign / "save" / "development-settlements" / "endings" / ending_id / "ada.json", {"ending_id": ending_id, "investigator_id": "ada", "receipt": {"status": "PASS", "result": {"improvement_checks": [{"skill": "Library Use", "check_roll": 90, "gain": 3, "value_before": 70, "value_after": 73, "applied_delta": 3, "improved": True}], "luck_recovery": {"luck_before": 50, "luck_after": 55, "gained": 5}}}})
     _write_jsonl(run / "transcript.jsonl", transcript)
     _write_jsonl(campaign / "logs" / "rolls.jsonl", rolls)
+    _write_jsonl(
+        campaign / "logs" / "turn-finalizations.jsonl",
+        [_finalization_receipt("fin-1", ["public-1"])],
+    )
     _write_jsonl(campaign / "logs" / "toolbox-calls.jsonl", [{
         "schema_version": 2,
         "turn_number": 1,
@@ -249,6 +273,7 @@ def test_final_report_preserves_zero_character_and_roll_values(tmp_path):
             }
         ],
     )
+    _bind_rolls(run, "fin-zero", ["zero-roll"])
 
     module.export_battle_report(run)
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
@@ -298,6 +323,7 @@ def test_nested_dice_total_is_complete_and_rendered(
             }
         ],
     )
+    _bind_rolls(run, "fin-nested", [f"nested-{total}"])
 
     report = module.export_battle_report(run)
 
@@ -332,8 +358,15 @@ def test_valid_empty_roll_log_explicitly_reports_zero(tmp_path):
     _fixture(run)
     rolls = run / "sandbox" / ".coc" / "campaigns" / "case-1" / "logs" / "rolls.jsonl"
     _write_jsonl(rolls, [])
+    # A finalized turn whose hash-bound receipt carries source_roll_ids == []
+    # IS the zero-roll attestation; zero is covered by the receipt, not
+    # inferred from an empty log.
+    _bind_rolls(run, "fin-zero-turn", [])
     report = module.export_battle_report(run)
     assert report["public_rolls"]["status"] == "PASS"
+    binding = report["public_rolls"]["finalization_binding"]
+    assert binding["zero_roll_receipt_ids"] == ["fin-zero-turn"]
+    assert binding["undispositioned_orphans"] == []
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "Public roll count: **0**" in markdown
     assert "No public or consequence-public rolls occurred." in markdown
@@ -598,6 +631,7 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
         {"roll_id": "other-1", "actor": "ada", "visibility": "public", "payload": {"roll_id": "other-1", "skill": "Spot Hidden", "roll": 42, "effective_target": 60, "outcome": "success"}},
         {"roll_id": "keeper-1", "visibility": "keeper_only", "payload": {"roll": 99, "skill": "Charm", "secret_text": "KEEPER_ROLL_SECRET"}},
     ])
+    _bind_rolls(run, "fin-social", ["social-1", "other-1"])
 
     report = module.export_battle_report(run)
 
@@ -617,6 +651,88 @@ def test_social_skill_rolls_get_a_focused_player_safe_view(tmp_path):
     evidence = json.loads((run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8"))
     assert [row["roll_id"] for row in evidence["social_rolls"]] == ["social-1"]
     assert evidence["social_rolls"][0]["skill"] == "Persuade"
+
+
+def test_player_report_renders_only_rolls_bound_to_finalization_receipts(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(campaign / "logs" / "rolls.jsonl", [
+        {"roll_id": "bound-1", "actor": "ada", "visibility": "public", "payload": {"roll_id": "bound-1", "skill": "Spot Hidden", "roll": 42, "effective_target": 60, "outcome": "success"}},
+        {"roll_id": "disposed-1", "actor": "ada", "visibility": "superseded", "payload": {"roll_id": "disposed-1", "skill": "Listen", "roll": 71, "effective_target": 50, "outcome": "failure"}},
+        {"roll_id": "keeper-1", "visibility": "keeper_only", "payload": {"roll": 99, "secret_text": "KEEPER_ROLL_SECRET"}},
+    ])
+    _bind_rolls(run, "fin-bound", ["bound-1"])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "COMPLETE"
+    assert report["completeness"]["dimensions"]["dice"]["status"] == "PASS"
+    assert [row["roll_id"] for row in report["public_rolls"]["records"]] == ["bound-1"]
+    binding = report["public_rolls"]["finalization_binding"]
+    assert binding["bound_roll_id_count"] == 1
+    assert binding["undispositioned_orphans"] == []
+    assert binding["dispositioned_orphan_count"] == 1
+    audit = report["keeper_internal"]["dispositioned_orphan_rolls"]
+    assert audit == {"count": 1, "roll_ids": ["disposed-1"]}
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert markdown.count("### `bound-1`") == 1
+    assert "disposed-1" not in markdown
+    assert "KEEPER_ROLL_SECRET" not in markdown
+
+
+def test_undispositioned_orphan_public_roll_fails_dice_loudly(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    rolls = [
+        json.loads(line)
+        for line in (campaign / "logs" / "rolls.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    _write_jsonl(campaign / "logs" / "rolls.jsonl", [
+        *rolls,
+        {"roll_id": "orphan-public", "actor": "ada", "visibility": "public", "payload": {"roll_id": "orphan-public", "skill": "Stealth", "roll": 88, "effective_target": 40, "outcome": "failure"}},
+    ])
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert report["public_rolls"]["status"] == "FAIL"
+    dimension = report["completeness"]["dimensions"]["dice"]
+    assert dimension["status"] == "FAIL"
+    assert any("orphan-public" in finding and "source line 3" in finding for finding in dimension["findings"])
+    assert any(
+        "1 public roll rows are bound to no finalization and carry no abandonment disposition" in reason
+        and "orphan-public" in reason
+        for reason in report["completeness"]["reasons"]
+    )
+    assert report["public_rolls"]["finalization_binding"]["undispositioned_orphans"] == [
+        {"roll_id": "orphan-public", "source_line": 3}
+    ]
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "### `orphan-public`" not in markdown
+    assert markdown.count("### `public-1`") == 1
+
+
+def test_campaign_without_finalization_receipts_becomes_loudly_incomplete(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    (campaign / "logs" / "turn-finalizations.jsonl").unlink()
+
+    report = module.export_battle_report(run)
+
+    assert report["completeness"]["classification"] == "INCOMPLETE"
+    assert report["completeness"]["dimensions"]["dice"]["status"] == "FAIL"
+    assert any("public-1" in reason for reason in report["completeness"]["reasons"])
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "### `public-1`" not in markdown
+    assert "INCOMPLETE" in markdown
 
 
 def test_social_skill_rolls_zero_is_explicit(tmp_path):
