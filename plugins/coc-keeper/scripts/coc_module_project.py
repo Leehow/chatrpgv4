@@ -129,6 +129,11 @@ def skeleton_scene_from_location(loc: dict[str, Any], *, is_start: bool) -> dict
         "source_span": loc.get("source_span"),
         "source_refs": json.loads(json.dumps(loc.get("source_refs") or [])),
         "source_page_indices": list(loc.get("source_page_indices") or []),
+        "scene_contract": (
+            json.loads(json.dumps(loc["scene_contract"]))
+            if isinstance(loc.get("scene_contract"), dict)
+            else None
+        ),
     }
 
 
@@ -471,7 +476,7 @@ def merge_deep_location_into_ir(
     for key in (
         "source_refs", "source_span", "source_page_indices",
         "page_text_sha256", "source_evidence", "source_discrepancies",
-        "location_tags", "entry_conditions", "importance",
+        "location_tags", "entry_conditions", "importance", "scene_contract",
     ):
         if pack.get(key) is not None:
             scene[key] = json.loads(json.dumps(pack[key]))
@@ -3281,6 +3286,41 @@ def project_selected_opening(
     }
 
 
+def _reapply_stored_deep_packs(
+    workspace: Path,
+    asset_root_id: str,
+    ir: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Re-merge deep entity packs from the store after a skeleton re-projection.
+
+    Skeleton refresh rebuilds campaign IR from topology only. Without this
+    pass the already-merged deep truth (clues, NPC agendas, threats, items)
+    would be silently dropped even though the reusable packs still exist in
+    the module-assets store. Handouts have no campaign IR consumer and are
+    skipped; stub/partial or evidence-gap packs are left to the normal queue.
+    """
+    entities_dir = (
+        coc_module_assets.assets_root(workspace) / asset_root_id / "entities"
+    )
+    reapplied: list[str] = []
+    if not entities_dir.is_dir():
+        return ir, reapplied
+    for path in sorted(entities_dir.glob("*.json")):
+        kind, sep, entity_id = path.stem.partition("-")
+        if not sep or kind not in {"location", "npc", "item", "clue", "threat"}:
+            continue
+        pack = coc_module_assets.get_entity(
+            workspace, asset_root_id, kind, entity_id,
+        )
+        if not isinstance(pack, dict) or not _is_deep_state(pack.get("parse_state")):
+            continue
+        if pack.get("evidence_gap"):
+            continue
+        ir = merge_deep_entity_into_ir(ir, kind, pack)
+        reapplied.append(f"{kind}:{entity_id}")
+    return ir, reapplied
+
+
 def project_skeleton_to_campaign(
     workspace: Path,
     campaign_id: str,
@@ -3290,12 +3330,14 @@ def project_skeleton_to_campaign(
     if not skeleton:
         raise ModuleProjectError("skeleton.json missing; put_skeleton first")
     ir = project_skeleton_to_ir(skeleton)
+    ir, reapplied = _reapply_stored_deep_packs(workspace, asset_root_id, ir)
     campaign_dir = _campaign_dir(workspace, campaign_id)
     paths = write_ir_to_campaign(campaign_dir, ir, asset_root_id=asset_root_id)
     return {
         "campaign_id": campaign_id,
         "asset_root_id": asset_root_id,
         "scene_count": len(ir["story-graph.json"]["scenes"]),
+        "reapplied_deep_entities": reapplied,
         "paths": paths,
         "parse_tier": skeleton.get("parse_tier") or 1,
     }

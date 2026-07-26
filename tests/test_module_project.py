@@ -685,6 +685,52 @@ def test_project_skeleton_topology(tmp_path: Path):
     assert meta["progressive"] is True
 
 
+def test_project_skeleton_carries_scene_contract(tmp_path: Path):
+    skeleton = json.loads(json.dumps(_skeleton()))
+    contract = {
+        "role": "transit",
+        "truth_scope": {"max_tier": 1, "max_bridge_clues": 1},
+        "improv_budget": {"named_npcs": 1, "local_clues": 1},
+    }
+    skeleton["locations"][0]["scene_contract"] = contract
+    assets.init_module_root(
+        tmp_path, asset_root_id="prog-demo", identity={"canonical_module_id": "prog-demo"},
+        file_sha256=FAKE_SHA,
+    )
+    assets.put_skeleton(tmp_path, "prog-demo", skeleton)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    sg = json.loads((camp / "scenario" / "story-graph.json").read_text(encoding="utf-8"))
+    opening = next(s for s in sg["scenes"] if s["scene_id"] == "opening")
+    assert opening["scene_contract"] == contract
+    assert opening["scene_contract"] is not contract  # deep-copied
+    library = next(s for s in sg["scenes"] if s["scene_id"] == "library")
+    assert library["scene_contract"] is None
+
+
+def test_project_skeleton_reapplies_stored_deep_packs(tmp_path: Path):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["scene_contract"] = {"role": "investigation", "truth_scope": {"max_tier": 3}}
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    camp = _make_campaign(tmp_path)
+    result = project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    assert "location:opening" in result["reapplied_deep_entities"]
+
+    sg = json.loads((camp / "scenario" / "story-graph.json").read_text(encoding="utf-8"))
+    opening = next(s for s in sg["scenes"] if s["scene_id"] == "opening")
+    assert opening["parse_state"] == "deep"
+    assert "clue-commission" in opening["available_clues"]
+    assert opening["scene_contract"] == pack["scene_contract"]
+    cg = json.loads((camp / "scenario" / "clue-graph.json").read_text(encoding="utf-8"))
+    merged = [
+        clue
+        for concl in cg.get("conclusions") or []
+        for clue in concl.get("clues") or []
+    ]
+    assert any(c.get("clue_id") == "clue-commission" for c in merged)
+
+
 def test_project_skeleton_refreshes_stale_public_setup_briefing(tmp_path: Path):
     skeleton = json.loads(json.dumps(_skeleton()))
     skeleton["module_identity"]["era"] = "1895 England"
