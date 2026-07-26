@@ -1140,6 +1140,14 @@ def _error_recovery_hints(code: str) -> list[str]:
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
 
 
+# Common model misnamings of required params, normalized at the tool boundary
+# before required-param validation. Observed: models reliably send
+# "delta_minutes" for state.advance_time's "minutes".
+_PARAM_ALIASES: dict[str, dict[str, str]] = {
+    "state.advance_time": {"delta_minutes": "minutes"},
+}
+
+
 def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any]) -> dict[str, Any]:
     """Programmatic entry point. Returns the envelope dict."""
     spec = TOOLS.get(name)
@@ -1434,6 +1442,9 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
     try:
         if spec["needs_campaign"] and not campaign_id:
             raise ToolError("missing_campaign", "this tool requires --campaign <id>")
+        for wrong, right in _PARAM_ALIASES.get(name, {}).items():
+            if args.get(right) in (None, "") and args.get(wrong) not in (None, ""):
+                args[right] = args.pop(wrong)
         required_params = [
             pname
             for pname, pspec in spec["params"].items()
