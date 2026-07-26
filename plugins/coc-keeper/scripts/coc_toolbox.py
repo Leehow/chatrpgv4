@@ -6788,6 +6788,13 @@ def _roll_common(
             "campaign's active play_language; turn.finalize renders all three "
             "verbatim, so internal English reasoning or machine ids do not belong there"
         )
+        hints.append(
+            "state.exceptional_effect closed contract: scene_event mechanics.change_kind "
+            "must be one of arrival|escalation|hazard|loss|opening|reversal; "
+            "scene_event/condition/restriction need a continuing boundary "
+            "(until_scene_end/until_time_marker/until_condition), bonus/penalty need "
+            "{kind:until_consumed,uses:1}, resource_delta needs {kind:immediate}"
+        )
     active_modifier = _matching_active_exceptional_modifier(
         ctx,
         investigator_id=investigator_id,
@@ -7854,6 +7861,18 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
     data["opponent_roll_id"] = their_record["roll_id"]
     ctx.ledger_record(args.get("decision_id"), "rules.opposed", data)
     hints = ["both sides failed: the situation stalls or worsens — narrate movement, not a freeze"] if winner == "none" else []
+    for side_label, side_roll_id, side_outcome in (
+        ("investigator", mine_record["roll_id"], str(mine.get("outcome") or "")),
+        ("opponent", their_record["roll_id"], str(theirs.get("outcome") or "")),
+    ):
+        if side_outcome in {"critical", "fumble"}:
+            hints.append(
+                f"{side_label} side settled {side_outcome}: before state.journal apply a "
+                f"source-bound {'benefit' if side_outcome == 'critical' else 'cost'} with "
+                f"state.exceptional_effect bound to roll_id {side_roll_id}; prose alone "
+                "cannot close it (scene_event change_kind must be one of "
+                "arrival|escalation|hazard|loss|opening|reversal with a continuing boundary)"
+            )
     if target_source == "rulebook_base":
         hints.append(
             f"{label} is not listed on the investigator sheet; used the canonical rulebook base chance {target}%"
@@ -20539,6 +20558,40 @@ def _matching_active_exceptional_modifier(
     return deepcopy(matches[0]) if matches else None
 
 
+def _ledger_roll_owner(
+    ctx: Ctx, tools: frozenset[str], roll_id: str
+) -> dict[str, Any] | None:
+    """Resolve the canonical ledger entry whose settled data owns ``roll_id``.
+
+    Roll evidence logged outside the receipt document (opposed contests, SAN
+    checks) does not always carry its owning decision_id on the roll row; the
+    ledger is the authoritative map back to it.  Exactly one entry may own a
+    roll id.
+    """
+    def _contains(value: Any) -> bool:
+        if isinstance(value, str):
+            return value == roll_id
+        if isinstance(value, dict):
+            return any(_contains(item) for item in value.values())
+        if isinstance(value, list):
+            return any(_contains(item) for item in value)
+        return False
+
+    owners = [
+        entry
+        for entry in ctx._load_ledger()["entries"].values()
+        if isinstance(entry, dict)
+        and entry.get("tool") in tools
+        and _contains(entry.get("data"))
+    ]
+    if len(owners) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"roll_id '{roll_id}' has multiple canonical sources",
+        )
+    return owners[0] if owners else None
+
+
 def _exceptional_roll_source(
     ctx: Ctx, roll_id: str
 ) -> dict[str, Any]:
@@ -20580,30 +20633,72 @@ def _exceptional_roll_source(
         roll_kind = logged_roll.get("kind") or payload.get("kind")
         # A SAN check fumble is a legitimate exceptional result whose effect
         # (san_loss) must bind through state.exceptional_effect.  The sanity
-        # check roll lives in logs/rolls.jsonl with kind=sanity_check.
+        # check roll lives in logs/rolls.jsonl with kind=sanity_check.  Its
+        # owning decision_id comes from the canonical rules.sanity_check /
+        # sanity.execute ledger entry (the roll row itself proves provenance
+        # only for subsystem rows that embed source_command_id/decision_id).
         if roll_kind == "sanity_check":
-            data = {
-                key: deepcopy(value)
-                for key, value in logged_roll.items()
-                if key != "payload"
-            }
-            for key, value in payload.items():
-                data.setdefault(key, deepcopy(value))
-            actor_id = data.get("actor")
-            if isinstance(actor_id, str) and actor_id in set(ctx.party_ids()):
-                data.setdefault("investigator_id", actor_id)
-            data.setdefault("pushed", False)
-            data.setdefault("visibility", str(logged_roll.get("visibility") or "consequence_public"))
-            return {
-                "tool": "rules.sanity_check",
-                "decision_id": source_command_id,
-                "roll_id": roll_id,
-                "roll_record": deepcopy(logged_roll),
-                "data": data,
-                _SOURCE_RECEIPT_INTEGRITY_KEY: coc_exceptional_effects.canonical_digest(
-                    logged_roll
-                ),
-            }
+            owner = _ledger_roll_owner(
+                ctx, frozenset({"rules.sanity_check", "sanity.execute"}), roll_id
+            )
+            decision_id = (
+                str(owner["decision_id"]) if owner is not None else ""
+            ) or source_command_id or str(payload.get("decision_id") or "")
+            if decision_id:
+                tool_name = (
+                    str(owner["tool"]) if owner is not None else "rules.sanity_check"
+                )
+                data = {
+                    key: deepcopy(value)
+                    for key, value in logged_roll.items()
+                    if key != "payload"
+                }
+                for key, value in payload.items():
+                    data.setdefault(key, deepcopy(value))
+                actor_id = data.get("actor")
+                if isinstance(actor_id, str) and actor_id in set(ctx.party_ids()):
+                    data.setdefault("investigator_id", actor_id)
+                data.setdefault("pushed", False)
+                data.setdefault("visibility", str(logged_roll.get("visibility") or "consequence_public"))
+                return {
+                    "tool": tool_name,
+                    "decision_id": decision_id,
+                    "roll_id": roll_id,
+                    "roll_record": deepcopy(logged_roll),
+                    "data": data,
+                    _SOURCE_RECEIPT_INTEGRITY_KEY: coc_exceptional_effects.canonical_digest(
+                        logged_roll
+                    ),
+                }
+        # An opposed contest (e.g. POW vs POW) can also settle critical/fumble
+        # on either side.  rules.opposed logs both sides with
+        # kind=opposed_check and no source_command_id; its canonical ledger
+        # entry owns the roll ids, so resolve the source decision_id there.
+        if roll_kind == "opposed_check":
+            owner = _ledger_roll_owner(ctx, frozenset({"rules.opposed"}), roll_id)
+            if owner is not None:
+                data = {
+                    key: deepcopy(value)
+                    for key, value in logged_roll.items()
+                    if key != "payload"
+                }
+                for key, value in payload.items():
+                    data.setdefault(key, deepcopy(value))
+                actor_id = data.get("actor")
+                if isinstance(actor_id, str) and actor_id in set(ctx.party_ids()):
+                    data.setdefault("investigator_id", actor_id)
+                data.setdefault("pushed", False)
+                data.setdefault("visibility", str(logged_roll.get("visibility") or "public"))
+                return {
+                    "tool": "rules.opposed",
+                    "decision_id": str(owner["decision_id"]),
+                    "roll_id": roll_id,
+                    "roll_record": deepcopy(logged_roll),
+                    "data": data,
+                    _SOURCE_RECEIPT_INTEGRITY_KEY: coc_exceptional_effects.canonical_digest(
+                        logged_roll
+                    ),
+                }
         if roll_role == "percentile_check" and source_command_id.startswith("combat-"):
             data = {
                 key: deepcopy(value)
@@ -20864,7 +20959,9 @@ def _validated_exceptional_mechanics(
         if boundary.get("kind") == "immediate":
             raise ToolError(
                 "invalid_param",
-                "scene_event must stay active to an explicit boundary so scene.context can consume it",
+                "scene_event requires a continuing boundary "
+                "(until_scene_end, until_time_marker, or until_condition) so "
+                "scene.context can consume it; immediate is invalid",
             )
         if boundary.get("kind") == "until_consumed":
             raise ToolError("invalid_param", "only bonus/penalty effects may be consumed")

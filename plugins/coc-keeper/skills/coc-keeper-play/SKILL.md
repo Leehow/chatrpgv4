@@ -212,8 +212,15 @@ KP judgment and `state.npc_update`.
 - **Exceptional results change play.** A critical, fumble, or failed pushed
   roll needs a nonempty exceptional beat **and** one source-bound substantive
   effect via `state.exceptional_effect` before `state.journal`. Prose alone
-  cannot close it. Choose the effect semantically from the event, never a
-  skill-name lookup. Its `player_visible_impact`, `causal_link`, and any
+  cannot close it. This binds every exceptional source, including opposed
+  contests (either side's roll_id) and SAN checks. Choose the effect
+  semantically from the event, never a skill-name lookup. Closed contract:
+  `scene_event` `change_kind` is exactly one of `arrival | escalation |
+  hazard | loss | opening | reversal` — never invent a free-form value;
+  scene_event/condition/restriction take a continuing boundary
+  (`until_scene_end` / `until_time_marker` / `until_condition`), bonus/penalty
+  take `{kind: until_consumed, uses: 1}`, resource_delta takes
+  `{kind: immediate}`. Its `player_visible_impact`, `causal_link`, and any
   `until_condition` description render verbatim, so write them in the active
   `play_language`.
 - **Multi-NPC / first contact / relationships.** A turn may have zero, one, or
