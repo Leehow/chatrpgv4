@@ -38,7 +38,7 @@ def op_status(corpus_path: str) -> dict:
 
 
 def op_fast(source_path: str, corpus_path: str) -> dict:
-    import subprocess, shutil
+    import subprocess, hashlib
 
     source = Path(source_path)
     corpus = Path(corpus_path)
@@ -57,6 +57,38 @@ def op_fast(source_path: str, corpus_path: str) -> dict:
             return {"status": "error", "error": (result.stderr or "baiduocr failed")[:500]}
 
         md_files = sorted(corpus.glob("*.md"))
+
+        # Auto-update bundle manifest.json so scenario.bind_pdf works
+        # immediately after OCR. The manifest lives in the parent of the
+        # pages/ directory (i.e., corpus_path/../manifest.json).
+        bundle_dir = corpus.parent
+        manifest_path = bundle_dir / "manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text("utf-8"))
+            # Map baiduocr's doc_N.md to pdf_index N
+            pages = []
+            for md in md_files:
+                stem = md.stem  # e.g. "doc_0", "doc_12"
+                parts = stem.split("_")
+                pdf_index = int(parts[-1]) if parts[-1].isdigit() else 0
+                text_bytes = md.read_bytes()
+                text_sha = hashlib.sha256(text_bytes).hexdigest()
+                pages.append({
+                    "pdf_index": pdf_index,
+                    "markdown_path": f"pages/{md.name}",
+                    "text_sha256": text_sha,
+                    "review_state": "auto_accepted",
+                    "parse_confidence": 0.90,
+                    "grep_anchors": [],
+                })
+            # Cap at 32 pages (MAX_PAGES contract)
+            if len(pages) > 32:
+                pages = pages[:32]
+            manifest["pages"] = pages
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2), "utf-8"
+            )
+
         return {
             "status": "completed",
             "source": {"path": str(source.resolve())},
@@ -66,6 +98,7 @@ def op_fast(source_path: str, corpus_path: str) -> dict:
                 for md in md_files
             ],
             "page_count": len(md_files),
+            "manifest_updated": manifest_path.exists(),
         }
     except subprocess.TimeoutExpired:
         return {"status": "error", "error": "baiduocr timed out (900s)"}
