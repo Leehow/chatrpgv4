@@ -157,6 +157,22 @@ mode `0600`, then add the token value. Set `COC_KEEPER_ENV_FILE` to an absolute
 alternative path when needed. Only the OCR child receives `BAIDUOCR_TOKEN`;
 the MCP and Pi source-agent children explicitly have it removed.
 
+### Built-in baiduocr adapter
+
+A bundled adapter at `bin/coc-ocr-adapter.py` bridges the
+`coc_progressive_ocr` contract (`status`/`fast`/`enhance`/`export`) to the
+existing `~/.codex/skills/baiduocr/scripts/baiduocr.py` CLI. To use it:
+
+```bash
+export COC_PROGRESSIVE_OCR_COMMAND=<repo>/plugins/coc-keeper/pi/bin/coc-ocr-adapter.py
+```
+
+The adapter translates `fast <pdf> --corpus <dir>` into `baiduocr.py <pdf>
+--output-dir <dir>`, and returns JSONL status lines on stdout. `status`
+inspects the corpus directory; `enhance` returns cached pages (baiduocr
+doesn't support per-page re-extraction via CLI); `export` concatenates
+corpus markdown into a single output file.
+
 The OCR tool accepts only `status`, `fast`, `enhance`, and `export`. It validates
 paths and structured JSON results, but deliberately does not reject ordinary
 OCR wording, column-order, or layout noise.

@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:bfe9066b539998e5a09e112cc253af5d7f48907a00ee3547282da912e598f2ef",
+  "content_sha256": "sha256:e60c130b45354a20747d2fb9b31337cba50ad2d34d227e8789c05d530b9765a1",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -3355,11 +3355,28 @@
         "properties": {
           "action": {
             "description": "apply | consume | resolve",
+            "enum": [
+              "apply",
+              "consume",
+              "resolve"
+            ],
             "type": "string"
           },
           "boundary": {
             "additionalProperties": true,
-            "description": "exactly one of {kind:immediate}; {kind:until_consumed,uses:1}; {kind:until_scene_end,scene_id}; {kind:until_time_marker,marker_id}; {kind:until_condition,description}. until_condition.description is rendered verbatim to the player and must use the campaign's active play_language",
+            "description": "exactly one of {kind:immediate}; {kind:until_consumed,uses:1}; {kind:until_scene_end,scene_id}; {kind:until_time_marker,marker_id}; {kind:until_condition,description}. The legal kind depends on effect_kind: bonus/penalty require until_consumed with uses=1; resource_delta requires immediate; scene_event, condition, and restriction require a continuing until_scene_end/until_time_marker/until_condition boundary (immediate and until_consumed are rejected). until_condition.description is rendered verbatim to the player and must use the campaign's active play_language",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "immediate",
+                  "until_condition",
+                  "until_consumed",
+                  "until_scene_end",
+                  "until_time_marker"
+                ],
+                "type": "string"
+              }
+            },
             "type": "object"
           },
           "campaign": {
@@ -3380,6 +3397,10 @@
           },
           "direction": {
             "description": "benefit | cost (apply)",
+            "enum": [
+              "benefit",
+              "cost"
+            ],
             "type": "string"
           },
           "effect_id": {
@@ -3388,11 +3409,33 @@
           },
           "effect_kind": {
             "description": "bonus_die | penalty_die | condition | restriction | relationship_or_clock | scene_event | resource_delta",
+            "enum": [
+              "bonus_die",
+              "condition",
+              "penalty_die",
+              "relationship_or_clock",
+              "resource_delta",
+              "restriction",
+              "scene_event"
+            ],
             "type": "string"
           },
           "mechanics": {
             "additionalProperties": true,
-            "description": "bonus/penalty={dice,investigator_id,skill,scene_id:null|string,target_id:null|npc_id}; non-null target_id also requires localized target_display_name; NPC-scoped relationship bonus additionally requires source_decision_ids linking state.npc_update; condition={target_id,condition_id,scene_id}; restriction={subject_id,restriction_id,scope,scene_id}; scene_event={scene_id,event_id,change_kind}; resource_delta={source_decision_ids}; relationship_or_clock={source_decision_ids,affected_id,change_summary}",
+            "description": "bonus/penalty={dice,investigator_id,skill,scene_id:null|string,target_id:null|npc_id}; non-null target_id also requires localized target_display_name; NPC-scoped relationship bonus additionally requires source_decision_ids linking state.npc_update; condition={target_id,condition_id,scene_id}; restriction={subject_id,restriction_id,scope,scene_id}; scene_event={scene_id,event_id,change_kind} where change_kind is exactly one of arrival|escalation|hazard|loss|opening|reversal (a closed set — never invent a free-form value); resource_delta={source_decision_ids}; relationship_or_clock={source_decision_ids,affected_id,change_summary}",
+            "properties": {
+              "change_kind": {
+                "enum": [
+                  "arrival",
+                  "escalation",
+                  "hazard",
+                  "loss",
+                  "opening",
+                  "reversal"
+                ],
+                "type": "string"
+              }
+            },
             "type": "object"
           },
           "player_visible_impact": {
@@ -3421,6 +3464,11 @@
           },
           "visibility": {
             "description": "player_visible | concealed_observable | keeper_only",
+            "enum": [
+              "concealed_observable",
+              "keeper_only",
+              "player_visible"
+            ],
             "type": "string"
           }
         },
