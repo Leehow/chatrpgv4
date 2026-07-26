@@ -364,6 +364,102 @@ def test_mark_safe_rest_without_sanity_session_reports_no_reset(campaign_ws):
     assert rested["data"]["sanity_day_reset"] is False
 
 
+def _scene_event_apply_args(campaign_dir: Path, source_roll_id: str, decision_id: str) -> dict:
+    scene_id = json.loads(
+        (campaign_dir / "save" / "world-state.json").read_text(encoding="utf-8")
+    )["active_scene_id"]
+    return {
+        "action": "apply",
+        "source_roll_id": source_roll_id,
+        "direction": "cost",
+        "effect_kind": "scene_event",
+        "player_visible_impact": "理智崩塌的瞬间，他失声尖叫，暴露了自己的位置",
+        "causal_link": "SAN检定大失败，恐惧决堤压倒了一切掩饰",
+        "boundary": {"kind": "until_scene_end", "scene_id": scene_id},
+        "mechanics": {
+            "scene_id": scene_id,
+            "event_id": "scream-reveals-position",
+            "change_kind": "hazard",
+        },
+        "visibility": "player_visible",
+        "decision_id": decision_id,
+    }
+
+
+def test_sanity_check_fumble_binds_exceptional_effect(campaign_ws):
+    # Regression (P0 follow-up): a SAN fumble is an exceptional result whose
+    # cost must bind through state.exceptional_effect.  The source roll lives
+    # in logs/rolls.jsonl (kind=sanity_check); its owning decision_id is
+    # resolved from the canonical rules.sanity_check ledger entry.
+    checked = _run(
+        campaign_ws,
+        "rules.sanity_check",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "source": "a probe horror",
+            "loss_success": "0",
+            "loss_failure": "1",
+            "seed": 23,
+            "decision_id": "san-fumble-source",
+        },
+    )
+    assert checked["ok"] is True, checked
+    roll_id = checked["data"]["check_roll_id"]
+
+    applied = _run(
+        campaign_ws,
+        "state.exceptional_effect",
+        _scene_event_apply_args(campaign_ws["campaign_dir"], roll_id, "san-fumble-effect"),
+    )
+    assert applied["ok"] is True, applied
+    source = applied["data"]["effect"]["source_roll"]
+    assert source["tool"] == "rules.sanity_check"
+    assert source["decision_id"] == "san-fumble-source"
+    assert source["roll_id"] == roll_id
+    assert source["outcome"] == "fumble"
+
+
+def test_sanity_execute_fumble_binds_exceptional_effect(campaign_ws):
+    # Same binding contract through the subsystem path: sanity.execute logs
+    # the SAN check under the command_id and ledgers the result envelope; the
+    # exceptional source must still resolve exactly one owning decision_id.
+    executed = _run(
+        campaign_ws,
+        "sanity.execute",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "command": {
+                "command_id": "san-exec-fumble-cmd",
+                "kind": "sanity_check",
+                "phase": "resolve",
+                "payload": {
+                    "decision_id": "san-exec-fumble",
+                    "source": "a probe subsystem horror",
+                    "san_loss_success_expr": "0",
+                    "san_loss_fail_expr": "1",
+                },
+            },
+            "seed": 23,
+            "decision_id": "san-exec-fumble",
+        },
+    )
+    assert executed["ok"] is True, executed
+
+    applied = _run(
+        campaign_ws,
+        "state.exceptional_effect",
+        _scene_event_apply_args(
+            campaign_ws["campaign_dir"], "san-exec-fumble-cmd", "san-exec-fumble-effect"
+        ),
+    )
+    assert applied["ok"] is True, applied
+    source = applied["data"]["effect"]["source_roll"]
+    assert source["tool"] == "sanity.execute"
+    assert source["decision_id"] == "san-exec-fumble"
+    assert source["roll_id"] == "san-exec-fumble-cmd"
+    assert source["outcome"] == "fumble"
+
+
 def _finalize_coverage(context: dict, *, drop_obligation_prefix: str | None = None):
     result_paragraph = "已结算的测试结果按其原有因果关系发生。"
     draft = "测试中的行动继续推进。\n\n" + result_paragraph

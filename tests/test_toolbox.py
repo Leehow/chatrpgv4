@@ -950,6 +950,66 @@ def test_rules_opposed_requires_explicit_noncombat_domain_and_keeps_generic_tie(
     assert "NON-COMBAT" in coc_toolbox.TOOLS["rules.opposed"]["summary"]
 
 
+def test_rules_opposed_fumble_binds_exceptional_effect(campaign_ws):
+    # Regression: an opposed critical/fumble (e.g. a POW vs POW contest) must
+    # bind through state.exceptional_effect.  The source roll lives in
+    # logs/rolls.jsonl with kind=opposed_check; the owning decision_id is
+    # resolved from the canonical rules.opposed ledger entry.
+    settled = _run(
+        campaign_ws,
+        "rules.opposed",
+        {
+            "contest_kind": "noncombat",
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "POW",
+            "target": 40,
+            "opponent_value": 60,
+            "opponent_label": "a will that is not his own",
+            "reason": "resist the alien will gripping his mind",
+            "decision_id": "opposed-pow-fumble",
+            "seed": 23,
+        },
+    )
+    assert settled["ok"] is True, settled
+    assert settled["data"]["investigator_roll"]["outcome"] == "fumble"
+    roll_id = settled["data"]["investigator_roll_id"]
+    assert any(
+        "state.exceptional_effect" in hint for hint in settled["hints"]
+    )
+
+    scene_id = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )["active_scene_id"]
+    applied = _run(
+        campaign_ws,
+        "state.exceptional_effect",
+        {
+            "action": "apply",
+            "source_roll_id": roll_id,
+            "direction": "cost",
+            "effect_kind": "scene_event",
+            "player_visible_impact": "他的意志被短暂碾碎，呆立当场，脱困的窗口在眼前关闭",
+            "causal_link": "意志对抗掷出100大失败，外来意志趁隙压垮了他的自我",
+            "boundary": {"kind": "until_scene_end", "scene_id": scene_id},
+            "mechanics": {
+                "scene_id": scene_id,
+                "event_id": "will-shattered-window-lost",
+                "change_kind": "loss",
+            },
+            "visibility": "player_visible",
+            "decision_id": "opposed-pow-fumble-effect",
+        },
+    )
+    assert applied["ok"] is True, applied
+    source = applied["data"]["effect"]["source_roll"]
+    assert source["tool"] == "rules.opposed"
+    assert source["decision_id"] == "opposed-pow-fumble"
+    assert source["roll_id"] == roll_id
+    assert source["outcome"] == "fumble"
+
+
 def test_rules_roll_skill_check_returns_success_level_fields(campaign_ws):
     envelope = _run(
         campaign_ws,

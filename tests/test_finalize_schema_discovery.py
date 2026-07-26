@@ -82,6 +82,46 @@ def test_exceptional_effect_schema_marks_verbatim_fields_as_play_language():
     assert "rendered verbatim" in params["boundary"]["desc"]
 
 
+def test_exceptional_effect_schema_exposes_closed_contract_enums():
+    # The exceptional-effect binding contract is closed (AGENTS.md rule 4):
+    # hosts must see the legal values before the call, not learn them from
+    # invalid_param failures.
+    server = _load_server()
+    toolbox = server.toolbox
+    exceptional = toolbox.coc_exceptional_effects
+    params = toolbox._describe("state.exceptional_effect")["params"]
+
+    assert set(params["effect_kind"]["enum"]) == set(exceptional.EFFECT_KINDS)
+    assert set(params["direction"]["enum"]) == set(exceptional.DIRECTIONS)
+    assert set(params["visibility"]["enum"]) == set(exceptional.VISIBILITIES)
+    assert set(params["boundary"]["properties"]["kind"]["enum"]) == set(
+        exceptional.BOUNDARY_KINDS
+    )
+    assert set(params["mechanics"]["properties"]["change_kind"]["enum"]) == {
+        "arrival",
+        "escalation",
+        "hazard",
+        "loss",
+        "opening",
+        "reversal",
+    }
+    assert "continuing" in params["boundary"]["desc"]
+    assert "never invent a free-form value" in params["mechanics"]["desc"]
+
+    schema = server._tool_schema(
+        "state.exceptional_effect", toolbox.TOOLS["state.exceptional_effect"]
+    )["inputSchema"]
+    assert set(schema["properties"]["effect_kind"]["enum"]) == set(
+        exceptional.EFFECT_KINDS
+    )
+    assert set(
+        schema["properties"]["mechanics"]["properties"]["change_kind"]["enum"]
+    ) == {"arrival", "escalation", "hazard", "loss", "opening", "reversal"}
+    assert set(
+        schema["properties"]["boundary"]["properties"]["kind"]["enum"]
+    ) == set(exceptional.BOUNDARY_KINDS)
+
+
 def test_finalize_mcp_schema_recursively_preserves_closed_nested_contract(monkeypatch):
     server = _load_server()
     monkeypatch.setenv("COC_HOST", "grok")
