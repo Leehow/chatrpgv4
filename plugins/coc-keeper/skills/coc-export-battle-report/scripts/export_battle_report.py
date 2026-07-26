@@ -904,6 +904,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     public_rolls: list[dict[str, Any]] = []
     all_rolls = None
     rolls_relative = None
+    roll_dispositions: dict[str, Any] = {}
     malformed_lines: list[int] = []
     bound_roll_ids: set[str] = set()
     zero_roll_receipt_ids: list[str] = []
@@ -932,6 +933,44 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 bound_roll_ids.update(receipt_roll_ids)
             elif row.get("finalization_id"):
                 zero_roll_receipt_ids.append(str(row["finalization_id"]))
+        # The turn-finalization receipt is the primary artifact that binds a
+        # roll to played output, but two other canonical receipts bind rolls
+        # outside ordinary turns: the table-opening evidence (opening
+        # first-impression rolls) and development settlement receipts
+        # (improvement/gain/Luck rolls). Both carry their roll ids explicitly.
+        for call in toolbox_calls or []:
+            if not isinstance(call, dict) or call.get("ok") is not True:
+                continue
+            if call.get("tool") != "evidence.table_opening":
+                continue
+            for value in ((call.get("args") or {}).get("presented_roll_ids") or []):
+                if isinstance(value, str) and value.strip():
+                    bound_roll_ids.add(value.strip())
+        endings_root_relative = f"{campaign_relative}/save/development-settlements/endings"
+        endings_root = _safe_source_path(run_dir, endings_root_relative)
+        if endings_root.is_dir() and not endings_root.is_symlink():
+            for ending_dir in sorted(endings_root.iterdir()):
+                if not ending_dir.is_dir() or ending_dir.is_symlink():
+                    continue
+                for receipt_path in sorted(ending_dir.glob("*.json")):
+                    if receipt_path.is_symlink() or not receipt_path.is_file():
+                        continue
+                    settlement_doc = _read_source(
+                        run_dir,
+                        f"{endings_root_relative}/{ending_dir.name}/{receipt_path.name}",
+                        "json",
+                        manifest,
+                    )
+                    mechanics = (
+                        ((settlement_doc or {}).get("receipt") or {}).get(
+                            "player_facing_mechanics"
+                        )
+                        if isinstance(settlement_doc, dict)
+                        else None
+                    )
+                    for value in (mechanics or {}).get("required_roll_ids") or []:
+                        if isinstance(value, str) and value.strip():
+                            bound_roll_ids.add(value.strip())
         rolls_relative = f"{campaign_relative}/logs/rolls.jsonl"
         all_rolls = _read_source(run_dir, rolls_relative, "jsonl", manifest)
         roll_dispositions_doc = _read_source(
@@ -2292,9 +2331,17 @@ def _render_rules_audit(report: dict[str, Any], audit: dict[str, Any]) -> str:
         "",
         "## 完整性维度",
     ]
-    for dimension in completeness.get("dimensions") or []:
-        if not isinstance(dimension, dict):
-            continue
+    dimensions = completeness.get("dimensions") or {}
+    if isinstance(dimensions, dict):
+        dimension_rows = [
+            {"dimension": name, **(row if isinstance(row, dict) else {})}
+            for name, row in dimensions.items()
+        ]
+    else:
+        dimension_rows = [
+            row for row in dimensions if isinstance(row, dict)
+        ]
+    for dimension in dimension_rows:
         lines.append(
             f"- [{dimension.get('status')}] {dimension.get('dimension')}: "
             + "; ".join(str(reason) for reason in dimension.get("reasons") or [])
