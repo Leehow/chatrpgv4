@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:0ef485b71323b45e5c870beceec0350b427751e815b52b7d7c3fe50f8cb6cc2a",
+  "content_sha256": "sha256:bfe9066b539998e5a09e112cc253af5d7f48907a00ee3547282da912e598f2ef",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 91,
+  "operation_count": 95,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -694,7 +694,7 @@
     },
     "narration.review": {
       "canonical_operation": "narration.review",
-      "description": "Record an LLM semantic review of drafted narration. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
+      "description": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate. Canonical operation `narration.review`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -714,6 +714,10 @@
             "description": "semantic findings with rule_id and reason; empty when the draft is sound",
             "type": "array"
           },
+          "investigator": {
+            "description": "investigator id for budget derivation (defaults to the party's first member)",
+            "type": "string"
+          },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
             "type": "string"
@@ -727,7 +731,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Record an LLM semantic review of drafted narration. Advice only; no keyword matcher and no blocking prose gate."
+      "summary": "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate."
     },
     "npc.advise": {
       "canonical_operation": "npc.advise",
@@ -1923,6 +1927,57 @@
       "needs_campaign": true,
       "summary": "NON-COMBAT opposed check only: higher success level wins; ties favor the higher value. Attacks, Dodge, and Fight Back must use combat.resolve."
     },
+    "rules.psychology_observe": {
+      "canonical_operation": "rules.psychology_observe",
+      "description": "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed. Canonical operation `rules.psychology_observe`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id (observer)",
+            "type": "string"
+          },
+          "npc_id": {
+            "description": "observed NPC id",
+            "type": "string"
+          },
+          "question": {
+            "description": "the concrete observation question (e.g. 'what is he afraid of?')",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "seed": {
+            "description": "deterministic RNG seed",
+            "type": "integer"
+          },
+          "visible_observation": {
+            "description": "KP-authored player-safe observation text (behavior-level; no roll/outcome meta)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "npc_id",
+          "question",
+          "visible_observation",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed."
+    },
     "rules.push": {
       "canonical_operation": "rules.push",
       "description": "Pushed re-roll bound to one ordinary-failure rules.roll receipt (never a fumble). Inherits that check's actor, target, required level, goal, stakes, basis, and dice modifiers; callers cannot substitute them. Canonical operation `rules.push`; the result envelope is authoritative.",
@@ -2119,6 +2174,14 @@
           "target": {
             "description": "explicit target value override",
             "type": "integer"
+          },
+          "visibility": {
+            "description": "roll visibility: public (default, rendered to the player) | keeper_only (concealed; recorded for audit, never rendered)",
+            "enum": [
+              "public",
+              "keeper_only"
+            ],
+            "type": "string"
           }
         },
         "required": [
@@ -2177,7 +2240,7 @@
     },
     "rules.sanity_check": {
       "canonical_operation": "rules.sanity_check",
-      "description": "SAN check with success/failure loss expressions (e.g. '0' / '1D6'). Applies the loss to the investigator. Canonical operation `rules.sanity_check`; the result envelope is authoritative.",
+      "description": "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory. Canonical operation `rules.sanity_check`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2227,7 +2290,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "SAN check with success/failure loss expressions (e.g. '0' / '1D6'). Applies the loss to the investigator."
+      "summary": "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory."
     },
     "rules.skill_describe": {
       "canonical_operation": "rules.skill_describe",
@@ -2261,6 +2324,81 @@
       },
       "needs_campaign": false,
       "summary": "Fetch Keeper-facing skill prose from rules-json/skill-descriptions.json after the KP has narrowed candidate skills. Read-only; does not roll."
+    },
+    "rules.social_adjudicate": {
+      "canonical_operation": "rules.social_adjudicate",
+      "description": "Derive the authoritative difficulty for one social attempt (7e social resolution): feasibility first, base from NPC defense, motive and leverage adjustments, bonus/penalty dice last. The KP then rolls the approach skill with the returned difficulty; the same goal without new leverage or motive replays the original adjudication. Canonical operation `rules.social_adjudicate`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approach": {
+            "description": "social approach skill family",
+            "enum": [
+              "charm",
+              "fast_talk",
+              "intimidate",
+              "persuade"
+            ],
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "goal_summary": {
+            "description": "one-sentence concrete commitment the player wants from the NPC",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "leverage": {
+            "description": "strategic leverage items [{leverage_id, type, source_ref}]; at most two independent items count",
+            "type": "array"
+          },
+          "motive": {
+            "additionalProperties": true,
+            "description": "structured NPC motive: {direction: support|neutral|oppose, intensity: 0|1|2, evidence: [refs]}; intensity>0 requires evidence",
+            "type": "object"
+          },
+          "npc_defense_value": {
+            "description": "explicit NPC defense value (higher of Psychology or the approach skill); defaults to the authored npc skills block, then regular",
+            "type": "integer"
+          },
+          "npc_id": {
+            "description": "target NPC id",
+            "type": "string"
+          },
+          "requirements": {
+            "description": "KP-authored unlock conditions when feasibility is conditional (recorded, advisory)",
+            "type": "array"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "tactical": {
+            "additionalProperties": true,
+            "description": "tactical conditions {bonus: 0-2, penalty: 0-2}; applied after the difficulty is fixed",
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign",
+          "npc_id",
+          "approach",
+          "goal_summary",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Derive the authoritative difficulty for one social attempt (7e social resolution): feasibility first, base from NPC defense, motive and leverage adjustments, bonus/penalty dice last. The KP then rolls the approach skill with the returned difficulty; the same goal without new leverage or motive replays the original adjudication."
     },
     "rules.weekly_recovery": {
       "canonical_operation": "rules.weekly_recovery",
@@ -2477,6 +2615,34 @@
       },
       "needs_campaign": true,
       "summary": "Keeper-only briefing scoped to the active scene by default. Pass scope=whole_module_audit for explicit cold-path full-module dump."
+    },
+    "session.begin": {
+      "canonical_operation": "session.begin",
+      "description": "Open a new table session: advances the durable session cursor that scopes development settlement (skill development / Luck recovery) idempotency. Call when a fresh sitting begins; never on crash resume. Canonical operation `session.begin`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Open a new table session: advances the durable session cursor that scopes development settlement (skill development / Luck recovery) idempotency. Call when a fresh sitting begins; never on crash resume."
     },
     "session.continuation_detail": {
       "canonical_operation": "session.continuation_detail",
@@ -3869,6 +4035,54 @@
       },
       "needs_campaign": true,
       "summary": "Mark a structured personal-horror hook as actually woven after it appears in delivered play."
+    },
+    "state.promote_scene": {
+      "canonical_operation": "state.promote_scene",
+      "description": "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition. Canonical operation `state.promote_scene`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "reason": {
+            "description": "why committed play justifies the promotion",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "scene_id": {
+            "description": "scene to promote (defaults to the active scene)",
+            "type": "string"
+          },
+          "to_role": {
+            "description": "new effective role",
+            "enum": [
+              "side_investigation",
+              "investigation",
+              "main",
+              "climax"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "to_role",
+          "reason",
+          "decision_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition."
     },
     "state.record_clue": {
       "canonical_operation": "state.record_clue",
