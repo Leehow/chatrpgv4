@@ -2,28 +2,24 @@
 """Adapter: translate coc_progressive_ocr's CLI contract into baiduocr.py calls.
 
 coc_progressive_ocr expects: <script> <operation> [args] --corpus <dir>
+and the script must return ONE JSON object on stdout (not JSONL).
+
 baiduocr.py expects: <source> --output-dir <dir>
 
-This adapter bridges the two so pi-coc can use the existing baiduocr skill.
 Set COC_PROGRESSIVE_OCR_COMMAND to this script's absolute path.
 
-Supported operations (coc_progressive_ocr contract):
+Supported operations:
   status <corpus_path>           → report OCR availability + corpus state
   fast <source_path> --corpus <corpus_path>
                                   → run baiduocr on source, output to corpus
   enhance <corpus_path> --pages <pages>
-                                  → re-run specific pages (not supported by
-                                    baiduocr's batch API; returns cached pages)
+                                  → report cached pages (baiduocr can't re-extract per-page)
   export <corpus_path> --quality <q> --output <path>
-                                  → copy corpus markdown to output path
-
-Output: JSONL lines on stdout (coc_progressive_ocr reads line-delimited JSON).
+                                  → concatenate corpus markdown to output path
 """
 import argparse
 import json
 import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -31,29 +27,25 @@ BAIDUOCR = Path.home() / ".codex" / "skills" / "baiduocr" / "scripts" / "baiduoc
 BAIDUOCR_PYTHON = os.environ.get("COC_PROGRESSIVE_OCR_PYTHON", sys.executable)
 
 
-def emit(data: dict) -> None:
-    """Emit one JSONL line for coc_progressive_ocr to consume."""
-    print(json.dumps(data, ensure_ascii=False), flush=True)
-
-
-def op_status(corpus_path: str) -> None:
+def op_status(corpus_path: str) -> dict:
     corpus = Path(corpus_path)
-    has_pages = corpus.is_dir() and any(corpus.glob("*.md"))
-    emit({"status": "ok", "corpus_ready": has_pages, "pages": len(list(corpus.glob("*.md"))) if has_pages else 0})
-    if not has_pages:
-        emit({"status": "ok", "layout_noise": "tolerated"})
+    md_files = sorted(corpus.glob("*.md")) if corpus.is_dir() else []
+    return {
+        "status": "ok",
+        "corpus_ready": len(md_files) > 0,
+        "pages": len(md_files),
+    }
 
 
-def op_fast(source_path: str, corpus_path: str) -> None:
+def op_fast(source_path: str, corpus_path: str) -> dict:
+    import subprocess, shutil
+
     source = Path(source_path)
     corpus = Path(corpus_path)
     corpus.mkdir(parents=True, exist_ok=True)
 
     if not source.exists():
-        emit({"status": "error", "error": f"source not found: {source}"})
-        return
-
-    emit({"status": "started", "source": str(source), "corpus": str(corpus)})
+        return {"status": "error", "error": f"source not found: {source}"}
 
     try:
         result = subprocess.run(
@@ -62,43 +54,51 @@ def op_fast(source_path: str, corpus_path: str) -> None:
             env={**os.environ},
         )
         if result.returncode != 0:
-            emit({"status": "error", "error": result.stderr[:500] or "baiduocr failed"})
-            return
+            return {"status": "error", "error": (result.stderr or "baiduocr failed")[:500]}
 
-        # baiduocr outputs markdown files into corpus dir
         md_files = sorted(corpus.glob("*.md"))
-        emit({"status": "completed", "pages": len(md_files), "corpus": str(corpus)})
-        for md in md_files:
-            emit({"page": md.stem, "path": str(md), "size": md.stat().st_size})
+        return {
+            "status": "completed",
+            "source": {"path": str(source.resolve())},
+            "corpus": str(corpus),
+            "pages": [
+                {"page": md.stem, "path": str(md), "size": md.stat().st_size}
+                for md in md_files
+            ],
+            "page_count": len(md_files),
+        }
     except subprocess.TimeoutExpired:
-        emit({"status": "error", "error": "baiduocr timed out (900s)"})
+        return {"status": "error", "error": "baiduocr timed out (900s)"}
     except Exception as e:
-        emit({"status": "error", "error": str(e)[:200]})
+        return {"status": "error", "error": str(e)[:200]}
 
 
-def op_enhance(corpus_path: str, pages: str | None = None) -> None:
-    """baiduocr doesn't support per-page re-extraction via CLI; return cached."""
+def op_enhance(corpus_path: str, pages: str | None = None) -> dict:
     corpus = Path(corpus_path)
-    md_files = sorted(corpus.glob("*.md"))
+    md_files = sorted(corpus.glob("*.md")) if corpus.is_dir() else []
     if pages:
-        indices = [p.strip() for p in pages.split(",")]
+        indices = {p.strip() for p in pages.split(",")}
         md_files = [f for f in md_files if f.stem in indices or f.stem.lstrip("0") in indices]
-    emit({"status": "ok", "pages": len(md_files)})
-    for md in md_files:
-        emit({"page": md.stem, "path": str(md), "size": md.stat().st_size})
+    return {
+        "status": "ok",
+        "pages": [
+            {"page": md.stem, "path": str(md), "size": md.stat().st_size}
+            for md in md_files
+        ],
+        "page_count": len(md_files),
+    }
 
 
-def op_export(corpus_path: str, output_path: str, quality: str = "best", pages: str | None = None) -> None:
+def op_export(corpus_path: str, output_path: str, quality: str = "best", pages: str | None = None) -> dict:
     corpus = Path(corpus_path)
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    md_files = sorted(corpus.glob("*.md"))
+    md_files = sorted(corpus.glob("*.md")) if corpus.is_dir() else []
     if pages:
-        indices = [p.strip() for p in pages.split(",")]
+        indices = {p.strip() for p in pages.split(",")}
         md_files = [f for f in md_files if f.stem in indices or f.stem.lstrip("0") in indices]
 
-    # Concatenate all markdown into a single output file
     content = []
     for md in md_files:
         content.append(f"<!-- page {md.stem} -->\n")
@@ -106,7 +106,12 @@ def op_export(corpus_path: str, output_path: str, quality: str = "best", pages: 
         content.append("\n\n---\n\n")
 
     output.write_text("".join(content), encoding="utf-8")
-    emit({"status": "exported", "output": str(output), "pages": len(md_files), "size": output.stat().st_size})
+    return {
+        "status": "exported",
+        "output": str(output),
+        "page_count": len(md_files),
+        "size": output.stat().st_size,
+    }
 
 
 def main():
@@ -120,19 +125,22 @@ def main():
     args = parser.parse_args()
 
     if args.operation == "status":
-        op_status(args.path)
+        result = op_status(args.path)
     elif args.operation == "fast":
         if not args.corpus:
-            print(json.dumps({"status": "error", "error": "fast requires --corpus"}), file=sys.stderr)
-            sys.exit(1)
-        op_fast(args.path, args.corpus)
+            result = {"status": "error", "error": "fast requires --corpus"}
+        else:
+            result = op_fast(args.path, args.corpus)
     elif args.operation == "enhance":
-        op_enhance(args.path, args.pages)
+        result = op_enhance(args.path, args.pages)
     elif args.operation == "export":
         if not args.output:
-            print(json.dumps({"status": "error", "error": "export requires --output"}), file=sys.stderr)
-            sys.exit(1)
-        op_export(args.path, args.output, args.quality, args.pages)
+            result = {"status": "error", "error": "export requires --output"}
+        else:
+            result = op_export(args.path, args.output, args.quality, args.pages)
+
+    # Output ONE JSON object (runOcr expects single JSON.parse, not JSONL)
+    print(json.dumps(result, ensure_ascii=False))
 
 
 if __name__ == "__main__":
