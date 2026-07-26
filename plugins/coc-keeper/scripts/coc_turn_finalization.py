@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import coc_first_impression
+import coc_fileio
 import coc_language
 import coc_roll
 import coc_exceptional_effects
@@ -1055,6 +1056,60 @@ def _build_obligations(
     return obligations, concealed
 
 
+def _build_sanity_bout_obligations(
+    window: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Obligations for bouts of madness started by settled SAN checks.
+
+    A settled bout is part of the SAN check's authoritative consequences
+    (p.157): the turn's output must realize the forced behavior (or its
+    continuation) exactly like any other settled-check closure.  Presence
+    and verbatim binding only — no prose judgment.
+    """
+    obligations: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for call in window:
+        if call.get("ok") is not True:
+            continue
+        data = call.get("data") if isinstance(call.get("data"), dict) else {}
+        for row in _walk_dicts(data):
+            bout_id: str | None = None
+            if row.get("bout_triggered") is True and isinstance(
+                row.get("active_bout_id"), str
+            ):
+                bout_id = str(row["active_bout_id"])
+            elif (
+                row.get("event_type") == "bout_of_madness"
+                and isinstance(row.get("bout_id"), str)
+            ):
+                bout_id = str(row["bout_id"])
+            if not bout_id or bout_id in seen:
+                continue
+            seen.add(bout_id)
+            obligations.append({
+                "obligation_id": f"sanity_bout:{bout_id}",
+                "source_kind": "sanity_bout",
+                "source_id": bout_id,
+                "visibility": "context_effect",
+                "skill": "SAN",
+                "goal": (
+                    "realize the bout of madness: the Keeper controls the "
+                    "investigator for its duration (p.157)"
+                ),
+                "outcome": None,
+                "required_level": None,
+                "achieved_level": None,
+                "passed": None,
+                "surplus_levels": None,
+                "exceptional_required": False,
+                "substantive_effect_required": False,
+                "substantive_effect_direction": None,
+                "substantive_effect_ids": [],
+                "substantive_effect_status": "not_required",
+            })
+    return obligations
+
+
 PLAYER_FACING_ROLL_VISIBILITIES = frozenset({"public", "consequence_public"})
 # Settlements corrected after the fact stay in the audit log but must not face
 # the player again (battle report, turn.finalize public block, development
@@ -1076,6 +1131,107 @@ def is_player_facing_roll(raw: dict[str, Any]) -> bool:
     if visibility in SUPERSEDED_ROLL_VISIBILITIES:
         return False
     return visibility in {value.casefold() for value in PLAYER_FACING_ROLL_VISIBILITIES}
+
+
+def unbound_public_roll_ids(campaign_dir: Path) -> list[str]:
+    """Player-facing roll rows bound to no finalization and no disposition.
+
+    Dispositioned rows (row-level or disposition-file visibility in
+    SUPERSEDED_ROLL_VISIBILITIES) are excluded, so this returns exactly the
+    rolls that would otherwise fail the report's dice-completeness gate.
+    """
+    bound: set[str] = set()
+    for receipt in load_finalizations(campaign_dir):
+        if not isinstance(receipt, dict):
+            continue
+        bound.update(
+            str(value)
+            for value in receipt.get("source_roll_ids") or []
+            if isinstance(value, str) and value
+        )
+    dispositions = load_roll_dispositions(campaign_dir)
+    orphans: list[str] = []
+    for raw in _read_jsonl(Path(campaign_dir) / "logs" / "rolls.jsonl"):
+        flat = _flatten_roll(raw)
+        if not is_player_facing_roll(flat):
+            continue
+        roll_id = str(flat.get("roll_id") or "").strip()
+        if not roll_id or roll_id in bound:
+            continue
+        disposition = dispositions.get(roll_id)
+        if isinstance(disposition, dict) and str(
+            disposition.get("visibility") or ""
+        ).casefold() in {value.casefold() for value in SUPERSEDED_ROLL_VISIBILITIES}:
+            continue
+        orphans.append(roll_id)
+    return sorted(orphans)
+
+
+# --------------------------------------------------------------------------- #
+# Roll dispositions (append-only alternative to rewriting historical rows)
+# --------------------------------------------------------------------------- #
+
+ROLL_DISPOSITIONS_SCHEMA_VERSION = 1
+
+
+def _roll_dispositions_path(campaign_dir: Path) -> Path:
+    return Path(campaign_dir) / "save" / "roll-dispositions.json"
+
+
+def load_roll_dispositions(campaign_dir: Path) -> dict[str, dict[str, Any]]:
+    """Return {roll_id: disposition} recorded for abandoned/corrected rolls."""
+    path = _roll_dispositions_path(campaign_dir)
+    if not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise TurnContractError(
+            "state_corrupt", "save/roll-dispositions.json is unreadable"
+        ) from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != ROLL_DISPOSITIONS_SCHEMA_VERSION
+        or not isinstance(value.get("dispositions"), dict)
+    ):
+        raise TurnContractError(
+            "state_corrupt", "save/roll-dispositions.json does not match the current schema"
+        )
+    return {
+        str(roll_id): record
+        for roll_id, record in value["dispositions"].items()
+        if isinstance(record, dict)
+    }
+
+
+def record_roll_dispositions(
+    campaign_dir: Path,
+    entries: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Merge disposition records for roll ids; returns the full merged map.
+
+    Idempotent per roll_id: an existing disposition is never overwritten —
+    the first disposition stands (retry-safe).
+    """
+    existing = load_roll_dispositions(campaign_dir)
+    merged = dict(existing)
+    for roll_id, record in entries.items():
+        key = str(roll_id)
+        if key and key not in merged and isinstance(record, dict):
+            merged[key] = dict(record)
+    path = _roll_dispositions_path(campaign_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        path,
+        {
+            "schema_version": ROLL_DISPOSITIONS_SCHEMA_VERSION,
+            "dispositions": merged,
+        },
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
+    )
+    return merged
 
 
 def _render_public_roll(
@@ -1432,6 +1588,10 @@ def build_output_context(campaign_dir: Path) -> dict[str, Any]:
     obligations, concealed = _build_obligations(
         rolls, context_effects, exceptional_applies
     )
+    sanity_bout_obligations = _build_sanity_bout_obligations(window)
+    if sanity_bout_obligations:
+        obligations.extend(sanity_bout_obligations)
+        obligations.sort(key=lambda row: row["obligation_id"])
     if not obligations and not rolls:
         window_roll_calls = [
             c for c in window

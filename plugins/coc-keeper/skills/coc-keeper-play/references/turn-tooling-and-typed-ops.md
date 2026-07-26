@@ -120,6 +120,26 @@ contract above still applies. This is the natural rhythm:
    adjudicate from the affordance / rulebook rather than inventing a
    parallel description store. This flow remains KP semantic judgment —
    not a keyword router, fixed skill map, or hard runtime narrative gate.
+
+   **Social difficulty is adjudicated, not defaulted to regular.** Before a
+   meaningful social roll, call `rules.social_adjudicate`: feasibility first
+   (is this goal even rollable now?), base difficulty from the NPC's defense
+   (higher of Psychology or the approach skill: <50 regular / 50-89 hard /
+   90+ extreme), then motive (support −1 / oppose +1..2, with evidence refs),
+   then strategic leverage (max two independent items), and bonus/penalty dice
+   only after the difficulty is fixed. The same goal with unchanged motive and
+   leverage replays the original adjudication — switching from Persuade to
+   Fast Talk does not reopen it. When it returns `conditional`, work the
+   recorded requirements instead of rerolling.
+   **Psychology runs keeper-concealed by default.** Use
+   `rules.psychology_observe` (one settled judgment per observer/NPC/scene/
+   NPC-state-revision window) and narrate only behavior-level observations:
+   the player never sees the roll, the outcome, or whether it failed. Success
+   yields an evidence-grade read ("his answer was not improvised"), not the
+   NPC's inner monologue; ordinary failure gives shallow or inconclusive
+   reads rather than a reliable opposite; on a fumble give one confident but
+   wrong read. Do not run Psychology after every NPC line — only against a
+   concrete observation question.
 4. On scene entry, after repeated approaches, or when momentum stalls,
    consider `director.advise` with your structured semantic `intent_evidence`.
    Its `candidate_plan` may then be offered to `storylets.suggest`; consult

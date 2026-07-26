@@ -214,6 +214,29 @@ def test_create_investigator_persists_supplied_creation_record(tmp_path):
     assert creation["skill_allocation"]["occupation_points"]["spent"] == 300
 
 
+def test_create_investigator_freezes_initial_skills_snapshot(tmp_path):
+    skills = {"Credit Rating": 30, "Psychology": 55, "Custom Skill": 12}
+    investigator_path = coc_state.create_investigator(
+        tmp_path,
+        "ada-king",
+        {
+            "schema_version": 1,
+            "id": "ada-king",
+            "name": "Ada King",
+            "characteristics": {},
+            "skills": dict(skills),
+        },
+    )
+
+    character = json.loads(investigator_path.read_text(encoding="utf-8"))
+
+    assert character["skills"] == skills
+    assert character["initial_skills_snapshot"] == skills
+    # The import path (no creation record) flows through the same chokepoint.
+    creation = json.loads((investigator_path.parent / "creation.json").read_text())
+    assert creation["method"] == "imported_character_sheet"
+
+
 def test_create_campaign_persists_play_language(tmp_path):
     default_campaign_path = coc_state.create_campaign(tmp_path, "default-language", "Default Language")
     custom_campaign_path = coc_state.create_campaign(

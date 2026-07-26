@@ -1062,6 +1062,14 @@ def _positive_int(value: Any, default: int = 1) -> int:
 
 
 def _is_bridge_scene(scene: dict[str, Any]) -> bool:
+    scene_contract = scene.get("scene_contract")
+    if isinstance(scene_contract, dict) and scene_contract.get("role") == "transit":
+        return True
+    location_tags = scene.get("location_tags")
+    if isinstance(location_tags, list) and "waypoint" in {
+        str(tag) for tag in location_tags
+    }:
+        return True
     contract = _progress_contract(scene)
     kind = str(contract.get("kind") or scene.get("scene_kind") or scene.get("scene_type") or "")
     if kind in _BRIDGE_SCENE_KINDS:

@@ -253,6 +253,39 @@ def sanity_check(
     }
 
 
+def validate_san_loss_expression(expression: Any) -> dict[str, Any]:
+    """Validate one SAN loss expression (constant or NdM(+k)); raises ValueError."""
+    return coc_sanity.validate_san_loss_expression(str(expression))
+
+
+def sanity_snapshot_exists(campaign_dir: Any, investigator_id: str) -> bool:
+    """Whether the canonical per-investigator SanitySession snapshot exists."""
+    return coc_sanity.sanity_snapshot_exists(Path(campaign_dir), investigator_id)
+
+
+def sanity_session_load(
+    campaign_dir: Any,
+    investigator_id: str,
+    *,
+    int_value: int,
+    rng: random.Random | None,
+    cm_value: int,
+) -> Any:
+    """Load the canonical SanitySession engine for one investigator.
+
+    The session owns the full 7e insanity pipeline (5+ loss INT check, bout of
+    madness, daily 1/5 indefinite threshold, SAN 0 permanent) as authoritative
+    state; callers persist with ``session.save(campaign_dir)``.
+    """
+    return coc_sanity.SanitySession.load(
+        Path(campaign_dir),
+        investigator_id,
+        int_value=int_value,
+        rng=rng,
+        cm_value=cm_value,
+    )
+
+
 def damage(
     amount: Any,
     current_hp: int,
@@ -459,6 +492,25 @@ def public_api_index() -> dict[str, dict[str, Any]]:
             "aliases": ["san_check"],
             "signature": "sanity_check(current_san, loss_success, loss_failure, rng=None)",
             "returns": "SAN check receipt with settled loss and before/after values",
+        },
+        "validate_san_loss_expression": {
+            "aliases": [],
+            "signature": "validate_san_loss_expression(expression)",
+            "returns": "parsed loss expression spec; raises ValueError on invalid input",
+        },
+        "sanity_snapshot_exists": {
+            "aliases": [],
+            "signature": "sanity_snapshot_exists(campaign_dir, investigator_id)",
+            "returns": "whether the canonical per-investigator SanitySession snapshot exists",
+        },
+        "sanity_session_load": {
+            "aliases": ["sanity_session"],
+            "signature": "sanity_session_load(campaign_dir, investigator_id, *, int_value, rng, cm_value)",
+            "returns": (
+                "the canonical SanitySession engine owning the full 7e insanity "
+                "pipeline (INT check on 5+ loss, bout of madness, daily 1/5 "
+                "indefinite threshold, SAN 0 permanent) as authoritative state"
+            ),
         },
         "damage": {
             "aliases": ["hp_delta"],

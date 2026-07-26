@@ -896,6 +896,7 @@ def quick_start(
         raise ValueError(f"pregen character.json must be an object: {pregen_path}")
     sheet = ensure_pregen_backstory_provenance(sheet)
     sheet = ensure_pregen_player_facing_sheet(sheet)
+    sheet = coc_state._with_initial_skills_snapshot(sheet)
     investigator_id = str(sheet.get("id") or pregen_id)
 
     meta_path = src_dir / "module-meta.json"

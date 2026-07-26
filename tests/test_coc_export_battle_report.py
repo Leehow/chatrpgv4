@@ -746,3 +746,166 @@ def test_social_skill_rolls_zero_is_explicit(tmp_path):
     markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
     assert "### Social Skill Rolls" in markdown
     assert "No public social-skill rolls (Charm, Fast Talk, Intimidate, Persuade) were recorded." in markdown
+
+
+def test_initial_skills_prefer_creation_frozen_snapshot(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
+    character = json.loads(
+        (investigator / "character.json").read_text(encoding="utf-8")
+    )
+    # Live sheet was mutated by settlement; the snapshot froze creation values.
+    character["initial_skills_snapshot"] = {"Library Use": 65}
+    _write_json(investigator / "character.json", character)
+
+    report = module.export_battle_report(run)
+
+    projected = report["investigators"][0]["character"]
+    assert projected["initial_skills"] == {"Library Use": 65}
+    assert projected["skills"] == {"Library Use": 65}
+    assert "initial_skills_validation" not in projected
+
+
+def test_initial_skills_omitted_without_snapshot_or_player_facing_sheet(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    investigator = run / "sandbox" / ".coc" / "investigators" / "ada"
+    character = json.loads(
+        (investigator / "character.json").read_text(encoding="utf-8")
+    )
+    del character["player_facing_sheet_zh"]
+    _write_json(investigator / "character.json", character)
+
+    report = module.export_battle_report(run)
+
+    projected = report["investigators"][0]["character"]
+    assert "initial_skills" not in projected
+    assert "initial_skill_rows" not in projected
+    # The live mutated map stays labeled as live skills, never as initial.
+    assert projected["skills"] == {"Library Use": 73}
+    assert "initial_skills_validation" in projected
+    markdown = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "Initial Skills" not in markdown
+    assert "Library Use: 73" not in markdown
+
+
+def test_audit_channel_written_with_hashes_and_no_leak_into_evidence(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    report = module.export_battle_report(run)
+
+    audit_dir = run / "artifacts" / "audit"
+    expected = {
+        "rules-audit.md", "rolls.jsonl", "sanity-events.jsonl",
+        "settlements.json", "dispositions.json", "report-validation.json",
+        "manifest.json", "hashes.sha256",
+    }
+    assert expected == {path.name for path in audit_dir.iterdir()}
+
+    # Concealed rolls appear in the audit channel only.
+    audit_rolls = (audit_dir / "rolls.jsonl").read_text(encoding="utf-8")
+    assert "keeper-1" in audit_rolls
+    rules_audit = (audit_dir / "rules-audit.md").read_text(encoding="utf-8")
+    assert "keeper-1" in rules_audit
+
+    # Neither primary output carries the audit section or concealed content.
+    evidence_text = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    assert "KEEPER_ROLL_SECRET" not in evidence_text
+    evidence = json.loads(evidence_text)
+    assert "audit" not in evidence
+    markdown_text = (run / "artifacts" / MARKDOWN_OUTPUT).read_text(encoding="utf-8")
+    assert "KEEPER_ROLL_SECRET" not in markdown_text
+
+    # Hash ledger is self-consistent.
+    import hashlib as _hashlib
+    hashes_text = (audit_dir / "hashes.sha256").read_text(encoding="utf-8")
+    for line in hashes_text.strip().splitlines():
+        digest, name = line.split("  ", 1)
+        content = (audit_dir / name).read_bytes()
+        assert _hashlib.sha256(content).hexdigest() == digest
+    manifest = json.loads((audit_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["report_id"] == report["report_id"]
+    assert set(manifest["files"]) == expected - {"manifest.json", "hashes.sha256"}
+
+    validation = json.loads(
+        (audit_dir / "report-validation.json").read_text(encoding="utf-8")
+    )
+    assert validation["completeness"]["classification"] == report["completeness"]["classification"]
+
+
+def test_initial_final_snapshot_separation_dimension(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    report = module.export_battle_report(run)
+    dimension = report["completeness"]["dimensions"]["initial_final_snapshot_separation"]
+    assert dimension["status"] == "PASS"
+
+    run2 = tmp_path / "run2"
+    _fixture(run2)
+    investigator = run2 / "sandbox" / ".coc" / "investigators" / "ada"
+    character = json.loads(
+        (investigator / "character.json").read_text(encoding="utf-8")
+    )
+    # Live-leak shape: the "initial" snapshot carries the post-improvement value.
+    character["initial_skills_snapshot"] = {"Library Use": 73}
+    _write_json(investigator / "character.json", character)
+    report2 = module.export_battle_report(run2)
+    dimension2 = report2["completeness"]["dimensions"]["initial_final_snapshot_separation"]
+    assert dimension2["status"] == "FAIL"
+    assert report2["completeness"]["classification"] == "INCOMPLETE"
+
+
+def test_settlement_session_uniqueness_dimension(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    report = module.export_battle_report(run)
+    dimension = report["completeness"]["dimensions"]["settlement_session_uniqueness"]
+    assert dimension["status"] == "PASS"
+
+    run2 = tmp_path / "run2"
+    _fixture(run2)
+    campaign = run2 / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_json(
+        campaign / "save" / "development-settlements" / "boundaries" / "ada.json",
+        {
+            "schema_version": 1,
+            "investigator_id": "ada",
+            "boundaries": [
+                {"boundary_id": "case-1:session:1", "session_ids": ["case-1:session:1"], "first_ending_id": "ending-1", "settled_at": "t", "operation_id": "op-1", "receipt_ref": "r1"},
+                {"boundary_id": "case-1:session:1", "session_ids": ["case-1:session:1"], "first_ending_id": "ending-2", "settled_at": "t2", "operation_id": "op-2", "receipt_ref": "r2"},
+            ],
+        },
+    )
+    report2 = module.export_battle_report(run2)
+    dimension2 = report2["completeness"]["dimensions"]["settlement_session_uniqueness"]
+    assert dimension2["status"] == "FAIL"
+
+
+def test_audit_counts_narration_review_findings(tmp_path):
+    module = _load()
+    run = tmp_path / "run"
+    _fixture(run)
+    campaign = run / "sandbox" / ".coc" / "campaigns" / "case-1"
+    _write_jsonl(campaign / "logs" / "narration-reviews.jsonl", [
+        {"schema_version": 1, "decision_id": "t1", "draft_sha256": "x",
+         "findings": [{"rule_id": "over_length", "reason": "too long"}]},
+        {"schema_version": 1, "decision_id": "t2", "draft_sha256": "y",
+         "findings": [
+             {"rule_id": "over_length", "reason": "still long"},
+             {"rule_id": "agency_violation", "reason": "decided for the player"},
+         ]},
+    ])
+    report = module.export_battle_report(run)
+    rules_audit = (run / "artifacts" / "audit" / "rules-audit.md").read_text(encoding="utf-8")
+    assert "over_length: 2" in rules_audit
+    assert "agency_violation: 1" in rules_audit
+    assert "review count: 2" in rules_audit
+    # Review findings stay out of the primary evidence output.
+    evidence_text = (run / "artifacts" / JSON_OUTPUT).read_text(encoding="utf-8")
+    assert "narration_reviews" not in evidence_text

@@ -159,6 +159,7 @@ _TRANSIENT_TOOL_ERRORS = {
     "development_settlement_failed",
 }
 _SKILL_BASES_CACHE: dict[str, tuple[str, int]] | None = None
+_SKILL_CATALOG_CACHE: dict[str, dict[str, Any]] | None = None
 
 
 def _now_iso() -> str:
@@ -2183,11 +2184,11 @@ def _first_impression_hint(
     )
 
 
-def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
-    """Return an authored rulebook base chance for a known skill when numeric."""
-    global _SKILL_BASES_CACHE
-    if _SKILL_BASES_CACHE is None:
-        _SKILL_BASES_CACHE = {}
+def _skill_catalog() -> dict[str, dict[str, Any]]:
+    """Cached rulebook skill catalog: canonical name -> spec incl. localized labels."""
+    global _SKILL_CATALOG_CACHE
+    if _SKILL_CATALOG_CACHE is None:
+        catalog: dict[str, dict[str, Any]] = {}
         path = (
             coc_rulesets.ruleset_data_dir(coc_rulesets.DEFAULT_RULESET_ID)
             / "skills.json"
@@ -2197,11 +2198,26 @@ def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
         except (OSError, json.JSONDecodeError):
             payload = {}
         for canonical, spec in (payload.get("skills") or {}).items():
-            if not isinstance(spec, dict):
-                continue
+            if isinstance(canonical, str) and isinstance(spec, dict):
+                catalog[canonical] = spec
+        _SKILL_CATALOG_CACHE = catalog
+    return _SKILL_CATALOG_CACHE
+
+
+def _compact_skill_fold(name: Any) -> str:
+    """Space/underscore-insensitive casefold for skill identity matching."""
+    return re.sub(r"[\s_]+", "", str(name)).casefold()
+
+
+def _canonical_skill_base(skill: Any) -> tuple[str, int] | None:
+    """Return an authored rulebook base chance for a known skill when numeric."""
+    global _SKILL_BASES_CACHE
+    if _SKILL_BASES_CACHE is None:
+        _SKILL_BASES_CACHE = {}
+        for canonical, spec in _skill_catalog().items():
             base = spec.get("base_chance")
             if isinstance(base, int) and not isinstance(base, bool):
-                _SKILL_BASES_CACHE[str(canonical).casefold()] = (str(canonical), int(base))
+                _SKILL_BASES_CACHE[canonical.casefold()] = (canonical, int(base))
     return _SKILL_BASES_CACHE.get(str(skill).casefold())
 
 
@@ -2569,10 +2585,12 @@ _PERCENTILE_INVOCATION_FIELDS = frozenset({
     "required_level", "bonus", "penalty", "goal", "stakes",
     "difficulty_basis", "reason", "fumble_consequence", "pushed",
     "method_changed", "failure_consequence", "original_check_decision_id",
-    "npc_id",
+    "npc_id", "visibility",
 })
-_LEGACY_PERCENTILE_INVOCATION_FIELDS = frozenset(
-    _PERCENTILE_INVOCATION_FIELDS - {"npc_id"}
+_LEGACY_PERCENTILE_INVOCATION_FIELD_SETS = (
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"npc_id"}),
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"visibility"}),
+    frozenset(_PERCENTILE_INVOCATION_FIELDS - {"npc_id", "visibility"}),
 )
 _PERCENTILE_RESOLUTION_FIELDS = frozenset({
     "investigator_id", "resolved_label", "resolved_target", "target_source",
@@ -2584,12 +2602,12 @@ _DIFFICULTY_BASIS_VALUES = frozenset({
 _PUSH_INHERITED_ARGUMENTS = frozenset({
     "investigator", "skill", "characteristic", "target", "difficulty",
     "bonus", "penalty", "goal", "stakes", "difficulty_basis", "reason",
-    "npc_id",
+    "npc_id", "visibility",
 })
 _PUSH_INHERITED_OPERATION_FIELDS = frozenset({
     "investigator", "skill", "characteristic", "explicit_target",
     "required_level", "bonus", "penalty", "goal", "stakes",
-    "difficulty_basis", "reason", "npc_id",
+    "difficulty_basis", "reason", "npc_id", "visibility",
 })
 _DICE_RESOLUTION_FIELDS = frozenset({
     "expression", "count", "sides", "modifier"
@@ -3095,7 +3113,7 @@ def _validate_roll_resolution_consistency(receipt: dict[str, Any]) -> None:
         invalid = bool(
             frozenset(operation) not in {
                 _PERCENTILE_INVOCATION_FIELDS,
-                _LEGACY_PERCENTILE_INVOCATION_FIELDS,
+                *_LEGACY_PERCENTILE_INVOCATION_FIELD_SETS,
             }
             or set(resolution) != set(_PERCENTILE_RESOLUTION_FIELDS)
             or not (
@@ -3343,7 +3361,7 @@ def _validate_roll_receipt(
         or str(record.get("roll_id") or "") != roll_id
         or str(payload.get("roll_id") or "") != roll_id
         or str(data.get("roll_id") or "") != roll_id
-        or record.get("visibility") != "public"
+        or record.get("visibility") not in {"public", "keeper_only"}
         or record.get("event_type") != "roll"
         or any(record.get(key) != value for key, value in data.items())
         or receipt.get(_SOURCE_RECEIPT_INTEGRITY_KEY)
@@ -5675,6 +5693,8 @@ def _canonical_skill_selector(
     skills = sheet.get("skills") or {}
     if not isinstance(skills, dict):
         raise ToolError("state_corrupt", "investigator skill map is invalid")
+    if stripped in skills:
+        return stripped
     folded = stripped.casefold()
     matches = [
         str(key)
@@ -5688,13 +5708,52 @@ def _canonical_skill_selector(
         )
     if matches:
         return matches[0]
+    compact = _compact_skill_fold(stripped)
+    matches = [
+        str(key)
+        for key in skills
+        if isinstance(key, str) and _compact_skill_fold(key) == compact
+    ]
+    if len(matches) > 1:
+        raise ToolError(
+            "state_corrupt",
+            f"investigator skill map has ambiguous selector '{stripped}'",
+        )
+    if matches:
+        return matches[0]
+    catalog = _skill_catalog()
+    for canonical in catalog:
+        if _compact_skill_fold(canonical) == compact:
+            return canonical
+    for canonical, spec in catalog.items():
+        labels = spec.get("localized_labels")
+        alias = labels.get("zh-Hans") if isinstance(labels, dict) else None
+        if not isinstance(alias, str) or not alias.strip():
+            continue
+        alias = alias.strip()
+        if alias.casefold() != folded and _compact_skill_fold(alias) != compact:
+            continue
+        sheet_matches = [
+            str(key)
+            for key in skills
+            if isinstance(key, str)
+            and _compact_skill_fold(key) == _compact_skill_fold(canonical)
+        ]
+        if len(sheet_matches) > 1:
+            raise ToolError(
+                "state_corrupt",
+                f"investigator skill map has ambiguous selector '{stripped}'",
+            )
+        if sheet_matches:
+            return sheet_matches[0]
+        return canonical
     cname = stripped.upper()
     if cname in _CHARACTERISTIC_NAMES:
         return cname
-    base = _canonical_skill_base(stripped)
-    if base is not None:
-        return str(base[0])
-    return stripped
+    raise ToolError(
+        "unknown_skill",
+        f"unknown skill: {stripped}",
+    )
 
 
 def _resolve_target_value(
@@ -5872,6 +5931,11 @@ def _normalize_percentile_invocation(
         if args.get("npc_id") is not None
         else ""
     ) or None
+    visibility = str(args.get("visibility") or "public").strip() or "public"
+    if visibility not in {"public", "keeper_only"}:
+        raise ToolError(
+            "invalid_param", "visibility must be public or keeper_only"
+        )
     operation = {
         "investigator": investigator,
         "skill": skill,
@@ -5893,6 +5957,7 @@ def _normalize_percentile_invocation(
         "failure_consequence": None,
         "original_check_decision_id": None,
         "npc_id": npc_id,
+        "visibility": visibility,
     }
     if (
         isinstance(frozen_operation, dict)
@@ -6735,7 +6800,7 @@ def _roll_common(
         "event_type": "roll",
         "kind": "pushed_skill_check" if pushed else "skill_check",
         "actor": investigator_id,
-        "visibility": "public",
+        "visibility": str(operation.get("visibility") or "public"),
         "payload": dict(result),
         **result,
     })
@@ -7600,6 +7665,7 @@ def _tool_rules_build_scale(ctx: Ctx, args: dict[str, Any]):
         "penalty": {"type": "integer", "desc": "penalty dice 0-2"},
         "reason": {"type": "string", "desc": "optional audit note distinct from the authoritative goal/stakes contract"},
         "npc_id": {"type": "string", "desc": "structured NPC target for a social check; required to match/consume an NPC-scoped relationship reward"},
+        "visibility": {"type": "string", "enum": ["public", "keeper_only"], "desc": "roll visibility: public (default, rendered to the player) | keeper_only (concealed; recorded for audit, never rendered)"},
         "fumble_consequence": {
             "type": "string",
             "desc": "predeclared meaningful complication if this roll fumbles (dice evidence)",
@@ -7784,9 +7850,405 @@ def _tool_rules_opposed(ctx: Ctx, args: dict[str, Any]):
     return data, [], hints
 
 
+_SOCIAL_APPROACH_SKILLS = {
+    "charm": "Charm",
+    "fast_talk": "Fast Talk",
+    "intimidate": "Intimidate",
+    "persuade": "Persuade",
+}
+_DIFFICULTY_LADDER = ("regular", "hard", "extreme")
+
+
+def _npc_authored_skill_value(ctx: Ctx, npc_id: str, skill: str) -> int | None:
+    """One numeric skill from the optional npc-agendas `skills` block."""
+    npc = _npc_by_id(ctx.npc_agendas, npc_id)
+    if not isinstance(npc, dict):
+        return None
+    skills = npc.get("skills") if isinstance(npc.get("skills"), dict) else {}
+    value = skills.get(skill)
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100:
+        return value
+    return None
+
+
+def _npc_authored_social_defense(
+    ctx: Ctx, npc_id: str, approach: str
+) -> tuple[int | None, str | None]:
+    """Authored NPC defense for one social approach: the higher of Psychology or
+    the approach's own social skill (7e social-resolution guidance)."""
+    candidates = [
+        (skill, value)
+        for skill in ("Psychology", _SOCIAL_APPROACH_SKILLS[approach])
+        if (value := _npc_authored_skill_value(ctx, npc_id, skill)) is not None
+    ]
+    if not candidates:
+        return None, None
+    key, value = max(candidates, key=lambda row: row[1])
+    return value, key
+
+
+def _load_json_document(ctx: Ctx, relative: str, schema_version: int, root_key: str) -> dict[str, Any]:
+    path = ctx.campaign_dir / "save" / relative
+    if not path.is_file():
+        return {"schema_version": schema_version, root_key: {}}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ToolError("state_corrupt", f"save/{relative} is unreadable") from exc
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != schema_version
+        or not isinstance(value.get(root_key), dict)
+    ):
+        raise ToolError("state_corrupt", f"save/{relative} does not match the current schema")
+    return value
+
+
+def _save_json_document(ctx: Ctx, relative: str, document: dict[str, Any]) -> None:
+    coc_state.write_json_atomic(ctx.campaign_dir / "save" / relative, document)
+
+
+@tool(
+    "rules.social_adjudicate",
+    "Derive the authoritative difficulty for one social attempt (7e social resolution): feasibility first, base from NPC defense, motive and leverage adjustments, bonus/penalty dice last. The KP then rolls the approach skill with the returned difficulty; the same goal without new leverage or motive replays the original adjudication.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id"},
+        "npc_id": {"type": "string", "required": True, "desc": "target NPC id"},
+        "approach": {"type": "string", "required": True, "enum": ["charm", "fast_talk", "intimidate", "persuade"], "desc": "social approach skill family"},
+        "goal_summary": {"type": "string", "required": True, "desc": "one-sentence concrete commitment the player wants from the NPC"},
+        "npc_defense_value": {"type": "integer", "desc": "explicit NPC defense value (higher of Psychology or the approach skill); defaults to the authored npc skills block, then regular"},
+        "motive": {
+            "type": "object",
+            "desc": "structured NPC motive: {direction: support|neutral|oppose, intensity: 0|1|2, evidence: [refs]}; intensity>0 requires evidence",
+        },
+        "leverage": {
+            "type": "array",
+            "desc": "strategic leverage items [{leverage_id, type, source_ref}]; at most two independent items count",
+        },
+        "tactical": {
+            "type": "object",
+            "desc": "tactical conditions {bonus: 0-2, penalty: 0-2}; applied after the difficulty is fixed",
+        },
+        "requirements": {
+            "type": "array",
+            "desc": "KP-authored unlock conditions when feasibility is conditional (recorded, advisory)",
+        },
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)
+def _tool_rules_social_adjudicate(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("rules.social_adjudicate", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    investigator_id = _resolve_investigator(ctx, args)
+    npc_id = str(args["npc_id"]).strip()
+    if not npc_id:
+        raise ToolError("invalid_param", "npc_id must be non-empty")
+    approach = str(args["approach"]).strip()
+    if approach not in _SOCIAL_APPROACH_SKILLS:
+        raise ToolError(
+            "invalid_param",
+            f"approach must be one of {sorted(_SOCIAL_APPROACH_SKILLS)}",
+        )
+    goal_summary = str(args["goal_summary"] or "").strip()
+    if not goal_summary:
+        raise ToolError("invalid_param", "goal_summary must be non-empty")
+
+    warnings: list[str] = []
+    defense = args.get("npc_defense_value")
+    defense_source = "explicit"
+    defense_key: str | None = "explicit"
+    if defense is None:
+        defense, defense_key = _npc_authored_social_defense(ctx, npc_id, approach)
+        defense_source = "authored" if defense is not None else "unknown"
+    if defense is not None and (
+        isinstance(defense, bool)
+        or not isinstance(defense, int)
+        or not 0 <= defense <= 100
+    ):
+        raise ToolError("invalid_param", "npc_defense_value must be an integer 0-100")
+    if defense is None:
+        warnings.append(
+            f"no authored social defense for npc '{npc_id}' — base difficulty defaults "
+            "to regular; pass npc_defense_value when the table knows better"
+        )
+
+    motive = args.get("motive") or {}
+    if not isinstance(motive, dict):
+        raise ToolError("invalid_param", "motive must be an object")
+    direction = str(motive.get("direction") or "neutral").strip()
+    if direction not in {"support", "neutral", "oppose"}:
+        raise ToolError("invalid_param", "motive.direction must be support|neutral|oppose")
+    intensity = motive.get("intensity", 0)
+    if isinstance(intensity, bool) or not isinstance(intensity, int) or intensity not in (0, 1, 2):
+        raise ToolError("invalid_param", "motive.intensity must be 0, 1, or 2")
+    motive_evidence = [str(v) for v in (motive.get("evidence") or []) if str(v).strip()]
+    if intensity > 0 and not motive_evidence:
+        raise ToolError(
+            "invalid_param", "motive.intensity > 0 requires motive.evidence references"
+        )
+
+    raw_leverage = args.get("leverage") or []
+    if not isinstance(raw_leverage, list):
+        raise ToolError("invalid_param", "leverage must be an array")
+    leverage_items: list[dict[str, str]] = []
+    for index, item in enumerate(raw_leverage):
+        if not isinstance(item, dict):
+            raise ToolError("invalid_param", f"leverage[{index}] must be an object")
+        leverage_id = str(item.get("leverage_id") or "").strip()
+        source_ref = str(item.get("source_ref") or "").strip()
+        if not leverage_id or not source_ref:
+            raise ToolError(
+                "invalid_param", f"leverage[{index}] requires leverage_id and source_ref"
+            )
+        leverage_items.append({
+            "leverage_id": leverage_id,
+            "type": str(item.get("type") or "unspecified").strip() or "unspecified",
+            "source_ref": source_ref,
+        })
+    leverage_counted = leverage_items[:2]
+    if len(leverage_items) > 2:
+        warnings.append(
+            "more than two leverage items supplied; only the first two independent items count"
+        )
+
+    tactical = args.get("tactical") or {}
+    if not isinstance(tactical, dict):
+        raise ToolError("invalid_param", "tactical must be an object")
+    bonus = tactical.get("bonus", 0)
+    penalty = tactical.get("penalty", 0)
+    for label, value in (("bonus", bonus), ("penalty", penalty)):
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2:
+            raise ToolError("invalid_param", f"tactical.{label} must be 0-2")
+
+    requirements = [str(v).strip() for v in (args.get("requirements") or []) if str(v).strip()]
+
+    goal_key = hashlib.sha256(
+        "\x00".join((npc_id, approach, goal_summary.casefold())).encode("utf-8")
+    ).hexdigest()[:16]
+
+    document = _load_json_document(ctx, "social-resolutions.json", 1, "resolutions")
+    resolutions = document["resolutions"]
+    prior_goal = resolutions.get(goal_key)
+    current_leverage_ids = sorted(item["leverage_id"] for item in leverage_counted)
+    if (
+        isinstance(prior_goal, dict)
+        and prior_goal.get("leverage_ids") == current_leverage_ids
+        and prior_goal.get("motive_key") == [direction, intensity]
+        and prior_goal.get("defense_value") == defense
+    ):
+        data = dict(prior_goal["adjudication"])
+        data["replayed"] = True
+        ctx.ledger_record(args.get("decision_id"), "rules.social_adjudicate", data)
+        return data, [
+            "same goal key with unchanged motive/leverage: replaying the original "
+            "adjudication — switching the approach skill name does not reopen the goal"
+        ], []
+
+    base = 0 if defense is None else (0 if defense < 50 else (1 if defense < 90 else 2))
+    motive_delta = (
+        intensity if direction == "oppose"
+        else (-1 if direction == "support" and intensity > 0 else 0)
+    )
+    leverage_delta = len(leverage_counted)
+    final = base + motive_delta - leverage_delta
+
+    if direction == "oppose" and intensity == 2 and leverage_delta == 0:
+        feasibility = "conditional"
+    elif final > 2:
+        feasibility = "conditional"
+    elif final < 0:
+        feasibility = "automatic"
+    else:
+        feasibility = "roll"
+    if feasibility == "conditional" and not requirements:
+        warnings.append(
+            "feasibility is conditional but no requirements were recorded; attach "
+            "unlock conditions so later play has something to pursue"
+        )
+    final_difficulty = _DIFFICULTY_LADDER[max(0, min(2, final))]
+    data = {
+        "schema_version": 1,
+        "investigator_id": investigator_id,
+        "npc_id": npc_id,
+        "approach": approach,
+        "approach_skill": _SOCIAL_APPROACH_SKILLS[approach],
+        "goal_summary": goal_summary,
+        "goal_key": goal_key,
+        "feasibility": feasibility,
+        "defense_value": defense,
+        "defense_source": defense_source,
+        "defense_key": defense_key,
+        "base_difficulty": _DIFFICULTY_LADDER[base],
+        "motive": {"direction": direction, "intensity": intensity, "evidence": motive_evidence},
+        "motive_delta": motive_delta,
+        "leverage": leverage_counted,
+        "leverage_delta": leverage_delta,
+        "final_difficulty": final_difficulty,
+        "bonus_dice": bonus,
+        "penalty_dice": penalty,
+        "requirements": requirements,
+        "replayed": False,
+    }
+    resolutions[goal_key] = {
+        "adjudication": {key: value for key, value in data.items() if key != "replayed"},
+        "leverage_ids": current_leverage_ids,
+        "motive_key": [direction, intensity],
+        "defense_value": defense,
+        "decision_id": str(args["decision_id"]),
+        "ts": _now_iso(),
+    }
+    _save_json_document(ctx, "social-resolutions.json", document)
+    hints: list[str] = []
+    if feasibility == "roll":
+        hints.append(
+            f"roll {_SOCIAL_APPROACH_SKILLS[approach]} at {final_difficulty} difficulty "
+            f"with difficulty_basis=opponent_skill; bonus={bonus} penalty={penalty}"
+        )
+    elif feasibility == "automatic":
+        hints.append(
+            "the NPC is ready to comply — no roll; play the compliance and let the "
+            "strategic leverage that earned it show in the fiction"
+        )
+    else:
+        hints.append(
+            "the current goal cannot be settled by a roll now; satisfy the recorded "
+            "requirements or change the approach/target"
+        )
+    ctx.ledger_record(args.get("decision_id"), "rules.social_adjudicate", data)
+    return data, warnings, hints
+
+
+def _npc_state_revision(ctx: Ctx, npc_id: str) -> str:
+    """Content digest of the NPC's live psych entry; any state change opens a new window."""
+    path = ctx.campaign_dir / "save" / "npc-state.json"
+    entry: Any = None
+    if path.is_file():
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            state = {}
+        psych = state.get("psych") if isinstance(state.get("psych"), dict) else {}
+        entry = psych.get(npc_id)
+    if entry is None:
+        return "no-state"
+    return hashlib.sha256(
+        json.dumps(entry, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:12]
+
+
+@tool(
+    "rules.psychology_observe",
+    "Keeper-concealed Psychology observation: one settled judgment per (observer, NPC, scene, NPC state revision). The roll is keeper_only; the player ever sees only the KP's observation prose, never the roll, outcome, or whether it failed.",
+    {
+        "investigator": {"type": "string", "desc": "investigator id (observer)"},
+        "npc_id": {"type": "string", "required": True, "desc": "observed NPC id"},
+        "question": {"type": "string", "required": True, "desc": "the concrete observation question (e.g. 'what is he afraid of?')"},
+        "visible_observation": {"type": "string", "required": True, "desc": "KP-authored player-safe observation text (behavior-level; no roll/outcome meta)"},
+        "seed": {"type": "integer", "desc": "deterministic RNG seed"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)
+def _tool_rules_psychology_observe(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("rules.psychology_observe", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
+    investigator_id = _resolve_investigator(ctx, args)
+    npc_id = str(args["npc_id"]).strip()
+    question = str(args["question"] or "").strip()
+    visible_observation = str(args["visible_observation"] or "").strip()
+    if not npc_id or not question or not visible_observation:
+        raise ToolError(
+            "invalid_param", "npc_id, question, and visible_observation are required"
+        )
+    scene_id = str(ctx.world().get("active_scene_id") or "")
+    revision = _npc_state_revision(ctx, npc_id)
+    window_key = "\x00".join((investigator_id, npc_id, scene_id, revision))
+    document = _load_json_document(ctx, "psychology-observations.json", 1, "observations")
+    observations = document["observations"]
+    existing = observations.get(window_key)
+    if isinstance(existing, dict):
+        data = {
+            "resolution": "reuse",
+            "insight_id": existing["insight_id"],
+            "window_key": window_key,
+            "question": existing["question"],
+            "visible_observation": existing["visible_observation"],
+        }
+        ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
+        return data, [], [
+            "no new observable change: reuse the settled judgment — do not reroll "
+            "Psychology on the same window"
+        ]
+    defense = _npc_authored_skill_value(ctx, npc_id, "Psychology")
+    difficulty = "regular" if defense is None or defense < 50 else "hard"
+    roll_args: dict[str, Any] = {
+        "investigator": investigator_id,
+        "skill": "Psychology",
+        "difficulty": difficulty,
+        "difficulty_basis": "opponent_skill",
+        "goal": question,
+        "stakes": {
+            "on_success": "the observer reads the current behavior correctly",
+            "on_failure": "the observer cannot settle the truth of the read",
+        },
+        "visibility": "keeper_only",
+        "decision_id": f"{args['decision_id']}:roll",
+    }
+    if args.get("seed") is not None:
+        roll_args["seed"] = args["seed"]
+    roll_data, _roll_warnings, _roll_hints = _roll_common(
+        ctx, roll_args, pushed=False, tool_name="rules.roll"
+    )
+    insight_id = (
+        f"psych-insight-{hashlib.sha256(window_key.encode('utf-8')).hexdigest()[:12]}"
+    )
+    record = {
+        "insight_id": insight_id,
+        "window_key": window_key,
+        "investigator_id": investigator_id,
+        "npc_id": npc_id,
+        "scene_id": scene_id,
+        "npc_revision": revision,
+        "question": question,
+        "visible_observation": visible_observation,
+        "roll_id": roll_data["roll_id"],
+        "created_at": _now_iso(),
+    }
+    observations[window_key] = record
+    _save_json_document(ctx, "psychology-observations.json", document)
+    data = {
+        "resolution": "settled",
+        "insight_id": insight_id,
+        "window_key": window_key,
+        "question": question,
+        "visible_observation": visible_observation,
+        "outcome": roll_data.get("outcome"),
+        "roll_id": roll_data["roll_id"],
+    }
+    hints = [
+        "the roll and outcome are keeper-concealed: the player sees only your "
+        "observation prose; on a fumble, give one confident but wrong read instead "
+        "of exposing the failure",
+        "this window is locked until the NPC state or scene changes; later requests "
+        "on the same window return the settled judgment without a new roll",
+    ]
+    ctx.ledger_record(args.get("decision_id"), "rules.psychology_observe", data)
+    return data, [], hints
+
+
+def _bout_active_hint(session: Any) -> str:
+    return (
+        f"bout of madness active ({session.active_bout_id}, "
+        f"{int(session.bout_rounds_remaining)} round(s) remaining): the Keeper controls "
+        "the investigator — realize the forced behavior in this turn's output; further "
+        "SAN checks are blocked while the bout is active (p.157)"
+    )
+
+
 @tool(
     "rules.sanity_check",
-    "SAN check with success/failure loss expressions (e.g. '0' / '1D6'). Applies the loss to the investigator.",
+    "SAN check through the canonical SanitySession: success/failure loss expressions (e.g. '0' / '1D6'), with the chained 7e insanity pipeline (5+ loss INT check, bout of madness, daily 1/5 indefinite threshold, SAN 0 permanent) applied as authoritative state, not advisory.",
     {
         "investigator": {"type": "string", "desc": "investigator id"},
         "source": {"type": "string", "required": True, "desc": "what horror caused the check"},
@@ -7806,24 +8268,216 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
     if prior is not None:
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     rng = _rng(args)
-    state = ctx.inv_state(investigator_id)
-    current_san = int(state.get("current_san", 0))
-    settled = _rules_resolver(ctx, "sanity_check").sanity_check(
-        current_san,
-        args.get("loss_success", "0"),
-        args["loss_failure"],
-        rng=rng,
+    loss_success = args.get("loss_success", "0")
+    loss_failure = str(args["loss_failure"])
+    for label, expression in (("loss_success", loss_success), ("loss_failure", loss_failure)):
+        if str(expression).strip() in ("0", ""):
+            continue
+        try:
+            _rules_resolver(ctx, "validate_san_loss_expression").validate_san_loss_expression(expression)
+        except ValueError as exc:
+            raise ToolError("invalid_param", f"{label}: {exc}") from exc
+    sheet = ctx.sheet(investigator_id)
+    characteristics = (
+        sheet.get("characteristics") if isinstance(sheet.get("characteristics"), dict) else {}
     )
-    check = settled["check"]
-    success = settled["success"]
-    loss = settled["san_loss"]
-    loss_detail = settled["loss_detail"]
-    new_san = settled["san_after"]
-    state["current_san"] = new_san
-    ctx.save_inv_state(investigator_id, state)
+    int_value = int(characteristics.get("INT", 50))
+    derived = sheet.get("derived") if isinstance(sheet.get("derived"), dict) else {}
+    sheet_skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+    cm_value = int(sheet_skills.get("Cthulhu Mythos", 0))
+    had_snapshot = _rules_resolver(ctx, "sanity_snapshot_exists").sanity_snapshot_exists(
+        ctx.campaign_dir, investigator_id
+    )
+    session = _rules_resolver(ctx, "sanity_session_load").sanity_session_load(
+        ctx.campaign_dir,
+        investigator_id,
+        int_value=int_value,
+        rng=rng,
+        cm_value=cm_value,
+    )
+    if not had_snapshot:
+        sheet_san = int(derived.get("SAN", characteristics.get("POW", 50)))
+        inv_state = ctx.inv_state(investigator_id)
+        current_san = int(inv_state.get("current_san", sheet_san))
+        session.san_max = sheet_san
+        session.san_current = current_san
+        session.day_start_san = current_san
+    san_before = int(session.san_current)
+    rolls_start = len(session.pending_rolls)
+    events_start = len(session.events)
+    source = str(args["source"])
+    trigger_id = str(args.get("trigger_id") or "").strip()
+    event = session.sanity_check(
+        source=source,
+        san_loss_success=loss_success,
+        san_loss_fail_expr=loss_failure,
+    )
+    session.save(ctx.campaign_dir, strict_mirror=True)
+    new_rolls = list(session.pending_rolls[rolls_start:])
+    new_events = list(session.events[events_start:])
+    event_payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+
+    if event.get("type") == "sanity_check_skipped":
+        skip_reason = str(event_payload.get("summary") or "")
+        data = {
+            "investigator_id": investigator_id,
+            "source": source,
+            "sanity_check_skipped": True,
+            "skip_reason": skip_reason,
+            "check": None,
+            "success": False,
+            "san_loss": 0,
+            "loss_detail": {"rolls": []},
+            "san_before": san_before,
+            "san_after": int(session.san_current),
+            "trigger_id": trigger_id or None,
+            "bout_triggered": False,
+            "bout_active": bool(session.bout_active),
+            "active_bout_id": session.active_bout_id,
+            "bout_rounds_remaining": int(session.bout_rounds_remaining),
+            "temporary_insane": bool(session.temporary_insane),
+            "indefinite_insane": bool(session.indefinite_insane),
+            "permanently_insane": bool(session.permanently_insane),
+            "daily_san_lost": int(session.daily_san_lost),
+            "day_start_san": int(session.day_start_san),
+            "session_roll_ids": [],
+            "session_events": [],
+        }
+        warnings = [f"SAN check skipped: {skip_reason}"]
+        if trigger_id:
+            warnings.append(
+                f"SAN trigger '{trigger_id}' was NOT marked fired because the check "
+                "was skipped; re-resolve it once the bout of madness has ended"
+            )
+        hints = []
+        if session.bout_active:
+            hints.append(_bout_active_hint(session))
+        ctx.ledger_record(args.get("decision_id"), "rules.sanity_check", data)
+        return data, warnings, hints
+
+    san_loss = int(event_payload.get("san_loss", 0))
+    san_after = int(event_payload.get("san_after", session.san_current))
+    outcome = str(event_payload.get("roll_outcome") or "regular")
+    success = outcome not in ("failure", "fumble")
+
+    extra_roll_id_keys = {
+        "bout_duration_hours": "bout_duration_roll_id",
+        "bout_of_madness_table": "bout_table_roll_id",
+        "bout_duration_rounds": "bout_rounds_roll_id",
+        "phobia_table": "phobia_roll_id",
+        "mania_table": "mania_roll_id",
+    }
+    roll_ids: dict[str, str] = {}
+    session_roll_ids: list[str] = []
+    san_roll_record: dict[str, Any] = {}
+    for record in new_rolls:
+        engine_roll_id = str(record.get("roll_id") or "")
+        record_payload = {
+            **record,
+            "sanity_session_roll_id": engine_roll_id,
+            "source": source,
+            "trigger_id": trigger_id or None,
+        }
+        record_payload.pop("roll_id", None)
+        skill = str(record.get("skill") or "")
+        if skill == "SAN":
+            kind = "sanity_check"
+        elif skill == "INT":
+            kind = "skill_check"
+        else:
+            kind = str(record.get("kind") or "sanity_table_roll")
+        if skill == "SAN":
+            san_roll_record = record
+        if skill == "SAN" and outcome == "fumble":
+            record_payload["fumble_consequence"] = {
+                "summary": (
+                    "SAN fumble resolves through the authored failed-check maximum loss: "
+                    f"{san_loss} SAN lost from {loss_failure}."
+                ),
+                "effect": {
+                    "kind": "san_loss",
+                    "amount": san_loss,
+                    "san_before": san_before,
+                    "san_after": san_after,
+                },
+            }
+        logged = ctx.log_roll({
+            "event_type": "roll",
+            "kind": kind,
+            "actor": investigator_id,
+            "visibility": "consequence_public",
+            "payload": record_payload,
+            **record_payload,
+        })
+        session_roll_ids.append(logged["roll_id"])
+        if skill == "SAN":
+            roll_ids["check_roll_id"] = logged["roll_id"]
+        elif skill == "INT":
+            roll_ids["int_roll_id"] = logged["roll_id"]
+        else:
+            extra_key = extra_roll_id_keys.get(str(record.get("kind") or ""))
+            if extra_key:
+                roll_ids[extra_key] = logged["roll_id"]
+
+    loss_faces = list(san_roll_record.get("san_loss_rolls") or [])
+    loss_roll_id = None
+    if loss_faces:
+        loss_expression = str(
+            san_roll_record.get("san_loss_expression")
+            or (loss_success if success else loss_failure)
+        )
+        loss_payload = {
+            "rolls": loss_faces,
+            "die_expression": loss_expression,
+            "individual_faces": loss_faces,
+            "final_total": san_loss,
+            "roll": san_loss,
+            "san_before": san_before,
+            "san_after": san_after,
+            "source": source,
+        }
+        loss_record = ctx.log_roll({
+            "event_type": "roll",
+            "type": "san_loss",
+            "kind": "san_loss",
+            "actor": investigator_id,
+            "visibility": "consequence_public",
+            "payload": loss_payload,
+            **loss_payload,
+        })
+        loss_roll_id = loss_record["roll_id"]
+
+    ctx.log_event({
+        "event_type": "sanity_loss",
+        "investigator_id": investigator_id,
+        "loss": san_loss,
+        "source": source,
+        "trigger_id": trigger_id or None,
+    })
+    session_events: list[dict[str, Any]] = []
+    for row in new_events:
+        row_payload = (
+            row.get("payload")
+            if isinstance(row.get("payload"), dict)
+            else {"summary": str(row.get("payload") or "")}
+        )
+        row_type = str(row.get("type") or "")
+        session_events.append({
+            "event_id": row.get("event_id"),
+            "event_type": row_type,
+            **row_payload,
+        })
+        if row_type == "sanity":
+            # Already mirrored by the compatibility sanity_loss event above.
+            continue
+        ctx.log_event({
+            "event_type": row_type or "sanity_event",
+            "investigator_id": investigator_id,
+            "sanity_event_id": row.get("event_id"),
+            **row_payload,
+        })
 
     warnings: list[str] = []
-    trigger_id = str(args.get("trigger_id") or "").strip()
     if trigger_id:
         world = ctx.world()
         active_scene = _scene_by_id(ctx.story_graph, world.get("active_scene_id"))
@@ -7845,87 +8499,63 @@ def _tool_rules_sanity_check(ctx: Ctx, args: dict[str, Any]):
             world["san_triggers_fired"] = fired
             ctx.save_world(world)
 
+    check = {
+        "skill": "SAN",
+        "target": san_before,
+        "roll": int(san_roll_record.get("roll", 0)),
+        "outcome": outcome,
+        "source": source,
+        "trigger_id": trigger_id or None,
+        "san_loss": san_loss,
+        "san_before": san_before,
+        "san_after": san_after,
+    }
     data = {
         "investigator_id": investigator_id,
-        "source": str(args["source"]),
+        "source": source,
         "check": check,
         "success": success,
-        "san_loss": loss,
-        "loss_detail": loss_detail,
-        "san_before": current_san,
-        "san_after": new_san,
+        "san_loss": san_loss,
+        "loss_detail": {
+            "rolls": loss_faces,
+            "resolution": san_roll_record.get("san_loss_resolution"),
+            "raw_total": san_roll_record.get("san_loss_raw_total"),
+            "expression": san_roll_record.get("san_loss_expression"),
+        },
+        "san_before": san_before,
+        "san_after": san_after,
         "trigger_id": trigger_id or None,
+        "sanity_check_skipped": False,
+        "bout_triggered": bool(session.bout_active or session.temporary_insane),
+        "bout_active": bool(session.bout_active),
+        "active_bout_id": session.active_bout_id,
+        "bout_rounds_remaining": int(session.bout_rounds_remaining),
+        "temporary_insane": bool(session.temporary_insane),
+        "indefinite_insane": bool(session.indefinite_insane),
+        "permanently_insane": bool(session.permanently_insane),
+        "daily_san_lost": int(session.daily_san_lost),
+        "day_start_san": int(session.day_start_san),
+        "session_roll_ids": session_roll_ids,
+        "session_events": session_events,
+        **roll_ids,
     }
+    if loss_roll_id:
+        data["loss_roll_id"] = loss_roll_id
     hints: list[str] = []
-    if loss >= 5:
+    if session.bout_active:
+        hints.append(_bout_active_hint(session))
+    elif session.temporary_insane or session.indefinite_insane:
         hints.append(
-            "lost 5+ SAN in one check: temporary insanity threat — make an INT roll; success means the "
-            "investigator fully grasps the horror and suffers a bout of madness (see coc-sanity skill)"
+            "underlying insanity: any further SAN loss of 1+ triggers another bout "
+            "of madness (p.158); everyday behavior can look normal between bouts"
         )
-    if new_san == 0:
+    if session.indefinite_insane:
+        hints.append(
+            "indefinite insanity (1/5+ of day-start SAN lost in one game day): "
+            "the investigator needs treatment and a safe place"
+        )
+    if session.permanently_insane:
         hints.append("SAN reached 0: permanent insanity — this investigator is lost to the Mythos")
-    elif loss > 0 and new_san <= current_san - current_san // 5:
-        hints.append("heavy cumulative loss: consider indefinite-insanity pressure if a fifth of SAN went in one day")
-    check_payload = {
-        **check,
-        "skill": "SAN",
-        "source": str(args["source"]),
-        "trigger_id": trigger_id or None,
-        "san_loss": loss,
-        "san_before": current_san,
-        "san_after": new_san,
-    }
-    if check.get("outcome") == "fumble":
-        check_payload["fumble_consequence"] = {
-            "summary": (
-                "SAN fumble resolves through the authored failed-check loss: "
-                f"{loss} SAN lost from {args['loss_failure']}."
-            ),
-            "effect": {
-                "kind": "san_loss",
-                "amount": loss,
-                "san_before": current_san,
-                "san_after": new_san,
-            },
-        }
-    check_record = ctx.log_roll({
-        "event_type": "roll",
-        "kind": "sanity_check",
-        "actor": investigator_id,
-        "visibility": "consequence_public",
-        "payload": check_payload,
-        **check_payload,
-    })
-    data["check_roll_id"] = check_record["roll_id"]
-    if isinstance(loss_detail.get("rolls"), list) and loss_detail["rolls"]:
-        loss_expression = args.get("loss_success", "0") if success else args["loss_failure"]
-        loss_payload = {
-            **loss_detail,
-            "die_expression": str(loss_expression),
-            "individual_faces": list(loss_detail["rolls"]),
-            "final_total": loss,
-            "roll": loss,
-            "san_before": current_san,
-            "san_after": new_san,
-            "source": str(args["source"]),
-        }
-        loss_record = ctx.log_roll({
-            "event_type": "roll",
-            "type": "san_loss",
-            "kind": "san_loss",
-            "actor": investigator_id,
-            "visibility": "consequence_public",
-            "payload": loss_payload,
-            **loss_payload,
-        })
-        data["loss_roll_id"] = loss_record["roll_id"]
-    ctx.log_event({
-        "event_type": "sanity_loss",
-        "investigator_id": investigator_id,
-        "loss": loss,
-        "source": str(args["source"]),
-        "trigger_id": trigger_id or None,
-    })
     ctx.ledger_record(args.get("decision_id"), "rules.sanity_check", data)
     return data, warnings, hints
 
@@ -10767,6 +11397,75 @@ def _source_host_work_projection(
     projection["background_takeover"] = takeover
     return projection
 
+def _scene_contract_projection(
+    ctx: Ctx, active_id: str | None, world: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Project the authored scene contract plus live improvisation consumption.
+
+    Read-only advisory surface: budgets and truth ceilings never block play;
+    they make a transit node absorbing the mainline visible in evidence.
+    """
+    scene = _scene_by_id(ctx.story_graph, active_id)
+    contract = (scene or {}).get("scene_contract")
+    if not isinstance(contract, dict):
+        return None
+    promotions = [
+        row
+        for row in (world.get("scene_promotions") or [])
+        if isinstance(row, dict) and str(row.get("scene_id") or "") == str(active_id or "")
+    ]
+    effective_role = str(
+        (promotions[-1].get("to_role") if promotions else None)
+        or contract.get("role")
+        or ""
+    )
+    flags = ctx.flags()
+    clues_found = flags.get("clues_found") if isinstance(flags.get("clues_found"), dict) else {}
+    improvised_clues = sum(
+        1
+        for row in clues_found.values()
+        if isinstance(row, dict)
+        and row.get("provenance") == "improvised"
+        and str(row.get("scene_id") or "") == str(active_id or "")
+    )
+    improvised_npcs = 0
+    receipts_doc = _read_optional_json(
+        ctx.campaign_dir / "save" / "npc-engagement-receipts.json", None
+    )
+    receipts = (
+        receipts_doc.get("receipts")
+        if isinstance(receipts_doc, dict) and isinstance(receipts_doc.get("receipts"), dict)
+        else {}
+    )
+    for row in receipts.values():
+        if not isinstance(row, dict):
+            continue
+        event = row.get("event") if isinstance(row.get("event"), dict) else {}
+        if str(event.get("scene_id") or "") != str(active_id or ""):
+            continue
+        binding = (
+            row.get("identity_binding")
+            if isinstance(row.get("identity_binding"), dict)
+            else event.get("identity_binding") if isinstance(event.get("identity_binding"), dict) else {}
+        )
+        if binding.get("status") == "improvised":
+            improvised_npcs += 1
+    return {
+        "role": contract.get("role"),
+        "effective_role": effective_role,
+        "promoted": bool(promotions),
+        "truth_scope": contract.get("truth_scope"),
+        "improv_budget": contract.get("improv_budget"),
+        "budget_consumption": {
+            "improvised_clues": improvised_clues,
+            "improvised_npcs": improvised_npcs,
+        },
+        "exit_affordances": contract.get("exit_affordances"),
+    }
+
+
+
+
 @tool(
     "scene.context",
     "Everything about the current scene: description, NPCs present, clues (with discovery state), exits, pacing, time.",
@@ -11249,6 +11948,7 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
             "exit_conditions": (scene or {}).get("exit_conditions"),
             "allowed_improvisation": (scene or {}).get("allowed_improvisation"),
         } if scene else None,
+        "scene_contract": _scene_contract_projection(ctx, active_id, world),
         "npcs_present": npcs,
         "clues_here": clues,
         "discovered_clue_count": len(discovered),
@@ -11331,8 +12031,44 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     if data["pending_san_triggers"]:
         hints.append(
             "pending authored SAN trigger(s): resolve each witnessed trigger with "
-            "rules.sanity_check and pass its trigger_id"
+            "rules.sanity_check and pass its trigger_id; its chained insanity outcomes "
+            "(INT check, bout of madness, indefinite threshold) are authoritative state, "
+            "not advisory"
         )
+    scene_contract = data.get("scene_contract")
+    if isinstance(scene_contract, dict):
+        budget = (
+            scene_contract.get("improv_budget")
+            if isinstance(scene_contract.get("improv_budget"), dict)
+            else {}
+        )
+        consumption = scene_contract.get("budget_consumption") or {}
+        clue_cap = budget.get("local_clues")
+        if (
+            isinstance(clue_cap, int)
+            and not isinstance(clue_cap, bool)
+            and int(consumption.get("improvised_clues") or 0) > clue_cap
+        ):
+            warnings.append(
+                f"improv budget exceeded: {consumption['improvised_clues']} improvised "
+                f"clues at this scene (budget {clue_cap})"
+            )
+        npc_cap = budget.get("named_npcs")
+        if (
+            isinstance(npc_cap, int)
+            and not isinstance(npc_cap, bool)
+            and int(consumption.get("improvised_npcs") or 0) > npc_cap
+        ):
+            warnings.append(
+                f"improv budget exceeded: {consumption['improvised_npcs']} improvised "
+                f"named NPCs at this scene (budget {npc_cap})"
+            )
+        if scene_contract.get("effective_role") == "transit":
+            hints.append(
+                "transit scene contract: local facts plus at most one bridge clue; "
+                "main-plot truth belongs to later scenes — improvise consequences "
+                "and exits, not the mainline"
+            )
     if data["keeper_mechanics"]["affordance_operations"]:
         hints.append(
             "structured scene mechanics are keeper-only; use combat.resolve for a "
@@ -11419,6 +12155,140 @@ def _turn_recovery_meaningful_tools() -> frozenset[str]:
     )
 
 
+def _quarantine_unbound_turn_tail(ctx: Ctx) -> dict[str, Any]:
+    """Void public rolls bound to no finalization; restore save/ to the last commit.
+
+    Runs at session.resume: when a crash abandoned a turn mid-write, its rolls
+    and state writes must never silently persist into canonical state or the
+    battle report.  Rolls are dispositioned in an append-only ledger (never
+    rewritten or deleted); turn-scoped state restores from the latest
+    finalization commit snapshot.  Rolls owned by a live pending-turn manifest
+    are legitimate in-flight work, never quarantine targets.
+    """
+    pending_window_rolls: set[str] = set()
+    has_pending_turn = False
+    try:
+        refresh = coc_turn_manifest.refresh_pending_window(ctx.campaign_dir)
+    except coc_turn_manifest.TurnManifestError:
+        refresh = None
+    if refresh is not None:
+        has_pending_turn = True
+        _manifest, window, _journal = refresh
+        pending_window_rolls = coc_turn_finalization._referenced_roll_ids(window)
+    orphan_ids = [
+        roll_id
+        for roll_id in coc_turn_finalization.unbound_public_roll_ids(ctx.campaign_dir)
+        if roll_id not in pending_window_rolls
+    ]
+    if not orphan_ids:
+        return {
+            "quarantined_orphan_rolls": [],
+            "restored_commit_snapshot": None,
+            "discarded_development_ticks": {"queue": 0, "claims": 0, "archive": 0},
+        }
+    orphan_set = set(orphan_ids)
+
+    orphan_sources: set[str] = set()
+    document: dict[str, Any] | None = None
+    try:
+        document = _load_roll_receipt_document(ctx)
+    except ToolError:
+        document = None
+    if document is not None:
+        for tool_name, by_tool in (document.get("receipts") or {}).items():
+            if not isinstance(by_tool, dict):
+                continue
+            for decision_id, receipt in by_tool.items():
+                if isinstance(receipt, dict) and str(receipt.get("roll_id")) in orphan_set:
+                    orphan_sources.add(f"{tool_name}:{decision_id}")
+
+    # Restore turn-scoped state first (only when no legitimate in-flight turn
+    # owns current state); dispositions are recorded afterwards so the restore
+    # cannot wipe them.
+    restored: str | None = None
+    if not has_pending_turn:
+        latest = coc_turn_manifest.latest_commit_snapshot(ctx.campaign_dir)
+        if latest is not None:
+            coc_turn_manifest.restore_save_from_snapshot(ctx.campaign_dir, latest[1])
+            restored = latest[0]
+
+    now = _now_iso()
+    coc_turn_finalization.record_roll_dispositions(
+        ctx.campaign_dir,
+        {
+            roll_id: {
+                "visibility": "voided",
+                "reason": "unfinalized_turn_tail",
+                "supersession_id": f"turn-tail-quarantine:{now}",
+                "ts": now,
+            }
+            for roll_id in orphan_ids
+        },
+    )
+
+    if document is not None:
+        pending = document.get("pending_side_effects") or {}
+        changed = False
+        for key in list(pending):
+            if str(pending.get(key)) in orphan_set:
+                del pending[key]
+                changed = True
+        if changed:
+            _save_roll_receipt_document(ctx, document)
+    discarded_ticks = {"queue": 0, "claims": 0, "archive": 0}
+    if orphan_sources:
+        for investigator_id in ctx.party_ids():
+            removed = coc_development.discard_development_ticks(
+                ctx.campaign_dir, investigator_id, orphan_sources
+            )
+            for key in discarded_ticks:
+                discarded_ticks[key] += removed[key]
+
+    ctx.log_event({
+        "event_type": "turn_tail_abandoned",
+        "roll_ids": sorted(orphan_set),
+        "restored_commit_snapshot": restored,
+        "reason": "unfinalized_turn_tail",
+        "discarded_development_ticks": discarded_ticks,
+    })
+    return {
+        "quarantined_orphan_rolls": sorted(orphan_set),
+        "restored_commit_snapshot": restored,
+        "discarded_development_ticks": discarded_ticks,
+    }
+
+
+@tool(
+    "session.begin",
+    "Open a new table session: advances the durable session cursor that scopes development settlement (skill development / Luck recovery) idempotency. Call when a fresh sitting begins; never on crash resume.",
+    {
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)
+def _tool_session_begin(ctx: Ctx, args: dict[str, Any]):
+    tool_name = "session.begin"
+    decision_id = str(args["decision_id"])
+    prior = ctx.ledger_lookup(tool_name, decision_id)
+    if prior is not None:
+        return prior.get("data"), [
+            "duplicate decision_id: returning the previously opened session"
+        ], []
+    seq = coc_development.begin_table_session(ctx.campaign_dir)
+    session_key = coc_development.current_table_session_key(ctx.campaign_dir)
+    data = {
+        "schema_version": 1,
+        "table_session_seq": seq,
+        "session_key": session_key,
+    }
+    ctx.ledger_record(decision_id, tool_name, data)
+    hints = [
+        "development settlement is unique per investigator per table session: "
+        "end_session in this new session opens a fresh settlement boundary; "
+        "a repeat end_session within one session replays the original receipt"
+    ]
+    return data, [], hints
+
+
 @tool(
     "session.resume",
     "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context.",
@@ -11493,6 +12363,7 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
             "the current player turn without another recovery pass"
         ]
 
+    turn_tail_quarantine = _quarantine_unbound_turn_tail(ctx)
     pending = coc_turn_manifest.pending_manifest(ctx.campaign_dir)
     if pending is None:
         reconcile_campaign_continuity(
@@ -11641,6 +12512,7 @@ def _tool_session_resume(ctx: Ctx, args: dict[str, Any]):
         },
         "operation_opportunities": attempt_opportunities,
         "compiled_archive_recovery": archive_recovery,
+        "turn_tail_quarantine": turn_tail_quarantine,
         "next_operations": next_operations,
         "recovery_contract": {
             "authoritative_truth": [
@@ -16485,6 +17357,73 @@ def _tool_state_belief_apply(ctx: Ctx, args: dict[str, Any]):
     return data, [], ["belief state now reflects only the adopted plan and already-committed evidence"]
 
 
+def _narration_budget(
+    ctx: Ctx, investigator_id: str, applied_events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Deterministic length budget by turn type; advisory guidance, never a gate."""
+    event_types = {
+        str(row.get("event_type") or "")
+        for row in applied_events
+        if isinstance(row, dict)
+    }
+    snapshot = _read_optional_json(
+        ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json", None
+    )
+    bout_active = bool(isinstance(snapshot, dict) and snapshot.get("bout_active"))
+    if bout_active or event_types & {
+        "bout_of_madness", "indefinite_insanity", "permanent_insanity", "session_ending",
+    }:
+        return {"mode": "climax_or_madness", "max_chars": 1500, "max_paragraphs": 8}
+    if event_types & {"scene_transition", "major_reveal", "exceptional_effect_apply"}:
+        return {"mode": "reveal_or_transition", "max_chars": 900, "max_paragraphs": 5}
+    if event_types & {"hp_change", "sanity_loss", "luck_spend"}:
+        return {"mode": "costly_result", "max_chars": 550, "max_paragraphs": 3}
+    return {"mode": "routine_resolution", "max_chars": 350, "max_paragraphs": 2}
+
+
+def _control_overrides(ctx: Ctx, investigator_id: str) -> list[dict[str, Any]]:
+    """Active control-override receipts: the only scope in which the KP may
+    portray the investigator's involuntary behavior (ownership matrix)."""
+    overrides: list[dict[str, Any]] = []
+    snapshot = _read_optional_json(
+        ctx.campaign_dir / "save" / "sanity-state" / f"{investigator_id}.json", None
+    )
+    if isinstance(snapshot, dict):
+        if snapshot.get("bout_active"):
+            overrides.append({
+                "override_type": "bout_of_madness",
+                "source_rule_id": "core.sanity.bout_realtime",
+                "active_bout_id": snapshot.get("active_bout_id"),
+                "bout_rounds_remaining": snapshot.get("bout_rounds_remaining"),
+                "allowed_scope": [
+                    "forced behavior per the rolled bout table entry",
+                    "no normal investigation actions while the bout lasts",
+                ],
+            })
+        for kind in ("phobia", "mania"):
+            if snapshot.get(kind):
+                overrides.append({
+                    "override_type": kind,
+                    "source_rule_id": f"core.sanity.{kind}",
+                    "name": snapshot[kind],
+                    "allowed_scope": [
+                        "rulebook-triggered avoidance/compulsion beats only",
+                    ],
+                })
+    try:
+        state = ctx.inv_state(investigator_id)
+    except ToolError:
+        state = {}
+    conditions = {str(value) for value in (state.get("conditions") or [])}
+    if "unconscious" in conditions or "dying" in conditions:
+        overrides.append({
+            "override_type": "unconscious",
+            "source_rule_id": "core.combat.unconscious",
+            "allowed_scope": ["no voluntary actions; physiological description only"],
+        })
+    return overrides
+
+
 @tool(
     "narration.brief",
     "Build a minimum-privilege player-safe narration envelope plus the existing natural Chinese style contract.",
@@ -16514,25 +17453,44 @@ def _tool_narration_brief(ctx: Ctx, args: dict[str, Any]):
         applied_events=events,
         route_completion_receipts=ctx.world().get("route_completion_receipts") or [],
     )
+    budget = _narration_budget(ctx, investigator_id, events)
+    control_overrides = _control_overrides(ctx, investigator_id)
+    hints = [
+        "when action_uptake contains a committed in-fiction action, naturally enact it before or alongside the settled outcome; do not merely echo the player",
+        "write fresh player-facing prose from this envelope; never paste internal labels or raw JSON",
+        "the KP owns the final narration and must preserve authoritative numerical results exactly",
+        f"length budget ({budget['mode']}): ≤{budget['max_chars']} chars / ≤{budget['max_paragraphs']} paragraphs — write only what changed; never restate the player's own action",
+    ]
+    if control_overrides:
+        hints.append(
+            "portray investigator involuntary behavior ONLY within the listed "
+            "control_overrides scope; everything else about the investigator's "
+            "thoughts, beliefs, and decisions belongs to the player"
+        )
+    else:
+        hints.append(
+            "no active control override: the investigator's thoughts, beliefs, "
+            "and decisions belong to the player — narrate only the world, NPCs, "
+            "and involuntary physiology"
+        )
     return {
         "schema_version": 1,
         "authority": "drafting_brief",
         "narration_envelope": envelope,
+        "budget": budget,
+        "control_overrides": control_overrides,
         "style_contract": coc_narration_style.player_facing_style_contract("zh-Hans"),
-    }, [], [
-        "when action_uptake contains a committed in-fiction action, naturally enact it before or alongside the settled outcome; do not merely echo the player",
-        "write fresh player-facing prose from this envelope; never paste internal labels or raw JSON",
-        "the KP owns the final narration and must preserve authoritative numerical results exactly",
-    ]
+    }, [], hints
 
 
 @tool(
     "narration.review",
-    "Record an LLM semantic review of drafted narration. Advice only; no keyword matcher and no blocking prose gate.",
+    "Record an LLM semantic review of drafted narration, plus one deterministic over-length check against the turn's length budget. Advice only; no keyword matcher and no blocking prose gate.",
     {
         "decision_id": {"type": "string", "required": True, "desc": "stable turn decision id"},
         "draft_text": {"type": "string", "required": True, "desc": "exact draft reviewed by the KP"},
         "findings": {"type": "array", "desc": "semantic findings with rule_id and reason; empty when the draft is sound"},
+        "investigator": {"type": "string", "desc": "investigator id for budget derivation (defaults to the party's first member)"},
     },
 )
 def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
@@ -16557,6 +17515,32 @@ def _tool_narration_review(ctx: Ctx, args: dict[str, Any]):
                 f"findings[{index}] requires rule_id and semantic reason",
             )
         findings.append({"rule_id": rule_id, "reason": reason})
+    investigator_id = (
+        _resolve_investigator(ctx, args)
+        if args.get("investigator") is not None
+        else ((ctx.party_ids() or [None])[0])
+    )
+    if investigator_id is not None:
+        recent_events: list[dict[str, Any]] = []
+        events_path = ctx.campaign_dir / "logs" / "events.jsonl"
+        if events_path.is_file():
+            for raw in events_path.read_text(encoding="utf-8").splitlines()[-12:]:
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict):
+                    recent_events.append(row)
+        budget = _narration_budget(ctx, investigator_id, recent_events)
+        if len(draft) > 2 * int(budget["max_chars"]):
+            findings.append({
+                "rule_id": "over_length",
+                "reason": (
+                    f"draft is {len(draft)} chars, over 2x the '{budget['mode']}' "
+                    f"length budget ({budget['max_chars']}); recorded for audit, "
+                    "delivery not blocked"
+                ),
+            })
     data = {
         "schema_version": 1,
         "visibility": "keeper_internal",
@@ -16747,6 +17731,74 @@ def _tool_evidence_record_adoption(ctx: Ctx, args: dict[str, Any]):
     return data, warnings, [
         "this receipt proves use or rejection; it does not constrain the next turn",
         "an adopted Storylet updates only its existing anti-repeat ledger; the KP still owns fictional realization and may ignore future candidates",
+    ]
+
+
+@tool(
+    "state.promote_scene",
+    "Record a formal scene-role promotion (e.g. transit → side_investigation) with module_divergence evidence. Advisory bookkeeping: it changes how later scene.context reads the scene, never forces a transition.",
+    {
+        "scene_id": {"type": "string", "desc": "scene to promote (defaults to the active scene)"},
+        "to_role": {
+            "type": "string",
+            "required": True,
+            "enum": ["side_investigation", "investigation", "main", "climax"],
+            "desc": "new effective role",
+        },
+        "reason": {"type": "string", "required": True, "desc": "why committed play justifies the promotion"},
+        "decision_id": {"type": "string", "required": True, "desc": "idempotency key"},
+    },
+)
+def _tool_state_promote_scene(ctx: Ctx, args: dict[str, Any]):
+    prior = ctx.ledger_lookup("state.promote_scene", args.get("decision_id"))
+    if prior is not None:
+        return prior.get("data"), ["duplicate decision_id: returning the previously recorded promotion"], []
+    to_role = str(args["to_role"]).strip()
+    if to_role not in {"side_investigation", "investigation", "main", "climax"}:
+        raise ToolError(
+            "invalid_param",
+            "to_role must be side_investigation|investigation|main|climax",
+        )
+    reason = str(args["reason"] or "").strip()
+    if not reason:
+        raise ToolError("invalid_param", "reason must be non-empty")
+    world = ctx.world()
+    active = str(world.get("active_scene_id") or "")
+    scene_id = str(args.get("scene_id") or active or "").strip()
+    if not scene_id:
+        raise ToolError("invalid_param", "scene_id is required when no scene is active")
+    scene = _scene_by_id(ctx.story_graph, scene_id)
+    from_role = str(
+        ((scene or {}).get("scene_contract") or {}).get("role")
+        or (scene or {}).get("scene_type")
+        or "unknown"
+    )
+    promotions = [
+        row
+        for row in (world.get("scene_promotions") or [])
+        if isinstance(row, dict)
+    ]
+    promotion = {
+        "scene_id": scene_id,
+        "from_role": from_role,
+        "to_role": to_role,
+        "reason": reason,
+        "module_divergence": True,
+        "ts": _now_iso(),
+    }
+    promotions.append(promotion)
+    world["scene_promotions"] = promotions
+    ctx.save_world(world)
+    ctx.log_event({"event_type": "scene_promotion", **promotion})
+    ctx.ledger_record(args["decision_id"], "state.promote_scene", promotion)
+    warnings: list[str] = []
+    if scene is None:
+        warnings.append(
+            f"scene '{scene_id}' is not in the story graph — promotion recorded as campaign canon anyway"
+        )
+    return promotion, warnings, [
+        f"later scene.context reads '{scene_id}' with effective role '{to_role}'; "
+        "the divergence stays in audit evidence"
     ]
 
 
@@ -17150,9 +18202,60 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
 
     flags = ctx.flags()
     clues_found = flags.get("clues_found") or {}
-    clues_found[clue_id] = {"ts": _now_iso(), "method": args.get("method")}
+    clue_record = {"ts": _now_iso(), "method": args.get("method")}
+    if clue is None:
+        clue_record.update({
+            "provenance": "improvised",
+            "scene_id": active,
+            "local_only": True,
+        })
+    clues_found[clue_id] = clue_record
     flags["clues_found"] = clues_found
     ctx.save_flags(flags)
+
+    scene_contract = (scene or {}).get("scene_contract") if isinstance(scene, dict) else None
+    if isinstance(scene_contract, dict):
+        if clue is not None:
+            scope = (
+                scene_contract.get("truth_scope")
+                if isinstance(scene_contract.get("truth_scope"), dict)
+                else {}
+            )
+            max_tier = scope.get("max_tier")
+            tier = clue.get("truth_tier")
+            if (
+                isinstance(max_tier, int)
+                and not isinstance(max_tier, bool)
+                and isinstance(tier, int)
+                and not isinstance(tier, bool)
+                and tier > max_tier
+            ):
+                warnings.append(
+                    f"clue '{clue_id}' is truth tier {tier}, above this scene's "
+                    f"contract ceiling {max_tier} — delivering it here outruns the "
+                    "authored pacing; consider a bridge clue instead (advisory)"
+                )
+        else:
+            budget = (
+                scene_contract.get("improv_budget")
+                if isinstance(scene_contract.get("improv_budget"), dict)
+                else {}
+            )
+            cap = budget.get("local_clues")
+            if isinstance(cap, int) and not isinstance(cap, bool):
+                improvised_here = sum(
+                    1
+                    for row in clues_found.values()
+                    if isinstance(row, dict)
+                    and row.get("provenance") == "improvised"
+                    and str(row.get("scene_id") or "") == str(active or "")
+                )
+                if improvised_here > cap:
+                    warnings.append(
+                        f"improv budget exceeded: this is improvised clue "
+                        f"#{improvised_here} at this scene (budget {cap}); guide "
+                        "play toward authored paths instead of minting more local truth"
+                    )
 
     route_context: dict[str, Any] | None = None
     route_ref = args.get("route_ref")
@@ -19340,11 +20443,33 @@ def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
     )
     if result.get("at_elapsed") is None:
         raise ToolError("state_corrupt", "time state is not initialized")
+    sanity_day_reset = False
+    if _rules_resolver(ctx, "sanity_snapshot_exists").sanity_snapshot_exists(
+        ctx.campaign_dir, investigator_id
+    ):
+        sheet = ctx.sheet(investigator_id)
+        characteristics = (
+            sheet.get("characteristics")
+            if isinstance(sheet.get("characteristics"), dict)
+            else {}
+        )
+        sheet_skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
+        sanity_session = _rules_resolver(ctx, "sanity_session_load").sanity_session_load(
+            ctx.campaign_dir,
+            investigator_id,
+            int_value=int(characteristics.get("INT", 50)),
+            rng=None,
+            cm_value=int(sheet_skills.get("Cthulhu Mythos", 0)),
+        )
+        sanity_session.end_day()
+        sanity_session.save(ctx.campaign_dir, strict_mirror=True)
+        sanity_day_reset = True
     fired = coc_time.process_due_triggers(ctx.campaign_dir)
     time_state = coc_time.read_time_state(ctx.campaign_dir)
     due = coc_time.peek_due_triggers(ctx.campaign_dir)
     data = {
         **result,
+        "sanity_day_reset": sanity_day_reset,
         "fired_triggers": fired,
         "time_signals": coc_time.build_time_signals(time_state, due),
     }
@@ -19352,6 +20477,11 @@ def _tool_state_mark_safe_rest(ctx: Ctx, args: dict[str, Any]):
     hints = [
         "the canonical rest anchor now drives later Director continuity; state.advance_time alone never records completed rest"
     ]
+    if sanity_day_reset:
+        hints.append(
+            "the game-day SAN counter reset with this safe rest: the 1/5-per-day "
+            "indefinite-insanity window re-anchored at current SAN"
+        )
     if fired:
         hints.append(
             "safe-rest trigger(s) fired — settle and portray their authoritative outcomes"
@@ -21109,6 +22239,10 @@ def _tool_turn_finalize(ctx: Ctx, args: dict[str, Any]):
         )
         coc_turn_finalization.append_finalization(ctx.campaign_dir, receipt)
         _record_finalized_keeper_text(ctx, receipt)
+        coc_turn_manifest.write_commit_snapshot(
+            ctx.campaign_dir,
+            str(receipt.get("finalization_id") or decision_id),
+        )
     except coc_turn_finalization.TurnContractError as exc:
         raise ToolError(exc.code, str(exc), violations=exc.violations) from exc
     uptake_warnings, uptake_hints = record_uptake(receipt)

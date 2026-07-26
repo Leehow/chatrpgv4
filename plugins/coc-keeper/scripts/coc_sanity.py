@@ -380,7 +380,7 @@ class SanitySession:
             self._trigger_permanent_insanity()
         return event
 
-    def sanity_check(self, source: str, san_loss_success: int,
+    def sanity_check(self, source: str, san_loss_success: int | str,
                      san_loss_fail_expr: str,
                      involuntary_kind: str | None = None,
                      involuntary_summary: str = "",
@@ -391,7 +391,9 @@ class SanitySession:
 
         Parameters:
             source: what caused the SAN check (e.g. "seeing a ghoul").
-            san_loss_success: SAN lost on success (left of slash, e.g. 0 or 1).
+            san_loss_success: SAN lost on success (left of slash, e.g. 0 or 1);
+                may also be a loss expression string (e.g. "1D3"), which is
+                rolled on success exactly like the failure expression.
             san_loss_fail_expr: SAN lost on failure (right of slash, e.g. "1D6").
             involuntary_kind: if the roll fails, the involuntary action kind
                 (p.166). Required for failed rolls; None for successes.
@@ -430,7 +432,8 @@ class SanitySession:
             lost, loss_rolls = self._roll_dice_detail(san_loss_fail_expr)
             loss_resolution = "rolled" if loss_rolls else "constant"
         else:
-            lost = san_loss_success
+            lost, loss_rolls = self._roll_dice_detail(str(san_loss_success))
+            loss_resolution = "rolled" if loss_rolls else "constant"
         loss_raw_total = lost
 
         # Mythos-Hardened (p.169): when the investigator's Cthulhu Mythos
@@ -443,7 +446,7 @@ class SanitySession:
         # creature type. Once the cumulative loss reaches the creature's max
         # possible loss (success + max-failure), further losses are zero.
         if creature_type is not None:
-            max_possible = int(san_loss_success) + self._max_dice(san_loss_fail_expr)
+            max_possible = self._max_dice(str(san_loss_success)) + self._max_dice(san_loss_fail_expr)
             cumulative = self.awfulness_caps.get(creature_type, 0)
             remaining_cap = max(0, max_possible - cumulative)
             lost = min(lost, remaining_cap)
@@ -581,6 +584,21 @@ class SanitySession:
         if module_bout_override and module_bout_override.get("force_mode"):
             mode = module_bout_override["force_mode"]
 
+        self.pending_rolls.append({
+            "roll_id": self._roll_id(),
+            "actor_id": self.investigator_id,
+            "skill": "Bout Duration",
+            "kind": "bout_duration_hours",
+            "goal": f"bout of madness duration after {source}",
+            "die_expression": "1D10",
+            "roll": duration_hours,
+            "outcome": "rolled",
+            "target": None,
+            "bout_mode": mode,
+            "marker": (f"[die]Bout Duration 1D10:(roll->{duration_hours})"
+                       f"[/die]"),
+        })
+
         bout_roll = self._rng.randint(1, 10)
         bout_result = module_bout_override.get("result_description", "") if module_bout_override else ""
 
@@ -590,6 +608,23 @@ class SanitySession:
         bout_entry = self._resolve_bout_result(table_key, bout_roll)
         bout_result_text = bout_result or bout_entry.get("result", "")
         bout_kind = bout_entry.get("kind", "")
+
+        self.pending_rolls.append({
+            "roll_id": self._roll_id(),
+            "actor_id": self.investigator_id,
+            "skill": "Bout of Madness",
+            "kind": "bout_of_madness_table",
+            "goal": f"bout of madness behavior ({table_key} table) after {source}",
+            "die_expression": "1D10",
+            "roll": bout_roll,
+            "outcome": "rolled",
+            "target": None,
+            "bout_mode": mode,
+            "bout_kind": bout_kind,
+            "bout_result": bout_result_text,
+            "marker": (f"[die]Bout of Madness ({table_key}) 1D10:"
+                       f"(roll->{bout_roll})->{bout_kind}[/die]"),
+        })
 
         bout_id = _stable_bout_id(
             self.investigator_id,
@@ -610,6 +645,20 @@ class SanitySession:
             self.bout_active = True
             self.bout_rounds_remaining = bout["duration_rounds"]
             self.active_bout_id = bout_id
+            self.pending_rolls.append({
+                "roll_id": self._roll_id(),
+                "actor_id": self.investigator_id,
+                "skill": "Bout Duration (rounds)",
+                "kind": "bout_duration_rounds",
+                "goal": f"real-time bout duration in rounds after {source}",
+                "die_expression": "1D10",
+                "roll": bout["duration_rounds"],
+                "outcome": "rolled",
+                "target": None,
+                "bout_mode": mode,
+                "marker": (f"[die]Bout Duration (rounds) 1D10:"
+                           f"(roll->{bout['duration_rounds']})[/die]"),
+            })
         self.bouts_of_madness.append(bout)
 
         # p.171 bout-of-madness table: result 9 → phobia, 10 → mania.
@@ -870,6 +919,19 @@ class SanitySession:
         idx = min(roll - 1, len(names) - 1)
         name = names[idx]
         entry = table.get(name, {}) or {}
+        self.pending_rolls.append({
+            "roll_id": self._roll_id(),
+            "actor_id": self.investigator_id,
+            "skill": "Phobia",
+            "kind": "phobia_table",
+            "goal": "phobia gained from bout of madness (Table IX)",
+            "die_expression": "1D100",
+            "roll": roll,
+            "outcome": "rolled",
+            "target": None,
+            "phobia": name,
+            "marker": f"[die]Phobia (Table IX) 1D100:(roll->{roll})->{name}[/die]",
+        })
         self.phobia = name
         self.phobia_tags = [str(t) for t in (entry.get("trigger_tags") or [])]
         cond = f"phobia:{name}"
@@ -898,6 +960,19 @@ class SanitySession:
         idx = min(roll - 1, len(names) - 1)
         name = names[idx]
         entry = table.get(name, {}) or {}
+        self.pending_rolls.append({
+            "roll_id": self._roll_id(),
+            "actor_id": self.investigator_id,
+            "skill": "Mania",
+            "kind": "mania_table",
+            "goal": "mania gained from bout of madness (Table X)",
+            "die_expression": "1D100",
+            "roll": roll,
+            "outcome": "rolled",
+            "target": None,
+            "mania": name,
+            "marker": f"[die]Mania (Table X) 1D100:(roll->{roll})->{name}[/die]",
+        })
         self.mania = name
         self.mania_tags = [str(t) for t in (entry.get("trigger_tags") or [])]
         self.mania_unindulged = True
@@ -1374,6 +1449,8 @@ class SanitySession:
 
     def _roll_dice_detail(self, expr: str) -> tuple[int, list[int]]:
         """Roll a SAN-loss expression and retain its individual die faces."""
+        if str(expr).strip() in ("0", ""):
+            return 0, []
         try:
             parsed = validate_san_loss_expression(expr)
         except ValueError:
@@ -1389,6 +1466,8 @@ class SanitySession:
     def _max_dice(self, expr: str) -> int:
         """Maximum possible value of a dice expression. Used for fumbled SAN rolls
         (p.166: 'losing the maximum Sanity points for that situation')."""
+        if str(expr).strip() in ("0", ""):
+            return 0
         try:
             parsed = validate_san_loss_expression(expr)
         except ValueError:

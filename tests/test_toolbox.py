@@ -1156,6 +1156,179 @@ def test_rules_roll_uses_rulebook_base_for_known_unlisted_skill(campaign_ws):
     assert any("base chance 5%" in hint for hint in envelope["hints"])
 
 
+def test_rules_roll_resolves_zh_alias_to_sheet_skill(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "心理学",
+            "seed": 7,
+            "decision_id": "zh-alias-psychology",
+        },
+    )
+
+    assert envelope["ok"] is True
+    assert envelope["data"]["skill"] == "Psychology"
+    assert envelope["data"]["target"] == 45
+    assert envelope["data"]["target_source"] == "sheet"
+
+
+def test_rules_roll_zh_alias_preserves_sheet_key_spelling(campaign_ws):
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character["skills"]["psychology"] = character["skills"].pop("Psychology")
+    _write_json(character_path, character)
+
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "心理学",
+            "seed": 7,
+            "decision_id": "zh-alias-sheet-spelling",
+        },
+    )
+
+    assert envelope["ok"] is True
+    assert envelope["data"]["skill"] == "psychology"
+    assert envelope["data"]["target"] == 45
+    assert envelope["data"]["target_source"] == "sheet"
+
+
+@pytest.mark.parametrize(
+    ("selector", "canonical"),
+    [
+        ("FastTalk", "Fast Talk"),
+        ("spot_hidden", "Spot Hidden"),
+        ("fast_talk", "Fast Talk"),
+        ("fighting(brawl)", "Fighting (Brawl)"),
+    ],
+)
+def test_rules_roll_compact_folds_skill_selector(campaign_ws, selector, canonical):
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": selector,
+            "seed": 7,
+            "decision_id": f"compact-fold-{selector}",
+        },
+    )
+
+    assert envelope["ok"] is True
+    assert envelope["data"]["skill"] == canonical
+    assert envelope["data"]["target_source"] == "sheet"
+
+
+def test_rules_roll_unknown_zh_skill_fails_closed(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "炼金术",
+            "target": 50,
+            "seed": 7,
+            "decision_id": "unknown-zh-skill",
+        },
+    )
+
+    assert envelope["ok"] is False
+    assert envelope["error"]["code"] == "unknown_skill"
+    assert _read_jsonl(
+        campaign_ws["campaign_dir"] / "logs" / "rolls.jsonl"
+    ) == []
+
+
+def test_rules_roll_custom_sheet_skill_still_resolves(campaign_ws):
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character["skills"]["Dowsing"] = 33
+    _write_json(character_path, character)
+
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "dowsing",
+            "seed": 7,
+            "decision_id": "custom-sheet-skill",
+        },
+    )
+
+    assert envelope["ok"] is True
+    assert envelope["data"]["skill"] == "Dowsing"
+    assert envelope["data"]["target"] == 33
+    assert envelope["data"]["target_source"] == "sheet"
+
+
+def test_rules_roll_zh_alias_records_canonical_improvement_tick(campaign_ws):
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "心理学",
+            "target": 99,
+            "seed": 88,
+            "decision_id": "zh-alias-canonical-tick",
+        },
+    )
+
+    assert envelope["ok"] is True
+    assert envelope["data"]["success"] is True
+    assert envelope["data"]["skill"] == "Psychology"
+    state = json.loads(
+        (
+            campaign_ws["campaign_dir"]
+            / "save"
+            / "investigator-state"
+            / f"{campaign_ws['investigator_id']}.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert state["skill_checks_earned"] == ["Psychology"]
+
+
+def test_sheet_with_alias_duplicate_skill_fails_closed(campaign_ws):
+    character_path = (
+        campaign_ws["coc_root"]
+        / "investigators"
+        / campaign_ws["investigator_id"]
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character["skills"]["心理学"] = 10
+    _write_json(character_path, character)
+
+    envelope = _run(
+        campaign_ws,
+        "rules.roll",
+        {
+            "investigator": campaign_ws["investigator_id"],
+            "skill": "Spot Hidden",
+            "seed": 7,
+            "decision_id": "polluted-sheet-fails-closed",
+        },
+    )
+
+    assert envelope["ok"] is False
+    assert "collide after canonical folding" in envelope["error"]["message"]
+
+
 def test_rules_roll_dice_logs_non_percentile_faces_and_total(campaign_ws):
     args = {"expression": "2D6+1", "seed": 9, "decision_id": "dice-log-1"}
     envelope = _run(
@@ -4785,9 +4958,14 @@ def test_evicted_roll_replay_does_not_reearn_consumed_development_check(
         "summary": "replayed source has no second development event",
         "decision_id": "after-old-roll-replay-ending",
     })
-    assert second_ending["data"]["development"]["settlements"][0][
+    second_receipt = second_ending["data"]["development"]["settlements"][0][
         "receipt"
-    ]["result"]["skills_checked"] == []
+    ]
+    # The replayed source earned no second development event, so this ending
+    # closes the already-settled boundary and replays the original receipt —
+    # no new rolls, no new state diffs (one settlement per session).
+    assert second_receipt["replayed"] is True
+    assert second_receipt["result"]["skills_checked"] == ["Spot Hidden"]
 
 
 def test_state_end_session_process_retry_reuses_persisted_ending(
@@ -5164,6 +5342,13 @@ def test_frozen_mechanical_plan_merges_without_recomputing_later_state(
     campaign_ws, monkeypatch
 ):
     investigator_id = campaign_ws["investigator_id"]
+    character_path = (
+        campaign_ws["coc_root"] / "investigators" / investigator_id
+        / "character.json"
+    )
+    character = json.loads(character_path.read_text(encoding="utf-8"))
+    character.setdefault("skills", {})["Frozen Custom Skill"] = 10
+    _write_json(character_path, character)
     rolled = _run(campaign_ws, "rules.roll", {
         "investigator": investigator_id,
         "skill": "Frozen Custom Skill",
@@ -5220,7 +5405,7 @@ def test_frozen_mechanical_plan_merges_without_recomputing_later_state(
     check = result["improvement_checks"][0]
     assert check["check_roll"] == plan_check["check_roll"]
     assert check["gain"] == plan_check["gain"]
-    assert check["value_before"] == 0
+    assert check["value_before"] == 10
     assert check["current_value_before_apply"] == 99
     assert check["value_after"] == 99 + plan_check["gain"]
     assert result["luck_recovery"]["planned_luck_before"] == 0

@@ -169,6 +169,11 @@ final `[/in_game]` marker when present, records the exact result, and closes the
 pre-turn setup/opening evidence prefix. Deliver its returned `text` unchanged.
 Ordinary replies remain owned by `state.journal` plus `turn.finalize`; never
 call the opening tool later to consume or hide an ordinary-turn roll.
+The first-contact APP/Credit-Rating public check is a **project extension
+rule**, not a rulebook-mandated flow: it adjusts the NPC's initial attitude
+and early social difficulty, and never locks later NPC behavior — the frozen
+receipt is a starting point, and later relationships evolve through semantic
+KP judgment and `state.npc_update`.
 
 ### Always-on product invariants (ordinary turns)
 

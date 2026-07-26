@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import shutil
 from typing import Any, Collection
 
 import coc_fileio
@@ -1004,3 +1005,101 @@ def complete_undelivered_output_repair(
 def manifest_path(campaign_dir: Path, turn_id: str) -> Path:
     """Public path helper for deterministic tests and report/audit consumers."""
     return _manifest_path(Path(campaign_dir), turn_id)
+
+
+# --------------------------------------------------------------------------- #
+# Commit snapshots (finalization = turn commit point) and turn-tail restore
+# --------------------------------------------------------------------------- #
+
+COMMIT_SNAPSHOT_DIRNAME = "commit-snapshots"
+
+# Durable domains that are NOT turn-scoped: session-level settlement,
+# table-session cursor, and idempotency/receipt bookkeeping must survive a
+# turn-tail restore.
+_COMMIT_SNAPSHOT_EXCLUDES = frozenset({
+    COMMIT_SNAPSHOT_DIRNAME,
+    "development-settlements",
+    "session-state.json",
+    "toolbox-ledger.json",
+    "roll-operation-receipts.json",
+})
+
+
+def _commit_snapshot_safe_id(finalization_id: str) -> str:
+    safe = "".join(
+        char if (char.isalnum() or char in "._-") else "-"
+        for char in str(finalization_id)
+    )
+    return safe or "unknown-finalization"
+
+
+def write_commit_snapshot(campaign_dir: Path, finalization_id: str) -> Path:
+    """Freeze turn-scoped save/ content as of one successful finalization.
+
+    Idempotent per finalization id.  The snapshot is the only legitimate
+    restore source when a later unfinalized turn tail must be rolled back.
+    """
+    save_dir = Path(campaign_dir) / "save"
+    destination = (
+        save_dir / COMMIT_SNAPSHOT_DIRNAME / _commit_snapshot_safe_id(finalization_id)
+    )
+    if destination.is_dir():
+        return destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(
+        save_dir,
+        destination,
+        ignore=shutil.ignore_patterns(*_COMMIT_SNAPSHOT_EXCLUDES),
+    )
+    return destination
+
+
+def latest_commit_snapshot(campaign_dir: Path) -> tuple[str, Path] | None:
+    """Return (finalization_id, snapshot_dir) of the newest commit snapshot."""
+    finalizations_path = Path(campaign_dir) / FINALIZATION_LOG
+    last_id: str | None = None
+    if finalizations_path.is_file():
+        for raw in finalizations_path.read_text(encoding="utf-8").splitlines():
+            if not raw.strip():
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and isinstance(row.get("finalization_id"), str):
+                last_id = row["finalization_id"]
+    if not last_id:
+        return None
+    path = (
+        Path(campaign_dir)
+        / "save"
+        / COMMIT_SNAPSHOT_DIRNAME
+        / _commit_snapshot_safe_id(last_id)
+    )
+    return (last_id, path) if path.is_dir() else None
+
+
+def restore_save_from_snapshot(campaign_dir: Path, snapshot_dir: Path) -> None:
+    """Restore turn-scoped save/ content from one commit snapshot.
+
+    Durable non-turn domains are excluded on both sides; abandoned-turn
+    evidence stays in logs/ (marked, never deleted).
+    """
+    save_dir = Path(campaign_dir) / "save"
+    snapshot_dir = Path(snapshot_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    for child in save_dir.iterdir():
+        if child.name in _COMMIT_SNAPSHOT_EXCLUDES:
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    for child in snapshot_dir.iterdir():
+        if child.name in _COMMIT_SNAPSHOT_EXCLUDES:
+            continue
+        target = save_dir / child.name
+        if child.is_dir():
+            shutil.copytree(child, target)
+        else:
+            shutil.copy2(child, target)

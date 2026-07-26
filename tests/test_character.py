@@ -459,3 +459,53 @@ def test_materialize_quick_fire_sheet_rejects_invalid_semantic_inputs(
         coc_character.materialize_quick_fire_create_sheet(
             {"id": "ada", "name": "Ada"}, creation,
         )
+
+
+# ---------------------------------------------------------------------------
+# assert_unique_canonical_skills — one owner per canonical skill identity
+# ---------------------------------------------------------------------------
+
+def test_assert_unique_canonical_skills_accepts_normal_sheet():
+    sheet = {
+        "skills": {
+            "Credit Rating": 40,
+            "Psychology": 55,
+            "Spot Hidden": 45,
+            "Fighting (Brawl)": 50,
+            "Firearms (Handgun)": 55,
+            "Library Use": 60,
+        },
+    }
+
+    assert coc_character.assert_unique_canonical_skills(sheet) is None
+
+
+def test_assert_unique_canonical_skills_accepts_custom_skills():
+    sheet = {
+        "skills": {
+            "Credit Rating": 40,
+            "Talismans": 20,
+            "Streetwise": 35,
+        },
+    }
+
+    assert coc_character.assert_unique_canonical_skills(sheet) is None
+
+
+def test_assert_unique_canonical_skills_rejects_localized_alias_duplicate():
+    sheet = {"skills": {"Psychology": 55, "心理学": 10}}
+
+    with pytest.raises(ValueError, match="collide after canonical folding"):
+        coc_character.assert_unique_canonical_skills(sheet)
+
+
+def test_assert_unique_canonical_skills_rejects_compact_fold_duplicate():
+    sheet = {"skills": {"Fast Talk": 45, "FastTalk": 30}}
+
+    with pytest.raises(ValueError, match="collide after canonical folding"):
+        coc_character.assert_unique_canonical_skills(sheet)
+
+
+def test_assert_unique_canonical_skills_tolerates_missing_or_invalid_skills():
+    assert coc_character.assert_unique_canonical_skills({}) is None
+    assert coc_character.assert_unique_canonical_skills({"skills": []}) is None

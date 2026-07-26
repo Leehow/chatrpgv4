@@ -356,3 +356,69 @@ def validate_character_create_sheet(
                 f"derived {key} {derived.get(key)!r} does not match rules value {expected[key]!r}"
             )
     return errors
+
+
+_COMPACT_SKILL_FOLD_PATTERN = re.compile(r"[\s_]+")
+
+
+def _compact_skill_fold(name: str) -> str:
+    return _COMPACT_SKILL_FOLD_PATTERN.sub("", str(name)).casefold()
+
+
+def _skill_catalog() -> dict[str, dict]:
+    """Cached rulebook skill catalog (canonical name -> spec incl. aliases)."""
+    try:
+        table = coc_rules.skills_table()
+    except (OSError, KeyError, json.JSONDecodeError):
+        return {}
+    return {
+        str(canonical): spec
+        for canonical, spec in table.items()
+        if isinstance(canonical, str) and isinstance(spec, dict)
+    }
+
+
+def _canonical_skill_identity(key: str, catalog: dict[str, dict]) -> str:
+    """Fold one sheet skill key to its canonical skill identity."""
+    compact = _compact_skill_fold(key)
+    for canonical in catalog:
+        if _compact_skill_fold(canonical) == compact:
+            return canonical
+    folded = str(key).casefold()
+    for canonical, spec in catalog.items():
+        labels = spec.get("localized_labels")
+        alias = labels.get("zh-Hans") if isinstance(labels, dict) else None
+        if not isinstance(alias, str) or not alias.strip():
+            continue
+        alias = alias.strip()
+        if alias.casefold() == folded or _compact_skill_fold(alias) == compact:
+            return canonical
+    return str(key)
+
+
+def assert_unique_canonical_skills(sheet: dict) -> None:
+    """Reject a sheet whose skill keys collide after canonical folding.
+
+    Two keys that fold to the same canonical skill (e.g. 'Psychology' plus its
+    zh-Hans alias '心理学', or 'Fast Talk' plus 'FastTalk') are one skill with
+    two competing values; selectors and development settlement require a
+    single owner per canonical skill.  Custom on-sheet skills without a
+    catalog match keep their own identity.
+    """
+    skills = sheet.get("skills") if isinstance(sheet, dict) else None
+    if not isinstance(skills, dict):
+        return
+    catalog = _skill_catalog()
+    seen: dict[str, tuple[str, str]] = {}
+    for key in skills:
+        if not isinstance(key, str) or not key.strip():
+            continue
+        canonical = _canonical_skill_identity(key, catalog)
+        folded = _compact_skill_fold(canonical)
+        if folded in seen:
+            prior_key, prior_canonical = seen[folded]
+            raise ValueError(
+                "character sheet skills collide after canonical folding: "
+                f"{prior_key!r} and {key!r} both resolve to {prior_canonical!r}"
+            )
+        seen[folded] = (key, canonical)

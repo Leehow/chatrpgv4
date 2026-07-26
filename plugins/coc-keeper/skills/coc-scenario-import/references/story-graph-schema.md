@@ -129,6 +129,12 @@
   - `pressure_moves` ((string|object)[])：导演可用的压力动作。字符串形式为简写；对象形式可含 `id`、`visible_symptom`/`cue`、`tick`、`clock_id`，以及可选 `lethal`（bool）——为 true 时表示该压力后果致命，Fair Warning 阶梯（p.209）在 `lethal_chances_used < 3` 时会将其降级为警告指令。
   - `tone` (string[])：调性关键词（感官/氛围词）。
   - `allowed_improvisation` (string[])：该场景内允许即兴的范围（含反向约束如 "do not invent new cult fact"）。
+  - `scene_contract` (object, optional)：**场景合同**——把"这个场景允许揭示多少真相、允许多少即兴"编译进结构化数据。缺省完全合法（运行时无合同约束）。子字段：
+    - `role` (string)：场景角色，枚举 `transit` | `investigation` | `main` | `climax` | `epilogue`。`transit` 场景在导演层按桥接场景处理（等价旧 `_BRIDGE_SCENE_KINDS` 语义；`location_tags` 含 `waypoint` 是无 contract 时的回退）。
+    - `truth_scope` (object, optional)：`{max_tier: 0-4, forbidden_domains: string[]}`。真相等级：0 氛围/感官，1 本地事实，2 指向其他场景的桥接线索，3 主线结构/反派计划，4 神话真相/结局级。运行时对照 clue 的 `truth_tier` 发 advisory warning（**不阻断**，宪法保持线索投递为 advisory），并把越级交付记入证据。
+    - `improv_budget` (object, optional)：`{named_npcs: int, new_locations: int, local_clues: int, complications: int, soft_turn_limit: int, hard_turn_limit: int}`——即兴预算与停留阈值。运行时按 `flags.clues_found` 的 improvised 标记与 NPC engagement receipts 统计消耗，超预算发 advisory warning。
+    - `exit_affordances` (string[], optional)：引导玩家自然离开的可行动出口（如"车辆修好""天气窗口将关闭"）。
+    - 运行期角色变更：玩家深度投入使场景事实上升级时，由 `state.promote_scene` 记录正式 `scene_promotion` 事件（`from_role`/`to_role`/`reason`/`module_divergence: true`）；此后 `scene.context` 以 promoted role 呈现合同。场景**不得**无记录地从中转变成高潮。
   - `on_enter` (object, optional)：场景首次进入时引擎自动触发的钩子。子字段：
     - `san_triggers` (object[])：进入场景时自动发起的 SAN 检定。每条含 `trigger_id`（去重标识）、`source`（SAN 来源描述）、`san_loss_success`（成功时损失，如 0）、`san_loss_fail_expr`（失败时损失表达式，如 "1"、"1D6"、"1D6/1D12"）、可选 `creature_type`（怪物类型，用于"习惯化"上限）、`tag`（violence/unnatural/helplessness 等分类）。同一 trigger_id 只触发一次。
     - `clock_ticks` (object[])：进入场景时自动推进的威胁时钟。每条含 `clock_id`（引用 threat-fronts.json 的 clock）和可选 `reason`。
@@ -206,6 +212,7 @@ Apply 层在线索揭示 / flag 变化后评估 `scene_edges.when`，满足则�
     - `clue_id` (string)：线索唯一标识。
     - `delivery` (string)：交付方式（技能 + 场景）。**遗留字段**，保留作字符串启发式回退之用；新数据应优先填 `delivery_kind` 等结构化字段（见下）。
     - `visibility` (string)：`player-safe` | `keeper-only`。
+    - `truth_tier` (int, optional)：真相等级 0-4（0 氛围/感官，1 本地事实，2 桥接线索，3 主线结构/反派计划，4 神话真相/结局级）。与场景的 `scene_contract.truth_scope.max_tier` 对照：在合同上限以下的场景交付高 tier 线索时运行时发 advisory warning（不阻断）。缺省视为未分级（不对照、不警告）。
     - `delivery_kind` (string，可选)：结构化交付类型。导演优先读这个字段而不是猜 `delivery`。取值：
       - `skill_check` — 需要一次技能检定才能浮出（obscured），配合 `skill` + `difficulty`。
       - `obvious` — 直接给出，无检定（叙述者交付）。

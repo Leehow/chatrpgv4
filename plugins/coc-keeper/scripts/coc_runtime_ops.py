@@ -1450,7 +1450,7 @@ def read_development_guarded_character(
 ) -> dict[str, Any]:
     """Read shared character state while excluding incomplete settlements."""
     try:
-        return coc_investigator_guard.read_reusable_character(
+        character = coc_investigator_guard.read_reusable_character(
             Path(campaign_dir).parents[1], investigator_id, character_path
         )
     except coc_investigator_guard.ReusableInvestigatorRecoveryConflict as exc:
@@ -1468,6 +1468,11 @@ def read_development_guarded_character(
                 [_journal_display_path(Path(campaign_dir), marker_path)],
             ) from exc
         raise RuntimeOperationError(str(exc)) from exc
+    try:
+        coc_character.assert_unique_canonical_skills(character)
+    except ValueError as exc:
+        raise RuntimeOperationError(str(exc)) from exc
+    return character
 
 
 class DevelopmentTargetConflict(RuntimeOperationError):
@@ -3146,7 +3151,11 @@ def _development_operation_locked(
             raise RuntimeOperationError(
                 "canonical settlement boundary receipt is invalid"
             )
-        return replay_receipt
+        replay = dict(replay_receipt)
+        replay["replayed"] = True
+        replay["replayed_from_boundary_id"] = replay_boundary.get("boundary_id")
+        replay["replayed_from_ending_id"] = replay_boundary.get("first_ending_id")
+        return replay
 
     journal = _capture_development_inflight(
         campaign_dir=campaign_dir,

@@ -4581,7 +4581,16 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             ) from exc
     if command["kind"] == "sanity_check" and "san_loss_success" in payload:
         loss = payload.get("san_loss_success", 0)
-        if (
+        if isinstance(loss, str):
+            try:
+                coc_sanity.validate_san_loss_expression(loss)
+            except ValueError as exc:
+                raise _error(
+                    "invalid_command_payload",
+                    f"{base}.san_loss_success",
+                    str(exc),
+                ) from exc
+        elif (
             isinstance(loss, bool)
             or not isinstance(loss, int)
             or loss < 0
@@ -4590,7 +4599,7 @@ def _validate_payload_fields(command: dict[str, Any], index: int) -> None:
             raise _error(
                 "invalid_command_payload",
                 f"{base}.san_loss_success",
-                "san_loss_success must be a bounded non-negative integer",
+                "san_loss_success must be a bounded non-negative integer or a loss expression string",
             )
     if command["kind"] == "sanity_check":
         if "alone" in payload and not isinstance(payload["alone"], bool):
@@ -5653,7 +5662,7 @@ def _settle_sanity_check(
     creature_type = payload.get("creature_type")
     event = session.sanity_check(
         source=source,
-        san_loss_success=int(payload.get("san_loss_success", 0)),
+        san_loss_success=payload.get("san_loss_success", 0),
         san_loss_fail_expr=str(payload.get("san_loss_fail_expr", "1")),
         involuntary_kind=payload.get("involuntary_kind"),
         involuntary_summary=str(payload.get("involuntary_summary") or ""),

@@ -54,7 +54,11 @@ available to replay a structured pending settlement.
    receipt as permission to re-run Luck recovery or improvement checks. A
    scenario conclusion reward has a separate durable per-investigator
    identity, so a later boundary may run legitimate development and Luck
-   recovery without paying the same conclusion SAN reward again.
+   recovery without paying the same conclusion SAN reward again. When a new
+   table session begins, call `session.begin` first — it advances the
+   durable session cursor that scopes settlement identity; without it, a
+   repeat `end_session` within the same session replays the original
+   settlement instead of rolling again.
 
 ## Persistence and evidence
 

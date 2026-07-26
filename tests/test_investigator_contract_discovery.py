@@ -120,7 +120,7 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
     assert contract["kind"] == "investigator_create_payload_contract"
     assert contract["ruleset_id"] == "coc7"
     assert contract["ruleset_version"] == "1.0.0"
-    assert contract["investigator_schema_version"] == 1
+    assert contract["investigator_schema_version"] == 2
     assert contract["runtime_authority"]["schema_role"] == (
         "upfront machine-readable construction guidance"
     )

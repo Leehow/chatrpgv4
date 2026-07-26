@@ -1195,6 +1195,22 @@ def _create_investigator_unlocked(
     return character_path
 
 
+def _with_initial_skills_snapshot(sheet: dict[str, Any]) -> dict[str, Any]:
+    """Freeze the creation-time skills map into the sheet as initial_skills_snapshot.
+
+    Settlement mutates ``skills`` in place; the snapshot keeps the creation
+    baseline available to reports without consulting the live mutated map.
+    """
+    if not isinstance(sheet, dict):
+        return sheet
+    skills = sheet.get("skills")
+    if not isinstance(skills, dict):
+        return sheet
+    out = dict(sheet)
+    out["initial_skills_snapshot"] = json.loads(json.dumps(skills))
+    return out
+
+
 def _create_investigator_at(
     investigator_dir: Path,
     investigator_id: str,
@@ -1207,6 +1223,7 @@ def _create_investigator_at(
     investigator_dir.mkdir(parents=True, exist_ok=True)
     creation_path = investigator_dir / "creation.json"
     character_path = investigator_dir / "character.json"
+    sheet = _with_initial_skills_snapshot(sheet)
     write_json_atomic(creation_path, _creation_record(investigator_id, sheet, creation))
     write_json_atomic(character_path, sheet)
     for log_name in ("history.jsonl", "development.jsonl", "inventory-history.jsonl"):
@@ -1524,6 +1541,10 @@ def _initialize_campaign_runtime_files(
     _write_json_if_missing(
         campaign_dir / "save" / "threat-state.json",
         {"schema_version": 1, "clocks": {}},
+    )
+    _write_json_if_missing(
+        campaign_dir / "save" / "session-state.json",
+        {"schema_version": 1, "table_session_seq": 1},
     )
     _write_json_if_missing(
         campaign_dir / "save" / "active-scene.json",

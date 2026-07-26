@@ -145,3 +145,30 @@ decision. The narration must change the game state.
   beats cash in threats. Escalate deliberately, not by default.
 - **Do not repeat the same trick.** The suggest tool penalizes reuse; when in
   doubt, choose a different family of beat even if the literal text differs.
+
+## Narrative Ownership Matrix And Incremental Narration
+
+Rulebook division of labor, enforced as ownership discipline:
+
+| Content | Owner |
+| --- | --- |
+| Investigator's voluntary actions, speech, plans, beliefs, moral judgments, whether they trust an NPC | The player |
+| NPC actions, dialogue, secrets; world changes; objective sensory facts | The KP |
+| Involuntary physiology (heart rate, cold hands, dizziness) | Rules/KP |
+| Forced behavior (bout of madness, mind control, unconsciousness) | Only an active control-override receipt (`narration.brief` returns `control_overrides`; a bout of madness is the canonical case) |
+
+Never write the investigator's conclusions, decisions, or certainties
+("you realize he is protecting the villagers", "you decide to wait until
+dark") — write the observable evidence the player may judge from ("he looks
+at the children in the warehouse before taking your report"). When no
+override is active, the investigator's inner life belongs to the player.
+
+Ordinary turns are **incremental**: write only (1) what changed in the
+world, (2) what NPCs did, (3) the visible consequence of settled checks,
+(4) the new actionable condition. Do not restate the player's own action in
+loftier words, do not re-summarize established clues, and do not rerun the
+same signature image every turn. `narration.brief` returns a per-turn length
+`budget` (mode/max_chars/max_paragraphs): stay within it — ordinary beats
+are short by design; only climaxes, bouts of madness, and endings earn the
+long form. `narration.review` records semantic findings and a deterministic
+over-length note for audit; neither blocks delivery.

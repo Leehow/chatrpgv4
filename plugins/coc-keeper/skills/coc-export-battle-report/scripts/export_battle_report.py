@@ -350,6 +350,11 @@ def _character_projection(character: Any, creation: Any) -> dict[str, Any] | Non
     ))
     if isinstance(creation, dict):
         projected["creation"] = _pick(creation, ("method", "status", "age"))
+    snapshot = character.get("initial_skills_snapshot")
+    if isinstance(snapshot, dict) and snapshot:
+        projected["initial_skills"] = {
+            str(key): value for key, value in snapshot.items()
+        }
     sheet = character.get("player_facing_sheet_zh")
     if isinstance(sheet, dict):
         projected["nationality"] = sheet.get("nationality")
@@ -360,12 +365,19 @@ def _character_projection(character: Any, creation: Any) -> dict[str, Any] | Non
                 initial_skills[row["key"]] = row["value"]
                 skill_rows.append(_pick(row, ("key", "label", "value", "half", "fifth")))
         if initial_skills:
-            projected["initial_skills"] = initial_skills
+            if "initial_skills" not in projected:
+                projected["initial_skills"] = initial_skills
             projected["initial_skill_rows"] = skill_rows
-    if "initial_skills" not in projected and isinstance(character.get("skills"), dict):
-        projected["initial_skills"] = character["skills"]
     if "initial_skills" in projected:
         projected["skills"] = projected["initial_skills"]
+    else:
+        # Never substitute the live mutated skills map for creation-initial
+        # values; omit the block and say so in the evidence.
+        projected["initial_skills_validation"] = (
+            "initial skills omitted: character.json carries no creation-frozen "
+            "initial_skills_snapshot and no player_facing_sheet_zh; the live "
+            "mutated skills map is not an initial-values source"
+        )
     return projected
 
 
@@ -922,6 +934,15 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 zero_roll_receipt_ids.append(str(row["finalization_id"]))
         rolls_relative = f"{campaign_relative}/logs/rolls.jsonl"
         all_rolls = _read_source(run_dir, rolls_relative, "jsonl", manifest)
+        roll_dispositions_doc = _read_source(
+            run_dir, f"{campaign_relative}/save/roll-dispositions.json", "json", manifest
+        )
+        roll_dispositions = (
+            roll_dispositions_doc.get("dispositions")
+            if isinstance(roll_dispositions_doc, dict)
+            and isinstance(roll_dispositions_doc.get("dispositions"), dict)
+            else {}
+        )
         for source_line, row in enumerate(all_rolls or [], start=1):
             if _roll_visibility(row).casefold() not in PUBLIC_VISIBILITIES:
                 if isinstance(row, dict):
@@ -949,6 +970,11 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
             if roll_id is None or not _has_numeric_roll(row):
                 malformed_lines.append(source_line)
             if roll_id not in bound_roll_ids:
+                if roll_id is not None and roll_id in roll_dispositions:
+                    # Explicitly dispositioned (abandoned turn tail/correction):
+                    # audit-listed only, never player-facing.
+                    dispositioned_orphan_ids.append(roll_id)
+                    continue
                 # Fail loud: a player-facing roll bound to no finalization and
                 # carrying no abandonment disposition must never be silently
                 # eaten nor silently rendered.
@@ -1085,6 +1111,59 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
     dimension("progression", progression_ok, "visited scenes and discovered-clue receipts are projected" if progression_ok else "world progression sources or visited path are missing")
     ending_ok = ending is not None and len(settlements) >= len(investigator_ids) and bool(investigator_ids)
     dimension("ending_and_development", ending_ok, "structured ending and investigator settlements are present" if ending_ok else "structured ending or development settlement is missing")
+    snapshot_findings: list[str] = []
+    for inv in investigators:
+        if not isinstance(inv, dict):
+            continue
+        character = inv.get("character") if isinstance(inv.get("character"), dict) else {}
+        initial = character.get("initial_skills")
+        if not isinstance(initial, dict):
+            continue
+        for settlement in settlements:
+            if not isinstance(settlement, dict):
+                continue
+            if str(settlement.get("investigator_id") or "") != str(inv.get("investigator_id") or ""):
+                continue
+            for check in settlement.get("improvement_checks") or []:
+                if not isinstance(check, dict) or not check.get("improved"):
+                    continue
+                skill = str(check.get("skill") or "")
+                if (
+                    skill in initial
+                    and initial[skill] == check.get("value_after")
+                    and initial[skill] != check.get("value_before")
+                ):
+                    snapshot_findings.append(
+                        f"{inv.get('investigator_id')}: initial_skills['{skill}'] equals the post-improvement value ({check.get('value_after')}) — the live sheet leaked into the initial snapshot"
+                    )
+    dimension(
+        "initial_final_snapshot_separation",
+        not snapshot_findings,
+        *(snapshot_findings or ["initial skill snapshot is creation-frozen, never the live final map"]),
+    )
+    boundary_ids: list[str] = []
+    if campaign_relative:
+        for inv_id in investigator_ids:
+            boundary_ledger = _read_source(
+                run_dir,
+                f"{campaign_relative}/save/development-settlements/boundaries/{inv_id}.json",
+                "json",
+                manifest,
+            )
+            for row in (boundary_ledger or {}).get("boundaries") or []:
+                if isinstance(row, dict) and row.get("boundary_id"):
+                    boundary_ids.append(str(row["boundary_id"]))
+    duplicate_boundaries = sorted({bid for bid in boundary_ids if boundary_ids.count(bid) > 1})
+    boundary_findings = (
+        ["duplicate settlement boundary ids: " + ", ".join(duplicate_boundaries)]
+        if duplicate_boundaries
+        else []
+    )
+    dimension(
+        "settlement_session_uniqueness",
+        not boundary_findings,
+        *(boundary_findings or ["settlement boundaries are unique per session and investigator"]),
+    )
     projection_ok = isinstance(flags, dict) and (npc_receipts is None or isinstance(npc_receipts, dict))
     dimension("player_safe_projection", projection_ok, "explicit per-source allowlists applied" if projection_ok else "player-safe projection sources are malformed")
 
@@ -1169,6 +1248,55 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
         and isinstance(effect.get("mechanics"), dict)
         and effect["mechanics"].get("target_id")
     ]
+    commit_snapshot_id = None
+    if campaign_relative and turn_finalizations:
+        _last_fin = None
+        for _row in turn_finalizations:
+            if isinstance(_row, dict) and isinstance(_row.get("finalization_id"), str):
+                _last_fin = _row["finalization_id"]
+        if _last_fin:
+            _safe = "".join(
+                char if (char.isalnum() or char in "._-") else "-"
+                for char in _last_fin
+            )
+            if (
+                Path(run_dir)
+                / campaign_relative
+                / "save"
+                / "commit-snapshots"
+                / _safe
+            ).is_dir():
+                commit_snapshot_id = _last_fin
+    sanity_event_types = {
+        "sanity_loss", "bout_of_madness", "bout_ended", "temporary_insanity",
+        "indefinite_insanity", "permanent_insanity", "involuntary_action",
+        "phobia_gained", "mania_gained", "sanity_recovered",
+        "treatment_trigger_scheduled", "turn_tail_abandoned",
+    }
+    audit_sanity_events = [
+        row for row in (events or [])
+        if isinstance(row, dict) and row.get("event_type") in sanity_event_types
+    ]
+    narration_reviews_doc = (
+        _read_source(
+            run_dir,
+            f"{campaign_relative}/logs/narration-reviews.jsonl",
+            "jsonl",
+            manifest,
+        )
+        if campaign_relative
+        else None
+    )
+    narration_rule_counts: dict[str, int] = {}
+    narration_review_count = 0
+    for row in narration_reviews_doc or []:
+        if not isinstance(row, dict):
+            continue
+        narration_review_count += 1
+        for finding in row.get("findings") or []:
+            if isinstance(finding, dict) and finding.get("rule_id"):
+                rule_id = str(finding["rule_id"])
+                narration_rule_counts[rule_id] = narration_rule_counts.get(rule_id, 0) + 1
     return {
         "completeness": {
             "classification": "COMPLETE" if not reasons else "INCOMPLETE",
@@ -1207,6 +1335,18 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 "roll_ids": sorted(dispositioned_orphan_ids),
             },
         },
+        "audit": {
+            "schema_version": 1,
+            "audience": "keeper_development_audit_only",
+            "not_player_facing": True,
+            "rolls_including_concealed": all_rolls or [],
+            "sanity_events": audit_sanity_events,
+            "dispositions": roll_dispositions,
+            "narration_reviews": {
+                "count": narration_review_count,
+                "rule_counts": narration_rule_counts,
+            },
+        },
         "public_rolls": {
             "source_path": rolls_relative,
             "source_present": all_rolls is not None,
@@ -1221,6 +1361,7 @@ def _source_payload(run_dir: Path, *, allow_partial: bool) -> dict[str, Any]:
                 "zero_roll_receipt_ids": zero_roll_receipt_ids,
                 "undispositioned_orphans": undispositioned_orphans,
                 "dispositioned_orphan_count": len(dispositioned_orphan_ids),
+                "commit_snapshot_id": commit_snapshot_id,
             },
             "status": "PASS" if all_rolls is not None and not duplicate_roll_ids and not malformed_lines and not undispositioned_orphans else "FAIL",
         },
@@ -2107,7 +2248,7 @@ def _atomic_pair(artifacts: Path, outputs: dict[str, bytes]) -> None:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-        for name in (JSON_OUTPUT, MARKDOWN_OUTPUT):
+        for name in outputs:
             os.replace(staged.pop(name), artifacts / name)
         directory_fd = os.open(artifacts, os.O_RDONLY)
         try:
@@ -2119,12 +2260,115 @@ def _atomic_pair(artifacts: Path, outputs: dict[str, bytes]) -> None:
             path.unlink(missing_ok=True)
 
 
+_AUDIT_DIR_NAME = "audit"
+
+
+def _safe_audit_dir(artifacts: Path) -> Path:
+    audit = artifacts / _AUDIT_DIR_NAME
+    if audit.exists():
+        if audit.is_symlink() or not audit.is_dir():
+            raise ExportError("artifacts/audit must be a real directory, not a symlink or file")
+    else:
+        audit.mkdir(mode=0o755)
+    return audit
+
+
+def _jsonl_bytes(rows: list[Any]) -> bytes:
+    return ("".join(
+        json.dumps(row, ensure_ascii=False) + "\n" for row in rows
+    )).encode("utf-8")
+
+
+def _render_rules_audit(report: dict[str, Any], audit: dict[str, Any]) -> str:
+    """Human-readable keeper/development audit attachment (not player-facing)."""
+    completeness = report.get("completeness") or {}
+    metadata = report.get("run_metadata") or {}
+    lines = [
+        "# 规则审计附件 (Rules Audit)",
+        "",
+        f"- campaign: {metadata.get('campaign_id')}",
+        f"- report_id: {report.get('report_id')}",
+        f"- classification: {completeness.get('classification')}",
+        "",
+        "## 完整性维度",
+    ]
+    for dimension in completeness.get("dimensions") or []:
+        if not isinstance(dimension, dict):
+            continue
+        lines.append(
+            f"- [{dimension.get('status')}] {dimension.get('dimension')}: "
+            + "; ".join(str(reason) for reason in dimension.get("reasons") or [])
+        )
+    for reason in completeness.get("reasons") or []:
+        lines.append(f"- INCOMPLETE: {reason}")
+    lines += ["", "## 全部骰点（含暗骰/Keeper-only）", ""]
+    for row in audit.get("rolls_including_concealed") or []:
+        if not isinstance(row, dict):
+            continue
+        payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+        lines.append(
+            "- "
+            + " | ".join(str(part) for part in (
+                row.get("roll_id") or payload.get("roll_id"),
+                row.get("visibility"),
+                payload.get("skill") or payload.get("kind"),
+                payload.get("roll"),
+                payload.get("target") or payload.get("effective_target"),
+                payload.get("outcome"),
+            ) if part is not None)
+        )
+    lines += ["", "## 理智与疯狂状态转换", ""]
+    for row in audit.get("sanity_events") or []:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- {row.get('event_type')}: "
+            + json.dumps(row, ensure_ascii=False, sort_keys=True)[:400]
+        )
+    lines += ["", "## 结算与边界", ""]
+    for settlement in report.get("development_settlements") or []:
+        if not isinstance(settlement, dict):
+            continue
+        lines.append(
+            f"- {settlement.get('investigator_id')} @ {settlement.get('ending_id')}: "
+            f"status={settlement.get('status')} "
+            f"boundary={json.dumps(settlement.get('settlement_boundary'), ensure_ascii=False)}"
+        )
+    dispositions = audit.get("dispositions") or {}
+    lines += ["", "## 骰点处置账本", ""]
+    if not dispositions:
+        lines.append("- (none)")
+    for roll_id, record in sorted(dispositions.items()):
+        if not isinstance(record, dict):
+            continue
+        lines.append(
+            f"- {roll_id}: {record.get('visibility')} — {record.get('reason')}"
+        )
+    lines += ["", "## 公开骰点绑定", ""]
+    binding = (report.get("public_rolls") or {}).get("finalization_binding") or {}
+    lines.append(f"- contract: {binding.get('contract')}")
+    lines.append(f"- bound_roll_id_count: {binding.get('bound_roll_id_count')}")
+    lines.append(f"- commit_snapshot_id: {binding.get('commit_snapshot_id')}")
+    for orphan in binding.get("undispositioned_orphans") or []:
+        lines.append(f"- UNDISPOSITIONED ORPHAN: {orphan}")
+    reviews = audit.get("narration_reviews") or {}
+    lines += ["", "## 叙事评审 findings 统计", ""]
+    lines.append(f"- review count: {reviews.get('count', 0)}")
+    for rule_id, count in sorted((reviews.get("rule_counts") or {}).items()):
+        lines.append(f"- {rule_id}: {count}")
+    return "\n".join(lines) + "\n"
+
+
 def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) -> dict[str, Any]:
     lexical = Path(run_dir).absolute()
     if lexical.is_symlink() or not lexical.is_dir():
         raise ExportError("run directory must be an existing real directory")
     resolved = lexical.resolve()
     source = _source_payload(resolved, allow_partial=allow_partial)
+    # The audit channel ships as artifacts/audit/* files only. Neither the
+    # player-safe Markdown nor battle-report-evidence.json may contain
+    # concealed rolls, sanity internals, or disposition internals.
+    audit = source.pop("audit", {})
     identity_material = {
         "schema_version": SCHEMA_VERSION,
         "source_manifest": source["source_manifest"],
@@ -2142,6 +2386,43 @@ def export_battle_report(run_dir: Path | str, *, allow_partial: bool = False) ->
     markdown_bytes = (_markdown(report).rstrip() + "\n").encode("utf-8")
     artifacts = _safe_artifacts_dir(resolved)
     _atomic_pair(artifacts, {JSON_OUTPUT: json_bytes, MARKDOWN_OUTPUT: markdown_bytes})
+    validation = {
+        "schema_version": 1,
+        "completeness": report.get("completeness"),
+        "finalization_binding": (
+            (report.get("public_rolls") or {}).get("finalization_binding")
+        ),
+    }
+    audit_outputs: dict[str, bytes] = {
+        "rules-audit.md": _render_rules_audit(report, audit).encode("utf-8"),
+        "rolls.jsonl": _jsonl_bytes(audit.get("rolls_including_concealed") or []),
+        "sanity-events.jsonl": _jsonl_bytes(audit.get("sanity_events") or []),
+        "settlements.json": (_pretty_json(
+            {"development_settlements": report.get("development_settlements") or []}
+        ) + "\n").encode("utf-8"),
+        "dispositions.json": (_pretty_json(
+            {"dispositions": audit.get("dispositions") or {}}
+        ) + "\n").encode("utf-8"),
+        "report-validation.json": (_pretty_json(validation) + "\n").encode("utf-8"),
+    }
+    audit_dir = _safe_audit_dir(artifacts)
+    _atomic_pair(audit_dir, audit_outputs)
+    audit_manifest = {
+        name: {"sha256": _sha256(payload), "bytes": len(payload)}
+        for name, payload in audit_outputs.items()
+    }
+    manifest_bytes = (_pretty_json({
+        "schema_version": 1,
+        "report_id": report_id,
+        "files": audit_manifest,
+    }) + "\n").encode("utf-8")
+    hashes_bytes = ("".join(
+        f"{_sha256(payload)}  {name}\n" for name, payload in sorted(audit_outputs.items())
+    )).encode("utf-8")
+    _atomic_pair(audit_dir, {
+        "manifest.json": manifest_bytes,
+        "hashes.sha256": hashes_bytes,
+    })
     return report
 
 

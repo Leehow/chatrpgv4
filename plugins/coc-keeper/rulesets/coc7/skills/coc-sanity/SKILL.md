@@ -10,7 +10,11 @@ description: Resolve Call of Cthulhu sanity events during COC mode. Use for SAN 
 The canonical host entrypoints are `sanity.context` and `sanity.execute`.
 `sanity.execute` accepts exact `sanity_check`, `bout_tick`, and `bout_end`
 commands and delegates to the existing full `SanitySession` through the shared
-subsystem executor. Do not reproduce SAN arithmetic with generic rolls or
+subsystem executor. `rules.sanity_check` drives the same `SanitySession`
+engine with a flatter argument surface (loss expressions + trigger id); both
+entries apply the chained insanity pipeline (INT check on 5+ loss, bout of
+madness, daily 1/5 indefinite threshold, SAN 0 permanent) as authoritative
+state. Do not reproduce SAN arithmetic with generic rolls or
 hand-edit a snapshot.
 
 1. Identify the trigger and player-safe description.

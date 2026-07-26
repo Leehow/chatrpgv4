@@ -26,7 +26,7 @@ import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -54,6 +54,7 @@ coc_roll = _load_sibling("coc_roll", "coc_roll.py")
 coc_state = _load_sibling("coc_state", "coc_state.py")
 coc_sanity = _load_sibling("coc_sanity", "coc_sanity.py")
 coc_fileio = _load_sibling("coc_fileio", "coc_fileio.py")
+coc_character = _load_sibling("coc_character_development", "coc_character.py")
 coc_investigator_guard = _load_sibling(
     "coc_investigator_guard_development", "coc_investigator_guard.py"
 )
@@ -290,14 +291,52 @@ def _campaign_id(campaign_dir: Path) -> str:
     return str(candidate) if isinstance(candidate, str) and candidate else Path(campaign_dir).name
 
 
-def _logical_development_session_id(campaign_dir: Path) -> str:
-    """Return the open play segment identity bounded by durable endings."""
-    count = sum(
-        1
-        for _line, row in _read_event_rows(Path(campaign_dir))
-        if row.get("event_type") == "session_ending"
+def _session_state_path(campaign_dir: Path) -> Path:
+    return Path(campaign_dir) / "save" / "session-state.json"
+
+
+def read_table_session_seq(campaign_dir: Path) -> int:
+    """Durable table-session cursor; lazily defaults to 1 (first session)."""
+    path = _session_state_path(campaign_dir)
+    if not path.is_file():
+        return 1
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("session state is unreadable") from exc
+    seq = value.get("table_session_seq") if isinstance(value, dict) else None
+    if isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
+        raise ValueError("session state table_session_seq must be a positive integer")
+    return seq
+
+
+def begin_table_session(campaign_dir: Path) -> int:
+    """Advance the durable table-session cursor; returns the new sequence.
+
+    Callers hold the campaign lock.  Settlement idempotency keys on this
+    cursor, so a crash-safe ``session.resume`` must never call this.
+    """
+    seq = read_table_session_seq(campaign_dir) + 1
+    path = _session_state_path(campaign_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    coc_fileio.write_json_atomic(
+        path,
+        {"schema_version": 1, "table_session_seq": seq},
+        indent=2,
+        ensure_ascii=False,
+        trailing_newline=True,
     )
-    return f"{_campaign_id(campaign_dir)}:session:{count + 1}"
+    return seq
+
+
+def current_table_session_key(campaign_dir: Path) -> str:
+    """Public session identity used by settlement idempotency."""
+    return _logical_development_session_id(campaign_dir)
+
+
+def _logical_development_session_id(campaign_dir: Path) -> str:
+    """Open play segment identity from the durable table-session cursor."""
+    return f"{_campaign_id(campaign_dir)}:session:{read_table_session_seq(campaign_dir)}"
 
 
 def _tick_event_token(
@@ -443,6 +482,23 @@ def record_skill_tick(
             # Archive-before-append is deliberate.  If a process exited in
             # that tiny window, append the missing active row below.
         else:
+            identity_match_token = None
+            for archived_token, archived_event in archive.items():
+                try:
+                    if _development_event_identity(archived_event) == identity:
+                        identity_match_token = archived_token
+                        break
+                except (KeyError, TypeError, ValueError):
+                    continue
+            if identity_match_token is not None:
+                # One settled check can never earn a second tick, even when its
+                # side effect is re-applied under a new table-session token.
+                archived = archive[identity_match_token]
+                if identity_match_token in ledger["claims"]:
+                    replay = dict(archived)
+                    replay["development_event_status"] = "already_claimed"
+                    return replay
+                return dict(archived)
             archive[token] = _development_event_archive_record(tick)
             ledger_path = _development_claims_path(campaign_dir, investigator_id)
             ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -458,6 +514,70 @@ def record_skill_tick(
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(tick, ensure_ascii=False) + "\n")
     return tick
+
+
+def discard_development_ticks(
+    campaign_dir: Path,
+    investigator_id: str,
+    source_event_ids: Collection[str],
+) -> dict[str, int]:
+    """Drop development ticks produced by abandoned-turn sources.
+
+    Quarantine-only companion to roll dispositions: a check that never
+    reached a finalization must not earn improvement.  Removes matching rows
+    from the active tick queue and the durable claim ledger/archive; the
+    marked roll rows and toolbox log remain the evidence.
+    """
+    wanted = {str(value) for value in source_event_ids if str(value or "").strip()}
+    removed = {"queue": 0, "claims": 0, "archive": 0}
+    if not wanted:
+        return removed
+    campaign_dir = Path(campaign_dir)
+    with coc_fileio.advisory_file_lock(
+        _investigator_lock_path(campaign_dir, investigator_id),
+        wait_seconds=5.0,
+    ):
+        queue_path = _development_path(campaign_dir, investigator_id)
+        if queue_path.is_file():
+            kept: list[str] = []
+            for raw in queue_path.read_text(encoding="utf-8").splitlines():
+                if not raw.strip():
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    kept.append(raw)
+                    continue
+                if isinstance(row, dict) and str(row.get("source_event_id")) in wanted:
+                    removed["queue"] += 1
+                    continue
+                kept.append(raw)
+            coc_fileio.write_text_atomic(
+                queue_path,
+                "\n".join(kept) + ("\n" if kept else ""),
+            )
+        ledger_path = _development_claims_path(campaign_dir, investigator_id)
+        if ledger_path.is_file():
+            ledger = _load_development_claims(campaign_dir, investigator_id)
+            changed = False
+            for token in list(ledger["events"]):
+                record = ledger["events"][token]
+                if str(record.get("source_event_id")) in wanted:
+                    del ledger["events"][token]
+                    removed["archive"] += 1
+                    changed = True
+            for token in list(ledger["claims"]):
+                record = ledger["events"].get(token)
+                if record is None:
+                    # A claim whose archived event was discarded must go too.
+                    del ledger["claims"][token]
+                    removed["claims"] += 1
+                    changed = True
+            if changed:
+                coc_fileio.write_json_atomic(
+                    ledger_path, ledger, indent=2, ensure_ascii=False
+                )
+    return removed
 
 
 def _consume_development_inputs(
@@ -822,30 +942,33 @@ def settlement_boundary_session_ids(
     capsule: dict[str, Any], investigator_id: str
 ) -> list[str]:
     """Return the distinct frozen session ids this ending claims for one investigator."""
+    return _settlement_boundary_frozen_inputs(capsule, investigator_id)[0]
+
+
+def _settlement_boundary_frozen_inputs(
+    capsule: dict[str, Any], investigator_id: str
+) -> tuple[list[str], list[str]]:
+    """Return (session_ids, input_tokens) this ending claims for one investigator."""
     inputs = capsule.get("development_inputs") if isinstance(capsule, dict) else None
     frozen = inputs.get(investigator_id) if isinstance(inputs, dict) else None
     events = frozen.get("check_events") if isinstance(frozen, dict) else None
     if not isinstance(events, list):
-        return []
-    return sorted({
+        return [], []
+    sessions = sorted({
         str(row["session_id"])
         for row in events
         if isinstance(row, dict)
         and isinstance(row.get("session_id"), str)
         and row["session_id"]
     })
-
-
-def _ending_ordinal(campaign_dir: Path, capsule: dict[str, Any]) -> int:
-    line = capsule.get("event_line_at_capture") if isinstance(capsule, dict) else None
-    limit = int(line) if isinstance(line, int) and not isinstance(line, bool) else None
-    ordinal = 0
-    for index, row in _read_event_rows(campaign_dir):
-        if limit is not None and index > limit:
-            break
-        if row.get("event_type") == "session_ending":
-            ordinal += 1
-    return max(ordinal, 1)
+    tokens = sorted({
+        str(row["event_token"])
+        for row in events
+        if isinstance(row, dict)
+        and isinstance(row.get("event_token"), str)
+        and row["event_token"]
+    })
+    return sessions, tokens
 
 
 def settlement_boundary_decision(
@@ -860,17 +983,23 @@ def settlement_boundary_decision(
     new boundary: it replays the investigator's most recent settled boundary.
     """
     campaign_dir = Path(campaign_dir)
-    sessions = settlement_boundary_session_ids(capsule, investigator_id)
+    sessions, tokens = _settlement_boundary_frozen_inputs(capsule, investigator_id)
     ledger = load_settlement_boundary_ledger(campaign_dir, investigator_id)
     boundaries = ledger["boundaries"] if ledger is not None else []
     if sessions:
-        boundary_id = (
+        session_key = (
             sessions[0]
             if len(sessions) == 1
             else (
                 f"{_campaign_id(campaign_dir)}:sessions-"
                 + _canonical_sha256(list(sessions))[:16]
             )
+        )
+        # Distinct earned input sets are distinct boundaries even within one
+        # table session (each session/chapter boundary settles exactly once);
+        # identical inputs reproduce the same id, so a retry replays.
+        boundary_id = (
+            f"{session_key}:inputs-{_canonical_sha256(tokens)[:16]}"
         )
         replay = next(
             (row for row in boundaries if row.get("boundary_id") == boundary_id),
@@ -882,11 +1011,25 @@ def settlement_boundary_decision(
             "replay": replay,
         }
     if boundaries:
-        return {"boundary_id": None, "session_ids": [], "replay": boundaries[-1]}
-    ordinal = _ending_ordinal(campaign_dir, capsule)
+        latest = boundaries[-1]
+        current_session = _logical_development_session_id(campaign_dir)
+        latest_sessions = {
+            str(item) for item in latest.get("session_ids") or []
+        }
+        if latest_sessions and current_session not in latest_sessions:
+            # A new table session opens one fresh settlement boundary even
+            # without newly earned improvement inputs — exactly one Luck
+            # recovery per session (Keeper Rulebook optional rule).
+            return {
+                "boundary_id": current_session,
+                "session_ids": [current_session],
+                "replay": None,
+            }
+        return {"boundary_id": None, "session_ids": [], "replay": latest}
+    current_session = _logical_development_session_id(campaign_dir)
     return {
-        "boundary_id": f"{_campaign_id(campaign_dir)}:session:{ordinal}",
-        "session_ids": [],
+        "boundary_id": current_session,
+        "session_ids": [current_session],
         "replay": None,
     }
 
@@ -1770,7 +1913,7 @@ def _development_input_snapshot(
     sheet = _read_character(campaign_dir, investigator_id)
     sheet_skills = sheet.get("skills") if isinstance(sheet.get("skills"), dict) else {}
     frozen_skills = {
-        skill: int(sheet_skills.get(skill, 0) or 0) for skill in skills_checked
+        skill: _ticked_skill_baseline(sheet_skills, skill) for skill in skills_checked
     }
     luck = _current_luck(campaign_dir, investigator_id, sheet)
     sanity, sanity_path = _sanity_mechanical_baseline(campaign_dir, investigator_id)
@@ -1961,6 +2104,37 @@ def structured_ending_evidence(
     return capsule
 
 
+def _rulebook_skill_base(skill: str) -> int | None:
+    """Numeric rulebook base chance for a canonical catalog skill, if any."""
+    try:
+        table = coc_rules.skills_table()
+    except (OSError, KeyError, json.JSONDecodeError):
+        return None
+    spec = table.get(skill)
+    base = spec.get("base_chance") if isinstance(spec, dict) else None
+    if isinstance(base, int) and not isinstance(base, bool):
+        return int(base)
+    return None
+
+
+def _ticked_skill_baseline(sheet_skills: dict[str, Any], skill: str) -> int:
+    """Mechanical baseline for one ticked skill.
+
+    After selector canonicalization a tick names either an on-sheet skill or
+    a canonical catalog skill usable at its rulebook base chance; anything
+    else is corrupt state and must fail loudly instead of inventing a 0%.
+    """
+    if skill in sheet_skills:
+        return int(sheet_skills[skill] or 0)
+    base = _rulebook_skill_base(skill)
+    if base is not None:
+        return base
+    raise ValueError(
+        "development tick references skill missing from both the sheet and "
+        f"the rulebook catalog: {skill!r}"
+    )
+
+
 def _read_character(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
     path = _character_path(campaign_dir, investigator_id)
     if not path.exists():
@@ -1969,7 +2143,9 @@ def _read_character(campaign_dir: Path, investigator_id: str) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {"skills": {}}
-    return data if isinstance(data, dict) else {"skills": {}}
+    sheet = data if isinstance(data, dict) else {"skills": {}}
+    coc_character.assert_unique_canonical_skills(sheet)
+    return sheet
 
 
 def _write_character(campaign_dir: Path, investigator_id: str, sheet: dict[str, Any]) -> None:
@@ -2208,7 +2384,7 @@ def run_development_phase(
     skills_improved: list[dict[str, Any]] = []
     for frozen in plan["improvement_checks"]:
         skill = str(frozen["skill"])
-        current_live = int(skills.get(skill, 0) or 0)
+        current_live = _ticked_skill_baseline(skills, skill)
         gain = int(frozen["gain"] or 0)
         value_after = current_live + gain if frozen["improved"] else current_live
         if frozen["improved"]:

@@ -7,7 +7,7 @@
     "campaign": 2,
     "world": 2,
     "pacing": 1,
-    "investigator": 1
+    "investigator": 2
   },
   "entry_points": {
     "resolver": "resolver.py",

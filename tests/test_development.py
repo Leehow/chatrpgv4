@@ -590,3 +590,61 @@ def test_legacy_singleton_san_is_not_a_development_baseline(tmp_path):
     assert baseline["source"] == "investigator_state"
     assert baseline["current"] == 50
     assert baseline["max"] == 99
+
+
+# ---------------------------------------------------------------------------
+# settlement baseline strictness — ticks must resolve to a real skill
+# ---------------------------------------------------------------------------
+
+def test_capsule_freezes_rulebook_base_for_unlisted_catalog_skill(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+
+    capsule = _current_capsule(camp, inv_id, skill="Archaeology")
+    development_input = capsule["development_inputs"][inv_id]
+
+    # Archaeology is not on the sheet; the canonical rulebook base chance is
+    # the frozen baseline instead of a phantom 0.
+    assert development_input["mechanical_baseline"]["skills"] == {
+        "Archaeology": 1,
+    }
+
+
+def test_capsule_rejects_tick_for_skill_unknown_to_sheet_and_catalog(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+
+    with pytest.raises(ValueError, match="missing from both the sheet"):
+        _current_capsule(camp, inv_id, skill="Alchemy")
+
+
+def test_settlement_apply_rejects_tick_for_removed_custom_skill(tmp_path):
+    camp, inv_id = _campaign_with_investigator(
+        tmp_path, skills={"Custom Skill": 40, "Credit Rating": 40}
+    )
+    capsule = _current_capsule(camp, inv_id, skill="Custom Skill")
+    character_path = (
+        camp.parents[1] / "investigators" / inv_id / "character.json"
+    )
+    sheet = json.loads(character_path.read_text(encoding="utf-8"))
+    del sheet["skills"]["Custom Skill"]
+    character_path.write_text(json.dumps(sheet), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing from both the sheet"):
+        coc_development.run_development_phase(
+            camp,
+            inv_id,
+            ending_evidence=capsule,
+            development_input=capsule["development_inputs"][inv_id],
+        )
+
+
+def test_guarded_character_read_rejects_alias_duplicate_skills(tmp_path):
+    camp, inv_id = _campaign_with_investigator(tmp_path)
+    character_path = (
+        camp.parents[1] / "investigators" / inv_id / "character.json"
+    )
+    sheet = json.loads(character_path.read_text(encoding="utf-8"))
+    sheet["skills"]["图书馆使用"] = 10
+    character_path.write_text(json.dumps(sheet), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="collide after canonical folding"):
+        coc_development._read_character(camp, inv_id)

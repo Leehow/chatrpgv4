@@ -3,7 +3,7 @@
   "kind": "investigator_create_payload_contract",
   "ruleset_id": "coc7",
   "ruleset_version": "1.0.0",
-  "investigator_schema_version": 1,
+  "investigator_schema_version": 2,
   "runtime_authority": {
     "authoritative_validator": "plugins/coc-keeper/scripts/coc_character.py",
     "schema_role": "upfront machine-readable construction guidance",
