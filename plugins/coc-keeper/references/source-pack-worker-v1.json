@@ -81,6 +81,16 @@
         ],
         "exact_source_scope": true,
         "worker_result_pack_shape": "direct_location_entity; never nest it under a location key",
+        "opening_setup": {
+          "schema_version": 1,
+          "contract_id": "coc.opening-setup-observation.v1",
+          "status_values": ["source", "unresolved"],
+          "required": true,
+          "source_requires": ["start_clock", "start_clock_source_refs"],
+          "unresolved_forbids": ["start_clock", "start_clock_source_refs"],
+          "source_ref_scope": "exact_requested_pdf_indices",
+          "precision_rule": "preserve only source-supported precision; never invent a date, day, hour, local_datetime, or calendar year"
+        },
         "location_pack": {
           "fixed_fields": {
             "parse_state": "partial",
