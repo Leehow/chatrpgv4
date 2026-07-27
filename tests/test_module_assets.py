@@ -1877,6 +1877,21 @@ def test_source_bundle_bridge_caches_once_and_normalizes_deep_pack_evidence(
                 "ref_id": "hospital-annex",
                 "raw_label": "医院附楼",
             }],
+            "scene_edges": [
+                {
+                    "edge_id": "hospital-annex-route",
+                    "to": "hospital-annex",
+                    "kind": "travel",
+                    "when": {"kind": "always"},
+                },
+                {
+                    "edge_id": "campaign-table-route",
+                    "to": "campaign-table-room",
+                    "kind": "travel",
+                    "origin": "campaign_improvised",
+                    "provenance": {"authority": "campaign_improvised"},
+                },
+            ],
         },
     )
     stored = assets.get_entity(tmp_path, "bound-module", "location", "hospital")
@@ -1888,6 +1903,18 @@ def test_source_bundle_bridge_caches_once_and_normalizes_deep_pack_evidence(
     assert stored["clues"][0]["source_refs"] == stored["source_refs"]
     assert stored["npcs"][0]["source_refs"] == stored["source_refs"]
     assert stored["mentions"][0]["source_refs"] == stored["source_refs"]
+    source_edge, campaign_edge = stored["scene_edges"]
+    assert source_edge["source_refs"] == stored["source_refs"]
+    assert source_edge["origin"] == "source"
+    assert source_edge["provenance"] == {
+        "authority": "source_authored",
+        "source_refs": stored["source_refs"],
+        "basis": "location_scene_edge",
+    }
+    assert "source_refs" not in campaign_edge
+    assert campaign_edge["provenance"] == {
+        "authority": "campaign_improvised",
+    }
     assert (
         stored["clues"][0]["mentions"][0]["source_refs"]
         == stored["source_refs"]
@@ -1947,6 +1974,55 @@ def test_source_bundle_bridge_caches_once_and_normalizes_deep_pack_evidence(
 
     with pytest.raises(assets.ModuleAssetsError, match="content drift"):
         assets.put_page(tmp_path, "bound-module", 0, "different page text")
+
+
+@pytest.mark.parametrize(
+    ("scene_edges", "message"),
+    [
+        (
+            [
+                {"to": "annex", "kind": "travel"},
+                {"to": "annex", "kind": "travel"},
+            ],
+            "duplicates an existing scene edge exactly",
+        ),
+        (
+            [
+                {"edge_id": "route", "to": "annex", "kind": "travel"},
+                {"edge_id": "route", "to": "cellar", "kind": "travel"},
+            ],
+            "conflicts with an existing scene edge alias",
+        ),
+        (
+            [{"to": "../escape", "kind": "travel"}],
+            "must be a safe id",
+        ),
+    ],
+)
+def test_location_scene_edge_identity_and_target_validation_fail_closed(
+    tmp_path: Path,
+    scene_edges: list[dict],
+    message: str,
+):
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="edge-validation",
+        identity={"canonical_module_id": "edge-validation"},
+        file_sha256=FAKE_SHA,
+    )
+
+    with pytest.raises(assets.ModuleAssetsError, match=message):
+        assets.put_entity(
+            tmp_path,
+            "edge-validation",
+            "location",
+            "opening",
+            {
+                "parse_state": "deep",
+                "evidence_gap": False,
+                "scene_edges": scene_edges,
+            },
+        )
 
 
 def test_source_bundle_caches_structured_ocr_once_and_projects_bounded_ref(

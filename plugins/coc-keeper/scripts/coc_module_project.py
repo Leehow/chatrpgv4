@@ -3694,11 +3694,12 @@ def _is_usable_location_pack(pack: Any) -> bool:
 
 
 def _location_has_shared_source_authority(
+    workspace: Path,
+    asset_root_id: str,
     skeleton: dict[str, Any],
     location_id: str,
     *,
     pack: Any = None,
-    campaign_scene: Any = None,
 ) -> bool:
     """Require positive structured source authority before shared enqueue."""
     if any(
@@ -3707,59 +3708,99 @@ def _location_has_shared_source_authority(
         for row in skeleton.get("locations") or []
     ):
         return True
-    for row in (pack, campaign_scene):
-        if not isinstance(row, dict):
-            continue
-        if _opening_campaign_local_row(row):
-            continue
-        provenance = (
-            row.get("provenance")
-            if isinstance(row.get("provenance"), dict) else {}
-        )
-        if (
-            str(provenance.get("authority") or "") == "source_authored"
-            and bool(_source_scope(row) or _source_scope(provenance))
-        ):
-            return True
-        if str(row.get("origin") or "") == "source" and bool(_source_scope(row)):
-            return True
-    return False
-
-
-def _edge_has_validated_source_authority(
-    workspace: Path,
-    asset_root_id: str,
-    edge: Any,
-    target_id: str,
-) -> bool:
-    """Accept only an exact source-authored edge identity for its own target."""
     if (
-        not isinstance(edge, dict)
-        or str(edge.get("to") or "").strip() != target_id
-        or _opening_campaign_local_row(edge)
+        not isinstance(pack, dict)
+        or str(pack.get("location_id") or "") != location_id
+        or _opening_campaign_local_row(pack)
     ):
         return False
     provenance = (
-        edge.get("provenance")
-        if isinstance(edge.get("provenance"), dict) else {}
+        pack.get("provenance")
+        if isinstance(pack.get("provenance"), dict) else {}
     )
-    if (
-        str(provenance.get("authority") or "") != "source_authored"
-        and str(edge.get("origin") or "") != "source"
-    ):
-        return False
-    scope = _source_scope(edge) or _source_scope(provenance)
-    if not scope:
+    authority_claim = (
+        str(provenance.get("authority") or "") == "source_authored"
+        or str(pack.get("origin") or "") == "source"
+    )
+    scope = _source_scope(pack) or _source_scope(provenance)
+    if not authority_claim or not scope:
         return False
     try:
         return bool(coc_module_assets._cached_source_refs(
             workspace,
             asset_root_id,
             scope,
-            field=f"scene_edge.to:{target_id}",
+            field=f"location:{location_id}",
         ))
     except coc_module_assets.ModuleAssetsError:
         return False
+
+
+def _matching_validated_source_pack_edge(
+    workspace: Path,
+    asset_root_id: str,
+    active_location_pack: Any,
+    active_scene_id: str,
+    ir_edge: Any,
+    target_id: str,
+) -> dict[str, Any] | None:
+    """Resolve an IR edge back to one immutable, cache-backed source-pack row."""
+    if (
+        not isinstance(active_location_pack, dict)
+        or str(active_location_pack.get("location_id") or "") != active_scene_id
+        or _opening_campaign_local_row(active_location_pack)
+        or not isinstance(ir_edge, dict)
+        or str(ir_edge.get("to") or "").strip() != target_id
+        or _opening_campaign_local_row(ir_edge)
+    ):
+        return None
+    try:
+        canonical_target = coc_module_assets._require_id(
+            target_id, "scene_edge.to",
+        )
+    except coc_module_assets.ModuleAssetsError:
+        return None
+    ir_identity = coc_module_assets._canonical_scene_edge_identity(ir_edge)
+    matches: list[dict[str, Any]] = []
+    for position, candidate in enumerate(
+        active_location_pack.get("scene_edges") or []
+    ):
+        if (
+            not isinstance(candidate, dict)
+            or str(candidate.get("to") or "").strip() != canonical_target
+            or _opening_campaign_local_row(candidate)
+            or coc_module_assets._canonical_scene_edge_identity(candidate)
+            != ir_identity
+        ):
+            continue
+        provenance = (
+            candidate.get("provenance")
+            if isinstance(candidate.get("provenance"), dict)
+            else {}
+        )
+        if (
+            str(candidate.get("origin") or "") != "source"
+            or str(provenance.get("authority") or "") != "source_authored"
+        ):
+            continue
+        try:
+            refs = coc_module_assets._cached_source_refs(
+                workspace,
+                asset_root_id,
+                candidate,
+                field=(
+                    f"location:{active_scene_id}.scene_edges[{position}]"
+                ),
+            )
+        except coc_module_assets.ModuleAssetsError:
+            continue
+        if refs:
+            matches.append(candidate)
+    # Canonical pack validation rejects duplicate rows, but stay fail-closed if
+    # durable state was externally corrupted after commit.
+    if len(matches) != 1:
+        return None
+    return matches[0]
 
 
 def _neighbor_ids_from_skeleton(
@@ -3848,7 +3889,7 @@ def on_enter_scene(
 
     pack = coc_module_assets.get_entity(workspace, root_id, "location", sid)
     shared_source_authority = _location_has_shared_source_authority(
-        skeleton, sid, pack=pack, campaign_scene=campaign_scene,
+        workspace, root_id, skeleton, sid, pack=pack,
     )
     merged = False
     if shared_source_authority and _is_usable_location_pack(pack):
@@ -3942,38 +3983,32 @@ def on_enter_scene(
                 target_id = str(edge.get("to") or "").strip()
                 if not target_id or target_id == sid:
                     continue
-                target_scene = next(
-                    (
-                        row for row in ir_scenes
-                        if str(row.get("scene_id") or "") == target_id
-                    ),
-                    None,
-                )
                 target_pack = coc_module_assets.get_entity(
                     workspace, root_id, "location", target_id,
                 )
                 target_authorized = _location_has_shared_source_authority(
+                    workspace,
+                    root_id,
                     skeleton,
                     target_id,
                     pack=target_pack,
-                    campaign_scene=target_scene,
                 )
-                edge_authorized = _edge_has_validated_source_authority(
-                    workspace, root_id, edge, target_id,
+                source_pack_edge = _matching_validated_source_pack_edge(
+                    workspace,
+                    root_id,
+                    pack,
+                    sid,
+                    edge,
+                    target_id,
                 )
                 if (
                     not campaign_local_scene
-                    and (target_authorized or edge_authorized)
+                    and (target_authorized or source_pack_edge is not None)
                 ):
                     neighbors.append(target_id)
                     inherited_scope = (
                         _source_scope(target_pack)
-                        or _source_scope(target_scene)
-                        or _source_scope(edge)
-                        or _source_scope(
-                            edge.get("provenance")
-                            if isinstance(edge.get("provenance"), dict) else {}
-                        )
+                        or _source_scope(source_pack_edge)
                     )
                     if inherited_scope:
                         neighbor_source_scopes[target_id] = inherited_scope

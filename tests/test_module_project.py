@@ -1986,7 +1986,10 @@ def test_project_repairs_primary_id_masking_authored_alternate_aliases(
         row for row in repaired_graph["scenes"] if row["scene_id"] == "opening"
     )
     assert repaired_scene["affordances"] == pack["affordances"]
-    assert repaired_scene["scene_edges"] == pack["scene_edges"]
+    stored_pack = assets.get_entity(
+        tmp_path, "prog-demo", "location", "opening",
+    )
+    assert repaired_scene["scene_edges"] == stored_pack["scene_edges"]
     assert project.opening_projection_state_is_fresh(
         tmp_path, ready["campaign_dir"], "prog-demo", "opening",
         ready["source_scope"],
@@ -2662,6 +2665,141 @@ def test_skeleton_neighbor_retains_shared_prefetch_authority(tmp_path: Path):
     assert any(
         row.get("kind") == "partial_neighbor"
         and row.get("target_id") == "library"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+
+
+def test_ir_edge_cannot_self_assert_source_authority_with_accepted_page(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    forged = {
+        "to": "ir-forged-annex",
+        "origin": "source",
+        "provenance": {"authority": "source_authored"},
+        "source_page_indices": [0],
+    }
+    graph_path = camp / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    opening = next(
+        row for row in graph["scenes"] if row["scene_id"] == "opening"
+    )
+    opening["scene_edges"].append(forged)
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    result = project.on_enter_scene(tmp_path, camp.name, "opening")
+
+    assert "ir-forged-annex" not in result["neighbors"]
+    assert "ir-forged-annex" not in result["prefetched_neighbors"]
+    assert any(
+        row.get("shared_source_neighbor_skipped") == "ir-forged-annex"
+        and row.get("reason") == "no_independent_source_authority"
+        for row in result["actions"]
+    )
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "ir-forged-annex",
+    ) is None
+
+
+def test_ir_target_scene_cannot_self_assert_shared_source_authority(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    graph_path = camp / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    opening = next(
+        row for row in graph["scenes"] if row["scene_id"] == "opening"
+    )
+    opening["scene_edges"].append({
+        "to": "ir-self-labeled-target",
+        "origin": "campaign_improvised",
+    })
+    graph["scenes"].append({
+        "scene_id": "ir-self-labeled-target",
+        "origin": "source",
+        "provenance": {"authority": "source_authored"},
+        "source_page_indices": [0],
+        "scene_edges": [],
+    })
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    result = project.on_enter_scene(tmp_path, camp.name, "opening")
+
+    assert "ir-self-labeled-target" not in result["neighbors"]
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "ir-self-labeled-target",
+    ) is None
+
+
+def test_ir_relabel_of_source_pack_edge_fails_exact_pack_match(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["scene_edges"] = [{
+        "edge_id": "source-pack-route",
+        "to": "pack-only-annex",
+        "kind": "travel",
+        "when": {"kind": "always"},
+    }]
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    stored_pack = assets.get_entity(
+        tmp_path, "prog-demo", "location", "opening",
+    )
+    relabeled = json.loads(json.dumps(stored_pack["scene_edges"][0]))
+    relabeled["edge_id"] = "ir-only-relabel"
+
+    assert project._matching_validated_source_pack_edge(
+        tmp_path,
+        "prog-demo",
+        stored_pack,
+        "opening",
+        relabeled,
+        "pack-only-annex",
+    ) is None
+    canonical = project._matching_validated_source_pack_edge(
+        tmp_path,
+        "prog-demo",
+        stored_pack,
+        "opening",
+        stored_pack["scene_edges"][0],
+        "pack-only-annex",
+    )
+    assert canonical == stored_pack["scene_edges"][0]
+
+
+def test_tier2_source_pack_edge_prefetches_target_absent_from_skeleton(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["scene_edges"] = [{
+        "edge_id": "source-pack-route",
+        "to": "pack-only-annex",
+        "kind": "travel",
+        "when": {"kind": "always"},
+    }]
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    camp = _make_campaign(tmp_path)
+    project.project_opening_deep(tmp_path, camp.name, "prog-demo")
+
+    result = project.on_enter_scene(tmp_path, camp.name, "opening")
+
+    assert "pack-only-annex" in result["neighbors"]
+    assert "pack-only-annex" in result["prefetched_neighbors"]
+    stub = assets.get_entity(
+        tmp_path, "prog-demo", "location", "pack-only-annex",
+    )
+    assert stub is not None
+    assert stub["source_page_indices"] == [0]
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert any(
+        row.get("kind") == "partial_neighbor"
+        and row.get("target_id") == "pack-only-annex"
         for row in queue["pending"] + queue["in_flight"] + queue["done"]
     )
 

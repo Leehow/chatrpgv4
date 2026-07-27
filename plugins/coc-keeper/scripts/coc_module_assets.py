@@ -153,6 +153,15 @@ FACT_RECORD_PARALLEL_SOURCE_FIELDS = frozenset({
     "text_sha256",
     "cached_page_refs",
 })
+_SCENE_EDGE_SOURCE_AUTHORITY_FIELDS = frozenset({
+    "origin",
+    "provenance",
+    "source_refs",
+    "source_page_indices",
+    "source_span",
+    "page_text_sha256",
+    "source_evidence",
+})
 _FULFILLED_PACK_OPERATIONAL_FIELDS = frozenset({
     # Repository/write timing and transient host measurements.
     "updated_at",
@@ -1064,11 +1073,37 @@ def _validate_entity_pack(
     edges = doc.get("scene_edges")
     if not isinstance(edges, list):
         raise ModuleAssetsError("location scene_edges must be a list")
+    seen_semantic_identities: set[str] = set()
+    alias_identities: dict[str, str] = {}
     for index, edge in enumerate(edges):
         if not isinstance(edge, dict) or not str(edge.get("to") or "").strip():
             raise ModuleAssetsError(
                 f"location scene_edges[{index}] must be an object with to"
             )
+        prefix = f"location.scene_edges[{index}]"
+        _require_id(edge["to"], f"{prefix}.to")
+        aliases: list[str] = []
+        for field in ("id", "edge_id"):
+            if edge.get(field) is None:
+                continue
+            aliases.append(_require_id(edge[field], f"{prefix}.{field}"))
+        semantic_identity = _canonical_scene_edge_identity(edge)
+        if semantic_identity in seen_semantic_identities:
+            raise ModuleAssetsError(
+                f"{prefix} duplicates an existing scene edge exactly"
+            )
+        seen_semantic_identities.add(semantic_identity)
+        for alias in aliases:
+            previous_identity = alias_identities.get(alias)
+            if (
+                previous_identity is not None
+                and previous_identity != semantic_identity
+            ):
+                raise ModuleAssetsError(
+                    f"{prefix} conflicts with an existing scene edge alias "
+                    f"{alias!r}"
+                )
+            alias_identities[alias] = semantic_identity
         condition = edge.get("when")
         if condition is None:
             continue
@@ -1101,6 +1136,42 @@ def _validate_entity_pack(
             raise ModuleAssetsError(
                 f"location scene_edges[{index}].when.flag_id is required"
             )
+
+
+def _canonical_scene_edge_identity(edge: dict[str, Any]) -> str:
+    """Return the exact semantic identity of one scene edge.
+
+    Source authority and cache evidence are deliberately excluded: those
+    fields prove a semantic edge but must never change which edge they prove.
+    Every other field, including destination, condition, and explicit aliases,
+    participates in the structured identity.
+    """
+    semantic = {
+        key: json.loads(json.dumps(value))
+        for key, value in edge.items()
+        if key not in _SCENE_EDGE_SOURCE_AUTHORITY_FIELDS
+    }
+    return json.dumps(
+        semantic,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _scene_edge_is_campaign_local(edge: dict[str, Any]) -> bool:
+    provenance = (
+        edge.get("provenance")
+        if isinstance(edge.get("provenance"), dict)
+        else {}
+    )
+    authority = str(provenance.get("authority") or "")
+    origin = str(edge.get("origin") or "")
+    return (
+        authority in {"campaign_improvised", "campaign_generated"}
+        or origin in {"campaign_improvised", "campaign_generated"}
+        or origin.startswith("campaign_")
+    )
 
 
 def _load_sibling(name: str, filename: str):
@@ -4090,6 +4161,50 @@ def _canonicalize_entity_source_evidence(
     # and secret rows.  Give every nested source-derived object an explicit
     # evidence binding instead of relying on an implicit parent relationship.
     if kind == "location":
+        # Scene edges in a shared source pack inherit the exact validated
+        # parent page scope unless they declare a narrower exact subset.
+        # Campaign-local rows are never allowed to borrow that source
+        # authority merely because they were embedded in a source pack.
+        for position, edge in enumerate(doc.get("scene_edges") or []):
+            if not isinstance(edge, dict):
+                continue
+            edge_field = f"location.scene_edges[{position}]"
+            if _scene_edge_is_campaign_local(edge):
+                borrowed_fields = sorted(
+                    set(edge).intersection(
+                        FACT_RECORD_CANONICAL_SOURCE_FIELDS
+                        | FACT_RECORD_PARALLEL_SOURCE_FIELDS
+                    )
+                )
+                provenance = (
+                    edge.get("provenance")
+                    if isinstance(edge.get("provenance"), dict)
+                    else {}
+                )
+                if provenance.get("source_refs") is not None:
+                    borrowed_fields.append("provenance.source_refs")
+                if borrowed_fields:
+                    raise ModuleAssetsError(
+                        f"{edge_field} is campaign-local and must not borrow "
+                        "source evidence: "
+                        + ", ".join(sorted(set(borrowed_fields)))
+                    )
+                continue
+            edge_refs = _cached_source_refs(
+                workspace,
+                asset_root_id,
+                edge,
+                field=edge_field,
+                inherited_indices=list(doc["source_page_indices"]),
+            )
+            _apply_canonical_source_scope(edge, edge_refs)
+            edge["origin"] = "source"
+            edge["provenance"] = {
+                "authority": "source_authored",
+                "source_refs": json.loads(json.dumps(edge_refs)),
+                "basis": "location_scene_edge",
+            }
+
         for collection in ("clues", "npcs", "keeper_secret_refs"):
             for position, row in enumerate(doc.get(collection) or []):
                 if not isinstance(row, dict):
