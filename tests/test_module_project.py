@@ -2876,6 +2876,105 @@ def test_request_deepen_player_dig_without_scene_move(tmp_path: Path):
     )
 
 
+def test_request_deepen_uses_validated_source_edge_destination_authority(
+    tmp_path: Path,
+):
+    """An exact source-pack edge can authorize its not-yet-listed destination."""
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["scene_edges"] = [{
+        "to": "edge-only-destination",
+        "kind": "travel",
+        "when": {"kind": "always"},
+        "travel_minutes": 120,
+    }]
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    camp = _make_campaign(tmp_path)
+    project.project_opening_deep(tmp_path, camp.name, "prog-demo")
+
+    result = project.request_deepen(
+        tmp_path,
+        camp.name,
+        kind="location",
+        target_id="edge-only-destination",
+        title="Edge-only destination",
+        reason="player follows the authored route",
+    )
+
+    followed = result["followed"][0]
+    assert followed["ref_id"] == "edge-only-destination"
+    assert followed["enqueued"] or followed["deduped"]
+    assert followed.get("shared_source_enqueue_skipped") is not True
+    stub = assets.get_entity(
+        tmp_path, "prog-demo", "location", "edge-only-destination",
+    )
+    assert stub is not None
+    assert stub["parse_state"] == "named_only"
+    assert stub["source_page_indices"] == [0]
+    graph = json.loads(
+        (camp / "scenario" / "story-graph.json").read_text(encoding="utf-8")
+    )
+    destination = next(
+        row for row in graph["scenes"]
+        if row["scene_id"] == "edge-only-destination"
+    )
+    assert destination["evidence_gap"] is True
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert any(
+        row.get("kind") == "deepen_location"
+        and row.get("target_id") == "edge-only-destination"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+
+
+def test_request_deepen_rejects_unproven_projected_edge_destination(
+    tmp_path: Path,
+):
+    """A source-looking IR edge cannot create authority without a pack match."""
+    _put_source_bound_skeleton(tmp_path)
+    assets.put_entity(
+        tmp_path, "prog-demo", "location", "opening", _deep_opening_pack(),
+    )
+    camp = _make_campaign(tmp_path)
+    project.project_opening_deep(tmp_path, camp.name, "prog-demo")
+    graph_path = camp / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    opening = next(
+        row for row in graph["scenes"] if row["scene_id"] == "opening"
+    )
+    stored_opening = assets.get_entity(
+        tmp_path, "prog-demo", "location", "opening",
+    )
+    opening["scene_edges"].append({
+        "to": "forged-edge-destination",
+        "kind": "travel",
+        "when": {"kind": "always"},
+        "origin": "source",
+        "provenance": {"authority": "source_authored"},
+        "source_page_indices": stored_opening["source_page_indices"],
+        "source_refs": stored_opening["source_refs"],
+    })
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+
+    result = project.request_deepen(
+        tmp_path,
+        camp.name,
+        kind="location",
+        target_id="forged-edge-destination",
+        reason="player follows an unproven route",
+    )
+
+    assert result["followed"][0]["shared_source_enqueue_skipped"] is True
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "forged-edge-destination",
+    ) is None
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert not any(
+        row.get("target_id") == "forged-edge-destination"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+
+
 def test_request_deepen_bounds_completed_queue_history(tmp_path: Path):
     """Live dig receipts must not grow with the durable completed-job log."""
     _put_source_bound_skeleton(tmp_path)

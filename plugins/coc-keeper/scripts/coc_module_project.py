@@ -4617,6 +4617,13 @@ def follow_structured_mentions(
             source_scope = _campaign_entity_source_scope(
                 campaign_dir, kind, ref,
             )
+        if kind == "location" and not source_scope:
+            source_scope = _campaign_location_edge_source_scope(
+                workspace,
+                campaign_dir,
+                root_id,
+                ref,
+            )
         if not source_authorized(kind, ref, source_scope):
             actions.append({
                 "shared_source_enqueue_skipped": ref,
@@ -4787,6 +4794,83 @@ def _campaign_entity_source_scope(
         if any(str(row.get(key) or "") == entity_id for key in keys):
             return _source_scope(row)
     return {}
+
+
+def _campaign_location_edge_source_scope(
+    workspace: Path,
+    campaign_dir: Path,
+    asset_root_id: str,
+    target_id: str,
+) -> dict[str, Any]:
+    """Resolve a location target through exact projected source-pack edges.
+
+    A source-authored edge is structured authority that its destination exists
+    in the module even when Tier 1 did not list that destination as a standalone
+    location. Campaign IR alone is not trusted: every matching edge must resolve
+    back to the immutable location pack row and accepted cached page evidence.
+    """
+    try:
+        ir = load_campaign_ir(campaign_dir)
+    except ModuleProjectError:
+        return {}
+    refs_by_index: dict[int, dict[str, Any]] = {}
+    for scene in (ir.get("story-graph.json") or {}).get("scenes") or []:
+        if not isinstance(scene, dict) or _opening_campaign_local_row(scene):
+            continue
+        source_scene_id = str(scene.get("scene_id") or "").strip()
+        if not source_scene_id:
+            continue
+        source_pack = coc_module_assets.get_entity(
+            workspace,
+            asset_root_id,
+            "location",
+            source_scene_id,
+        )
+        for edge in scene.get("scene_edges") or []:
+            if (
+                not isinstance(edge, dict)
+                or str(edge.get("to") or "").strip() != target_id
+            ):
+                continue
+            validated_edge = _matching_validated_source_pack_edge(
+                workspace,
+                asset_root_id,
+                source_pack,
+                source_scene_id,
+                edge,
+                target_id,
+            )
+            if validated_edge is None:
+                continue
+            try:
+                refs = coc_module_assets._cached_source_refs(
+                    workspace,
+                    asset_root_id,
+                    validated_edge,
+                    field=(
+                        f"location:{source_scene_id}.scene_edge_destination:"
+                        f"{target_id}"
+                    ),
+                )
+            except coc_module_assets.ModuleAssetsError:
+                continue
+            for ref in refs:
+                copied = json.loads(json.dumps(ref))
+                pdf_index = int(copied["pdf_index"])
+                previous = refs_by_index.get(pdf_index)
+                if previous is not None and previous != copied:
+                    # Multiple validated routes may identify the same target,
+                    # but conflicting evidence identities must not be widened.
+                    return {}
+                refs_by_index[pdf_index] = copied
+    if not refs_by_index:
+        return {}
+    return {
+        "source_page_indices": sorted(refs_by_index),
+        "source_refs": [
+            refs_by_index[pdf_index] for pdf_index in sorted(refs_by_index)
+        ],
+    }
 
 
 def request_deepen(

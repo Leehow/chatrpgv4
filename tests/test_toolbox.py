@@ -438,6 +438,71 @@ def test_source_edge_travel_minutes_prefill_and_advance_authoritative_clock(
     assert replay["data"] == moved["data"]
 
 
+def test_source_edge_destination_deepens_after_travel_without_opening_reuse(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    pack = _opening_component_pack(scene_edges=[{
+        "to": "edge-only-destination",
+        "kind": "travel",
+        "when": {"kind": "always"},
+        "travel_minutes": 120,
+    }])
+    _publish_and_project_opening_component(ws, pack=pack)
+    activated = _run(ws, "state.move_scene", {
+        "scene_id": "opening",
+        "decision_id": "activate-source-edge-opening",
+        "defer_initial_progressive_on_enter": True,
+    })
+    assert activated["ok"] is True, activated
+    context = _run(ws, "scene.context")
+    exit_card = next(
+        row for row in context["data"]["exits"]
+        if row["to"] == "edge-only-destination"
+    )
+    assert exit_card["travel_minutes"] == 120
+
+    moved = _run(ws, "state.move_scene", {
+        **exit_card["operation_opportunity"]["prefilled_arguments"],
+        "reason": "follow the exact source-authored route",
+        "decision_id": "travel-to-edge-only-destination",
+    })
+
+    assert moved["ok"] is True, moved
+    assert moved["data"]["scene"] is None
+    assert moved["data"]["travel_minutes"] == 120
+    assert moved["data"]["travel_time_source"] == "source_scene_edge"
+    assert moved["data"]["time_scene_change"]["elapsed_minutes"] == 120
+    assert moved["data"]["time_scene_change"]["travel_minutes"] == 120
+
+    deepened = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "edge-only-destination",
+        "title": "Edge-only destination",
+        "reason": "materialize the reached authored destination",
+    })
+
+    assert deepened["ok"] is True, deepened
+    followed = deepened["data"]["followed"][0]
+    assert followed["enqueued"] or followed["deduped"]
+    assert followed.get("shared_source_enqueue_skipped") is not True
+    assert deepened["data"]["target_id"] == "edge-only-destination"
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    stub = assets.get_entity(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "edge-only-destination",
+    )
+    assert stub is not None
+    assert stub["source_page_indices"] == [0]
+    skeleton = assets.get_skeleton(ws["workspace"], ws["asset_root_id"])
+    assert skeleton["start_candidates"] == ["opening"]
+    assert "edge-only-destination" not in skeleton["start_candidates"]
+
+
 def test_state_move_scene_rejects_malformed_travel_minutes_without_moving(
     campaign_ws,
 ):
