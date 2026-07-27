@@ -169,9 +169,16 @@ the main KP does not consume it as module truth:
 Allowed status values are exactly `fulfilled`, `partial`, `idle`, and `failed`.
 Allowed non-null failure classes are exactly `invalid_packet`,
 `capability_mismatch`, `claim_failed`, `leaf_dispatch_failed`,
-`leaf_result_not_bare`, `leaf_result_invalid`, and `fulfill_rejected`. Never
+`leaf_result_not_bare`, `leaf_result_invalid`, `fulfill_rejected`, and
+`turn_pending_finalization_deferred`. Never
 include claimed packets, source bodies, pack contents, campaign state, leaf
 text, or Keeper prose in the summary.
+
+`turn_pending_finalization_deferred` is produced only by the deterministic Pi
+private lifecycle after canonical fulfillment returns the typed
+`turn_pending_finalization` code and the exact owned lease has been released.
+It is non-retryable within this coordinator task; echo the receipt unchanged
+and leave the durable request for a normal post-finalization takeover.
 
 The only optional top-level field is `diagnostics`. It is allowed only when the
 deterministic lifecycle supplies it; return it unchanged and never construct it

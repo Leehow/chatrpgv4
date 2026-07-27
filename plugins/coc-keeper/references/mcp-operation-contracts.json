@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b7e30257a40f66aca64e495d17c760da29d53636a09e3831d0e95c63f7967d0f",
+  "content_sha256": "sha256:9b7227a22123b08ae9660384b7302e66c68fc48ced9655e06f012803570a88d9",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1196,7 +1196,7 @@
     },
     "progressive.project_opening": {
       "canonical_operation": "progressive.project_opening",
-      "description": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. Canonical operation `progressive.project_opening`; the result envelope is authoritative.",
+      "description": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. While the campaign-owned opening source lifecycle is still open, even an incomplete or repeated call is a read-only deferred no-op; the watch owns projection. Canonical operation `progressive.project_opening`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1244,7 +1244,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun."
+      "summary": "Experimental selected-only projection of one durable, current opening pack. Accepts no pack payload, never compiles alternate starts, and refuses stale projection writes after play has begun. While the campaign-owned opening source lifecycle is still open, even an incomplete or repeated call is a read-only deferred no-op; the watch owns projection."
     },
     "progressive.publish_skeleton": {
       "canonical_operation": "progressive.publish_skeleton",

@@ -1180,6 +1180,48 @@ _PARAM_ALIASES: dict[str, dict[str, str]] = {
 }
 
 
+# These operations mutate only exact owned source-work leases. They do not
+# fulfill source data, settle rules, change player state, or enter the pending
+# turn's source window, so blocking them after state.journal can strand a
+# coordinator without protecting finalization integrity.
+_SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
+    "progressive.renew_host_work_leases",
+    "progressive.release_host_work_leases",
+})
+
+
+def _opening_projection_lifecycle_in_flight(
+    root: Path, campaign_id: str | None,
+) -> bool:
+    """Allow one typed deferred projection result before required-param gates."""
+    if not campaign_id:
+        return False
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            root, str(campaign_id),
+        )
+        assets_mod = coc_module_project.coc_module_assets
+        return any(
+            row.get("kind") == "partial_opening"
+            and row.get("request_purpose")
+            == assets_mod.FOREGROUND_OPENING_PURPOSE
+            and row.get("operational_class") in {
+                "runnable", "leased", "awaiting_cache", "awaiting_scope",
+            }
+            for row in assets_mod.list_host_work_requests(
+                root,
+                root_info["asset_root_id"],
+                include_closed=False,
+                limit=None,
+            )
+        )
+    except (
+        coc_module_project.OpeningPreparationError,
+        coc_module_project.coc_module_assets.ModuleAssetsError,
+    ):
+        return False
+
+
 def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any]) -> dict[str, Any]:
     """Programmatic entry point. Returns the envelope dict."""
     spec = TOOLS.get(name)
@@ -1250,6 +1292,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
                     name not in {
                         "turn.finalize", "state.exceptional_effect", "state.journal",
                     }
+                    and name not in _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION
                 ):
                     # The journal boundary forbids every new mutation.  The
                     # sole exception is a read-only proof that this exact NPC
@@ -1487,6 +1530,12 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
             for pname in required_params
             if args.get(pname) in (None, "")
         ]
+        if (
+            missing_params
+            and name == "progressive.project_opening"
+            and _opening_projection_lifecycle_in_flight(root, campaign_id)
+        ):
+            missing_params = []
         if missing_params:
             label = "parameter" if len(missing_params) == 1 else "parameters"
             raise ToolError(
@@ -14321,10 +14370,17 @@ def _tool_progressive_request_locator_pass(ctx: Ctx, args: dict[str, Any]):
     "progressive.project_opening",
     "Experimental selected-only projection of one durable, current opening pack. "
     "Accepts no pack payload, never compiles alternate starts, and refuses stale "
-    "projection writes after play has begun.",
+    "projection writes after play has begun. While the campaign-owned opening "
+    "source lifecycle is still open, even an incomplete or repeated call is a "
+    "read-only deferred no-op; the watch owns projection.",
     {
-        "asset_root_id": {"type": "string", "required": True, "maxLength": 128},
-        "source_file_sha256": {"type": "string", "required": True, "minLength": 64, "maxLength": 64},
+        "asset_root_id": {
+            "type": "string", "required": True, "maxLength": 128,
+        },
+        "source_file_sha256": {
+            "type": "string", "required": True,
+            "minLength": 64, "maxLength": 64,
+        },
         "start_location_id": {
             "type": "string", "required": True,
             "minLength": 1, "maxLength": 128,
@@ -14341,6 +14397,46 @@ def _tool_progressive_request_locator_pass(ctx: Ctx, args: dict[str, Any]):
 def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
     if ctx.campaign_dir is None:
         raise ToolError("invalid_param", "campaign required")
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            ctx.root, str(ctx.campaign_id),
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    assets_mod = coc_module_project.coc_module_assets
+    opening_work = [
+        row for row in assets_mod.list_host_work_requests(
+            ctx.root,
+            root_info["asset_root_id"],
+            include_closed=False,
+            limit=None,
+        )
+        if row.get("kind") == "partial_opening"
+        and row.get("request_purpose") == assets_mod.FOREGROUND_OPENING_PURPOSE
+        and row.get("operational_class") in {
+            "runnable", "leased", "awaiting_cache", "awaiting_scope",
+        }
+    ]
+    if opening_work:
+        return {
+            "status": "source_lifecycle_in_flight",
+            "projection_deferred": True,
+            "idempotent": True,
+            "retry_required": False,
+            "projection_owner": "campaign_opening_projection_watch",
+            "open_job_ids": [
+                str(row.get("job_id") or "")
+                for row in opening_work
+                if str(row.get("job_id") or "")
+            ],
+            "lifecycle_states": sorted({
+                str(row.get("operational_class") or "")
+                for row in opening_work
+            }),
+        }, [], [
+            "do not call project_opening or scene.context again for this "
+            "source lifecycle; the campaign watch projects the durable pack",
+        ]
     selected_arg = _opening_start_selector(
         args.get("start_location_id"),
         required=True,
@@ -14473,7 +14569,15 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
                 for key, value in host_projection.items()
                 if key != "background_takeover"
             }
-            if takeover is not None:
+            if open_request.get("operational_class") == "leased":
+                result["source_lifecycle"] = {
+                    "status": "leased",
+                    "job_id": job_id,
+                    "idempotent": True,
+                    "retry_required": False,
+                    "owner": "existing_host_source_coordinator",
+                }
+            elif takeover is not None:
                 result["background_takeover"] = takeover
     hints = list(result.get("host_hints") or [])
     if result.get("skipped"):

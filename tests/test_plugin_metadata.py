@@ -794,6 +794,13 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "same_task_retry": True,
         "manager_repairs_receipt_or_leaf_result": False,
         "retryable_failure_classes": ["fulfill_rejected"],
+        "non_retryable_deferred_failure_classes": [
+            "turn_pending_finalization_deferred"
+        ],
+        "deferred_action": (
+            "release_exact_owned_lease_then_wait_for_normal_post_"
+            "finalization_takeover"
+        ),
         "require_status": "failed",
         "require_positive_claimed": True,
         "require_zero_fulfilled": True,

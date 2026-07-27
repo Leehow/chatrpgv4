@@ -93,6 +93,12 @@ export class OpeningTerminalContinuationGate {
   }>();
   private agentActive = false;
   private queuedVisibleDispositions: VisibleAssistantDisposition[] = [];
+  // A successful canonical turn.finalize is the structured provenance for
+  // exactly one player-visible assistant continuation. Pi/provider loops can
+  // otherwise emit an unsolicited second tool-free assistant message in the
+  // same turn. Keep this independent from prose so no text matcher becomes a
+  // second narration judge.
+  private finalizedOutput: "none" | "pending" | "published" = "none";
 
   trackOpeningDispatch(dispatchKey: string): void {
     if (dispatchKey) {
@@ -139,6 +145,14 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
+  markFinalizedOutputReady(): void {
+    this.finalizedOutput = "pending";
+  }
+
+  markExternalUserInput(): void {
+    this.finalizedOutput = "none";
+  }
+
   acceptVisibleAssistantFinal(): boolean {
     // Only the transcript gate's confirmed tool-free assistant final reaches
     // this method. Streaming starts/updates and tool-bearing finals cannot
@@ -151,6 +165,11 @@ export class OpeningTerminalContinuationGate {
       for (const [key, state] of this.states) {
         if (state === "projected") this.states.set(key, "published");
       }
+    }
+    if (this.finalizedOutput === "pending") {
+      this.finalizedOutput = "published";
+    } else if (this.finalizedOutput === "published") {
+      return false;
     }
     return true;
   }
@@ -190,6 +209,7 @@ export class OpeningTerminalContinuationGate {
   reset(): void {
     this.agentActive = false;
     this.queuedVisibleDispositions = [];
+    this.finalizedOutput = "none";
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
     this.states.clear();
@@ -199,8 +219,16 @@ export class OpeningTerminalContinuationGate {
 export function registerPlayerTranscriptGate(
   pi: ExtensionAPI,
   onVisibleAssistantFinal?: () => boolean | void,
+  onExternalUserInput?: () => void,
 ): void {
   pi.on("message_start", (event) => {
+    if (
+      event.message
+      && typeof event.message === "object"
+      && (event.message as { role?: unknown }).role === "user"
+    ) {
+      onExternalUserInput?.();
+    }
     hideUnsettledAssistantText(event.message);
   });
   pi.on("message_update", (event) => {
@@ -561,6 +589,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const data = objectOrNull(envelope?.data);
       const operation = String(params.operation);
       if (
+        operation === "turn.finalize"
+        && envelope?.ok === true
+        && typeof data?.rendered_text === "string"
+        && data.rendered_text.length > 0
+      ) {
+        openingContinuationGate.markFinalizedOutputReady();
+      }
+      if (
         envelope?.ok === true
         && (operation.startsWith("setup.") || operation.startsWith("character."))
       ) {
@@ -645,6 +681,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerPlayerTranscriptGate(
     pi,
     () => openingContinuationGate.acceptVisibleAssistantFinal(),
+    () => openingContinuationGate.markExternalUserInput(),
   );
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();

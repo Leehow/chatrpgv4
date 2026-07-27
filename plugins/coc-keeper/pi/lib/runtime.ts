@@ -655,6 +655,7 @@ const COORDINATOR_STATUSES = new Set(["fulfilled", "partial", "idle", "failed"])
 const COORDINATOR_FAILURES = new Set([
   "invalid_packet", "capability_mismatch", "claim_failed", "leaf_dispatch_failed",
   "leaf_result_not_bare", "leaf_result_invalid", "fulfill_rejected",
+  "turn_pending_finalization_deferred",
 ]);
 const SOURCE_VALIDATION_CODES = new Set<SourceValidationCode>([
   "claim_lease_bindings_invalid",
@@ -1422,6 +1423,18 @@ export function formatCanonicalToolFailure(
   return parts.join(": ");
 }
 
+/** Typed canonical-tool rejection used by private host lifecycle policy. */
+export class CanonicalToolError extends Error {
+  readonly toolName: string;
+  readonly code: string;
+  constructor(toolName: string, code: string, message: string) {
+    super(message);
+    this.name = "CanonicalToolError";
+    this.toolName = toolName;
+    this.code = code;
+  }
+}
+
 export function formatMcpTransportError(errorValue: unknown): string {
   if (errorValue && typeof errorValue === "object" && !Array.isArray(errorValue)) {
     const err = errorValue as JsonObject;
@@ -1599,7 +1612,17 @@ export class McpJsonlClient {
       throw new Error(formatCanonicalToolFailure(name, result, null));
     }
     if (result.isError === true || envelope.ok !== true) {
-      throw new Error(formatCanonicalToolFailure(name, result, envelope));
+      const errorValue = (
+        envelope.error
+        && typeof envelope.error === "object"
+        && !Array.isArray(envelope.error)
+      ) ? envelope.error as JsonObject : null;
+      const code = typeof errorValue?.code === "string"
+        ? errorValue.code.trim()
+        : "";
+      const message = formatCanonicalToolFailure(name, result, envelope);
+      if (code) throw new CanonicalToolError(name, code, message);
+      throw new Error(message);
     }
 
     // Cache static results that carry a content hash.
@@ -2149,6 +2172,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   ));
   let fulfilled = 0;
   let failureClass: string | null = null;
+  let fulfillmentDeferred = false;
   for (let index = 0; index < tasks.length; index++) {
     const settled = workerResults[index];
     if (settled.status === "rejected") {
@@ -2197,8 +2221,20 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
         fulfilled += 1;
         remainingJobs.delete(nonEmpty(row.job_id, "worker result job_id"));
         if (remainingJobs.size === 0) openLeaseIds.delete(leaseId);
-      } catch {
-        failureClass ??= "fulfill_rejected";
+      } catch (error) {
+        if (
+          error instanceof CanonicalToolError
+          && error.code === "turn_pending_finalization"
+        ) {
+          // This is not a bad worker result and must not enter same-task
+          // automatic retry. Release only the exact owned lease; the durable
+          // open request becomes eligible for a later normal takeover after
+          // the current turn finalizes.
+          failureClass = "turn_pending_finalization_deferred";
+          fulfillmentDeferred = true;
+        } else {
+          failureClass ??= "fulfill_rejected";
+        }
         break;
       }
     }
@@ -2212,7 +2248,9 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   if (openLeaseIds.size > 0) {
     const signalReason = dependencies.signal?.reason;
     const reasonText = typeof signalReason === "string" ? signalReason : "";
-    const reason = dependencies.signal?.aborted
+    const reason = fulfillmentDeferred
+      ? "turn_pending_finalization"
+      : dependencies.signal?.aborted
       ? (reasonText.includes("shutdown") ? "coordinator_shutdown" : "coordinator_aborted")
       : (fulfilled > 0 ? "coordinator_partial" : "coordinator_failed");
     await releaseOwnedLeases(

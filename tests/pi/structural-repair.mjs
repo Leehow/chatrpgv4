@@ -547,6 +547,50 @@ try {
     && renewAudit.some((entry) => entry.phase === "renew" && entry.status === "succeeded")
     && !renewAudit.some((entry) => entry.phase === "ttl_fallback"));
 
+  const deferredCalls = [], deferredAudit = [];
+  const deferredLifecycleResult = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-turn-pending-deferred", 1),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return { data: { dispatch_tasks: [task1] } };
+        }
+        deferredCalls.push(args);
+        if (args.operation === "progressive.fulfill_host_work") {
+          throw new runtime.CanonicalToolError(
+            "coc_invoke",
+            "turn_pending_finalization",
+            "canonical coc_invoke failed: turn_pending_finalization",
+          );
+        }
+        const leaseResult = leaseLifecycleSuccess(args);
+        if (leaseResult) return leaseResult;
+        throw new Error("unexpected deferred lifecycle operation");
+      },
+      spawnLeaf: async () => success(result1),
+      onLeaseLifecycle: (entry) => deferredAudit.push(entry),
+    },
+  );
+  const deferredReleaseCalls = deferredCalls.filter(
+    (args) => args.operation === "progressive.release_host_work_leases",
+  );
+  check("turn pending finalization is a typed deferred source lifecycle",
+    deferredLifecycleResult.status === "failed"
+    && deferredLifecycleResult.failure_class
+      === "turn_pending_finalization_deferred"
+    && deferredLifecycleResult.fulfilled_result_count === 0
+    && deferredReleaseCalls.length === 1
+    && deferredReleaseCalls[0].arguments.asset_root_id === "asset-fixture"
+    && deferredReleaseCalls[0].arguments.executor_id === "pi:test"
+    && JSON.stringify(deferredReleaseCalls[0].arguments.lease_ids)
+      === JSON.stringify(["packet-1"])
+    && deferredReleaseCalls[0].arguments.reason === "turn_pending_finalization"
+    && deferredAudit.some((entry) => (
+      entry.phase === "release"
+      && entry.status === "succeeded"
+      && entry.reason === "turn_pending_finalization"
+    )));
+
   const COVERAGE_MODES = ["exact", "subset", "mixed", "foreign", "duplicate", "overlap", "malformed"];
   function coverageResponse(mode, positiveField, skippedField) {
     const positive = {
@@ -918,6 +962,49 @@ try {
   }), (receipt) => absentNotifications.push(receipt), (observation) => absentLifecycle.push(observation));
   await absentManager.submit(absentTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
   await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const deferredManagerTask = coordinatorTask("coord-manager-deferred", 1);
+  deferredManagerTask.packet.claim_operation.prefilled_arguments
+    .max_dispatch_attempts = 2;
+  deferredManagerTask.packet.failure_policy = {
+    same_task_retry: true,
+    automatic_retry: {
+      retryable_failure_classes: ["fulfill_rejected"],
+      require_status: "failed",
+      require_positive_claimed: true,
+      require_zero_fulfilled: true,
+      max_attempts: 2,
+    },
+  };
+  let deferredManagerLaunchCount = 0;
+  const deferredManagerLifecycle = [];
+  const deferredManager = new runtime.CoordinatorDispatchManager(
+    () => {
+      deferredManagerLaunchCount += 1;
+      return {
+        child: {},
+        terminate: async () => {},
+        activation: Promise.resolve({ type: "agent_start" }),
+        completion: Promise.resolve(coordinatorEvents({
+          ...deferredLifecycleResult,
+          packet_id: "coord-manager-deferred",
+        })),
+      };
+    },
+    undefined,
+    (observation) => deferredManagerLifecycle.push(observation),
+  );
+  await deferredManager.submit(
+    deferredManagerTask,
+    { cwd: root, provider: "p", modelId: "m", thinking: "off" },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check("turn pending deferred completion never immediately retries",
+    deferredManagerLaunchCount === 1
+    && deferredManagerLifecycle.length === 1
+    && deferredManagerLifecycle[0].status === "completed"
+    && deferredManagerLifecycle[0].terminal_receipt.failure_class
+      === "turn_pending_finalization_deferred");
 
   const throwingTask = coordinatorTask("coord-manager-notify-failure");
   const throwingRun = {

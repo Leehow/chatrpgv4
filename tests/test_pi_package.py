@@ -586,7 +586,11 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "unrelatedWhileAwaitingReturned": True,
         "validOpeningReturned": True,
         "validOpeningText": "马车在白昼里停到城堡门前。",
+        "finalizedNarrationReturned": True,
+        "redundantMetaReturnedTypes": [],
+        "redundantAfterHiddenLifecycleTypes": [],
         "userText": "我走近窗边。",
+        "nextTurnNarrationReturned": True,
         "terminal": {
             "appended": 2,
             "sent": 1,

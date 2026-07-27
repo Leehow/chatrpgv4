@@ -66,6 +66,13 @@ POST_JOURNAL_READ_TOOLS = frozenset({
     "narration.brief",
     "narration.review",
 })
+# Private lease ownership can outlive the player turn. Renew/release touches
+# only that source-work lease and is excluded from turn settlement evidence;
+# fulfillment remains blocked until finalization.
+POST_JOURNAL_SOURCE_LEASE_TOOLS = frozenset({
+    "progressive.renew_host_work_leases",
+    "progressive.release_host_work_leases",
+})
 POST_JOURNAL_REPAIR_TOOLS = frozenset({"state.exceptional_effect"})
 
 _RESUME_MAX_ROWS = 96
@@ -841,7 +848,10 @@ def refresh_pending_window(
             continue
         tool = str(row.get("tool") or "")
         args = row.get("args") if isinstance(row.get("args"), dict) else {}
-        if tool in POST_JOURNAL_READ_TOOLS:
+        if (
+            tool in POST_JOURNAL_READ_TOOLS
+            or tool in POST_JOURNAL_SOURCE_LEASE_TOOLS
+        ):
             continue
         if tool == "turn.finalize" and args.get("validate_only") is True:
             # A validate_only preflight is read-only by contract: it runs the

@@ -12051,6 +12051,29 @@ def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materializ
     )
     assert request["dispatch_state"] == "ready"
     assert request["dispatch_attempts"] == 0
+    claimed = assets.claim_host_work_requests(
+        ws["workspace"],
+        ws["asset_root_id"],
+        executor_id="existing-pi-source-coordinator",
+        result_delivery="return_to_parent",
+    )
+    assert claimed["leased_group_count"] == 1
+
+    repeated = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "destination",
+        "title": "Destination",
+        "reason": "arrived after source-authored travel",
+    })
+    assert repeated["ok"] is True, repeated
+    assert "background_takeover" not in repeated["data"]
+    assert repeated["data"]["source_lifecycle"] == {
+        "status": "leased",
+        "job_id": request["job_id"],
+        "idempotent": True,
+        "retry_required": False,
+        "owner": "existing_host_source_coordinator",
+    }
 
 
 def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
@@ -12103,6 +12126,104 @@ def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
         ).read_text(encoding="utf-8")
     )
     assert scenario["opening_projection_watch"]["status"] == "complete"
+
+
+def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
+    tmp_path: Path, monkeypatch,
+):
+    """Pending finalization releases, but never fulfills or immediately retries."""
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_pending_finalize_source_lifecycle_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    claimed = assets.claim_host_work_requests(
+        ws["workspace"],
+        ws["asset_root_id"],
+        executor_id="pending-finalize-source-test",
+        result_delivery="return_to_parent",
+    )
+    packet = claimed["packets"][0]
+
+    # A malformed/redundant KP projection attempt while the coordinator owns
+    # the source job is a typed, idempotent deferred result rather than a
+    # missing-parameter failure or a second projection path.
+    deferred = _run(ws, "progressive.project_opening", {})
+    assert deferred["ok"] is True, deferred
+    assert deferred["data"] == {
+        "status": "source_lifecycle_in_flight",
+        "projection_deferred": True,
+        "idempotent": True,
+        "retry_required": False,
+        "projection_owner": "campaign_opening_projection_watch",
+        "open_job_ids": [boot["data"]["source_work"]["job_id"]],
+        "lifecycle_states": ["leased"],
+    }
+
+    journaled = _run(ws, "state.journal", {
+        "summary": "本轮已结算，后台来源工作随后完成。",
+        "player_action": "结束本轮",
+        "intent_class": "investigate",
+        "decision_id": "journal-before-source-fulfillment",
+    })
+    assert journaled["ok"] is True, journaled
+    renewed = _run(ws, "progressive.renew_host_work_leases", {
+        "asset_root_id": ws["asset_root_id"],
+        "executor_id": "pending-finalize-source-test",
+        "lease_ids": [packet["packet_id"]],
+        "lease_seconds": 120,
+    })
+    assert renewed["ok"] is True, renewed
+    assert renewed["data"]["renewed_job_ids"] == [
+        packet["requests"][0]["job_id"],
+    ]
+    deferred_fulfill = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": packet["requests"][0]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
+    })
+    assert deferred_fulfill["ok"] is False
+    assert deferred_fulfill["error"]["code"] == "turn_pending_finalization"
+    released = _run(ws, "progressive.release_host_work_leases", {
+        "asset_root_id": ws["asset_root_id"],
+        "executor_id": "pending-finalize-source-test",
+        "lease_ids": [packet["packet_id"]],
+        "reason": "turn_pending_finalization",
+    })
+    assert released["ok"] is True, released
+    assert released["data"]["released_job_ids"] == [
+        packet["requests"][0]["job_id"],
+    ]
+    request = assets.get_host_work_request(
+        ws["workspace"],
+        ws["asset_root_id"],
+        packet["requests"][0]["job_id"],
+    )
+    assert request["dispatch_state"] == "ready"
+    assert "lease_id" not in request
+    assert "executor_id" not in request
+
+    _finalize_pending_turn_for_test(
+        ws,
+        decision_id="finalize-before-source-retakeover",
+    )
+    status = _run(ws, "progressive.status")
+    assert status["ok"] is True, status
+    assert status["data"]["background_takeover"] is not None
 
 
 def test_opening_setup_source_clock_preserves_relative_precision(

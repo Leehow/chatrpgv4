@@ -22,7 +22,8 @@ main.registerPlayerTranscriptGate({
     registered.push(handler);
     handlers.set(type, registered);
   },
-}, () => openingContinuationGate.acceptVisibleAssistantFinal());
+}, () => openingContinuationGate.acceptVisibleAssistantFinal(),
+() => openingContinuationGate.markExternalUserInput());
 
 async function emit(type, message) {
   let result;
@@ -51,7 +52,8 @@ async function realRunAgentLoopProbe() {
       registered.push(handler);
       realHandlers.set(type, registered);
     },
-  }, () => gate.acceptVisibleAssistantFinal());
+  }, () => gate.acceptVisibleAssistantFinal(),
+  () => gate.markExternalUserInput());
   gate.trackOpeningDispatch("real-loop-opening");
   gate.queueVisibleAssistantDisposition("operational_wait");
   gate.markIndependentVisibleOutput();
@@ -229,11 +231,37 @@ const validOpening = {
 };
 const validOpeningResult = await emit("message_end", validOpening);
 
+openingContinuationGate.markFinalizedOutputReady();
+const finalizedNarration = {
+  role: "assistant",
+  content: [{ type: "text", text: "门后的脚步声骤然停住。" }],
+};
+const finalizedNarrationResult = await emit("message_end", finalizedNarration);
+const redundantMeta = {
+  role: "assistant",
+  content: [{ type: "text", text: "你接下来想做什么？" }],
+};
+const redundantMetaResult = await emit("message_end", redundantMeta);
+await emit("message_start", {
+  role: "custom",
+  customType: "coc-source-coordinator-terminal-continuation",
+  content: "hidden lifecycle notice",
+  display: false,
+});
+const redundantAfterHiddenLifecycle = await emit("message_end", {
+  role: "assistant",
+  content: [{ type: "text", text: "后台资料已更新。" }],
+});
+
 const user = {
   role: "user",
   content: [{ type: "text", text: "我走近窗边。" }],
 };
 await emit("message_start", user);
+const nextTurnNarration = await emit("message_end", {
+  role: "assistant",
+  content: [{ type: "text", text: "窗边的冷气贴上你的指节。" }],
+});
 
 const terminalSent = [];
 const terminalAppended = [];
@@ -349,7 +377,12 @@ process.stdout.write(JSON.stringify({
   unrelatedWhileAwaitingReturned: unrelatedWhileAwaitingResult === undefined,
   validOpeningReturned: validOpeningResult === undefined,
   validOpeningText: validOpening.content[0].text,
+  finalizedNarrationReturned: finalizedNarrationResult === undefined,
+  redundantMetaReturnedTypes: types(redundantMetaResult.message),
+  redundantAfterHiddenLifecycleTypes:
+    types(redundantAfterHiddenLifecycle.message),
   userText: user.content[0].text,
+  nextTurnNarrationReturned: nextTurnNarration === undefined,
   terminal: {
     appended: terminalAppended.length,
     sent: terminalSent.length,

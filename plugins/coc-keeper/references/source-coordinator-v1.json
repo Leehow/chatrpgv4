@@ -153,7 +153,8 @@
       "leaf_dispatch_failed",
       "leaf_result_not_bare",
       "leaf_result_invalid",
-      "fulfill_rejected"
+      "fulfill_rejected",
+      "turn_pending_finalization_deferred"
     ],
     "fixed_fields": {
       "schema_version": 1,
@@ -291,6 +292,10 @@
         "retryable_failure_classes": [
           "fulfill_rejected"
         ],
+        "non_retryable_deferred_failure_classes": [
+          "turn_pending_finalization_deferred"
+        ],
+        "deferred_action": "release_exact_owned_lease_then_wait_for_normal_post_finalization_takeover",
         "require_status": "failed",
         "require_positive_claimed": true,
         "require_zero_fulfilled": true,
@@ -309,7 +314,8 @@
       "leaf_dispatch_failed",
       "leaf_result_not_bare",
       "leaf_result_invalid",
-      "fulfill_rejected"
+      "fulfill_rejected",
+      "turn_pending_finalization_deferred"
     ],
     "evidence_rule": "three observed occurrences of the same failure class and adapter path require design review; they must not be dismissed as model variance"
   },
