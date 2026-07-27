@@ -84,6 +84,16 @@ function rejects(call, predicate = () => true) {
 function check(label, condition) {
   if (!condition) throw new Error(`structural repair assertion failed: ${label}`);
 }
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
 const FIXTURE_JOBS_BY_LEASE = new Map([
   ["packet-1", ["job-1a", "job-1b", "job-1c"]],
   ["packet-2", ["job-2"]],
@@ -248,6 +258,35 @@ try {
       !Object.hasOwn(request, "result_contract_ref")
       && request.result_contract.contract_id === "coc.location-body-pack.v1"
     )));
+  const canonicalOpeningContract = (
+    sourceWorkerContract.packet.foreground_opening_slice.result_contract
+  );
+  const canonicalOpeningRef = `sha256:${createHash("sha256")
+    .update(canonicalJson(canonicalOpeningContract))
+    .digest("hex")}`;
+  const canonicalRefTask = structuredClone(clockTask);
+  delete canonicalRefTask.packet.requests[0].result_contract;
+  canonicalRefTask.packet.requests[0].result_contract_ref = (
+    canonicalOpeningRef
+  );
+  const canonicalInflated = runtime.validateLeafTask(canonicalRefTask);
+  check("singleton canonical contract hash inflates before spawn",
+    !Object.hasOwn(
+      canonicalInflated.packet.requests[0],
+      "result_contract_ref",
+    )
+    && JSON.stringify(
+      canonicalInflated.packet.requests[0].result_contract,
+    ) === JSON.stringify(canonicalOpeningContract));
+  const unboundCanonicalRefTask = structuredClone(canonicalRefTask);
+  unboundCanonicalRefTask.packet.requests[0].result_contract_ref = (
+    `sha256:${"0".repeat(64)}`
+  );
+  check("singleton canonical contract ref remains fail closed",
+    rejects(
+      () => runtime.validateLeafTask(unboundCanonicalRefTask),
+      (error) => error.message.includes("result_contract_ref is unbound"),
+    ));
 
   const projectionReleaseCalls = [], projectionReleaseAudit = [];
   const projectedFailure = await runtime.runCoordinatorLifecycle(
@@ -280,6 +319,16 @@ try {
     projectedFailure.status === "failed"
     && projectedFailure.claimed_packet_count === 1
     && projectedFailure.failure_class === "leaf_result_invalid"
+    && JSON.stringify(projectedFailure.diagnostics) === JSON.stringify([{
+      schema_version: 1,
+      contract_id: "coc.source-validation-diagnostic.v1",
+      phase: "claim_projection",
+      code: "claim_wire_projection_failed",
+      validation_path: "claim.wire.claim_dispatch_projection_failed",
+      lease_id: "packet-1",
+      job_ids: ["job-1a", "job-1b", "job-1c"],
+    }])
+    && !JSON.stringify(projectedFailure).includes(sentinel)
     && projectionReleaseCalls.length === 1
     && projectionReleaseCalls[0].operation === "progressive.release_host_work_leases"
     && projectionReleaseCalls[0].arguments.reason === "claim_projection_invalid"
@@ -288,6 +337,46 @@ try {
       entry.phase === "release" && entry.status === "succeeded"
     ))
     && !projectionReleaseAudit.some((entry) => entry.phase === "ttl_fallback"));
+
+  const missingDispatchReleaseCalls = [];
+  const missingDispatch = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-missing-dispatch", 1),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return {
+            data: {
+              lease_bindings: [{
+                lease_id: "packet-1",
+                job_ids: ["job-1a", "job-1b", "job-1c"],
+              }],
+            },
+          };
+        }
+        missingDispatchReleaseCalls.push(args);
+        return leaseLifecycleSuccess(args);
+      },
+      spawnLeaf: async () => {
+        throw new Error("missing dispatch tasks must not spawn a leaf");
+      },
+      leaseCallGraceMs: 50,
+    },
+  );
+  check("missing dispatch tasks stay bounded and release exact leased work",
+    missingDispatch.status === "failed"
+    && JSON.stringify(missingDispatch.diagnostics) === JSON.stringify([{
+      schema_version: 1,
+      contract_id: "coc.source-validation-diagnostic.v1",
+      phase: "claim_projection",
+      code: "claim_dispatch_tasks_missing",
+      validation_path: "claim.data.dispatch_tasks",
+      lease_id: "packet-1",
+      job_ids: ["job-1a", "job-1b", "job-1c"],
+    }])
+    && missingDispatchReleaseCalls.length === 1
+    && missingDispatchReleaseCalls[0].operation === (
+      "progressive.release_host_work_leases"
+    ));
 
   // Typed thinking is the only ignorable message metadata. Every other part
   // remains inside the strict leaf/coordinator framing boundary.
@@ -323,7 +412,10 @@ try {
     () => runtime.parseStrictWorkerResult(
       terminal({ ...result1, packet_id: "wrong-packet" }), task1,
     ),
-    (error) => error instanceof runtime.LeafStageError && error.failureClass === "leaf_result_invalid",
+    (error) => error instanceof runtime.LeafStageError
+      && error.failureClass === "leaf_result_invalid"
+      && error.diagnostic.code === "leaf_result_packet_binding_drift"
+      && error.diagnostic.path === "$.packet_id|$.work_group_id",
   ));
 
   const partial = await runtime.runCoordinatorLifecycle(coordinatorTask(), {
@@ -760,7 +852,7 @@ try {
     ]],
   ]) check(label, rejects(() => runtime.parseStrictCoordinatorResult(events, coordinatorTask())));
 
-  let absentRejected = false, duplicateRejected = false, bindingRejected = false, authorityRejected = false, contentDetailsRejected = false, impossibleRejected = false, designIssueRejected = false;
+  let absentRejected = false, duplicateRejected = false, bindingRejected = false, authorityRejected = false, contentDetailsRejected = false, impossibleRejected = false, designIssueRejected = false, diagnosticRejected = false;
   try { runtime.parseStrictCoordinatorResult([], coordinatorTask()); } catch { absentRejected = true; }
   try { runtime.parseStrictCoordinatorResult([...coordinatorEvents(validTerminal), ...coordinatorEvents(validTerminal)], coordinatorTask()); } catch { duplicateRejected = true; }
   try { runtime.parseStrictCoordinatorResult(coordinatorEvents({ ...validTerminal, packet_id: "other" }), coordinatorTask()); } catch { bindingRejected = true; }
@@ -782,9 +874,24 @@ try {
   } catch { contentDetailsRejected = true; }
   try { runtime.validateCoordinatorResult({ ...validTerminal, claimed_packet_count: 999, leaf_task_count: 999, fulfilled_result_count: 999 }, coordinatorTask()); } catch { impossibleRejected = true; }
   try { runtime.validateCoordinatorResult({ ...validTerminal, status: "design_issue", failure_class: "claim_failed" }, coordinatorTask()); } catch { designIssueRejected = true; }
+  try {
+    runtime.validateCoordinatorResult({
+      ...validTerminal,
+      diagnostics: [{
+        schema_version: 1,
+        contract_id: "coc.source-validation-diagnostic.v1",
+        phase: "leaf_result",
+        code: "unbounded_source_text",
+        validation_path: "PRIVATE SOURCE PROSE",
+        lease_id: "packet-1",
+        job_ids: ["job-1a"],
+      }],
+    }, coordinatorTask());
+  } catch { diagnosticRejected = true; }
   check("coordinator strict receipt gates preserved", [
     absentRejected, duplicateRejected, bindingRejected, authorityRejected,
     contentDetailsRejected, impossibleRejected, designIssueRejected,
+    diagnosticRejected,
   ].every(Boolean));
 
   const notifications = [], lifecycle = [];
@@ -935,7 +1042,7 @@ try {
       releaseFailureAudit: failedRelease.audit,
       hardCrashRecoveryClaim: "bounded TTL only; no graceful release receipt exists after abrupt process loss",
     },
-    terminal: { absentRejected, duplicateRejected, bindingRejected, authorityRejected, contentDetailsRejected, impossibleRejected, designIssueRejected },
+    terminal: { absentRejected, duplicateRejected, bindingRejected, authorityRejected, contentDetailsRejected, impossibleRejected, designIssueRejected, diagnosticRejected },
     manager: {
       notifications: notifications.length, lifecycle: lifecycle.length, duplicateDiagnostic,
       absentState: absentManager.state("coord-manager-absent"),

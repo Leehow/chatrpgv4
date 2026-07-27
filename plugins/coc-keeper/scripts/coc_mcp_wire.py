@@ -11,6 +11,7 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Callable
 
 
@@ -19,6 +20,11 @@ PROFILE_ID = "keeper_hot_v1"
 # Grok's documented default is 20,000 bytes.  Budget the complete envelope,
 # not only ``data``, and retain headroom for the host's MCP wrapper.
 MAX_INLINE_BYTES = 16 * 1024
+SOURCE_WORKER_CONTRACT_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "references"
+    / "source-pack-worker-v1.json"
+)
 
 # Compact projection of the canonical ``turn.finalize`` argument contract.
 # This is intentionally smaller than the archived MCP schema: it carries only
@@ -1422,20 +1428,29 @@ def _claim_lease_bindings(data: Any) -> list[dict[str, Any]]:
     return bindings
 
 
+def _canonical_wire_result_contracts() -> dict[str, dict[str, Any]]:
+    """Return exact host-local contracts safe to transmit by hash only."""
+    document = json.loads(SOURCE_WORKER_CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract = document["packet"]["foreground_opening_slice"]["result_contract"]
+    return {canonical_digest(contract): contract}
+
+
 def _project_claim_dispatch(data: Any) -> dict[str, Any]:
-    """Deduplicate repeated per-request contracts without losing leaf work.
+    """Reference exact result contracts without losing leaf work.
 
     One coalesced source packet can contain several requests with the same
     closed result contract.  Keeping one packet-local registry entry plus
     explicit request references preserves the complete contract while avoiding
-    a multi-kilobyte copy per request.  The Pi runtime inflates this transport
-    shape before validating or spawning a leaf; other hosts can resolve the
-    explicit packet-local reference directly.
+    a multi-kilobyte copy per request. A canonical singleton foreground contract
+    travels by its allowlisted hash alone; the Pi runtime independently loads,
+    rehashes, and inflates the bundled canonical contract before validating or
+    spawning a leaf.
     """
     if not isinstance(data, dict):
         return {}
     projected = deepcopy(data)
     projected["lease_bindings"] = _claim_lease_bindings(data)
+    canonical_contracts = _canonical_wire_result_contracts()
     for task in projected.get("dispatch_tasks") or []:
         if not isinstance(task, dict) or not isinstance(task.get("packet"), dict):
             continue
@@ -1453,17 +1468,21 @@ def _project_claim_dispatch(data: Any) -> dict[str, Any]:
             ref = canonical_digest(contract)
             current = contract_rows.setdefault(ref, (deepcopy(contract), []))
             current[1].append(index)
-        repeated = {
+        referenced = {
             ref: row
             for ref, row in contract_rows.items()
-            if len(row[1]) > 1
+            if len(row[1]) > 1 or ref in canonical_contracts
         }
-        if not repeated:
+        if not referenced:
             continue
-        packet["wire_result_contracts"] = {
-            ref: row[0] for ref, row in repeated.items()
+        local_contracts = {
+            ref: row[0]
+            for ref, row in referenced.items()
+            if ref not in canonical_contracts
         }
-        for ref, (_contract, indices) in repeated.items():
+        if local_contracts:
+            packet["wire_result_contracts"] = local_contracts
+        for ref, (_contract, indices) in referenced.items():
             for index in indices:
                 requests[index].pop("result_contract", None)
                 requests[index]["result_contract_ref"] = ref

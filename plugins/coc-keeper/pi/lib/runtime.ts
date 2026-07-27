@@ -29,6 +29,11 @@ export const COORDINATOR_EXTENSION = join(PLUGIN_ROOT, "pi", "extensions", "coor
 export const LEAF_EXTENSION = join(PLUGIN_ROOT, "pi", "extensions", "leaf.ts");
 export const COORDINATOR_INSTRUCTION = join(PLUGIN_ROOT, "agents", "coc-source-coordinator.md");
 export const LEAF_INSTRUCTION = join(PLUGIN_ROOT, "agents", "coc-source-pack-worker.md");
+export const SOURCE_WORKER_CONTRACT = join(
+  PLUGIN_ROOT,
+  "references",
+  "source-pack-worker-v1.json",
+);
 
 export type PrivateRole = "coordinator" | "leaf";
 export interface PrivateLaunchContext {
@@ -90,28 +95,62 @@ function inflateProjectedLeafTask(input: unknown): JsonObject {
   const task = structuredClone(asObject(input, "Pi leaf task"));
   const packet = asObject(task.packet, "source packet");
   const registryValue = packet.wire_result_contracts;
-  if (registryValue === undefined) return task;
-  const registry = asObject(registryValue, "wire result-contract registry");
-  if (!Array.isArray(packet.requests) || Object.keys(registry).length === 0) {
+  const requests = packet.requests;
+  const hasContractRefs = Array.isArray(requests) && requests.some((value) => (
+    value && typeof value === "object" && !Array.isArray(value)
+    && (value as JsonObject).result_contract_ref !== undefined
+  ));
+  if (registryValue === undefined && !hasContractRefs) return task;
+  const registry = registryValue === undefined
+    ? {}
+    : asObject(registryValue, "wire result-contract registry");
+  if (
+    !Array.isArray(requests)
+    || (registryValue !== undefined && Object.keys(registry).length === 0)
+  ) {
     throw new Error("wire result-contract registry is empty");
   }
+  const canonicalDocument = asObject(
+    JSON.parse(readFileSync(SOURCE_WORKER_CONTRACT, "utf8")),
+    "canonical source worker contract",
+  );
+  const canonicalPacket = asObject(
+    canonicalDocument.packet,
+    "canonical source worker packet",
+  );
+  const canonicalOpening = asObject(
+    canonicalPacket.foreground_opening_slice,
+    "canonical foreground opening slice",
+  );
+  const canonicalContract = asObject(
+    canonicalOpening.result_contract,
+    "canonical foreground opening result contract",
+  );
+  const canonicalRef = `sha256:${createHash("sha256").update(
+    jsonCanonical(canonicalContract),
+  ).digest("hex")}`;
   const used = new Set<string>();
-  for (const value of packet.requests) {
+  for (const value of requests) {
     const request = asObject(value, "source request");
     if (request.result_contract_ref === undefined) continue;
     if (request.result_contract !== undefined) {
       throw new Error("source request cannot contain contract and contract ref");
     }
     const ref = nonEmpty(request.result_contract_ref, "result_contract_ref");
-    if (!/^sha256:[a-f0-9]{64}$/.test(ref) || !Object.hasOwn(registry, ref)) {
+    const localContract = Object.hasOwn(registry, ref)
+      ? asObject(registry[ref], "wire result contract")
+      : null;
+    const contract = localContract ?? (
+      ref === canonicalRef ? canonicalContract : null
+    );
+    if (!/^sha256:[a-f0-9]{64}$/.test(ref) || contract === null) {
       throw new Error("source request result_contract_ref is unbound");
     }
-    const contract = asObject(registry[ref], "wire result contract");
     const digest = `sha256:${createHash("sha256").update(jsonCanonical(contract)).digest("hex")}`;
     if (digest !== ref) throw new Error("wire result contract digest drift");
     request.result_contract = structuredClone(contract);
     delete request.result_contract_ref;
-    used.add(ref);
+    if (localContract !== null) used.add(ref);
   }
   if (used.size !== Object.keys(registry).length) {
     throw new Error("wire result-contract registry has unused entries");
@@ -330,18 +369,166 @@ export function expectedBinding(taskValue: unknown) {
   };
 }
 
+export type SourceValidationCode =
+  | "claim_lease_bindings_invalid"
+  | "claim_dispatch_tasks_missing"
+  | "claim_dispatch_task_count_exceeded"
+  | "claim_wire_projection_failed"
+  | "claim_leaf_task_shape_invalid"
+  | "claim_packet_bindings_duplicate"
+  | "claim_job_bindings_duplicate"
+  | "claim_lease_binding_mismatch"
+  | "leaf_result_root_not_object"
+  | "leaf_result_closed_shape"
+  | "leaf_result_contract_drift"
+  | "leaf_result_packet_binding_drift"
+  | "leaf_result_status_invalid"
+  | "leaf_result_rows_empty"
+  | "leaf_result_row_not_object"
+  | "leaf_result_job_id_invalid"
+  | "leaf_result_job_id_duplicate"
+  | "leaf_result_job_binding_drift"
+  | "leaf_framing_not_one_text"
+  | "leaf_framing_invalid_json";
+
+type ValidationFailure = {
+  code: SourceValidationCode;
+  path: string;
+};
+
+export type SourceValidationDiagnostic = {
+  schema_version: 1;
+  contract_id: "coc.source-validation-diagnostic.v1";
+  phase: "claim_projection" | "leaf_result";
+  code: SourceValidationCode;
+  validation_path: string;
+  lease_id: string | null;
+  job_ids: string[];
+};
+
+class SourceContractValidationError extends Error {
+  readonly diagnostic: ValidationFailure;
+  constructor(code: SourceValidationCode, path: string) {
+    super("source contract validation failed");
+    this.diagnostic = { code, path };
+  }
+}
+
+function sourceContractFailure(
+  code: SourceValidationCode,
+  path: string,
+): never {
+  throw new SourceContractValidationError(code, path);
+}
+
+function claimLeafTaskValidationFailure(error: unknown): ValidationFailure {
+  const message = error instanceof Error ? error.message : "";
+  const exact: Record<string, string> = {
+    "wire result-contract registry is empty": "task.packet.wire_result_contracts",
+    "source request cannot contain contract and contract ref": "task.packet.requests[].result_contract",
+    "source request result_contract_ref is unbound": "task.packet.requests[].result_contract_ref",
+    "wire result contract digest drift": "task.packet.requests[].result_contract_ref",
+    "wire result-contract registry has unused entries": "task.packet.wire_result_contracts",
+    "unsupported Pi leaf task contract": "task.contract_id",
+    "Pi leaf must inherit parent model": "task.model_policy",
+    "Pi leaf instruction drift": "task.instruction_ref",
+    "invalid source packet contract": "task.packet.contract_id",
+    "source packet requests are empty": "task.packet.requests",
+    "source packet has too many requests": "task.packet.requests",
+    "source packet has duplicate job ids": "task.packet.requests[].job_id",
+  };
+  const matched = exact[message];
+  if (matched) {
+    return {
+      code: "claim_leaf_task_shape_invalid",
+      path: matched,
+    };
+  }
+  if (message.startsWith("Pi leaf task has unsupported fields:")) {
+    return {
+      code: "claim_leaf_task_shape_invalid",
+      path: "task",
+    };
+  }
+  if (message.startsWith("source request must be an object")) {
+    return {
+      code: "claim_leaf_task_shape_invalid",
+      path: "task.packet.requests[]",
+    };
+  }
+  if (message.startsWith("job_id must be a non-empty string")) {
+    return {
+      code: "claim_leaf_task_shape_invalid",
+      path: "task.packet.requests[].job_id",
+    };
+  }
+  return {
+    code: "claim_leaf_task_shape_invalid",
+    path: "task.packet",
+  };
+}
+
 export function validateWorkerObject(resultValue: unknown, taskValue: unknown): JsonObject {
   const expected = expectedBinding(taskValue);
-  const result = asObject(resultValue, "worker result");
-  exactKeys(result, ["schema_version", "contract_id", "packet_id", "work_group_id", "status", "results"], "worker result");
-  if (result.schema_version !== 1 || result.contract_id !== "coc.source-pack-worker.v1") throw new Error("worker result contract drift");
-  if (result.packet_id !== expected.packetId || result.work_group_id !== expected.workGroupId) throw new Error("worker result packet binding drift");
-  if (result.status !== "usable") throw new Error("worker result must be usable");
-  if (!Array.isArray(result.results) || result.results.length === 0) throw new Error("worker result rows are empty");
-  const rows = result.results.map((value) => asObject(value, "worker result row"));
-  const actualIds = rows.map((row) => nonEmpty(row.job_id, "worker result job_id"));
-  if (new Set(actualIds).size !== actualIds.length) throw new Error("worker result repeats a job id");
-  if (actualIds.length !== expected.jobIds.length || actualIds.some((id) => !expected.jobIds.includes(id))) throw new Error("worker result job binding drift");
+  if (!resultValue || typeof resultValue !== "object" || Array.isArray(resultValue)) {
+    return sourceContractFailure("leaf_result_root_not_object", "$");
+  }
+  const result = resultValue as JsonObject;
+  const allowed = new Set([
+    "schema_version", "contract_id", "packet_id", "work_group_id", "status",
+    "results",
+  ]);
+  if (Object.keys(result).some((key) => !allowed.has(key))) {
+    return sourceContractFailure("leaf_result_closed_shape", "$");
+  }
+  if (result.schema_version !== 1 || result.contract_id !== "coc.source-pack-worker.v1") {
+    return sourceContractFailure("leaf_result_contract_drift", "$.contract_id");
+  }
+  if (result.packet_id !== expected.packetId || result.work_group_id !== expected.workGroupId) {
+    return sourceContractFailure(
+      "leaf_result_packet_binding_drift",
+      "$.packet_id|$.work_group_id",
+    );
+  }
+  if (result.status !== "usable") {
+    return sourceContractFailure("leaf_result_status_invalid", "$.status");
+  }
+  if (!Array.isArray(result.results) || result.results.length === 0) {
+    return sourceContractFailure("leaf_result_rows_empty", "$.results");
+  }
+  const rows = result.results.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return sourceContractFailure(
+        "leaf_result_row_not_object",
+        "$.results[]",
+      );
+    }
+    return value as JsonObject;
+  });
+  const actualIds = rows.map((row) => {
+    if (typeof row.job_id !== "string" || !row.job_id.trim()) {
+      return sourceContractFailure(
+        "leaf_result_job_id_invalid",
+        "$.results[].job_id",
+      );
+    }
+    return row.job_id.trim();
+  });
+  if (new Set(actualIds).size !== actualIds.length) {
+    return sourceContractFailure(
+      "leaf_result_job_id_duplicate",
+      "$.results[].job_id",
+    );
+  }
+  if (
+    actualIds.length !== expected.jobIds.length
+    || actualIds.some((id) => !expected.jobIds.includes(id))
+  ) {
+    return sourceContractFailure(
+      "leaf_result_job_binding_drift",
+      "$.results[].job_id",
+    );
+  }
   return result;
 }
 
@@ -349,7 +536,12 @@ export type LeafFailureClass = "leaf_dispatch_failed" | "leaf_result_not_bare" |
 export type LeafFailureStage = "activation" | "process" | "framing" | "validation";
 export type LeafExecutionOutcome =
   | { kind: "success"; result: JsonObject }
-  | { kind: "failure"; stage: LeafFailureStage; failure_class: LeafFailureClass };
+  | {
+    kind: "failure";
+    stage: LeafFailureStage;
+    failure_class: LeafFailureClass;
+    diagnostic?: ValidationFailure;
+  };
 
 export type LeaseLifecycleObservation = {
   schema_version: 1;
@@ -371,10 +563,16 @@ export type LeaseLifecycleObservation = {
 export class LeafStageError extends Error {
   readonly stage: LeafFailureStage;
   readonly failureClass: LeafFailureClass;
-  constructor(stage: LeafFailureStage, failureClass: LeafFailureClass) {
+  readonly diagnostic?: ValidationFailure;
+  constructor(
+    stage: LeafFailureStage,
+    failureClass: LeafFailureClass,
+    diagnostic?: ValidationFailure,
+  ) {
     super(`Pi leaf ${stage} failed`);
     this.stage = stage;
     this.failureClass = failureClass;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -394,30 +592,120 @@ export function parseStrictWorkerResult(events: JsonObject[], taskValue: unknown
     const message = event.message && typeof event.message === "object" ? event.message as JsonObject : null;
     if (!message || message.role !== "assistant" || !Array.isArray(message.content)) continue;
     const parts = withoutTypedThinking(message.content);
-    if (parts.length !== 1) throw new LeafStageError("framing", "leaf_result_not_bare");
+    if (parts.length !== 1) throw new LeafStageError(
+      "framing",
+      "leaf_result_not_bare",
+      { code: "leaf_framing_not_one_text", path: "assistant.content" },
+    );
     const text = parts[0];
     if (!text || typeof text !== "object" || Array.isArray(text)) {
-      throw new LeafStageError("framing", "leaf_result_not_bare");
+      throw new LeafStageError(
+        "framing",
+        "leaf_result_not_bare",
+        { code: "leaf_framing_not_one_text", path: "assistant.content" },
+      );
     }
     const textPart = text as JsonObject;
     if (textPart.type !== "text" || typeof textPart.text !== "string" || !textPart.text.trim()) {
-      throw new LeafStageError("framing", "leaf_result_not_bare");
+      throw new LeafStageError(
+        "framing",
+        "leaf_result_not_bare",
+        { code: "leaf_framing_not_one_text", path: "assistant.content" },
+      );
     }
     let parsed: unknown;
     try { parsed = JSON.parse(textPart.text); }
-    catch { throw new LeafStageError("framing", "leaf_result_not_bare"); }
+    catch {
+      throw new LeafStageError(
+        "framing",
+        "leaf_result_not_bare",
+        { code: "leaf_framing_invalid_json", path: "assistant.content[0].text" },
+      );
+    }
     try { terminals.push(asObject(parsed, "worker result")); }
-    catch { throw new LeafStageError("framing", "leaf_result_not_bare"); }
+    catch {
+      throw new LeafStageError(
+        "framing",
+        "leaf_result_not_bare",
+        { code: "leaf_result_root_not_object", path: "$" },
+      );
+    }
   }
-  if (terminals.length !== 1) throw new LeafStageError("framing", "leaf_result_not_bare");
+  if (terminals.length !== 1) throw new LeafStageError(
+    "framing",
+    "leaf_result_not_bare",
+    { code: "leaf_framing_not_one_text", path: "assistant.messages" },
+  );
   try { return validateWorkerObject(terminals[0], taskValue); }
-  catch { throw new LeafStageError("validation", "leaf_result_invalid"); }
+  catch (error) {
+    throw new LeafStageError(
+      "validation",
+      "leaf_result_invalid",
+      error instanceof SourceContractValidationError
+        ? error.diagnostic
+        : {
+          code: "claim_leaf_task_shape_invalid",
+          path: "task.packet",
+        },
+    );
+  }
 }
 
 const COORDINATOR_STATUSES = new Set(["fulfilled", "partial", "idle", "failed"]);
 const COORDINATOR_FAILURES = new Set([
   "invalid_packet", "capability_mismatch", "claim_failed", "leaf_dispatch_failed",
   "leaf_result_not_bare", "leaf_result_invalid", "fulfill_rejected",
+]);
+const SOURCE_VALIDATION_CODES = new Set<SourceValidationCode>([
+  "claim_lease_bindings_invalid",
+  "claim_dispatch_tasks_missing",
+  "claim_dispatch_task_count_exceeded",
+  "claim_wire_projection_failed",
+  "claim_leaf_task_shape_invalid",
+  "claim_packet_bindings_duplicate",
+  "claim_job_bindings_duplicate",
+  "claim_lease_binding_mismatch",
+  "leaf_result_root_not_object",
+  "leaf_result_closed_shape",
+  "leaf_result_contract_drift",
+  "leaf_result_packet_binding_drift",
+  "leaf_result_status_invalid",
+  "leaf_result_rows_empty",
+  "leaf_result_row_not_object",
+  "leaf_result_job_id_invalid",
+  "leaf_result_job_id_duplicate",
+  "leaf_result_job_binding_drift",
+  "leaf_framing_not_one_text",
+  "leaf_framing_invalid_json",
+]);
+const SOURCE_VALIDATION_PATHS = new Set([
+  "claim.data.lease_bindings",
+  "claim.data.dispatch_tasks",
+  "claim.wire.claim_dispatch_projection_failed",
+  "task",
+  "task.contract_id",
+  "task.model_policy",
+  "task.instruction_ref",
+  "task.packet",
+  "task.packet.contract_id",
+  "task.packet.requests",
+  "task.packet.requests[]",
+  "task.packet.requests[].job_id",
+  "task.packet.requests[].result_contract",
+  "task.packet.requests[].result_contract_ref",
+  "task.packet.wire_result_contracts",
+  "claim.data.dispatch_tasks[].packet.packet_id",
+  "claim.data.dispatch_tasks[].packet.requests[].job_id",
+  "$",
+  "$.contract_id",
+  "$.packet_id|$.work_group_id",
+  "$.status",
+  "$.results",
+  "$.results[]",
+  "$.results[].job_id",
+  "assistant.content",
+  "assistant.content[0].text",
+  "assistant.messages",
 ]);
 
 export function validateCoordinatorResult(resultValue: unknown, taskValue: unknown): JsonObject {
@@ -427,7 +715,7 @@ export function validateCoordinatorResult(resultValue: unknown, taskValue: unkno
   exactKeys(result, [
     "schema_version", "contract_id", "packet_id", "status", "claim_calls",
     "claimed_packet_count", "leaf_task_count", "fulfilled_result_count",
-    "failure_class", "design_issue_threshold",
+    "failure_class", "design_issue_threshold", "diagnostics",
   ], "coordinator result");
   if (result.schema_version !== 1 || result.contract_id !== "coc.source-coordinator-result.v1") throw new Error("coordinator result contract drift");
   if (result.packet_id !== packet.packet_id) throw new Error("coordinator result packet binding drift");
@@ -447,6 +735,45 @@ export function validateCoordinatorResult(resultValue: unknown, taskValue: unkno
   if (result.status === "idle" && (failure !== null || result.claimed_packet_count !== 0 || result.fulfilled_result_count !== 0)) throw new Error("coordinator idle result is inconsistent");
   if (result.status === "partial" && (failure === null || (result.fulfilled_result_count as number) < 1)) throw new Error("coordinator partial result is inconsistent");
   if (result.status === "failed" && (failure === null || result.fulfilled_result_count !== 0)) throw new Error("coordinator failed result is inconsistent");
+  if (result.diagnostics !== undefined) {
+    if (
+      !Array.isArray(result.diagnostics)
+      || result.diagnostics.length === 0
+      || result.diagnostics.length > MAX_LEAVES
+    ) {
+      throw new Error("coordinator diagnostics are invalid");
+    }
+    for (const value of result.diagnostics) {
+      const diagnostic = asObject(value, "coordinator diagnostic");
+      exactKeys(diagnostic, [
+        "schema_version", "contract_id", "phase", "code",
+        "validation_path", "lease_id", "job_ids",
+      ], "coordinator diagnostic");
+      if (
+        diagnostic.schema_version !== 1
+        || diagnostic.contract_id !== "coc.source-validation-diagnostic.v1"
+        || !["claim_projection", "leaf_result"].includes(String(diagnostic.phase))
+        || !SOURCE_VALIDATION_CODES.has(diagnostic.code as SourceValidationCode)
+        || typeof diagnostic.validation_path !== "string"
+        || !SOURCE_VALIDATION_PATHS.has(diagnostic.validation_path)
+        || (
+          diagnostic.lease_id !== null
+          && (
+            typeof diagnostic.lease_id !== "string"
+            || !diagnostic.lease_id.trim()
+            || diagnostic.lease_id.length > 256
+          )
+        )
+        || !Array.isArray(diagnostic.job_ids)
+        || diagnostic.job_ids.length > MAX_RESULTS_PER_LEAF
+        || diagnostic.job_ids.some((jobId) => (
+          typeof jobId !== "string" || !jobId.trim() || jobId.length > 128
+        ))
+      ) {
+        throw new Error("coordinator diagnostic contract drift");
+      }
+    }
+  }
   return result;
 }
 
@@ -1058,7 +1385,14 @@ export async function collectLeafExecution(
     catch { return { kind: "failure", stage: "process", failure_class: "leaf_dispatch_failed" }; }
     try { return { kind: "success", result: parseStrictWorkerResult(events, taskValue) }; }
     catch (error) {
-      if (error instanceof LeafStageError) return { kind: "failure", stage: error.stage, failure_class: error.failureClass };
+      if (error instanceof LeafStageError) {
+        return {
+          kind: "failure",
+          stage: error.stage,
+          failure_class: error.failureClass,
+          ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}),
+        };
+      }
       return { kind: "failure", stage: "validation", failure_class: "leaf_result_invalid" };
     }
   } finally {
@@ -1461,6 +1795,33 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   const callGraceMs = dependencies.leaseCallGraceMs ?? LEASE_CALL_GRACE_MS;
   if (!Number.isFinite(heartbeatMs) || heartbeatMs < 1) throw new Error("lease heartbeat interval must be positive");
   if (!Number.isFinite(callGraceMs) || callGraceMs < 1) throw new Error("lease call grace must be positive");
+  const diagnostics: SourceValidationDiagnostic[] = [];
+  let projectedBindings: ClaimLeaseBinding[] = [];
+  const recordDiagnostic = (
+    phase: SourceValidationDiagnostic["phase"],
+    failure: ValidationFailure,
+    binding?: ClaimLeaseBinding,
+  ) => {
+    if (diagnostics.length >= MAX_LEAVES) return;
+    diagnostics.push({
+      schema_version: 1,
+      contract_id: "coc.source-validation-diagnostic.v1",
+      phase,
+      code: failure.code,
+      validation_path: failure.path,
+      lease_id: binding?.leaseId ?? null,
+      job_ids: [...(binding?.jobIds ?? [])],
+    });
+  };
+  const recordClaimDiagnostic = (failure: ValidationFailure) => {
+    if (projectedBindings.length === 0) {
+      recordDiagnostic("claim_projection", failure);
+      return;
+    }
+    for (const binding of projectedBindings) {
+      recordDiagnostic("claim_projection", failure, binding);
+    }
+  };
   const receipt = (status: string, claimed: number, fulfilled: number, failure: string | null): JsonObject => validateCoordinatorResult({
     schema_version: 1,
     contract_id: "coc.source-coordinator-result.v1",
@@ -1472,6 +1833,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     fulfilled_result_count: fulfilled,
     failure_class: failure,
     design_issue_threshold: 3,
+    ...(diagnostics.length ? { diagnostics: [...diagnostics] } : {}),
   }, task);
   const observeLease = async (observation: LeaseLifecycleObservation) => {
     try { await dependencies.onLeaseLifecycle?.(observation); }
@@ -1577,44 +1939,106 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     return receipt("failed", 0, 0, "claim_failed");
   }
   const claimData = asObject(claimEnvelope.data, "claim data");
-  let projectedBindings: ClaimLeaseBinding[] = [];
   try { projectedBindings = claimLeaseBindings(claimData); }
   catch {
+    recordDiagnostic(
+      "claim_projection",
+      {
+        code: "claim_lease_bindings_invalid",
+        path: "claim.data.lease_bindings",
+      },
+    );
     return receipt("failed", 0, 0, "leaf_result_invalid");
   }
-  if (
-    !Array.isArray(claimData.dispatch_tasks)
-    || claimData.dispatch_tasks.length > (packet.max_leaves as number)
-    || claimData.wire_projection_failed === true
-  ) {
+  if (!Array.isArray(claimData.dispatch_tasks)) {
+    const failure: ValidationFailure = {
+        code: "claim_dispatch_tasks_missing",
+        path: "claim.data.dispatch_tasks",
+    };
+    recordClaimDiagnostic(failure);
     await releaseOwnedLeases(
       projectedBindings,
       "claim_projection_invalid",
     );
+    return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
+  }
+  if (claimData.dispatch_tasks.length > (packet.max_leaves as number)) {
+    const failure: ValidationFailure = {
+      code: "claim_dispatch_task_count_exceeded",
+      path: "claim.data.dispatch_tasks",
+    };
+    recordClaimDiagnostic(failure);
+    await releaseOwnedLeases(projectedBindings, "claim_projection_invalid");
+    return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
+  }
+  if (claimData.wire_projection_failed === true) {
+    const failure: ValidationFailure = {
+      code: "claim_wire_projection_failed",
+      path: "claim.wire.claim_dispatch_projection_failed",
+    };
+    for (const binding of projectedBindings) {
+      recordDiagnostic("claim_projection", failure, binding);
+    }
+    await releaseOwnedLeases(projectedBindings, "claim_projection_invalid");
     return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
   }
   if (claimData.dispatch_tasks.length === 0) return receipt("idle", 0, 0, null);
-  let tasks: JsonObject[];
-  try {
-    tasks = claimData.dispatch_tasks.map((value) => validateLeafTask(value));
-  } catch {
-    await releaseOwnedLeases(
-      projectedBindings,
-      "claim_projection_invalid",
-    );
-    return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
+  const tasks: JsonObject[] = [];
+  for (let index = 0; index < claimData.dispatch_tasks.length; index++) {
+    try {
+      tasks.push(validateLeafTask(claimData.dispatch_tasks[index]));
+    } catch (error) {
+      recordDiagnostic(
+        "claim_projection",
+        claimLeafTaskValidationFailure(error),
+        projectedBindings[index],
+      );
+      await releaseOwnedLeases(
+        projectedBindings,
+        "claim_projection_invalid",
+      );
+      return receipt(
+        "failed",
+        projectedBindings.length,
+        0,
+        "leaf_result_invalid",
+      );
+    }
   }
   let bindings: ReturnType<typeof expectedBinding>[];
   try {
     bindings = tasks.map(expectedBinding);
     if (new Set(bindings.map((binding) => binding.packetId)).size !== bindings.length) {
+      recordDiagnostic(
+        "claim_projection",
+        {
+          code: "claim_packet_bindings_duplicate",
+          path: "claim.data.dispatch_tasks[].packet.packet_id",
+        },
+        projectedBindings[0],
+      );
       throw new Error("claim returned duplicate Pi packet tasks");
     }
     const allClaimedJobIds = bindings.flatMap((binding) => binding.jobIds);
     if (new Set(allClaimedJobIds).size !== allClaimedJobIds.length) {
+      recordDiagnostic(
+        "claim_projection",
+        {
+          code: "claim_job_bindings_duplicate",
+          path: "claim.data.dispatch_tasks[].packet.requests[].job_id",
+        },
+        projectedBindings[0],
+      );
       throw new Error("claim returned duplicate job bindings");
     }
-  } catch {
+  } catch (error) {
+    if (diagnostics.length === 0) {
+      recordDiagnostic(
+        "claim_projection",
+        claimLeafTaskValidationFailure(error),
+        projectedBindings[0],
+      );
+    }
     await releaseOwnedLeases(projectedBindings, "claim_projection_invalid");
     return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
   }
@@ -1626,6 +2050,14 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     projectedBindings.length > 0
     && jsonCanonical(projectedBindings) !== jsonCanonical(validatedClaimBindings)
   ) {
+    recordDiagnostic(
+      "claim_projection",
+      {
+        code: "claim_lease_binding_mismatch",
+        path: "claim.data.lease_bindings",
+      },
+      validatedClaimBindings[0],
+    );
     await releaseOwnedLeases(
       validatedClaimBindings,
       "claim_projection_invalid",
@@ -1725,14 +2157,31 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     }
     if (settled.value.kind === "failure") {
       failureClass ??= settled.value.failure_class;
+      if (settled.value.diagnostic) {
+        recordDiagnostic(
+          "leaf_result",
+          settled.value.diagnostic,
+          bindings[index],
+        );
+      }
       continue;
     }
     // Validate the exact object returned by spawnLeaf without serialization or
     // cloning so every row forwarded to fulfill retains object identity.
     let validated: JsonObject;
     try { validated = validateWorkerObject(settled.value.result, tasks[index]); }
-    catch {
+    catch (error) {
       failureClass ??= "leaf_result_invalid";
+      recordDiagnostic(
+        "leaf_result",
+        error instanceof SourceContractValidationError
+          ? error.diagnostic
+          : {
+            code: "leaf_result_closed_shape",
+            path: "$",
+          },
+        bindings[index],
+      );
       continue;
     }
     const leaseId = bindings[index].packetId;

@@ -193,7 +193,16 @@ export async function publishCoordinatorTerminal(
       }
       else {
         try {
-          const notice = { dispatch_key: dispatchKey, status: terminalStatus };
+          const failureClass = typeof receipt.failure_class === "string"
+            ? receipt.failure_class.trim()
+            : null;
+          const notice = {
+            dispatch_key: dispatchKey,
+            status: terminalStatus,
+            terminal: true,
+            failure_class: failureClass,
+            automatic_retry_remaining: false,
+          };
           // Pinned Pi queues followUp while streaming and uses triggerTurn when
           // idle. display:false keeps this one-shot liveness notice out of TUI.
           pi.sendMessage({

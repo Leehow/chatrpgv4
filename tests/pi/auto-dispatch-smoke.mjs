@@ -154,13 +154,18 @@ function coordinatorEvents(packetId) {
   ];
 }
 
-function failedFulfillEvents(packetId) {
+function failedCoordinatorEvents(
+  packetId,
+  failureClass = "fulfill_rejected",
+  diagnostics = undefined,
+) {
   const receipt = {
     ...coordinatorReceipt(packetId),
     status: "failed",
     claimed_packet_count: 1,
     leaf_task_count: 1,
-    failure_class: "fulfill_rejected",
+    failure_class: failureClass,
+    ...(diagnostics ? { diagnostics } : {}),
   };
   const toolCallId = `call-${packetId}`;
   return [
@@ -194,6 +199,7 @@ function failedFulfillEvents(packetId) {
     },
   ];
 }
+const failedFulfillEvents = (packetId) => failedCoordinatorEvents(packetId);
 
 function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   const audit = [];
@@ -482,6 +488,46 @@ async function exerciseFailureDrain(mode) {
   });
   await autoDispatchCoordinator(deduped.deps, "coc_invoke", directTakeoverResult(task));
   check("deduped packet skips", deduped.audit.length === 0);
+}
+
+// Claim projection invalidity is a terminal system diagnostic, not model
+// variance. It remains outside the automatic retry whitelist.
+{
+  const queue = realManagerHarness();
+  const task = coordinatorTask("coord-projection-invalid");
+  const diagnostic = {
+    schema_version: 1,
+    contract_id: "coc.source-validation-diagnostic.v1",
+    phase: "claim_projection",
+    code: "claim_wire_projection_failed",
+    validation_path: "claim.wire.claim_dispatch_projection_failed",
+    lease_id: "source-lease-projection-invalid",
+    job_ids: ["job-projection-invalid"],
+  };
+  await autoDispatchCoordinator(
+    queue.deps,
+    "coc_invoke",
+    directTakeoverResult(task),
+  );
+  queue.controlsByKey.get(task.packet.packet_id)[0].resolve(
+    failedCoordinatorEvents(
+      task.packet.packet_id,
+      "leaf_result_invalid",
+      [diagnostic],
+    ),
+  );
+  await nextTurn();
+  await nextTurn();
+  const terminal = queue.manager.state(task.packet.packet_id);
+  check("claim projection invalidity does not retry or fake an interim wake",
+    queue.launches.length === 1
+    && terminal?.status === "completed"
+    && terminal?.terminal_receipt?.failure_class === "leaf_result_invalid"
+    && JSON.stringify(terminal?.terminal_receipt?.diagnostics) === JSON.stringify([
+      diagnostic,
+    ])
+    && queue.lifecycle.filter((entry) => entry.status === "retrying").length === 0
+    && queue.notifications.join(",") === task.packet.packet_id);
 }
 
 // One exact fulfill rejection is retried by the manager under the packet's

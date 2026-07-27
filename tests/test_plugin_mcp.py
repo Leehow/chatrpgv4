@@ -2906,6 +2906,88 @@ def test_mcp_wire_claim_keeps_two_coalesced_three_page_body_requests_actionable(
     )
 
 
+def test_mcp_wire_claim_keeps_single_large_foreground_contract_actionable():
+    server = _load_server()
+    source_worker = json.loads(
+        (
+            PLUGIN_ROOT / "references" / "source-pack-worker-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    contract = source_worker["packet"]["foreground_opening_slice"][
+        "result_contract"
+    ]
+    contract_ref = server.wire_projection.canonical_digest(contract)
+    refs = [{
+        "source_id": "pdf:fix3-opening",
+        "pdf_index": index,
+        "path": f"/tmp/fix3-opening/page-{index:04d}.md",
+        "text_sha256": f"{index + 1:x}" * 64,
+    } for index in (3, 4, 5)]
+    request = {
+        "job_id": "job-fix3-opening",
+        "kind": "partial_opening",
+        "target_id": "sherborne-castle",
+        "instruction": "bounded foreground opening compilation " * 200,
+        "requested_pdf_indices": [3, 4, 5],
+        "cached_page_refs": refs,
+        "cached_scope_complete": True,
+        "request_purpose": "foreground_opening_slice",
+        "result_contract": contract,
+    }
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-pack-task.v1",
+        "instruction_ref": str(
+            (PLUGIN_ROOT / "agents" / "coc-source-pack-worker.md").resolve()
+        ),
+        "model_policy": "inherit_parent",
+        "packet": {
+            "schema_version": 1,
+            "contract_id": "coc.source-pack-worker.v1",
+            "packet_id": "source-lease-fix3-opening",
+            "work_group_id": "source-work-fix3-opening",
+            "requests": [request],
+        },
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.claim_host_work",
+        "data": {
+            "leased_group_count": 1,
+            "ready_group_count": 1,
+            "cached_only": True,
+            "dispatch_tasks": [task],
+            "dispatch_task_count": 1,
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    assert server.wire_projection.transport_bytes(envelope) > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+
+    projected = server.wire_projection.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["data"].get("wire_projection_failed") is not True
+    assert projected["data"]["lease_bindings"] == [{
+        "lease_id": "source-lease-fix3-opening",
+        "job_ids": ["job-fix3-opening"],
+    }]
+    [projected_task] = projected["data"]["dispatch_tasks"]
+    [projected_request] = projected_task["packet"]["requests"]
+    assert "result_contract" not in projected_request
+    assert projected_request["result_contract_ref"] == contract_ref
+    assert "wire_result_contracts" not in projected_task["packet"]
+
+
 def test_resume_budget_keeps_progressive_takeover_after_scene_reduction():
     server = _load_server()
     takeover = {

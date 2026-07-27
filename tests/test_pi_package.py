@@ -273,8 +273,24 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
     assert result["invalidLeafPartial"]["failure_class"] == "leaf_result_invalid"
     assert result["invalidLeafForwarded"] == ["job-2"]
     assert result["productionFailures"] == [
-        {"kind": "failure", "stage": "framing", "failure_class": "leaf_result_not_bare"},
-        {"kind": "failure", "stage": "validation", "failure_class": "leaf_result_invalid"},
+        {
+            "kind": "failure",
+            "stage": "framing",
+            "failure_class": "leaf_result_not_bare",
+            "diagnostic": {
+                "code": "leaf_framing_not_one_text",
+                "path": "assistant.content",
+            },
+        },
+        {
+            "kind": "failure",
+            "stage": "validation",
+            "failure_class": "leaf_result_invalid",
+            "diagnostic": {
+                "code": "leaf_result_packet_binding_drift",
+                "path": "$.packet_id|$.work_group_id",
+            },
+        },
         {"kind": "failure", "stage": "activation", "failure_class": "leaf_dispatch_failed"},
     ]
     assert result["framingLeafPartial"]["status"] == "partial"
@@ -424,6 +440,7 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
         "contentDetailsRejected": True,
         "impossibleRejected": True,
         "designIssueRejected": True,
+        "diagnosticRejected": True,
     }
     assert result["manager"]["notifications"] == 1
     assert result["manager"]["lifecycle"] == 1
@@ -457,10 +474,16 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
         "content": {
             "dispatch_key": "coord-manager",
             "status": "partial",
+            "terminal": True,
+            "failure_class": "fulfill_rejected",
+            "automatic_retry_remaining": False,
         },
         "details": {
             "dispatch_key": "coord-manager",
             "status": "partial",
+            "terminal": True,
+            "failure_class": "fulfill_rejected",
+            "automatic_retry_remaining": False,
         },
         "customTypes": [
             "coc-source-coordinator-terminal",
@@ -513,10 +536,16 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
             "content": {
                 "dispatch_key": "coord-player-boundary",
                 "status": "fulfilled",
+                "terminal": True,
+                "failure_class": None,
+                "automatic_retry_remaining": False,
             },
             "details": {
                 "dispatch_key": "coord-player-boundary",
                 "status": "fulfilled",
+                "terminal": True,
+                "failure_class": None,
+                "automatic_retry_remaining": False,
             },
             "leaksPrivate": False,
             "report": {
