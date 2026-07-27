@@ -1573,7 +1573,8 @@ def validate_opening_clock(value: Any) -> dict[str, Any]:
             raise ModuleAssetsError(
                 "relative start_clock precision must be day_phase or unknown"
             )
-    elif precision in {"exact", "minute", "hour"}:
+
+    if precision in {"exact", "minute", "hour"}:
         if normalized_datetime is None:
             raise ModuleAssetsError(
                 f"start_clock.time_precision={precision} requires local_datetime"

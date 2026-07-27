@@ -2603,6 +2603,39 @@ def test_relative_opening_clock_rejects_live_date_precision_shape():
         })
 
 
+def test_relative_day_phase_requires_hint_and_unknown_remains_valid():
+    relative_day_phase = {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+        "display": "约1080年，某日清晨",
+        "time_precision": "day_phase",
+        "day_phase_hint": None,
+    }
+    with pytest.raises(
+        assets.ModuleAssetsError,
+        match="day_phase precision requires null local_datetime and a known "
+        "day_phase_hint",
+    ):
+        assets.validate_opening_clock(relative_day_phase)
+
+    accepted_day_phase = assets.validate_opening_clock({
+        **relative_day_phase,
+        "day_phase_hint": "morning",
+    })
+    assert accepted_day_phase["time_precision"] == "day_phase"
+    assert accepted_day_phase["day_phase_hint"] == "morning"
+
+    accepted_unknown = assets.validate_opening_clock({
+        **relative_day_phase,
+        "time_precision": "unknown",
+        "day_phase_hint": None,
+    })
+    assert accepted_unknown["time_precision"] == "unknown"
+    assert accepted_unknown["day_phase_hint"] is None
+
+
 def test_disjoint_source_indices_do_not_become_a_false_contiguous_span():
     target = {
         "source_span": {"pdf_index_start": 1, "pdf_index_end": 4},
