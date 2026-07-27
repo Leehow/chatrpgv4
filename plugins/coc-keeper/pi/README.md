@@ -57,7 +57,7 @@ AGENT_HOME=$HOME/.pi/agent
 mkdir -p "$COC_HOME/sessions"
 cat > "$COC_HOME/settings.json" <<EOF
 {
-  "defaultProvider": "grok-relay",
+  "defaultProvider": "xai",
   "defaultModel": "grok-4.5",
   "defaultThinkingLevel": "off",
   "packages": ["$REPO"],
@@ -176,10 +176,16 @@ export COC_PROGRESSIVE_OCR_COMMAND=<repo>/plugins/coc-keeper/pi/bin/coc-ocr-adap
 ```
 
 The adapter translates `fast <pdf> --corpus <dir>` into `baiduocr.py <pdf>
---output-dir <dir>`, and returns JSONL status lines on stdout. `status`
-inspects the corpus directory; `enhance` returns cached pages (baiduocr
-doesn't support per-page re-extraction via CLI); `export` concatenates
-corpus markdown into a single output file.
+--output-dir <dir>`, and returns exactly one strict JSON object on stdout.
+`fast` reports only external OCR corpus facts; it never creates, validates, or
+mutates `manifest.json`, assigns PDF page indices, invents `review_state` or
+`parse_confidence`, or truncates the corpus. Those Markdown files are not a
+validated source bundle; `fast` does not form a validated source bundle. An
+external PDF skill/contract producer must review the evidence and deliver the
+canonical manifest; repository code may then validate/reformat that handoff.
+`status` inspects the corpus directory; `enhance` returns cached documents
+(baiduocr doesn't support per-page re-extraction via CLI); `export`
+concatenates corpus markdown into a single output file.
 
 The OCR tool accepts only `status`, `fast`, `enhance`, and `export`. It validates
 paths and structured JSON results, but deliberately does not reject ordinary

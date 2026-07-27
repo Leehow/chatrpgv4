@@ -11,11 +11,15 @@ Set COC_PROGRESSIVE_OCR_COMMAND to this script's absolute path.
 Supported operations:
   status <corpus_path>           → report OCR availability + corpus state
   fast <source_path> --corpus <corpus_path>
-                                  → run baiduocr on source, output to corpus
+                                  → run baiduocr and report corpus facts only
   enhance <corpus_path> --pages <pages>
                                   → report cached pages (baiduocr can't re-extract per-page)
   export <corpus_path> --quality <q> --output <path>
                                   → concatenate corpus markdown to output path
+
+This adapter never creates, validates, or mutates a PDF source-bundle manifest.
+An external PDF skill/contract producer owns page identity, review evidence,
+parse confidence, and the final manifest handoff.
 """
 import argparse
 import json
@@ -38,14 +42,14 @@ def op_status(corpus_path: str) -> dict:
 
 
 def op_fast(source_path: str, corpus_path: str) -> dict:
-    import subprocess, hashlib
+    import subprocess
 
     source = Path(source_path)
     corpus = Path(corpus_path)
     corpus.mkdir(parents=True, exist_ok=True)
 
     if not source.exists():
-        return {"status": "error", "error": f"source not found: {source}"}
+        return {"status": "error", "error": "source not found"}
 
     try:
         result = subprocess.run(
@@ -54,56 +58,22 @@ def op_fast(source_path: str, corpus_path: str) -> dict:
             env={**os.environ},
         )
         if result.returncode != 0:
-            return {"status": "error", "error": (result.stderr or "baiduocr failed")[:500]}
+            return {"status": "error", "error": "baiduocr failed"}
 
         md_files = sorted(corpus.glob("*.md"))
 
-        # Auto-update bundle manifest.json so scenario.bind_pdf works
-        # immediately after OCR. The manifest lives in the parent of the
-        # pages/ directory (i.e., corpus_path/../manifest.json).
-        bundle_dir = corpus.parent
-        manifest_path = bundle_dir / "manifest.json"
-        if manifest_path.exists():
-            manifest = json.loads(manifest_path.read_text("utf-8"))
-            # Map baiduocr's doc_N.md to pdf_index N
-            pages = []
-            for md in md_files:
-                stem = md.stem  # e.g. "doc_0", "doc_12"
-                parts = stem.split("_")
-                pdf_index = int(parts[-1]) if parts[-1].isdigit() else 0
-                text_bytes = md.read_bytes()
-                text_sha = hashlib.sha256(text_bytes).hexdigest()
-                pages.append({
-                    "pdf_index": pdf_index,
-                    "markdown_path": f"pages/{md.name}",
-                    "text_sha256": text_sha,
-                    "review_state": "auto_accepted",
-                    "parse_confidence": 0.90,
-                    "grep_anchors": [],
-                })
-            # Cap at 32 pages (MAX_PAGES contract)
-            if len(pages) > 32:
-                pages = pages[:32]
-            manifest["pages"] = pages
-            manifest_path.write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=2), "utf-8"
-            )
-
         return {
             "status": "completed",
-            "source": {"path": str(source.resolve())},
-            "corpus": str(corpus),
-            "pages": [
-                {"page": md.stem, "path": str(md), "size": md.stat().st_size}
-                for md in md_files
-            ],
-            "page_count": len(md_files),
-            "manifest_updated": manifest_path.exists(),
+            "corpus_ready": bool(md_files),
+            "markdown_document_count": len(md_files),
+            "markdown_total_bytes": sum(md.stat().st_size for md in md_files),
+            "validated_source_bundle": False,
+            "source_bundle_status": "external_manifest_required",
         }
     except subprocess.TimeoutExpired:
         return {"status": "error", "error": "baiduocr timed out (900s)"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)[:200]}
+    except Exception:
+        return {"status": "error", "error": "baiduocr adapter failure"}
 
 
 def op_enhance(corpus_path: str, pages: str | None = None) -> dict:

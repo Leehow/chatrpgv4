@@ -802,6 +802,7 @@ def test_pi_coordinator_capability_does_not_claim_grok_provider_evidence():
     for phrase in (
         "openai/gpt-5.6-luna",
         "xai/grok-4.5",
+        '"defaultProvider": "xai"',
         '"defaultThinkingLevel": "off"',
         "must never discover",
     ):
@@ -819,9 +820,22 @@ def test_pi_ocr_adapter_does_not_produce_source_bundles():
         '"producer": "codex-pdf-skill"',
         '"printed_page"',
         '"printed_label"',
-        '"parse_confidence": 0.85',
+        '"parse_confidence":',
+        '"auto_accepted"',
+        "manifest_path.write_text",
+        "pages = pages[:32]",
+        "import subprocess, hashlib",
     ):
         assert forbidden not in adapter
+    readme = " ".join(_text(PLUGIN_ROOT / "pi" / "README.md").split()).lower()
+    for phrase in (
+        "returns exactly one strict json object",
+        "reports only external ocr corpus facts",
+        "never creates, validates, or mutates `manifest.json`",
+        "does not form a validated source bundle",
+        "external pdf skill/contract producer",
+    ):
+        assert phrase in readme
 
 
 def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
