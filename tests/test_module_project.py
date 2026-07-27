@@ -2560,6 +2560,112 @@ def test_on_enter_unknown_scene_does_not_create_shared_source_work(tmp_path: Pat
     ) is None
 
 
+def test_campaign_local_scene_neighbor_edge_cannot_create_shared_source_work(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    graph_path = camp / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    graph["scenes"].append({
+        "scene_id": "kp-local",
+        "origin": "campaign_improvised",
+        "provenance": {"authority": "campaign_improvised"},
+        "scene_edges": [{
+            "to": "kp-secret-annex",
+            "origin": "campaign_improvised",
+        }],
+    })
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    queue_path = assets.assets_root(tmp_path) / "prog-demo" / "parse-queue.json"
+    queue_path.write_text(json.dumps({
+        "schema_version": 1, "pending": [], "in_flight": [], "done": [],
+    }), encoding="utf-8")
+
+    result = project.on_enter_scene(tmp_path, camp.name, "kp-local")
+
+    assert "kp-secret-annex" not in result["neighbors"]
+    assert "kp-secret-annex" not in result["prefetched_neighbors"]
+    assert any(
+        row.get("shared_source_neighbor_skipped") == "kp-secret-annex"
+        and row.get("reason") == "campaign_local_scene_edge"
+        for row in result["actions"]
+    )
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "kp-secret-annex",
+    ) is None
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert not any(
+        row.get("target_id") == "kp-secret-annex"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+
+
+def test_campaign_edge_on_source_scene_does_not_inherit_scene_authority(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    graph_path = camp / "scenario" / "story-graph.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    opening = next(
+        row for row in graph["scenes"] if row["scene_id"] == "opening"
+    )
+    opening.setdefault("scene_edges", []).append({
+        "to": "kp-added-annex",
+        "origin": "campaign_improvised",
+        "provenance": {"authority": "campaign_improvised"},
+    })
+    graph_path.write_text(json.dumps(graph), encoding="utf-8")
+    queue_path = assets.assets_root(tmp_path) / "prog-demo" / "parse-queue.json"
+    queue_path.write_text(json.dumps({
+        "schema_version": 1, "pending": [], "in_flight": [], "done": [],
+    }), encoding="utf-8")
+
+    result = project.on_enter_scene(tmp_path, camp.name, "opening")
+
+    assert "kp-added-annex" not in result["neighbors"]
+    assert any(
+        row.get("shared_source_neighbor_skipped") == "kp-added-annex"
+        and row.get("reason") == "no_independent_source_authority"
+        for row in result["actions"]
+    )
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "kp-added-annex",
+    ) is None
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert not any(
+        row.get("target_id") == "kp-added-annex"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+
+
+def test_skeleton_neighbor_retains_shared_prefetch_authority(tmp_path: Path):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    queue_path = assets.assets_root(tmp_path) / "prog-demo" / "parse-queue.json"
+    queue_path.write_text(json.dumps({
+        "schema_version": 1, "pending": [], "in_flight": [], "done": [],
+    }), encoding="utf-8")
+
+    result = project.on_enter_scene(tmp_path, camp.name, "opening")
+
+    assert "library" in result["neighbors"]
+    assert "library" in result["prefetched_neighbors"]
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "library",
+    ) is not None
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert any(
+        row.get("kind") == "partial_neighbor"
+        and row.get("target_id") == "library"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+
+
 def test_request_deepen_player_dig_without_scene_move(tmp_path: Path):
     """Unknown dig without structured source authority remains campaign-local."""
     _put_source_bound_skeleton(tmp_path)

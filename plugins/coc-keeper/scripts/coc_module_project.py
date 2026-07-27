@@ -3710,6 +3710,8 @@ def _location_has_shared_source_authority(
     for row in (pack, campaign_scene):
         if not isinstance(row, dict):
             continue
+        if _opening_campaign_local_row(row):
+            continue
         provenance = (
             row.get("provenance")
             if isinstance(row.get("provenance"), dict) else {}
@@ -3722,6 +3724,42 @@ def _location_has_shared_source_authority(
         if str(row.get("origin") or "") == "source" and bool(_source_scope(row)):
             return True
     return False
+
+
+def _edge_has_validated_source_authority(
+    workspace: Path,
+    asset_root_id: str,
+    edge: Any,
+    target_id: str,
+) -> bool:
+    """Accept only an exact source-authored edge identity for its own target."""
+    if (
+        not isinstance(edge, dict)
+        or str(edge.get("to") or "").strip() != target_id
+        or _opening_campaign_local_row(edge)
+    ):
+        return False
+    provenance = (
+        edge.get("provenance")
+        if isinstance(edge.get("provenance"), dict) else {}
+    )
+    if (
+        str(provenance.get("authority") or "") != "source_authored"
+        and str(edge.get("origin") or "") != "source"
+    ):
+        return False
+    scope = _source_scope(edge) or _source_scope(provenance)
+    if not scope:
+        return False
+    try:
+        return bool(coc_module_assets._cached_source_refs(
+            workspace,
+            asset_root_id,
+            scope,
+            field=f"scene_edge.to:{target_id}",
+        ))
+    except coc_module_assets.ModuleAssetsError:
+        return False
 
 
 def _neighbor_ids_from_skeleton(
@@ -3877,15 +3915,78 @@ def on_enter_scene(
 
     # Neighbor hot ring (depth 1)
     neighbors = _neighbor_ids_from_skeleton(skeleton, sid)
-    # also from current IR scene edges if present
+    neighbor_source_scopes: dict[str, dict[str, Any]] = {}
+    # Campaign IR may contain later campaign-canon edges. Admit an IR neighbor
+    # only when the target independently carries source authority, or the edge
+    # itself has an exact validated source identity for that target. Never
+    # spread an active source scene's authority to a new target.
     try:
         ir_now = load_campaign_ir(campaign_dir)
-        for scene in ir_now.get("story-graph.json", {}).get("scenes") or []:
-            if str(scene.get("scene_id")) != sid:
-                continue
-            for edge in scene.get("scene_edges") or []:
-                if isinstance(edge, dict) and edge.get("to"):
-                    neighbors.append(str(edge["to"]))
+        ir_scenes = [
+            row for row in (
+                ir_now.get("story-graph.json", {}).get("scenes") or []
+            )
+            if isinstance(row, dict)
+        ]
+        current_scene = next(
+            (
+                row for row in ir_scenes
+                if str(row.get("scene_id") or "") == sid
+            ),
+            None,
+        )
+        if isinstance(current_scene, dict):
+            for edge in current_scene.get("scene_edges") or []:
+                if not isinstance(edge, dict):
+                    continue
+                target_id = str(edge.get("to") or "").strip()
+                if not target_id or target_id == sid:
+                    continue
+                target_scene = next(
+                    (
+                        row for row in ir_scenes
+                        if str(row.get("scene_id") or "") == target_id
+                    ),
+                    None,
+                )
+                target_pack = coc_module_assets.get_entity(
+                    workspace, root_id, "location", target_id,
+                )
+                target_authorized = _location_has_shared_source_authority(
+                    skeleton,
+                    target_id,
+                    pack=target_pack,
+                    campaign_scene=target_scene,
+                )
+                edge_authorized = _edge_has_validated_source_authority(
+                    workspace, root_id, edge, target_id,
+                )
+                if (
+                    not campaign_local_scene
+                    and (target_authorized or edge_authorized)
+                ):
+                    neighbors.append(target_id)
+                    inherited_scope = (
+                        _source_scope(target_pack)
+                        or _source_scope(target_scene)
+                        or _source_scope(edge)
+                        or _source_scope(
+                            edge.get("provenance")
+                            if isinstance(edge.get("provenance"), dict) else {}
+                        )
+                    )
+                    if inherited_scope:
+                        neighbor_source_scopes[target_id] = inherited_scope
+                else:
+                    actions.append({
+                        "shared_source_neighbor_skipped": target_id,
+                        "from_scene_id": sid,
+                        "reason": (
+                            "campaign_local_scene_edge"
+                            if campaign_local_scene
+                            else "no_independent_source_authority"
+                        ),
+                    })
     except ModuleProjectError:
         pass
     seen_n: set[str] = set()
@@ -3920,6 +4021,7 @@ def on_enter_scene(
         stub = coc_module_assets.ensure_stub(
             workspace, root_id, "location", nid,
             reason=f"neighbor_of:{sid}",
+            source_scope=neighbor_source_scopes.get(nid),
         )
         actions.append({"ensure_stub": stub})
         n_pack = coc_module_assets.get_entity(workspace, root_id, "location", nid)
