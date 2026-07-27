@@ -387,10 +387,29 @@ export function parseStrictCoordinatorResult(events: JsonObject[], taskValue: un
     }
     if (message.role !== "assistant") continue;
     const parts = withoutTypedThinking(message.content);
-    if (parts.length > 0 && parts.every((part) => (
+    const toolCallIndexes = parts.flatMap((part, index) => (
       part && typeof part === "object" && !Array.isArray(part)
       && (part as JsonObject).type === "toolCall"
-    ))) {
+        ? [index]
+        : []
+    ));
+    if (toolCallIndexes.length > 0) {
+      if (toolCallIndexes.length !== 1) throw new Error("coordinator assistant event must contain exactly one lifecycle tool call");
+      const toolCallIndex = toolCallIndexes[0];
+      const toolCall = parts[toolCallIndex] as JsonObject;
+      if (toolCall.name !== "coc_run_source_coordinator") throw new Error("coordinator assistant event contains a foreign tool call");
+      const toolOnly = parts.length === 1 && toolCallIndex === 0;
+      const preambleThenTool = (
+        parts.length === 2
+        && toolCallIndex === 1
+        && parts[0]
+        && typeof parts[0] === "object"
+        && !Array.isArray(parts[0])
+        && (parts[0] as JsonObject).type === "text"
+        && typeof (parts[0] as JsonObject).text === "string"
+        && ((parts[0] as JsonObject).text as string).trim().length > 0
+      );
+      if (!toolOnly && !preambleThenTool) throw new Error("coordinator lifecycle tool call permits only one ordinary pre-tool text part");
       continue;
     }
     if (parts.length !== 1) throw new Error("coordinator assistant event must contain only tool calls or exactly one JSON text part");

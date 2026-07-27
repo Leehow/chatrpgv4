@@ -563,9 +563,45 @@ try {
   check("coordinator thinking+tool and thinking+text pass", JSON.stringify(
     runtime.parseStrictCoordinatorResult(coordinatorThinkingEvents, coordinatorTask()),
   ) === JSON.stringify(validTerminal));
+  const coordinatorPreambleEvents = [
+    assistantParts([
+      thinking,
+      { type: "text", text: "I will run the exact coordinator lifecycle now." },
+      { type: "toolCall", id: "coordinator-call", name: "coc_run_source_coordinator", arguments: {} },
+    ]),
+    lifecycleEvent,
+    assistantParts([thinking, coordinatorText]),
+  ];
+  check("coordinator ordinary pre-tool text plus exact tool call passes", JSON.stringify(
+    runtime.parseStrictCoordinatorResult(coordinatorPreambleEvents, coordinatorTask()),
+  ) === JSON.stringify(validTerminal));
   for (const [label, events] of [
     ["coordinator tool+image rejected", [
-      assistantParts([thinking, { type: "toolCall", id: "x", name: "x", arguments: {} }, { type: "image", data: "x" }]),
+      assistantParts([thinking, { type: "toolCall", id: "x", name: "coc_run_source_coordinator", arguments: {} }, { type: "image", data: "x" }]),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+    ]],
+    ["coordinator foreign tool rejected", [
+      assistantParts([
+        { type: "text", text: "Calling a tool." },
+        { type: "toolCall", id: "x", name: "foreign_tool", arguments: {} },
+      ]),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+    ]],
+    ["coordinator multiple tools rejected", [
+      assistantParts([
+        { type: "toolCall", id: "x", name: "coc_run_source_coordinator", arguments: {} },
+        { type: "toolCall", id: "y", name: "coc_run_source_coordinator", arguments: {} },
+      ]),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+    ]],
+    ["coordinator post-tool text rejected", [
+      assistantParts([
+        { type: "toolCall", id: "x", name: "coc_run_source_coordinator", arguments: {} },
+        { type: "text", text: "This is not a pre-tool preamble." },
+      ]),
       lifecycleEvent,
       assistantParts([coordinatorText]),
     ]],
