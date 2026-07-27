@@ -959,7 +959,7 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         assert phrase in skill_text, phrase
 
 
-def test_pi_coordinator_capability_does_not_claim_grok_provider_evidence():
+def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
     pi = _json(
         PLUGIN_ROOT / "references" / "host-capabilities.json"
     )["pi"]
@@ -969,7 +969,50 @@ def test_pi_coordinator_capability_does_not_claim_grok_provider_evidence():
         "openai_gpt_5_6_luna_probe_only"
     )
     assert pi["coc_source_coordinator_v1_grok_evidence"] == (
-        "pending_lead_live_lifecycle"
+        "failed_nonpromoting_host_experience_probe"
+    )
+    evidence_ref = pi["coc_source_coordinator_v1_grok_evidence_ref"]
+    assert evidence_ref == "tests/pi/pi-grok-host-experience-evidence.json"
+    evidence = _json(ROOT / evidence_ref)
+    assert evidence["schema_version"] == 1
+    assert evidence["probe_kind"] == "pi_grok_host_experience_probe"
+    assert evidence["engineering_probe"] is True
+    assert evidence["acceptance"] is False
+    assert evidence["canonical_acceptance"] is False
+    assert evidence["promotion_eligible"] is False
+    assert evidence["probe_status"] == "failed"
+    assert evidence["environment"] == {
+        "host": "pi",
+        "provider": "xai",
+        "model_id": "grok-4.5",
+        "thinking": "low",
+        "transport": "openai-responses",
+    }
+    assert evidence["coordinator_lifecycle"]["status"] == "fulfilled"
+    assert evidence["coordinator_lifecycle"]["claim_calls"] == 1
+    assert evidence["coordinator_lifecycle"]["fulfilled_result_count"] == 1
+    assert {
+        failure["kind"]
+        for failure in evidence["host_experience_failures"]
+    } == {
+        "visible_wait_narration",
+        "authored_opening_omission",
+        "source_clock_contradiction",
+        "identity_drift_error_loop",
+        "missing_player_continuation",
+    }
+    legacy = _json(ROOT / "tests/pi/real-lifecycle-evidence.json")
+    assert legacy["environment"]["model"] == {
+        "provider": "coding-relay",
+        "model_id": "gpt-5.6-luna",
+        "thinking": "low",
+    }
+    assert legacy["acceptance"] is False
+    assert legacy["engineering_probe"] is True
+    assert evidence_ref != "tests/pi/real-lifecycle-evidence.json"
+    assert (
+        evidence["artifacts"]["session_jsonl"]["sha256"]
+        == "7b5945384523b8c4e4e7ce6f991dd679f50bd7ed814552b139d3ed122ea7aed3"
     )
     readme = _text(PLUGIN_ROOT / "pi" / "README.md")
     for phrase in (
