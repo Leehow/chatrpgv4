@@ -99,6 +99,73 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
                         "<morning|afternoon|evening|night>"
                     ),
                 },
+                "relative_unknown_template": {
+                    "calendar_mode": "relative",
+                    "local_datetime": None,
+                    "local_date": None,
+                    "timezone": None,
+                    "display": "<exact-source-supported-display>",
+                    "time_precision": "unknown",
+                    "day_phase_hint": None,
+                },
+                "calendar_mode_classes": {
+                    "relative": ["relative"],
+                    "non_relative": [
+                        "fictional", "gregorian", "julian",
+                        "proleptic_gregorian",
+                    ],
+                    "any": sorted(
+                        coc_module_assets.OPENING_CLOCK_CALENDAR_MODES
+                    ),
+                },
+                "receiver_complete_shape_rules": [
+                    {
+                        "calendar_mode_class": "relative",
+                        "time_precision_values": ["day_phase", "unknown"],
+                        "local_datetime": None,
+                        "local_date": None,
+                        "timezone": None,
+                    },
+                    {
+                        "calendar_mode_class": "non_relative",
+                        "time_precision_values": [
+                            "exact", "minute", "hour",
+                        ],
+                        "local_datetime": "required_naive_iso",
+                        "local_date": "required_matching_datetime_date",
+                    },
+                    {
+                        "calendar_mode_class": "non_relative",
+                        "time_precision_values": ["date"],
+                        "local_datetime": None,
+                        "local_date": "required_iso_date",
+                    },
+                    {
+                        "calendar_mode_class": "non_relative",
+                        "time_precision_values": ["day_phase"],
+                        "local_datetime": None,
+                        "local_date": "required_iso_date",
+                    },
+                    {
+                        "calendar_mode_class": "any",
+                        "time_precision_values": ["day_phase"],
+                        "day_phase_hint": "required_enum_value",
+                    },
+                    {
+                        "calendar_mode_class": "any",
+                        "time_precision_values": ["unknown"],
+                        "local_datetime": None,
+                        "local_date": None,
+                        "day_phase_hint": None,
+                    },
+                    {
+                        "calendar_mode_class": "any",
+                        "time_precision_values": [
+                            "exact", "minute", "hour", "date",
+                        ],
+                        "day_phase_hint": None,
+                    },
+                ],
             },
             "precision_rule": (
                 "preserve only source-supported precision; never invent a "

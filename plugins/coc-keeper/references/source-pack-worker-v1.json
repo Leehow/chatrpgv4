@@ -131,7 +131,76 @@
               "display": "<exact-source-supported-display>",
               "time_precision": "day_phase",
               "day_phase_hint": "<morning|afternoon|evening|night>"
-            }
+            },
+            "relative_unknown_template": {
+              "calendar_mode": "relative",
+              "local_datetime": null,
+              "local_date": null,
+              "timezone": null,
+              "display": "<exact-source-supported-display>",
+              "time_precision": "unknown",
+              "day_phase_hint": null
+            },
+            "calendar_mode_classes": {
+              "relative": ["relative"],
+              "non_relative": [
+                "fictional",
+                "gregorian",
+                "julian",
+                "proleptic_gregorian"
+              ],
+              "any": [
+                "fictional",
+                "gregorian",
+                "julian",
+                "proleptic_gregorian",
+                "relative"
+              ]
+            },
+            "receiver_complete_shape_rules": [
+              {
+                "calendar_mode_class": "relative",
+                "time_precision_values": ["day_phase", "unknown"],
+                "local_datetime": null,
+                "local_date": null,
+                "timezone": null
+              },
+              {
+                "calendar_mode_class": "non_relative",
+                "time_precision_values": ["exact", "minute", "hour"],
+                "local_datetime": "required_naive_iso",
+                "local_date": "required_matching_datetime_date"
+              },
+              {
+                "calendar_mode_class": "non_relative",
+                "time_precision_values": ["date"],
+                "local_datetime": null,
+                "local_date": "required_iso_date"
+              },
+              {
+                "calendar_mode_class": "non_relative",
+                "time_precision_values": ["day_phase"],
+                "local_datetime": null,
+                "local_date": "required_iso_date"
+              },
+              {
+                "calendar_mode_class": "any",
+                "time_precision_values": ["day_phase"],
+                "day_phase_hint": "required_enum_value"
+              },
+              {
+                "calendar_mode_class": "any",
+                "time_precision_values": ["unknown"],
+                "local_datetime": null,
+                "local_date": null,
+                "day_phase_hint": null
+              },
+              {
+                "calendar_mode_class": "any",
+                "time_precision_values": ["exact", "minute", "hour", "date"],
+                "day_phase_hint": null
+              }
+            ]
           },
           "precision_rule": "preserve only source-supported precision; never invent a date, day, hour, local_datetime, or calendar year"
         },

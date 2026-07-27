@@ -28,8 +28,18 @@ function coordinatorTask(packetId = "coord-auto-1", {
     packet: {
       schema_version: 1, contract_id: "coc.source-coordinator.v1", packet_id: packetId,
       workspace_root: root, campaign_id: campaignId, asset_root_id: assetRootId, max_leaves: 2,
-      claim_operation: { operation: "progressive.claim_host_work", prefilled_arguments: { executor_id: executorId, limit: 2, result_delivery: "task_return_to_parent" } },
+      claim_operation: { operation: "progressive.claim_host_work", prefilled_arguments: { executor_id: executorId, limit: 2, result_delivery: "task_return_to_parent", max_dispatch_attempts: 2 } },
       fulfill_operation: { operation: "progressive.fulfill_host_work" },
+      failure_policy: {
+        same_task_retry: true,
+        automatic_retry: {
+          retryable_failure_classes: ["fulfill_rejected"],
+          require_status: "failed",
+          require_positive_claimed: true,
+          require_zero_fulfilled: true,
+          max_attempts: 2,
+        },
+      },
     },
   };
 }
@@ -144,6 +154,47 @@ function coordinatorEvents(packetId) {
   ];
 }
 
+function failedFulfillEvents(packetId) {
+  const receipt = {
+    ...coordinatorReceipt(packetId),
+    status: "failed",
+    claimed_packet_count: 1,
+    leaf_task_count: 1,
+    failure_class: "fulfill_rejected",
+  };
+  const toolCallId = `call-${packetId}`;
+  return [
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{
+          type: "toolCall", id: toolCallId,
+          name: "coc_run_source_coordinator", arguments: {},
+        }],
+      },
+    },
+    {
+      type: "message_end",
+      message: {
+        role: "toolResult",
+        toolCallId,
+        toolName: "coc_run_source_coordinator",
+        content: [{ type: "text", text: JSON.stringify(receipt) }],
+        details: receipt,
+        isError: false,
+      },
+    },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify(receipt) }],
+      },
+    },
+  ];
+}
+
 function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   const audit = [];
   const submits = [];
@@ -171,6 +222,7 @@ function realManagerHarness({ deferActivationKeys = [] } = {}) {
   const deferredActivation = new Set(deferActivationKeys);
   const launches = [];
   const controls = new Map();
+  const controlsByKey = new Map();
   const lifecycle = [];
   const notifications = [];
   const manager = new runtime.CoordinatorDispatchManager(
@@ -196,6 +248,9 @@ function realManagerHarness({ deferActivationKeys = [] } = {}) {
         terminated: false,
       };
       controls.set(key, control);
+      const priorControls = controlsByKey.get(key) || [];
+      priorControls.push(control);
+      controlsByKey.set(key, priorControls);
       return {
         child: {},
         activation,
@@ -209,7 +264,15 @@ function realManagerHarness({ deferActivationKeys = [] } = {}) {
     },
     (observation) => lifecycle.push(observation),
   );
-  return { ...harness({ manager }), manager, launches, controls, lifecycle, notifications };
+  return {
+    ...harness({ manager }),
+    manager,
+    launches,
+    controls,
+    controlsByKey,
+    lifecycle,
+    notifications,
+  };
 }
 
 async function nextTurn() {
@@ -419,6 +482,92 @@ async function exerciseFailureDrain(mode) {
   });
   await autoDispatchCoordinator(deduped.deps, "coc_invoke", directTakeoverResult(task));
   check("deduped packet skips", deduped.audit.length === 0);
+}
+
+// One exact fulfill rejection is retried by the manager under the packet's
+// bounded policy. The retry keeps one dispatch identity and emits no terminal
+// notification until the second attempt completes.
+{
+  const queue = realManagerHarness();
+  const task = coordinatorTask("coord-fulfill-retry");
+  await autoDispatchCoordinator(
+    queue.deps,
+    "coc_invoke",
+    directTakeoverResult(task),
+  );
+  queue.controlsByKey.get(task.packet.packet_id)[0].resolve(
+    failedFulfillEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  check("fulfill rejection launches one exact automatic retry",
+    queue.launches.join(",") === [
+      task.packet.packet_id,
+      task.packet.packet_id,
+    ].join(",")
+    && queue.manager.state(task.packet.packet_id)?.status === "submitted"
+    && queue.notifications.length === 0);
+  await autoDispatchCoordinator(
+    queue.deps,
+    "coc_invoke",
+    directTakeoverResult(task),
+  );
+  check("same packet wakeup cannot duplicate active retry",
+    queue.launches.length === 2);
+  queue.controlsByKey.get(task.packet.packet_id)[1].resolve();
+  await nextTurn();
+  await nextTurn();
+  const retryObservation = queue.lifecycle.find((entry) => (
+    entry.status === "retrying"
+    && entry.dispatch_key === task.packet.packet_id
+  ));
+  check("retry lifecycle is bounded and final notification is exact",
+    retryObservation?.completed_attempt === 1
+    && retryObservation?.next_attempt === 2
+    && retryObservation?.failure_class === "fulfill_rejected"
+    && queue.lifecycle.filter((entry) => (
+      entry.status === "completed"
+      && entry.dispatch_key === task.packet.packet_id
+    )).length === 1
+    && queue.notifications.join(",") === task.packet.packet_id);
+}
+
+// A second exact rejection exhausts the packet budget and becomes one
+// truthful terminal receipt. Later duplicate wakeups remain deduped.
+{
+  const queue = realManagerHarness();
+  const task = coordinatorTask("coord-fulfill-exhausted");
+  await autoDispatchCoordinator(
+    queue.deps,
+    "coc_invoke",
+    directTakeoverResult(task),
+  );
+  queue.controlsByKey.get(task.packet.packet_id)[0].resolve(
+    failedFulfillEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  queue.controlsByKey.get(task.packet.packet_id)[1].resolve(
+    failedFulfillEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  await autoDispatchCoordinator(
+    queue.deps,
+    "coc_invoke",
+    directTakeoverResult(task),
+  );
+  const terminal = queue.manager.state(task.packet.packet_id);
+  check("retry exhaustion terminalizes once without a third launch",
+    queue.launches.length === 2
+    && terminal?.status === "completed"
+    && terminal?.terminal_receipt?.status === "failed"
+    && terminal?.terminal_receipt?.failure_class === "fulfill_rejected"
+    && queue.lifecycle.filter((entry) => (
+      entry.status === "completed"
+      && entry.dispatch_key === task.packet.packet_id
+    )).length === 1
+    && queue.notifications.join(",") === task.packet.packet_id);
 }
 
 // A distinct packet is retained while A is active, then launched exactly once.

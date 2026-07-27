@@ -11342,6 +11342,41 @@ def test_source_projection_uses_coordinator_only_for_multiple_groups(
     ] == "return_to_parent"
 
 
+def test_pi_source_projection_terminalizes_exhausted_retry_budget(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_HOST", "pi")
+    ctx = coc_toolbox.Ctx(tmp_path, None)
+    exhausted = {
+        "job_id": "job-exhausted",
+        "kind": "deepen_location",
+        "target_id": "cellar",
+        "priority": 50,
+        "requested_pdf_indices": [7],
+        "source_aspect": "body",
+        "deadline_class": "idle_warm",
+        "work_group_id": "group-cellar",
+        "dispatch_state": "ready",
+        "dispatch_attempts": 2,
+        "cached_scope_complete": True,
+    }
+    projection = coc_toolbox._source_host_work_projection(
+        ctx,
+        "asset-a",
+        all_open_host_work=[exhausted],
+    )
+    assert projection["ready_for_background_count"] == 0
+    assert "background_takeover" not in projection
+    assert projection["pi_coordinator_dispatch_status"] == "retry_exhausted"
+    assert projection["pi_coordinator_max_attempts"] == 2
+    assert projection["pi_coordinator_retry_exhausted_count"] == 1
+    assert projection["pi_coordinator_retry_exhausted_requests"] == [
+        exhausted
+    ]
+    assert projection["automatic_retry_remaining"] is False
+
+
 def test_source_projection_uses_parent_flat_fanout_for_grok_multi_group(
     tmp_path: Path,
     monkeypatch,
@@ -11992,6 +12027,17 @@ def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materializ
     task = data["background_takeover"]["next_host_action"]["task"]
     assert task["contract_id"] == "coc.pi-source-coordinator-task.v1"
     assert task["packet"]["asset_root_id"] == ws["asset_root_id"]
+    assert task["packet"]["claim_operation"]["prefilled_arguments"][
+        "max_dispatch_attempts"
+    ] == 2
+    assert task["packet"]["failure_policy"]["same_task_retry"] is True
+    assert task["packet"]["failure_policy"]["automatic_retry"] == {
+        "retryable_failure_classes": ["fulfill_rejected"],
+        "require_status": "failed",
+        "require_positive_claimed": True,
+        "require_zero_fulfilled": True,
+        "max_attempts": 2,
+    }
     request = next(
         row for row in data["host_work"]["ready_background_requests"]
         if row["target_id"] == "destination"

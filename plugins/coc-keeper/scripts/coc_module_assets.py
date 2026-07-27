@@ -4887,6 +4887,7 @@ def claim_host_work_requests(
     lease_seconds: int = 600,
     cached_only: bool = True,
     result_delivery: str = "named_submit",
+    max_dispatch_attempts: int | None = None,
 ) -> dict[str, Any]:
     """Atomically lease bounded source-page work groups for host subagents.
 
@@ -4914,6 +4915,14 @@ def claim_host_work_requests(
     if result_delivery not in {"named_submit", "return_to_parent"}:
         raise ModuleAssetsError(
             "result_delivery must be named_submit or return_to_parent"
+        )
+    if max_dispatch_attempts is not None and (
+        isinstance(max_dispatch_attempts, bool)
+        or not isinstance(max_dispatch_attempts, int)
+        or not 1 <= max_dispatch_attempts <= 100
+    ):
+        raise ModuleAssetsError(
+            "max_dispatch_attempts must be null or an integer from 1 through 100"
         )
 
     module_root = _module_dir(workspace, asset_root_id)
@@ -4973,6 +4982,16 @@ def claim_host_work_requests(
         for path, request in rows:
             group_id = str(request.get("work_group_id") or request.get("job_id") or "")
             grouped.setdefault(group_id, []).append((path, request))
+        if max_dispatch_attempts is not None:
+            grouped = {
+                group_id: members
+                for group_id, members in grouped.items()
+                if all(
+                    int(request.get("dispatch_attempts") or 0)
+                    < max_dispatch_attempts
+                    for _path, request in members
+                )
+            }
         ordered_groups = sorted(
             grouped.items(),
             key=lambda item: (

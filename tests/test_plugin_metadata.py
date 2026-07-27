@@ -391,6 +391,30 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "time_precision": "day_phase",
         "day_phase_hint": "<morning|afternoon|evening|night>",
     }
+    assert opening_setup["start_clock"]["relative_unknown_template"] == {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+        "display": "<exact-source-supported-display>",
+        "time_precision": "unknown",
+        "day_phase_hint": None,
+    }
+    clock_shapes = opening_setup["start_clock"][
+        "receiver_complete_shape_rules"
+    ]
+    assert clock_shapes[0]["time_precision_values"] == [
+        "day_phase", "unknown",
+    ]
+    assert clock_shapes[0]["local_date"] is None
+    assert clock_shapes[4]["day_phase_hint"] == "required_enum_value"
+    assert clock_shapes[5] == {
+        "calendar_mode_class": "any",
+        "time_precision_values": ["unknown"],
+        "local_datetime": None,
+        "local_date": None,
+        "day_phase_hint": None,
+    }
     body_location = contract["packet"]["body_location"]
     assert body_location["request_kinds"] == [
         "deepen_location", "partial_neighbor",

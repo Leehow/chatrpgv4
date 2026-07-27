@@ -10609,6 +10609,8 @@ def _tool_combat_end(ctx: Ctx, args: dict[str, Any]):
 # flow.* — read-only queries (former gates surface as info)
 # --------------------------------------------------------------------------- #
 
+_PI_SOURCE_COORDINATOR_MAX_ATTEMPTS = 2
+
 
 def _source_coordinator_dispatch(
     *,
@@ -10762,6 +10764,19 @@ def _pi_source_coordinator_dispatch(
         claim_result_delivery="task_return_to_parent",
     )
     codex_task = dispatch.pop("codex_task")
+    dispatch["packet"]["claim_operation"]["prefilled_arguments"][
+        "max_dispatch_attempts"
+    ] = _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS
+    dispatch["packet"]["failure_policy"].update({
+        "same_task_retry": True,
+        "automatic_retry": {
+            "retryable_failure_classes": ["fulfill_rejected"],
+            "require_status": "failed",
+            "require_positive_claimed": True,
+            "require_zero_fulfilled": True,
+            "max_attempts": _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS,
+        },
+    })
     dispatch["pi_task"] = {
         **codex_task,
         "contract_id": "coc.pi-source-coordinator-task.v1",
@@ -11227,7 +11242,8 @@ def _source_host_work_projection(
         }
         for row in open_rows
     ]
-    ready_background = [
+    host_adapter = str(os.environ.get("COC_HOST") or "unknown").lower()
+    ready_candidates = [
         compact
         for row, compact in zip(
             open_rows, compact_host_work, strict=True,
@@ -11235,6 +11251,16 @@ def _source_host_work_projection(
         if row.get("dispatch_state") == "ready"
         and row.get("cached_scope_complete") is True
         and bool(row.get("requested_pdf_indices"))
+    ]
+    retry_exhausted = [
+        row for row in ready_candidates
+        if host_adapter == "pi"
+        and int(row.get("dispatch_attempts") or 0)
+        >= _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS
+    ]
+    ready_background = [
+        row for row in ready_candidates
+        if row not in retry_exhausted
     ]
     operational_classes = [
         assets_mod.host_work_operational_class(row) for row in open_rows
@@ -11268,7 +11294,16 @@ def _source_host_work_projection(
         ),
         "ready_background_requests": ready_background[:4],
     }
-    host_adapter = str(os.environ.get("COC_HOST") or "unknown").lower()
+    if retry_exhausted:
+        projection.update({
+            "pi_coordinator_dispatch_status": "retry_exhausted",
+            "pi_coordinator_max_attempts": (
+                _PI_SOURCE_COORDINATOR_MAX_ATTEMPTS
+            ),
+            "pi_coordinator_retry_exhausted_count": len(retry_exhausted),
+            "pi_coordinator_retry_exhausted_requests": retry_exhausted[:4],
+            "automatic_retry_remaining": False,
+        })
     if awaiting_scope and host_adapter == "codex":
         locator_request = min(
             awaiting_scope,
@@ -14638,6 +14673,15 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
             "maximum": 3600,
             "desc": "crash-recovery lease duration (default 600 seconds)",
         },
+        "max_dispatch_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "desc": (
+                "optional exact upper bound on durable claim attempts; "
+                "groups at the bound are not leased"
+            ),
+        },
         "result_delivery": {
             "type": "string",
             "enum": [
@@ -14675,6 +14719,7 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
             lease_seconds=args.get("lease_seconds", 600),
             cached_only=True,
             result_delivery=packet_delivery,
+            max_dispatch_attempts=args.get("max_dispatch_attempts"),
         )
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc

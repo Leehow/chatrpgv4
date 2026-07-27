@@ -1148,6 +1148,17 @@ def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
     assert stored["last_lease_release_reason"] == "shutdown"
     assert "executor_id" not in stored
     assert "lease_id" not in stored
+    exhausted = assets.claim_host_work_requests(
+        tmp_path,
+        "lease-module",
+        executor_id="coordinator-a",
+        max_dispatch_attempts=1,
+    )
+    assert exhausted["packets"] == []
+    assert exhausted["ready_group_count"] == 0
+    assert json.loads(request_path.read_text(encoding="utf-8"))[
+        "dispatch_attempts"
+    ] == 1
 
 
 def test_host_work_renew_supersedes_all_stale_consumers_before_extension(
@@ -2574,6 +2585,22 @@ def test_source_bound_skeleton_requires_explicit_start_clock_semantics(tmp_path:
     loaded = assets.get_skeleton(tmp_path, registered["asset_root_id"])
     assert loaded["start_clock_status"] == "source"
     assert loaded["start_clock_source_refs"][0]["text_sha256"]
+
+
+def test_relative_opening_clock_rejects_live_date_precision_shape():
+    with pytest.raises(
+        assets.ModuleAssetsError,
+        match="relative start_clock precision must be day_phase or unknown",
+    ):
+        assets.validate_opening_clock({
+            "calendar_mode": "relative",
+            "local_datetime": None,
+            "local_date": None,
+            "timezone": None,
+            "display": "约1080年，某日清晨",
+            "time_precision": "date",
+            "day_phase_hint": None,
+        })
 
 
 def test_disjoint_source_indices_do_not_become_a_false_contiguous_span():

@@ -11,6 +11,7 @@ export type McpCaller = (name: string, args: JsonObject, signal?: AbortSignal) =
 export const MAX_BYTES = 256 * 1024;
 export const MAX_LEAVES = 4;
 export const MAX_PENDING_COORDINATOR_QUEUES = 4;
+export const MAX_SOURCE_COORDINATOR_ATTEMPTS = 2;
 export const MAX_RESULTS_PER_LEAF = 128;
 export const ACTIVATION_TIMEOUT_MS = 20_000;
 export const MCP_TIMEOUT_MS = 30_000;
@@ -288,6 +289,31 @@ export function validateCoordinatorTask(input: unknown): JsonObject {
   if (prefilled.limit !== maxLeaves) throw new Error("Pi coordinator claim limit drift");
   const fulfill = asObject(packet.fulfill_operation, "fulfill operation");
   if (fulfill.operation !== "progressive.fulfill_host_work") throw new Error("invalid coordinator fulfill operation");
+  if (packet.failure_policy !== undefined) {
+    const failurePolicy = asObject(packet.failure_policy, "coordinator failure policy");
+    if (failurePolicy.same_task_retry === true) {
+      const automaticRetry = asObject(
+        failurePolicy.automatic_retry,
+        "coordinator automatic retry policy",
+      );
+      exactKeys(automaticRetry, [
+        "retryable_failure_classes", "require_status",
+        "require_positive_claimed", "require_zero_fulfilled", "max_attempts",
+      ], "coordinator automatic retry policy");
+      if (
+        JSON.stringify(automaticRetry.retryable_failure_classes)
+          !== JSON.stringify(["fulfill_rejected"])
+        || prefilled.max_dispatch_attempts
+          !== MAX_SOURCE_COORDINATOR_ATTEMPTS
+        || automaticRetry.require_status !== "failed"
+        || automaticRetry.require_positive_claimed !== true
+        || automaticRetry.require_zero_fulfilled !== true
+        || automaticRetry.max_attempts !== MAX_SOURCE_COORDINATOR_ATTEMPTS
+      ) {
+        throw new Error("unsupported coordinator automatic retry policy");
+      }
+    }
+  }
   return task;
 }
 
@@ -563,6 +589,13 @@ export interface ChildRun {
 
 export type CoordinatorLifecycleObservation =
   | {
+    status: "retrying";
+    dispatch_key: string;
+    completed_attempt: number;
+    next_attempt: number;
+    failure_class: "fulfill_rejected";
+  }
+  | {
     status: "completed";
     dispatch_key: string;
     terminal_receipt: JsonObject;
@@ -619,6 +652,15 @@ export class CoordinatorDispatchManager {
       if (pending && typeof pending.then === "function") void pending.catch(() => {});
     } catch { /* lifecycle audit is best effort and never changes authority */ }
     return true;
+  }
+  private observeRetry(observation: Extract<
+    CoordinatorLifecycleObservation,
+    { status: "retrying" }
+  >): void {
+    try {
+      const pending = this.onLifecycle?.(observation);
+      if (pending && typeof pending.then === "function") void pending.catch(() => {});
+    } catch { /* lifecycle audit is best effort and never changes authority */ }
   }
   private fail(
     key: string,
@@ -724,6 +766,7 @@ export class CoordinatorDispatchManager {
     key: string,
     context: PrivateLaunchContext,
     signal?: AbortSignal,
+    attempt = 1,
   ): Promise<JsonObject> {
     if (this.closing) throw new Error("Pi source coordinator manager is closing");
     if (signal?.aborted) {
@@ -751,6 +794,58 @@ export class CoordinatorDispatchManager {
       try { receipt = parseStrictCoordinatorResult(events, task); }
       catch {
         this.fail(key, "framing", "coordinator_result_invalid");
+        return;
+      }
+      const packet = asObject(task.packet, "coordinator packet");
+      const failurePolicy = packet.failure_policy && typeof packet.failure_policy === "object"
+        ? packet.failure_policy as JsonObject
+        : null;
+      const automaticRetry = failurePolicy?.same_task_retry === true
+        ? failurePolicy.automatic_retry as JsonObject
+        : null;
+      const maxAttempts = automaticRetry?.max_attempts;
+      if (
+        Number.isInteger(maxAttempts)
+        && attempt < (maxAttempts as number)
+        && receipt.status === automaticRetry?.require_status
+        && receipt.failure_class === "fulfill_rejected"
+        && (automaticRetry.retryable_failure_classes as unknown[])?.includes(
+          receipt.failure_class,
+        )
+        && (
+          automaticRetry.require_positive_claimed !== true
+          || (receipt.claimed_packet_count as number) > 0
+        )
+        && (
+          automaticRetry.require_zero_fulfilled !== true
+          || receipt.fulfilled_result_count === 0
+        )
+      ) {
+        const nextAttempt = attempt + 1;
+        this.states.set(key, {
+          status: "retrying",
+          failure_class: "fulfill_rejected",
+        });
+        this.observeRetry({
+          status: "retrying",
+          dispatch_key: key,
+          completed_attempt: attempt,
+          next_attempt: nextAttempt,
+          failure_class: "fulfill_rejected",
+        });
+        try {
+          await this.launchNow(task, key, context, signal, nextAttempt);
+        } catch {
+          if (!this.terminalKeys.has(key)) {
+            this.fail(
+              key,
+              this.closing ? "shutdown" : "process",
+              this.closing
+                ? "coordinator_shutdown"
+                : "coordinator_process_failed",
+            );
+          }
+        }
         return;
       }
       if (!this.complete(key, receipt)) return;

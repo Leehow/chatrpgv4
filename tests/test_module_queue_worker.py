@@ -765,6 +765,34 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
         "time_precision": "day_phase",
         "day_phase_hint": "<morning|afternoon|evening|night>",
     }
+    assert opening_setup["start_clock"]["relative_unknown_template"] == {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+        "display": "<exact-source-supported-display>",
+        "time_precision": "unknown",
+        "day_phase_hint": None,
+    }
+    shape_rules = opening_setup["start_clock"][
+        "receiver_complete_shape_rules"
+    ]
+    assert shape_rules[0] == {
+        "calendar_mode_class": "relative",
+        "time_precision_values": ["day_phase", "unknown"],
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+    }
+    assert {
+        tuple(rule["time_precision_values"])
+        for rule in shape_rules
+        if rule["calendar_mode_class"] == "non_relative"
+    } == {
+        ("exact", "minute", "hour"),
+        ("date",),
+        ("day_phase",),
+    }
     assert opening_setup["start_clock_source_ref_required_fields"] == [
         "source_id", "pdf_index",
     ]

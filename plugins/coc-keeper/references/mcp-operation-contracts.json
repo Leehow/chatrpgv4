@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:dad3bf168d542e24dbfe25358f1ecd1f279ec5f2fca574854f390ca0daa155a1",
+  "content_sha256": "sha256:357102b0afa33d10dfec8251cc0aeaa5cf0d8615891c6303ba0f0589c5223602",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -905,6 +905,12 @@
           "limit": {
             "description": "maximum independent exact-page work groups to lease (default 1)",
             "maximum": 4,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "max_dispatch_attempts": {
+            "description": "optional exact upper bound on durable claim attempts; groups at the bound are not leased",
+            "maximum": 100,
             "minimum": 1,
             "type": "integer"
           },
