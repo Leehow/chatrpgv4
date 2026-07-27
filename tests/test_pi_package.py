@@ -588,6 +588,15 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "validOpeningText": "马车在白昼里停到城堡门前。",
         "mismatchedDigestRejected": True,
         "finalizedArmed": True,
+        "earlyMismatch": {
+            "armed": True,
+            "continuationClass": (
+                "nonblocking_background_after_finalized_output"
+            ),
+            "digestMatches": True,
+            "mismatchVisible": True,
+            "followUpVisible": True,
+        },
         "arbitraryBeforeExactReturned": True,
         "toolBearingAfterFinalizeTypes": ["toolCall"],
         "finalizedNarrationReturned": True,
@@ -714,6 +723,30 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "digestMatches": True,
                 "dispatchKey": "coord-real-finalizer-probe",
             },
+        },
+        "realEarlyFinalizationLoop": {
+            "piVersion": "0.81.1",
+            "armed": True,
+            "earlyContextBeforeExactDelivery": {
+                "appended": 1,
+                "sent": 1,
+                "continuationClass": (
+                    "nonblocking_background_after_finalized_output"
+                ),
+                "dispatchClass": "nonblocking_background",
+                "playerTurnEpoch": 1,
+                "digestMatches": True,
+                "dispatchKey": "coord-real-early-finalizer-probe",
+                "report": {
+                    "status": "delivered",
+                    "append_entry": "delivered",
+                    "hidden_continuation": "delivered",
+                    "player_transcript": "suppressed",
+                },
+            },
+            "exactVisible": True,
+            "redundantSuppressed": True,
+            "queuedCustomObserved": True,
         },
     }
 

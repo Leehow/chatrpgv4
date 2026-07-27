@@ -347,6 +347,159 @@ async function realFinalizationLoopProbe() {
   };
 }
 
+async function realEarlyFinalizationLoopProbe() {
+  const realHandlers = new Map();
+  const gate = new main.OpeningTerminalContinuationGate();
+  main.registerPlayerTranscriptGate({
+    on(type, handler) {
+      const registered = realHandlers.get(type) || [];
+      registered.push(handler);
+      realHandlers.set(type, registered);
+    },
+  }, (visibleText) => gate.acceptVisibleAssistantFinal(visibleText),
+  (message) => gate.observeMessageStart(message));
+
+  const exactText = "抢先终态之后的精确 finalizer 输出。";
+  const initialUser = {
+    role: "user",
+    content: [{ type: "text", text: "执行抢先终态竞态探针。" }],
+    timestamp: 210,
+  };
+  const usage = {
+    input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+    totalTokens: 0,
+  };
+  const base = {
+    role: "assistant", api: "openai-responses", provider: "probe",
+    model: "probe", usage, stopReason: "stop", timestamp: 211,
+  };
+  const responses = [
+    {
+      ...base,
+      content: [{ type: "text", text: exactText }],
+    },
+    {
+      ...base,
+      content: [{ type: "text", text: "抢先终态引发的多余提示。" }],
+      timestamp: 212,
+    },
+  ];
+  let responseIndex = 0;
+  let armed = false;
+  let earlyContinuationDetails = null;
+  let earlyPublicationReport = null;
+  let continuationQueued = false;
+  const earlyPublished = [];
+  const earlyAppended = [];
+  const finals = [];
+  const eventTrace = [];
+  const streamFn = () => {
+    const stream = createAssistantMessageEventStream();
+    const finalMessage = responses[responseIndex++];
+    queueMicrotask(() => {
+      stream.push({ type: "start", partial: { ...finalMessage, content: [] } });
+      stream.push({ type: "done", message: finalMessage });
+    });
+    return stream;
+  };
+  await runAgentLoop(
+    [initialUser],
+    {
+      systemPrompt: "probe",
+      messages: [],
+      tools: [],
+    },
+    {
+      model: {
+        id: "probe", name: "probe", provider: "probe",
+        api: "openai-responses", reasoning: false, input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1000, maxTokens: 100,
+      },
+      convertToLlm: (messages) => messages,
+      getFollowUpMessages() {
+        if (
+          !continuationQueued
+          && responseIndex === 1
+          && earlyContinuationDetails
+        ) {
+          continuationQueued = true;
+          return [{
+            role: "custom",
+            customType: "coc-source-coordinator-terminal-continuation",
+            content: JSON.stringify(earlyContinuationDetails),
+            details: earlyContinuationDetails,
+            display: false,
+            timestamp: 213,
+          }];
+        }
+        return [];
+      },
+    },
+    async (event) => {
+      eventTrace.push(`${event.type}:${event.message?.role ?? "none"}:${
+        event.message?.customType ?? ""
+      }`);
+      let transformed;
+      for (const handler of realHandlers.get(event.type) || []) {
+        transformed = await handler(event, {});
+      }
+      if (
+        !armed
+        && event.type === "message_start"
+        && event.message?.role === "user"
+      ) {
+        armed = gate.markFinalizedOutputReady(exactText, digest(exactText));
+        earlyPublicationReport = await main.publishCoordinatorTerminal(
+          {
+            appendEntry: (...args) => earlyAppended.push(args),
+            sendMessage: (...args) => earlyPublished.push(args),
+          },
+          {
+            schema_version: 1,
+            contract_id: "coc.source-coordinator-result.v1",
+            packet_id: "coord-real-early-finalizer-probe",
+            status: "fulfilled",
+            failure_class: null,
+          },
+          new Set(),
+          () => true,
+          (dispatchKey, terminalStatus) => (
+            gate.coordinatorContinuationContext(dispatchKey, terminalStatus)
+          ),
+        );
+        earlyContinuationDetails = earlyPublished[0][0].details;
+      }
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        finals.push(transformed?.message ?? event.message);
+      }
+    },
+    undefined,
+    streamFn,
+  );
+  return {
+    piVersion: "0.81.1",
+    armed,
+    earlyContextBeforeExactDelivery: {
+      appended: earlyAppended.length,
+      sent: earlyPublished.length,
+      continuationClass: earlyContinuationDetails?.continuation_class,
+      dispatchClass: earlyContinuationDetails?.dispatch_class,
+      playerTurnEpoch: earlyContinuationDetails?.player_turn_epoch,
+      digestMatches:
+        earlyContinuationDetails?.finalized_rendered_sha256
+          === digest(exactText),
+      dispatchKey: earlyContinuationDetails?.dispatch_key,
+      report: earlyPublicationReport,
+    },
+    exactVisible: types(finals[0]).includes("text"),
+    redundantSuppressed: types(finals[1]).length === 0,
+    queuedCustomObserved: eventTrace.includes(
+      "message_start:custom:coc-source-coordinator-terminal-continuation",
+    ),
+  };
+}
+
 const start = {
   role: "assistant",
   content: [{ type: "text", text: "先让我检查一下。" }],
@@ -424,6 +577,26 @@ const finalizedArmed = openingContinuationGate.markFinalizedOutputReady(
   finalizedText,
   finalizedSha256,
 );
+const earlyMismatchGate = new main.OpeningTerminalContinuationGate();
+earlyMismatchGate.markExternalUserInput();
+const earlyMismatchArmed = earlyMismatchGate.markFinalizedOutputReady(
+  "只允许这条精确输出。",
+  digest("只允许这条精确输出。"),
+);
+const earlyMismatchContext = earlyMismatchGate.coordinatorContinuationContext(
+  "coord-early-mismatch",
+  "fulfilled",
+);
+const earlyMismatchOutputVisible = earlyMismatchGate.acceptVisibleAssistantFinal(
+  "实际收到的是不匹配输出。",
+);
+earlyMismatchGate.observeMessageStart({
+  role: "custom",
+  customType: "coc-source-coordinator-terminal-continuation",
+  details: earlyMismatchContext,
+});
+const earlyMismatchFollowUpVisible =
+  earlyMismatchGate.acceptVisibleAssistantFinal("不匹配后续保持可见。");
 const arbitraryBeforeExact = await emit("message_end", {
   role: "assistant",
   content: [{ type: "text", text: "这是一条不匹配 finalizer 的说明。" }],
@@ -626,6 +799,7 @@ const currentReport = await main.publishCoordinatorTerminal({
 const staleReport = await stalePromise;
 const realLoop = await realRunAgentLoopProbe();
 const realFinalizationLoop = await realFinalizationLoopProbe();
+const realEarlyFinalizationLoop = await realEarlyFinalizationLoopProbe();
 
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
@@ -643,6 +817,15 @@ process.stdout.write(JSON.stringify({
   validOpeningText: validOpening.content[0].text,
   mismatchedDigestRejected,
   finalizedArmed,
+  earlyMismatch: {
+    armed: earlyMismatchArmed,
+    continuationClass: earlyMismatchContext.continuation_class,
+    digestMatches:
+      earlyMismatchContext.finalized_rendered_sha256
+        === digest("只允许这条精确输出。"),
+    mismatchVisible: earlyMismatchOutputVisible,
+    followUpVisible: earlyMismatchFollowUpVisible,
+  },
   arbitraryBeforeExactReturned: arbitraryBeforeExact === undefined,
   toolBearingAfterFinalizeTypes: types(toolBearingAfterFinalize.message),
   finalizedNarrationReturned: finalizedNarrationResult === undefined,
@@ -704,4 +887,5 @@ process.stdout.write(JSON.stringify({
   },
   realLoop,
   realFinalizationLoop,
+  realEarlyFinalizationLoop,
 }));

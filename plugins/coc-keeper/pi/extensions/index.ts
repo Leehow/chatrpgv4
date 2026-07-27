@@ -207,10 +207,14 @@ export class OpeningTerminalContinuationGate {
     const dispatchClass = this.dispatchClasses.get(dispatchKey)
       ?? "nonblocking_background";
     const finalized = this.finalizedOutput;
+    // Terminal publication may race ahead of the exact assistant message_end.
+    // Carry the armed provenance into Pi's queued followUp now; the consumer
+    // below still refuses to arm suppression until that exact output has
+    // actually been delivered in the same user epoch.
     if (
       dispatchClass === "nonblocking_background"
       && terminalStatus === "fulfilled"
-      && finalized?.delivered === true
+      && finalized !== null
       && finalized.epoch === this.playerTurnEpoch
     ) {
       return {
