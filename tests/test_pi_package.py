@@ -644,6 +644,36 @@ def test_pi_projection_uses_task_return_and_repository_produced_leaf_wrappers(mo
     variation = canonical["packet"]["claim_operation"]["transport_variations"]["pi_private_lifecycle"]
     assert variation["result_delivery"] == task["packet"]["claim_operation"]["prefilled_arguments"]["result_delivery"]
     assert variation["claim_result_field"] == "dispatch_tasks"
+    retry_contract = canonical["failure_policy"][
+        "manager_automatic_retry_by_adapter"
+    ]["pi_private_lifecycle"]
+    assert canonical["failure_policy"]["coordinator_self_retry"] is False
+    assert retry_contract["owner"] == (
+        "pi_source_coordinator_dispatch_manager"
+    )
+    assert retry_contract["same_task_retry"] is True
+    assert retry_contract["manager_repairs_receipt_or_leaf_result"] is False
+    assert task["packet"]["failure_policy"]["automatic_retry"] == {
+        key: retry_contract[key]
+        for key in (
+            "retryable_failure_classes",
+            "require_status",
+            "require_positive_claimed",
+            "require_zero_fulfilled",
+            "max_attempts",
+        )
+    }
+    assert retry_contract["max_attempts"] == 2
+    assert retry_contract["interim_terminal_receipt_published"] is False
+    assert retry_contract["interim_parent_wake"] is False
+    assert canonical["lifecycle"]["pi_parent_terminal_delivery"] == (
+        "append_final_receipt_then_deduped_hidden_followup_with_"
+        "triggerTurn_true"
+    )
+    assert canonical["lifecycle"]["pi_hidden_continuation_source"] == (
+        "final_validated_receipt_only"
+    )
+    assert canonical["result_contract"]["optional_fields"] == ["diagnostics"]
     assert task["packet"]["leaf_worker"]["prompt_binding"] == (
         "one exact repository-produced dispatch_tasks[] "
         "coc.pi-source-pack-task.v1 value"

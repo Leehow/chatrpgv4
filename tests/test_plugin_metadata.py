@@ -706,19 +706,105 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
             "from dispatch_tasks[]"
         ),
     }
-    assert contract["lifecycle"]["manager_background"] is True
-    assert contract["lifecycle"]["leaf_background"] is False
-    assert contract["lifecycle"]["main_keeper_waits"] is False
-    assert contract["lifecycle"]["main_keeper_retrieves_result"] is False
+    lifecycle = contract["lifecycle"]
+    assert lifecycle["manager_background"] is True
+    assert lifecycle["leaf_background"] is False
+    assert lifecycle["main_keeper_waits"] is False
+    assert lifecycle["main_keeper_retrieves_result"] is False
+    assert lifecycle["coordinator_self_repairs_or_retries"] is False
+    assert lifecycle["pi_dispatch_manager_automatic_retry"] is True
+    assert lifecycle["pi_interim_retry_terminal_delivery"] is False
+    assert lifecycle["pi_interim_retry_parent_wake"] is False
+    assert lifecycle["pi_parent_terminal_delivery"] == (
+        "append_final_receipt_then_deduped_hidden_followup_with_"
+        "triggerTurn_true"
+    )
+    assert lifecycle["pi_hidden_continuation_source"] == (
+        "final_validated_receipt_only"
+    )
     assert contract["authority"]["max_nesting_depth"] == 2
+    result_contract = contract["result_contract"]
+    assert result_contract["status_values"] == [
+        "fulfilled", "partial", "idle", "failed",
+    ]
+    assert result_contract["optional_fields"] == ["diagnostics"]
+    diagnostics = result_contract["diagnostics"]
+    assert diagnostics["presence"] == (
+        "optional_only_when_deterministic_lifecycle_supplies_it"
+    )
+    assert diagnostics["forwarding"] == "unchanged"
+    assert diagnostics["maximum_items"] == 4
+    assert diagnostics["item_closed"] is True
+    assert diagnostics["item_required_fields"] == [
+        "schema_version", "contract_id", "phase", "code",
+        "validation_path", "lease_id", "job_ids",
+    ]
+    assert diagnostics["phase_values"] == [
+        "claim_projection", "leaf_result",
+    ]
+    assert "claim_wire_projection_failed" in diagnostics["code_values"]
+    assert "leaf_result_packet_binding_drift" in diagnostics["code_values"]
+    assert (
+        "claim.wire.claim_dispatch_projection_failed"
+        in diagnostics["validation_path_values"]
+    )
+    assert "$.packet_id|$.work_group_id" in (
+        diagnostics["validation_path_values"]
+    )
+    runtime_source = _text(PLUGIN_ROOT / "pi" / "lib" / "runtime.ts")
+
+    def runtime_string_set(name: str) -> set[str]:
+        match = re.search(
+            rf"const {name} = new Set(?:<[^>]+>)?\(\[(.*?)\]\);",
+            runtime_source,
+            re.DOTALL,
+        )
+        assert match is not None, name
+        return set(re.findall(r'"([^"]+)"', match.group(1)))
+
+    assert set(result_contract["status_values"]) == runtime_string_set(
+        "COORDINATOR_STATUSES"
+    )
+    assert set(result_contract["failure_class_values"]) == runtime_string_set(
+        "COORDINATOR_FAILURES"
+    )
+    assert set(diagnostics["code_values"]) == runtime_string_set(
+        "SOURCE_VALIDATION_CODES"
+    )
+    assert set(diagnostics["validation_path_values"]) == runtime_string_set(
+        "SOURCE_VALIDATION_PATHS"
+    )
     failure = contract["failure_policy"]
     assert failure["authority"] == "prompt_first_advisory"
     assert failure["single_failure"] == "transient_allowed"
     assert failure["same_failure_escalation_threshold"] == 3
     assert failure["threshold_outcome"] == "design_issue"
+    assert failure["threshold_scope"] == (
+        "cross_run_design_review_not_single_run_terminal_status"
+    )
     assert failure["runtime_gate"] is False
     assert failure["player_output_gate"] is False
-    assert failure["same_task_retry"] is False
+    assert failure["coordinator_self_retry"] is False
+    manager_retry = failure["manager_automatic_retry_by_adapter"]
+    assert manager_retry["bare_packet_coordinator"] == {"enabled": False}
+    assert manager_retry["pi_private_lifecycle"] == {
+        "enabled": True,
+        "owner": "pi_source_coordinator_dispatch_manager",
+        "same_task_retry": True,
+        "manager_repairs_receipt_or_leaf_result": False,
+        "retryable_failure_classes": ["fulfill_rejected"],
+        "require_status": "failed",
+        "require_positive_claimed": True,
+        "require_zero_fulfilled": True,
+        "max_attempts": 2,
+        "attempt_semantics": "original_attempt_plus_at_most_one_retry",
+        "interim_terminal_receipt_published": False,
+        "interim_parent_wake": False,
+        "final_terminal_receipt_published_once": True,
+        "final_hidden_continuation": (
+            "receipt_derived_deduplicated_triggerTurn_true"
+        ),
+    }
 
     codex = contract["host_adapters"]["codex"]
     assert codex["status"] == "experimental"
@@ -832,6 +918,16 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "a design issue, not acceptable model variance",
         "not a new product gate",
         "task support by itself is insufficient",
+        "coordinator process itself never retries",
+        "maximum is two total attempts",
+        "`failure_class=fulfill_rejected`",
+        "`claimed_packet_count>0`",
+        "`fulfilled_result_count=0`",
+        "interim rejected-fulfillment receipt is neither published as terminal",
+        "deduplicated hidden continuation with `triggerturn=true`",
+        "optional closed `diagnostics` array",
+        "never construct it from provider text or raw error strings",
+        "never invent a historical count or return `status=design_issue`",
     ):
         assert phrase in compact, phrase
     assert "  - Task\n" in frontmatter
