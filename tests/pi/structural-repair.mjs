@@ -55,8 +55,15 @@ function terminal(value) {
 function assistantParts(parts) {
   return { type: "message_end", message: { role: "assistant", content: parts } };
 }
+function coordinatorCallEvent(id = "coordinator-call", preamble = null) {
+  return assistantParts([
+    ...(preamble === null ? [] : [{ type: "text", text: preamble }]),
+    { type: "toolCall", id, name: "coc_run_source_coordinator", arguments: {} },
+  ]);
+}
 function coordinatorEvents(toolValue, assistantValue = toolValue) {
   return [
+    coordinatorCallEvent(),
     {
       type: "message_end",
       message: {
@@ -553,7 +560,7 @@ try {
     && !JSON.stringify(failedRelease.audit).includes("raw release transport failure"));
 
   const validTerminal = runtime.validateCoordinatorResult(partial, coordinatorTask());
-  const lifecycleEvent = coordinatorEvents(validTerminal)[0];
+  const lifecycleEvent = coordinatorEvents(validTerminal)[1];
   const coordinatorText = { type: "text", text: JSON.stringify(validTerminal) };
   const coordinatorThinkingEvents = [
     assistantParts([thinking, { type: "toolCall", id: "coordinator-call", name: "coc_run_source_coordinator", arguments: {} }]),
@@ -606,20 +613,50 @@ try {
       assistantParts([coordinatorText]),
     ]],
     ["coordinator terminal image rejected", [
+      coordinatorCallEvent(),
       lifecycleEvent,
       assistantParts([thinking, coordinatorText, { type: "image", data: "x" }]),
     ]],
     ["coordinator terminal unknown rejected", [
+      coordinatorCallEvent(),
       lifecycleEvent,
       assistantParts([thinking, coordinatorText, { type: "futurePart" }]),
     ]],
     ["coordinator terminal multi-text rejected", [
+      coordinatorCallEvent(),
       lifecycleEvent,
       assistantParts([coordinatorText, coordinatorText]),
     ]],
     ["coordinator terminal thinking-only rejected", [
+      coordinatorCallEvent(),
       lifecycleEvent,
       assistantParts([thinking]),
+    ]],
+    ["coordinator separate duplicate calls rejected", [
+      coordinatorCallEvent("coordinator-call"),
+      coordinatorCallEvent("coordinator-call-2"),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+    ]],
+    ["coordinator call after terminal rejected", [
+      coordinatorCallEvent("coordinator-call"),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+      coordinatorCallEvent("coordinator-call-2"),
+    ]],
+    ["coordinator tool-only plus preamble tool rejected", [
+      coordinatorCallEvent("coordinator-call"),
+      coordinatorCallEvent(
+        "coordinator-call-2",
+        "I will call the coordinator a second time.",
+      ),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+    ]],
+    ["coordinator lifecycle call id drift rejected", [
+      coordinatorCallEvent("wrong-call-id"),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
     ]],
   ]) check(label, rejects(() => runtime.parseStrictCoordinatorResult(events, coordinatorTask())));
 
@@ -635,7 +672,7 @@ try {
   } catch { authorityRejected = true; }
   try {
     const mismatched = coordinatorEvents(validTerminal);
-    mismatched[0].message.details = {
+    mismatched[1].message.details = {
       ...validTerminal,
       status: "failed",
       fulfilled_result_count: 0,

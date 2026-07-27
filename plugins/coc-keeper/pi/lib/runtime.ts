@@ -369,11 +369,15 @@ function jsonCanonical(value: unknown): string {
 export function parseStrictCoordinatorResult(events: JsonObject[], taskValue: unknown): JsonObject {
   const terminals: JsonObject[] = [];
   const lifecycleResults: JsonObject[] = [];
+  let coordinatorCallId: string | null = null;
   for (const event of events) {
     if (event.type !== "message_end") continue;
     const message = event.message && typeof event.message === "object" ? event.message as JsonObject : null;
     if (!message || !Array.isArray(message.content)) continue;
     if (message.role === "toolResult" && message.toolName === "coc_run_source_coordinator") {
+      if (coordinatorCallId === null) throw new Error("coordinator lifecycle tool result precedes its assistant tool call");
+      if (terminals.length > 0) throw new Error("coordinator lifecycle tool result follows the terminal receipt");
+      if (nonEmpty(message.toolCallId, "coordinator lifecycle toolCallId") !== coordinatorCallId) throw new Error("coordinator lifecycle tool result call binding drift");
       if (message.isError !== false) throw new Error("coordinator lifecycle tool failed");
       const content = message.content as JsonObject[];
       if (content.length !== 1 || content[0]?.type !== "text" || typeof content[0].text !== "string") throw new Error("coordinator lifecycle tool result framing drift");
@@ -398,6 +402,8 @@ export function parseStrictCoordinatorResult(events: JsonObject[], taskValue: un
       const toolCallIndex = toolCallIndexes[0];
       const toolCall = parts[toolCallIndex] as JsonObject;
       if (toolCall.name !== "coc_run_source_coordinator") throw new Error("coordinator assistant event contains a foreign tool call");
+      if (coordinatorCallId !== null) throw new Error("Pi coordinator must emit exactly one assistant lifecycle tool call");
+      if (lifecycleResults.length > 0 || terminals.length > 0) throw new Error("coordinator assistant lifecycle tool call must precede lifecycle and terminal results");
       const toolOnly = parts.length === 1 && toolCallIndex === 0;
       const preambleThenTool = (
         parts.length === 2
@@ -410,8 +416,11 @@ export function parseStrictCoordinatorResult(events: JsonObject[], taskValue: un
         && ((parts[0] as JsonObject).text as string).trim().length > 0
       );
       if (!toolOnly && !preambleThenTool) throw new Error("coordinator lifecycle tool call permits only one ordinary pre-tool text part");
+      coordinatorCallId = nonEmpty(toolCall.id, "coordinator assistant toolCall.id");
       continue;
     }
+    if (coordinatorCallId === null) throw new Error("terminal coordinator receipt precedes its assistant lifecycle tool call");
+    if (lifecycleResults.length !== 1) throw new Error("terminal coordinator receipt must follow exactly one lifecycle tool result");
     if (parts.length !== 1) throw new Error("coordinator assistant event must contain only tool calls or exactly one JSON text part");
     const text = parts[0];
     if (!text || typeof text !== "object" || Array.isArray(text)) {
@@ -426,6 +435,7 @@ export function parseStrictCoordinatorResult(events: JsonObject[], taskValue: un
     catch { throw new Error("terminal coordinator text is not strict JSON"); }
     terminals.push(asObject(parsed, "coordinator result"));
   }
+  if (coordinatorCallId === null) throw new Error("Pi coordinator must emit exactly one assistant lifecycle tool call");
   if (lifecycleResults.length !== 1) throw new Error("Pi coordinator must emit exactly one lifecycle tool result event");
   if (terminals.length !== 1) throw new Error("Pi coordinator must emit exactly one terminal assistant JSON event");
   const terminal = validateCoordinatorResult(terminals[0], taskValue);

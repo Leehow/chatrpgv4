@@ -56,11 +56,22 @@ function coordinatorTask(maxLeaves = 2) {
 }
 function coordinatorEvents(task) {
   const receipt = coordinatorResult(task);
+  const toolCallId = `call-${task.packet.packet_id}`;
   return [
     {
       type: "message_end",
       message: {
-        role: "toolResult", toolCallId: `call-${task.packet.packet_id}`,
+        role: "assistant",
+        content: [{
+          type: "toolCall", id: toolCallId,
+          name: "coc_run_source_coordinator", arguments: {},
+        }],
+      },
+    },
+    {
+      type: "message_end",
+      message: {
+        role: "toolResult", toolCallId,
         toolName: "coc_run_source_coordinator",
         content: [{ type: "text", text: JSON.stringify(receipt) }],
         details: receipt, isError: false,

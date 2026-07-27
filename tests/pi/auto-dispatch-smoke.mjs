@@ -98,12 +98,23 @@ function coordinatorReceipt(packetId) {
 
 function coordinatorEvents(packetId) {
   const receipt = coordinatorReceipt(packetId);
+  const toolCallId = `call-${packetId}`;
   return [
     {
       type: "message_end",
       message: {
+        role: "assistant",
+        content: [{
+          type: "toolCall", id: toolCallId,
+          name: "coc_run_source_coordinator", arguments: {},
+        }],
+      },
+    },
+    {
+      type: "message_end",
+      message: {
         role: "toolResult",
-        toolCallId: `call-${packetId}`,
+        toolCallId,
         toolName: "coc_run_source_coordinator",
         content: [{ type: "text", text: JSON.stringify(receipt) }],
         details: receipt,
