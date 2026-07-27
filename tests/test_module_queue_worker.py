@@ -1726,7 +1726,7 @@ def test_fix7_heterogeneous_body_contracts_claim_one_bounded_family(
             "result_delivery": "task_return_to_parent",
         },
     )
-    assert claimed["ready_group_count"] == 2
+    assert claimed["ready_group_count"] == 1
     assert claimed["leased_group_count"] == 1
     assert claimed["dispatch_task_count"] == 1
     [task] = claimed["dispatch_tasks"]
@@ -1761,6 +1761,110 @@ def test_fix7_heterogeneous_body_contracts_claim_one_bounded_family(
     ]
     assert len(unclaimed) == 1
     assert assets.host_work_operational_class(unclaimed[0]) == "runnable"
+
+
+def test_claim_selects_one_urgent_family_per_original_group_before_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Different contract families in unrelated groups must not starve."""
+    monkeypatch.setenv("COC_HOST", "pi")
+    cid = _campaign(tmp_path)
+    skeleton = assets.get_skeleton(tmp_path, "qw-demo")
+    skeleton["locations"].extend([
+        {
+            "location_id": "annex",
+            "title": "Annex",
+            "parse_state": "named_only",
+            "source_span": {"pdf_index_start": 1, "pdf_index_end": 1},
+        },
+        {
+            "location_id": "porch",
+            "title": "Porch",
+            "parse_state": "named_only",
+            "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+        },
+        {
+            "location_id": "loft",
+            "title": "Loft",
+            "parse_state": "named_only",
+            "source_span": {"pdf_index_start": 0, "pdf_index_end": 0},
+        },
+    ])
+    assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    _clear_queue(tmp_path)
+    requests = (
+        ("partial_neighbor", "cellar", "neighbor_prefetch"),
+        ("deepen_location", "annex", "scene_enter"),
+        ("deepen_location", "porch", "scene_enter"),
+        ("partial_neighbor", "loft", "neighbor_prefetch"),
+    )
+    for kind, target_id, intent_kind in requests:
+        assets.enqueue_job(
+            tmp_path,
+            "qw-demo",
+            kind=kind,
+            target_id=target_id,
+            priority=80,
+            reason=f"two-group urgency:{target_id}",
+            consumer_refs=_consumer(tmp_path, intent_kind=intent_kind),
+        )
+    produced = worker.run_worker_once(tmp_path, parallel=4)
+    assert produced["claimed"] == 4
+    ready = assets.list_host_work_requests(tmp_path, "qw-demo")
+    assert len(ready) == 4
+    assert len({row["work_group_id"] for row in ready}) == 2
+
+    # Each original page group contains both contract families. Deadline class
+    # deterministically selects cellar from page 1 and porch from page 0.
+    selected_targets = {"cellar", "porch"}
+    work_dir = tmp_path / ".coc/module-assets/qw-demo/host-work"
+    for row in ready:
+        path = work_dir / f"{row['job_id']}.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        stored["deadline_class"] = (
+            "blocking_micro"
+            if stored["target_id"] in selected_targets
+            else "idle_warm"
+        )
+        path.write_text(
+            json.dumps(stored, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    claimed, _warnings, _hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "executor_id": "pi:two-group-families",
+            "limit": 2,
+            "lease_seconds": 600,
+            "result_delivery": "task_return_to_parent",
+        },
+    )
+    assert claimed["ready_group_count"] == 2
+    assert claimed["leased_group_count"] == 2
+    assert claimed["dispatch_task_count"] == 2
+    tasks = claimed["dispatch_tasks"]
+    assert {
+        task["packet"]["requests"][0]["target_id"]
+        for task in tasks
+    } == selected_targets
+    assert all(len(task["packet"]["requests"]) == 1 for task in tasks)
+    assert len({
+        task["packet"]["work_group_id"] for task in tasks
+    }) == 2
+
+    siblings = [
+        row for row in assets.list_host_work_requests(tmp_path, "qw-demo")
+        if row["target_id"] not in selected_targets
+    ]
+    assert {row["target_id"] for row in siblings} == {"annex", "loft"}
+    assert all(
+        assets.host_work_operational_class(row) == "runnable"
+        for row in siblings
+    )
 
 
 def test_claim_orders_current_dependency_before_higher_priority_near_term(

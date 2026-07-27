@@ -676,24 +676,6 @@ const failedBackgroundReport = await main.publishCoordinatorTerminal({
     terminalStatus,
   )
 ));
-const actionRequiredSent = [];
-const actionRequiredAppended = [];
-const actionRequiredReport = await main.publishCoordinatorTerminal({
-  appendEntry: (...args) => actionRequiredAppended.push(args),
-  sendMessage: (...args) => actionRequiredSent.push(args),
-}, {
-  ...finalizedWakeReceipt,
-  packet_id: "coord-action-required",
-  status: "failed",
-  failure_class: "source_action_required",
-}, new Set(), () => true, (dispatchKey) => ({
-  continuation_class: "action_required",
-  dispatch_class: "action_required",
-  action_required: true,
-  player_turn_epoch: 1,
-  dispatch_key: dispatchKey,
-}));
-
 openingContinuationGate.trackOpeningDispatch("coord-blocking-after-finalized");
 openingContinuationGate.markTerminalBlocker();
 const blockingContinuationDetails = (
@@ -754,12 +736,24 @@ const terminalReport = await main.publishCoordinatorTerminal({
   appendEntry: (...args) => terminalAppended.push(args),
   sendMessage: (...args) => terminalSent.push(args),
 }, terminalReceipt, continuedDispatches,
-(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
 const duplicateTerminalReport = await main.publishCoordinatorTerminal({
   appendEntry: (...args) => terminalAppended.push(args),
   sendMessage: (...args) => terminalSent.push(args),
 }, terminalReceipt, continuedDispatches,
-(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
 const hiddenNotice = terminalSent[0][0];
 
 const consumedSent = [];
@@ -774,7 +768,13 @@ const consumedPromise = main.publishCoordinatorTerminal({
   appendEntry: (...args) => consumedAppended.push(args),
   sendMessage: (...args) => consumedSent.push(args),
 }, consumedReceipt, continuedDispatches,
-(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
 await Promise.resolve();
 const consumedDeferredWhileAwaiting = consumedSent.length === 0
   && consumedAppended.length === 1;
@@ -830,7 +830,13 @@ const stalePromise = main.publishCoordinatorTerminal({
   appendEntry: (...args) => staleAppended.push(args),
   sendMessage: (...args) => staleSent.push(args),
 }, { ...terminalReceipt, packet_id: reusedDispatchKey }, staleContinuedDispatches,
-(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
 await Promise.resolve();
 openingContinuationGate.reset();
 const currentSent = [];
@@ -841,7 +847,13 @@ const currentReport = await main.publishCoordinatorTerminal({
   appendEntry: (...args) => currentAppended.push(args),
   sendMessage: (...args) => currentSent.push(args),
 }, { ...terminalReceipt, packet_id: reusedDispatchKey }, currentContinuedDispatches,
-(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
 const staleReport = await stalePromise;
 const realLoop = await realRunAgentLoopProbe();
 const realFinalizationLoop = await realFinalizationLoopProbe();
@@ -889,15 +901,6 @@ process.stdout.write(JSON.stringify({
     decideWakeCalls: failedBackgroundDecideWakeCalls,
     noModelOpportunity: failedBackgroundSent.length === 0,
     report: failedBackgroundReport,
-  },
-  actionRequiredWake: {
-    appended: actionRequiredAppended.length,
-    sent: actionRequiredSent.length,
-    continuationClass:
-      actionRequiredSent[0][0].details.continuation_class,
-    dispatchClass: actionRequiredSent[0][0].details.dispatch_class,
-    options: actionRequiredSent[0][1],
-    report: actionRequiredReport,
   },
   blockingAfterFinalizedReturned: blockingAfterFinalized === undefined,
   userText: user.content[0].text,

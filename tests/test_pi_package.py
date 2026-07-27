@@ -532,6 +532,9 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
             "terminal": True,
             "failure_class": "fulfill_rejected",
             "automatic_retry_remaining": False,
+            "continuation_class": "blocking_opening",
+            "dispatch_class": "blocking_opening",
+            "player_turn_epoch": 1,
         },
         "details": {
             "dispatch_key": "coord-manager",
@@ -539,6 +542,9 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
             "terminal": True,
             "failure_class": "fulfill_rejected",
             "automatic_retry_remaining": False,
+            "continuation_class": "blocking_opening",
+            "dispatch_class": "blocking_opening",
+            "player_turn_epoch": 1,
         },
         "customTypes": [
             "coc-source-coordinator-terminal",
@@ -625,22 +631,6 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "player_transcript": "suppressed",
             },
         },
-        "actionRequiredWake": {
-            "appended": 1,
-            "sent": 1,
-            "continuationClass": "action_required",
-            "dispatchClass": "action_required",
-            "options": {
-                "triggerTurn": True,
-                "deliverAs": "followUp",
-            },
-            "report": {
-                "status": "delivered",
-                "append_entry": "delivered",
-                "hidden_continuation": "delivered",
-                "player_transcript": "suppressed",
-            },
-        },
         "blockingAfterFinalizedReturned": True,
         "userText": "我走近窗边。",
         "staleEpochNarrationReturned": True,
@@ -655,6 +645,9 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "terminal": True,
                 "failure_class": None,
                 "automatic_retry_remaining": False,
+                "continuation_class": "blocking_opening",
+                "dispatch_class": "blocking_opening",
+                "player_turn_epoch": 2,
             },
             "details": {
                 "dispatch_key": "coord-player-boundary",
@@ -662,6 +655,9 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "terminal": True,
                 "failure_class": None,
                 "automatic_retry_remaining": False,
+                "continuation_class": "blocking_opening",
+                "dispatch_class": "blocking_opening",
+                "player_turn_epoch": 2,
             },
             "leaksPrivate": False,
             "report": {
@@ -891,13 +887,12 @@ def test_pi_projection_uses_task_return_and_repository_produced_leaf_wrappers(mo
     assert retry_contract["interim_terminal_receipt_published"] is False
     assert retry_contract["interim_parent_wake"] is False
     assert canonical["lifecycle"]["pi_parent_terminal_delivery"] == (
-        "append_final_receipt_then_wake_only_structured_blocking_or_"
-        "action_required"
+        "append_final_receipt_then_wake_only_structured_blocking_opening"
     )
     assert canonical["lifecycle"]["pi_nonblocking_background_parent_wake"] is False
     assert canonical["lifecycle"]["pi_hidden_continuation_source"] == (
-        "final_validated_receipt_plus_structured_blocking_or_action_"
-        "required_dispatch_class"
+        "final_validated_receipt_plus_structured_blocking_opening_dispatch_"
+        "class"
     )
     assert canonical["result_contract"]["optional_fields"] == [
         "diagnostics", "lease_release",

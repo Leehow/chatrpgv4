@@ -1116,19 +1116,27 @@ try {
     private_probe: sentinel,
     worker_result: { pack: {} },
   };
+  const blockingOpeningContext = (dispatchKey) => ({
+    continuation_class: "blocking_opening",
+    dispatch_class: "blocking_opening",
+    player_turn_epoch: 1,
+    dispatch_key: dispatchKey,
+  });
   const notificationReport = await main.publishCoordinatorTerminal({
     appendEntry: (...args) => appended.push(args),
     sendMessage: (...args) => sent.push(args),
-  }, sensitiveReceipt, continuedDispatches);
+  }, sensitiveReceipt, continuedDispatches, () => true,
+  blockingOpeningContext);
   const duplicateNotificationReport = await main.publishCoordinatorTerminal({
     appendEntry: (...args) => duplicateAppended.push(args),
     sendMessage: (...args) => sent.push(args),
-  }, sensitiveReceipt, continuedDispatches);
+  }, sensitiveReceipt, continuedDispatches, () => true,
+  blockingOpeningContext);
   const failedAppended = [], failedSent = [];
   const failedNotificationReport = await main.publishCoordinatorTerminal({
     appendEntry: (...args) => { failedAppended.push(args); throw new Error("append failed"); },
     sendMessage: (...args) => { failedSent.push(args); throw new Error("send failed"); },
-  }, managerReceipt, new Set());
+  }, managerReceipt, new Set(), () => true, blockingOpeningContext);
   const notificationText = JSON.stringify(sent);
 
   process.stdout.write(JSON.stringify({

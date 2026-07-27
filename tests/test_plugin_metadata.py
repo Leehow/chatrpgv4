@@ -717,13 +717,12 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert lifecycle["pi_interim_retry_terminal_delivery"] is False
     assert lifecycle["pi_interim_retry_parent_wake"] is False
     assert lifecycle["pi_parent_terminal_delivery"] == (
-        "append_final_receipt_then_wake_only_structured_blocking_or_"
-        "action_required"
+        "append_final_receipt_then_wake_only_structured_blocking_opening"
     )
     assert lifecycle["pi_nonblocking_background_parent_wake"] is False
     assert lifecycle["pi_hidden_continuation_source"] == (
-        "final_validated_receipt_plus_structured_blocking_or_action_"
-        "required_dispatch_class"
+        "final_validated_receipt_plus_structured_blocking_opening_dispatch_"
+        "class"
     )
     assert contract["authority"]["max_nesting_depth"] == 2
     result_contract = contract["result_contract"]
@@ -820,7 +819,7 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "interim_parent_wake": False,
         "final_terminal_receipt_published_once": True,
         "final_hidden_continuation": (
-            "none_for_nonblocking_background_otherwise_receipt_derived_"
+            "only_for_structured_blocking_opening_receipt_derived_"
             "deduplicated_triggerTurn_true"
         ),
     }
@@ -945,7 +944,7 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "interim rejected-fulfillment receipt is neither published as terminal",
         "a structured `nonblocking_background` terminal",
         "never triggers a hidden model turn",
-        "structured `blocking_opening` or explicit action-required terminal",
+        "structured `blocking_opening` terminal",
         "deduplicated hidden continuation with `triggerturn=true`",
         "optional closed `diagnostics` array",
         "never construct it from provider text or raw error strings",

@@ -423,11 +423,16 @@ export async function publishCoordinatorTerminal(
           || context?.continuation_class
             === "nonblocking_background_after_finalized_output"
         )
-        && context?.action_required !== true
       );
-      if (structuredNonblocking) {
+      const structuredBlockingOpening = (
+        context?.dispatch_class === "blocking_opening"
+        && context?.continuation_class === "blocking_opening"
+      );
+      if (!structuredBlockingOpening) {
         continuedDispatches.add(dispatchKey);
-        continuationStatus = "suppressed_nonblocking";
+        continuationStatus = structuredNonblocking
+          ? "suppressed_nonblocking"
+          : "suppressed_unclassified";
       } else {
         const shouldWake = await decideWake(dispatchKey);
         if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
@@ -448,9 +453,9 @@ export async function publishCoordinatorTerminal(
               automatic_retry_remaining: false,
               ...(context ?? {}),
             };
-            // Only a structured blocking/action-required terminal creates a
-            // model turn. Ordinary background terminals are durable audit
-            // entries and become visible through the next natural turn.
+            // Only a structured blocking opening creates a model turn.
+            // Ordinary background and unclassified terminals remain durable
+            // audit entries for the next natural turn.
             pi.sendMessage({
               customType: "coc-source-coordinator-terminal-continuation",
               content: JSON.stringify(notice),

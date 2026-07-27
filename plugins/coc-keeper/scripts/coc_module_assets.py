@@ -5009,30 +5009,66 @@ def claim_host_work_requests(
                     for _path, request in members
                 )
             }
-        ordered_groups = sorted(
-            grouped.items(),
-            key=lambda item: (
+        deadline_order = {
+            "blocking_micro": 0,
+            "next_turn_hot": 1,
+            "hot_ring": 2,
+            "idle_warm": 3,
+        }
+
+        def family_urgency(
+            item: tuple[
+                tuple[str, str],
+                list[tuple[Path, dict[str, Any]]],
+            ],
+        ) -> tuple[Any, ...]:
+            (_group_id, contract_family), members = item
+            return (
+                min(
+                    deadline_order.get(
+                        str(row[1].get("deadline_class") or "next_turn_hot"),
+                        9,
+                    )
+                    for row in members
+                ),
+                0 if any(
+                    str(row[1].get("work_level")) == "current_dependency"
+                    for row in members
+                ) else 1,
                 min(
                     HOST_WORK_LEVELS.index(str(row[1].get("work_level")))
-                    for row in item[1]
+                    for row in members
                 ),
-                -max(int(row[1].get("priority") or 0) for row in item[1]),
-                min(str(row[1].get("created_at") or "") for row in item[1]),
-                item[0],
-            ),
-        )
-        selected_groups: list[
+                -max(int(row[1].get("priority") or 0) for row in members),
+                min(str(row[1].get("created_at") or "") for row in members),
+                contract_family,
+                _group_id,
+            )
+
+        candidates_by_group: dict[
+            str,
+            list[
+                tuple[
+                    tuple[str, str],
+                    list[tuple[Path, dict[str, Any]]],
+                ]
+            ],
+        ] = {}
+        for item in grouped.items():
+            candidates_by_group.setdefault(item[0][0], []).append(item)
+        selected_per_group: list[
             tuple[
                 tuple[str, str],
                 list[tuple[Path, dict[str, Any]]],
             ]
-        ] = []
-        if ordered_groups:
-            selected_family = ordered_groups[0][0][1]
-            selected_groups = [
-                item for item in ordered_groups
-                if item[0][1] == selected_family
-            ][:limit]
+        ] = [
+            min(candidates, key=family_urgency)
+            for candidates in candidates_by_group.values()
+        ]
+        selected_groups = sorted(
+            selected_per_group,
+            key=family_urgency,
+        )[:limit]
 
         packets: list[dict[str, Any]] = []
         for (group_id, _contract_family), members in selected_groups:
@@ -5122,7 +5158,7 @@ def claim_host_work_requests(
     result = {
         "packets": packets,
         "leased_group_count": len(packets),
-        "ready_group_count": len(ordered_groups),
+        "ready_group_count": len(candidates_by_group),
         "cached_only": bool(cached_only),
     }
     result["lifecycle"] = host_work_lifecycle_summary(
