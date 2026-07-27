@@ -444,22 +444,46 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
     assert result["manager"]["raceLifecycle"] == 1
     assert result["notification"] == {
         "appended": 1,
-        "sent": 0,
-        "customTypes": ["coc-source-coordinator-terminal"],
+        "appendPreservesReceipt": True,
+        "duplicateAppended": 1,
+        "sent": 1,
+        "options": {"triggerTurn": True, "deliverAs": "followUp"},
+        "display": False,
+        "content": {
+            "dispatch_key": "coord-manager",
+            "status": "partial",
+        },
+        "details": {
+            "dispatch_key": "coord-manager",
+            "status": "partial",
+        },
+        "customTypes": [
+            "coc-source-coordinator-terminal",
+            "coc-source-coordinator-terminal-continuation",
+        ],
         "leaksSource": False,
         "report": {
             "status": "delivered",
             "append_entry": "delivered",
+            "hidden_continuation": "delivered",
+            "player_transcript": "suppressed",
+        },
+        "duplicateReport": {
+            "status": "delivered",
+            "append_entry": "delivered",
+            "hidden_continuation": "deduplicated",
             "player_transcript": "suppressed",
         },
         "failedReport": {
             "status": "failed",
             "append_entry": "failed",
+            "hidden_continuation": "failed",
             "player_transcript": "suppressed",
             "append_failure_class": "append_entry_failed",
+            "continuation_failure_class": "hidden_continuation_failed",
         },
         "failedAppendCalls": 1,
-        "failedSendCalls": 0,
+        "failedSendCalls": 1,
     }
 
 
@@ -476,6 +500,33 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "narrationReturned": True,
         "narrationText": "雨水沿着窗玻璃缓缓滑落。",
         "userText": "我走近窗边。",
+        "terminal": {
+            "appended": 2,
+            "sent": 1,
+            "display": False,
+            "options": {"triggerTurn": True, "deliverAs": "followUp"},
+            "content": {
+                "dispatch_key": "coord-player-boundary",
+                "status": "fulfilled",
+            },
+            "details": {
+                "dispatch_key": "coord-player-boundary",
+                "status": "fulfilled",
+            },
+            "leaksPrivate": False,
+            "report": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "delivered",
+                "player_transcript": "suppressed",
+            },
+            "duplicateReport": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "deduplicated",
+                "player_transcript": "suppressed",
+            },
+        },
     }
 
 

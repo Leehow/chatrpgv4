@@ -93,15 +93,45 @@ export function registerPlayerTranscriptGate(pi: ExtensionAPI): void {
   });
 }
 
-export function publishCoordinatorTerminal(pi: Pick<ExtensionAPI, "appendEntry">, receipt: JsonObject): JsonObject {
+export function publishCoordinatorTerminal(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  receipt: JsonObject,
+  continuedDispatches: Set<string>,
+): JsonObject {
   let appendStatus = "delivered";
   try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
   catch { appendStatus = "failed"; }
+  const dispatchKey = typeof receipt.packet_id === "string" ? receipt.packet_id.trim() : "";
+  const terminalStatus = typeof receipt.status === "string" ? receipt.status.trim() : "";
+  let continuationStatus = "failed";
+  if (dispatchKey && terminalStatus) {
+    if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
+    else {
+      try {
+        const notice = { dispatch_key: dispatchKey, status: terminalStatus };
+        // Pinned Pi queues followUp while streaming and uses triggerTurn when
+        // idle. display:false keeps this one-shot liveness notice out of TUI.
+        pi.sendMessage({
+          customType: "coc-source-coordinator-terminal-continuation",
+          content: JSON.stringify(notice),
+          display: false,
+          details: notice,
+        }, { triggerTurn: true, deliverAs: "followUp" });
+        continuedDispatches.add(dispatchKey);
+        continuationStatus = "delivered";
+      } catch { continuationStatus = "failed"; }
+    }
+  }
+  const status = appendStatus === "delivered" && continuationStatus !== "failed"
+    ? "delivered"
+    : appendStatus === "failed" && continuationStatus === "failed" ? "failed" : "partial";
   return {
-    status: appendStatus,
+    status,
     append_entry: appendStatus,
+    hidden_continuation: continuationStatus,
     player_transcript: "suppressed",
     ...(appendStatus === "failed" ? { append_failure_class: "append_entry_failed" } : {}),
+    ...(continuationStatus === "failed" ? { continuation_failure_class: "hidden_continuation_failed" } : {}),
   };
 }
 function absolute(value: unknown, label: string) {
@@ -123,22 +153,31 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
   const envelope = objectOrNull(value);
   if (envelope?.ok !== true) return null;
   const data = objectOrNull(envelope?.data);
+  const sourceWork = objectOrNull(data?.source_work);
   const progressive = objectOrNull(data?.progressive);
   const sceneContext = objectOrNull(data?.scene_context);
   const resumeProgressive = objectOrNull(sceneContext?.progressive);
-  const takeovers = [
-    objectOrNull(data?.background_takeover),
-    objectOrNull(progressive?.background_takeover),
-    objectOrNull(resumeProgressive?.background_takeover),
+  const candidates = [
+    // progressive.opening_bootstrap nests its production takeover one level
+    // below source_work; no other producer may claim this named path.
+    {
+      takeover: objectOrNull(sourceWork?.background_takeover),
+      allowed: envelope.tool === "progressive.opening_bootstrap",
+    },
+    { takeover: objectOrNull(data?.background_takeover), allowed: true },
+    { takeover: objectOrNull(progressive?.background_takeover), allowed: true },
+    { takeover: objectOrNull(resumeProgressive?.background_takeover), allowed: true },
   ];
-  const tasks: JsonObject[] = [];
-  for (const takeover of takeovers) {
-    const action = objectOrNull(takeover?.next_host_action);
-    const task = objectOrNull(action?.task);
-    if (action?.action === "invoke_coc_dispatch_source_work"
-      && task?.contract_id === "coc.pi-source-coordinator-task.v1") tasks.push(task);
-  }
-  return tasks.length === 1 ? tasks[0] : null;
+  // Multiple named takeover paths are contamination, even when they repeat an
+  // otherwise valid task. Validation and dispatch-key dedupe remain downstream.
+  const present = candidates.filter((candidate) => candidate.takeover !== null);
+  if (present.length !== 1 || !present[0].allowed) return null;
+  const action = objectOrNull(present[0].takeover?.next_host_action);
+  const task = objectOrNull(action?.task);
+  return action?.action === "invoke_coc_dispatch_source_work"
+    && task?.contract_id === "coc.pi-source-coordinator-task.v1"
+    ? task
+    : null;
 }
 
 interface AutoDispatchDeps {
@@ -290,6 +329,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let manager: CoordinatorDispatchManager | null = null;
   let sessionEpoch = 0;
   let sessionClosing = true;
+  const continuedCoordinatorDispatches = new Set<string>();
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
     status: "session_closed",
@@ -307,7 +347,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       role: "coordinator", task: exactTask,
       ...launch, signal: launchSignal,
     }),
-    (receipt) => publishCoordinatorTerminal(pi, receipt),
+    (receipt) => publishCoordinatorTerminal(pi, receipt, continuedCoordinatorDispatches),
     (observation) => {
       try { pi.appendEntry("coc-source-coordinator-lifecycle", observation); }
       catch { /* lifecycle audit is best effort */ }
@@ -414,6 +454,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("session_start", () => {
     sessionEpoch += 1;
     sessionClosing = false;
+    continuedCoordinatorDispatches.clear();
     pi.setActiveTools(["coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr"]);
   });
   pi.on("session_shutdown", async () => {

@@ -74,6 +74,28 @@ const user = {
 };
 await emit("message_start", user);
 
+const terminalSent = [];
+const terminalAppended = [];
+const continuedDispatches = new Set();
+const privateSentinel = "PRIVATE_SOURCE_PAYLOAD_MUST_NOT_REACH_PLAYER";
+const terminalReceipt = {
+  schema_version: 1,
+  contract_id: "coc.source-coordinator-result.v1",
+  packet_id: "coord-player-boundary",
+  status: "fulfilled",
+  private_probe: privateSentinel,
+  worker_result: { pack: {} },
+};
+const terminalReport = main.publishCoordinatorTerminal({
+  appendEntry: (...args) => terminalAppended.push(args),
+  sendMessage: (...args) => terminalSent.push(args),
+}, terminalReceipt, continuedDispatches);
+const duplicateTerminalReport = main.publishCoordinatorTerminal({
+  appendEntry: (...args) => terminalAppended.push(args),
+  sendMessage: (...args) => terminalSent.push(args),
+}, terminalReceipt, continuedDispatches);
+const hiddenNotice = terminalSent[0][0];
+
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
   startTypes: types(start),
@@ -85,4 +107,17 @@ process.stdout.write(JSON.stringify({
   narrationReturned: narrationResult === undefined,
   narrationText: narrationFinal.content[0].text,
   userText: user.content[0].text,
+  terminal: {
+    appended: terminalAppended.length,
+    sent: terminalSent.length,
+    display: hiddenNotice.display,
+    options: terminalSent[0][1],
+    content: JSON.parse(hiddenNotice.content),
+    details: hiddenNotice.details,
+    leaksPrivate: JSON.stringify(terminalSent).includes(privateSentinel)
+      || JSON.stringify(terminalSent).includes("worker_result")
+      || JSON.stringify(terminalSent).includes("pack"),
+    report: terminalReport,
+    duplicateReport: duplicateTerminalReport,
+  },
 }));

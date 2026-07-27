@@ -805,17 +805,27 @@ try {
     && raceLifecycle[0].status === "terminal_failure"
     && raceLifecycle[0].failure_stage === "shutdown");
 
-  const appended = [], sent = [];
+  const appended = [], duplicateAppended = [], sent = [];
+  const continuedDispatches = new Set();
+  const sensitiveReceipt = {
+    ...managerReceipt,
+    private_probe: sentinel,
+    worker_result: { pack: {} },
+  };
   const notificationReport = main.publishCoordinatorTerminal({
     appendEntry: (...args) => appended.push(args),
     sendMessage: (...args) => sent.push(args),
-  }, managerReceipt);
+  }, sensitiveReceipt, continuedDispatches);
+  const duplicateNotificationReport = main.publishCoordinatorTerminal({
+    appendEntry: (...args) => duplicateAppended.push(args),
+    sendMessage: (...args) => sent.push(args),
+  }, sensitiveReceipt, continuedDispatches);
   const failedAppended = [], failedSent = [];
   const failedNotificationReport = main.publishCoordinatorTerminal({
     appendEntry: (...args) => { failedAppended.push(args); throw new Error("append failed"); },
-    sendMessage: (...args) => failedSent.push(args),
-  }, managerReceipt);
-  const notificationText = JSON.stringify({ appended, sent });
+    sendMessage: (...args) => { failedSent.push(args); throw new Error("send failed"); },
+  }, managerReceipt, new Set());
+  const notificationText = JSON.stringify(sent);
 
   process.stdout.write(JSON.stringify({
     evidence: {
@@ -869,10 +879,17 @@ try {
     },
     notification: {
       appended: appended.length,
+      appendPreservesReceipt: appended[0][1] === sensitiveReceipt,
+      duplicateAppended: duplicateAppended.length,
       sent: sent.length,
-      customTypes: [appended[0][0]],
+      options: sent[0][1],
+      display: sent[0][0].display,
+      content: JSON.parse(sent[0][0].content),
+      details: sent[0][0].details,
+      customTypes: [appended[0][0], sent[0][0].customType],
       leaksSource: notificationText.includes(sentinel) || notificationText.includes("pack\":{}"),
       report: notificationReport,
+      duplicateReport: duplicateNotificationReport,
       failedReport: failedNotificationReport,
       failedAppendCalls: failedAppended.length,
       failedSendCalls: failedSent.length,

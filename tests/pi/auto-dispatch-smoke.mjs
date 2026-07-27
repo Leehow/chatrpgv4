@@ -52,6 +52,19 @@ function directTakeoverResult(task) {
   };
 }
 
+function openingBootstrapResult(task) {
+  return {
+    ok: true, tool: "progressive.opening_bootstrap",
+    data: {
+      status: "queued",
+      source_work: {
+        status: "queued",
+        background_takeover: takeover(task),
+      },
+    },
+  };
+}
+
 function sceneContextResult(task) {
   return {
     ok: true, tool: "scene.context",
@@ -262,9 +275,11 @@ async function exerciseFailureDrain(mode) {
 // Extractor: all named canonical producer projections resolve, without recursion.
 {
   const directTask = coordinatorTask("coord-direct");
+  const openingTask = coordinatorTask("coord-opening");
   const sceneTask = coordinatorTask("coord-scene");
   const resumeTask = coordinatorTask("coord-resume");
   check("extractor finds direct progressive task", JSON.stringify(findAutoDispatchTask(directTakeoverResult(directTask))) === JSON.stringify(directTask));
+  check("extractor finds opening_bootstrap source_work task", JSON.stringify(findAutoDispatchTask(openingBootstrapResult(openingTask))) === JSON.stringify(openingTask));
   check("extractor finds scene.context progressive task", JSON.stringify(findAutoDispatchTask(sceneContextResult(sceneTask))) === JSON.stringify(sceneTask));
   check("extractor finds session.resume scene_context task", JSON.stringify(findAutoDispatchTask(sessionResumeResult(resumeTask))) === JSON.stringify(resumeTask));
   check("extractor ignores plain results", findAutoDispatchTask({ ok: true, data: { status: "PASS" } }) === null);
@@ -278,6 +293,22 @@ async function exerciseFailureDrain(mode) {
       background_takeover: takeover(directTask),
       progressive: { background_takeover: takeover(sceneTask) },
     },
+  }) === null);
+  check("extractor rejects duplicate opening sibling paths", findAutoDispatchTask({
+    ...openingBootstrapResult(openingTask),
+    data: {
+      ...openingBootstrapResult(openingTask).data,
+      background_takeover: takeover(openingTask),
+    },
+  }) === null);
+  check("extractor rejects foreign tool source_work path", findAutoDispatchTask({
+    ...openingBootstrapResult(openingTask),
+    tool: "progressive.prepare_session",
+  }) === null);
+  check("extractor rejects recursively nested opening path", findAutoDispatchTask({
+    ok: true,
+    tool: "progressive.opening_bootstrap",
+    data: { source_work: { wrapper: openingBootstrapResult(openingTask).data.source_work } },
   }) === null);
   check("extractor ignores foreign actions", findAutoDispatchTask({
     ok: true,
@@ -302,6 +333,59 @@ async function exerciseFailureDrain(mode) {
   check("submit carries exact task", JSON.stringify(submits[0]?.task) === JSON.stringify(task));
   check("submit carries launch context", submits[0]?.launch?.cwd === root && submits[0]?.launch?.provider === "offline");
   check("submitted audit recorded", audit.length === 1 && audit[0].status === "submitted" && audit[0].dispatch_key === task.packet.packet_id);
+}
+
+// The exact production opening envelope submits once, and a duplicate
+// auto-dispatch wakeup for the same packet remains idempotent.
+{
+  const task = coordinatorTask("coord-opening-production");
+  const submits = [];
+  const audit = [];
+  const states = new Map();
+  const manager = {
+    state: (key) => states.get(key),
+    activeCount: () => 0,
+    submit: async (exactTask, launch) => {
+      submits.push({ task: exactTask, launch });
+      states.set(exactTask.packet.packet_id, { status: "submitted" });
+      return { status: "submitted", dispatch_key: exactTask.packet.packet_id, role: "coordinator" };
+    },
+  };
+  const deps = {
+    enabled: async () => true,
+    isCurrent: () => true,
+    activeManager: () => manager,
+    manager: () => manager,
+    launchContext: () => ({ cwd: root, provider: "offline", modelId: "offline", thinking: "off" }),
+    audit: (entry) => audit.push(entry),
+  };
+  await autoDispatchCoordinator(deps, "coc_invoke", openingBootstrapResult(task));
+  await autoDispatchCoordinator(deps, "coc_invoke", openingBootstrapResult(task));
+  check("production opening envelope submits exact task once", submits.length === 1
+    && submits[0].task === task
+    && submits[0].launch.cwd === root);
+  check("production opening duplicate stays silent", audit.length === 1
+    && audit[0].status === "submitted"
+    && audit[0].dispatch_key === task.packet.packet_id);
+}
+
+// A source_work envelope contaminated by any sibling takeover is not a
+// dispatch source, even when one of those paths is otherwise valid.
+{
+  const task = coordinatorTask("coord-opening-contaminated");
+  const { deps, audit, submits } = harness();
+  const contaminated = openingBootstrapResult(task);
+  contaminated.data.progressive = {
+    background_takeover: {
+      next_host_action: {
+        action: "spawn_background_task",
+        task,
+      },
+    },
+  };
+  await autoDispatchCoordinator(deps, "coc_invoke", contaminated);
+  check("sibling-contaminated production envelope cannot dispatch",
+    submits.length === 0 && audit.length === 0);
 }
 
 // Non-matching results do nothing.
