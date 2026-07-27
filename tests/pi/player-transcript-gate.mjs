@@ -5,13 +5,14 @@ import process from "node:process";
 const root = path.resolve(process.argv[2] || process.cwd());
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
 const handlers = new Map();
+const openingContinuationGate = new main.OpeningTerminalContinuationGate();
 main.registerPlayerTranscriptGate({
   on(type, handler) {
     const registered = handlers.get(type) || [];
     registered.push(handler);
     handlers.set(type, registered);
   },
-});
+}, () => openingContinuationGate.markVisibleAssistantFinal());
 
 async function emit(type, message) {
   let result;
@@ -86,15 +87,62 @@ const terminalReceipt = {
   private_probe: privateSentinel,
   worker_result: { pack: {} },
 };
-const terminalReport = main.publishCoordinatorTerminal({
+openingContinuationGate.trackOpeningDispatch(terminalReceipt.packet_id);
+const terminalReport = await main.publishCoordinatorTerminal({
   appendEntry: (...args) => terminalAppended.push(args),
   sendMessage: (...args) => terminalSent.push(args),
-}, terminalReceipt, continuedDispatches);
-const duplicateTerminalReport = main.publishCoordinatorTerminal({
+}, terminalReceipt, continuedDispatches,
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+const duplicateTerminalReport = await main.publishCoordinatorTerminal({
   appendEntry: (...args) => terminalAppended.push(args),
   sendMessage: (...args) => terminalSent.push(args),
-}, terminalReceipt, continuedDispatches);
+}, terminalReceipt, continuedDispatches,
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
 const hiddenNotice = terminalSent[0][0];
+
+const consumedSent = [];
+const consumedAppended = [];
+const consumedReceipt = {
+  ...terminalReceipt,
+  packet_id: "coord-opening-consumed",
+};
+openingContinuationGate.trackOpeningDispatch(consumedReceipt.packet_id);
+openingContinuationGate.markAgentStart();
+openingContinuationGate.markOpeningProjected();
+const consumedPromise = main.publishCoordinatorTerminal({
+  appendEntry: (...args) => consumedAppended.push(args),
+  sendMessage: (...args) => consumedSent.push(args),
+}, consumedReceipt, continuedDispatches,
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+await Promise.resolve();
+const consumedDeferredBeforeFinal = consumedSent.length === 0
+  && consumedAppended.length === 1;
+await emit("message_end", {
+  role: "assistant",
+  content: [{ type: "text", text: "任意正常桌面叙事。" }],
+});
+openingContinuationGate.markAgentEnd();
+const consumedReport = await consumedPromise;
+
+const unfinishedSent = [];
+const unfinishedAppended = [];
+const unfinishedReceipt = {
+  ...terminalReceipt,
+  packet_id: "coord-opening-unfinished",
+};
+openingContinuationGate.trackOpeningDispatch(unfinishedReceipt.packet_id);
+openingContinuationGate.markAgentStart();
+openingContinuationGate.markOpeningProjected();
+const unfinishedPromise = main.publishCoordinatorTerminal({
+  appendEntry: (...args) => unfinishedAppended.push(args),
+  sendMessage: (...args) => unfinishedSent.push(args),
+}, unfinishedReceipt, continuedDispatches,
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+await Promise.resolve();
+const unfinishedDeferredBeforeEnd = unfinishedSent.length === 0
+  && unfinishedAppended.length === 1;
+openingContinuationGate.markAgentEnd();
+const unfinishedReport = await unfinishedPromise;
 
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
@@ -119,5 +167,16 @@ process.stdout.write(JSON.stringify({
       || JSON.stringify(terminalSent).includes("pack"),
     report: terminalReport,
     duplicateReport: duplicateTerminalReport,
+  },
+  structuredWake: {
+    awaitingSent: terminalSent.length,
+    consumedSent: consumedSent.length,
+    consumedAppended: consumedAppended.length,
+    consumedDeferredBeforeFinal,
+    consumedReport,
+    unfinishedSent: unfinishedSent.length,
+    unfinishedAppended: unfinishedAppended.length,
+    unfinishedDeferredBeforeEnd,
+    unfinishedReport,
   },
 }));

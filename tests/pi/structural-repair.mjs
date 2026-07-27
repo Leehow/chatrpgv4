@@ -812,16 +812,16 @@ try {
     private_probe: sentinel,
     worker_result: { pack: {} },
   };
-  const notificationReport = main.publishCoordinatorTerminal({
+  const notificationReport = await main.publishCoordinatorTerminal({
     appendEntry: (...args) => appended.push(args),
     sendMessage: (...args) => sent.push(args),
   }, sensitiveReceipt, continuedDispatches);
-  const duplicateNotificationReport = main.publishCoordinatorTerminal({
+  const duplicateNotificationReport = await main.publishCoordinatorTerminal({
     appendEntry: (...args) => duplicateAppended.push(args),
     sendMessage: (...args) => sent.push(args),
   }, sensitiveReceipt, continuedDispatches);
   const failedAppended = [], failedSent = [];
-  const failedNotificationReport = main.publishCoordinatorTerminal({
+  const failedNotificationReport = await main.publishCoordinatorTerminal({
     appendEntry: (...args) => { failedAppended.push(args); throw new Error("append failed"); },
     sendMessage: (...args) => { failedSent.push(args); throw new Error("send failed"); },
   }, managerReceipt, new Set());

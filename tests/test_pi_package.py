@@ -532,6 +532,27 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "player_transcript": "suppressed",
             },
         },
+        "structuredWake": {
+            "awaitingSent": 1,
+            "consumedSent": 0,
+            "consumedAppended": 1,
+            "consumedDeferredBeforeFinal": True,
+            "consumedReport": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "suppressed_consumed",
+                "player_transcript": "suppressed",
+            },
+            "unfinishedSent": 1,
+            "unfinishedAppended": 1,
+            "unfinishedDeferredBeforeEnd": True,
+            "unfinishedReport": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "delivered",
+                "player_transcript": "suppressed",
+            },
+        },
     }
 
 

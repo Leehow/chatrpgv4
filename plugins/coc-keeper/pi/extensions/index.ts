@@ -79,7 +79,75 @@ function hideUnsettledAssistantText(message: unknown): void {
 // altering the provider's accumulated response. A tool-free final message is
 // then rendered normally; a tool-bearing final message keeps only non-text
 // parts so its framing never enters the transcript or later model context.
-export function registerPlayerTranscriptGate(pi: ExtensionAPI): void {
+export class OpeningTerminalContinuationGate {
+  private readonly states = new Map<string, "awaiting" | "projected" | "published">();
+  private readonly pending = new Map<string, {
+    promise: Promise<boolean>;
+    resolve: (shouldWake: boolean) => void;
+  }>();
+  private agentActive = false;
+
+  trackOpeningDispatch(dispatchKey: string): void {
+    if (dispatchKey) this.states.set(dispatchKey, "awaiting");
+  }
+
+  markAgentStart(): void {
+    this.agentActive = true;
+  }
+
+  markOpeningProjected(): void {
+    for (const [key, state] of this.states) {
+      if (state === "awaiting") this.states.set(key, "projected");
+    }
+  }
+
+  markVisibleAssistantFinal(): void {
+    for (const [key, state] of this.states) {
+      if (state === "projected") this.states.set(key, "published");
+    }
+  }
+
+  markAgentEnd(): void {
+    this.agentActive = false;
+    for (const [key, decision] of this.pending) {
+      decision.resolve(this.states.get(key) !== "published");
+      this.pending.delete(key);
+      this.states.delete(key);
+    }
+  }
+
+  decideWake(dispatchKey: string): boolean | Promise<boolean> {
+    const state = this.states.get(dispatchKey);
+    if (state === "published") {
+      this.states.delete(dispatchKey);
+      return false;
+    }
+    if (state !== "projected" || !this.agentActive) {
+      this.states.delete(dispatchKey);
+      return true;
+    }
+    const existing = this.pending.get(dispatchKey);
+    if (existing) return existing.promise;
+    let resolveDecision!: (shouldWake: boolean) => void;
+    const promise = new Promise<boolean>((resolve) => {
+      resolveDecision = resolve;
+    });
+    this.pending.set(dispatchKey, { promise, resolve: resolveDecision });
+    return promise;
+  }
+
+  reset(): void {
+    this.agentActive = false;
+    for (const decision of this.pending.values()) decision.resolve(false);
+    this.pending.clear();
+    this.states.clear();
+  }
+}
+
+export function registerPlayerTranscriptGate(
+  pi: ExtensionAPI,
+  onVisibleAssistantFinal?: () => void,
+): void {
   pi.on("message_start", (event) => {
     hideUnsettledAssistantText(event.message);
   });
@@ -88,16 +156,23 @@ export function registerPlayerTranscriptGate(pi: ExtensionAPI): void {
   });
   pi.on("message_end", (event) => {
     const assistant = assistantContentMessage(event.message);
-    if (!assistant?.content.some((part) => part.type === "toolCall")) return;
+    if (!assistant) return;
+    if (!assistant.content.some((part) => part.type === "toolCall")) {
+      if (assistant.content.some((part) => part.type === "text")) {
+        onVisibleAssistantFinal?.();
+      }
+      return;
+    }
     return { message: withoutAssistantText(event.message) };
   });
 }
 
-export function publishCoordinatorTerminal(
+export async function publishCoordinatorTerminal(
   pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
   receipt: JsonObject,
   continuedDispatches: Set<string>,
-): JsonObject {
+  decideWake: (dispatchKey: string) => boolean | Promise<boolean> = () => true,
+): Promise<JsonObject> {
   let appendStatus = "delivered";
   try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
   catch { appendStatus = "failed"; }
@@ -107,19 +182,27 @@ export function publishCoordinatorTerminal(
   if (dispatchKey && terminalStatus) {
     if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
     else {
-      try {
-        const notice = { dispatch_key: dispatchKey, status: terminalStatus };
-        // Pinned Pi queues followUp while streaming and uses triggerTurn when
-        // idle. display:false keeps this one-shot liveness notice out of TUI.
-        pi.sendMessage({
-          customType: "coc-source-coordinator-terminal-continuation",
-          content: JSON.stringify(notice),
-          display: false,
-          details: notice,
-        }, { triggerTurn: true, deliverAs: "followUp" });
+      const shouldWake = await decideWake(dispatchKey);
+      if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
+      else if (!shouldWake) {
         continuedDispatches.add(dispatchKey);
-        continuationStatus = "delivered";
-      } catch { continuationStatus = "failed"; }
+        continuationStatus = "suppressed_consumed";
+      }
+      else {
+        try {
+          const notice = { dispatch_key: dispatchKey, status: terminalStatus };
+          // Pinned Pi queues followUp while streaming and uses triggerTurn when
+          // idle. display:false keeps this one-shot liveness notice out of TUI.
+          pi.sendMessage({
+            customType: "coc-source-coordinator-terminal-continuation",
+            content: JSON.stringify(notice),
+            display: false,
+            details: notice,
+          }, { triggerTurn: true, deliverAs: "followUp" });
+          continuedDispatches.add(dispatchKey);
+          continuationStatus = "delivered";
+        } catch { continuationStatus = "failed"; }
+      }
     }
   }
   const status = appendStatus === "delivered" && continuationStatus !== "failed"
@@ -330,6 +413,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let sessionEpoch = 0;
   let sessionClosing = true;
   const continuedCoordinatorDispatches = new Set<string>();
+  const openingContinuationGate = new OpeningTerminalContinuationGate();
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
     status: "session_closed",
@@ -347,7 +431,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       role: "coordinator", task: exactTask,
       ...launch, signal: launchSignal,
     }),
-    (receipt) => publishCoordinatorTerminal(pi, receipt, continuedCoordinatorDispatches),
+    (receipt) => publishCoordinatorTerminal(
+      pi,
+      receipt,
+      continuedCoordinatorDispatches,
+      (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+    ),
     (observation) => {
       try { pi.appendEntry("coc-source-coordinator-lifecycle", observation); }
       catch { /* lifecycle audit is best effort */ }
@@ -385,7 +474,30 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw new Error("canonical operation is reserved for the private source coordinator lifecycle");
     }
     const value = await client(ctx).callTool(name, params, signal);
-    if (name === "coc_invoke") void autoDispatchCoordinator(autoDispatchDeps(ctx, epoch), name, value).catch(() => {});
+    if (name === "coc_invoke") {
+      if (String(params.operation) === "progressive.opening_bootstrap") {
+        const task = findAutoDispatchTask(value);
+        const packet = task ? objectOrNull(task.packet) : null;
+        const dispatchKey = typeof packet?.packet_id === "string"
+          ? packet.packet_id.trim()
+          : "";
+        if (dispatchKey) openingContinuationGate.trackOpeningDispatch(dispatchKey);
+      }
+      const envelope = objectOrNull(value);
+      const data = objectOrNull(envelope?.data);
+      const operation = String(params.operation);
+      const projectedOpening = (
+        operation === "progressive.project_opening"
+        && envelope?.ok === true
+        && (data?.status === "complete" || data?.status === "current")
+      ) || (
+        operation === "state.move_scene"
+        && envelope?.ok === true
+        && objectOrNull(params.arguments)?.defer_initial_progressive_on_enter === true
+      );
+      if (projectedOpening) openingContinuationGate.markOpeningProjected();
+      void autoDispatchCoordinator(autoDispatchDeps(ctx, epoch), name, value).catch(() => {});
+    }
     return result(value);
   };
   pi.registerTool({
@@ -450,7 +562,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocHud(pi, (ctx) => client(ctx));
   const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
-  registerPlayerTranscriptGate(pi);
+  registerPlayerTranscriptGate(
+    pi,
+    () => openingContinuationGate.markVisibleAssistantFinal(),
+  );
+  pi.on("agent_start", () => {
+    openingContinuationGate.markAgentStart();
+  });
+  pi.on("agent_end", () => {
+    openingContinuationGate.markAgentEnd();
+  });
   const kpActiveTools = [
     "coc_capabilities",
     "coc_discover",
@@ -461,6 +582,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     sessionEpoch += 1;
     sessionClosing = false;
     continuedCoordinatorDispatches.clear();
+    openingContinuationGate.reset();
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model.
@@ -469,6 +591,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("session_shutdown", async () => {
     sessionClosing = true;
     sessionEpoch += 1;
+    openingContinuationGate.reset();
     const ownedManager = manager;
     const ownedMcp = mcp;
     manager = null;
