@@ -14,6 +14,9 @@ export const MAX_PENDING_COORDINATOR_QUEUES = 4;
 export const MAX_RESULTS_PER_LEAF = 128;
 export const ACTIVATION_TIMEOUT_MS = 20_000;
 export const MCP_TIMEOUT_MS = 30_000;
+export const LEASE_RENEW_INTERVAL_MS = 120_000;
+export const LEASE_RENEW_SECONDS = 600;
+export const LEASE_CALL_GRACE_MS = 5_000;
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 export const PACKAGE_ROOT = resolve(PLUGIN_ROOT, "../..");
 export const RUNTIME_ROOT = join(PACKAGE_ROOT, "runtime");
@@ -255,6 +258,24 @@ export type LeafFailureStage = "activation" | "process" | "framing" | "validatio
 export type LeafExecutionOutcome =
   | { kind: "success"; result: JsonObject }
   | { kind: "failure"; stage: LeafFailureStage; failure_class: LeafFailureClass };
+
+export type LeaseLifecycleObservation = {
+  schema_version: 1;
+  contract_id: "coc.pi-source-lease-lifecycle.v1";
+  phase: "renew" | "release" | "ttl_fallback";
+  status: "succeeded" | "partial" | "rejected" | "failed" | "ttl_fallback";
+  asset_root_id: string;
+  executor_id: string;
+  lease_ids: string[];
+  reason?: string;
+  failure_class?:
+    | "lease_ownership_mismatch"
+    | "lease_ownership_partial"
+    | "lease_ownership_unconfirmed"
+    | "lease_response_invalid"
+    | "lease_call_failed";
+  recovery?: "bounded_ttl";
+};
 
 export class LeafStageError extends Error {
   readonly stage: LeafFailureStage;
@@ -1168,11 +1189,21 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   call: McpCaller;
   spawnLeaf: (task: JsonObject, signal?: AbortSignal) => Promise<LeafExecutionOutcome>;
   signal?: AbortSignal;
+  leaseHeartbeatMs?: number;
+  leaseCallGraceMs?: number;
+  onLeaseLifecycle?: (observation: LeaseLifecycleObservation) => void | Promise<void>;
 }): Promise<JsonObject> {
   const task = validateCoordinatorTask(taskValue);
   const packet = asObject(task.packet, "coordinator packet");
   const claim = asObject(packet.claim_operation, "claim operation");
+  const claimArguments = asObject(claim.prefilled_arguments, "claim arguments");
   const packetId = nonEmpty(packet.packet_id, "packet_id");
+  const assetRootId = nonEmpty(packet.asset_root_id, "asset_root_id");
+  const executorId = nonEmpty(claimArguments.executor_id, "claim executor_id");
+  const heartbeatMs = dependencies.leaseHeartbeatMs ?? LEASE_RENEW_INTERVAL_MS;
+  const callGraceMs = dependencies.leaseCallGraceMs ?? LEASE_CALL_GRACE_MS;
+  if (!Number.isFinite(heartbeatMs) || heartbeatMs < 1) throw new Error("lease heartbeat interval must be positive");
+  if (!Number.isFinite(callGraceMs) || callGraceMs < 1) throw new Error("lease call grace must be positive");
   const receipt = (status: string, claimed: number, fulfilled: number, failure: string | null): JsonObject => validateCoordinatorResult({
     schema_version: 1,
     contract_id: "coc.source-coordinator-result.v1",
@@ -1185,13 +1216,47 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     failure_class: failure,
     design_issue_threshold: 3,
   }, task);
+  const observeLease = async (observation: LeaseLifecycleObservation) => {
+    try { await dependencies.onLeaseLifecycle?.(observation); }
+    catch { /* private lifecycle audit is best effort and never changes fulfillment */ }
+  };
+  const leaseObservation = (
+    phase: LeaseLifecycleObservation["phase"],
+    status: LeaseLifecycleObservation["status"],
+    leaseIds: string[],
+    extra: Pick<LeaseLifecycleObservation, "reason" | "failure_class" | "recovery"> = {},
+  ): LeaseLifecycleObservation => ({
+    schema_version: 1,
+    contract_id: "coc.pi-source-lease-lifecycle.v1",
+    phase,
+    status,
+    asset_root_id: assetRootId,
+    executor_id: executorId,
+    lease_ids: [...leaseIds],
+    ...extra,
+  });
+  const callWithGrace = async (
+    args: JsonObject,
+    parentSignal?: AbortSignal,
+  ): Promise<JsonObject> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort("lease_call_timeout"), callGraceMs);
+    const abort = () => controller.abort(parentSignal?.reason ?? "lifecycle_aborted");
+    if (parentSignal?.aborted) abort();
+    else parentSignal?.addEventListener("abort", abort, { once: true });
+    try { return await dependencies.call("coc_invoke", args, controller.signal); }
+    finally {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener("abort", abort);
+    }
+  };
   let claimEnvelope: JsonObject;
   try {
     claimEnvelope = await dependencies.call("coc_invoke", {
       operation: claim.operation,
       root: packet.workspace_root,
       campaign: packet.campaign_id,
-      arguments: asObject(claim.prefilled_arguments, "claim arguments"),
+      arguments: claimArguments,
     }, dependencies.signal);
   } catch {
     return receipt("failed", 0, 0, "claim_failed");
@@ -1202,7 +1267,92 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   const tasks = claimData.dispatch_tasks.map((value) => validateLeafTask(value));
   const bindings = tasks.map(expectedBinding);
   if (new Set(bindings.map((binding) => binding.packetId)).size !== bindings.length) throw new Error("claim returned duplicate Pi packet tasks");
-  const workerResults = await Promise.allSettled(tasks.map((leafTask) => dependencies.spawnLeaf(leafTask, dependencies.signal)));
+  const openLeaseIds = new Set(bindings.map((binding) => binding.packetId));
+  let heartbeatStopped = false;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let wakeHeartbeat: (() => void) | null = null;
+  const waitHeartbeat = () => new Promise<void>((resolveWait) => {
+    wakeHeartbeat = resolveWait;
+    heartbeatTimer = setTimeout(resolveWait, heartbeatMs);
+  }).finally(() => {
+    heartbeatTimer = null;
+    wakeHeartbeat = null;
+  });
+  const heartbeat = (async () => {
+    while (!heartbeatStopped && !dependencies.signal?.aborted) {
+      await waitHeartbeat();
+      if (heartbeatStopped || dependencies.signal?.aborted || openLeaseIds.size === 0) continue;
+      const leaseIds = [...openLeaseIds];
+      try {
+        const envelope = await callWithGrace({
+          operation: "progressive.renew_host_work_leases",
+          root: packet.workspace_root,
+          campaign: packet.campaign_id,
+          arguments: {
+            asset_root_id: assetRootId,
+            executor_id: executorId,
+            lease_ids: leaseIds,
+            lease_seconds: LEASE_RENEW_SECONDS,
+          },
+        }, dependencies.signal);
+        const data = asObject(envelope.data, "renew lease data");
+        const renewed = Array.isArray(data.renewed_job_ids) ? data.renewed_job_ids : null;
+        const skipped = Array.isArray(data.skipped_job_ids) ? data.skipped_job_ids : null;
+        if (!renewed || !skipped) {
+          await observeLease(leaseObservation("renew", "failed", leaseIds, {
+            failure_class: "lease_response_invalid",
+          }));
+          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+            reason: "lease_renewal_unconfirmed",
+            recovery: "bounded_ttl",
+          }));
+        } else if (renewed.length > 0 && skipped.length > 0) {
+          await observeLease(leaseObservation("renew", "partial", leaseIds, {
+            failure_class: "lease_ownership_partial",
+          }));
+          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+            reason: "lease_renewal_partially_unconfirmed",
+            recovery: "bounded_ttl",
+          }));
+        } else if (renewed.length === 0 && skipped.length > 0) {
+          await observeLease(leaseObservation("renew", "rejected", leaseIds, {
+            failure_class: "lease_ownership_mismatch",
+          }));
+          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+            reason: "lease_renewal_rejected",
+            recovery: "bounded_ttl",
+          }));
+        } else if (renewed.length === 0) {
+          await observeLease(leaseObservation("renew", "rejected", leaseIds, {
+            failure_class: "lease_ownership_unconfirmed",
+          }));
+          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+            reason: "lease_renewal_unconfirmed",
+            recovery: "bounded_ttl",
+          }));
+        } else {
+          await observeLease(leaseObservation("renew", "succeeded", leaseIds));
+        }
+      } catch {
+        await observeLease(leaseObservation("renew", "failed", leaseIds, {
+          failure_class: "lease_call_failed",
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: "lease_renewal_failed",
+          recovery: "bounded_ttl",
+        }));
+      }
+    }
+  })();
+  const stopHeartbeat = async () => {
+    heartbeatStopped = true;
+    if (heartbeatTimer) clearTimeout(heartbeatTimer);
+    wakeHeartbeat?.();
+    await heartbeat;
+  };
+  const workerResults = await Promise.allSettled(tasks.map(
+    (leafTask) => Promise.resolve().then(() => dependencies.spawnLeaf(leafTask, dependencies.signal)),
+  ));
   let fulfilled = 0;
   let failureClass: string | null = null;
   for (let index = 0; index < tasks.length; index++) {
@@ -1223,6 +1373,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       failureClass ??= "leaf_result_invalid";
       continue;
     }
+    let taskFulfilled = true;
     for (const row of validated.results as JsonObject[]) {
       try {
         await dependencies.call("coc_invoke", {
@@ -1234,10 +1385,92 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
         fulfilled += 1;
       } catch {
         failureClass ??= "fulfill_rejected";
+        taskFulfilled = false;
         break;
       }
     }
+    if (taskFulfilled) openLeaseIds.delete(bindings[index].packetId);
   }
+  // Keep lease renewal active through the bounded fulfillment loop. A slow
+  // canonical fulfill is still using the lease; stopping after leaf completion
+  // would allow ownership to expire before closure.
+  await stopHeartbeat();
   if (!failureClass) return receipt("fulfilled", tasks.length, fulfilled, null);
+
+  if (openLeaseIds.size > 0) {
+    const leaseIds = [...openLeaseIds];
+    const signalReason = dependencies.signal?.reason;
+    const reasonText = typeof signalReason === "string" ? signalReason : "";
+    const reason = dependencies.signal?.aborted
+      ? (reasonText.includes("shutdown") ? "coordinator_shutdown" : "coordinator_aborted")
+      : (fulfilled > 0 ? "coordinator_partial" : "coordinator_failed");
+    try {
+      // Graceful release deliberately receives its own bounded signal. The
+      // parent execution signal may already be aborted during interrupt or
+      // shutdown, but exact owned leases should still get one cleanup chance.
+      const envelope = await callWithGrace({
+        operation: "progressive.release_host_work_leases",
+        root: packet.workspace_root,
+        campaign: packet.campaign_id,
+        arguments: {
+          asset_root_id: assetRootId,
+          executor_id: executorId,
+          lease_ids: leaseIds,
+          reason,
+        },
+      });
+      const data = asObject(envelope.data, "release lease data");
+      const released = Array.isArray(data.released_job_ids) ? data.released_job_ids : null;
+      const skipped = Array.isArray(data.skipped_job_ids) ? data.skipped_job_ids : null;
+      if (!released || !skipped) {
+        await observeLease(leaseObservation("release", "failed", leaseIds, {
+          reason,
+          failure_class: "lease_response_invalid",
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: "graceful_release_unconfirmed",
+          recovery: "bounded_ttl",
+        }));
+      } else if (released.length > 0 && skipped.length > 0) {
+        await observeLease(leaseObservation("release", "partial", leaseIds, {
+          reason,
+          failure_class: "lease_ownership_partial",
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: "graceful_release_partially_unconfirmed",
+          recovery: "bounded_ttl",
+        }));
+      } else if (released.length === 0 && skipped.length > 0) {
+        await observeLease(leaseObservation("release", "rejected", leaseIds, {
+          reason,
+          failure_class: "lease_ownership_mismatch",
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: "wrong_owner_or_closed_lease",
+          recovery: "bounded_ttl",
+        }));
+      } else if (released.length === 0) {
+        await observeLease(leaseObservation("release", "rejected", leaseIds, {
+          reason,
+          failure_class: "lease_ownership_unconfirmed",
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: "graceful_release_unconfirmed",
+          recovery: "bounded_ttl",
+        }));
+      } else {
+        await observeLease(leaseObservation("release", "succeeded", leaseIds, { reason }));
+      }
+    } catch {
+      await observeLease(leaseObservation("release", "failed", leaseIds, {
+        reason,
+        failure_class: "lease_call_failed",
+      }));
+      await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+        reason: "graceful_release_failed",
+        recovery: "bounded_ttl",
+      }));
+    }
+  }
   return receipt(fulfilled > 0 ? "partial" : "failed", tasks.length, fulfilled, failureClass);
 }

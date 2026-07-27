@@ -77,6 +77,15 @@ function rejects(call, predicate = () => true) {
 function check(label, condition) {
   if (!condition) throw new Error(`structural repair assertion failed: ${label}`);
 }
+function leaseLifecycleSuccess(args) {
+  if (args.operation === "progressive.renew_host_work_leases") {
+    return { data: { renewed_job_ids: ["fixture-job"], skipped_job_ids: [] } };
+  }
+  if (args.operation === "progressive.release_host_work_leases") {
+    return { data: { released_job_ids: ["fixture-job"], skipped_job_ids: [] } };
+  }
+  return null;
+}
 async function leafProbe(task, mode) {
   const child = spawn(process.execPath, [
     "--experimental-strip-types", path.join(root, "tests/pi/leaf-context-probe.mjs"), root, mode, sentinel,
@@ -206,6 +215,8 @@ try {
   const partial = await runtime.runCoordinatorLifecycle(coordinatorTask(), {
     call: async (_name, args) => {
       if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1, task2] } };
+      const leaseResult = leaseLifecycleSuccess(args);
+      if (leaseResult) return leaseResult;
       forwarded.push(args.arguments.worker_result);
       if (args.arguments.worker_result.job_id === "job-1b") throw new Error("fixture reject");
       return { data: { accepted: true } };
@@ -219,6 +230,8 @@ try {
   const rejectedLeafPartial = await runtime.runCoordinatorLifecycle(coordinatorTask("coord-rejected"), {
     call: async (_name, args) => {
       if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1, task2] } };
+      const leaseResult = leaseLifecycleSuccess(args);
+      if (leaseResult) return leaseResult;
       rejectedRows.push(args.arguments.worker_result);
       return { data: { accepted: true } };
     },
@@ -228,15 +241,18 @@ try {
     },
   });
   const allFailed = await runtime.runCoordinatorLifecycle(coordinatorTask("coord-failed"), {
-    call: async (_name, args) => args.operation === "progressive.claim_host_work"
-      ? { data: { dispatch_tasks: [task1, task2] } }
-      : { data: { accepted: true } },
+    call: async (_name, args) => {
+      if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1, task2] } };
+      return leaseLifecycleSuccess(args) ?? { data: { accepted: true } };
+    },
     spawnLeaf: async () => failure("activation", "leaf_dispatch_failed"),
   });
   const invalidRows = [];
   const invalidLeafPartial = await runtime.runCoordinatorLifecycle(coordinatorTask("coord-invalid"), {
     call: async (_name, args) => {
       if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1, task2] } };
+      const leaseResult = leaseLifecycleSuccess(args);
+      if (leaseResult) return leaseResult;
       invalidRows.push(args.arguments.worker_result);
       return { data: { accepted: true } };
     },
@@ -268,12 +284,176 @@ try {
   const framingLeafPartial = await runtime.runCoordinatorLifecycle(coordinatorTask("coord-framing"), {
     call: async (_name, args) => {
       if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1, task2] } };
+      const leaseResult = leaseLifecycleSuccess(args);
+      if (leaseResult) return leaseResult;
       framingRows.push(args.arguments.worker_result);
       return { data: { accepted: true } };
     },
     spawnLeaf: async (task) => task.packet.packet_id === "packet-1" ? productionFailures[0] : success(result2),
   });
   const framingSiblingExact = framingRows.length === 1 && framingRows[0] === result2.results[0];
+
+  // Private lease lifecycle: exact ownership is renewed while a leaf is
+  // running, and successful fulfillment closes the lease without release.
+  const renewCalls = [], renewAudit = [];
+  let resolveRenewLeaf;
+  let leafExecutionCompleted = false;
+  let renewDuringFulfill = 0;
+  let renewResponseCount = 0;
+  const renewLifecyclePromise = runtime.runCoordinatorLifecycle(coordinatorTask("coord-renew", 1), {
+    call: async (_name, args, signal) => {
+      if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1] } };
+      renewCalls.push({ args, signalAborted: signal?.aborted === true });
+      if (args.operation === "progressive.renew_host_work_leases") {
+        if (leafExecutionCompleted) renewDuringFulfill += 1;
+        renewResponseCount += 1;
+        if (renewResponseCount > 1) {
+          return { data: { renewed_job_ids: ["job-1a"], skipped_job_ids: ["foreign-job"] } };
+        }
+        return { data: { renewed_job_ids: ["job-1a", "job-1b", "job-1c"], skipped_job_ids: [] } };
+      }
+      if (args.operation === "progressive.fulfill_host_work") {
+        if (args.arguments.worker_result.job_id === "job-1a") {
+          await new Promise((resolve) => setTimeout(resolve, 8));
+        }
+        return { data: { accepted: true } };
+      }
+      throw new Error("release must not run after exact fulfillment");
+    },
+    spawnLeaf: async () => new Promise((resolveLeaf) => { resolveRenewLeaf = resolveLeaf; }),
+    leaseHeartbeatMs: 2,
+    leaseCallGraceMs: 50,
+    onLeaseLifecycle: (entry) => renewAudit.push(entry),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 8));
+  leafExecutionCompleted = true;
+  resolveRenewLeaf(success(result1));
+  const renewLifecycleResult = await renewLifecyclePromise;
+  const exactRenewCalls = renewCalls.filter((entry) => entry.args.operation === "progressive.renew_host_work_leases");
+  const releaseAfterFulfill = renewCalls.filter((entry) => entry.args.operation === "progressive.release_host_work_leases");
+  check("renew heartbeat uses exact lease ownership", exactRenewCalls.length >= 1
+    && exactRenewCalls.every((entry) => (
+      entry.signalAborted === false
+      && entry.args.arguments.asset_root_id === "asset-fixture"
+      && entry.args.arguments.executor_id === "pi:test"
+      && JSON.stringify(entry.args.arguments.lease_ids) === JSON.stringify(["packet-1"])
+      && entry.args.arguments.lease_seconds === runtime.LEASE_RENEW_SECONDS
+    )));
+  check("successful fulfill is not downgraded or released",
+    renewLifecycleResult.status === "fulfilled"
+    && releaseAfterFulfill.length === 0
+    && renewDuringFulfill >= 1
+    && renewAudit.some((entry) => entry.phase === "renew" && entry.status === "succeeded")
+    && renewAudit.some((entry) => (
+      entry.phase === "renew"
+      && entry.status === "partial"
+      && entry.failure_class === "lease_ownership_partial"
+    ))
+    && renewAudit.some((entry) => (
+      entry.phase === "ttl_fallback"
+      && entry.reason === "lease_renewal_partially_unconfirmed"
+      && entry.recovery === "bounded_ttl"
+    )));
+
+  // Interrupt/shutdown gets a separate, non-aborted cleanup grace and exact
+  // release. It never reuses the already-aborted leaf signal.
+  const interruptController = new AbortController();
+  const interruptCalls = [], interruptAudit = [];
+  const interruptPromise = runtime.runCoordinatorLifecycle(coordinatorTask("coord-interrupt", 1), {
+    signal: interruptController.signal,
+    call: async (_name, args, signal) => {
+      if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1] } };
+      interruptCalls.push({ args, signalAborted: signal?.aborted === true });
+      if (args.operation === "progressive.release_host_work_leases") {
+        return { data: { released_job_ids: ["job-1a", "job-1b", "job-1c"], skipped_job_ids: [] } };
+      }
+      throw new Error("unexpected interrupt lifecycle call");
+    },
+    spawnLeaf: async (_task, signal) => new Promise((resolveLeaf) => {
+      const aborted = () => resolveLeaf(failure("process", "leaf_dispatch_failed"));
+      if (signal?.aborted) aborted();
+      else signal?.addEventListener("abort", aborted, { once: true });
+    }),
+    leaseHeartbeatMs: 1_000,
+    leaseCallGraceMs: 50,
+    onLeaseLifecycle: (entry) => interruptAudit.push(entry),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  interruptController.abort("session_shutdown");
+  const interruptResult = await interruptPromise;
+  const interruptRelease = interruptCalls.find((entry) => entry.args.operation === "progressive.release_host_work_leases");
+  check("interrupt gracefully releases exact ownership with independent grace",
+    interruptResult.status === "failed"
+    && interruptRelease?.signalAborted === false
+    && interruptRelease.args.arguments.asset_root_id === "asset-fixture"
+    && interruptRelease.args.arguments.executor_id === "pi:test"
+    && JSON.stringify(interruptRelease.args.arguments.lease_ids) === JSON.stringify(["packet-1"])
+    && interruptRelease.args.arguments.reason === "coordinator_shutdown"
+    && interruptAudit.some((entry) => entry.phase === "release" && entry.status === "succeeded"));
+
+  async function releaseFailureProbe(mode) {
+    const calls = [], audit = [];
+    const lifecycleResult = await runtime.runCoordinatorLifecycle(coordinatorTask(`coord-release-${mode}`, 1), {
+      call: async (_name, args, signal) => {
+        if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1] } };
+        calls.push({ args, signalAborted: signal?.aborted === true });
+        if (args.operation !== "progressive.release_host_work_leases") throw new Error("unexpected release probe call");
+        if (mode === "wrong-owner") {
+          return { data: { released_job_ids: [], skipped_job_ids: ["job-1a", "job-1b", "job-1c"] } };
+        }
+        if (mode === "partial-owner") {
+          return { data: { released_job_ids: ["job-1a"], skipped_job_ids: ["job-1b", "job-1c"] } };
+        }
+        throw new Error("raw release transport failure");
+      },
+      spawnLeaf: async () => failure("process", "leaf_dispatch_failed"),
+      leaseHeartbeatMs: 1_000,
+      leaseCallGraceMs: 50,
+      onLeaseLifecycle: (entry) => audit.push(entry),
+    });
+    return { lifecycleResult, calls, audit };
+  }
+  const wrongOwnerRelease = await releaseFailureProbe("wrong-owner");
+  const partialOwnerRelease = await releaseFailureProbe("partial-owner");
+  const failedRelease = await releaseFailureProbe("transport");
+  check("wrong-owner release fails closed and falls back only to TTL",
+    wrongOwnerRelease.lifecycleResult.status === "failed"
+    && wrongOwnerRelease.audit.some((entry) => (
+      entry.phase === "release"
+      && entry.status === "rejected"
+      && entry.failure_class === "lease_ownership_mismatch"
+    ))
+    && wrongOwnerRelease.audit.some((entry) => (
+      entry.phase === "ttl_fallback"
+      && entry.status === "ttl_fallback"
+      && entry.recovery === "bounded_ttl"
+      && entry.status !== "succeeded"
+    )));
+  check("partial release remains unconfirmed and relies on bounded TTL for skipped ownership",
+    partialOwnerRelease.lifecycleResult.status === "failed"
+    && partialOwnerRelease.audit.some((entry) => (
+      entry.phase === "release"
+      && entry.status === "partial"
+      && entry.failure_class === "lease_ownership_partial"
+    ))
+    && partialOwnerRelease.audit.some((entry) => (
+      entry.phase === "ttl_fallback"
+      && entry.reason === "graceful_release_partially_unconfirmed"
+      && entry.recovery === "bounded_ttl"
+    )));
+  check("release transport failure keeps terminal audit without raw error",
+    failedRelease.lifecycleResult.status === "failed"
+    && failedRelease.audit.some((entry) => (
+      entry.phase === "release"
+      && entry.status === "failed"
+      && entry.failure_class === "lease_call_failed"
+    ))
+    && failedRelease.audit.some((entry) => (
+      entry.phase === "ttl_fallback"
+      && entry.status === "ttl_fallback"
+      && entry.recovery === "bounded_ttl"
+    ))
+    && !JSON.stringify(failedRelease.audit).includes("raw release transport failure"));
 
   const validTerminal = runtime.validateCoordinatorResult(partial, coordinatorTask());
   const lifecycleEvent = coordinatorEvents(validTerminal)[0];
@@ -451,6 +631,23 @@ try {
     productionFailures,
     framingLeafPartial, framingLeafForwarded: framingRows.map((row) => row.job_id), framingSiblingExact,
     allFailed,
+    leaseLifecycle: {
+      renewExact: exactRenewCalls.length >= 1,
+      renewCount: exactRenewCalls.length,
+      renewDuringFulfill,
+      fulfillPreserved: renewLifecycleResult.status === "fulfilled",
+      renewAudit,
+      releaseAfterFulfill: releaseAfterFulfill.length,
+      interruptRelease: interruptRelease ? {
+        signalAborted: interruptRelease.signalAborted,
+        arguments: interruptRelease.args.arguments,
+      } : null,
+      interruptStatus: interruptResult.status,
+      wrongOwnerAudit: wrongOwnerRelease.audit,
+      partialOwnerAudit: partialOwnerRelease.audit,
+      releaseFailureAudit: failedRelease.audit,
+      hardCrashRecoveryClaim: "bounded TTL only; no graceful release receipt exists after abrupt process loss",
+    },
     terminal: { absentRejected, duplicateRejected, bindingRejected, authorityRejected, contentDetailsRejected, impossibleRejected, designIssueRejected },
     manager: {
       notifications: notifications.length, lifecycle: lifecycle.length, duplicateDiagnostic,

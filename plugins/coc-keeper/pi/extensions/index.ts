@@ -32,6 +32,10 @@ const invokeSchema = {
   required: ["operation"], additionalProperties: false,
 } as const;
 const dispatchSchema = { type: "object", properties: { task: { type: "object", additionalProperties: true } }, required: ["task"], additionalProperties: false } as const;
+const PRIVATE_LEASE_OPERATIONS = new Set([
+  "progressive.renew_host_work_leases",
+  "progressive.release_host_work_leases",
+]);
 const ocrSchema = {
   type: "object",
   properties: {
@@ -107,6 +111,7 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
 
 interface AutoDispatchDeps {
   enabled(): Promise<boolean>;
+  isCurrent(): boolean;
   activeManager(): CoordinatorDispatchManager | null;
   manager(): CoordinatorDispatchManager;
   launchContext(): PrivateLaunchContext | null;
@@ -120,9 +125,19 @@ async function autoDispatchCoordinator(deps: AutoDispatchDeps, toolName: string,
   if (toolName !== "coc_invoke") return;
   const task = findAutoDispatchTask(value);
   if (!task) return;
+  if (!deps.isCurrent()) {
+    deps.audit({ status: "session_closed", failure_class: "session_closed" });
+    return;
+  }
   try { if (!(await deps.enabled())) return; }
   catch {
-    deps.audit({ status: "capability_check_failed", failure_class: "capability_check_failed" });
+    deps.audit(deps.isCurrent()
+      ? { status: "capability_check_failed", failure_class: "capability_check_failed" }
+      : { status: "session_closed", failure_class: "session_closed" });
+    return;
+  }
+  if (!deps.isCurrent()) {
+    deps.audit({ status: "session_closed", failure_class: "session_closed" });
     return;
   }
   let exactTask: JsonObject;
@@ -146,6 +161,10 @@ async function autoDispatchCoordinator(deps: AutoDispatchDeps, toolName: string,
   }
   if (workspaceRoot !== resolve(launch.cwd)) {
     deps.audit({ status: "workspace_drift", dispatch_key: key, failure_class: "workspace_drift" });
+    return;
+  }
+  if (!deps.isCurrent()) {
+    deps.audit({ status: "session_closed", dispatch_key: key, failure_class: "session_closed" });
     return;
   }
   try {
@@ -228,11 +247,30 @@ async function runOcr(params: JsonObject, signal?: AbortSignal): Promise<JsonObj
   return parsed;
 }
 
-export default function mainExtension(pi: ExtensionAPI) {
+interface MainExtensionOverrides {
+  coordinatorEnabled?: () => Promise<boolean>;
+  createClient?: (ctx: ExtensionContext) => McpJsonlClient;
+  createManager?: () => CoordinatorDispatchManager;
+}
+
+export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
   let mcp: McpJsonlClient | null = null;
   let manager: CoordinatorDispatchManager | null = null;
-  const client = (ctx: ExtensionContext) => mcp ??= new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui");
-  const coordinatorManager = () => manager ??= new CoordinatorDispatchManager(
+  let sessionEpoch = 0;
+  let sessionClosing = true;
+  const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
+  const sessionClosed = (dispatchKey?: string): JsonObject => ({
+    status: "session_closed",
+    failure_class: "session_closed",
+    ...(dispatchKey ? { dispatch_key: dispatchKey } : {}),
+  });
+  const client = (ctx: ExtensionContext) => mcp ??= (
+    overrides.createClient?.(ctx)
+    ?? new McpJsonlClient(ctx.cwd, ctx.sessionManager.getSessionId(), ctx.mode === "tui")
+  );
+  const coordinatorManager = (epoch: number) => {
+    if (!isCurrent(epoch)) throw new Error("Pi source coordinator session is closed");
+    return manager ??= overrides.createManager?.() ?? new CoordinatorDispatchManager(
     (exactTask, launch, launchSignal) => spawnPiChild({
       role: "coordinator", task: exactTask,
       ...launch, signal: launchSignal,
@@ -243,10 +281,12 @@ export default function mainExtension(pi: ExtensionAPI) {
       catch { /* lifecycle audit is best effort */ }
     },
   );
-  const autoDispatchDeps = (ctx: ExtensionContext): AutoDispatchDeps => ({
-    enabled: piCoordinatorEnabled,
+  };
+  const autoDispatchDeps = (ctx: ExtensionContext, epoch: number): AutoDispatchDeps => ({
+    enabled: overrides.coordinatorEnabled ?? piCoordinatorEnabled,
+    isCurrent: () => isCurrent(epoch),
     activeManager: () => manager,
-    manager: coordinatorManager,
+    manager: () => coordinatorManager(epoch),
     launchContext: () => {
       const model = ctx.model;
       if (!model) return null;
@@ -262,8 +302,18 @@ export default function mainExtension(pi: ExtensionAPI) {
     audit: (entry) => { try { pi.appendEntry("coc-source-coordinator-auto-dispatch", entry); } catch { /* audit is best effort */ } },
   });
   const gateway = (name: string) => async (_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) => {
+    const epoch = sessionEpoch;
+    if (name === "coc_invoke" && PRIVATE_LEASE_OPERATIONS.has(String(params.operation))) {
+      try {
+        pi.appendEntry("coc-source-coordinator-private-boundary", {
+          status: "rejected",
+          failure_class: "private_lifecycle_operation",
+        });
+      } catch { /* private boundary audit is best effort */ }
+      throw new Error("canonical operation is reserved for the private source coordinator lifecycle");
+    }
     const value = await client(ctx).callTool(name, params, signal);
-    if (name === "coc_invoke") void autoDispatchCoordinator(autoDispatchDeps(ctx), name, value).catch(() => {});
+    if (name === "coc_invoke") void autoDispatchCoordinator(autoDispatchDeps(ctx, epoch), name, value).catch(() => {});
     return result(value);
   };
   pi.registerTool({
@@ -289,14 +339,25 @@ export default function mainExtension(pi: ExtensionAPI) {
     description: "Submit one exact repository-produced Pi source coordinator task.", parameters: dispatchSchema,
     ...compactToolRenderers("coc_dispatch_source_work"),
     async execute(_id: string, params: JsonObject, signal: AbortSignal | undefined, _update: unknown, ctx: ExtensionContext) {
+      const epoch = sessionEpoch;
+      if (!isCurrent(epoch)) return result(sessionClosed());
       exactKeys(params, ["task"], "dispatch request");
-      if (!(await piCoordinatorEnabled())) throw new Error("Pi source coordinator is unavailable pending a real isolated lifecycle probe");
+      let enabled: boolean;
+      try { enabled = await (overrides.coordinatorEnabled ?? piCoordinatorEnabled)(); }
+      catch (error) {
+        if (!isCurrent(epoch)) return result(sessionClosed());
+        throw error;
+      }
+      if (!enabled) throw new Error("Pi source coordinator is unavailable pending a real isolated lifecycle probe");
+      if (!isCurrent(epoch)) return result(sessionClosed());
       const task = validateCoordinatorTask(params.task);
       const packet = asObject(task.packet, "coordinator packet");
+      const key = nonEmpty(packet.packet_id, "packet_id");
       if (resolve(nonEmpty(packet.workspace_root, "workspace_root")) !== resolve(ctx.cwd)) throw new Error("coordinator workspace drift");
       const model = ctx.model;
       if (!model) throw new Error("active parent model is unavailable");
-      const submitted = await coordinatorManager().submit(task, {
+      if (!isCurrent(epoch)) return result(sessionClosed(key));
+      const submitted = await coordinatorManager(epoch).submit(task, {
         cwd: ctx.cwd,
         provider: nonEmpty(model.provider, "model.provider"),
         modelId: nonEmpty(model.id, "model.id"),
@@ -317,8 +378,21 @@ export default function mainExtension(pi: ExtensionAPI) {
   registerCocHud(pi, (ctx) => client(ctx));
   const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
-  pi.on("session_start", () => pi.setActiveTools(["coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr"]));
-  pi.on("session_shutdown", async () => { await manager?.shutdown(); manager = null; await mcp?.close(); mcp = null; });
+  pi.on("session_start", () => {
+    sessionEpoch += 1;
+    sessionClosing = false;
+    pi.setActiveTools(["coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr"]);
+  });
+  pi.on("session_shutdown", async () => {
+    sessionClosing = true;
+    sessionEpoch += 1;
+    const ownedManager = manager;
+    const ownedMcp = mcp;
+    manager = null;
+    mcp = null;
+    await ownedManager?.shutdown();
+    await ownedMcp?.close();
+  });
 }
 
 export const __test = { piCoordinatorEnabled, runOcr, findAutoDispatchTask, autoDispatchCoordinator };

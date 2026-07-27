@@ -134,6 +134,7 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   };
   const deps = {
     enabled: async () => enabled,
+    isCurrent: () => true,
     activeManager: () => fakeManager,
     manager: () => fakeManager,
     launchContext: () => ({ cwd: root, provider: "offline", modelId: "offline", thinking: "off" }),
@@ -398,10 +399,12 @@ async function exerciseFailureDrain(mode) {
     && new Set(queue.launches).size === 3);
 }
 
-// The pending-per-queue map is explicitly capped and overflow asks for re-emission.
+// The pending-per-queue map is explicitly capped; an exact canonical
+// re-emission after one slot drains is accepted and eventually launches FIFO.
 {
   const queue = realManagerHarness();
   const active = coordinatorTask("coord-cap-active");
+  const queued = [];
   await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(active));
   for (let index = 0; index < runtime.MAX_PENDING_COORDINATOR_QUEUES; index += 1) {
     const task = coordinatorTask(`coord-cap-${index}`, {
@@ -409,6 +412,7 @@ async function exerciseFailureDrain(mode) {
       assetRootId: `asset-cap-${index}`,
       executorId: `executor-cap-${index}`,
     });
+    queued.push(task);
     await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(task));
   }
   const overflow = coordinatorTask("coord-cap-overflow", {
@@ -423,7 +427,168 @@ async function exerciseFailureDrain(mode) {
     && overflowAudit?.reemit_required === true
     && overflowAudit?.retry_after_active_terminal === true
     && queue.manager.state(overflow.packet.packet_id) === undefined);
-  await queue.manager.shutdown();
+  queue.controls.get(active.packet.packet_id).resolve();
+  await nextTurn();
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(overflow));
+  const reemitAudit = queue.audit.at(-1);
+  check("exact overflow re-emission is retained after capacity drains",
+    reemitAudit?.status === "pending"
+    && queue.manager.state(overflow.packet.packet_id)?.status === "pending");
+  for (const task of queued) {
+    check(`FIFO launches ${task.packet.packet_id}`,
+      queue.launches.at(-1) === task.packet.packet_id);
+    queue.controls.get(task.packet.packet_id).resolve();
+    await nextTurn();
+  }
+  check("re-emitted overflow launches once at FIFO tail",
+    queue.launches.join(",") === [
+      active.packet.packet_id,
+      ...queued.map((task) => task.packet.packet_id),
+      overflow.packet.packet_id,
+    ].join(",")
+    && queue.launches.filter((key) => key === overflow.packet.packet_id).length === 1);
+  queue.controls.get(overflow.packet.packet_id).resolve();
+  await nextTurn();
+  check("re-emitted overflow completes exactly once",
+    queue.lifecycle.filter((entry) => (
+      entry.dispatch_key === overflow.packet.packet_id
+      && entry.status === "completed"
+    )).length === 1);
+}
+
+// Actual extension lifecycle: a capability read that resolves after shutdown
+// cannot recreate the manager or launch a child in the stale generation.
+{
+  const registered = new Map();
+  const handlers = new Map();
+  const appended = [];
+  const activeTools = [];
+  const clientCalls = [];
+  let closeCalls = 0;
+  let managerCreations = 0;
+  let launches = 0;
+  let resolveEnabled;
+  const delayedEnabled = new Promise((resolve) => { resolveEnabled = resolve; });
+  const fakePi = {
+    registerTool: (tool) => registered.set(tool.name, tool),
+    registerCommand: () => {},
+    registerShortcut: () => {},
+    on: (name, handler) => {
+      const values = handlers.get(name) || [];
+      values.push(handler);
+      handlers.set(name, values);
+    },
+    appendEntry: (name, value) => appended.push({ name, value }),
+    sendMessage: () => {},
+    setActiveTools: (tools) => activeTools.push([...tools]),
+    getThinkingLevel: () => "off",
+  };
+  const fakeClient = {
+    callTool: async (name, params) => {
+      clientCalls.push({ name, params });
+      return directTakeoverResult(coordinatorTask("coord-extension-race"));
+    },
+    close: async () => { closeCalls += 1; },
+  };
+  const fakeManager = {
+    state: () => undefined,
+    submit: async () => {
+      launches += 1;
+      return { status: "submitted", dispatch_key: "coord-extension-race", role: "coordinator" };
+    },
+    shutdown: async () => {},
+  };
+  main.default(fakePi, {
+    coordinatorEnabled: () => delayedEnabled,
+    createClient: () => fakeClient,
+    createManager: () => {
+      managerCreations += 1;
+      return fakeManager;
+    },
+  });
+  const ctx = {
+    cwd: root,
+    mode: "rpc",
+    model: { provider: "offline", id: "offline" },
+    sessionManager: {
+      getSessionId: () => "extension-race",
+      getEntries: () => [],
+    },
+    hasUI: false,
+  };
+  const mainSessionStart = handlers.get("session_start").at(-1);
+  const shutdown = handlers.get("session_shutdown").at(-1);
+  await mainSessionStart({ reason: "startup" }, ctx);
+  await registered.get("coc_invoke").execute(
+    "invoke-race",
+    { operation: "scene.context", campaign: "fixture", arguments: {} },
+    undefined,
+    undefined,
+    ctx,
+  );
+  const staleManualDispatch = registered.get("coc_dispatch_source_work").execute(
+    "dispatch-race",
+    { task: coordinatorTask("coord-extension-manual-race") },
+    undefined,
+    undefined,
+    ctx,
+  );
+  await shutdown({ reason: "quit" }, ctx);
+  resolveEnabled(true);
+  const staleManualResult = JSON.parse((await staleManualDispatch).content[0].text);
+  await nextTurn();
+  await nextTurn();
+  check("delayed capability cannot recreate manager after shutdown",
+    managerCreations === 0 && launches === 0);
+  check("delayed manual dispatch returns bounded session_closed receipt",
+    staleManualResult.status === "session_closed"
+    && staleManualResult.failure_class === "session_closed");
+  check("stale generation has no child lifecycle notification",
+    appended.filter((entry) => entry.name === "coc-source-coordinator-lifecycle").length === 0);
+  check("stale generation records bounded session_closed audit",
+    appended.some((entry) => (
+      entry.name === "coc-source-coordinator-auto-dispatch"
+      && entry.value.status === "session_closed"
+      && entry.value.failure_class === "session_closed"
+    )));
+  check("shutdown closes the exact owned client once", closeCalls === 1);
+
+  // A real new session receives a fresh generation and can create one manager.
+  await mainSessionStart({ reason: "new" }, ctx);
+  await registered.get("coc_invoke").execute(
+    "invoke-new-session",
+    { operation: "scene.context", campaign: "fixture", arguments: {} },
+    undefined,
+    undefined,
+    ctx,
+  );
+  await nextTurn();
+  check("fresh session generation can dispatch", managerCreations === 1 && launches === 1);
+
+  const callsBeforePrivate = clientCalls.length;
+  let privateRejected = false;
+  try {
+    await registered.get("coc_invoke").execute(
+      "invoke-private",
+      {
+        operation: "progressive.release_host_work_leases",
+        campaign: "fixture",
+        arguments: {
+          asset_root_id: "asset-fixture",
+          executor_id: "pi:test",
+          lease_ids: ["lease-private"],
+          reason: "forbidden-main-kp-call",
+        },
+      },
+      undefined,
+      undefined,
+      ctx,
+    );
+  } catch { privateRejected = true; }
+  check("main KP cannot invoke private lease lifecycle operations",
+    privateRejected && clientCalls.length === callsBeforePrivate);
+  await shutdown({ reason: "quit" }, ctx);
+  check("main extension activated expected tool surface", activeTools.length === 2);
 }
 
 await exerciseFailureDrain("activation");

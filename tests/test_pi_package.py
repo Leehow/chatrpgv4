@@ -277,6 +277,110 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
     assert result["framingSiblingExact"] is True
     assert result["allFailed"]["status"] == "failed"
     assert result["allFailed"]["fulfilled_result_count"] == 0
+    lease = result["leaseLifecycle"]
+    assert lease["renewExact"] is True
+    assert lease["renewCount"] >= 1
+    assert lease["renewDuringFulfill"] >= 1
+    assert lease["fulfillPreserved"] is True
+    assert lease["releaseAfterFulfill"] == 0
+    assert any(
+        entry["phase"] == "renew"
+        and entry["status"] == "partial"
+        and entry["failure_class"] == "lease_ownership_partial"
+        for entry in lease["renewAudit"]
+    )
+    assert any(
+        entry["phase"] == "ttl_fallback"
+        and entry["reason"] == "lease_renewal_partially_unconfirmed"
+        and entry["recovery"] == "bounded_ttl"
+        for entry in lease["renewAudit"]
+    )
+    assert lease["interruptStatus"] == "failed"
+    assert lease["interruptRelease"] == {
+        "signalAborted": False,
+        "arguments": {
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "coordinator_shutdown",
+        },
+    }
+    assert lease["wrongOwnerAudit"] == [
+        {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-lease-lifecycle.v1",
+            "phase": "release",
+            "status": "rejected",
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "coordinator_failed",
+            "failure_class": "lease_ownership_mismatch",
+        },
+        {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-lease-lifecycle.v1",
+            "phase": "ttl_fallback",
+            "status": "ttl_fallback",
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "wrong_owner_or_closed_lease",
+            "recovery": "bounded_ttl",
+        },
+    ]
+    assert lease["partialOwnerAudit"] == [
+        {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-lease-lifecycle.v1",
+            "phase": "release",
+            "status": "partial",
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "coordinator_failed",
+            "failure_class": "lease_ownership_partial",
+        },
+        {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-lease-lifecycle.v1",
+            "phase": "ttl_fallback",
+            "status": "ttl_fallback",
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "graceful_release_partially_unconfirmed",
+            "recovery": "bounded_ttl",
+        },
+    ]
+    assert lease["releaseFailureAudit"] == [
+        {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-lease-lifecycle.v1",
+            "phase": "release",
+            "status": "failed",
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "coordinator_failed",
+            "failure_class": "lease_call_failed",
+        },
+        {
+            "schema_version": 1,
+            "contract_id": "coc.pi-source-lease-lifecycle.v1",
+            "phase": "ttl_fallback",
+            "status": "ttl_fallback",
+            "asset_root_id": "asset-fixture",
+            "executor_id": "pi:test",
+            "lease_ids": ["packet-1"],
+            "reason": "graceful_release_failed",
+            "recovery": "bounded_ttl",
+        },
+    ]
+    assert lease["hardCrashRecoveryClaim"] == (
+        "bounded TTL only; no graceful release receipt exists after abrupt "
+        "process loss"
+    )
     assert result["terminal"] == {
         "absentRejected": True,
         "duplicateRejected": True,
