@@ -220,6 +220,69 @@ try {
   const forwarded = [];
   const result1 = worker(task1), result2 = worker(task2);
 
+  const projectedTask = structuredClone(task1);
+  const projectedContract = {
+    schema_version: 1,
+    contract_id: "coc.location-body-pack.v1",
+    closed: true,
+  };
+  const projectedContractRef = `sha256:${createHash("sha256").update(
+    '{"closed":true,"contract_id":"coc.location-body-pack.v1","schema_version":1}',
+  ).digest("hex")}`;
+  projectedTask.packet.wire_result_contracts = {
+    [projectedContractRef]: projectedContract,
+  };
+  projectedTask.packet.requests.forEach((request) => {
+    request.result_contract_ref = projectedContractRef;
+  });
+  const inflatedTask = runtime.validateLeafTask(projectedTask);
+  check("projected leaf contract registry inflates before spawn",
+    !Object.hasOwn(inflatedTask.packet, "wire_result_contracts")
+    && inflatedTask.packet.requests.every((request) => (
+      !Object.hasOwn(request, "result_contract_ref")
+      && request.result_contract.contract_id === "coc.location-body-pack.v1"
+    )));
+
+  const projectionReleaseCalls = [], projectionReleaseAudit = [];
+  const projectedFailure = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-projection-failure", 1),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return {
+            data: {
+              dispatch_tasks: [],
+              wire_projection_failed: true,
+              lease_bindings: [{
+                lease_id: "packet-1",
+                job_ids: ["job-1a", "job-1b", "job-1c"],
+              }],
+            },
+          };
+        }
+        projectionReleaseCalls.push(args);
+        return leaseLifecycleSuccess(args);
+      },
+      spawnLeaf: async () => {
+        throw new Error("projection failure must not spawn a leaf");
+      },
+      leaseCallGraceMs: 50,
+      onLeaseLifecycle: (entry) => projectionReleaseAudit.push(entry),
+    },
+  );
+  check("claim projection failure releases exact leased work",
+    projectedFailure.status === "failed"
+    && projectedFailure.claimed_packet_count === 1
+    && projectedFailure.failure_class === "leaf_result_invalid"
+    && projectionReleaseCalls.length === 1
+    && projectionReleaseCalls[0].operation === "progressive.release_host_work_leases"
+    && projectionReleaseCalls[0].arguments.reason === "claim_projection_invalid"
+    && JSON.stringify(projectionReleaseCalls[0].arguments.lease_ids) === JSON.stringify(["packet-1"])
+    && projectionReleaseAudit.some((entry) => (
+      entry.phase === "release" && entry.status === "succeeded"
+    ))
+    && !projectionReleaseAudit.some((entry) => entry.phase === "ttl_fallback"));
+
   // Typed thinking is the only ignorable message metadata. Every other part
   // remains inside the strict leaf/coordinator framing boundary.
   const thinking = { type: "thinking", thinking: "private reasoning" };

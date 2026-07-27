@@ -85,8 +85,42 @@ function appendBounded(current: string, chunk: Buffer | string, label: string): 
   return next;
 }
 
+function inflateProjectedLeafTask(input: unknown): JsonObject {
+  const task = structuredClone(asObject(input, "Pi leaf task"));
+  const packet = asObject(task.packet, "source packet");
+  const registryValue = packet.wire_result_contracts;
+  if (registryValue === undefined) return task;
+  const registry = asObject(registryValue, "wire result-contract registry");
+  if (!Array.isArray(packet.requests) || Object.keys(registry).length === 0) {
+    throw new Error("wire result-contract registry is empty");
+  }
+  const used = new Set<string>();
+  for (const value of packet.requests) {
+    const request = asObject(value, "source request");
+    if (request.result_contract_ref === undefined) continue;
+    if (request.result_contract !== undefined) {
+      throw new Error("source request cannot contain contract and contract ref");
+    }
+    const ref = nonEmpty(request.result_contract_ref, "result_contract_ref");
+    if (!/^sha256:[a-f0-9]{64}$/.test(ref) || !Object.hasOwn(registry, ref)) {
+      throw new Error("source request result_contract_ref is unbound");
+    }
+    const contract = asObject(registry[ref], "wire result contract");
+    const digest = `sha256:${createHash("sha256").update(jsonCanonical(contract)).digest("hex")}`;
+    if (digest !== ref) throw new Error("wire result contract digest drift");
+    request.result_contract = structuredClone(contract);
+    delete request.result_contract_ref;
+    used.add(ref);
+  }
+  if (used.size !== Object.keys(registry).length) {
+    throw new Error("wire result-contract registry has unused entries");
+  }
+  delete packet.wire_result_contracts;
+  return task;
+}
+
 export function validateLeafTask(input: unknown): JsonObject {
-  const task = asObject(input, "Pi leaf task");
+  const task = inflateProjectedLeafTask(input);
   exactKeys(task, ["schema_version", "contract_id", "instruction_ref", "model_policy", "packet"], "Pi leaf task");
   if (task.schema_version !== 1 || task.contract_id !== "coc.pi-source-pack-task.v1") throw new Error("unsupported Pi leaf task contract");
   if (task.model_policy !== "inherit_parent") throw new Error("Pi leaf must inherit parent model");
@@ -100,6 +134,38 @@ export function validateLeafTask(input: unknown): JsonObject {
   const ids = packet.requests.map((value) => nonEmpty(asObject(value, "source request").job_id, "job_id"));
   if (new Set(ids).size !== ids.length) throw new Error("source packet has duplicate job ids");
   return task;
+}
+
+type ClaimLeaseBinding = {
+  leaseId: string;
+  jobIds: string[];
+};
+
+function claimLeaseBindings(data: JsonObject): ClaimLeaseBinding[] {
+  if (!Array.isArray(data.lease_bindings)) return [];
+  const bindings = data.lease_bindings.map((value, index) => {
+    const binding = asObject(value, `claim lease binding ${index}`);
+    exactKeys(binding, ["lease_id", "job_ids"], `claim lease binding ${index}`);
+    const leaseId = nonEmpty(binding.lease_id, `claim lease binding ${index} lease_id`);
+    if (!Array.isArray(binding.job_ids) || binding.job_ids.length === 0) {
+      throw new Error(`claim lease binding ${index} job_ids are empty`);
+    }
+    const jobIds = binding.job_ids.map(
+      (value, jobIndex) => nonEmpty(value, `claim lease binding ${index} job_ids[${jobIndex}]`),
+    );
+    if (new Set(jobIds).size !== jobIds.length) {
+      throw new Error(`claim lease binding ${index} has duplicate job ids`);
+    }
+    return { leaseId, jobIds };
+  });
+  if (new Set(bindings.map((binding) => binding.leaseId)).size !== bindings.length) {
+    throw new Error("claim lease bindings have duplicate lease ids");
+  }
+  const allJobs = bindings.flatMap((binding) => binding.jobIds);
+  if (new Set(allJobs).size !== allJobs.length) {
+    throw new Error("claim lease bindings have duplicate job ids");
+  }
+  return bindings;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -1346,6 +1412,64 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       parentSignal?.removeEventListener("abort", abort);
     }
   };
+  const releaseOwnedLeases = async (
+    bindings: ClaimLeaseBinding[],
+    reason: string,
+    remainingJobsByLease?: ReadonlyMap<string, ReadonlySet<string>>,
+  ): Promise<void> => {
+    if (bindings.length === 0) return;
+    const leaseIds = bindings.map((binding) => binding.leaseId);
+    const expectedJobsByLease = new Map(
+      bindings.map((binding) => [binding.leaseId, new Set(binding.jobIds)]),
+    );
+    const remaining = remainingJobsByLease ?? expectedJobsByLease;
+    try {
+      const envelope = await callWithGrace({
+        operation: "progressive.release_host_work_leases",
+        root: packet.workspace_root,
+        campaign: packet.campaign_id,
+        arguments: {
+          asset_root_id: assetRootId,
+          executor_id: executorId,
+          lease_ids: leaseIds,
+          reason,
+        },
+      });
+      const data = asObject(envelope.data, "release lease data");
+      const coverage = classifyLeaseCoverage(
+        data.released_job_ids,
+        data.skipped_job_ids,
+        leaseIds,
+        expectedJobsByLease,
+        remaining,
+      );
+      if (coverage.status === "succeeded") {
+        await observeLease(leaseObservation("release", "succeeded", leaseIds, { reason }));
+      } else {
+        await observeLease(leaseObservation("release", coverage.status, leaseIds, {
+          reason,
+          failure_class: coverage.failure_class,
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: coverage.status === "failed"
+            ? "graceful_release_response_invalid"
+            : coverage.status === "rejected"
+              ? "wrong_owner_or_unconfirmed_lease"
+              : "graceful_release_partially_unconfirmed",
+          recovery: "bounded_ttl",
+        }));
+      }
+    } catch {
+      await observeLease(leaseObservation("release", "failed", leaseIds, {
+        reason,
+        failure_class: "lease_call_failed",
+      }));
+      await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+        reason: "graceful_release_failed",
+        recovery: "bounded_ttl",
+      }));
+    }
+  };
   let claimEnvelope: JsonObject;
   try {
     claimEnvelope = await dependencies.call("coc_invoke", {
@@ -1358,13 +1482,61 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     return receipt("failed", 0, 0, "claim_failed");
   }
   const claimData = asObject(claimEnvelope.data, "claim data");
-  if (!Array.isArray(claimData.dispatch_tasks) || claimData.dispatch_tasks.length > (packet.max_leaves as number)) return receipt("failed", 0, 0, "leaf_result_invalid");
+  let projectedBindings: ClaimLeaseBinding[] = [];
+  try { projectedBindings = claimLeaseBindings(claimData); }
+  catch {
+    return receipt("failed", 0, 0, "leaf_result_invalid");
+  }
+  if (
+    !Array.isArray(claimData.dispatch_tasks)
+    || claimData.dispatch_tasks.length > (packet.max_leaves as number)
+    || claimData.wire_projection_failed === true
+  ) {
+    await releaseOwnedLeases(
+      projectedBindings,
+      "claim_projection_invalid",
+    );
+    return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
+  }
   if (claimData.dispatch_tasks.length === 0) return receipt("idle", 0, 0, null);
-  const tasks = claimData.dispatch_tasks.map((value) => validateLeafTask(value));
-  const bindings = tasks.map(expectedBinding);
-  if (new Set(bindings.map((binding) => binding.packetId)).size !== bindings.length) throw new Error("claim returned duplicate Pi packet tasks");
-  const allClaimedJobIds = bindings.flatMap((binding) => binding.jobIds);
-  if (new Set(allClaimedJobIds).size !== allClaimedJobIds.length) throw new Error("claim returned duplicate job bindings");
+  let tasks: JsonObject[];
+  try {
+    tasks = claimData.dispatch_tasks.map((value) => validateLeafTask(value));
+  } catch {
+    await releaseOwnedLeases(
+      projectedBindings,
+      "claim_projection_invalid",
+    );
+    return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
+  }
+  let bindings: ReturnType<typeof expectedBinding>[];
+  try {
+    bindings = tasks.map(expectedBinding);
+    if (new Set(bindings.map((binding) => binding.packetId)).size !== bindings.length) {
+      throw new Error("claim returned duplicate Pi packet tasks");
+    }
+    const allClaimedJobIds = bindings.flatMap((binding) => binding.jobIds);
+    if (new Set(allClaimedJobIds).size !== allClaimedJobIds.length) {
+      throw new Error("claim returned duplicate job bindings");
+    }
+  } catch {
+    await releaseOwnedLeases(projectedBindings, "claim_projection_invalid");
+    return receipt("failed", projectedBindings.length, 0, "leaf_result_invalid");
+  }
+  const validatedClaimBindings = bindings.map((binding) => ({
+    leaseId: binding.packetId,
+    jobIds: binding.jobIds,
+  }));
+  if (
+    projectedBindings.length > 0
+    && jsonCanonical(projectedBindings) !== jsonCanonical(validatedClaimBindings)
+  ) {
+    await releaseOwnedLeases(
+      validatedClaimBindings,
+      "claim_projection_invalid",
+    );
+    return receipt("failed", validatedClaimBindings.length, 0, "leaf_result_invalid");
+  }
   const expectedJobsByLease = new Map(
     bindings.map((binding) => [
       binding.packetId,
@@ -1494,61 +1666,21 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   if (!failureClass) return receipt("fulfilled", tasks.length, fulfilled, null);
 
   if (openLeaseIds.size > 0) {
-    const leaseIds = [...openLeaseIds];
     const signalReason = dependencies.signal?.reason;
     const reasonText = typeof signalReason === "string" ? signalReason : "";
     const reason = dependencies.signal?.aborted
       ? (reasonText.includes("shutdown") ? "coordinator_shutdown" : "coordinator_aborted")
       : (fulfilled > 0 ? "coordinator_partial" : "coordinator_failed");
-    try {
-      // Graceful release deliberately receives its own bounded signal. The
-      // parent execution signal may already be aborted during interrupt or
-      // shutdown, but exact owned leases should still get one cleanup chance.
-      const envelope = await callWithGrace({
-        operation: "progressive.release_host_work_leases",
-        root: packet.workspace_root,
-        campaign: packet.campaign_id,
-        arguments: {
-          asset_root_id: assetRootId,
-          executor_id: executorId,
-          lease_ids: leaseIds,
-          reason,
-        },
-      });
-      const data = asObject(envelope.data, "release lease data");
-      const coverage = classifyLeaseCoverage(
-        data.released_job_ids,
-        data.skipped_job_ids,
-        leaseIds,
-        expectedJobsByLease,
-        remainingJobsByLease,
-      );
-      if (coverage.status === "succeeded") {
-        await observeLease(leaseObservation("release", "succeeded", leaseIds, { reason }));
-      } else {
-        await observeLease(leaseObservation("release", coverage.status, leaseIds, {
-          reason,
-          failure_class: coverage.failure_class,
-        }));
-        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-          reason: coverage.status === "failed"
-            ? "graceful_release_response_invalid"
-            : coverage.status === "rejected"
-              ? "wrong_owner_or_unconfirmed_lease"
-              : "graceful_release_partially_unconfirmed",
-          recovery: "bounded_ttl",
-        }));
-      }
-    } catch {
-      await observeLease(leaseObservation("release", "failed", leaseIds, {
-        reason,
-        failure_class: "lease_call_failed",
-      }));
-      await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-        reason: "graceful_release_failed",
-        recovery: "bounded_ttl",
-      }));
-    }
+    await releaseOwnedLeases(
+      bindings
+        .filter((binding) => openLeaseIds.has(binding.packetId))
+        .map((binding) => ({
+          leaseId: binding.packetId,
+          jobIds: binding.jobIds,
+        })),
+      reason,
+      remainingJobsByLease,
+    );
   }
   return receipt(fulfilled > 0 ? "partial" : "failed", tasks.length, fulfilled, failureClass);
 }

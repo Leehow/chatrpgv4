@@ -5402,6 +5402,36 @@ def list_host_work_requests(
     return rows
 
 
+def get_host_work_request(
+    workspace: Path,
+    asset_root_id: str,
+    job_id: str,
+) -> dict[str, Any] | None:
+    """Return one complete validated durable request for strict receivers.
+
+    ``list_host_work_requests`` intentionally omits large private fields such
+    as instructions and result contracts. Fulfillment needs the complete
+    contract and therefore resolves one exact safe job id under the lifecycle
+    lock instead of trying to enforce against that public projection.
+    """
+    jid = _require_id(job_id, "job_id")
+    module_root = _module_dir(workspace, asset_root_id)
+    path = module_root / "host-work" / f"{jid}.json"
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        if not path.is_file():
+            return None
+        try:
+            request = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModuleAssetsError(
+                f"host-work request {jid!r} is unreadable"
+            ) from exc
+        validate_host_work_request_shape(request)
+        if str(request.get("job_id") or "") != jid:
+            raise ModuleAssetsError("host-work request identity drift")
+        return json.loads(json.dumps(request))
+
+
 def host_work_lifecycle_summary(
     workspace: Path,
     asset_root_id: str,

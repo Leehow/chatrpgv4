@@ -2798,6 +2798,114 @@ def test_mcp_wire_progressive_status_keeps_coordinator_when_requests_are_large()
     ][0]
 
 
+def test_mcp_wire_claim_keeps_two_coalesced_three_page_body_requests_actionable():
+    server = _load_server()
+    worker = server.toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_mcp_claim_projection",
+        "coc_module_queue_worker.py",
+    )
+    contract = worker._body_location_result_contract(parse_state="deep")
+    refs = [{
+        "source_id": "pdf:claim-projection",
+        "pdf_index": index,
+        "path": f"/tmp/coc-claim-projection/page-{index:04d}.md",
+        "text_sha256": f"{index + 1:x}" * 64,
+    } for index in range(3)]
+    scope = {
+        "source_id": "pdf:claim-projection",
+        "file_sha256": "a" * 64,
+        "pdf_indices": [0, 1, 2],
+    }
+    instruction = (
+        "Host PDF skill: read exactly the three accepted cached page refs for "
+        "this bounded location body; follow the closed result contract, copy "
+        "its fixed/request/default fields, use canonical row templates, and "
+        "return the direct location pack without aliases or repair. "
+    ) * 9
+    requests = [{
+        "job_id": f"job-{target}",
+        "kind": "deepen_location",
+        "target_id": target,
+        "priority": 50,
+        "reason": "coalesced accepted three-page location body",
+        "instruction": instruction,
+        "requested_pdf_indices": [0, 1, 2],
+        "cached_page_refs": refs,
+        "cached_scope_complete": True,
+        "batch_subjects": [],
+        "request_purpose": "deep_location_body",
+        "requested_source_scope": scope,
+        "source_scope_signature": "sha256:" + "b" * 64,
+        "result_contract": contract,
+        "work_level": "near_term",
+        "consumer_refs": [],
+        "consumer_state": {},
+    } for target in ("cellar", "annex")]
+    task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-pack-task.v1",
+        "instruction_ref": str(
+            (PLUGIN_ROOT / "agents" / "coc-source-pack-worker.md").resolve()
+        ),
+        "model_policy": "inherit_parent",
+        "packet": {
+            "schema_version": 1,
+            "contract_id": "coc.source-pack-worker.v1",
+            "packet_id": "source-lease-coalesced",
+            "asset_root_id": "source-root",
+            "work_group_id": "source-work-coalesced",
+            "source_id": "pdf:claim-projection",
+            "file_sha256": "a" * 64,
+            "requested_pdf_indices": [0, 1, 2],
+            "cached_scope_complete": True,
+            "requests": requests,
+        },
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.claim_host_work",
+        "data": {
+            "leased_group_count": 1,
+            "ready_group_count": 1,
+            "cached_only": True,
+            "dispatch_tasks": [task],
+            "dispatch_task_count": 1,
+        },
+        "warnings": [],
+        "hints": [],
+    }
+    assert server.wire_projection.transport_bytes(envelope) > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+
+    projected = server.wire_projection.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["claim_dispatch_deduplicated"] is True
+    assert projected["wire"].get("identity_only") is not True
+    assert projected["data"].get("wire_projection_failed") is not True
+    assert projected["data"]["lease_bindings"] == [{
+        "lease_id": "source-lease-coalesced",
+        "job_ids": ["job-cellar", "job-annex"],
+    }]
+    [projected_task] = projected["data"]["dispatch_tasks"]
+    packet = projected_task["packet"]
+    assert len(packet["requests"]) == 2
+    assert len(packet["wire_result_contracts"]) == 1
+    assert all(
+        "result_contract" not in request
+        and request["result_contract_ref"] in packet["wire_result_contracts"]
+        for request in packet["requests"]
+    )
+
+
 def test_resume_budget_keeps_progressive_takeover_after_scene_reduction():
     server = _load_server()
     takeover = {

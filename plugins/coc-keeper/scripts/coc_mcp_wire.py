@@ -1402,6 +1402,93 @@ def _minimal_identity(operation: str, data: Any) -> dict[str, Any]:
     }
 
 
+def _claim_lease_bindings(data: Any) -> list[dict[str, Any]]:
+    """Preserve enough exact ownership to release a projected-away claim."""
+    if not isinstance(data, dict):
+        return []
+    bindings: list[dict[str, Any]] = []
+    for task in data.get("dispatch_tasks") or []:
+        if not isinstance(task, dict) or not isinstance(task.get("packet"), dict):
+            continue
+        packet = task["packet"]
+        lease_id = str(packet.get("packet_id") or "").strip()
+        job_ids = [
+            str(request.get("job_id") or "").strip()
+            for request in packet.get("requests") or []
+            if isinstance(request, dict)
+        ]
+        if lease_id and job_ids and all(job_ids):
+            bindings.append({"lease_id": lease_id, "job_ids": job_ids})
+    return bindings
+
+
+def _project_claim_dispatch(data: Any) -> dict[str, Any]:
+    """Deduplicate repeated per-request contracts without losing leaf work.
+
+    One coalesced source packet can contain several requests with the same
+    closed result contract.  Keeping one packet-local registry entry plus
+    explicit request references preserves the complete contract while avoiding
+    a multi-kilobyte copy per request.  The Pi runtime inflates this transport
+    shape before validating or spawning a leaf; other hosts can resolve the
+    explicit packet-local reference directly.
+    """
+    if not isinstance(data, dict):
+        return {}
+    projected = deepcopy(data)
+    projected["lease_bindings"] = _claim_lease_bindings(data)
+    for task in projected.get("dispatch_tasks") or []:
+        if not isinstance(task, dict) or not isinstance(task.get("packet"), dict):
+            continue
+        packet = task["packet"]
+        requests = packet.get("requests")
+        if not isinstance(requests, list):
+            continue
+        contract_rows: dict[str, tuple[dict[str, Any], list[int]]] = {}
+        for index, request in enumerate(requests):
+            if not isinstance(request, dict) or not isinstance(
+                request.get("result_contract"), dict
+            ):
+                continue
+            contract = request["result_contract"]
+            ref = canonical_digest(contract)
+            current = contract_rows.setdefault(ref, (deepcopy(contract), []))
+            current[1].append(index)
+        repeated = {
+            ref: row
+            for ref, row in contract_rows.items()
+            if len(row[1]) > 1
+        }
+        if not repeated:
+            continue
+        packet["wire_result_contracts"] = {
+            ref: row[0] for ref, row in repeated.items()
+        }
+        for ref, (_contract, indices) in repeated.items():
+            for index in indices:
+                requests[index].pop("result_contract", None)
+                requests[index]["result_contract_ref"] = ref
+    return projected
+
+
+def _claim_projection_failure(data: Any) -> dict[str, Any]:
+    """Return a small fail-closed claim receipt with recoverable ownership."""
+    projected = {
+        **_pick(
+            data,
+            (
+                "leased_group_count",
+                "ready_group_count",
+                "cached_only",
+                "dispatch_task_count",
+            ),
+        ),
+        "dispatch_tasks": [],
+        "lease_bindings": _claim_lease_bindings(data),
+        "wire_projection_failed": True,
+    }
+    return projected
+
+
 def project_envelope(
     operation: str,
     envelope: dict[str, Any],
@@ -1538,6 +1625,30 @@ def project_envelope(
             *result["hints"][:2],
         ]
         result["warnings"] = result["warnings"][:3]
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "progressive.claim_host_work"
+    ):
+        result["data"] = _project_claim_dispatch(data)
+        result["wire"]["payload_projected"] = True
+        result["wire"]["claim_dispatch_deduplicated"] = True
+        result["warnings"] = result["warnings"][:3]
+        result["hints"] = result["hints"][:3]
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "progressive.claim_host_work"
+    ):
+        result["data"] = _claim_projection_failure(data)
+        result["wire"]["payload_projected"] = True
+        result["wire"]["claim_dispatch_projection_failed"] = True
+        result["warnings"] = [
+            "The leased claim exceeded the bounded transport budget after "
+            "contract deduplication; the returned exact lease bindings must be "
+            "released before retry."
+        ]
+        result["hints"] = []
 
     if transport_bytes(result) > MAX_INLINE_BYTES:
         result["hints"] = result["hints"][:3]

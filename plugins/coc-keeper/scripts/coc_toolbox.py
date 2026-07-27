@@ -14359,6 +14359,70 @@ def _tool_progressive_request_deepen(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", str(exc)) from exc
     except Exception as exc:
         raise ToolError("progressive_error", f"request_deepen failed: {exc}") from exc
+    # request_deepen enqueues and kicks a detached deterministic queue worker.
+    # Pi can auto-dispatch only from a takeover carried by this exact tool
+    # result, so give the local queue->host-work handoff the same bounded grace
+    # used by foreground opening. This is not semantic parsing or status
+    # polling: it waits only for the just-enqueued durable job id to materialize.
+    assets_mod = coc_module_project.coc_module_assets
+    root_id = str(result.get("asset_root_id") or "").strip()
+    enqueue_result = next(
+        (
+            action.get("enqueue")
+            for action in reversed(result.get("actions") or [])
+            if isinstance(action, dict)
+            and isinstance(action.get("enqueue"), dict)
+        ),
+        None,
+    )
+    job_id = str(
+        ((enqueue_result or {}).get("job") or {}).get("job_id") or ""
+    ).strip()
+    if root_id and job_id:
+        all_open_host_work = assets_mod.list_host_work_requests(
+            ctx.root, root_id, limit=None,
+        )
+        open_request = next(
+            (
+                row for row in all_open_host_work
+                if str(row.get("job_id") or "") == job_id
+            ),
+            None,
+        )
+        worker_kick = (enqueue_result or {}).get("worker_kick") or {}
+        if open_request is None and (
+            worker_kick.get("started") is True
+            or worker_kick.get("already_running") is True
+        ):
+            deadline = time.monotonic() + 1.0
+            while time.monotonic() < deadline:
+                time.sleep(0.05)
+                all_open_host_work = assets_mod.list_host_work_requests(
+                    ctx.root, root_id, limit=None,
+                )
+                open_request = next(
+                    (
+                        row for row in all_open_host_work
+                        if str(row.get("job_id") or "") == job_id
+                    ),
+                    None,
+                )
+                if open_request is not None:
+                    break
+        if open_request is not None:
+            host_projection = _source_host_work_projection(
+                ctx,
+                root_id,
+                all_open_host_work=all_open_host_work,
+            )
+            takeover = host_projection.get("background_takeover")
+            result["host_work"] = {
+                key: value
+                for key, value in host_projection.items()
+                if key != "background_takeover"
+            }
+            if takeover is not None:
+                result["background_takeover"] = takeover
     hints = list(result.get("host_hints") or [])
     if result.get("skipped"):
         hints.append("campaign is not on the progressive asset track")
@@ -14915,6 +14979,62 @@ def _require_location_pack_semantic_fields(
         )
 
 
+def _require_body_location_canonical_identities(
+    pack: dict[str, Any],
+    request: dict[str, Any],
+    *,
+    target_id: str,
+    field: str,
+) -> None:
+    """Fail closed on identity aliases for the closed body location contract."""
+    contract = request.get("result_contract")
+    if (
+        not isinstance(contract, dict)
+        or contract.get("contract_id") != "coc.location-body-pack.v1"
+    ):
+        return
+    if "entity_id" in pack:
+        raise ToolError(
+            "invalid_source_worker_pack",
+            f"{field} uses forbidden entity_id alias; use location_id",
+        )
+    location_id = pack.get("location_id")
+    if (
+        not isinstance(location_id, str)
+        or not location_id.strip()
+        or location_id.strip() != target_id
+    ):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            f"{field}.location_id must equal the bound target_id",
+        )
+    clues = pack.get("clues")
+    if clues is None:
+        return
+    if not isinstance(clues, list):
+        raise ToolError(
+            "invalid_source_worker_pack",
+            f"{field}.clues must be an array",
+        )
+    for index, clue in enumerate(clues):
+        if not isinstance(clue, dict):
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"{field}.clues[{index}] must be an object",
+            )
+        if "id" in clue:
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"{field}.clues[{index}] uses forbidden id alias; use clue_id",
+            )
+        clue_id = clue.get("clue_id")
+        if not isinstance(clue_id, str) or not clue_id.strip():
+            raise ToolError(
+                "invalid_source_worker_pack",
+                f"{field}.clues[{index}].clue_id must be a non-empty string",
+            )
+
+
 def _apply_opening_setup_observation(
     ctx: Ctx,
     *,
@@ -15121,13 +15241,12 @@ def _fulfill_host_work_for_asset_unlocked(
         )
 
     job_id = str(args.get("job_id") or "").strip()
-    requests = assets_mod.list_host_work_requests(
-        ctx.root, root_id, include_closed=True, limit=512,
-    )
-    request = next(
-        (row for row in requests if str(row.get("job_id") or "") == job_id),
-        None,
-    )
+    try:
+        request = assets_mod.get_host_work_request(
+            ctx.root, root_id, job_id,
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_state", str(exc)) from exc
     if request is None:
         raise ToolError("not_found", f"host-work job {job_id!r} was not found")
     if request.get("status") in {"fulfilled", "cancelled", "superseded"}:
@@ -15854,6 +15973,12 @@ def _fulfill_host_work_for_asset_unlocked(
             # A location pack without its closed semantic fields merges cleanly
             # but can never satisfy opening readiness; reject it before merge.
             _require_location_pack_semantic_fields(pack, request, field="pack")
+            _require_body_location_canonical_identities(
+                pack,
+                request,
+                target_id=target_id,
+                field="pack",
+            )
         if job_kind == "partial_opening":
             validation_pack = deepcopy(pack)
             validation_pack.pop("host_work_job_id", None)
@@ -15956,6 +16081,12 @@ def _fulfill_host_work_for_asset_unlocked(
                 _require_location_pack_semantic_fields(
                     related_pack,
                     request,
+                    field=f"related_packs[{index}].pack",
+                )
+                _require_body_location_canonical_identities(
+                    related_pack,
+                    request,
+                    target_id=related_id,
                     field=f"related_packs[{index}].pack",
                 )
             if pack.get("host_timing") and not related_pack.get("host_timing"):

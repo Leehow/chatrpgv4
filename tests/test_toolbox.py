@@ -11819,6 +11819,187 @@ def _opening_setup_unresolved() -> dict:
     }
 
 
+def _requested_body_location(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    job_kind: str,
+) -> tuple[dict, str, str]:
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=(1, 2),
+    )
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.ensure_stub(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "cellar",
+        title="Cellar",
+        source_scope={"source_page_indices": [0, 1, 2]},
+    )
+    queued = assets.enqueue_job(
+        ws["workspace"],
+        ws["asset_root_id"],
+        kind=job_kind,
+        target_id="cellar",
+        priority=50,
+        reason="body identity contract regression",
+        consumer_refs=[assets.campaign_consumer_ref(
+            ws["workspace"],
+            ws["campaign_id"],
+            ws["asset_root_id"],
+            intent_kind="player_dig",
+        )],
+        kick_worker=False,
+    )
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        f"coc_module_queue_worker_body_alias_{job_kind}",
+        "coc_module_queue_worker.py",
+    )
+    produced = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert produced["claimed"] == 1
+    request = assets.get_host_work_request(
+        ws["workspace"],
+        ws["asset_root_id"],
+        queued["job"]["job_id"],
+    )
+    assert request is not None
+    assert request["result_contract"]["contract_id"] == (
+        "coc.location-body-pack.v1"
+    )
+    return ws, request["job_id"], (
+        "partial" if job_kind == "partial_neighbor" else "deep"
+    )
+
+
+@pytest.mark.parametrize("job_kind", ["deepen_location", "partial_neighbor"])
+@pytest.mark.parametrize(
+    ("alias_case", "expected_code"),
+    [
+        ("name", "pack_semantic_fields_missing"),
+        ("clue_id", "invalid_source_worker_pack"),
+        ("edge_to", "invalid_param"),
+        ("location_id", "invalid_source_worker_pack"),
+    ],
+)
+def test_body_location_fulfill_rejects_finalverify_aliases(
+    tmp_path: Path,
+    monkeypatch,
+    job_kind: str,
+    alias_case: str,
+    expected_code: str,
+):
+    ws, job_id, parse_state = _requested_body_location(
+        tmp_path,
+        monkeypatch,
+        job_kind=job_kind,
+    )
+    pack = _opening_component_pack(
+        location_id="cellar",
+        title="Cellar",
+        parse_state=parse_state,
+        source_page_indices=[0, 1, 2],
+        player_safe_summary="A bounded source-authored cellar.",
+    )
+    if alias_case == "name":
+        pack["name"] = pack.pop("title")
+    elif alias_case == "clue_id":
+        pack["clues"] = [{
+            "id": "cellar-mark",
+            "player_safe_summary": "A chalk mark crosses the wall.",
+        }]
+    elif alias_case == "edge_to":
+        pack["scene_edges"] = [{
+            "destination": "hall",
+            "edge_type": "open_passage",
+        }]
+    elif alias_case == "location_id":
+        pack["entity_id"] = pack.pop("location_id")
+
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": job_id,
+        "pack": pack,
+        "related_packs": [],
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == expected_code
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    stored = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "cellar",
+    )
+    assert stored is not None
+    assert stored["parse_state"] == "named_only"
+    request = next(
+        row for row in assets.list_host_work_requests(
+            ws["workspace"],
+            ws["asset_root_id"],
+            include_closed=True,
+            limit=None,
+        )
+        if row["job_id"] == job_id
+    )
+    assert request["status"] != "fulfilled"
+
+
+def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materialization(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.delenv("COC_DISABLE_QUEUE_WORKER", raising=False)
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=(1, 2),
+    )
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.ensure_stub(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "destination",
+        title="Destination",
+        source_scope={"source_page_indices": [0, 1, 2]},
+    )
+
+    requested = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "destination",
+        "title": "Destination",
+        "reason": "arrived after source-authored travel",
+    })
+
+    assert requested["ok"] is True, requested
+    data = requested["data"]
+    assert data["status"]["deep_ready"] is False
+    assert data["background_takeover"]["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_work"
+    )
+    task = data["background_takeover"]["next_host_action"]["task"]
+    assert task["contract_id"] == "coc.pi-source-coordinator-task.v1"
+    assert task["packet"]["asset_root_id"] == ws["asset_root_id"]
+    request = next(
+        row for row in data["host_work"]["ready_background_requests"]
+        if row["target_id"] == "destination"
+    )
+    assert request["dispatch_state"] == "ready"
+    assert request["dispatch_attempts"] == 0
+
+
 def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
     tmp_path: Path, monkeypatch,
 ):
