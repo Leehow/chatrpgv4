@@ -100,6 +100,18 @@ def _invoke_arguments_schema(operation: str) -> dict[str, Any]:
         schema["required"] = [
             field for field in required if field not in {"root", "campaign"}
         ]
+    if operation == "progressive.prepare_opening" and isinstance(
+        properties, dict
+    ):
+        properties["campaign_id"] = {
+            "type": "string",
+            "minLength": 1,
+            "description": (
+                "Optional redundant compatibility selector; when present it "
+                "must exactly equal the bound outer campaign and is not an "
+                "opening semantic selector."
+            ),
+        }
     return schema
 
 
@@ -146,6 +158,7 @@ if len(_GROK_TO_CANONICAL) != len(toolbox.TOOLS):
 # disposable transport process has acknowledged.
 _PROCESS_ACTIVE_CAMPAIGN: tuple[str, str] | None = None
 _PROCESS_HOST_SESSION_ID: str | None = None
+_PROCESS_FRESH_CAMPAIGNS: set[tuple[str, str]] = set()
 
 
 @contextmanager
@@ -522,6 +535,29 @@ def _run_canonical_operation(
         if isinstance(campaign, str) and campaign.strip()
         else None
     )
+    if (
+        canonical_name == "progressive.prepare_opening"
+        and "campaign_id" in call_args
+    ):
+        redundant_campaign = call_args.get("campaign_id")
+        if (
+            campaign_id is None
+            or not isinstance(redundant_campaign, str)
+            or redundant_campaign != campaign_id
+        ):
+            return {
+                "ok": False,
+                "tool": canonical_name,
+                "error": {
+                    "code": "invalid_param",
+                    "message": (
+                        "progressive.prepare_opening arguments.campaign_id "
+                        "must exactly match the bound outer campaign"
+                    ),
+                },
+            }
+        call_args = dict(call_args)
+        call_args.pop("campaign_id")
     campaign_key = (
         (os.fspath(root), campaign_id) if campaign_id is not None else None
     )
@@ -580,13 +616,45 @@ def _run_canonical_operation(
         != str(setup_payload.get("campaign_id") or "").strip()
     ):
         setup_campaign_id = ""
-    if envelope.get("ok") is True and setup_campaign_id:
-        # A successful setup receipt establishes this campaign in the current
-        # MCP context. Treat it as active so the same-ID setup/opening flow is
-        # not distracted by a contradictory session.resume advisory.
-        _PROCESS_ACTIVE_CAMPAIGN = (os.fspath(root), setup_campaign_id)
-        if campaign_id == setup_campaign_id:
-            rehydration_advisory = None
+    setup_campaign_key = (
+        (os.fspath(root), setup_campaign_id) if setup_campaign_id else None
+    )
+    fresh_setup_receipt = (
+        canonical_name == "setup.quick_start"
+        or (
+            canonical_name == "setup.invoke"
+            and isinstance(setup_payload, dict)
+        )
+    )
+    if (
+        envelope.get("ok") is True
+        and setup_campaign_key is not None
+        and fresh_setup_receipt
+    ):
+        # Only a campaign actually created/quick-started in this MCP process
+        # establishes a fresh active context. Ordinary setup operations against
+        # an existing campaign never switch the process behind session.resume.
+        _PROCESS_FRESH_CAMPAIGNS.add(setup_campaign_key)
+        _PROCESS_ACTIVE_CAMPAIGN = setup_campaign_key
+        rehydration_advisory = None
+    elif (
+        envelope.get("ok") is True
+        and setup_campaign_key is not None
+        and setup_campaign_key != _PROCESS_ACTIVE_CAMPAIGN
+        and setup_campaign_key not in _PROCESS_FRESH_CAMPAIGNS
+    ):
+        rehydration_advisory = {
+            "code": "context_rehydration_recommended",
+            "reason": (
+                "mcp_process_start"
+                if _PROCESS_ACTIVE_CAMPAIGN is None
+                else "campaign_switch"
+            ),
+            "campaign_id": setup_campaign_id,
+            "next_operation": "session.resume",
+            "authority": "advisory",
+            "hard_gate": False,
+        }
     if (
         canonical_name == "session.resume"
         and campaign_key is not None

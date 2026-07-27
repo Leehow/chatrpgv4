@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:357102b0afa33d10dfec8251cc0aeaa5cf0d8615891c6303ba0f0589c5223602",
+  "content_sha256": "sha256:b7e30257a40f66aca64e495d17c760da29d53636a09e3831d0e95c63f7967d0f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1120,7 +1120,7 @@
     },
     "progressive.prepare_opening": {
       "canonical_operation": "progressive.prepare_opening",
-      "description": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
+      "description": "Experimental strict read-only planner for one source-authored opening. With no real opening selector, its first call returns the existing bounded complete opening_page_candidates catalog when source selection is needed; semantically select from that catalog and never guess page indices. It validates an accepted contiguous 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1192,7 +1192,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query."
+      "summary": "Experimental strict read-only planner for one source-authored opening. With no real opening selector, its first call returns the existing bounded complete opening_page_candidates catalog when source selection is needed; semantically select from that catalog and never guess page indices. It validates an accepted contiguous 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query."
     },
     "progressive.project_opening": {
       "canonical_operation": "progressive.project_opening",

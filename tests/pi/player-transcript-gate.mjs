@@ -75,6 +75,14 @@ const waitFinal = {
   content: [{ type: "text", text: "解析仍在进行，请稍候。" }],
 };
 const waitResult = await emit("message_end", waitFinal);
+const unrelatedWhileAwaiting = {
+  role: "assistant",
+  content: [{ type: "text", text: "你的调查员装备与背景已经整理完毕。" }],
+};
+const unrelatedWhileAwaitingResult = await emit(
+  "message_end",
+  unrelatedWhileAwaiting,
+);
 openingContinuationGate.markOpeningProjected();
 const validOpening = {
   role: "assistant",
@@ -153,13 +161,14 @@ const unfinishedPromise = main.publishCoordinatorTerminal({
 await Promise.resolve();
 const unfinishedDeferredBeforeEnd = unfinishedSent.length === 0
   && unfinishedAppended.length === 1;
-openingContinuationGate.markAgentEnd();
-const unfinishedReport = await unfinishedPromise;
+openingContinuationGate.markTerminalBlocker();
 const terminalBlocker = {
   role: "assistant",
   content: [{ type: "text", text: "开场资料处理终止，需要重新确认来源边界。" }],
 };
 const terminalBlockerResult = await emit("message_end", terminalBlocker);
+openingContinuationGate.markAgentEnd();
+const unfinishedReport = await unfinishedPromise;
 
 const reusedDispatchKey = "coord-opening-session-reuse";
 const staleSent = [];
@@ -196,6 +205,7 @@ process.stdout.write(JSON.stringify({
   narrationReturned: narrationResult === undefined,
   narrationText: narrationFinal.content[0].text,
   awaitingWaitReturnedTypes: types(waitResult.message),
+  unrelatedWhileAwaitingReturned: unrelatedWhileAwaitingResult === undefined,
   validOpeningReturned: validOpeningResult === undefined,
   validOpeningText: validOpening.content[0].text,
   userText: user.content[0].text,
@@ -222,7 +232,7 @@ process.stdout.write(JSON.stringify({
     unfinishedAppended: unfinishedAppended.length,
     unfinishedDeferredBeforeEnd,
     unfinishedReport,
-    terminalBlockerReturned: terminalBlockerResult === undefined,
+    terminalBlockerWhileAwaitingReturned: terminalBlockerResult === undefined,
     sessionReuse: {
       staleSent: staleSent.length,
       staleAppended: staleAppended.length,

@@ -12584,7 +12584,7 @@ def test_prepare_opening_is_strict_read_only_and_skips_recovery(
 
     ctx = coc_toolbox.Ctx(ws["workspace"], ws["campaign_id"])
     before = _game_file_bytes(ws["workspace"])
-    data, _warnings, _hints = spec["handler"](ctx, {})
+    data, _warnings, hints = spec["handler"](ctx, {})
     assert data["opening_ready"] is False
     assert data["skeleton_ready"] is False
     assert data["mutation_cards"][0]["operation"] == (
@@ -12609,6 +12609,7 @@ def test_prepare_opening_is_strict_read_only_and_skips_recovery(
     )
     assert data["anchors_declared"] is True
     assert "opening_window_selection_advisory" not in data
+    assert any("never guess page indices" in hint for hint in hints)
     skeleton_contract = data["mutation_cards"][0][
         "skeleton_argument_contract"
     ]

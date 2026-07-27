@@ -13231,7 +13231,10 @@ def _fit_opening_data_budget(
 @tool(
     "progressive.prepare_opening",
     "Experimental strict read-only planner for one source-authored opening. "
-    "It validates an accepted 1..3-page window and returns bounded readiness "
+    "With no real opening selector, its first call returns the existing bounded "
+    "complete opening_page_candidates catalog when source selection is needed; "
+    "semantically select from that catalog and never guess page indices. It "
+    "validates an accepted contiguous 1..3-page window and returns bounded readiness "
     "plus optional mutation cards; it never parses, queues, projects, moves, "
     "narrates, supervises background work, or gates player actions. Retain the "
     "accepted selection for this bound scenario generation; after opening "
@@ -13660,10 +13663,18 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
         data,
         selected_start_location_id=selected,
     )
-    return data, [], [
+    hints = [
         "use only the mutation cards whose prerequisites fit the current setup; "
         "this diagnostic does not impose a Keeper call sequence or gate play",
     ]
+    if data.get("opening_page_candidates") and pages_arg is None:
+        hints.append(
+            "opening_page_candidates is the bounded complete cached selection "
+            "catalog: semantically choose a contiguous 1..3-page authored "
+            "opening, then make the one selected prepare_opening call; never "
+            "guess page indices or scan beyond this catalog"
+        )
+    return data, [], hints
 
 
 @tool(

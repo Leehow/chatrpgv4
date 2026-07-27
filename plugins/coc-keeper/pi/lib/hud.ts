@@ -300,21 +300,50 @@ export function registerCocHud(
       const details = asDetails(event.details);
       const data = details ? asDetails(details.data) : null;
       const result = data ? asDetails(data.result) : null;
+      const op = typeof input.operation === "string" ? input.operation : "";
+      if (op === "session.resume" && details?.ok === true) {
+        const hostContext = data ? asDetails(data.host_context) : null;
+        const acknowledged = hostContext
+          ? asDetails(hostContext.acknowledged)
+          : null;
+        const candidates = [
+          acknowledged?.campaign_id,
+          result?.campaign_id,
+          data?.campaign_id,
+          input.campaign,
+        ];
+        const resumedCampaign = candidates.find(
+          (value) => typeof value === "string" && value.trim(),
+        );
+        const requestedCampaign = typeof input.campaign === "string"
+          ? input.campaign.trim()
+          : "";
+        if (
+          typeof resumedCampaign === "string"
+          && resumedCampaign.trim()
+          && (!requestedCampaign || resumedCampaign.trim() === requestedCampaign)
+        ) {
+          // session.resume is the sole model-driven authoritative switch:
+          // invalidate A immediately, then synchronously rebuild B's exact
+          // identifiers before the middleware publishes later context.
+          hud.rememberCampaign(resumedCampaign.trim());
+          await hud.refresh(ctx);
+          return;
+        }
+      }
       // Model-authored tool arguments cannot silently replace an established
       // table binding. Auto-bind only while unbound; an actual switch requires
-      // the explicit /hud bind command.
+      // successful session.resume or the explicit /hud bind command.
       if (!hud.currentCampaign()) {
         hud.rememberCampaign(
           result?.campaign_id ?? data?.campaign_id ?? input.campaign,
         );
       }
-      const op = typeof input.operation === "string" ? input.operation : "";
       if (
         op.startsWith("state.") ||
         op.startsWith("rules.") ||
         op === "scene.context" ||
         op.startsWith("setup.") ||
-        op === "session.resume" ||
         op.startsWith("combat.")
       ) {
         // Fire-and-forget; do not block the tool_result middleware chain.

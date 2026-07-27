@@ -876,6 +876,8 @@ def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
     assert "after opening bootstrap, do not repeat this planner" in (
         prepare_description
     )
+    assert "opening_page_candidates catalog" in prepare_description
+    assert "never guess page indices" in prepare_description
     bootstrap_description = on_disk["operations"][
         "progressive.opening_bootstrap"
     ]["description"]
@@ -1053,6 +1055,14 @@ def test_opening_selector_and_page_schemas_match_every_mcp_projection():
             assert (
                 "opening_pdf_indices" in schema.get("required", [])
             ) is (operation == "progressive.request_opening_pack")
+        if operation == "progressive.prepare_opening":
+            for schema in full_schemas:
+                assert "campaign_id" not in schema["properties"]
+            for schema in invoke_schemas:
+                redundant = schema["properties"]["campaign_id"]
+                assert redundant["type"] == "string"
+                assert redundant["minLength"] == 1
+                assert "must exactly equal" in redundant["description"]
 
     bootstrap = "progressive.opening_bootstrap"
     bootstrap_registered = archive_mod.input_schema_for_spec(
@@ -1481,6 +1491,9 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     })
     assert campaign["ok"] is True, campaign
     assert campaign["data"]["result"]["campaign_id"] == "mcp-custom"
+    assert (
+        os.fspath(tmp_path.resolve()), "mcp-custom"
+    ) in server._PROCESS_FRESH_CAMPAIGNS
     assert "context_rehydration" not in campaign
     assert not any(
         "call session.resume" in hint for hint in campaign["hints"]
@@ -1507,7 +1520,6 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     assert linked["data"]["result"]["investigator_ids"] == [
         "mcp-custom-investigator",
     ]
-
     bundle = _custom_setup_source_bundle(tmp_path)
     bound = invoke("scenario.bind_pdf", {
         "campaign_id": "mcp-custom",
@@ -1580,6 +1592,75 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     assert not (
         tmp_path / ".coc" / "campaigns" / "must-not-exist"
     ).exists()
+
+
+def test_historical_setup_receipt_cannot_replace_active_campaign(
+    monkeypatch, tmp_path,
+):
+    server = _load_server()
+    root_key = os.fspath(tmp_path.resolve())
+    monkeypatch.setattr(
+        server, "_PROCESS_ACTIVE_CAMPAIGN", (root_key, "campaign-a"),
+    )
+    monkeypatch.setattr(server, "_PROCESS_FRESH_CAMPAIGNS", set())
+
+    def fake_run(name, _root, campaign, args):
+        if name == "session.resume":
+            return {
+                "ok": True,
+                "tool": name,
+                "data": {
+                    "campaign_id": campaign,
+                    "host_context": {
+                        "acknowledged": {
+                            "campaign_id": campaign,
+                            "session_id": "resume-b",
+                        },
+                    },
+                },
+                "warnings": [],
+                "hints": [],
+            }
+        return {
+            "ok": True,
+            "tool": name,
+            "data": {
+                "result": {
+                    "campaign_id": args["payload"]["campaign_id"],
+                },
+            },
+            "warnings": [],
+            "hints": [],
+        }
+
+    monkeypatch.setattr(server.toolbox, "run_tool", fake_run)
+    historical = server._call_tool("coc_invoke", {
+        "operation": "setup.invoke",
+        "root": root_key,
+        "arguments": {
+            "kind": "campaign.render_briefing",
+            "payload": {"campaign_id": "historical-b"},
+        },
+    })
+    assert historical["ok"] is True
+    assert server._PROCESS_ACTIVE_CAMPAIGN == (root_key, "campaign-a")
+    assert historical["context_rehydration"] == {
+        "code": "context_rehydration_recommended",
+        "reason": "campaign_switch",
+        "campaign_id": "historical-b",
+        "next_operation": "session.resume",
+        "authority": "advisory",
+        "hard_gate": False,
+    }
+
+    resumed = server._call_tool("coc_invoke", {
+        "operation": "session.resume",
+        "root": root_key,
+        "campaign": "historical-b",
+        "arguments": {},
+    })
+    assert resumed["ok"] is True
+    assert server._PROCESS_ACTIVE_CAMPAIGN == (root_key, "historical-b")
 
 
 def test_nonpass_bind_receipt_does_not_emit_receipt_first_hint(
@@ -1685,7 +1766,9 @@ def test_raw_mcp_missing_skeleton_preserves_closed_argument_contract(
                 "operation": "progressive.prepare_opening",
                 "root": os.fspath(fixture["workspace"]),
                 "campaign": fixture["campaign_id"],
-                "arguments": {},
+                "arguments": {
+                    "campaign_id": fixture["campaign_id"],
+                },
             },
         },
     })
@@ -1702,6 +1785,12 @@ def test_raw_mcp_missing_skeleton_preserves_closed_argument_contract(
         "entity_id": fixture["asset_root_id"],
     }]
     assert data["hard_work"] == []
+    assert data["opening_page_candidate_complete"] is True
+    assert data["opening_page_candidates"]
+    assert any(
+        "never guess page indices" in hint
+        for hint in envelope["hints"]
+    )
     assert data["mutation_cards_total"] == 1
     card = data["mutation_cards"][0]
     assert card["operation"] == "progressive.publish_skeleton"
@@ -1727,6 +1816,41 @@ def test_raw_mcp_missing_skeleton_preserves_closed_argument_contract(
     assert contract["location_required_fields"] == [
         "location_id", "title", "parse_state",
     ]
+
+
+def test_prepare_opening_redundant_campaign_selector_fails_closed_on_drift(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv("COC_HOST", "pi")
+    fixture = _mcp_opening_workspace(tmp_path, publish_skeleton=False)
+    server = fixture["server"]
+    matching = server._call_tool("coc_invoke", {
+        "operation": "progressive.prepare_opening",
+        "root": os.fspath(fixture["workspace"]),
+        "campaign": fixture["campaign_id"],
+        "arguments": {"campaign_id": fixture["campaign_id"]},
+    })
+    assert matching["ok"] is True, matching
+    assert matching["data"]["opening_page_candidate_complete"] is True
+
+    for outer_campaign, redundant_campaign in (
+        (fixture["campaign_id"], "wrong-campaign"),
+        (None, fixture["campaign_id"]),
+    ):
+        invoked = server._call_tool("coc_invoke", {
+            "operation": "progressive.prepare_opening",
+            "root": os.fspath(fixture["workspace"]),
+            **({"campaign": outer_campaign} if outer_campaign else {}),
+            "arguments": {"campaign_id": redundant_campaign},
+        })
+        assert invoked["ok"] is False
+        assert invoked["error"] == {
+            "code": "invalid_param",
+            "message": (
+                "progressive.prepare_opening arguments.campaign_id "
+                "must exactly match the bound outer campaign"
+            ),
+        }
 
 
 def test_real_coc_invoke_rejects_non_string_opening_required_ids(

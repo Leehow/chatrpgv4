@@ -112,8 +112,20 @@ for (const handler of handlers.get("tool_result") || []) {
       arguments: {},
     },
     details: {
+      ok: true,
+      data: { campaign_id: "remembered-wrong-campaign" },
+    },
+  }, ctx);
+  await handler({
+    toolName: "coc_invoke",
+    input: {
+      operation: "session.resume",
+      campaign: "campaign-b",
+      arguments: {},
+    },
+    details: {
       ok: false,
-      error: { code: "campaign_missing" },
+      error: { code: "resume_failed" },
     },
   }, ctx);
 }
@@ -124,7 +136,25 @@ if (
   || afterDriftText.includes("remembered-wrong-campaign")
 ) throw new Error("model-authored campaign drift replaced HUD binding");
 
-await hudCommand.handler("bind campaign-b", ctx);
+for (const handler of handlers.get("tool_result") || []) {
+  await handler({
+    toolName: "coc_invoke",
+    input: {
+      operation: "session.resume",
+      campaign: "campaign-b",
+      arguments: {},
+    },
+    details: {
+      ok: true,
+      data: {
+        campaign_id: "campaign-b",
+        host_context: {
+          acknowledged: { campaign_id: "campaign-b" },
+        },
+      },
+    },
+  }, ctx);
+}
 const refreshed = await contextHandler({ messages: [] }, ctx);
 const refreshedText = refreshed?.messages?.[0]?.content?.[0]?.text || "";
 const refreshedBinding = JSON.parse(
@@ -136,7 +166,7 @@ if (
     !== JSON.stringify(["inv-c"])
   || refreshedText.includes("campaign-a")
   || refreshedText.includes("inv-a")
-) throw new Error("identity did not refresh after HUD binding");
+) throw new Error("identity did not atomically refresh after session.resume");
 
 await hudCommand.handler("bind campaign-empty", ctx);
 const empty = await contextHandler({ messages: [] }, ctx);
@@ -147,6 +177,7 @@ process.stdout.write(JSON.stringify({
   hidden: firstMessage.display === false,
   firstBinding,
   driftPreserved: true,
+  authoritativeResume: true,
   refreshedBinding,
   emptyOmitted: empty === undefined,
 }));

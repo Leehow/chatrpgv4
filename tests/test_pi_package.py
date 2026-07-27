@@ -31,6 +31,17 @@ def _load_toolbox():
     return module
 
 
+def _load_mcp_server():
+    path = PLUGIN / "mcp" / "server.py"
+    spec = importlib.util.spec_from_file_location(
+        "test_coc_pi_package_mcp_server", path,
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
     assert manifest["pi"] == {
@@ -54,6 +65,27 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     # The loader registers the private fail-closed host bridge. The actual
     # session_start active-surface assertion lives in auto-dispatch-smoke.
     assert result["activeToolNames"] == result["toolNames"]
+
+
+def test_pi_package_metadata_exposes_bounded_opening_preview_compatibility():
+    server = _load_mcp_server()
+    discovered = server._discover(
+        operation="progressive.prepare_opening",
+    )
+    description = discovered["operation"]["description"]
+    assert "opening_page_candidates catalog" in description
+    assert "never guess page indices" in description
+    arguments_schema = discovered["invoke_card"]["arguments_schema"]
+    assert arguments_schema["additionalProperties"] is False
+    assert arguments_schema["properties"]["campaign_id"] == {
+        "type": "string",
+        "minLength": 1,
+        "description": (
+            "Optional redundant compatibility selector; when present it "
+            "must exactly equal the bound outer campaign and is not an "
+            "opening semantic selector."
+        ),
+    }
 
 
 def test_coc_tools_register_compact_tui_renderers():
@@ -92,6 +124,7 @@ def test_pi_hud_injects_exact_hidden_active_table_identity():
             "investigator_ids": ["inv-a", "inv-b"],
         },
         "driftPreserved": True,
+        "authoritativeResume": True,
         "refreshedBinding": {
             "schema_version": 1,
             "contract_id": "coc.pi-active-table-identity.v1",
@@ -550,6 +583,7 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "narrationReturned": True,
         "narrationText": "雨水沿着窗玻璃缓缓滑落。",
         "awaitingWaitReturnedTypes": [],
+        "unrelatedWhileAwaitingReturned": True,
         "validOpeningReturned": True,
         "validOpeningText": "马车在白昼里停到城堡门前。",
         "userText": "我走近窗边。",
@@ -606,7 +640,7 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "hidden_continuation": "delivered",
                 "player_transcript": "suppressed",
             },
-            "terminalBlockerReturned": True,
+            "terminalBlockerWhileAwaitingReturned": True,
             "sessionReuse": {
                 "staleSent": 0,
                 "staleAppended": 1,

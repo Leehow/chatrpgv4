@@ -86,9 +86,21 @@ export class OpeningTerminalContinuationGate {
     resolve: (shouldWake: boolean) => void;
   }>();
   private agentActive = false;
+  private visibleDisposition:
+    | "operational_wait"
+    | "independent"
+    | "projected_opening"
+    | "terminal_blocker"
+    | null = null;
 
   trackOpeningDispatch(dispatchKey: string): void {
-    if (dispatchKey) this.states.set(dispatchKey, "awaiting");
+    if (dispatchKey) {
+      this.states.set(dispatchKey, "awaiting");
+      // The exact tool-free final immediately following a newly tracked
+      // foreground dispatch is host-owned operational wait output. Consume
+      // only that disposition; awaiting state alone never suppresses prose.
+      this.visibleDisposition = "operational_wait";
+    }
   }
 
   markAgentStart(): void {
@@ -99,6 +111,19 @@ export class OpeningTerminalContinuationGate {
     for (const [key, state] of this.states) {
       if (state === "awaiting") this.states.set(key, "projected");
     }
+    this.visibleDisposition = "projected_opening";
+  }
+
+  markIndependentVisibleOutput(): void {
+    if ([...this.states.values()].some((state) => state === "awaiting")) {
+      this.visibleDisposition = "independent";
+    }
+  }
+
+  markTerminalBlocker(): void {
+    if ([...this.states.values()].some((state) => state === "awaiting")) {
+      this.visibleDisposition = "terminal_blocker";
+    }
   }
 
   markVisibleAssistantFinal(): void {
@@ -106,11 +131,15 @@ export class OpeningTerminalContinuationGate {
   }
 
   acceptVisibleAssistantFinal(): boolean {
-    if ([...this.states.values()].some((state) => state === "awaiting")) {
+    const disposition = this.visibleDisposition;
+    this.visibleDisposition = null;
+    if (disposition === "operational_wait") {
       return false;
     }
-    for (const [key, state] of this.states) {
-      if (state === "projected") this.states.set(key, "published");
+    if (disposition === "projected_opening") {
+      for (const [key, state] of this.states) {
+        if (state === "projected") this.states.set(key, "published");
+      }
     }
     return true;
   }
@@ -149,6 +178,7 @@ export class OpeningTerminalContinuationGate {
 
   reset(): void {
     this.agentActive = false;
+    this.visibleDisposition = null;
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
     this.states.clear();
@@ -454,12 +484,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       role: "coordinator", task: exactTask,
       ...launch, signal: launchSignal,
     }),
-    (receipt) => publishCoordinatorTerminal(
-      pi,
-      receipt,
-      ownedContinuedDispatches,
-      (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
-    ),
+    (receipt) => {
+      if (receipt.status !== "fulfilled") {
+        openingContinuationGate.markTerminalBlocker();
+      }
+      return publishCoordinatorTerminal(
+        pi,
+        receipt,
+        ownedContinuedDispatches,
+        (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+      );
+    },
     (observation) => {
       try { pi.appendEntry("coc-source-coordinator-lifecycle", observation); }
       catch { /* lifecycle audit is best effort */ }
@@ -509,6 +544,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const envelope = objectOrNull(value);
       const data = objectOrNull(envelope?.data);
       const operation = String(params.operation);
+      if (
+        envelope?.ok === true
+        && (operation.startsWith("setup.") || operation.startsWith("character."))
+      ) {
+        openingContinuationGate.markIndependentVisibleOutput();
+      }
       const projectedOpening = (
         operation === "progressive.project_opening"
         && envelope?.ok === true
