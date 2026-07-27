@@ -965,6 +965,38 @@ def test_project_opening_deep_merges_clue_and_npc(tmp_path: Path):
     assert reg["modules"]["prog-demo"]["parse_tier_max"] >= 2
 
 
+def test_source_authored_travel_minutes_survive_location_pack_projection(
+    tmp_path: Path,
+):
+    _put_source_bound_skeleton(tmp_path)
+    pack = _deep_opening_pack()
+    pack["scene_edges"] = [{
+        "to": "library",
+        "kind": "travel",
+        "when": {"kind": "always"},
+        "travel_minutes": 120,
+    }]
+    assets.put_entity(tmp_path, "prog-demo", "location", "opening", pack)
+    camp = _make_campaign(tmp_path)
+
+    project.project_opening_deep(tmp_path, camp.name, "prog-demo")
+
+    story_graph = json.loads(
+        (camp / "scenario" / "story-graph.json").read_text(encoding="utf-8")
+    )
+    opening = next(
+        scene for scene in story_graph["scenes"]
+        if scene["scene_id"] == "opening"
+    )
+    edge = opening["scene_edges"][0]
+    assert edge["to"] == "library"
+    assert edge["kind"] == "travel"
+    assert edge["when"] == {"kind": "always"}
+    assert edge["travel_minutes"] == 120
+    assert edge["source_page_indices"] == [0]
+    assert edge["source_refs"]
+
+
 def test_selected_opening_projection_receipt_ignores_mechanics_only_updates(
     tmp_path: Path,
 ):

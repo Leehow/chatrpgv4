@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:8242a6f6f4311d39855d02d09464d54e19343e2d966cbb60194aa641b0d96107",
+  "content_sha256": "sha256:dad3bf168d542e24dbfe25358f1ecd1f279ec5f2fca574854f390ca0daa155a1",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -4007,6 +4007,11 @@
           "scene_id": {
             "description": "destination scene id",
             "type": "string"
+          },
+          "travel_minutes": {
+            "description": "typed elapsed travel time; source-authored scene edges prefill this value",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [

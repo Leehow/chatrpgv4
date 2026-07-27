@@ -363,6 +363,101 @@ def test_scene_context_softly_redirects_nonactive_preview_to_typed_move(
     )
 
 
+def test_source_edge_travel_minutes_prefill_and_advance_authoritative_clock(
+    campaign_ws,
+):
+    world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    active_id = world["active_scene_id"]
+    graph_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    story_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    active_scene = next(
+        scene for scene in story_graph["scenes"]
+        if scene["scene_id"] == active_id
+    )
+    destination = active_scene["scene_edges"][0]["to"]
+    active_scene["scene_edges"] = [{
+        "to": destination,
+        "kind": "travel",
+        "when": {"kind": "always"},
+        "travel_minutes": 120,
+    }]
+    _write_json(graph_path, story_graph)
+    coc_toolbox.coc_compiled_archive.publish_from_campaign(
+        campaign_ws["campaign_dir"]
+    )
+
+    refreshed = _run(campaign_ws, "scene.context")
+    exit_card = next(
+        row for row in refreshed["data"]["exits"]
+        if row["to"] == destination
+    )
+    assert exit_card["travel_minutes"] == 120
+    assert exit_card["operation_opportunity"]["prefilled_arguments"] == {
+        "scene_id": destination,
+        "travel_minutes": 120,
+    }
+
+    conflicting = _run(campaign_ws, "state.move_scene", {
+        "scene_id": destination,
+        "travel_minutes": 60,
+        "reason": "conflicting typed journey",
+        "decision_id": "travel-conflict",
+    })
+    assert conflicting["ok"] is False
+    assert conflicting["error"]["code"] == "invalid_param"
+
+    moved = _run(campaign_ws, "state.move_scene", {
+        **exit_card["operation_opportunity"]["prefilled_arguments"],
+        "reason": "source-authored two-hour journey",
+        "decision_id": "travel-two-hours",
+    })
+    assert moved["ok"] is True, moved
+    assert moved["data"]["travel_minutes"] == 120
+    assert moved["data"]["travel_time_source"] == "source_scene_edge"
+    assert moved["data"]["time_scene_change"]["elapsed_minutes"] == 120
+    assert moved["data"]["time_scene_change"]["travel_minutes"] == 120
+    time_state = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "time-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert time_state["clock"]["elapsed_minutes"] == 120
+    assert time_state["clock"]["location_id"] == destination
+
+    replay = _run(campaign_ws, "state.move_scene", {
+        "scene_id": destination,
+        "travel_minutes": 120,
+        "reason": "source-authored two-hour journey",
+        "decision_id": "travel-two-hours",
+    })
+    assert replay["ok"] is True
+    assert replay["data"] == moved["data"]
+
+
+def test_state_move_scene_rejects_malformed_travel_minutes_without_moving(
+    campaign_ws,
+):
+    current = _run(campaign_ws, "scene.context")
+    active_id = current["data"]["active_scene_id"]
+    destination = current["data"]["exits"][0]["to"]
+
+    rejected = _run(campaign_ws, "state.move_scene", {
+        "scene_id": destination,
+        "travel_minutes": "120",
+        "reason": "malformed typed duration",
+        "decision_id": "travel-malformed",
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_param"
+    after = _run(campaign_ws, "scene.context")
+    assert after["data"]["active_scene_id"] == active_id
+
+
 
 
 

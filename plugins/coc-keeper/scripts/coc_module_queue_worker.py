@@ -164,6 +164,12 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
                         "clock_reaches": ["threshold"],
                         "flag_set": ["flag_id"],
                     },
+                    "optional_fields": {
+                        "travel_minutes": (
+                            "positive_integer copied only from an exact "
+                            "source-authored travel duration"
+                        ),
+                    },
                     "forbidden_fields": ["when.type"],
                 },
                 "affordance": {

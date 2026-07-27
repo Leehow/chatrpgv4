@@ -614,6 +614,8 @@ async function exerciseFailureDrain(mode) {
   const mainSessionStart = handlers.get("session_start").at(-1);
   const shutdown = handlers.get("session_shutdown").at(-1);
   await mainSessionStart({ reason: "startup" }, ctx);
+  check("KP active tools hide manual source dispatch",
+    activeTools.at(-1)?.includes("coc_dispatch_source_work") === false);
   await registered.get("coc_invoke").execute(
     "invoke-race",
     { operation: "scene.context", campaign: "fixture", arguments: {} },

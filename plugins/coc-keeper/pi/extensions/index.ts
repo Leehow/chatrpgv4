@@ -451,11 +451,20 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   registerPlayerTranscriptGate(pi);
+  const kpActiveTools = [
+    "coc_capabilities",
+    "coc_discover",
+    "coc_invoke",
+    "coc_progressive_ocr",
+  ];
   pi.on("session_start", () => {
     sessionEpoch += 1;
     sessionClosing = false;
     continuedCoordinatorDispatches.clear();
-    pi.setActiveTools(["coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr"]);
+    // The host owns exact nested coordinator-task dispatch. Keep the
+    // fail-closed tool registered for the private manager boundary and probes,
+    // but never expose it to the KP model.
+    pi.setActiveTools(kpActiveTools);
   });
   pi.on("session_shutdown", async () => {
     sessionClosing = true;

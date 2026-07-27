@@ -51,6 +51,8 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     assert {"coc-main", "coc-keeper-play", "coc-story-director", "coc-rules-engine", "coc-character"} <= set(result["skillNames"])
     assert result["skillDiagnostics"] == []
     assert result["childStartedOnLoad"] is False
+    # The loader registers the private fail-closed host bridge. The actual
+    # session_start active-surface assertion lives in auto-dispatch-smoke.
     assert result["activeToolNames"] == result["toolNames"]
 
 
@@ -87,6 +89,7 @@ def test_pi_coc_host_prompt_and_wrapper_defaults():
     assert "already active" in text.lower() or "已经" in text or "already active" in text
     assert "Never ask" in text or "无需" in text or "never ask" in text.lower()
     assert "coc_capabilities" in text
+    assert "never call or construct `coc_dispatch_source_work`" in text
     assert "zh-Hans" in text
     script = wrapper.read_text(encoding="utf-8")
     assert "--no-context-files" in script

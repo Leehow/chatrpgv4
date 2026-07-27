@@ -398,8 +398,13 @@ def record_scene_change(
     *,
     decision_id: str,
     reason: str = "",
+    travel_minutes: int = 0,
 ) -> dict[str, Any]:
-    """Synchronize the world-clock location with an authoritative scene move."""
+    """Synchronize location and a typed travel duration in one clock write."""
+    if isinstance(travel_minutes, bool) or not isinstance(travel_minutes, int):
+        raise ValueError("travel_minutes must be an integer")
+    if travel_minutes < 0:
+        raise ValueError("travel_minutes must be non-negative")
     path = _time_state_path(campaign_dir)
     state = _read_json(path)
     if not state:
@@ -408,32 +413,50 @@ def record_scene_change(
     clock = state.setdefault("clock", {})
     anchors = state.setdefault("anchors", {})
     if anchors.get("last_scene_change_decision_id") == decision_id:
+        prior_travel_minutes = int(
+            anchors.get("last_scene_change_travel_minutes", 0) or 0
+        )
+        if prior_travel_minutes != travel_minutes:
+            raise ValueError(
+                "scene change decision_id was reused with different travel_minutes"
+            )
         return {
             "from_location_id": clock.get("location_id"),
             "to_location_id": clock.get("location_id"),
             "elapsed_minutes": int(clock.get("elapsed_minutes", 0)),
+            "travel_minutes": prior_travel_minutes,
+            "fired_triggers": [],
             "duplicate": True,
         }
     from_location = clock.get("location_id")
-    elapsed = int(clock.get("elapsed_minutes", 0))
+    from_elapsed = int(clock.get("elapsed_minutes", 0))
+    elapsed = from_elapsed + travel_minutes
+    clock["elapsed_minutes"] = elapsed
     clock["location_id"] = str(location_id)
     anchors["last_scene_change_elapsed"] = elapsed
     anchors["last_scene_change_decision_id"] = decision_id
+    anchors["last_scene_change_travel_minutes"] = travel_minutes
     state["sequence"] = int(state.get("sequence", 0)) + 1
     _write_json(path, state)
+    fired = process_due_triggers(campaign_dir)
     _append_jsonl(_time_log_path(campaign_dir), {
         "event_type": "scene_change",
         "seq": state["sequence"],
         "decision_id": decision_id,
         "from_location_id": from_location,
         "to_location_id": str(location_id),
+        "from_elapsed": from_elapsed,
         "elapsed_minutes": elapsed,
+        "travel_minutes": travel_minutes,
         "reason": reason,
+        "fired_triggers": [trigger.get("trigger_id", "") for trigger in fired],
     })
     return {
         "from_location_id": from_location,
         "to_location_id": str(location_id),
         "elapsed_minutes": elapsed,
+        "travel_minutes": travel_minutes,
+        "fired_triggers": fired,
         "duplicate": False,
     }
 

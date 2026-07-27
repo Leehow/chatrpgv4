@@ -227,7 +227,10 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   player-usable courses of action; use `scene_edges` only when the selected
   source actually establishes a destination location. Do not infer a route,
   person, fact, date, or clock precision that the reviewed source does not
-  support.
+  support. When that same source explicitly states the route's elapsed travel
+  duration, compile it as the positive integer `scene_edges[].travel_minutes`;
+  otherwise omit the field. Never derive minutes from prose keywords, distance,
+  weather, or general knowledge.
 
   The same result row must include the closed
   `coc.opening-setup-observation.v1` `opening_setup`. Use `status=source` only

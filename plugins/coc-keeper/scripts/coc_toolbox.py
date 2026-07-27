@@ -11621,6 +11621,9 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                     for row in (scene_shard.get("player_safe") or {}).get("affordances") or []
                     if isinstance(row, dict)
                 ],
+                "scene_edges": deepcopy(
+                    (scene_shard.get("player_safe") or {}).get("scene_edges") or []
+                ),
                 "npc_ids": list(
                     (scene_shard.get("player_safe") or {}).get("npc_ids") or []
                 ),
@@ -11801,6 +11804,11 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
                 "to": edge.get("to"),
                 "kind": edge.get("kind"),
                 "when": edge.get("when"),
+                **(
+                    {"travel_minutes": edge["travel_minutes"]}
+                    if edge.get("travel_minutes") is not None
+                    else {}
+                ),
             }
             for edge in authored_edges
             if isinstance(edge, dict) and edge.get("to")
@@ -11810,15 +11818,23 @@ def _tool_scene_context(ctx: Ctx, args: dict[str, Any]):
     exits = []
     for edge in edges:
         target = str(edge["to"])
+        prefilled_arguments = {"scene_id": target}
+        if edge.get("travel_minutes") is not None:
+            prefilled_arguments["travel_minutes"] = edge["travel_minutes"]
         exits.append({
             "to": target,
             "kind": edge.get("kind"),
             "when": edge.get("when"),
+            **(
+                {"travel_minutes": edge["travel_minutes"]}
+                if edge.get("travel_minutes") is not None
+                else {}
+            ),
             "open": target in candidates,
             "operation_opportunity": {
                 "operation": "state.move_scene",
                 "invoke_via": "coc_invoke",
-                "prefilled_arguments": {"scene_id": target},
+                "prefilled_arguments": prefilled_arguments,
                 "missing_arguments": ["reason", "decision_id"],
                 "authority": "advisory",
                 "hard_gate": False,
@@ -18997,6 +19013,11 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
         "exhaust_previous": {"type": "boolean", "desc": "mark the departed scene exhausted (done with it)"},
         "reason": {"type": "string", "desc": "why the story moves (logged)"},
         "decision_id": {"type": "string", "desc": "idempotency key"},
+        "travel_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "desc": "typed elapsed travel time; source-authored scene edges prefill this value",
+        },
         "defer_initial_progressive_on_enter": {
             "type": "boolean",
             "desc": "experimental initial-only deferral of the complete progressive on-enter hook",
@@ -19005,6 +19026,15 @@ def _tool_state_record_clue(ctx: Ctx, args: dict[str, Any]):
 )
 def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     target = str(args["scene_id"])
+    if (
+        "travel_minutes" in args
+        and (
+            isinstance(args.get("travel_minutes"), bool)
+            or not isinstance(args.get("travel_minutes"), int)
+            or int(args["travel_minutes"]) < 0
+        )
+    ):
+        raise ToolError("invalid_param", "travel_minutes must be a non-negative integer")
     if (
         "defer_initial_progressive_on_enter" in args
         and not isinstance(args.get("defer_initial_progressive_on_enter"), bool)
@@ -19022,6 +19052,12 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
             else {}
         )
         prior_deferred = prior_progressive.get("on_enter_deferred") is True
+        prior_travel_minutes = int(prior_data.get("travel_minutes", 0) or 0)
+        requested_travel_minutes = (
+            int(args["travel_minutes"])
+            if args.get("travel_minutes") is not None
+            else prior_travel_minutes
+        )
         if (defer_initial or prior_deferred) and (
             defer_initial != prior_deferred
             or str(prior_data.get("to_scene_id") or "") != target
@@ -19030,6 +19066,11 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
                 "idempotency_conflict",
                 "decision_id already settled a different initial scene deferral",
             )
+        if requested_travel_minutes != prior_travel_minutes:
+            raise ToolError(
+                "idempotency_conflict",
+                "decision_id already settled different travel_minutes",
+            )
         return prior.get("data"), ["duplicate decision_id: returning the previously settled result"], []
     world = ctx.world()
     sg = ctx.story_graph
@@ -19037,6 +19078,35 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     active = world.get("active_scene_id")
     warnings: list[str] = []
     scene = _scene_by_id(sg, target)
+    source_travel_minutes: int | None = None
+    if active is not None:
+        active_scene = _scene_by_id(sg, str(active))
+        for edge in (active_scene or {}).get("scene_edges") or []:
+            if not isinstance(edge, dict) or str(edge.get("to") or "") != target:
+                continue
+            value = edge.get("travel_minutes")
+            if value is not None:
+                source_travel_minutes = int(value)
+            break
+    if (
+        source_travel_minutes is not None
+        and args.get("travel_minutes") is not None
+        and int(args["travel_minutes"]) != source_travel_minutes
+    ):
+        raise ToolError(
+            "invalid_param",
+            "travel_minutes conflicts with the source-authored scene edge",
+        )
+    travel_minutes = (
+        int(args["travel_minutes"])
+        if args.get("travel_minutes") is not None
+        else int(source_travel_minutes or 0)
+    )
+    travel_time_source = (
+        "source_scene_edge"
+        if source_travel_minutes is not None
+        else ("typed_argument" if args.get("travel_minutes") is not None else "none")
+    )
     if defer_initial:
         decision_id = str(args.get("decision_id") or "").strip()
         if not decision_id:
@@ -19174,12 +19244,16 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     world["active_scene_id"] = target
     newly_unlocked = _evaluate_and_apply_unlocks(ctx, world)
     ctx.save_world(world)
-    time_scene_change = coc_time.record_scene_change(
-        ctx.campaign_dir,
-        target,
-        decision_id=str(args.get("decision_id") or f"scene:{active}:{target}"),
-        reason=str(args.get("reason") or ""),
-    )
+    try:
+        time_scene_change = coc_time.record_scene_change(
+            ctx.campaign_dir,
+            target,
+            decision_id=str(args.get("decision_id") or f"scene:{active}:{target}"),
+            reason=str(args.get("reason") or ""),
+            travel_minutes=travel_minutes,
+        )
+    except ValueError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
 
     active_scene_path = ctx.campaign_dir / "save" / "active-scene.json"
     pointer = {
@@ -19202,6 +19276,8 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     data = {
         "from_scene_id": active,
         "to_scene_id": target,
+        "travel_minutes": travel_minutes,
+        "travel_time_source": travel_time_source,
         "newly_unlocked_scenes": newly_unlocked,
         "time_scene_change": time_scene_change,
         "scene": {

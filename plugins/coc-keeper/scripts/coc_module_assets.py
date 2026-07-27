@@ -1082,6 +1082,19 @@ def _validate_entity_pack(
             )
         prefix = f"location.scene_edges[{index}]"
         _require_id(edge["to"], f"{prefix}.to")
+        travel_minutes = edge.get("travel_minutes")
+        if travel_minutes is not None and (
+            isinstance(travel_minutes, bool)
+            or not isinstance(travel_minutes, int)
+            or travel_minutes <= 0
+        ):
+            raise ModuleAssetsError(
+                f"{prefix}.travel_minutes must be a positive integer"
+            )
+        if travel_minutes is not None and edge.get("kind") != "travel":
+            raise ModuleAssetsError(
+                f"{prefix}.travel_minutes is valid only for kind='travel'"
+            )
         aliases: list[str] = []
         for field in ("id", "edge_id"):
             if edge.get(field) is None:

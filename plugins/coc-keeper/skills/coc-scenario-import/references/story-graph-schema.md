@@ -116,6 +116,7 @@
     - `to` (string)：目标 `scene_id`（必须存在）。
     - `kind` (string)：`travel` | `unlock` | `cut`。`unlock` 在 `when` 满足时把目标写入 world-state `unlocked_scene_ids`；`travel`/`cut` 在 `when` 满足时同样解锁目标，使导演/CUT 可到达；`cut` 仅表示电影式转场语义，**不是**解锁机制。
     - `when` (object)：结构化条件，复用上方 `exit_conditions` 的 `kind` 词汇（`coc_exit_conditions`），禁止自由文本关键词。
+    - `travel_minutes` (positive int, optional)：仅用于 `kind: travel`，记录来源明确给出的相对旅行时长。`scene.context` 会把它预填到 `state.move_scene`，后者在同一权威场景迁移中推进 `elapsed_minutes`。来源未明确给出时必须省略，禁止从叙述、距离、天气或关键词推算。
     - **向后兼容 / LEGACY**：若整张图没有任何 scene 声明 `scene_edges` 字段，运行时按 `scenes` 数组顺序派生隐式线性 `travel` 边（标记 `legacy: true`）。新编译剧本应显式产出 `scene_edges`，不要依赖数组顺序。
     - 终局判定：`is_final` / `scene_type == "resolution"` / 无出边；无 `scene_edges` 的遗留图仍把数组最后一项视为终局。
   - `is_start` (bool, optional)：开场场景；缺省时运行时把数组第一项当作 start 并默认解锁。

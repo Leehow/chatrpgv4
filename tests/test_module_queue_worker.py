@@ -803,6 +803,12 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
     assert edge_contract["when_kind_values"] == sorted(
         assets._EXIT_CONDITION_KINDS
     )
+    assert edge_contract["optional_fields"] == {
+        "travel_minutes": (
+            "positive_integer copied only from an exact "
+            "source-authored travel duration"
+        ),
+    }
     assert edge_contract["forbidden_fields"] == ["when.type"]
     assert row_contracts["affordance"]["required_fields"] == [
         "id", "cue", "route_type", "status",
