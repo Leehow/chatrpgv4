@@ -261,21 +261,33 @@ export class LeafStageError extends Error {
   }
 }
 
+function withoutTypedThinking(parts: unknown[]): unknown[] {
+  return parts.filter((part) => !(
+    part
+    && typeof part === "object"
+    && !Array.isArray(part)
+    && (part as JsonObject).type === "thinking"
+  ));
+}
+
 export function parseStrictWorkerResult(events: JsonObject[], taskValue: unknown): JsonObject {
   const terminals: JsonObject[] = [];
   for (const event of events) {
     if (event.type !== "message_end") continue;
     const message = event.message && typeof event.message === "object" ? event.message as JsonObject : null;
     if (!message || message.role !== "assistant" || !Array.isArray(message.content)) continue;
-    const parts = message.content as JsonObject[];
-    const toolCalls = parts.filter((part) => part?.type === "toolCall");
-    const texts = parts.filter((part) => part?.type === "text" && typeof part.text === "string" && part.text.trim());
-    if (toolCalls.length) {
+    const parts = withoutTypedThinking(message.content);
+    if (parts.length !== 1) throw new LeafStageError("framing", "leaf_result_not_bare");
+    const text = parts[0];
+    if (!text || typeof text !== "object" || Array.isArray(text)) {
       throw new LeafStageError("framing", "leaf_result_not_bare");
     }
-    if (texts.length !== 1 || parts.length !== 1) throw new LeafStageError("framing", "leaf_result_not_bare");
+    const textPart = text as JsonObject;
+    if (textPart.type !== "text" || typeof textPart.text !== "string" || !textPart.text.trim()) {
+      throw new LeafStageError("framing", "leaf_result_not_bare");
+    }
     let parsed: unknown;
-    try { parsed = JSON.parse(texts[0].text as string); }
+    try { parsed = JSON.parse(textPart.text); }
     catch { throw new LeafStageError("framing", "leaf_result_not_bare"); }
     try { terminals.push(asObject(parsed, "worker result")); }
     catch { throw new LeafStageError("framing", "leaf_result_not_bare"); }
@@ -349,16 +361,24 @@ export function parseStrictCoordinatorResult(events: JsonObject[], taskValue: un
       continue;
     }
     if (message.role !== "assistant") continue;
-    const parts = message.content as JsonObject[];
-    const toolCalls = parts.filter((part) => part?.type === "toolCall");
-    const texts = parts.filter((part) => part?.type === "text" && typeof part.text === "string" && part.text.trim());
-    if (toolCalls.length) {
-      if (texts.length) throw new Error("assistant tool event contained terminal text");
+    const parts = withoutTypedThinking(message.content);
+    if (parts.length > 0 && parts.every((part) => (
+      part && typeof part === "object" && !Array.isArray(part)
+      && (part as JsonObject).type === "toolCall"
+    ))) {
       continue;
     }
-    if (texts.length !== 1 || parts.length !== 1) throw new Error("terminal coordinator event must contain exactly one JSON text part");
+    if (parts.length !== 1) throw new Error("coordinator assistant event must contain only tool calls or exactly one JSON text part");
+    const text = parts[0];
+    if (!text || typeof text !== "object" || Array.isArray(text)) {
+      throw new Error("terminal coordinator event must contain exactly one non-empty JSON text part");
+    }
+    const textPart = text as JsonObject;
+    if (textPart.type !== "text" || typeof textPart.text !== "string" || !textPart.text.trim()) {
+      throw new Error("terminal coordinator event must contain exactly one non-empty JSON text part");
+    }
     let parsed: unknown;
-    try { parsed = JSON.parse(texts[0].text as string); }
+    try { parsed = JSON.parse(textPart.text); }
     catch { throw new Error("terminal coordinator text is not strict JSON"); }
     terminals.push(asObject(parsed, "coordinator result"));
   }
@@ -421,16 +441,84 @@ export interface ChildRun {
   terminate(): Promise<void>;
 }
 
+export type CoordinatorLifecycleObservation =
+  | {
+    status: "completed";
+    dispatch_key: string;
+    terminal_receipt: JsonObject;
+  }
+  | {
+    status: "terminal_failure";
+    dispatch_key: string;
+    failure_stage: "activation" | "process" | "framing" | "shutdown";
+    failure_class:
+      | "coordinator_activation_failed"
+      | "coordinator_process_failed"
+      | "coordinator_result_invalid"
+      | "coordinator_shutdown";
+  };
+
 export class CoordinatorDispatchManager {
   private active: { key: string; run: ChildRun } | null = null;
   private closing = false;
-  private states = new Map<string, { status: string; error?: string; terminal_receipt?: JsonObject; notification?: JsonObject }>();
+  private states = new Map<string, {
+    status: string;
+    failure_stage?: string;
+    failure_class?: string;
+    terminal_receipt?: JsonObject;
+    notification?: JsonObject;
+  }>();
+  private terminalKeys = new Set<string>();
   private readonly launch: (task: JsonObject, context: PrivateLaunchContext, signal?: AbortSignal) => ChildRun;
   private readonly onTerminal?: (receipt: JsonObject) => JsonObject | void | Promise<JsonObject | void>;
+  private readonly onLifecycle?: (observation: CoordinatorLifecycleObservation) => void | Promise<void>;
   constructor(
     launch: (task: JsonObject, context: PrivateLaunchContext, signal?: AbortSignal) => ChildRun,
     onTerminal?: (receipt: JsonObject) => JsonObject | void | Promise<JsonObject | void>,
-  ) { this.launch = launch; this.onTerminal = onTerminal; }
+    onLifecycle?: (observation: CoordinatorLifecycleObservation) => void | Promise<void>,
+  ) {
+    this.launch = launch;
+    this.onTerminal = onTerminal;
+    this.onLifecycle = onLifecycle;
+  }
+  private observeOnce(observation: CoordinatorLifecycleObservation): boolean {
+    if (this.terminalKeys.has(observation.dispatch_key)) return false;
+    this.terminalKeys.add(observation.dispatch_key);
+    try {
+      const pending = this.onLifecycle?.(observation);
+      if (pending && typeof pending.then === "function") void pending.catch(() => {});
+    } catch { /* lifecycle audit is best effort and never changes authority */ }
+    return true;
+  }
+  private fail(
+    key: string,
+    failureStage: "activation" | "process" | "framing" | "shutdown",
+    failureClass: "coordinator_activation_failed" | "coordinator_process_failed" | "coordinator_result_invalid" | "coordinator_shutdown",
+  ): boolean {
+    const observation: CoordinatorLifecycleObservation = {
+      status: "terminal_failure",
+      dispatch_key: key,
+      failure_stage: failureStage,
+      failure_class: failureClass,
+    };
+    if (!this.observeOnce(observation)) return false;
+    this.states.set(key, observation);
+    return true;
+  }
+  private complete(key: string, receipt: JsonObject): boolean {
+    const observation: CoordinatorLifecycleObservation = {
+      status: "completed",
+      dispatch_key: key,
+      terminal_receipt: receipt,
+    };
+    if (!this.observeOnce(observation)) return false;
+    this.states.set(key, {
+      status: "completed",
+      terminal_receipt: receipt,
+      notification: { status: this.onTerminal ? "pending" : "not_configured" },
+    });
+    return true;
+  }
   async submit(taskValue: unknown, context: PrivateLaunchContext, signal?: AbortSignal): Promise<JsonObject> {
     if (this.closing) throw new Error("Pi source coordinator manager is closing");
     const task = validateCoordinatorTask(taskValue);
@@ -440,7 +528,8 @@ export class CoordinatorDispatchManager {
     if (previous) return {
       status: previous.status,
       dispatch_key: key,
-      ...(previous.error ? { error: previous.error } : {}),
+      ...(previous.failure_stage ? { failure_stage: previous.failure_stage } : {}),
+      ...(previous.failure_class ? { failure_class: previous.failure_class } : {}),
       ...(previous.terminal_receipt ? { terminal_receipt: previous.terminal_receipt } : {}),
       ...(previous.notification ? { notification: previous.notification } : {}),
     };
@@ -448,8 +537,7 @@ export class CoordinatorDispatchManager {
     let run: ChildRun;
     try { run = this.launch(task, context, signal); }
     catch (error) {
-      const message = (error as Error).message;
-      this.states.set(key, { status: "terminal_failure", error: message });
+      this.fail(key, "process", "coordinator_process_failed");
       throw error;
     }
     this.active = { key, run };
@@ -457,19 +545,18 @@ export class CoordinatorDispatchManager {
     try { await run.activation; }
     catch (error) {
       if (this.active?.key === key && this.active.run === run) this.active = null;
-      const message = (error as Error).message;
-      this.states.set(key, { status: "terminal_failure", error: message });
+      this.fail(key, "activation", "coordinator_activation_failed");
       throw error;
     }
     this.states.set(key, { status: "submitted" });
     void run.completion.then(async (events) => {
       let receipt: JsonObject;
       try { receipt = parseStrictCoordinatorResult(events, task); }
-      catch (error) {
-        this.states.set(key, { status: "terminal_failure", error: (error as Error).message });
+      catch {
+        this.fail(key, "framing", "coordinator_result_invalid");
         return;
       }
-      this.states.set(key, { status: "completed", terminal_receipt: receipt, notification: { status: this.onTerminal ? "pending" : "not_configured" } });
+      if (!this.complete(key, receipt)) return;
       if (!this.onTerminal) return;
       try {
         const delivered = await this.onTerminal(receipt);
@@ -484,8 +571,8 @@ export class CoordinatorDispatchManager {
           notification: { status: "failed", failure_class: "notification_callback_failed" },
         });
       }
-    }, (error) => {
-      this.states.set(key, { status: "terminal_failure", error: (error as Error).message });
+    }, () => {
+      this.fail(key, "process", "coordinator_process_failed");
     }).finally(() => { if (this.active?.key === key && this.active.run === run) this.active = null; });
     return { status: "submitted", dispatch_key: key, role: "coordinator" };
   }
@@ -495,8 +582,11 @@ export class CoordinatorDispatchManager {
     this.closing = true;
     const owned = this.active;
     if (!owned) return;
-    await owned.run.terminate();
-    if (this.active?.key === owned.key && this.active.run === owned.run) this.active = null;
+    try { await owned.run.terminate(); }
+    finally {
+      this.fail(owned.key, "shutdown", "coordinator_shutdown");
+      if (this.active?.key === owned.key && this.active.run === owned.run) this.active = null;
+    }
   }
 }
 

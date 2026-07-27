@@ -52,6 +52,9 @@ function coordinatorTask(packetId = "coord-structural", maxLeaves = 2) {
 function terminal(value) {
   return [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: JSON.stringify(value) }] } }];
 }
+function assistantParts(parts) {
+  return { type: "message_end", message: { role: "assistant", content: parts } };
+}
 function coordinatorEvents(toolValue, assistantValue = toolValue) {
   return [
     {
@@ -67,6 +70,13 @@ function coordinatorEvents(toolValue, assistantValue = toolValue) {
 }
 const success = (result) => ({ kind: "success", result });
 const failure = (stage, failure_class) => ({ kind: "failure", stage, failure_class });
+function rejects(call, predicate = () => true) {
+  try { call(); return false; }
+  catch (error) { return predicate(error); }
+}
+function check(label, condition) {
+  if (!condition) throw new Error(`structural repair assertion failed: ${label}`);
+}
 async function leafProbe(task, mode) {
   const child = spawn(process.execPath, [
     "--experimental-strip-types", path.join(root, "tests/pi/leaf-context-probe.mjs"), root, mode, sentinel,
@@ -155,6 +165,44 @@ try {
 
   const forwarded = [];
   const result1 = worker(task1), result2 = worker(task2);
+
+  // Typed thinking is the only ignorable message metadata. Every other part
+  // remains inside the strict leaf/coordinator framing boundary.
+  const thinking = { type: "thinking", thinking: "private reasoning" };
+  const resultText = { type: "text", text: JSON.stringify(result1) };
+  check("leaf thinking+text passes", JSON.stringify(runtime.parseStrictWorkerResult(
+    [assistantParts([thinking, resultText])], task1,
+  )) === JSON.stringify(result1));
+  check("leaf multiple thinking around text passes", JSON.stringify(runtime.parseStrictWorkerResult(
+    [assistantParts([thinking, resultText, { type: "thinking", thinking: "more" }])], task1,
+  )) === JSON.stringify(result1));
+  for (const [label, parts] of [
+    ["leaf thinking+tool+text rejected", [thinking, { type: "toolCall", id: "x", name: "x", arguments: {} }, resultText]],
+    ["leaf thinking+text+image rejected", [thinking, resultText, { type: "image", data: "x" }]],
+    ["leaf thinking+text+unknown rejected", [thinking, resultText, { type: "futurePart" }]],
+    ["leaf multi-text rejected", [resultText, resultText]],
+    ["leaf blank-text rejected", [{ type: "text", text: "   " }]],
+    ["leaf thinking-only rejected", [thinking]],
+    ["leaf malformed-json rejected", [{ type: "text", text: "{" }]],
+  ]) {
+    check(label, rejects(
+      () => runtime.parseStrictWorkerResult([assistantParts(parts)], task1),
+      (error) => error instanceof runtime.LeafStageError && error.failureClass === "leaf_result_not_bare",
+    ));
+  }
+  check("leaf duplicate terminal rejected", rejects(
+    () => runtime.parseStrictWorkerResult([
+      assistantParts([resultText]), assistantParts([resultText]),
+    ], task1),
+    (error) => error instanceof runtime.LeafStageError && error.failureClass === "leaf_result_not_bare",
+  ));
+  check("leaf binding remains validation failure", rejects(
+    () => runtime.parseStrictWorkerResult(
+      terminal({ ...result1, packet_id: "wrong-packet" }), task1,
+    ),
+    (error) => error instanceof runtime.LeafStageError && error.failureClass === "leaf_result_invalid",
+  ));
+
   const partial = await runtime.runCoordinatorLifecycle(coordinatorTask(), {
     call: async (_name, args) => {
       if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1, task2] } };
@@ -228,7 +276,41 @@ try {
   const framingSiblingExact = framingRows.length === 1 && framingRows[0] === result2.results[0];
 
   const validTerminal = runtime.validateCoordinatorResult(partial, coordinatorTask());
-  let absentRejected = false, duplicateRejected = false, bindingRejected = false, authorityRejected = false, impossibleRejected = false, designIssueRejected = false;
+  const lifecycleEvent = coordinatorEvents(validTerminal)[0];
+  const coordinatorText = { type: "text", text: JSON.stringify(validTerminal) };
+  const coordinatorThinkingEvents = [
+    assistantParts([thinking, { type: "toolCall", id: "coordinator-call", name: "coc_run_source_coordinator", arguments: {} }]),
+    lifecycleEvent,
+    assistantParts([thinking, coordinatorText]),
+  ];
+  check("coordinator thinking+tool and thinking+text pass", JSON.stringify(
+    runtime.parseStrictCoordinatorResult(coordinatorThinkingEvents, coordinatorTask()),
+  ) === JSON.stringify(validTerminal));
+  for (const [label, events] of [
+    ["coordinator tool+image rejected", [
+      assistantParts([thinking, { type: "toolCall", id: "x", name: "x", arguments: {} }, { type: "image", data: "x" }]),
+      lifecycleEvent,
+      assistantParts([coordinatorText]),
+    ]],
+    ["coordinator terminal image rejected", [
+      lifecycleEvent,
+      assistantParts([thinking, coordinatorText, { type: "image", data: "x" }]),
+    ]],
+    ["coordinator terminal unknown rejected", [
+      lifecycleEvent,
+      assistantParts([thinking, coordinatorText, { type: "futurePart" }]),
+    ]],
+    ["coordinator terminal multi-text rejected", [
+      lifecycleEvent,
+      assistantParts([coordinatorText, coordinatorText]),
+    ]],
+    ["coordinator terminal thinking-only rejected", [
+      lifecycleEvent,
+      assistantParts([thinking]),
+    ]],
+  ]) check(label, rejects(() => runtime.parseStrictCoordinatorResult(events, coordinatorTask())));
+
+  let absentRejected = false, duplicateRejected = false, bindingRejected = false, authorityRejected = false, contentDetailsRejected = false, impossibleRejected = false, designIssueRejected = false;
   try { runtime.parseStrictCoordinatorResult([], coordinatorTask()); } catch { absentRejected = true; }
   try { runtime.parseStrictCoordinatorResult([...coordinatorEvents(validTerminal), ...coordinatorEvents(validTerminal)], coordinatorTask()); } catch { duplicateRejected = true; }
   try { runtime.parseStrictCoordinatorResult(coordinatorEvents({ ...validTerminal, packet_id: "other" }), coordinatorTask()); } catch { bindingRejected = true; }
@@ -238,27 +320,45 @@ try {
       validTerminal,
     ), coordinatorTask());
   } catch { authorityRejected = true; }
+  try {
+    const mismatched = coordinatorEvents(validTerminal);
+    mismatched[0].message.details = {
+      ...validTerminal,
+      status: "failed",
+      fulfilled_result_count: 0,
+      failure_class: "claim_failed",
+    };
+    runtime.parseStrictCoordinatorResult(mismatched, coordinatorTask());
+  } catch { contentDetailsRejected = true; }
   try { runtime.validateCoordinatorResult({ ...validTerminal, claimed_packet_count: 999, leaf_task_count: 999, fulfilled_result_count: 999 }, coordinatorTask()); } catch { impossibleRejected = true; }
   try { runtime.validateCoordinatorResult({ ...validTerminal, status: "design_issue", failure_class: "claim_failed" }, coordinatorTask()); } catch { designIssueRejected = true; }
+  check("coordinator strict receipt gates preserved", [
+    absentRejected, duplicateRejected, bindingRejected, authorityRejected,
+    contentDetailsRejected, impossibleRejected, designIssueRejected,
+  ].every(Boolean));
 
-  const notifications = [];
+  const notifications = [], lifecycle = [];
   const dispatchTask = coordinatorTask("coord-manager");
   let complete;
   const fakeRun = {
     child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }),
     completion: new Promise((resolve) => complete = resolve),
   };
-  const manager = new runtime.CoordinatorDispatchManager(() => fakeRun, (receipt) => notifications.push(receipt));
+  const manager = new runtime.CoordinatorDispatchManager(
+    () => fakeRun,
+    (receipt) => notifications.push(receipt),
+    (observation) => lifecycle.push(observation),
+  );
   await manager.submit(dispatchTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
   const managerReceipt = { ...partial, packet_id: "coord-manager" };
   complete(coordinatorEvents(managerReceipt));
   await new Promise((resolve) => setTimeout(resolve, 0));
   const duplicateDiagnostic = await manager.submit(dispatchTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
-  const absentNotifications = [];
+  const absentNotifications = [], absentLifecycle = [];
   const absentTask = coordinatorTask("coord-manager-absent");
   const absentManager = new runtime.CoordinatorDispatchManager(() => ({
     child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }), completion: Promise.resolve([]),
-  }), (receipt) => absentNotifications.push(receipt));
+  }), (receipt) => absentNotifications.push(receipt), (observation) => absentLifecycle.push(observation));
   await absentManager.submit(absentTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -267,23 +367,62 @@ try {
     child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }),
     completion: Promise.resolve(coordinatorEvents({ ...managerReceipt, packet_id: "coord-manager-notify-failure" })),
   };
-  const throwingManager = new runtime.CoordinatorDispatchManager(() => throwingRun, () => { throw new Error("notify failed"); });
+  const throwingLifecycle = [];
+  const throwingManager = new runtime.CoordinatorDispatchManager(
+    () => throwingRun,
+    () => { throw new Error("notify failed"); },
+    (observation) => throwingLifecycle.push(observation),
+  );
   await throwingManager.submit(throwingTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  let terminateRelease;
+  const rejectedLifecycle = [];
+  const rejectedManager = new runtime.CoordinatorDispatchManager(() => ({
+    child: {}, terminate: async () => {}, activation: Promise.resolve({ type: "agent_start" }),
+    completion: Promise.reject(new Error("raw provider completion text")),
+  }), undefined, (observation) => rejectedLifecycle.push(observation));
+  await rejectedManager.submit(coordinatorTask("coord-manager-rejected"), { cwd: root, provider: "p", modelId: "m", thinking: "off" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  let terminateRelease, completeRace;
+  const raceLifecycle = [];
   const raceTask = coordinatorTask("coord-manager-race");
   const raceRun = {
-    child: {}, activation: Promise.resolve({ type: "agent_start" }), completion: new Promise(() => {}),
+    child: {}, activation: Promise.resolve({ type: "agent_start" }),
+    completion: new Promise((resolve) => completeRace = resolve),
     terminate: () => new Promise((resolve) => terminateRelease = resolve),
   };
-  const raceManager = new runtime.CoordinatorDispatchManager(() => raceRun);
+  const raceManager = new runtime.CoordinatorDispatchManager(
+    () => raceRun,
+    undefined,
+    (observation) => raceLifecycle.push(observation),
+  );
   await raceManager.submit(raceTask, { cwd: root, provider: "p", modelId: "m", thinking: "off" });
   const shutdownPromise = raceManager.shutdown();
   let closingRejected = false;
   try { await raceManager.submit(coordinatorTask("coord-manager-race-new"), { cwd: root, provider: "p", modelId: "m", thinking: "off" }); } catch { closingRejected = true; }
   terminateRelease();
   await shutdownPromise;
+  completeRace(coordinatorEvents({ ...managerReceipt, packet_id: "coord-manager-race" }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  check("validated completion observed once", lifecycle.length === 1
+    && lifecycle[0].status === "completed"
+    && lifecycle[0].dispatch_key === "coord-manager");
+  check("parse failure observed once", absentLifecycle.length === 1
+    && absentLifecycle[0].status === "terminal_failure"
+    && absentLifecycle[0].failure_stage === "framing"
+    && !Object.hasOwn(absentLifecycle[0], "error"));
+  check("process rejection observed once and bounded", rejectedLifecycle.length === 1
+    && rejectedLifecycle[0].status === "terminal_failure"
+    && rejectedLifecycle[0].failure_stage === "process"
+    && !JSON.stringify(rejectedLifecycle[0]).includes("raw provider completion text"));
+  check("notification failure preserves one completed observation", throwingLifecycle.length === 1
+    && throwingLifecycle[0].status === "completed"
+    && throwingManager.state("coord-manager-notify-failure").notification.failure_class === "notification_callback_failed");
+  check("shutdown race observed once", raceLifecycle.length === 1
+    && raceLifecycle[0].status === "terminal_failure"
+    && raceLifecycle[0].failure_stage === "shutdown");
 
   const appended = [], sent = [];
   const notificationReport = main.publishCoordinatorTerminal({
@@ -312,13 +451,16 @@ try {
     productionFailures,
     framingLeafPartial, framingLeafForwarded: framingRows.map((row) => row.job_id), framingSiblingExact,
     allFailed,
-    terminal: { absentRejected, duplicateRejected, bindingRejected, authorityRejected, impossibleRejected, designIssueRejected },
+    terminal: { absentRejected, duplicateRejected, bindingRejected, authorityRejected, contentDetailsRejected, impossibleRejected, designIssueRejected },
     manager: {
-      notifications: notifications.length, duplicateDiagnostic,
+      notifications: notifications.length, lifecycle: lifecycle.length, duplicateDiagnostic,
       absentState: absentManager.state("coord-manager-absent"),
       absentNotifications: absentNotifications.length,
+      absentLifecycle: absentLifecycle.length,
+      rejectedLifecycle: rejectedLifecycle.length,
       throwingState: throwingManager.state("coord-manager-notify-failure"),
-      closingRejected, raceActive: raceManager.activeCount(),
+      throwingLifecycle: throwingLifecycle.length,
+      closingRejected, raceActive: raceManager.activeCount(), raceLifecycle: raceLifecycle.length,
     },
     notification: {
       appended: appended.length,
