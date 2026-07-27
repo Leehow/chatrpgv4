@@ -77,21 +77,30 @@ def test_session_request_includes_language_guidance(tmp_path) -> None:
     runner = tmp_path / "capture_runner.mjs"
     runner.write_text(
         'import fs from "node:fs";\n'
-        'let input = "";\n'
-        'process.stdin.on("data", (c) => (input += c));\n'
-        'process.stdin.on("end", () => {\n'
-        f'  fs.writeFileSync({json.dumps(str(capture))}, input);\n'
-        '  process.stdout.write(JSON.stringify({ ok: false, error: "captured" }) + "\\n");\n'
-        "  process.exit(1);\n"
-        "});\n",
+        'import { createInterface } from "node:readline";\n'
+        'const lines = createInterface({\n'
+        '  input: process.stdin, crlfDelay: Infinity,\n'
+        '});\n'
+        'for await (const line of lines) {\n'
+        '  if (!line.trim()) continue;\n'
+        '  const request = JSON.parse(line);\n'
+        f'  fs.writeFileSync({json.dumps(str(capture))},'
+        ' JSON.stringify(request.payload));\n'
+        '  process.stdout.write(JSON.stringify({\n'
+        '    request_id: request.request_id, ok: false, error: "captured",\n'
+        '  }) + "\\n");\n'
+        '}\n',
         encoding="utf-8",
     )
     os.environ["COC_KEEPER_RUNNER"] = str(runner)
     try:
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="keeper turn failed: captured"):
             api.send(sid, "你好")
     finally:
-        os.environ.pop("COC_KEEPER_RUNNER", None)
+        try:
+            api.close_session(sid)
+        finally:
+            os.environ.pop("COC_KEEPER_RUNNER", None)
     request = json.loads(capture.read_text("utf-8"))
     guidance = request.get("language_guidance")
     assert isinstance(guidance, list) and len(guidance) == 3

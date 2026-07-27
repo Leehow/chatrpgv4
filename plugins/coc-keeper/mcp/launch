@@ -23,10 +23,12 @@ fi
 # shared headless runtime remains the single compiler/runtime source. When the
 # host installs a managed plugin copy, pass the opened workspace runtime back
 # explicitly instead of deriving it from the managed plugin cache path.
-if [[ -n "${COC_PROJECT_ROOT:-}" && -d "${COC_PROJECT_ROOT}/runtime" ]]; then
-  export COC_RUNTIME_ROOT="${COC_PROJECT_ROOT}/runtime"
-elif [[ -d "$PACKAGE_ROOT/runtime" ]]; then
-  export COC_RUNTIME_ROOT="$PACKAGE_ROOT/runtime"
+if [[ -z "${COC_RUNTIME_ROOT:-}" ]]; then
+  if [[ -n "${COC_PROJECT_ROOT:-}" && -d "${COC_PROJECT_ROOT}/runtime" ]]; then
+    export COC_RUNTIME_ROOT="${COC_PROJECT_ROOT}/runtime"
+  elif [[ -d "$PACKAGE_ROOT/runtime" ]]; then
+    export COC_RUNTIME_ROOT="$PACKAGE_ROOT/runtime"
+  fi
 fi
 
 if [[ -n "${COC_PROJECT_ROOT:-}" && -f "${COC_PROJECT_ROOT}/uv.lock" ]]; then

@@ -1564,11 +1564,18 @@ def test_cursor_thin_entry_requires_kp_craft_parity_with_codex():
     assert "whether or not `narration.brief`" in cursor_compact
     assert "player-visible prose pipeline (hard order)" not in cursor_compact
 
-    pi_compact = " ".join(
-        _text(ROOT / "runtime" / "adapters" / "pi" / "README.md").split()
+    pi_package_compact = " ".join(
+        _text(PLUGIN_ROOT / "pi" / "README.md").split()
     ).lower()
-    assert "always-active core keeper response contract" in pi_compact
-    assert "whether or not an optional" in pi_compact
+    pi_host_prompt_compact = " ".join(
+        _text(PLUGIN_ROOT / "pi" / "prompts" / "host-system.md").split()
+    ).lower()
+    assert (
+        "loads `../skills` and `../rulesets/coc7/skills` directly"
+        in pi_package_compact
+    )
+    assert "live play follows `coc-keeper-play`" in pi_host_prompt_compact
+    assert "core keeper response contract (always active)" in play_main_compact
 
 
 def test_canonical_skills_have_matching_frontmatter_names():

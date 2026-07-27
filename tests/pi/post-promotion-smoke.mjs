@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "./_lib/preload-embedded-pi.mjs";
 /*
  * engineering smoke: post-promotion runtime route check for the Pi source
  * coordinator capability.
