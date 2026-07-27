@@ -2025,6 +2025,64 @@ def test_location_scene_edge_identity_and_target_validation_fail_closed(
         )
 
 
+@pytest.mark.parametrize(
+    ("nested_field", "nested_value"),
+    [
+        ("source_refs", [{"pdf_index": 0}]),
+        ("source_page_indices", [0]),
+        (
+            "source_span",
+            {"pdf_index_start": 0, "pdf_index_end": 0},
+        ),
+        ("page_text_sha256", ["a" * 64]),
+        ("source_evidence", {"pdf_indices": [0]}),
+        ("source_id", "pdf:bound-module"),
+        ("file_sha256", "a" * 64),
+        ("source_file_sha256", "a" * 64),
+        ("bundle_sha256", "b" * 64),
+        ("bundle_sha256s", ["b" * 64]),
+        ("pdf_index", 0),
+        ("pdf_indices", [0]),
+        ("text_sha256", "c" * 64),
+        ("cached_page_refs", [{"pdf_index": 0}]),
+        ("unknown_selector", "not-allowed"),
+    ],
+)
+def test_campaign_local_scene_edge_rejects_nested_provenance_fields(
+    tmp_path: Path,
+    nested_field: str,
+    nested_value: object,
+):
+    bundle, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    assets.register_source_bundle(
+        tmp_path,
+        bundle,
+        asset_root_id="nested-edge-provenance",
+    )
+    provenance = {
+        "authority": "campaign_improvised",
+        nested_field: nested_value,
+    }
+
+    with pytest.raises(assets.ModuleAssetsError, match=nested_field):
+        assets.put_entity(
+            tmp_path,
+            "nested-edge-provenance",
+            "location",
+            "hospital",
+            {
+                "parse_state": "deep",
+                "evidence_gap": False,
+                "source_page_indices": [0],
+                "scene_edges": [{
+                    "to": "campaign-room",
+                    "origin": "campaign_improvised",
+                    "provenance": provenance,
+                }],
+            },
+        )
+
+
 def test_source_bundle_caches_structured_ocr_once_and_projects_bounded_ref(
     tmp_path: Path,
 ):

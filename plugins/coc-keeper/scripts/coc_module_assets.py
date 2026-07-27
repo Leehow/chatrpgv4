@@ -4176,19 +4176,30 @@ def _canonicalize_entity_source_evidence(
                         | FACT_RECORD_PARALLEL_SOURCE_FIELDS
                     )
                 )
-                provenance = (
-                    edge.get("provenance")
-                    if isinstance(edge.get("provenance"), dict)
-                    else {}
-                )
-                if provenance.get("source_refs") is not None:
-                    borrowed_fields.append("provenance.source_refs")
                 if borrowed_fields:
                     raise ModuleAssetsError(
                         f"{edge_field} is campaign-local and must not borrow "
                         "source evidence: "
                         + ", ".join(sorted(set(borrowed_fields)))
                     )
+                edge_provenance = edge.get("provenance")
+                if (
+                    isinstance(edge_provenance, dict)
+                    and "source_refs" in edge_provenance
+                ):
+                    raise ModuleAssetsError(
+                        f"{edge_field} is campaign-local and must not borrow "
+                        "source evidence: provenance.source_refs"
+                    )
+                # Campaign-local provenance uses the same closed contract as
+                # every other fact provenance object. This rejects source_refs
+                # for campaign authority and fails closed on every nested
+                # canonical/parallel source selector or unknown field.
+                _validate_fact_provenance(
+                    edge,
+                    field=f"{edge_field}.provenance",
+                    require=False,
+                )
                 continue
             edge_refs = _cached_source_refs(
                 workspace,
