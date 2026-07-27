@@ -810,10 +810,10 @@ try {
     appendEntry: (...args) => appended.push(args),
     sendMessage: (...args) => sent.push(args),
   }, managerReceipt);
-  const partialAppended = [], partialSent = [];
-  const partialNotificationReport = main.publishCoordinatorTerminal({
-    appendEntry: (...args) => partialAppended.push(args),
-    sendMessage: (...args) => { partialSent.push(args); throw new Error("send failed"); },
+  const failedAppended = [], failedSent = [];
+  const failedNotificationReport = main.publishCoordinatorTerminal({
+    appendEntry: (...args) => { failedAppended.push(args); throw new Error("append failed"); },
+    sendMessage: (...args) => failedSent.push(args),
   }, managerReceipt);
   const notificationText = JSON.stringify({ appended, sent });
 
@@ -870,13 +870,12 @@ try {
     notification: {
       appended: appended.length,
       sent: sent.length,
-      options: sent[0][1],
-      customTypes: [appended[0][0], sent[0][0].customType],
+      customTypes: [appended[0][0]],
       leaksSource: notificationText.includes(sentinel) || notificationText.includes("pack\":{}"),
       report: notificationReport,
-      partialReport: partialNotificationReport,
-      partialAppendCalls: partialAppended.length,
-      partialSendCalls: partialSent.length,
+      failedReport: failedNotificationReport,
+      failedAppendCalls: failedAppended.length,
+      failedSendCalls: failedSent.length,
     },
   }));
 } finally {

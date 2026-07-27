@@ -48,28 +48,60 @@ const ocrSchema = {
 } as const;
 
 function result(value: JsonObject) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; }
-export function publishCoordinatorTerminal(pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">, receipt: JsonObject): JsonObject {
+type AssistantContentPart = { type: string; [key: string]: unknown };
+type AssistantContentMessage = { role: "assistant"; content: AssistantContentPart[] };
+
+function assistantContentMessage(value: unknown): AssistantContentMessage | null {
+  if (!value || typeof value !== "object") return null;
+  const message = value as { role?: unknown; content?: unknown };
+  if (message.role !== "assistant" || !Array.isArray(message.content)) return null;
+  if (message.content.some((part) => !part || typeof part !== "object" || typeof (part as { type?: unknown }).type !== "string")) return null;
+  return message as AssistantContentMessage;
+}
+
+function withoutAssistantText<T>(message: T): T {
+  const assistant = assistantContentMessage(message);
+  if (!assistant) return message;
+  return {
+    ...(message as object),
+    content: assistant.content.filter((part) => part.type !== "text"),
+  } as T;
+}
+
+function hideUnsettledAssistantText(message: unknown): void {
+  const assistant = assistantContentMessage(message);
+  if (!assistant) return;
+  assistant.content = assistant.content.filter((part) => part.type !== "text");
+}
+
+// Pi emits extensions before TUI listeners. Streaming events contain shallow
+// message copies, so hiding their text delays it at the player boundary without
+// altering the provider's accumulated response. A tool-free final message is
+// then rendered normally; a tool-bearing final message keeps only non-text
+// parts so its framing never enters the transcript or later model context.
+export function registerPlayerTranscriptGate(pi: ExtensionAPI): void {
+  pi.on("message_start", (event) => {
+    hideUnsettledAssistantText(event.message);
+  });
+  pi.on("message_update", (event) => {
+    hideUnsettledAssistantText(event.message);
+  });
+  pi.on("message_end", (event) => {
+    const assistant = assistantContentMessage(event.message);
+    if (!assistant?.content.some((part) => part.type === "toolCall")) return;
+    return { message: withoutAssistantText(event.message) };
+  });
+}
+
+export function publishCoordinatorTerminal(pi: Pick<ExtensionAPI, "appendEntry">, receipt: JsonObject): JsonObject {
   let appendStatus = "delivered";
-  let sendStatus = "delivered";
   try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
   catch { appendStatus = "failed"; }
-  try {
-    pi.sendMessage({
-      customType: "coc-source-coordinator-terminal",
-      content: `COC source coordinator terminal receipt: ${JSON.stringify(receipt)}`,
-      display: true,
-      details: receipt,
-    }, { triggerTurn: false, deliverAs: "nextTurn" });
-  } catch { sendStatus = "failed"; }
-  const status = appendStatus === "delivered" && sendStatus === "delivered"
-    ? "delivered"
-    : appendStatus === "failed" && sendStatus === "failed" ? "failed" : "partial";
   return {
-    status,
+    status: appendStatus,
     append_entry: appendStatus,
-    next_turn_message: sendStatus,
+    player_transcript: "suppressed",
     ...(appendStatus === "failed" ? { append_failure_class: "append_entry_failed" } : {}),
-    ...(sendStatus === "failed" ? { send_failure_class: "next_turn_message_failed" } : {}),
   };
 }
 function absolute(value: unknown, label: string) {
@@ -378,6 +410,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocHud(pi, (ctx) => client(ctx));
   const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "coc-agent");
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
+  registerPlayerTranscriptGate(pi);
   pi.on("session_start", () => {
     sessionEpoch += 1;
     sessionClosing = false;

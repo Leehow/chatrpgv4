@@ -444,26 +444,38 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
     assert result["manager"]["raceLifecycle"] == 1
     assert result["notification"] == {
         "appended": 1,
-        "sent": 1,
-        "options": {"triggerTurn": False, "deliverAs": "nextTurn"},
-        "customTypes": [
-            "coc-source-coordinator-terminal",
-            "coc-source-coordinator-terminal",
-        ],
+        "sent": 0,
+        "customTypes": ["coc-source-coordinator-terminal"],
         "leaksSource": False,
         "report": {
             "status": "delivered",
             "append_entry": "delivered",
-            "next_turn_message": "delivered",
+            "player_transcript": "suppressed",
         },
-        "partialReport": {
-            "status": "partial",
-            "append_entry": "delivered",
-            "next_turn_message": "failed",
-            "send_failure_class": "next_turn_message_failed",
+        "failedReport": {
+            "status": "failed",
+            "append_entry": "failed",
+            "player_transcript": "suppressed",
+            "append_failure_class": "append_entry_failed",
         },
-        "partialAppendCalls": 1,
-        "partialSendCalls": 1,
+        "failedAppendCalls": 1,
+        "failedSendCalls": 0,
+    }
+
+
+def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
+    result = _node(ROOT / "tests/pi/player-transcript-gate.mjs", str(ROOT))
+    assert result == {
+        "registered": ["message_end", "message_start", "message_update"],
+        "startTypes": [],
+        "pendingTypes": [],
+        "toolUpdateTypes": ["toolCall"],
+        "toolFinalOriginalTypes": ["text", "toolCall", "text"],
+        "toolFinalReturnedTypes": ["toolCall"],
+        "toolFinalRole": "assistant",
+        "narrationReturned": True,
+        "narrationText": "雨水沿着窗玻璃缓缓滑落。",
+        "userText": "我走近窗边。",
     }
 
 
