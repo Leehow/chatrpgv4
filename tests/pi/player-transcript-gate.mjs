@@ -1,4 +1,5 @@
 import "./_lib/preload-embedded-pi.mjs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -16,14 +17,18 @@ const { createAssistantMessageEventStream } = await import(path.join(
 ));
 const handlers = new Map();
 const openingContinuationGate = new main.OpeningTerminalContinuationGate();
+const digest = (text) => (
+  `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`
+);
 main.registerPlayerTranscriptGate({
   on(type, handler) {
     const registered = handlers.get(type) || [];
     registered.push(handler);
     handlers.set(type, registered);
   },
-}, () => openingContinuationGate.acceptVisibleAssistantFinal(),
-() => openingContinuationGate.markExternalUserInput());
+}, (visibleText) => (
+  openingContinuationGate.acceptVisibleAssistantFinal(visibleText)
+), (message) => openingContinuationGate.observeMessageStart(message));
 
 async function emit(type, message) {
   let result;
@@ -52,8 +57,8 @@ async function realRunAgentLoopProbe() {
       registered.push(handler);
       realHandlers.set(type, registered);
     },
-  }, () => gate.acceptVisibleAssistantFinal(),
-  () => gate.markExternalUserInput());
+  }, (visibleText) => gate.acceptVisibleAssistantFinal(visibleText),
+  (message) => gate.observeMessageStart(message));
   gate.trackOpeningDispatch("real-loop-opening");
   gate.queueVisibleAssistantDisposition("operational_wait");
   gate.markIndependentVisibleOutput();
@@ -171,6 +176,177 @@ async function realRunAgentLoopProbe() {
   };
 }
 
+async function realFinalizationLoopProbe() {
+  const realHandlers = new Map();
+  const gate = new main.OpeningTerminalContinuationGate();
+  main.registerPlayerTranscriptGate({
+    on(type, handler) {
+      const registered = realHandlers.get(type) || [];
+      registered.push(handler);
+      realHandlers.set(type, registered);
+    },
+  }, (visibleText) => gate.acceptVisibleAssistantFinal(visibleText),
+  (message) => gate.observeMessageStart(message));
+
+  const exactText = "精确 finalizer 输出。";
+  const initialUser = {
+    role: "user",
+    content: [{ type: "text", text: "执行精确输出探针。" }],
+    timestamp: 200,
+  };
+  let armed = false;
+  const usage = {
+    input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+    totalTokens: 0,
+  };
+  const base = {
+    role: "assistant", api: "openai-responses", provider: "probe",
+    model: "probe", usage, stopReason: "stop", timestamp: 201,
+  };
+  const responses = [
+    {
+      ...base,
+      content: [{ type: "text", text: "任意但不匹配的前置文本。" }],
+    },
+    {
+      ...base,
+      content: [
+        { type: "text", text: "工具过渡。" },
+        {
+          type: "toolCall", id: "finalizer-probe-call",
+          name: "probe_tool", arguments: {},
+        },
+      ],
+      stopReason: "toolUse",
+      timestamp: 202,
+    },
+    {
+      ...base,
+      content: [{ type: "text", text: exactText }],
+      timestamp: 203,
+    },
+    {
+      ...base,
+      content: [{ type: "text", text: "后台完成后的多余提示。" }],
+      timestamp: 204,
+    },
+  ];
+  let responseIndex = 0;
+  let ordinaryFollowUpSent = false;
+  let nonblockingFollowUpSent = false;
+  let producedContinuationDetails = null;
+  const finals = [];
+  const eventTrace = [];
+  const streamFn = () => {
+    const stream = createAssistantMessageEventStream();
+    const finalMessage = responses[responseIndex++];
+    queueMicrotask(() => {
+      stream.push({ type: "start", partial: { ...finalMessage, content: [] } });
+      stream.push({ type: "done", message: finalMessage });
+    });
+    return stream;
+  };
+  await runAgentLoop(
+    [initialUser],
+    {
+      systemPrompt: "probe",
+      messages: [],
+      tools: [{
+        name: "probe_tool",
+        label: "probe",
+        description: "probe",
+        parameters: {
+          type: "object", properties: {}, additionalProperties: false,
+        },
+        async execute() {
+          return {
+            content: [{ type: "text", text: "ok" }],
+            details: { ok: true },
+          };
+        },
+      }],
+    },
+    {
+      model: {
+        id: "probe", name: "probe", provider: "probe",
+        api: "openai-responses", reasoning: false, input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1000, maxTokens: 100,
+      },
+      convertToLlm: (messages) => messages,
+      getFollowUpMessages() {
+        if (!ordinaryFollowUpSent && responseIndex === 1) {
+          ordinaryFollowUpSent = true;
+          return [{
+            role: "custom",
+            customType: "probe-before-exact",
+            content: "continue",
+            display: false,
+            timestamp: 205,
+          }];
+        }
+        if (!nonblockingFollowUpSent && responseIndex === 3) {
+          nonblockingFollowUpSent = true;
+          const details = gate.coordinatorContinuationContext(
+            "coord-real-finalizer-probe",
+            "fulfilled",
+          );
+          producedContinuationDetails = details;
+          return [{
+            role: "custom",
+            customType: "coc-source-coordinator-terminal-continuation",
+            content: JSON.stringify(details),
+            details,
+            display: false,
+            timestamp: 206,
+          }];
+        }
+        return [];
+      },
+    },
+    async (event) => {
+      eventTrace.push(`${event.type}:${event.message?.role ?? "none"}:${
+        event.message?.customType ?? ""
+      }`);
+      let transformed;
+      for (const handler of realHandlers.get(event.type) || []) {
+        transformed = await handler(event, {});
+      }
+      if (
+        !armed
+        && event.type === "message_start"
+        && event.message?.role === "user"
+      ) {
+        armed = gate.markFinalizedOutputReady(exactText, digest(exactText));
+      }
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        finals.push(transformed?.message ?? event.message);
+      }
+    },
+    undefined,
+    streamFn,
+  );
+  return {
+    armed,
+    arbitraryVisible: types(finals[0]).includes("text"),
+    toolBearingTypes: types(finals[1]),
+    exactVisible: types(finals[2]).includes("text"),
+    redundantSuppressed: types(finals[3]).length === 0,
+    structuredCustomStartObserved: eventTrace.includes(
+      "message_start:custom:coc-source-coordinator-terminal-continuation",
+    ),
+    producerContext: {
+      continuationClass: producedContinuationDetails?.continuation_class,
+      dispatchClass: producedContinuationDetails?.dispatch_class,
+      playerTurnEpoch: producedContinuationDetails?.player_turn_epoch,
+      digestMatches:
+        producedContinuationDetails?.finalized_rendered_sha256
+          === digest(exactText),
+      dispatchKey: producedContinuationDetails?.dispatch_key,
+    },
+  };
+}
+
 const start = {
   role: "assistant",
   content: [{ type: "text", text: "先让我检查一下。" }],
@@ -231,34 +407,113 @@ const validOpening = {
 };
 const validOpeningResult = await emit("message_end", validOpening);
 
-openingContinuationGate.markFinalizedOutputReady();
+const firstPlayerTurn = {
+  role: "user",
+  content: [{ type: "text", text: "我检查门后的动静。" }],
+};
+await emit("message_start", firstPlayerTurn);
+const finalizedText = "门后的脚步声骤然停住。";
+const finalizedSha256 = digest(finalizedText);
+const mismatchedDigestRejected = (
+  openingContinuationGate.markFinalizedOutputReady(
+    finalizedText,
+    `sha256:${"0".repeat(64)}`,
+  ) === false
+);
+const finalizedArmed = openingContinuationGate.markFinalizedOutputReady(
+  finalizedText,
+  finalizedSha256,
+);
+const arbitraryBeforeExact = await emit("message_end", {
+  role: "assistant",
+  content: [{ type: "text", text: "这是一条不匹配 finalizer 的说明。" }],
+});
+const toolBearingAfterFinalize = await emit("message_end", {
+  role: "assistant",
+  content: [
+    { type: "text", text: "工具过渡。" },
+    {
+      type: "toolCall", id: "finalize-interpose",
+      name: "probe", arguments: {},
+    },
+  ],
+});
 const finalizedNarration = {
   role: "assistant",
-  content: [{ type: "text", text: "门后的脚步声骤然停住。" }],
+  content: [{ type: "text", text: finalizedText }],
 };
 const finalizedNarrationResult = await emit("message_end", finalizedNarration);
-const redundantMeta = {
+const mismatchAfterExact = await emit("message_end", {
+  role: "assistant",
+  content: [{ type: "text", text: "另一条合法但不匹配的助手输出。" }],
+});
+const finalizedWakeSent = [];
+const finalizedWakeAppended = [];
+const finalizedWakeReceipt = {
+  schema_version: 1,
+  contract_id: "coc.source-coordinator-result.v1",
+  packet_id: "coord-after-finalized-output",
+  status: "fulfilled",
+  failure_class: null,
+};
+const finalizedWakeReport = await main.publishCoordinatorTerminal({
+  appendEntry: (...args) => finalizedWakeAppended.push(args),
+  sendMessage: (...args) => finalizedWakeSent.push(args),
+}, finalizedWakeReceipt, new Set(), () => true,
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
+await emit("message_start", {
+  role: "custom",
+  ...finalizedWakeSent[0][0],
+});
+const redundantMetaResult = await emit("message_end", {
   role: "assistant",
   content: [{ type: "text", text: "你接下来想做什么？" }],
-};
-const redundantMetaResult = await emit("message_end", redundantMeta);
+});
+
+openingContinuationGate.trackOpeningDispatch("coord-blocking-after-finalized");
+openingContinuationGate.markTerminalBlocker();
+const blockingContinuationDetails = (
+  openingContinuationGate.coordinatorContinuationContext(
+    "coord-blocking-after-finalized",
+    "failed",
+  )
+);
 await emit("message_start", {
   role: "custom",
   customType: "coc-source-coordinator-terminal-continuation",
-  content: "hidden lifecycle notice",
+  content: "blocking lifecycle notice",
   display: false,
+  details: blockingContinuationDetails,
 });
-const redundantAfterHiddenLifecycle = await emit("message_end", {
+const blockingAfterFinalized = await emit("message_end", {
   role: "assistant",
-  content: [{ type: "text", text: "后台资料已更新。" }],
+  content: [{ type: "text", text: "开场来源处理失败，需要玩家确认。" }],
 });
 
+const staleContinuationContext = (
+  openingContinuationGate.coordinatorContinuationContext(
+    "coord-stale-after-user",
+    "fulfilled",
+  )
+);
 const user = {
   role: "user",
   content: [{ type: "text", text: "我走近窗边。" }],
 };
 await emit("message_start", user);
-const nextTurnNarration = await emit("message_end", {
+await emit("message_start", {
+  role: "custom",
+  customType: "coc-source-coordinator-terminal-continuation",
+  content: "stale lifecycle notice",
+  display: false,
+  details: staleContinuationContext,
+});
+const staleEpochNarration = await emit("message_end", {
   role: "assistant",
   content: [{ type: "text", text: "窗边的冷气贴上你的指节。" }],
 });
@@ -318,18 +573,26 @@ const unfinishedAppended = [];
 const unfinishedReceipt = {
   ...terminalReceipt,
   packet_id: "coord-opening-unfinished",
+  status: "failed",
+  failure_class: "fulfill_rejected",
 };
 openingContinuationGate.trackOpeningDispatch(unfinishedReceipt.packet_id);
 openingContinuationGate.markAgentStart();
+openingContinuationGate.markTerminalBlocker();
 const unfinishedPromise = main.publishCoordinatorTerminal({
   appendEntry: (...args) => unfinishedAppended.push(args),
   sendMessage: (...args) => unfinishedSent.push(args),
 }, unfinishedReceipt, continuedDispatches,
-(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+(dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
 await Promise.resolve();
 const unfinishedDeferredBeforeEnd = unfinishedSent.length === 0
   && unfinishedAppended.length === 1;
-openingContinuationGate.markTerminalBlocker();
 const terminalBlocker = {
   role: "assistant",
   content: [{ type: "text", text: "开场资料处理终止，需要重新确认来源边界。" }],
@@ -362,6 +625,7 @@ const currentReport = await main.publishCoordinatorTerminal({
 (dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
 const staleReport = await stalePromise;
 const realLoop = await realRunAgentLoopProbe();
+const realFinalizationLoop = await realFinalizationLoopProbe();
 
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
@@ -377,12 +641,28 @@ process.stdout.write(JSON.stringify({
   unrelatedWhileAwaitingReturned: unrelatedWhileAwaitingResult === undefined,
   validOpeningReturned: validOpeningResult === undefined,
   validOpeningText: validOpening.content[0].text,
+  mismatchedDigestRejected,
+  finalizedArmed,
+  arbitraryBeforeExactReturned: arbitraryBeforeExact === undefined,
+  toolBearingAfterFinalizeTypes: types(toolBearingAfterFinalize.message),
   finalizedNarrationReturned: finalizedNarrationResult === undefined,
   redundantMetaReturnedTypes: types(redundantMetaResult.message),
-  redundantAfterHiddenLifecycleTypes:
-    types(redundantAfterHiddenLifecycle.message),
+  mismatchAfterExactReturned: mismatchAfterExact === undefined,
+  finalizedWake: {
+    appended: finalizedWakeAppended.length,
+    sent: finalizedWakeSent.length,
+    continuationClass:
+      finalizedWakeSent[0][0].details.continuation_class,
+    dispatchClass: finalizedWakeSent[0][0].details.dispatch_class,
+    playerTurnEpoch: finalizedWakeSent[0][0].details.player_turn_epoch,
+    digestMatches:
+      finalizedWakeSent[0][0].details.finalized_rendered_sha256
+        === digest(finalizedText),
+    report: finalizedWakeReport,
+  },
+  blockingAfterFinalizedReturned: blockingAfterFinalized === undefined,
   userText: user.content[0].text,
-  nextTurnNarrationReturned: nextTurnNarration === undefined,
+  staleEpochNarrationReturned: staleEpochNarration === undefined,
   terminal: {
     appended: terminalAppended.length,
     sent: terminalSent.length,
@@ -406,6 +686,10 @@ process.stdout.write(JSON.stringify({
     unfinishedAppended: unfinishedAppended.length,
     unfinishedDeferredBeforeEnd,
     unfinishedReport,
+    unfinishedContinuationClass:
+      unfinishedSent[0][0].details.continuation_class,
+    unfinishedDispatchClass:
+      unfinishedSent[0][0].details.dispatch_class,
     terminalBlockerWhileAwaitingReturned: terminalBlockerResult === undefined,
     sessionReuse: {
       staleSent: staleSent.length,
@@ -419,4 +703,5 @@ process.stdout.write(JSON.stringify({
     },
   },
   realLoop,
+  realFinalizationLoop,
 }));

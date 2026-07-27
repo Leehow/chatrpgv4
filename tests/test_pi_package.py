@@ -586,11 +586,32 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "unrelatedWhileAwaitingReturned": True,
         "validOpeningReturned": True,
         "validOpeningText": "马车在白昼里停到城堡门前。",
+        "mismatchedDigestRejected": True,
+        "finalizedArmed": True,
+        "arbitraryBeforeExactReturned": True,
+        "toolBearingAfterFinalizeTypes": ["toolCall"],
         "finalizedNarrationReturned": True,
         "redundantMetaReturnedTypes": [],
-        "redundantAfterHiddenLifecycleTypes": [],
+        "mismatchAfterExactReturned": True,
+        "finalizedWake": {
+            "appended": 1,
+            "sent": 1,
+            "continuationClass": (
+                "nonblocking_background_after_finalized_output"
+            ),
+            "dispatchClass": "nonblocking_background",
+            "playerTurnEpoch": 1,
+            "digestMatches": True,
+            "report": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "delivered",
+                "player_transcript": "suppressed",
+            },
+        },
+        "blockingAfterFinalizedReturned": True,
         "userText": "我走近窗边。",
-        "nextTurnNarrationReturned": True,
+        "staleEpochNarrationReturned": True,
         "terminal": {
             "appended": 2,
             "sent": 1,
@@ -644,6 +665,8 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "hidden_continuation": "delivered",
                 "player_transcript": "suppressed",
             },
+            "unfinishedContinuationClass": "blocking_opening",
+            "unfinishedDispatchClass": "blocking_opening",
             "terminalBlockerWhileAwaitingReturned": True,
             "sessionReuse": {
                 "staleSent": 0,
@@ -674,6 +697,23 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
             "unrelatedFirstVisible": True,
             "toolBearingTextHidden": True,
             "operationalWaitSuppressed": True,
+        },
+        "realFinalizationLoop": {
+            "armed": True,
+            "arbitraryVisible": True,
+            "toolBearingTypes": ["toolCall"],
+            "exactVisible": True,
+            "redundantSuppressed": True,
+            "structuredCustomStartObserved": True,
+            "producerContext": {
+                "continuationClass": (
+                    "nonblocking_background_after_finalized_output"
+                ),
+                "dispatchClass": "nonblocking_background",
+                "playerTurnEpoch": 1,
+                "digestMatches": True,
+                "dispatchKey": "coord-real-finalizer-probe",
+            },
         },
     }
 
@@ -746,7 +786,9 @@ def test_pi_projection_uses_task_return_and_repository_produced_leaf_wrappers(mo
     assert canonical["lifecycle"]["pi_hidden_continuation_source"] == (
         "final_validated_receipt_only"
     )
-    assert canonical["result_contract"]["optional_fields"] == ["diagnostics"]
+    assert canonical["result_contract"]["optional_fields"] == [
+        "diagnostics", "lease_release",
+    ]
     assert task["packet"]["leaf_worker"]["prompt_binding"] == (
         "one exact repository-produced dispatch_tasks[] "
         "coc.pi-source-pack-task.v1 value"

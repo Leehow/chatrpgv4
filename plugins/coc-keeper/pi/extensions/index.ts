@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -59,6 +60,17 @@ function assistantContentMessage(value: unknown): AssistantContentMessage | null
   return message as AssistantContentMessage;
 }
 
+function visibleAssistantText(message: AssistantContentMessage): string | null {
+  const texts = message.content
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string);
+  return texts.length > 0 ? texts.join("") : null;
+}
+
+function textSha256(text: string): string {
+  return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
+}
+
 function withoutAssistantText<T>(message: T): T {
   const assistant = assistantContentMessage(message);
   if (!assistant) return message;
@@ -87,22 +99,36 @@ type VisibleAssistantDisposition =
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
+  private readonly dispatchClasses = new Map<
+    string,
+    "blocking_opening" | "nonblocking_background"
+  >();
   private readonly pending = new Map<string, {
     promise: Promise<boolean>;
     resolve: (shouldWake: boolean) => void;
   }>();
   private agentActive = false;
   private queuedVisibleDispositions: VisibleAssistantDisposition[] = [];
-  // A successful canonical turn.finalize is the structured provenance for
-  // exactly one player-visible assistant continuation. Pi/provider loops can
-  // otherwise emit an unsolicited second tool-free assistant message in the
-  // same turn. Keep this independent from prose so no text matcher becomes a
-  // second narration judge.
-  private finalizedOutput: "none" | "pending" | "published" = "none";
+  private playerTurnEpoch = 0;
+  private finalizedOutput: {
+    epoch: number;
+    renderedText: string;
+    renderedSha256: string;
+    delivered: boolean;
+  } | null = null;
+  private nonblockingContinuation: {
+    epoch: number;
+    dispatchKey: string;
+    renderedSha256: string;
+  } | null = null;
 
   trackOpeningDispatch(dispatchKey: string): void {
     if (dispatchKey) {
       this.states.set(dispatchKey, "awaiting");
+      // The key comes from the structured opening_bootstrap takeover packet,
+      // so later terminal continuations can distinguish this blocking opening
+      // from an unrelated background coordinator completion.
+      this.dispatchClasses.set(dispatchKey, "blocking_opening");
     }
   }
 
@@ -137,6 +163,10 @@ export class OpeningTerminalContinuationGate {
   }
 
   markTerminalBlocker(): void {
+    // A structured blocking terminal is always player-visible. It may arrive
+    // after an unrelated nonblocking wake was queued, so revoke that narrow
+    // suppression token instead of globally hiding later assistant output.
+    this.nonblockingContinuation = null;
     if ([...this.states.values()].some((state) => state === "awaiting")) {
       this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
         (disposition) => disposition !== "operational_wait",
@@ -145,15 +175,106 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
-  markFinalizedOutputReady(): void {
-    this.finalizedOutput = "pending";
+  markFinalizedOutputReady(
+    renderedText: string,
+    renderedSha256: string,
+  ): boolean {
+    if (
+      !renderedText
+      || renderedSha256 !== textSha256(renderedText)
+    ) {
+      return false;
+    }
+    this.finalizedOutput = {
+      epoch: this.playerTurnEpoch,
+      renderedText,
+      renderedSha256,
+      delivered: false,
+    };
+    return true;
   }
 
   markExternalUserInput(): void {
-    this.finalizedOutput = "none";
+    this.playerTurnEpoch += 1;
+    this.finalizedOutput = null;
+    this.nonblockingContinuation = null;
   }
 
-  acceptVisibleAssistantFinal(): boolean {
+  coordinatorContinuationContext(
+    dispatchKey: string,
+    terminalStatus: string,
+  ): JsonObject {
+    const dispatchClass = this.dispatchClasses.get(dispatchKey)
+      ?? "nonblocking_background";
+    const finalized = this.finalizedOutput;
+    if (
+      dispatchClass === "nonblocking_background"
+      && terminalStatus === "fulfilled"
+      && finalized?.delivered === true
+      && finalized.epoch === this.playerTurnEpoch
+    ) {
+      return {
+        continuation_class: "nonblocking_background_after_finalized_output",
+        dispatch_class: dispatchClass,
+        player_turn_epoch: finalized.epoch,
+        finalized_rendered_sha256: finalized.renderedSha256,
+        dispatch_key: dispatchKey,
+      };
+    }
+    return {
+      continuation_class: dispatchClass,
+      dispatch_class: dispatchClass,
+      player_turn_epoch: this.playerTurnEpoch,
+      dispatch_key: dispatchKey,
+    };
+  }
+
+  observeMessageStart(message: unknown): void {
+    if (!message || typeof message !== "object") return;
+    const value = message as {
+      role?: unknown;
+      customType?: unknown;
+      details?: unknown;
+    };
+    if (value.role === "user") {
+      this.markExternalUserInput();
+      return;
+    }
+    if (
+      value.role !== "custom"
+      || value.customType
+        !== "coc-source-coordinator-terminal-continuation"
+      || !value.details
+      || typeof value.details !== "object"
+      || Array.isArray(value.details)
+    ) {
+      return;
+    }
+    const details = value.details as JsonObject;
+    const finalized = this.finalizedOutput;
+    if (
+      details.continuation_class
+        !== "nonblocking_background_after_finalized_output"
+      || details.dispatch_class !== "nonblocking_background"
+      || !Number.isInteger(details.player_turn_epoch)
+      || details.player_turn_epoch !== this.playerTurnEpoch
+      || typeof details.dispatch_key !== "string"
+      || !details.dispatch_key
+      || typeof details.finalized_rendered_sha256 !== "string"
+      || finalized?.delivered !== true
+      || finalized.epoch !== this.playerTurnEpoch
+      || finalized.renderedSha256 !== details.finalized_rendered_sha256
+    ) {
+      return;
+    }
+    this.nonblockingContinuation = {
+      epoch: this.playerTurnEpoch,
+      dispatchKey: details.dispatch_key,
+      renderedSha256: finalized.renderedSha256,
+    };
+  }
+
+  acceptVisibleAssistantFinal(visibleText: string): boolean {
     // Only the transcript gate's confirmed tool-free assistant final reaches
     // this method. Streaming starts/updates and tool-bearing finals cannot
     // consume host provenance.
@@ -166,9 +287,29 @@ export class OpeningTerminalContinuationGate {
         if (state === "projected") this.states.set(key, "published");
       }
     }
-    if (this.finalizedOutput === "pending") {
-      this.finalizedOutput = "published";
-    } else if (this.finalizedOutput === "published") {
+    if (disposition !== undefined) {
+      this.nonblockingContinuation = null;
+    }
+    const finalized = this.finalizedOutput;
+    const visibleSha256 = textSha256(visibleText);
+    if (
+      finalized?.delivered === false
+      && finalized.epoch === this.playerTurnEpoch
+      && finalized.renderedText === visibleText
+      && finalized.renderedSha256 === visibleSha256
+    ) {
+      finalized.delivered = true;
+      return true;
+    }
+    const continuation = this.nonblockingContinuation;
+    if (
+      disposition === undefined
+      && continuation?.epoch === this.playerTurnEpoch
+      && finalized?.delivered === true
+      && finalized.epoch === this.playerTurnEpoch
+      && finalized.renderedSha256 === continuation.renderedSha256
+    ) {
+      this.nonblockingContinuation = null;
       return false;
     }
     return true;
@@ -209,26 +350,23 @@ export class OpeningTerminalContinuationGate {
   reset(): void {
     this.agentActive = false;
     this.queuedVisibleDispositions = [];
-    this.finalizedOutput = "none";
+    this.playerTurnEpoch = 0;
+    this.finalizedOutput = null;
+    this.nonblockingContinuation = null;
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
     this.states.clear();
+    this.dispatchClasses.clear();
   }
 }
 
 export function registerPlayerTranscriptGate(
   pi: ExtensionAPI,
-  onVisibleAssistantFinal?: () => boolean | void,
-  onExternalUserInput?: () => void,
+  onVisibleAssistantFinal?: (visibleText: string) => boolean | void,
+  onMessageStart?: (message: unknown) => void,
 ): void {
   pi.on("message_start", (event) => {
-    if (
-      event.message
-      && typeof event.message === "object"
-      && (event.message as { role?: unknown }).role === "user"
-    ) {
-      onExternalUserInput?.();
-    }
+    onMessageStart?.(event.message);
     hideUnsettledAssistantText(event.message);
   });
   pi.on("message_update", (event) => {
@@ -238,8 +376,9 @@ export function registerPlayerTranscriptGate(
     const assistant = assistantContentMessage(event.message);
     if (!assistant) return;
     if (!assistant.content.some((part) => part.type === "toolCall")) {
-      if (assistant.content.some((part) => part.type === "text")) {
-        if (onVisibleAssistantFinal?.() === false) {
+      const visibleText = visibleAssistantText(assistant);
+      if (visibleText !== null) {
+        if (onVisibleAssistantFinal?.(visibleText) === false) {
           return { message: withoutAssistantText(event.message) };
         }
       }
@@ -254,6 +393,10 @@ export async function publishCoordinatorTerminal(
   receipt: JsonObject,
   continuedDispatches: Set<string>,
   decideWake: (dispatchKey: string) => boolean | Promise<boolean> = () => true,
+  continuationContext?: (
+    dispatchKey: string,
+    terminalStatus: string,
+  ) => JsonObject,
 ): Promise<JsonObject> {
   let appendStatus = "delivered";
   try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
@@ -281,6 +424,7 @@ export async function publishCoordinatorTerminal(
             terminal: true,
             failure_class: failureClass,
             automatic_retry_remaining: false,
+            ...(continuationContext?.(dispatchKey, terminalStatus) ?? {}),
           };
           // Pinned Pi queues followUp while streaming and uses triggerTurn when
           // idle. display:false keeps this one-shot liveness notice out of TUI.
@@ -532,6 +676,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         receipt,
         ownedContinuedDispatches,
         (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+        (dispatchKey, terminalStatus) => (
+          openingContinuationGate.coordinatorContinuationContext(
+            dispatchKey,
+            terminalStatus,
+          )
+        ),
       );
     },
     (observation) => {
@@ -593,8 +743,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && envelope?.ok === true
         && typeof data?.rendered_text === "string"
         && data.rendered_text.length > 0
+        && typeof data?.rendered_sha256 === "string"
       ) {
-        openingContinuationGate.markFinalizedOutputReady();
+        openingContinuationGate.markFinalizedOutputReady(
+          data.rendered_text,
+          data.rendered_sha256,
+        );
       }
       if (
         envelope?.ok === true
@@ -680,8 +834,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   registerPlayerTranscriptGate(
     pi,
-    () => openingContinuationGate.acceptVisibleAssistantFinal(),
-    () => openingContinuationGate.markExternalUserInput(),
+    (visibleText) => (
+      openingContinuationGate.acceptVisibleAssistantFinal(visibleText)
+    ),
+    (message) => openingContinuationGate.observeMessageStart(message),
   );
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();

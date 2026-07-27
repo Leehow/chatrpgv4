@@ -657,6 +657,9 @@ const COORDINATOR_FAILURES = new Set([
   "leaf_result_not_bare", "leaf_result_invalid", "fulfill_rejected",
   "turn_pending_finalization_deferred",
 ]);
+const DEFERRED_LEASE_RELEASE_STATUSES = new Set([
+  "release_confirmed", "ttl_fallback",
+]);
 const SOURCE_VALIDATION_CODES = new Set<SourceValidationCode>([
   "claim_lease_bindings_invalid",
   "claim_dispatch_tasks_missing",
@@ -716,7 +719,7 @@ export function validateCoordinatorResult(resultValue: unknown, taskValue: unkno
   exactKeys(result, [
     "schema_version", "contract_id", "packet_id", "status", "claim_calls",
     "claimed_packet_count", "leaf_task_count", "fulfilled_result_count",
-    "failure_class", "design_issue_threshold", "diagnostics",
+    "failure_class", "design_issue_threshold", "diagnostics", "lease_release",
   ], "coordinator result");
   if (result.schema_version !== 1 || result.contract_id !== "coc.source-coordinator-result.v1") throw new Error("coordinator result contract drift");
   if (result.packet_id !== packet.packet_id) throw new Error("coordinator result packet binding drift");
@@ -736,6 +739,18 @@ export function validateCoordinatorResult(resultValue: unknown, taskValue: unkno
   if (result.status === "idle" && (failure !== null || result.claimed_packet_count !== 0 || result.fulfilled_result_count !== 0)) throw new Error("coordinator idle result is inconsistent");
   if (result.status === "partial" && (failure === null || (result.fulfilled_result_count as number) < 1)) throw new Error("coordinator partial result is inconsistent");
   if (result.status === "failed" && (failure === null || result.fulfilled_result_count !== 0)) throw new Error("coordinator failed result is inconsistent");
+  if (failure === "turn_pending_finalization_deferred") {
+    const leaseRelease = asObject(
+      result.lease_release,
+      "deferred coordinator lease_release",
+    );
+    exactKeys(leaseRelease, ["status"], "deferred coordinator lease_release");
+    if (!DEFERRED_LEASE_RELEASE_STATUSES.has(String(leaseRelease.status))) {
+      throw new Error("deferred coordinator lease release status is invalid");
+    }
+  } else if (result.lease_release !== undefined) {
+    throw new Error("coordinator lease_release requires deferred finalization");
+  }
   if (result.diagnostics !== undefined) {
     if (
       !Array.isArray(result.diagnostics)
@@ -1845,7 +1860,13 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       recordDiagnostic("claim_projection", failure, binding);
     }
   };
-  const receipt = (status: string, claimed: number, fulfilled: number, failure: string | null): JsonObject => validateCoordinatorResult({
+  const receipt = (
+    status: string,
+    claimed: number,
+    fulfilled: number,
+    failure: string | null,
+    leaseReleaseStatus?: "release_confirmed" | "ttl_fallback",
+  ): JsonObject => validateCoordinatorResult({
     schema_version: 1,
     contract_id: "coc.source-coordinator-result.v1",
     packet_id: packetId,
@@ -1857,6 +1878,9 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     failure_class: failure,
     design_issue_threshold: 3,
     ...(diagnostics.length ? { diagnostics: [...diagnostics] } : {}),
+    ...(leaseReleaseStatus
+      ? { lease_release: { status: leaseReleaseStatus } }
+      : {}),
   }, task);
   const observeLease = async (observation: LeaseLifecycleObservation) => {
     try { await dependencies.onLeaseLifecycle?.(observation); }
@@ -1896,8 +1920,8 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
     bindings: ClaimLeaseBinding[],
     reason: string,
     remainingJobsByLease?: ReadonlyMap<string, ReadonlySet<string>>,
-  ): Promise<void> => {
-    if (bindings.length === 0) return;
+  ): Promise<"release_confirmed" | "ttl_fallback"> => {
+    if (bindings.length === 0) return "release_confirmed";
     const leaseIds = bindings.map((binding) => binding.leaseId);
     const expectedJobsByLease = new Map(
       bindings.map((binding) => [binding.leaseId, new Set(binding.jobIds)]),
@@ -1925,6 +1949,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       );
       if (coverage.status === "succeeded") {
         await observeLease(leaseObservation("release", "succeeded", leaseIds, { reason }));
+        return "release_confirmed";
       } else {
         await observeLease(leaseObservation("release", coverage.status, leaseIds, {
           reason,
@@ -1938,6 +1963,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
               : "graceful_release_partially_unconfirmed",
           recovery: "bounded_ttl",
         }));
+        return "ttl_fallback";
       }
     } catch {
       await observeLease(leaseObservation("release", "failed", leaseIds, {
@@ -1948,6 +1974,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
         reason: "graceful_release_failed",
         recovery: "bounded_ttl",
       }));
+      return "ttl_fallback";
     }
   };
   let claimEnvelope: JsonObject;
@@ -2245,6 +2272,10 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   await stopHeartbeat();
   if (!failureClass) return receipt("fulfilled", tasks.length, fulfilled, null);
 
+  let leaseReleaseStatus:
+    | "release_confirmed"
+    | "ttl_fallback"
+    | undefined;
   if (openLeaseIds.size > 0) {
     const signalReason = dependencies.signal?.reason;
     const reasonText = typeof signalReason === "string" ? signalReason : "";
@@ -2253,7 +2284,7 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       : dependencies.signal?.aborted
       ? (reasonText.includes("shutdown") ? "coordinator_shutdown" : "coordinator_aborted")
       : (fulfilled > 0 ? "coordinator_partial" : "coordinator_failed");
-    await releaseOwnedLeases(
+    leaseReleaseStatus = await releaseOwnedLeases(
       bindings
         .filter((binding) => openLeaseIds.has(binding.packetId))
         .map((binding) => ({
@@ -2264,5 +2295,14 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       remainingJobsByLease,
     );
   }
-  return receipt(fulfilled > 0 ? "partial" : "failed", tasks.length, fulfilled, failureClass);
+  if (fulfillmentDeferred && leaseReleaseStatus === undefined) {
+    leaseReleaseStatus = "release_confirmed";
+  }
+  return receipt(
+    fulfilled > 0 ? "partial" : "failed",
+    tasks.length,
+    fulfilled,
+    failureClass,
+    fulfillmentDeferred ? leaseReleaseStatus : undefined,
+  );
 }

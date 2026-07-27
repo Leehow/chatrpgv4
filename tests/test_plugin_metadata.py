@@ -728,7 +728,15 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert result_contract["status_values"] == [
         "fulfilled", "partial", "idle", "failed",
     ]
-    assert result_contract["optional_fields"] == ["diagnostics"]
+    assert result_contract["optional_fields"] == [
+        "diagnostics", "lease_release",
+    ]
+    assert result_contract["lease_release"] == {
+        "presence": "required_only_for_turn_pending_finalization_deferred",
+        "closed": True,
+        "required_fields": ["status"],
+        "status_values": ["release_confirmed", "ttl_fallback"],
+    }
     diagnostics = result_contract["diagnostics"]
     assert diagnostics["presence"] == (
         "optional_only_when_deterministic_lifecycle_supplies_it"
@@ -798,8 +806,8 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
             "turn_pending_finalization_deferred"
         ],
         "deferred_action": (
-            "release_exact_owned_lease_then_wait_for_normal_post_"
-            "finalization_takeover"
+            "attempt_exact_owned_release_then_wait_for_normal_post_"
+            "finalization_takeover_or_bounded_ttl"
         ),
         "require_status": "failed",
         "require_positive_claimed": True,

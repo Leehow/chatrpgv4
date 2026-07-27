@@ -176,14 +176,19 @@ text, or Keeper prose in the summary.
 
 `turn_pending_finalization_deferred` is produced only by the deterministic Pi
 private lifecycle after canonical fulfillment returns the typed
-`turn_pending_finalization` code and the exact owned lease has been released.
-It is non-retryable within this coordinator task; echo the receipt unchanged
-and leave the durable request for a normal post-finalization takeover.
+`turn_pending_finalization` code. The lifecycle attempts exact owned release
+and includes the closed `lease_release.status`: `release_confirmed` means the
+request is immediately eligible for normal post-finalization takeover;
+`ttl_fallback` means ownership was not confirmed released and bounded lease TTL
+remains the recovery path. It is non-retryable within this coordinator task;
+echo the receipt unchanged.
 
-The only optional top-level field is `diagnostics`. It is allowed only when the
-deterministic lifecycle supplies it; return it unchanged and never construct it
-from provider text or raw error strings. It is a non-empty array of at most four
-closed objects with exactly:
+The optional top-level fields are `diagnostics` and `lease_release`.
+`lease_release` is required only for
+`turn_pending_finalization_deferred` and is otherwise forbidden.
+`diagnostics` is allowed only when the deterministic lifecycle supplies it;
+return it unchanged and never construct it from provider text or raw error
+strings. It is a non-empty array of at most four closed objects with exactly:
 
 {
   "schema_version": 1,

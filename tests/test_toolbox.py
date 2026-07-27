@@ -12133,6 +12133,7 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
 ):
     """Pending finalization releases, but never fulfills or immediately retries."""
     monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
     ws = _opening_component_workspace(tmp_path)
     boot = _run(ws, "progressive.opening_bootstrap", {
         "start_location": {
@@ -12221,9 +12222,40 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
         ws,
         decision_id="finalize-before-source-retakeover",
     )
-    status = _run(ws, "progressive.status")
-    assert status["ok"] is True, status
-    assert status["data"]["background_takeover"] is not None
+    recovery = _run(ws, "progressive.project_opening", {})
+    assert recovery["ok"] is True, recovery
+    assert recovery["data"]["status"] == "source_recovery_ready"
+    assert recovery["data"]["projection_deferred"] is False
+    assert recovery["data"]["retry_required"] is True
+    assert recovery["data"]["lifecycle_states"] == ["runnable"]
+    assert recovery["data"]["normal_next_operation"] == {
+        "operation": "scene.context",
+        "arguments": {},
+    }
+    takeover = recovery["data"]["background_takeover"]
+    assert takeover["next_host_action"]["action"] == (
+        "invoke_coc_dispatch_source_work"
+    )
+
+    context = _run(ws, "scene.context")
+    assert context["ok"] is True, context
+    assert context["data"]["progressive"]["background_takeover"] == takeover
+    repeated_context = _run(ws, "scene.context")
+    assert repeated_context["ok"] is True, repeated_context
+    assert (
+        repeated_context["data"]["progressive"]["background_takeover"]
+        == takeover
+    )
+    coalesced = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": assets.FOREGROUND_OPENING_PURPOSE,
+    })
+    assert coalesced["ok"] is True, coalesced
+    assert coalesced["data"]["job_id"] == packet["requests"][0]["job_id"]
+    assert coalesced["data"]["status"] == "coalesced"
 
 
 def test_opening_setup_source_clock_preserves_relative_precision(

@@ -1190,10 +1190,10 @@ _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
 })
 
 
-def _opening_projection_lifecycle_in_flight(
+def _opening_projection_pacing_available(
     root: Path, campaign_id: str | None,
 ) -> bool:
-    """Allow one typed deferred projection result before required-param gates."""
+    """Allow one typed lifecycle result before required-param gates."""
     if not campaign_id:
         return False
     try:
@@ -1533,7 +1533,7 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
         if (
             missing_params
             and name == "progressive.project_opening"
-            and _opening_projection_lifecycle_in_flight(root, campaign_id)
+            and _opening_projection_pacing_available(root, campaign_id)
         ):
             missing_params = []
         if missing_params:
@@ -14370,9 +14370,9 @@ def _tool_progressive_request_locator_pass(ctx: Ctx, args: dict[str, Any]):
     "progressive.project_opening",
     "Experimental selected-only projection of one durable, current opening pack. "
     "Accepts no pack payload, never compiles alternate starts, and refuses stale "
-    "projection writes after play has begun. While the campaign-owned opening "
-    "source lifecycle is still open, even an incomplete or repeated call is a "
-    "read-only deferred no-op; the watch owns projection.",
+    "projection writes after play has begun. While an exact opening source lease "
+    "has an active owner, even an incomplete or repeated call is a read-only "
+    "deferred no-op; released/runnable work exposes its normal recovery action.",
     {
         "asset_root_id": {
             "type": "string", "required": True, "maxLength": 128,
@@ -14417,7 +14417,11 @@ def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
             "runnable", "leased", "awaiting_cache", "awaiting_scope",
         }
     ]
-    if opening_work:
+    leased_work = [
+        row for row in opening_work
+        if row.get("operational_class") == "leased"
+    ]
+    if leased_work:
         return {
             "status": "source_lifecycle_in_flight",
             "projection_deferred": True,
@@ -14426,16 +14430,63 @@ def _tool_progressive_project_opening(ctx: Ctx, args: dict[str, Any]):
             "projection_owner": "campaign_opening_projection_watch",
             "open_job_ids": [
                 str(row.get("job_id") or "")
+                for row in leased_work
+                if str(row.get("job_id") or "")
+            ],
+            "lifecycle_states": ["leased"],
+        }, [], [
+            "do not repeat project_opening while the exact source lease has "
+            "an active owner; ordinary scene queries and play remain available",
+        ]
+    if opening_work:
+        host_projection = _source_host_work_projection(
+            ctx,
+            root_info["asset_root_id"],
+            all_open_host_work=opening_work,
+            execution_owner="opening_source_coordinator",
+        )
+        classes = sorted({
+            str(row.get("operational_class") or "")
+            for row in opening_work
+        })
+        background_takeover = host_projection.get("background_takeover")
+        source_scope_takeover = host_projection.get("source_scope_takeover")
+        if isinstance(background_takeover, dict):
+            status = "source_recovery_ready"
+        elif isinstance(source_scope_takeover, dict):
+            status = "source_scope_recovery_ready"
+        else:
+            status = "source_recovery_waiting"
+        return {
+            "status": status,
+            "projection_deferred": False,
+            "projection_ready": False,
+            "retry_required": isinstance(
+                background_takeover, dict,
+            ),
+            "open_job_ids": [
+                str(row.get("job_id") or "")
                 for row in opening_work
                 if str(row.get("job_id") or "")
             ],
-            "lifecycle_states": sorted({
-                str(row.get("operational_class") or "")
-                for row in opening_work
-            }),
+            "lifecycle_states": classes,
+            "normal_next_operation": {
+                "operation": "scene.context",
+                "arguments": {},
+            },
+            "host_work": host_projection,
+            **(
+                {"background_takeover": background_takeover}
+                if isinstance(background_takeover, dict) else {}
+            ),
+            **(
+                {"source_scope_takeover": source_scope_takeover}
+                if isinstance(source_scope_takeover, dict) else {}
+            ),
         }, [], [
-            "do not call project_opening or scene.context again for this "
-            "source lifecycle; the campaign watch projects the durable pack",
+            "this source request has no active lease owner; use the returned "
+            "recovery action when present, or continue through the next "
+            "ordinary scene.context without polling progressive.status",
         ]
     selected_arg = _opening_start_selector(
         args.get("start_location_id"),

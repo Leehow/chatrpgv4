@@ -138,7 +138,8 @@
       "design_issue_threshold"
     ],
     "optional_fields": [
-      "diagnostics"
+      "diagnostics",
+      "lease_release"
     ],
     "status_values": [
       "fulfilled",
@@ -245,6 +246,17 @@
         "keeper_prose",
         "campaign_state"
       ]
+    },
+    "lease_release": {
+      "presence": "required_only_for_turn_pending_finalization_deferred",
+      "closed": true,
+      "required_fields": [
+        "status"
+      ],
+      "status_values": [
+        "release_confirmed",
+        "ttl_fallback"
+      ]
     }
   },
   "lifecycle": {
@@ -295,7 +307,7 @@
         "non_retryable_deferred_failure_classes": [
           "turn_pending_finalization_deferred"
         ],
-        "deferred_action": "release_exact_owned_lease_then_wait_for_normal_post_finalization_takeover",
+        "deferred_action": "attempt_exact_owned_release_then_wait_for_normal_post_finalization_takeover_or_bounded_ttl",
         "require_status": "failed",
         "require_positive_claimed": true,
         "require_zero_fulfilled": true,

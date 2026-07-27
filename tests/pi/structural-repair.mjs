@@ -579,6 +579,7 @@ try {
     && deferredLifecycleResult.failure_class
       === "turn_pending_finalization_deferred"
     && deferredLifecycleResult.fulfilled_result_count === 0
+    && deferredLifecycleResult.lease_release.status === "release_confirmed"
     && deferredReleaseCalls.length === 1
     && deferredReleaseCalls[0].arguments.asset_root_id === "asset-fixture"
     && deferredReleaseCalls[0].arguments.executor_id === "pi:test"
@@ -589,6 +590,46 @@ try {
       entry.phase === "release"
       && entry.status === "succeeded"
       && entry.reason === "turn_pending_finalization"
+    )));
+
+  const deferredTtlAudit = [];
+  const deferredTtlResult = await runtime.runCoordinatorLifecycle(
+    coordinatorTask("coord-turn-pending-ttl", 1),
+    {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") {
+          return { data: { dispatch_tasks: [task1] } };
+        }
+        if (args.operation === "progressive.fulfill_host_work") {
+          throw new runtime.CanonicalToolError(
+            "coc_invoke",
+            "turn_pending_finalization",
+            "canonical coc_invoke failed: turn_pending_finalization",
+          );
+        }
+        if (args.operation === "progressive.release_host_work_leases") {
+          throw new Error("release transport unavailable");
+        }
+        return leaseLifecycleSuccess(args);
+      },
+      spawnLeaf: async () => success(result1),
+      onLeaseLifecycle: (entry) => deferredTtlAudit.push(entry),
+    },
+  );
+  check("deferred source lifecycle reports bounded TTL fallback honestly",
+    deferredTtlResult.status === "failed"
+    && deferredTtlResult.failure_class
+      === "turn_pending_finalization_deferred"
+    && deferredTtlResult.lease_release.status === "ttl_fallback"
+    && deferredTtlAudit.some((entry) => (
+      entry.phase === "release"
+      && entry.status === "failed"
+      && entry.reason === "turn_pending_finalization"
+    ))
+    && deferredTtlAudit.some((entry) => (
+      entry.phase === "ttl_fallback"
+      && entry.status === "ttl_fallback"
+      && entry.recovery === "bounded_ttl"
     )));
 
   const COVERAGE_MODES = ["exact", "subset", "mixed", "foreign", "duplicate", "overlap", "malformed"];
