@@ -108,15 +108,15 @@ const consumedReceipt = {
 };
 openingContinuationGate.trackOpeningDispatch(consumedReceipt.packet_id);
 openingContinuationGate.markAgentStart();
-openingContinuationGate.markOpeningProjected();
 const consumedPromise = main.publishCoordinatorTerminal({
   appendEntry: (...args) => consumedAppended.push(args),
   sendMessage: (...args) => consumedSent.push(args),
 }, consumedReceipt, continuedDispatches,
 (dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
 await Promise.resolve();
-const consumedDeferredBeforeFinal = consumedSent.length === 0
+const consumedDeferredWhileAwaiting = consumedSent.length === 0
   && consumedAppended.length === 1;
+openingContinuationGate.markOpeningProjected();
 await emit("message_end", {
   role: "assistant",
   content: [{ type: "text", text: "任意正常桌面叙事。" }],
@@ -132,7 +132,6 @@ const unfinishedReceipt = {
 };
 openingContinuationGate.trackOpeningDispatch(unfinishedReceipt.packet_id);
 openingContinuationGate.markAgentStart();
-openingContinuationGate.markOpeningProjected();
 const unfinishedPromise = main.publishCoordinatorTerminal({
   appendEntry: (...args) => unfinishedAppended.push(args),
   sendMessage: (...args) => unfinishedSent.push(args),
@@ -143,6 +142,30 @@ const unfinishedDeferredBeforeEnd = unfinishedSent.length === 0
   && unfinishedAppended.length === 1;
 openingContinuationGate.markAgentEnd();
 const unfinishedReport = await unfinishedPromise;
+
+const reusedDispatchKey = "coord-opening-session-reuse";
+const staleSent = [];
+const staleAppended = [];
+const staleContinuedDispatches = new Set();
+openingContinuationGate.trackOpeningDispatch(reusedDispatchKey);
+openingContinuationGate.markAgentStart();
+const stalePromise = main.publishCoordinatorTerminal({
+  appendEntry: (...args) => staleAppended.push(args),
+  sendMessage: (...args) => staleSent.push(args),
+}, { ...terminalReceipt, packet_id: reusedDispatchKey }, staleContinuedDispatches,
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+await Promise.resolve();
+openingContinuationGate.reset();
+const currentSent = [];
+const currentAppended = [];
+const currentContinuedDispatches = new Set();
+openingContinuationGate.trackOpeningDispatch(reusedDispatchKey);
+const currentReport = await main.publishCoordinatorTerminal({
+  appendEntry: (...args) => currentAppended.push(args),
+  sendMessage: (...args) => currentSent.push(args),
+}, { ...terminalReceipt, packet_id: reusedDispatchKey }, currentContinuedDispatches,
+(dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
+const staleReport = await stalePromise;
 
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
@@ -172,11 +195,21 @@ process.stdout.write(JSON.stringify({
     awaitingSent: terminalSent.length,
     consumedSent: consumedSent.length,
     consumedAppended: consumedAppended.length,
-    consumedDeferredBeforeFinal,
+    consumedDeferredWhileAwaiting,
     consumedReport,
     unfinishedSent: unfinishedSent.length,
     unfinishedAppended: unfinishedAppended.length,
     unfinishedDeferredBeforeEnd,
     unfinishedReport,
+    sessionReuse: {
+      staleSent: staleSent.length,
+      staleAppended: staleAppended.length,
+      staleReport,
+      staleContinued: staleContinuedDispatches.has(reusedDispatchKey),
+      currentSent: currentSent.length,
+      currentAppended: currentAppended.length,
+      currentReport,
+      currentContinued: currentContinuedDispatches.has(reusedDispatchKey),
+    },
   },
 }));

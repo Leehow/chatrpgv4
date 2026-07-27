@@ -536,7 +536,7 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
             "awaitingSent": 1,
             "consumedSent": 0,
             "consumedAppended": 1,
-            "consumedDeferredBeforeFinal": True,
+            "consumedDeferredWhileAwaiting": True,
             "consumedReport": {
                 "status": "delivered",
                 "append_entry": "delivered",
@@ -551,6 +551,26 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "append_entry": "delivered",
                 "hidden_continuation": "delivered",
                 "player_transcript": "suppressed",
+            },
+            "sessionReuse": {
+                "staleSent": 0,
+                "staleAppended": 1,
+                "staleReport": {
+                    "status": "delivered",
+                    "append_entry": "delivered",
+                    "hidden_continuation": "suppressed_consumed",
+                    "player_transcript": "suppressed",
+                },
+                "staleContinued": True,
+                "currentSent": 1,
+                "currentAppended": 1,
+                "currentReport": {
+                    "status": "delivered",
+                    "append_entry": "delivered",
+                    "hidden_continuation": "delivered",
+                    "player_transcript": "suppressed",
+                },
+                "currentContinued": True,
             },
         },
     }

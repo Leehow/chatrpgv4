@@ -122,7 +122,10 @@ export class OpeningTerminalContinuationGate {
       this.states.delete(dispatchKey);
       return false;
     }
-    if (state !== "projected" || !this.agentActive) {
+    if (
+      (state !== "awaiting" && state !== "projected")
+      || !this.agentActive
+    ) {
       this.states.delete(dispatchKey);
       return true;
     }
@@ -412,7 +415,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   let manager: CoordinatorDispatchManager | null = null;
   let sessionEpoch = 0;
   let sessionClosing = true;
-  const continuedCoordinatorDispatches = new Set<string>();
+  let continuedCoordinatorDispatches = new Set<string>();
   const openingContinuationGate = new OpeningTerminalContinuationGate();
   const isCurrent = (epoch: number) => !sessionClosing && epoch === sessionEpoch;
   const sessionClosed = (dispatchKey?: string): JsonObject => ({
@@ -426,6 +429,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   );
   const coordinatorManager = (epoch: number) => {
     if (!isCurrent(epoch)) throw new Error("Pi source coordinator session is closed");
+    const ownedContinuedDispatches = continuedCoordinatorDispatches;
     return manager ??= overrides.createManager?.() ?? new CoordinatorDispatchManager(
     (exactTask, launch, launchSignal) => spawnPiChild({
       role: "coordinator", task: exactTask,
@@ -434,7 +438,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     (receipt) => publishCoordinatorTerminal(
       pi,
       receipt,
-      continuedCoordinatorDispatches,
+      ownedContinuedDispatches,
       (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
     ),
     (observation) => {
@@ -581,8 +585,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("session_start", () => {
     sessionEpoch += 1;
     sessionClosing = false;
-    continuedCoordinatorDispatches.clear();
     openingContinuationGate.reset();
+    continuedCoordinatorDispatches = new Set<string>();
     // The host owns exact nested coordinator-task dispatch. Keep the
     // fail-closed tool registered for the private manager boundary and probes,
     // but never expose it to the KP model.
