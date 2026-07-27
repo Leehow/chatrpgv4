@@ -369,6 +369,31 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
     assert opening_result["contract_id"] == "coc.foreground-opening-pack.v1"
     assert opening_result["closed"] is True
     assert "player_safe_summary" in opening_result["required_location_fields"]
+    opening_setup = opening_result["opening_setup"]
+    assert opening_setup["start_clock"]["required_fields"] == [
+        "calendar_mode",
+        "local_datetime",
+        "local_date",
+        "timezone",
+        "display",
+        "time_precision",
+        "day_phase_hint",
+    ]
+    assert opening_setup["start_clock"]["forbidden_aliases"] == [
+        "phase", "precision",
+    ]
+    assert opening_setup["start_clock"]["relative_day_phase_template"] == {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+        "display": "<exact-source-supported-display>",
+        "time_precision": "day_phase",
+        "day_phase_hint": "<morning|afternoon|evening|night>",
+    }
+    assert opening_setup["start_clock_source_ref_required_fields"] == [
+        "source_id", "pdf_index",
+    ]
     assert opening_result["materially_present_npc"] == {
         "same_pack": True,
         "required_fields": ["npc_id", "agenda"],
@@ -551,6 +576,10 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "compile exactly one `coc.source-pack-worker.v1` json object",
         "request_purpose=foreground_opening_slice",
         "request.result_contract",
+        "`phase` and `precision` are unsupported aliases",
+        "never abbreviate `day_phase_hint` or `time_precision`",
+        "\"calendar_mode\": \"relative\"",
+        "\"local_datetime\": null",
         "source-bounded immediate agenda",
         "copy `fixed_fields`, `copy_from_request`, and every `empty_defaults` value",
         "semantically replace defaults",

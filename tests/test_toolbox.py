@@ -11748,6 +11748,10 @@ def test_opening_watch_retry_preserves_partial_and_concurrent_scenario_writes(
 @pytest.mark.parametrize("clock", [
     {"foo": "bar"},
     {
+        "phase": "dusk",
+        "precision": "day_phase",
+    },
+    {
         "calendar_mode": "relative",
         "local_datetime": "1925-01-15T20:00:00",
         "local_date": None,

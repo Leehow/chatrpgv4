@@ -158,6 +158,37 @@ try {
   const evidenceJson = JSON.stringify(evidence);
   const immutable = Object.isFrozen(evidence) && Object.isFrozen(evidence.task) && Object.isFrozen(evidence.pages) && Object.isFrozen(evidence.pages[0]);
   const pageProjectionHasPath = Object.hasOwn(evidence.pages[0], "path");
+  const sourceWorkerContract = JSON.parse(await fs.readFile(
+    path.join(root, "plugins/coc-keeper/references/source-pack-worker-v1.json"),
+    "utf8",
+  ));
+  const clockTask = leafTask(
+    "packet-clock-contract", "group-clock-contract",
+    ["job-clock-contract"], page, digest,
+  );
+  clockTask.packet.requests[0].result_contract = (
+    sourceWorkerContract.packet.foreground_opening_slice.result_contract
+  );
+  const clockEvidence = await runtime.buildLeafEvidenceContext(clockTask);
+  const clockContract = (
+    clockEvidence.task.packet.requests[0].result_contract.opening_setup
+      .start_clock
+  );
+  const openingClockContractCarried = (
+    JSON.stringify(clockContract.required_fields) === JSON.stringify([
+      "calendar_mode", "local_datetime", "local_date", "timezone", "display",
+      "time_precision", "day_phase_hint",
+    ])
+    && JSON.stringify(clockContract.forbidden_aliases) === JSON.stringify([
+      "phase", "precision",
+    ])
+    && clockContract.relative_day_phase_template.calendar_mode === "relative"
+    && clockContract.relative_day_phase_template.time_precision === "day_phase"
+    && clockContract.relative_day_phase_template.local_datetime === null
+    && clockContract.relative_day_phase_template.local_date === null
+  );
+  check("opening clock contract survives private leaf evidence injection",
+    openingClockContractCarried);
   const happyProbe = await leafProbe(leafTask("packet-context", "group-context", ["job-context"], page, digest), "happy");
 
   const badHashTask = structuredClone(task1);
@@ -791,6 +822,7 @@ try {
       contract: evidence.contract_id, immutable, pageProjectionHasPath,
       containsNonce: evidenceJson.includes("c".repeat(64)),
       containsSecretKey: evidenceJson.includes("BAIDUOCR_TOKEN"),
+      openingClockContractCarried,
     },
     happyProbe,
     validCliProbe,

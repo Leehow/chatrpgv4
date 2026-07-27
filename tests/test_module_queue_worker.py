@@ -699,6 +699,34 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
         "source_refs",
     ]
     assert result_contract["exact_source_scope"] is True
+    opening_setup = result_contract["opening_setup"]
+    assert opening_setup["start_clock"]["required_fields"] == [
+        "calendar_mode",
+        "local_datetime",
+        "local_date",
+        "timezone",
+        "display",
+        "time_precision",
+        "day_phase_hint",
+    ]
+    assert opening_setup["start_clock"]["optional_fields"] == [
+        "location_id", "day_phase_boundaries",
+    ]
+    assert opening_setup["start_clock"]["forbidden_aliases"] == [
+        "phase", "precision",
+    ]
+    assert opening_setup["start_clock"]["relative_day_phase_template"] == {
+        "calendar_mode": "relative",
+        "local_datetime": None,
+        "local_date": None,
+        "timezone": None,
+        "display": "<exact-source-supported-display>",
+        "time_precision": "day_phase",
+        "day_phase_hint": "<morning|afternoon|evening|night>",
+    }
+    assert opening_setup["start_clock_source_ref_required_fields"] == [
+        "source_id", "pdf_index",
+    ]
     location_pack = result_contract["location_pack"]
     assert location_pack["fixed_fields"] == {
         "parse_state": "partial",

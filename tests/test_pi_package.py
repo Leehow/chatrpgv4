@@ -230,6 +230,7 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
         "pageProjectionHasPath": False,
         "containsNonce": False,
         "containsSecretKey": False,
+        "openingClockContractCarried": True,
     }
     happy = result["happyProbe"]
     assert happy["rawStdoutHasSentinel"] is False

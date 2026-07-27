@@ -89,6 +89,50 @@
           "source_requires": ["start_clock", "start_clock_source_refs"],
           "unresolved_forbids": ["start_clock", "start_clock_source_refs"],
           "source_ref_scope": "exact_requested_pdf_indices",
+          "start_clock_source_ref_required_fields": ["source_id", "pdf_index"],
+          "start_clock": {
+            "required_fields": [
+              "calendar_mode",
+              "local_datetime",
+              "local_date",
+              "timezone",
+              "display",
+              "time_precision",
+              "day_phase_hint"
+            ],
+            "optional_fields": ["location_id", "day_phase_boundaries"],
+            "calendar_mode_values": [
+              "fictional",
+              "gregorian",
+              "julian",
+              "proleptic_gregorian",
+              "relative"
+            ],
+            "time_precision_values": [
+              "date",
+              "day_phase",
+              "exact",
+              "hour",
+              "minute",
+              "unknown"
+            ],
+            "day_phase_hint_values": [
+              "afternoon",
+              "evening",
+              "morning",
+              "night"
+            ],
+            "forbidden_aliases": ["phase", "precision"],
+            "relative_day_phase_template": {
+              "calendar_mode": "relative",
+              "local_datetime": null,
+              "local_date": null,
+              "timezone": null,
+              "display": "<exact-source-supported-display>",
+              "time_precision": "day_phase",
+              "day_phase_hint": "<morning|afternoon|evening|night>"
+            }
+          },
           "precision_rule": "preserve only source-supported precision; never invent a date, day, hour, local_datetime, or calendar year"
         },
         "location_pack": {

@@ -145,6 +145,37 @@ Exact submission/fallback top-level shape:
 `opening_setup` is required only for `kind=partial_opening`; omit it for every
 other request kind.
 
+When the selected opening pages explicitly author only a day phase and not a
+calendar date or clock time, the exact `status=source` shape is:
+
+{
+  "schema_version": 1,
+  "contract_id": "coc.opening-setup-observation.v1",
+  "status": "source",
+  "start_clock": {
+    "calendar_mode": "relative",
+    "local_datetime": null,
+    "local_date": null,
+    "timezone": null,
+    "display": "<exact-source-supported-display>",
+    "time_precision": "day_phase",
+    "day_phase_hint": "<morning|afternoon|evening|night>"
+  },
+  "start_clock_source_refs": [
+    {
+      "source_id": "<exact-request-source-id>",
+      "pdf_index": "<exact-request-pdf-index>"
+    }
+  ]
+}
+
+Copy the exact closed `request.result_contract.opening_setup.start_clock`
+fields, enums, and template. `phase` and `precision` are unsupported aliases;
+never abbreviate `day_phase_hint` or `time_precision`. For other supported
+precision levels, still emit every required field and use explicit nulls
+where the closed contract requires them. Do not infer a calendar field merely
+to fill the shape.
+
 ## Canonical pack field names (emit only these)
 
 ### Common

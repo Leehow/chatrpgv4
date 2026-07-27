@@ -62,6 +62,44 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
             "source_requires": ["start_clock", "start_clock_source_refs"],
             "unresolved_forbids": ["start_clock", "start_clock_source_refs"],
             "source_ref_scope": "exact_requested_pdf_indices",
+            "start_clock_source_ref_required_fields": [
+                "source_id", "pdf_index",
+            ],
+            "start_clock": {
+                "required_fields": [
+                    "calendar_mode",
+                    "local_datetime",
+                    "local_date",
+                    "timezone",
+                    "display",
+                    "time_precision",
+                    "day_phase_hint",
+                ],
+                "optional_fields": [
+                    "location_id", "day_phase_boundaries",
+                ],
+                "calendar_mode_values": sorted(
+                    coc_module_assets.OPENING_CLOCK_CALENDAR_MODES
+                ),
+                "time_precision_values": sorted(
+                    coc_module_assets.OPENING_CLOCK_PRECISIONS
+                ),
+                "day_phase_hint_values": sorted(
+                    coc_module_assets.OPENING_CLOCK_DAY_PHASES
+                ),
+                "forbidden_aliases": ["phase", "precision"],
+                "relative_day_phase_template": {
+                    "calendar_mode": "relative",
+                    "local_datetime": None,
+                    "local_date": None,
+                    "timezone": None,
+                    "display": "<exact-source-supported-display>",
+                    "time_precision": "day_phase",
+                    "day_phase_hint": (
+                        "<morning|afternoon|evening|night>"
+                    ),
+                },
+            },
             "precision_rule": (
                 "preserve only source-supported precision; never invent a "
                 "date, day, hour, local_datetime, or calendar year"
