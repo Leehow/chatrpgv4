@@ -4,6 +4,299 @@
   "engineering_probe": true,
   "acceptance": false,
   "canonical_acceptance": false,
+  "battle_report": false,
+  "promotion_eligible": false,
+  "probe_status": "failed",
+  "overall_verdict": "FAIL",
+  "implementation_commit": "dae608895844377e40c9e252fe7061d54220f03f",
+  "environment": {
+    "host": "pi",
+    "provider": "xai",
+    "model_id": "grok-4.5",
+    "thinking": "low",
+    "hide_thinking_block": true,
+    "transport": "openai-responses"
+  },
+  "identifiers": {
+    "session_id": "pi-grok-hoyk-probe9-20260727",
+    "workspace_root": ".tmp/pi-grok-live-probe9.Iq2uch",
+    "campaign_id": "hoyk-probe9-20260727",
+    "investigator_id": "aldric9",
+    "opening_job_id": "job-2051e02504ef",
+    "deepen_job_id": "job-18896a196964",
+    "opening_packet_id": "source-coordinator-3451a8e64aefc5aec5c5"
+  },
+  "artifacts": {
+    "session_jsonl": {
+      "path": "/private/tmp/chatrpgv4-pi-grok-probe9-agent.w4XrDy/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-probe9.Iq2uch--/2026-07-27T23-21-29-197Z_pi-grok-hoyk-probe9-20260727.jsonl",
+      "lines": 115,
+      "bytes": 491142,
+      "sha256": "1e2ed99b0b9bbb093108d8667fc950dc9cabc6322dbc893ce96704da56147bf9"
+    }
+  },
+  "final_output_contract": {
+    "status": "pass",
+    "finalization_id": "turn-effect-v1:9b16385d7ebbf65915e13d5b03b5e7323b8f164e",
+    "rendered_sha256": "sha256:9b243078541bfe478103bdcabb8cff235fc324377c48d4e2a99ade9169899fc3",
+    "finalizer_session_line": 114,
+    "exact_assistant_session_line": 115,
+    "exact_assistant_match_count": 1,
+    "quiet_window_seconds": 30,
+    "later_output_observed": false,
+    "mismatch_replacement_live_coverage": "not_exercised",
+    "mismatch_replacement_deterministic_test_coverage": true,
+    "coverage_qualification": "The provider itself emitted the exact canonical receipt text, so the host replacement branch was not exercised live."
+  },
+  "opening_source_selection": {
+    "selected_pdf_indices": [3, 4],
+    "shortest_semantically_complete_pdf_indices": [3],
+    "minimal": false,
+    "keeper_secret_visible_to_player": false,
+    "source_window_verdict": "fail_nonminimal"
+  },
+  "opening_coordinator_lifecycle": {
+    "auto_dispatch_observed": true,
+    "claim_calls": 1,
+    "claimed_packet_count": 1,
+    "leaf_task_count": 1,
+    "fulfilled_result_count": 1,
+    "terminal_status": "fulfilled",
+    "project_opening_call_count": 7,
+    "premature_state_mutation_observed": true,
+    "projection_status": "failed",
+    "projection_failure_class": "opening_projection_non_pristine",
+    "canonical_projection_integrated": false,
+    "scenario_locations_empty": true
+  },
+  "subsequent_deepen_lifecycle": {
+    "job_id": "job-18896a196964",
+    "kind": "deepen_location",
+    "job_dispatch_state": "awaiting_scope",
+    "dispatch_attempts": 0,
+    "heterogeneous_family_claim_exercised": false
+  },
+  "player_boundary": {
+    "natural_player_action_count": 1,
+    "natural_player_action_session_line": 85,
+    "source_secrecy": "pass",
+    "visible_tool_or_operational_leakage": false,
+    "opening_fidelity": "fail",
+    "source_identity_fidelity": "fail",
+    "state_fiction_fidelity": "fail",
+    "compound_action_uptake": "fail_partial"
+  },
+  "host_experience_failures": [
+    {
+      "kind": "nonminimal_opening_window",
+      "selected_pdf_indices": [3, 4],
+      "shortest_semantically_complete_pdf_indices": [3]
+    },
+    {
+      "kind": "premature_played_state_mutation",
+      "observation": "The Keeper moved the scene and recorded table-opening evidence while canonical source work was still in flight."
+    },
+    {
+      "kind": "canonical_projection_non_pristine",
+      "project_opening_call_count": 7,
+      "failure_class": "opening_projection_non_pristine"
+    },
+    {
+      "kind": "authored_opening_omission",
+      "observation": "The visible opening skipped the Boniface audience, apology scroll, named recipient, sacred-tree dispute, and substantive mission terms."
+    },
+    {
+      "kind": "source_identity_and_mission_drift",
+      "expected_recipient": "Syl Greybard",
+      "visible_recipient": "Dreikste or unspecified related people"
+    },
+    {
+      "kind": "clock_and_fiction_divergence",
+      "authoritative_time": "1925-01-15T20:20",
+      "visible_source_time": "December winter morning"
+    },
+    {
+      "kind": "partial_compound_action_uptake",
+      "requested_travel_minutes": 120,
+      "authoritative_elapsed_minutes": 20,
+      "final_location_id": "sherborne-castle-approach"
+    },
+    {
+      "kind": "tool_efficiency_and_recovery",
+      "observation": "Seven projection calls and multiple malformed or unnecessary operational calls preceded the one successful finalization."
+    }
+  ],
+  "bounded_conclusion": {
+    "proves": [
+      "The real Pi Keeper stayed on xai/grok-4.5 with low thinking and a hidden thinking block.",
+      "The FIX9 observable final-output contract emitted the successful finalizer receipt exactly once and stayed quiet for 30 seconds.",
+      "Exactly one natural player action was processed without visible source secrets, tool envelopes, thinking, or operational text.",
+      "The automatic opening source-coordinator packet claimed and fulfilled once."
+    ],
+    "does_not_prove": [
+      "Canonical or window-equivalent acceptance.",
+      "A battle report or promotion eligibility.",
+      "Live mismatch-replacement branch coverage.",
+      "Minimal opening source selection.",
+      "Canonical opening projection or source/state/action fidelity.",
+      "Heterogeneous-family claim selection.",
+      "Full product parity."
+    ]
+  },
+  "preserved_openai_probe_evidence": {
+    "path": "tests/pi/real-lifecycle-evidence.json",
+    "sha256": "64da666e26c635ccc0eff9ec0fdf7451f8d6e22c1f8c0e3cea6ef3ce56419449",
+    "engineering_probe": true,
+    "acceptance": false,
+    "provider": "coding-relay",
+    "model_id": "gpt-5.6-luna",
+    "thinking": "low",
+    "preserved_unchanged": true
+  },
+  "prior_probes": [
+    {
+      "schema_version": 1,
+      "probe_kind": "pi_grok_host_experience_probe",
+      "revision_label": "FIX8",
+      "engineering_probe": true,
+      "acceptance": false,
+      "canonical_acceptance": false,
+      "promotion_eligible": false,
+      "probe_status": "failed",
+      "overall_verdict": "FAIL",
+      "audited_commit": "fb79245f2201873b741962bec2cd5aa4650d656e",
+      "environment": {
+        "host": "pi",
+        "provider": "xai",
+        "model_id": "grok-4.5",
+        "thinking": "low",
+        "hide_thinking_block": true,
+        "transport": "openai-responses"
+      },
+      "runs": [
+        {
+          "name": "probe_a",
+          "workspace_root": ".tmp/pi-grok-live-fix8.Sv52ax",
+          "campaign_id": "hoyk-pi-grok-fix8-20260727",
+          "session_jsonl": {
+            "path": "/private/tmp/chatrpgv4-pi-grok-fix8-agent.4UwuM0/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-fix8.Sv52ax--/2026-07-27T22-59-47-598Z_pi-grok-hoyk-fix8-20260727.jsonl",
+            "lines": 61,
+            "bytes": 268768,
+            "sha256": "e15db0d4e0b7f936bee105e824e46722f78ac421b7de705a0226ae40a8f3ce95"
+          },
+          "verdict": "EXPECTED_FAIL",
+          "natural_player_action_count": 0,
+          "failure_classes": [
+            "missing_progressive_ocr_command",
+            "campaign_identity_drift",
+            "workspace_identity_drift"
+          ]
+        },
+        {
+          "name": "probe_b",
+          "workspace_root": ".tmp/pi-grok-live-fix8b.whkOMy",
+          "campaign_id": "hoyk-pi-grok-fix8b-20260727",
+          "session_jsonl": {
+            "path": "/private/tmp/chatrpgv4-pi-grok-fix8b-agent.Khnddt/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-fix8b.whkOMy--/2026-07-27T23-02-39-021Z_pi-grok-hoyk-fix8b-20260727.jsonl",
+            "lines": 44,
+            "bytes": 218241,
+            "sha256": "eae7d241e5b312988dc32fd52367fd6f3b2bcac62878585a3711dc36acb7490d"
+          },
+          "verdict": "EXPECTED_FAIL",
+          "natural_player_action_count": 0,
+          "failure_classes": [
+            "campaign_identity_drift",
+            "workspace_identity_drift"
+          ]
+        },
+        {
+          "name": "probe_c",
+          "workspace_root": ".tmp/pi-grok-live-probe8c.lxaGjY",
+          "campaign_id": "hoyk-probe8c-20260727",
+          "investigator_id": "aldric8c",
+          "session_jsonl": {
+            "path": "/private/tmp/chatrpgv4-pi-grok-probe8c-agent.AsZX3Y/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-probe8c.lxaGjY--/2026-07-27T23-04-13-447Z_pi-grok-hoyk-probe8c-20260727.jsonl",
+            "lines": 127,
+            "bytes": 573710,
+            "sha256": "b8c001e1fc12c6057cf1e332e30874ec1503c8ac458ca0a99525571d5fe3a301"
+          },
+          "verdict": "FAIL",
+          "natural_player_action_count": 1,
+          "selected_pdf_indices": [3, 4],
+          "shortest_semantically_complete_pdf_indices": [3],
+          "source_secrecy": "pass",
+          "opening_and_continuation_source_bounded": true,
+          "opening_job_fulfilled": true,
+          "deepen_job_fulfilled": true,
+          "canonical_digest_contract": "pass",
+          "nonblocking_terminal_wake_count": 0,
+          "heterogeneous_family_claim_exercised": false,
+          "final_output_contract": {
+            "status": "fail",
+            "finalizer_session_line": 124,
+            "rendered_sha256": "sha256:8fb5826f9160a32e13a9551e60caa98162bbba9bcf15b65f751cab47c13869b5",
+            "wrong_assistant_session_line": 127
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "probe_kind": "pi_grok_host_experience_probe",
+      "revision_label": "FIX7",
+      "engineering_probe": true,
+      "acceptance": false,
+      "canonical_acceptance": false,
+      "promotion_eligible": false,
+      "probe_status": "failed",
+      "overall_verdict": "FAIL",
+      "environment": {
+        "host": "pi",
+        "provider": "xai",
+        "model_id": "grok-4.5",
+        "thinking": "low",
+        "transport": "openai-responses"
+      },
+      "identifiers": {
+        "session_id": "pi-grok-hoyk-fix7-20260727",
+        "workspace_root": ".tmp/pi-grok-live-fix7.vKmUCo",
+        "campaign_id": "hoyk-pi-grok-fix7-20260727",
+        "investigator_id": "inv-aldric-fix7"
+      },
+      "artifacts": {
+        "session_jsonl": {
+          "path": "/private/tmp/chatrpgv4-pi-grok-fix7-agent.43kQca/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-fix7.vKmUCo--/2026-07-27T22-11-21-417Z_pi-grok-hoyk-fix7-20260727.jsonl",
+          "lines": 113,
+          "bytes": 556350,
+          "sha256": "acce5fe480046fc3a6e91fe06525e54e528ef9fb34858349352962a5a5f2d179"
+        }
+      },
+      "selected_pdf_indices": [3, 4],
+      "shortest_semantically_complete_pdf_indices": [3],
+      "source_secrecy": "pass",
+      "opening_coordinator": "fulfilled",
+      "natural_player_action_count": 1,
+      "action_uptake_and_state": "pass",
+      "exact_finalized_text": {
+        "status": "pass",
+        "assistant_session_line": 109,
+        "rendered_sha256": "sha256:09f98a4af3dd62654cff7d27c7adc1fac2224955463f8457eba953b44767a806"
+      },
+      "post_finalization_suppression": {
+        "status": "fail",
+        "redundant_assistant_session_line": 113
+      },
+      "background_recovery": {
+        "first_heterogeneous_claim": "failed_but_leases_released",
+        "later_matching_deepen_claim": "fulfilled",
+        "turn_pending_finalization_deferred_exercised": false
+      }
+    },
+    {
+  "schema_version": 1,
+  "probe_kind": "pi_grok_host_experience_probe",
+  "engineering_probe": true,
+  "acceptance": false,
+  "canonical_acceptance": false,
   "promotion_eligible": false,
   "probe_status": "failed",
   "overall_verdict": "FAIL",
@@ -274,6 +567,8 @@
           "Full source completeness or deep module readiness."
         ]
       }
+    }
+  ]
     }
   ]
 }

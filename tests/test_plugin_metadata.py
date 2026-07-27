@@ -1003,130 +1003,109 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
     assert evidence["promotion_eligible"] is False
     assert evidence["probe_status"] == "failed"
     assert evidence["overall_verdict"] == "FAIL"
+    assert evidence["battle_report"] is False
+    assert evidence["implementation_commit"] == (
+        "dae608895844377e40c9e252fe7061d54220f03f"
+    )
     assert evidence["environment"] == {
         "host": "pi",
         "provider": "xai",
         "model_id": "grok-4.5",
         "thinking": "low",
+        "hide_thinking_block": True,
         "transport": "openai-responses",
     }
     assert evidence["identifiers"] == {
-        "session_id": "pi-grok-hoyk-fix6-20260727",
-        "workspace_root": ".tmp/pi-grok-live-fix6.06JWQc",
-        "campaign_id": "hoyk-pi-grok-fix6-20260727",
-        "investigator_id": "inv-aldric-fix6",
-        "opening_job_id": "job-09919aade6bf",
-        "deepen_job_id": "job-051e4e8546ee",
+        "session_id": "pi-grok-hoyk-probe9-20260727",
+        "workspace_root": ".tmp/pi-grok-live-probe9.Iq2uch",
+        "campaign_id": "hoyk-probe9-20260727",
+        "investigator_id": "aldric9",
+        "opening_job_id": "job-2051e02504ef",
+        "deepen_job_id": "job-18896a196964",
+        "opening_packet_id": "source-coordinator-3451a8e64aefc5aec5c5",
     }
     assert evidence["artifacts"]["session_jsonl"] == {
         "path": (
-            "/private/tmp/chatrpgv4-pi-grok-fix6-agent.BJrPAa/sessions/"
-            "--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-"
-            "fix6.06JWQc--/2026-07-27T20-44-01-302Z_pi-grok-hoyk-"
-            "fix6-20260727.jsonl"
+            "/private/tmp/chatrpgv4-pi-grok-probe9-agent.w4XrDy/sessions/"
+            "--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-probe9."
+            "Iq2uch--/2026-07-27T23-21-29-197Z_pi-grok-hoyk-probe9-"
+            "20260727.jsonl"
         ),
-        "lines": 130,
-        "bytes": 581257,
+        "lines": 115,
+        "bytes": 491142,
         "sha256": (
-            "99394da70c990c61ca4ff68149a1a8be7657ec28b9a3902032fd5e45eb269d98"
+            "1e2ed99b0b9bbb093108d8667fc950dc9cabc6322dbc893ce96704da56147bf9"
         ),
     }
     assert evidence["opening_source_selection"] == {
-        "catalog_complete": True,
-        "cached_candidate_count": 32,
-        "cached_pdf_indices": [
-            0, 1, 2, 3, 4, 5, 6, 7,
-            10, 11, 12, 13, 14, 15, 16, 17,
-            18, 19, 20, 21, 22, 23, 24, 25,
-            26, 27, 28, 29, 30, 31, 32, 33,
-        ],
-        "selected_pdf_indices": [2, 3],
+        "selected_pdf_indices": [3, 4],
         "shortest_semantically_complete_pdf_indices": [3],
-        "keeper_secret_pdf_index_in_selected_window": 2,
-        "keeper_secret_visible_to_kp": True,
         "keeper_secret_visible_to_player": False,
-        "page_4_used_as_accepted_provenance": False,
+        "minimal": False,
+        "source_window_verdict": "fail_nonminimal",
     }
-    assert evidence["first_coordinator_lifecycle"] == {
-        "probe_gate_status": "pass",
+    assert evidence["final_output_contract"] == {
+        "status": "pass",
+        "finalization_id": (
+            "turn-effect-v1:9b16385d7ebbf65915e13d5b03b5e7323b8f164e"
+        ),
+        "rendered_sha256": (
+            "sha256:9b243078541bfe478103bdcabb8cff235fc324377c48d4e2a99"
+            "ade9169899fc3"
+        ),
+        "finalizer_session_line": 114,
+        "exact_assistant_session_line": 115,
+        "exact_assistant_match_count": 1,
+        "quiet_window_seconds": 30,
+        "later_output_observed": False,
+        "mismatch_replacement_live_coverage": "not_exercised",
+        "mismatch_replacement_deterministic_test_coverage": True,
+        "coverage_qualification": (
+            "The provider itself emitted the exact canonical receipt text, "
+            "so the host replacement branch was not exercised live."
+        ),
+    }
+    assert evidence["opening_coordinator_lifecycle"] == {
         "auto_dispatch_observed": True,
-        "claim_observed": True,
-        "lease_observed": True,
-        "fulfill_observed": True,
+        "claim_calls": 1,
+        "claimed_packet_count": 1,
+        "leaf_task_count": 1,
+        "fulfilled_result_count": 1,
         "terminal_status": "fulfilled",
-        "projection_status": "current",
-        "hidden_reasoning_player_separation_observed": True,
-        "timing_ms": {
-            "bootstrap_result_to_terminal": 40299,
-            "terminal_to_projection": 2793,
-            "projection_to_visible_opening": 46933,
-        },
+        "project_opening_call_count": 7,
+        "premature_state_mutation_observed": True,
+        "projection_status": "failed",
+        "projection_failure_class": "opening_projection_non_pristine",
+        "canonical_projection_integrated": False,
+        "scenario_locations_empty": True,
     }
     assert evidence["subsequent_deepen_lifecycle"] == {
-        "probe_gate_status": "fail",
-        "request_repeated": True,
-        "terminal_status": "failed",
-        "failure_class": "claim_failed",
-        "job_id": "job-051e4e8546ee",
-        "job_dispatch_state": "leased",
-        "lease_remained_open": True,
-        "fulfillment_rejection": "turn_pending_finalization",
-        "release_failed": True,
-        "reclaim_failed": True,
-        "spoiler_bearing_pack_fulfilled": False,
-        "spoiler_bearing_pack_visible_to_player": False,
+        "job_id": "job-18896a196964",
+        "kind": "deepen_location",
+        "job_dispatch_state": "awaiting_scope",
+        "dispatch_attempts": 0,
+        "heterogeneous_family_claim_exercised": False,
     }
-    assert evidence["latency_ms"] == {
-        "probe_request_to_first_visible_opening": 127645,
-        "player_action_to_finalized_visible_continuation": 110150,
-    }
-    assert [
-        {
-            key: value
-            for key, value in failure.items()
-            if key != "observation"
-        }
-        for failure in evidence["host_experience_failures"]
-    ] == [
-        {
-            "kind": "nonminimal_secret_bearing_opening_window",
-            "selected_pdf_indices": [2, 3],
-            "shortest_semantically_complete_pdf_indices": [3],
-        },
-        {
-            "kind": "prepare_call_discipline",
-            "malformed_call_session_lines": [30, 31],
-        },
-        {
-            "kind": "premature_lifecycle_interference",
-            "project_opening_call_count_while_leased": 2,
-            "scene_context_call_count_while_leased": 1,
-        },
-        {
-            "kind": "unaccepted_page_provenance",
-            "unsupported_pdf_index": 4,
-            "unsupported_fiction": [
-                "weather",
-                "two_foot_snow",
-                "two_hour_travel",
-            ],
-        },
-        {
-            "kind": "incorrect_horse_allocation",
-            "investigator_id": "inv-aldric-fix6",
-        },
-        {
-            "kind": "failed_deepen_with_leased_job",
-            "job_id": "job-051e4e8546ee",
-            "failure_class": "claim_failed",
-        },
-        {
-            "kind": "redundant_final_prompt",
-            "session_line": 130,
-        },
-        {
-            "kind": "tool_efficiency_and_recovery",
-        },
+    assert evidence["player_boundary"]["natural_player_action_count"] == 1
+    assert evidence["player_boundary"]["source_secrecy"] == "pass"
+    assert evidence["player_boundary"][
+        "visible_tool_or_operational_leakage"
+    ] is False
+    assert evidence["player_boundary"]["opening_fidelity"] == "fail"
+    assert evidence["player_boundary"]["compound_action_uptake"] == (
+        "fail_partial"
+    )
+    assert [failure["kind"] for failure in evidence[
+        "host_experience_failures"
+    ]] == [
+        "nonminimal_opening_window",
+        "premature_played_state_mutation",
+        "canonical_projection_non_pristine",
+        "authored_opening_omission",
+        "source_identity_and_mission_drift",
+        "clock_and_fiction_divergence",
+        "partial_compound_action_uptake",
+        "tool_efficiency_and_recovery",
     ]
     legacy_path = ROOT / "tests/pi/real-lifecycle-evidence.json"
     legacy = _json(legacy_path)
@@ -1140,9 +1119,39 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
     assert hashlib.sha256(legacy_path.read_bytes()).hexdigest() == (
         "64da666e26c635ccc0eff9ec0fdf7451f8d6e22c1f8c0e3cea6ef3ce56419449"
     )
+    assert evidence["preserved_openai_probe_evidence"] == {
+        "path": "tests/pi/real-lifecycle-evidence.json",
+        "sha256": (
+            "64da666e26c635ccc0eff9ec0fdf7451f8d6e22c1f8c0e3cea6ef3ce56419449"
+        ),
+        "engineering_probe": True,
+        "acceptance": False,
+        "provider": "coding-relay",
+        "model_id": "gpt-5.6-luna",
+        "thinking": "low",
+        "preserved_unchanged": True,
+    }
     assert evidence_ref != "tests/pi/real-lifecycle-evidence.json"
+    fix8, fix7, fix6 = evidence["prior_probes"]
+    assert fix8["revision_label"] == "FIX8"
+    assert [run["session_jsonl"]["sha256"] for run in fix8["runs"]] == [
+        "e15db0d4e0b7f936bee105e824e46722f78ac421b7de705a0226ae40a8f3ce95",
+        "eae7d241e5b312988dc32fd52367fd6f3b2bcac62878585a3711dc36acb7490d",
+        "b8c001e1fc12c6057cf1e332e30874ec1503c8ac458ca0a99525571d5fe3a301",
+    ]
+    assert fix8["runs"][2]["final_output_contract"]["status"] == "fail"
+    assert fix8["runs"][2]["nonblocking_terminal_wake_count"] == 0
+    assert fix7["revision_label"] == "FIX7"
+    assert fix7["artifacts"]["session_jsonl"]["sha256"] == (
+        "acce5fe480046fc3a6e91fe06525e54e528ef9fb34858349352962a5a5f2d179"
+    )
+    assert fix7["post_finalization_suppression"]["status"] == "fail"
+    assert fix6["identifiers"]["session_id"] == "pi-grok-hoyk-fix6-20260727"
+    assert fix6["artifacts"]["session_jsonl"]["sha256"] == (
+        "99394da70c990c61ca4ff68149a1a8be7657ec28b9a3902032fd5e45eb269d98"
+    )
     assert (
-        evidence["prior_probes"][0]["artifacts"]["session_jsonl"]["sha256"]
+        fix6["prior_probes"][0]["artifacts"]["session_jsonl"]["sha256"]
         == "7b5945384523b8c4e4e7ce6f991dd679f50bd7ed814552b139d3ed122ea7aed3"
     )
     readme = _text(PLUGIN_ROOT / "pi" / "README.md")
