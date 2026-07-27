@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -981,6 +982,7 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
     assert evidence["canonical_acceptance"] is False
     assert evidence["promotion_eligible"] is False
     assert evidence["probe_status"] == "failed"
+    assert evidence["overall_verdict"] == "FAIL"
     assert evidence["environment"] == {
         "host": "pi",
         "provider": "xai",
@@ -988,20 +990,61 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
         "thinking": "low",
         "transport": "openai-responses",
     }
-    assert evidence["coordinator_lifecycle"]["status"] == "fulfilled"
-    assert evidence["coordinator_lifecycle"]["claim_calls"] == 1
-    assert evidence["coordinator_lifecycle"]["fulfilled_result_count"] == 1
+    assert evidence["opening_source_selection"] == {
+        "catalog_complete": True,
+        "cached_candidate_count": 32,
+        "cached_pdf_indices": [
+            0, 1, 2, 3, 4, 5, 6, 7,
+            10, 11, 12, 13, 14, 15, 16, 17,
+            18, 19, 20, 21, 22, 23, 24, 25,
+            26, 27, 28, 29, 30, 31, 32, 33,
+        ],
+        "selected_pdf_indices": [2, 3],
+        "shortest_semantically_complete_pdf_indices": [3],
+        "keeper_secret_pdf_index_in_selected_window": 2,
+        "keeper_secret_visible_to_kp": True,
+        "keeper_secret_visible_to_player": False,
+        "page_4_used_as_accepted_provenance": False,
+    }
+    assert evidence["first_coordinator_lifecycle"]["terminal_status"] == (
+        "fulfilled"
+    )
+    assert evidence["first_coordinator_lifecycle"]["probe_gate_status"] == (
+        "pass"
+    )
+    assert evidence["subsequent_deepen_lifecycle"] == {
+        "probe_gate_status": "fail",
+        "request_repeated": True,
+        "terminal_status": "failed",
+        "failure_class": "claim_failed",
+        "job_id": "job-051e4e8546ee",
+        "job_dispatch_state": "leased",
+        "lease_remained_open": True,
+        "fulfillment_rejection": "turn_pending_finalization",
+        "release_failed": True,
+        "reclaim_failed": True,
+        "spoiler_bearing_pack_fulfilled": False,
+        "spoiler_bearing_pack_visible_to_player": False,
+    }
+    assert evidence["latency_ms"] == {
+        "probe_request_to_first_visible_opening": 127645,
+        "player_action_to_finalized_visible_continuation": 110150,
+    }
     assert {
         failure["kind"]
         for failure in evidence["host_experience_failures"]
     } == {
-        "visible_wait_narration",
-        "authored_opening_omission",
-        "source_clock_contradiction",
-        "identity_drift_error_loop",
-        "missing_player_continuation",
+        "nonminimal_secret_bearing_opening_window",
+        "prepare_call_discipline",
+        "premature_lifecycle_interference",
+        "unaccepted_page_provenance",
+        "incorrect_horse_allocation",
+        "failed_deepen_with_leased_job",
+        "redundant_final_prompt",
+        "tool_efficiency_and_recovery",
     }
-    legacy = _json(ROOT / "tests/pi/real-lifecycle-evidence.json")
+    legacy_path = ROOT / "tests/pi/real-lifecycle-evidence.json"
+    legacy = _json(legacy_path)
     assert legacy["environment"]["model"] == {
         "provider": "coding-relay",
         "model_id": "gpt-5.6-luna",
@@ -1009,9 +1052,18 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
     }
     assert legacy["acceptance"] is False
     assert legacy["engineering_probe"] is True
+    assert hashlib.sha256(legacy_path.read_bytes()).hexdigest() == (
+        "64da666e26c635ccc0eff9ec0fdf7451f8d6e22c1f8c0e3cea6ef3ce56419449"
+    )
     assert evidence_ref != "tests/pi/real-lifecycle-evidence.json"
     assert (
         evidence["artifacts"]["session_jsonl"]["sha256"]
+        == "99394da70c990c61ca4ff68149a1a8be7657ec28b9a3902032fd5e45eb269d98"
+    )
+    assert evidence["artifacts"]["session_jsonl"]["lines"] == 130
+    assert evidence["artifacts"]["session_jsonl"]["bytes"] == 581257
+    assert (
+        evidence["prior_probes"][0]["artifacts"]["session_jsonl"]["sha256"]
         == "7b5945384523b8c4e4e7ce6f991dd679f50bd7ed814552b139d3ed122ea7aed3"
     )
     readme = _text(PLUGIN_ROOT / "pi" / "README.md")

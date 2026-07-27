@@ -6,6 +6,7 @@
   "canonical_acceptance": false,
   "promotion_eligible": false,
   "probe_status": "failed",
+  "overall_verdict": "FAIL",
   "environment": {
     "host": "pi",
     "provider": "xai",
@@ -14,117 +15,265 @@
     "transport": "openai-responses"
   },
   "identifiers": {
-    "session_id": "pi-grok-hoyk-fix4-20260727",
-    "workspace_root": ".tmp/pi-grok-live-fix4.Vwbqd4",
-    "campaign_id": "hoyk-pi-grok-fix4-20260727",
-    "investigator_id": "inv-aldric-fix4",
-    "source_id": "pdf:herald-yellow-king-ocr",
-    "coordinator_submission_id": "source-coordinator-f4fccc6edf9124013a46",
-    "work_group_id": "source-work-4de8bc0072ee0a61",
-    "job_id": "job-34e3f37a2851",
-    "lease_id": "source-lease-bea6a436c77071e60319"
+    "session_id": "pi-grok-hoyk-fix6-20260727",
+    "workspace_root": ".tmp/pi-grok-live-fix6.06JWQc",
+    "campaign_id": "hoyk-pi-grok-fix6-20260727",
+    "investigator_id": "inv-aldric-fix6",
+    "opening_job_id": "job-09919aade6bf",
+    "deepen_job_id": "job-051e4e8546ee"
   },
   "artifacts": {
     "session_jsonl": {
-      "path": "/private/tmp/chatrpgv4-pi-grok-final.EbdOuw/.tmp/pi-grok-no-thinking-home/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-fix4.Vwbqd4--/2026-07-27T19-39-34-715Z_pi-grok-hoyk-fix4-20260727.jsonl",
-      "lines": 82,
-      "bytes": 369151,
-      "sha256": "7b5945384523b8c4e4e7ce6f991dd679f50bd7ed814552b139d3ed122ea7aed3"
-    },
-    "toolbox_call_report": {
-      "path": ".tmp/pi-grok-live-fix4.Vwbqd4/.coc/campaigns/hoyk-pi-grok-fix4-20260727/logs/toolbox-calls.jsonl",
-      "lines": 31,
-      "bytes": 100086,
-      "sha256": "74f833109321acb8a961c07490066e9a1993b0ee5944a79cbea22788b8a07483"
+      "path": "/private/tmp/chatrpgv4-pi-grok-fix6-agent.BJrPAa/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-fix6.06JWQc--/2026-07-27T20-44-01-302Z_pi-grok-hoyk-fix6-20260727.jsonl",
+      "lines": 130,
+      "bytes": 581257,
+      "sha256": "99394da70c990c61ca4ff68149a1a8be7657ec28b9a3902032fd5e45eb269d98"
     }
   },
-  "coordinator_lifecycle": {
-    "status": "fulfilled",
-    "claim_calls": 1,
-    "claimed_packet_count": 1,
-    "leaf_task_count": 1,
-    "fulfilled_result_count": 1,
-    "dispatch_task_count": 1,
-    "dispatch_attempts": 1,
-    "source_dispatch_attempts": 1,
-    "retrying_entries": 0,
-    "failure_class": null,
-    "diagnostics": null,
-    "hidden_terminal_continuation_count": 1,
-    "requested_pdf_indices": [4, 5, 6],
+  "opening_source_selection": {
+    "catalog_complete": true,
+    "cached_candidate_count": 32,
+    "cached_pdf_indices": [
+      0, 1, 2, 3, 4, 5, 6, 7,
+      10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 24, 25,
+      26, 27, 28, 29, 30, 31, 32, 33
+    ],
+    "selected_pdf_indices": [2, 3],
+    "shortest_semantically_complete_pdf_indices": [3],
+    "keeper_secret_pdf_index_in_selected_window": 2,
+    "keeper_secret_visible_to_kp": true,
+    "keeper_secret_visible_to_player": false,
+    "page_4_used_as_accepted_provenance": false
+  },
+  "first_coordinator_lifecycle": {
+    "probe_gate_status": "pass",
+    "auto_dispatch_observed": true,
+    "claim_observed": true,
+    "lease_observed": true,
+    "fulfill_observed": true,
+    "terminal_status": "fulfilled",
+    "projection_status": "current",
+    "hidden_reasoning_player_separation_observed": true,
     "timing_ms": {
-      "source_compile": 44494,
-      "host_request_to_pack": 47350,
-      "dispatch_to_pack": 44515,
-      "repository_put": 17,
-      "auto_dispatch_submission_to_terminal": 49172,
-      "terminal_to_successful_projection": 5363,
-      "terminal_to_visible_opening": 40675,
-      "probe_request_to_visible_opening": 138783
+      "bootstrap_result_to_terminal": 40299,
+      "terminal_to_projection": 2793,
+      "projection_to_visible_opening": 46933
     }
+  },
+  "subsequent_deepen_lifecycle": {
+    "probe_gate_status": "fail",
+    "request_repeated": true,
+    "terminal_status": "failed",
+    "failure_class": "claim_failed",
+    "job_id": "job-051e4e8546ee",
+    "job_dispatch_state": "leased",
+    "lease_remained_open": true,
+    "fulfillment_rejection": "turn_pending_finalization",
+    "release_failed": true,
+    "reclaim_failed": true,
+    "spoiler_bearing_pack_fulfilled": false,
+    "spoiler_bearing_pack_visible_to_player": false
+  },
+  "latency_ms": {
+    "probe_request_to_first_visible_opening": 127645,
+    "player_action_to_finalized_visible_continuation": 110150
   },
   "host_experience_failures": [
     {
-      "kind": "visible_wait_narration",
-      "session_line": 41,
-      "observation": "A player-visible loading or wait status was emitted while the foreground opening was pending."
+      "kind": "nonminimal_secret_bearing_opening_window",
+      "selected_pdf_indices": [2, 3],
+      "shortest_semantically_complete_pdf_indices": [3],
+      "observation": "The KP selected page 2 with the complete page-3 opening, exposing Keeper-only backstory to the KP even though it was not shown to the player."
     },
     {
-      "kind": "authored_opening_omission",
-      "selected_pdf_indices": [4, 5, 6],
-      "missing_authored_premise_pdf_index": 3,
-      "observation": "The selected source window omitted the authored mission opening and began downstream at the village."
+      "kind": "prepare_call_discipline",
+      "malformed_call_session_lines": [30, 31],
+      "observation": "An unnecessary malformed prepare call using pdf_indices occurred between the selector-free catalog call and the corrected selected call."
     },
     {
-      "kind": "source_clock_contradiction",
-      "authoritative_time_precision": "unknown",
-      "authoritative_day_phase_hint": null,
+      "kind": "premature_lifecycle_interference",
+      "project_opening_call_count_while_leased": 2,
+      "scene_context_call_count_while_leased": 1,
+      "observation": "The KP called projection twice and scene context once while the first host job remained leased."
+    },
+    {
+      "kind": "unaccepted_page_provenance",
+      "unsupported_pdf_index": 4,
       "unsupported_fiction": [
-        "night",
-        "moonlight",
-        "active_snowfall",
-        "generic_overdue_tribute_and_lost_contact_mission",
-        "investigator_horse"
+        "weather",
+        "two_foot_snow",
+        "two_hour_travel"
       ],
-      "observation": "Visible prose introduced time, weather, transport, and mission details unsupported by or contradictory to the audited source and clock evidence."
+      "observation": "Visible opening and continuation used page-4 facts even though page 4 was only a catalog hint and was outside the accepted [2,3] window."
     },
     {
-      "kind": "identity_drift_error_loop",
-      "correct_campaign_id": "hoyk-pi-grok-fix4-20260727",
-      "wrong_campaign_id": "hoyk-pi-grok-probe4-20260727",
-      "correct_investigator_id": "inv-aldric-fix4",
-      "wrong_investigator_id": "inv-aldric-probe4",
-      "correct_workspace_root": ".tmp/pi-grok-live-fix4.Vwbqd4",
-      "wrong_workspace_root": ".tmp/pi-grok-live-probe4.Vwbqd4",
-      "wrong_identity_calls": 7,
-      "wrong_campaign_calls": 7,
-      "wrong_investigator_calls": 6,
-      "wrong_workspace_calls": 3,
-      "unknown_campaign_failures": 4,
-      "invalid_root_failures": 3,
-      "observation": "The Keeper continued using wrong stable identities after setup inspection returned the correct campaign and investigator."
+      "kind": "incorrect_horse_allocation",
+      "investigator_id": "inv-aldric-fix6",
+      "observation": "The continuation assigned Aldric his own horse although the sole source support restricts horses to Charlotte and Conrad."
     },
     {
-      "kind": "missing_player_continuation",
-      "player_reply_to_final_error_ms": 76307,
-      "rolls_completed": 0,
-      "state_changes": 0,
-      "turns_finalized": 0,
-      "assistant_text_after_player_reply": 0,
-      "observation": "The player reply received no normal source-backed continuation and the identity loop did not recover."
+      "kind": "failed_deepen_with_leased_job",
+      "job_id": "job-051e4e8546ee",
+      "failure_class": "claim_failed",
+      "observation": "Repeated deepen work terminalized failed while its job remained leased."
+    },
+    {
+      "kind": "redundant_final_prompt",
+      "session_line": 130,
+      "observation": "A second unsolicited meta prompt followed the exact finalized continuation without another player action."
+    },
+    {
+      "kind": "tool_efficiency_and_recovery",
+      "observation": "Early setup errors, malformed preparation, premature projection, duplicate deepen, and four failed or invalid finalization attempts preceded success."
     }
   ],
   "bounded_conclusion": {
     "proves": [
-      "The real Pi Keeper remained on xai/grok-4.5 with low thinking.",
-      "The automatic coordinator claimed once, ran one Grok leaf, fulfilled once, terminalized fulfilled, and sent one hidden continuation."
+      "The real Pi Keeper stayed on xai/grok-4.5 with low thinking.",
+      "The first automatic source-coordinator lifecycle auto-dispatched, claimed, fulfilled, terminalized fulfilled, projected, and continued into one real player action.",
+      "The authored Boniface apology premise reached visible play without a visible Keeper-spoiler, wait, raw-tool, or thinking leak.",
+      "The one player action was durably finalized and its exact rendered continuation was shown."
     ],
     "does_not_prove": [
       "Canonical or window-equivalent acceptance.",
-      "Faithful complete authored opening.",
-      "Player-experience parity.",
-      "A normal source-backed continuation after the player reply.",
-      "Full source completeness or deep module readiness."
+      "Minimal secret-safe opening source selection.",
+      "Accepted-window provenance fidelity.",
+      "Clean subsequent background lifecycle completion.",
+      "Single-response final continuation discipline.",
+      "Full product parity."
     ]
-  }
+  },
+  "prior_probes": [
+    {
+      "schema_version": 1,
+      "probe_kind": "pi_grok_host_experience_probe",
+      "engineering_probe": true,
+      "acceptance": false,
+      "canonical_acceptance": false,
+      "promotion_eligible": false,
+      "probe_status": "failed",
+      "environment": {
+        "host": "pi",
+        "provider": "xai",
+        "model_id": "grok-4.5",
+        "thinking": "low",
+        "transport": "openai-responses"
+      },
+      "identifiers": {
+        "session_id": "pi-grok-hoyk-fix4-20260727",
+        "workspace_root": ".tmp/pi-grok-live-fix4.Vwbqd4",
+        "campaign_id": "hoyk-pi-grok-fix4-20260727",
+        "investigator_id": "inv-aldric-fix4",
+        "source_id": "pdf:herald-yellow-king-ocr",
+        "coordinator_submission_id": "source-coordinator-f4fccc6edf9124013a46",
+        "work_group_id": "source-work-4de8bc0072ee0a61",
+        "job_id": "job-34e3f37a2851",
+        "lease_id": "source-lease-bea6a436c77071e60319"
+      },
+      "artifacts": {
+        "session_jsonl": {
+          "path": "/private/tmp/chatrpgv4-pi-grok-final.EbdOuw/.tmp/pi-grok-no-thinking-home/sessions/--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-fix4.Vwbqd4--/2026-07-27T19-39-34-715Z_pi-grok-hoyk-fix4-20260727.jsonl",
+          "lines": 82,
+          "bytes": 369151,
+          "sha256": "7b5945384523b8c4e4e7ce6f991dd679f50bd7ed814552b139d3ed122ea7aed3"
+        },
+        "toolbox_call_report": {
+          "path": ".tmp/pi-grok-live-fix4.Vwbqd4/.coc/campaigns/hoyk-pi-grok-fix4-20260727/logs/toolbox-calls.jsonl",
+          "lines": 31,
+          "bytes": 100086,
+          "sha256": "74f833109321acb8a961c07490066e9a1993b0ee5944a79cbea22788b8a07483"
+        }
+      },
+      "coordinator_lifecycle": {
+        "status": "fulfilled",
+        "claim_calls": 1,
+        "claimed_packet_count": 1,
+        "leaf_task_count": 1,
+        "fulfilled_result_count": 1,
+        "dispatch_task_count": 1,
+        "dispatch_attempts": 1,
+        "source_dispatch_attempts": 1,
+        "retrying_entries": 0,
+        "failure_class": null,
+        "diagnostics": null,
+        "hidden_terminal_continuation_count": 1,
+        "requested_pdf_indices": [4, 5, 6],
+        "timing_ms": {
+          "source_compile": 44494,
+          "host_request_to_pack": 47350,
+          "dispatch_to_pack": 44515,
+          "repository_put": 17,
+          "auto_dispatch_submission_to_terminal": 49172,
+          "terminal_to_successful_projection": 5363,
+          "terminal_to_visible_opening": 40675,
+          "probe_request_to_visible_opening": 138783
+        }
+      },
+      "host_experience_failures": [
+        {
+          "kind": "visible_wait_narration",
+          "session_line": 41,
+          "observation": "A player-visible loading or wait status was emitted while the foreground opening was pending."
+        },
+        {
+          "kind": "authored_opening_omission",
+          "selected_pdf_indices": [4, 5, 6],
+          "missing_authored_premise_pdf_index": 3,
+          "observation": "The selected source window omitted the authored mission opening and began downstream at the village."
+        },
+        {
+          "kind": "source_clock_contradiction",
+          "authoritative_time_precision": "unknown",
+          "authoritative_day_phase_hint": null,
+          "unsupported_fiction": [
+            "night",
+            "moonlight",
+            "active_snowfall",
+            "generic_overdue_tribute_and_lost_contact_mission",
+            "investigator_horse"
+          ],
+          "observation": "Visible prose introduced time, weather, transport, and mission details unsupported by or contradictory to the audited source and clock evidence."
+        },
+        {
+          "kind": "identity_drift_error_loop",
+          "correct_campaign_id": "hoyk-pi-grok-fix4-20260727",
+          "wrong_campaign_id": "hoyk-pi-grok-probe4-20260727",
+          "correct_investigator_id": "inv-aldric-fix4",
+          "wrong_investigator_id": "inv-aldric-probe4",
+          "correct_workspace_root": ".tmp/pi-grok-live-fix4.Vwbqd4",
+          "wrong_workspace_root": ".tmp/pi-grok-live-probe4.Vwbqd4",
+          "wrong_identity_calls": 7,
+          "wrong_campaign_calls": 7,
+          "wrong_investigator_calls": 6,
+          "wrong_workspace_calls": 3,
+          "unknown_campaign_failures": 4,
+          "invalid_root_failures": 3,
+          "observation": "The Keeper continued using wrong stable identities after setup inspection returned the correct campaign and investigator."
+        },
+        {
+          "kind": "missing_player_continuation",
+          "player_reply_to_final_error_ms": 76307,
+          "rolls_completed": 0,
+          "state_changes": 0,
+          "turns_finalized": 0,
+          "assistant_text_after_player_reply": 0,
+          "observation": "The player reply received no normal source-backed continuation and the identity loop did not recover."
+        }
+      ],
+      "bounded_conclusion": {
+        "proves": [
+          "The real Pi Keeper remained on xai/grok-4.5 with low thinking.",
+          "The automatic coordinator claimed once, ran one Grok leaf, fulfilled once, terminalized fulfilled, and sent one hidden continuation."
+        ],
+        "does_not_prove": [
+          "Canonical or window-equivalent acceptance.",
+          "Faithful complete authored opening.",
+          "Player-experience parity.",
+          "A normal source-backed continuation after the player reply.",
+          "Full source completeness or deep module readiness."
+        ]
+      }
+    }
+  ]
 }
