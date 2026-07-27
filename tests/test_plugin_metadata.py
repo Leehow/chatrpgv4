@@ -990,6 +990,27 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
         "thinking": "low",
         "transport": "openai-responses",
     }
+    assert evidence["identifiers"] == {
+        "session_id": "pi-grok-hoyk-fix6-20260727",
+        "workspace_root": ".tmp/pi-grok-live-fix6.06JWQc",
+        "campaign_id": "hoyk-pi-grok-fix6-20260727",
+        "investigator_id": "inv-aldric-fix6",
+        "opening_job_id": "job-09919aade6bf",
+        "deepen_job_id": "job-051e4e8546ee",
+    }
+    assert evidence["artifacts"]["session_jsonl"] == {
+        "path": (
+            "/private/tmp/chatrpgv4-pi-grok-fix6-agent.BJrPAa/sessions/"
+            "--Users-haoli-leehow-code-chatrpgv4-.tmp-pi-grok-live-"
+            "fix6.06JWQc--/2026-07-27T20-44-01-302Z_pi-grok-hoyk-"
+            "fix6-20260727.jsonl"
+        ),
+        "lines": 130,
+        "bytes": 581257,
+        "sha256": (
+            "99394da70c990c61ca4ff68149a1a8be7657ec28b9a3902032fd5e45eb269d98"
+        ),
+    }
     assert evidence["opening_source_selection"] == {
         "catalog_complete": True,
         "cached_candidate_count": 32,
@@ -1006,12 +1027,21 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
         "keeper_secret_visible_to_player": False,
         "page_4_used_as_accepted_provenance": False,
     }
-    assert evidence["first_coordinator_lifecycle"]["terminal_status"] == (
-        "fulfilled"
-    )
-    assert evidence["first_coordinator_lifecycle"]["probe_gate_status"] == (
-        "pass"
-    )
+    assert evidence["first_coordinator_lifecycle"] == {
+        "probe_gate_status": "pass",
+        "auto_dispatch_observed": True,
+        "claim_observed": True,
+        "lease_observed": True,
+        "fulfill_observed": True,
+        "terminal_status": "fulfilled",
+        "projection_status": "current",
+        "hidden_reasoning_player_separation_observed": True,
+        "timing_ms": {
+            "bootstrap_result_to_terminal": 40299,
+            "terminal_to_projection": 2793,
+            "projection_to_visible_opening": 46933,
+        },
+    }
     assert evidence["subsequent_deepen_lifecycle"] == {
         "probe_gate_status": "fail",
         "request_repeated": True,
@@ -1030,19 +1060,54 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
         "probe_request_to_first_visible_opening": 127645,
         "player_action_to_finalized_visible_continuation": 110150,
     }
-    assert {
-        failure["kind"]
+    assert [
+        {
+            key: value
+            for key, value in failure.items()
+            if key != "observation"
+        }
         for failure in evidence["host_experience_failures"]
-    } == {
-        "nonminimal_secret_bearing_opening_window",
-        "prepare_call_discipline",
-        "premature_lifecycle_interference",
-        "unaccepted_page_provenance",
-        "incorrect_horse_allocation",
-        "failed_deepen_with_leased_job",
-        "redundant_final_prompt",
-        "tool_efficiency_and_recovery",
-    }
+    ] == [
+        {
+            "kind": "nonminimal_secret_bearing_opening_window",
+            "selected_pdf_indices": [2, 3],
+            "shortest_semantically_complete_pdf_indices": [3],
+        },
+        {
+            "kind": "prepare_call_discipline",
+            "malformed_call_session_lines": [30, 31],
+        },
+        {
+            "kind": "premature_lifecycle_interference",
+            "project_opening_call_count_while_leased": 2,
+            "scene_context_call_count_while_leased": 1,
+        },
+        {
+            "kind": "unaccepted_page_provenance",
+            "unsupported_pdf_index": 4,
+            "unsupported_fiction": [
+                "weather",
+                "two_foot_snow",
+                "two_hour_travel",
+            ],
+        },
+        {
+            "kind": "incorrect_horse_allocation",
+            "investigator_id": "inv-aldric-fix6",
+        },
+        {
+            "kind": "failed_deepen_with_leased_job",
+            "job_id": "job-051e4e8546ee",
+            "failure_class": "claim_failed",
+        },
+        {
+            "kind": "redundant_final_prompt",
+            "session_line": 130,
+        },
+        {
+            "kind": "tool_efficiency_and_recovery",
+        },
+    ]
     legacy_path = ROOT / "tests/pi/real-lifecycle-evidence.json"
     legacy = _json(legacy_path)
     assert legacy["environment"]["model"] == {
@@ -1056,12 +1121,6 @@ def test_pi_coordinator_capability_separates_failed_grok_probe_from_promotion():
         "64da666e26c635ccc0eff9ec0fdf7451f8d6e22c1f8c0e3cea6ef3ce56419449"
     )
     assert evidence_ref != "tests/pi/real-lifecycle-evidence.json"
-    assert (
-        evidence["artifacts"]["session_jsonl"]["sha256"]
-        == "99394da70c990c61ca4ff68149a1a8be7657ec28b9a3902032fd5e45eb269d98"
-    )
-    assert evidence["artifacts"]["session_jsonl"]["lines"] == 130
-    assert evidence["artifacts"]["session_jsonl"]["bytes"] == 581257
     assert (
         evidence["prior_probes"][0]["artifacts"]["session_jsonl"]["sha256"]
         == "7b5945384523b8c4e4e7ce6f991dd679f50bd7ed814552b139d3ed122ea7aed3"
