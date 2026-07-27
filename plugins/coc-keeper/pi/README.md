@@ -59,6 +59,7 @@ cat > "$COC_HOME/settings.json" <<EOF
 {
   "defaultProvider": "grok-relay",
   "defaultModel": "grok-4.5",
+  "defaultThinkingLevel": "off",
   "packages": ["$REPO"],
   "theme": "light",
   "quietStartup": true
@@ -99,6 +100,13 @@ Python and headless runtime contracts. The package exposes the canonical
 lazy, session-scoped MCP JSONL child. It also exposes the closed
 `coc_dispatch_source_work` hierarchy and `coc_progressive_ocr` host bridge. It
 never exposes a generic subagent prompt, model, tool, or workspace surface.
+For the Pi main-Keeper profile, `coc_discover` omits
+`progressive.claim_host_work`, `progressive.fulfill_host_work`,
+`progressive.renew_host_work_leases`, and
+`progressive.release_host_work_leases` from exact, domain, and catalog
+discovery. Those operations remain canonical and exactly invocable by the
+private lifecycle; this is a presentation boundary, not a second authorization
+engine.
 
 ### Tool output (TUI fold)
 
@@ -222,6 +230,11 @@ append or next-turn message does not erase a validated completed receipt;
 duplicate diagnostics retain the receipt plus a bounded delivered/partial/
 failed notification status. Session shutdown marks the manager closing before
 termination, rejects new dispatch, and clears only the exact owned child.
+Canonical owner-checked lease renewal and graceful release operations now exist
+in the shared toolbox. Pi heartbeat/shutdown consumption remains pending until
+the private lifecycle integration is component-tested; abrupt termination
+continues to recover through bounded lease TTL. The main KP must never discover
+or invoke claim, fulfill, renew, or release itself.
 
 The repository-root artifact carries the frozen Python project and shared
 runtime. In a clean root-package installation, `mcp/launch` runs that packaged
@@ -230,13 +243,18 @@ directory remains the MCP working directory. The compiler files and resolution
 path are package-tested, but no provider-authenticated cold semantic compile is
 claimed by component tests.
 
-Pi source coordination is capability-enabled (`experimental`) after a real
-isolated Pi 0.81.1 claim -> nested leaves -> exact fulfillment lifecycle probe
-succeeded (`tests/pi/real-lifecycle-probe.mjs`, an engineering-probe only).
-That probe, like the package/component tests, does not establish Pi product
-parity or window-equivalent play acceptance. The dispatch tool still fails
-closed whenever the capability flag is absent. Component probes inject fake
-transports through unshipped tests; there is no production environment bypass.
+Pi source coordination remains capability-enabled as `experimental`. The
+recorded isolated Pi 0.81.1 claim -> nested leaves -> exact fulfillment probe
+used `openai/gpt-5.6-luna`
+(`tests/pi/real-lifecycle-probe.mjs`, engineering-probe only). It is not
+provider evidence for the configured `xai/grok-4.5` Keeper. Typed-thinking
+framing has component coverage, but the requested live Grok run uses thinking
+`off` for speed and spoiler containment. Grok promotion remains pending the
+lead's fresh provider-authenticated lifecycle run. Neither that future probe
+nor the existing component suite alone establishes product parity or
+window-equivalent play acceptance. The dispatch tool still fails closed
+whenever the capability flag is absent; there is no production environment
+bypass.
 
 POSIX child shutdown targets the private process group with SIGTERM followed by
 a bounded SIGKILL escalation. Windows uses direct-child termination and remains

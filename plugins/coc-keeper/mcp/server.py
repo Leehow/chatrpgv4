@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from contextlib import contextmanager
+import hashlib
 import importlib.util
 import json
 import os
@@ -79,6 +80,12 @@ MCP_LISTED_HOTSET: tuple[str, ...] = tuple(contract_archive.MCP_LISTED_HOTSET)
 SOURCE_SUBMIT_PROFILE = "source-submit"
 SOURCE_SUBMIT_TOOL = "submit_source_result"
 SOURCE_RESULT_CONTRACT = "coc.source-pack-worker.v1"
+_PI_KEEPER_PRIVATE_LIFECYCLE_OPERATIONS = frozenset({
+    "progressive.claim_host_work",
+    "progressive.fulfill_host_work",
+    "progressive.renew_host_work_leases",
+    "progressive.release_host_work_leases",
+})
 
 
 def _invoke_arguments_schema(operation: str) -> dict[str, Any]:
@@ -204,6 +211,38 @@ def _host_name() -> str:
 
 def _mcp_profile() -> str:
     return os.environ.get("COC_MCP_PROFILE", "keeper").strip() or "keeper"
+
+
+def _discovery_hidden_operations() -> frozenset[str]:
+    """Return host-private operations omitted from this public discovery view."""
+    if _host_name() == "pi" and _mcp_profile() == "keeper":
+        return _PI_KEEPER_PRIVATE_LIFECYCLE_OPERATIONS
+    return frozenset()
+
+
+def _discovery_projection_hash(
+    *,
+    operation: str | None,
+    domain: str | None,
+    hidden_operations: frozenset[str],
+) -> str:
+    """Bind discovery cache identity to host/profile/query and visibility."""
+    payload = {
+        "schema_version": 1,
+        "archive_content_sha256": CONTRACTS["content_sha256"],
+        "host": _host_name(),
+        "profile": _mcp_profile(),
+        "operation": operation,
+        "domain": domain,
+        "hidden_operations": sorted(hidden_operations),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _default_root() -> Path:
@@ -348,27 +387,25 @@ def _discover(
     domain: str | None = None,
     since_content_sha256: str | None = None,
 ) -> dict[str, Any]:
-    # The archive is hash-bound and immutable at runtime. If the caller
-    # passes the content_sha256 it received last time and it still matches,
-    # return not_modified — saving the full schema/catalog from re-entering
-    # the LLM context (the #1 token consumer: ~16k tokens/run).
-    if (
-        since_content_sha256 is not None
-        and since_content_sha256 == CONTRACTS.get("content_sha256")
-    ):
-        return {
-            "ok": True,
-            "not_modified": True,
-            "content_sha256": CONTRACTS["content_sha256"],
-        }
-
+    hidden_operations = _discovery_hidden_operations()
     if operation:
         operation = _canonical_tool_name(str(operation))
         contract = CONTRACTS["operations"].get(operation)
-        if contract is None:
+        if contract is None or operation in hidden_operations:
             return {
                 "ok": False,
                 "error": {"code": "unknown_tool", "message": operation},
+            }
+        projection_hash = _discovery_projection_hash(
+            operation=operation,
+            domain=None,
+            hidden_operations=hidden_operations,
+        )
+        if since_content_sha256 == projection_hash:
+            return {
+                "ok": True,
+                "not_modified": True,
+                "content_sha256": projection_hash,
             }
         full_tool = contract_archive.mcp_tool_from_contract(
             contract, mcp_name=_mcp_tool_name(operation)
@@ -381,26 +418,55 @@ def _discover(
         return {
             "ok": True,
             "canonical_operation": operation,
-            "content_sha256": CONTRACTS["content_sha256"],
+            "content_sha256": projection_hash,
+            "archive_content_sha256": CONTRACTS["content_sha256"],
             "operation": full_tool,
             "invoke_card": invoke_card,
         }
 
+    visible_contracts = {
+        name: contract
+        for name, contract in CONTRACTS["operations"].items()
+        if name not in hidden_operations
+    }
+    discovery_archive = {
+        **CONTRACTS,
+        "operation_count": len(visible_contracts),
+        "operations": visible_contracts,
+    }
     try:
-        catalog = contract_archive.compact_catalog(CONTRACTS, domain=domain)
+        catalog = contract_archive.compact_catalog(
+            discovery_archive, domain=domain,
+        )
     except contract_archive.ContractArchiveError as exc:
         return {
             "ok": False,
             "error": {"code": exc.code, "message": str(exc)},
         }
+    normalized_domain = domain.strip() if domain is not None else None
+    projection_hash = _discovery_projection_hash(
+        operation=None,
+        domain=normalized_domain,
+        hidden_operations=hidden_operations,
+    )
+    if since_content_sha256 == projection_hash:
+        return {
+            "ok": True,
+            "not_modified": True,
+            "content_sha256": projection_hash,
+        }
     return {
         "ok": True,
         "host": _host_name(),
+        "profile": _mcp_profile(),
+        "content_sha256": projection_hash,
+        "archive_content_sha256": CONTRACTS["content_sha256"],
         "archive": {
             "schema_version": CONTRACTS["schema_version"],
             "kind": CONTRACTS["kind"],
-            "content_sha256": CONTRACTS["content_sha256"],
-            "operation_count": CONTRACTS["operation_count"],
+            "content_sha256": projection_hash,
+            "source_content_sha256": CONTRACTS["content_sha256"],
+            "operation_count": len(visible_contracts),
         },
         **catalog,
     }
@@ -815,6 +881,10 @@ def _source_submit_tools() -> list[dict[str, Any]]:
                                 "type": "object", "additionalProperties": True,
                             },
                             "related_packs": {"type": "array"},
+                            "opening_setup": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            },
                         },
                         "required": ["job_id", "pack", "related_packs"],
                         "additionalProperties": False,

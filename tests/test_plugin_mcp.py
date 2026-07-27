@@ -616,6 +616,9 @@ def test_source_submit_mcp_profile_exposes_only_lease_bound_submit(
     item = schema["properties"]["results"]["items"]
     assert item["additionalProperties"] is False
     assert item["required"] == ["job_id", "pack", "related_packs"]
+    assert set(item["properties"]) == {
+        "job_id", "pack", "related_packs", "opening_setup",
+    }
 
     initialized = server._handle({
         "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {},
@@ -876,8 +879,14 @@ def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
         "job_id", "pack", "related_packs",
     ]
     assert set(worker_result["properties"]) == {
-        "job_id", "pack", "related_packs",
+        "job_id", "pack", "related_packs", "opening_setup",
     }
+    for operation in (
+        "progressive.opening_bootstrap",
+        "progressive.renew_host_work_leases",
+        "progressive.release_host_work_leases",
+    ):
+        assert operation in on_disk["operations"]
     # JSON Schema cannot express the runtime's exclusive preferred/legacy
     # alternatives in this compact registry; the handler enforces the choice.
     assert fulfill_schema["required"] == ["campaign"]
@@ -1023,6 +1032,36 @@ def test_opening_selector_and_page_schemas_match_every_mcp_projection():
             assert (
                 "opening_pdf_indices" in schema.get("required", [])
             ) is (operation == "progressive.request_opening_pack")
+
+    bootstrap = "progressive.opening_bootstrap"
+    bootstrap_registered = archive_mod.input_schema_for_spec(
+        server.toolbox.TOOLS[bootstrap]
+    )
+    bootstrap_discovered = server._call_tool(
+        "coc_discover", {"operation": bootstrap}
+    )["data"]
+    bootstrap_schemas = [
+        bootstrap_registered,
+        rebuilt["operations"][bootstrap]["inputSchema"],
+        on_disk["operations"][bootstrap]["inputSchema"],
+        server.CONTRACTS["operations"][bootstrap]["inputSchema"],
+        bootstrap_discovered["operation"]["inputSchema"],
+        server.INVOKE_ARGUMENT_SCHEMAS[bootstrap],
+        bootstrap_discovered["invoke_card"]["arguments_schema"],
+    ]
+    for schema in bootstrap_schemas:
+        assert schema["required"] == [
+            "campaign", "start_location", "opening_pdf_indices",
+        ] or schema["required"] == [
+            "start_location", "opening_pdf_indices",
+        ]
+        start = schema["properties"]["start_location"]
+        assert start["additionalProperties"] is False
+        assert start["required"] == ["location_id", "title"]
+        assert start["properties"]["location_id"]["pattern"] == safe_id_pattern
+        assert start["properties"]["title"]["maxLength"] == 240
+        for key, value in expected_pages.items():
+            assert schema["properties"]["opening_pdf_indices"][key] == value
 
 
 def test_mcp_contract_archive_check_detects_drift(tmp_path):
@@ -1199,6 +1238,101 @@ def test_coc_discover_operation_and_domain(monkeypatch):
     assert empty["data"]["ok"] is True
     assert empty["data"]["count"] == len(server.toolbox.TOOLS)
     assert empty["data"]["domain_count"] >= 1
+
+
+def test_pi_keeper_discovery_hides_private_source_lifecycle_with_bound_cache(
+    monkeypatch, tmp_path,
+):
+    server = _load_server()
+    hidden = {
+        "progressive.claim_host_work",
+        "progressive.fulfill_host_work",
+        "progressive.renew_host_work_leases",
+        "progressive.release_host_work_leases",
+    }
+    monkeypatch.setenv("COC_HOST", "pi")
+    monkeypatch.setenv("COC_MCP_PROFILE", "keeper")
+
+    exact = server._call_tool(
+        "coc_discover",
+        {"operation": "progressive.claim_host_work"},
+    )["data"]
+    assert exact["ok"] is False
+    assert exact["error"]["code"] == "unknown_tool"
+
+    progressive = server._call_tool(
+        "coc_discover", {"domain": "progressive"},
+    )["data"]
+    progressive_ids = {
+        row["operation"]
+        for row in progressive["domains"][0]["operations"]
+    }
+    assert hidden.isdisjoint(progressive_ids)
+    assert "progressive.opening_bootstrap" in progressive_ids
+
+    catalog = server._call_tool("coc_discover", {})["data"]
+    all_ids = {
+        row["operation"]
+        for domain_row in catalog["domains"]
+        for row in domain_row["operations"]
+    }
+    assert hidden.isdisjoint(all_ids)
+    assert catalog["count"] == len(server.toolbox.TOOLS) - len(hidden)
+    assert catalog["archive"]["operation_count"] == catalog["count"]
+    pi_hash = catalog["content_sha256"]
+    assert pi_hash != server.CONTRACTS["content_sha256"]
+    assert catalog["archive_content_sha256"] == server.CONTRACTS[
+        "content_sha256"
+    ]
+
+    cached = server._call_tool(
+        "coc_discover", {"since_content_sha256": pi_hash},
+    )["data"]
+    assert cached == {
+        "ok": True,
+        "not_modified": True,
+        "content_sha256": pi_hash,
+    }
+    wrong_query_cache = server._call_tool(
+        "coc_discover",
+        {
+            "domain": "progressive",
+            "since_content_sha256": pi_hash,
+        },
+    )["data"]
+    assert wrong_query_cache.get("not_modified") is not True
+    assert wrong_query_cache["content_sha256"] != pi_hash
+
+    # Discovery is a main-KP presentation boundary, not an invocation gate.
+    invoked = server._call_tool(
+        "coc_invoke",
+        {
+            "operation": "progressive.release_host_work_leases",
+            "root": os.fspath(tmp_path),
+            "arguments": {
+                "asset_root_id": "missing-root",
+                "executor_id": "private-coordinator",
+                "lease_ids": ["lease-1"],
+                "reason": "private lifecycle cleanup",
+            },
+        },
+    )
+    assert invoked["tool"] == "progressive.release_host_work_leases"
+    assert invoked["error"]["code"] != "unknown_tool"
+
+    # A manual/headless host retains the complete canonical discovery surface,
+    # and a Pi-view cache token cannot suppress that different projection.
+    monkeypatch.setenv("COC_HOST", "unknown")
+    manual = server._call_tool(
+        "coc_discover",
+        {
+            "operation": "progressive.claim_host_work",
+            "since_content_sha256": pi_hash,
+        },
+    )["data"]
+    assert manual["ok"] is True
+    assert manual.get("not_modified") is not True
+    assert manual["canonical_operation"] == "progressive.claim_host_work"
 
 
 def test_coc_invoke_long_tail_and_structured_errors(monkeypatch, tmp_path):

@@ -31,9 +31,10 @@ mcpInheritance: none
 On Pi, canonical tools are provided by the package rooted at
 `plugins/coc-keeper`. Use only a returned exact `pi_task` with
 `coc_dispatch_source_work`; never construct a generic subagent prompt or pass
-player transcript into source work. Pi coordinator capability is experimental
-after its real isolated lifecycle probe was recorded, but that remains an
-engineering probe, not a parity or acceptance claim.
+player transcript into source work. Pi coordinator capability is experimental;
+the recorded lifecycle probe used `openai/gpt-5.6-luna`, so `xai/grok-4.5`
+provider evidence remains pending the lead's fresh lifecycle run. Component
+coverage is not parity or acceptance.
 
 You are the main live Keeper, not a coding assistant, rules wrapper, report
 generator, or parallel test harness. The canonical COC skills and COC Keeper
@@ -161,46 +162,29 @@ valid) so setup rolls cannot leak into the first ordinary turn. The child never
 chooses a player action, performs rules
 rolls, moves the live scene, or writes final prose.
 
-On hosts without that exact capability, retain the legacy bounded warm start.
-For a fresh source-bundle campaign, warm the opening after `scenario.bind_pdf`
-and before delivering the investigator card that is pending confirmation. If the first
-`progressive.prepare_opening` reports `opening_skeleton_missing` with no source
-window, treat its complete `opening_page_candidates` only as bounded selection
-hints—not provenance—and semantically choose the shortest sufficient accepted
-contiguous current-opening window from `pdf_index`, `review_state`,
-`parse_confidence`, and `grep_anchor_preview`. Prefer one page whenever it alone
-contains the complete current player-facing beat—not merely its heading or
-first paragraph. Include authored date/time, all NPCs materially present, the
-complete briefing/commission/pressure, and an actionable route when those
-exist. A sentence, boxed passage, briefing, or immediate choice continuing over
-the page boundary makes the continuation page mandatory. Three pages is a maximum, never a target:
-never pad forward or backward merely to fill it. Include an adjacent page only
-when its preview semantically shows that necessary current-opening setup crosses
-the page boundary; exclude previews belonging to later travel, overnight beats,
-encounters, appendices, or neighboring scenes. This remains advisory live-KP
-semantic judgment, never keyword/filename code or a hard gate. Reinvoke the
-same operation with those `opening_pdf_indices`;
-while the skeleton is still missing it validates the campaign-bound window and
-returns only the exact hash-bound `cached_page_refs[].path` entries. Exact-read
-only those paths. For the first `progressive.publish_skeleton` submission, copy
-the returned closed `prefilled_template`, replace only its location
-placeholders, and omit every optional source-evidenced field except the narrow
-source-clock exception returned by the contract. When selected pages explicitly
-author the opening date/time or phase, set `start_clock_status=source` and add
-only `start_clock` plus exact `start_clock_source_refs`. If the source gives a
-time/phase but no date, preserve null date/datetime and use a relative,
-day-phase-precision clock with the exact display; never retain the era-default
-night. Then reinvoke
-`prepare_opening` with the selected `start_location_id` and
-`opening_pdf_indices` and continue through its returned cards. Never read a
-source manifest or use Bash, `run_terminal_command`, `find`, `ls`, `rg`,
-globbing, directory enumeration, repository search, speculative page reads, or
-any unselected/all-module body read. The main KP then creates the exact
-contiguous 1–3-page `partial_opening` request.
-On this fallback path the bounded pre-skeleton step is not background work; never read the full
-module, neighboring locations, or appendices. Returned cards remain advisory
-and never create a player-action or output gate; you own source semantics and
-final table prose.
+On hosts without that exact capability, use the bounded canonical warm start
+after `scenario.bind_pdf` and before delivering the investigator card pending
+confirmation. Invoke `progressive.prepare_opening` once, then semantically
+choose the shortest sufficient accepted contiguous 1–3-page current-opening
+window from its complete bounded candidate catalog. Select a structured
+`start_location` with the returned `location_id` and title; previews are
+selection hints, never provenance. Include an adjacent page only when the
+preview shows the current briefing, commission, pressure, immediately present
+NPCs, source clock, or actionable route crosses the boundary. Never pad to
+three, inspect a manifest, exact-read candidate pages in the main KP, or search
+the module.
+
+Invoke `progressive.opening_bootstrap` once with that structured location and
+window. It deterministically publishes the minimal unresolved-clock skeleton,
+projects only pristine sparse state, enqueues the exact `partial_opening`
+request, and records the campaign-owned automatic-projection watch. Do not call
+`progressive.publish_skeleton`, `progressive.request_opening_pack`, or
+`progressive.project_opening` on this path. The isolated source worker exact-
+reads the selected pages and must return the required closed `opening_setup`
+observation: source-supported clock precision with exact window refs, or
+`unresolved` with no invented date/time. Fulfillment applies it before the
+campaign-bound watch projects the opening. These deterministic cards remain
+support for KP judgment, never a player-action, narration, or output gate.
 
 When `scene.context.progressive.source_scope_takeover` is present and
 capability discovery reports `coc_source_scope_locator_v1=true`, spawn the
@@ -213,7 +197,7 @@ retrieving its source output. When `ready_for_background_count=0`, do not call
 normal `background_takeover` after scope resolution.
 
 If the same planner reports `mechanics_locator_pass_pending`, treat its
-`mechanics_locator_page_candidates` as meta-only hints and semantically choose
+`mechanics_locator_page_candidates` as bounded selection hints and semantically choose
 the shortest sufficient contiguous 1–3-page appendix/roster window. Invoke the
 returned `progressive.request_locator_pass` card; do not read those bodies in
 the main KP. This is `idle_warm`, never required for opening, and uses the same
@@ -236,6 +220,15 @@ Never bypass that authored-source lifecycle with `rules.roll`,
 current mechanics-dependent settlement may remain pending under the existing
 `blocking_micro` semantics; this creates no new narrative or output gate, and
 non-dependent live play may continue.
+
+On Pi, stop at the returned `background_takeover`: the package auto-dispatches
+the exact private coordinator. The main KP must not discover or invoke
+`progressive.claim_host_work`, `progressive.fulfill_host_work`,
+`progressive.renew_host_work_leases`, or
+`progressive.release_host_work_leases`, must not author a pack, and must not
+wait or poll. Consume the durable result only through the next naturally needed
+canonical query. The host-specific routes below apply only when their exact
+capability and action are visibly returned to a non-Pi main host.
 
 When `dispatch_mode=coordinator_fanout` and capability discovery returns
 `coc_source_coordinator_v1=true`, status

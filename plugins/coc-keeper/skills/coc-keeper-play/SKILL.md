@@ -161,19 +161,11 @@ output evidence boundary, not a replacement prose engine:
    append to, or rewrite those deterministic segments.
 
 Before a run's opening, draft narrative but not deterministic first impressions.
-Batch `npc.reaction`, then engagement writes, per the typed reference. Call
-`evidence.table_opening` with that narrative, the current `run_id`, and the
-opening `npc.reaction` `roll_id` values as `presented_roll_ids` (`[]` is valid).
-The tool renders APP, Credit Rating, governing value, D100, and level before a
-final `[/in_game]` marker when present, records the exact result, and closes the
-pre-turn setup/opening evidence prefix. Deliver its returned `text` unchanged.
-Ordinary replies remain owned by `state.journal` plus `turn.finalize`; never
-call the opening tool later to consume or hide an ordinary-turn roll.
-The first-contact APP/Credit-Rating public check is a **project extension
-rule**, not a rulebook-mandated flow: it adjusts the NPC's initial attitude
-and early social difficulty, and never locks later NPC behavior — the frozen
-receipt is a starting point, and later relationships evolve through semantic
-KP judgment and `state.npc_update`.
+Batch `npc.reaction`, then engagement writes, and call
+`evidence.table_opening`; deliver its returned `text` unchanged. This closes
+the pre-turn evidence prefix, not an ordinary turn. Full first-contact and
+opening procedure is normative in
+`references/investigators-horror-npc.md`.
 
 ### Always-on product invariants (ordinary turns)
 
@@ -210,45 +202,25 @@ KP judgment and `state.npc_update`.
   silently retcon. Deterministic dice/state remain the hard boundary. Detail:
   same reference as above.
 - **Exceptional results change play.** A critical, fumble, or failed pushed
-  roll needs a nonempty exceptional beat **and** one source-bound substantive
-  effect via `state.exceptional_effect` before `state.journal`. Prose alone
-  cannot close it. This binds every exceptional source, including opposed
-  contests (either side's roll_id) and SAN checks. Choose the effect
-  semantically from the event, never a skill-name lookup. Closed contract:
-  `scene_event` `change_kind` is exactly one of `arrival | escalation |
-  hazard | loss | opening | reversal` — never invent a free-form value;
-  scene_event/condition/restriction take a continuing boundary
-  (`until_scene_end` / `until_time_marker` / `until_condition`), bonus/penalty
-  take `{kind: until_consumed, uses: 1}`, resource_delta takes
-  `{kind: immediate}`. Its `player_visible_impact`, `causal_link`, and any
-  `until_condition` description render verbatim, so write them in the active
-  `play_language`.
+  roll needs a causal exceptional beat and one source-bound substantive effect
+  via `state.exceptional_effect` before journal; prose alone cannot close it.
+  Choose semantically, never by skill-name lookup. The closed effect kinds,
+  boundaries, and causal realization are normative in the compound/finalization
+  reference.
 - **Multi-NPC / first contact / relationships.** A turn may have zero, one, or
   many materially acting NPCs. Each first material investigator/NPC meeting
-  owns a public `npc.reaction` receipt (max APP / Credit Rating); invoke its
-  `record_engagement_operation` directly with the semantic realization. If that
-  beat completes an authored route, include `route_completion`; older evidence uses
-  `state.record_route_completion`, then its returned context card. Never infer either from prose.
-  Later relationship change is KP semantic judgment via `state.npc_update` /
-  scoped rewards — never free-prose keywords such as “help” or “gift.” When a
-  stable authored or improvised NPC actually enters, leaves, or relocates,
-  use `state.npc_presence`; `scene.context` overlays that explicit live state
-  over authored initial `npc_ids`. A prior engagement never proves continued
-  presence. Detail: `references/investigators-horror-npc.md`.
+  owns a public `npc.reaction` receipt and semantic engagement. Later
+  relationships and actual presence change through canonical state, never
+  prose keywords; a prior engagement never proves continued presence. Full
+  procedure: `references/investigators-horror-npc.md`.
 - **Professional inference boundary (always before a check).** Before
   choosing any roll, distinguish **observable phenomenon** from
-  **professional inference or expert action**. A requested conclusion that
-  needs domain expertise (diagnosis, technical identification, causal
-  explanation, specialized procedure) uses the matching professional skill
-  even when its sheet value is lower. Broad perception/search skills may
-  expose only directly observable facts or objects; they must **not** return
-  the same diagnosis, identification, or expert interpretation as a
-  downgraded substitute. Compound declarations that mix observation and
-  expertise keep distinct information layers — never one catch-all roll that
-  leaks professional conclusions. Authored affordances and
-  `rules.skill_describe` remain advisory inputs; this is semantic method/goal
-  adjudication, not a keyword map or hard narrative gate. Operational detail:
-  `references/turn-tooling-and-typed-ops.md` (Check adjudication flow).
+  **professional inference or expert action**. Expertise uses its matching
+  professional skill even when its sheet value is lower; broad perception
+  exposes directly observable facts or objects, not an equivalent diagnosis
+  or downgraded substitute. Keep distinct information layers and choose
+  semantically, never by keyword.
+  Operational detail is in the typed-ops reference.
 - **No free-prose keyword/regex decisions** for player intent, hostility,
   clue relevance, storylet fit, or similar meaning-bearing choices.
 - **No mandatory Director/Storylet calls.** `director.advise`,
@@ -281,15 +253,9 @@ settled finalization.
    never become player prose. Once a bounded lookup establishes that an
    incidental detail is absent, improvise campaign-local canon and journal it;
    do not repeatedly rescan the same corpus.
-   When `scene.context.progressive.source_scope_takeover` is present and host
-   capability discovery says `coc_source_scope_locator_v1=true`, spawn its
-   exact `next_host_action.task` once in a context-free background Codex task.
-   Use the stable `dispatch_key` to avoid duplicate spawns while that job is
-   open. The locator—not this KP—reads the PDF, registers the smallest reviewed
-   page window, and wakes the existing host-work lifecycle. Never wait, poll,
-   retrieve its source output, or call `progressive.claim_host_work` while
-   `ready_for_background_count=0`; continue ordinary play. A later normal
-   `scene.context` will expose `background_takeover` after the locator succeeds.
+   Source-scope and background work follow the exact returned takeover and the
+   routed source lifecycle in `references/turn-tooling-and-typed-ops.md`; never
+   read pages, wait, poll, or retrieve source output in the main KP.
 3. **Checks when failure is interesting.** Apply the always-on professional
    inference boundary before selecting a skill. `rules.roll` /
    `rules.opposed(contest_kind="noncombat")` / `sanity.execute` /
@@ -303,17 +269,13 @@ settled finalization.
    denial: normally offer the returned Push, change the fictional method or
    stakes, or record genuine reset evidence; the KP may still keep the new
    roll when the fiction warrants it. `attempt_pressure` counts same-goal no-progress receipts independently of idle turns; only an authored `retry_policy` plus canonical elapsed time yields a fresh `reset_retry` card.
-   When a source NPC with armed or combat potential is materially present and
-   conflict is semantically approaching, call `mechanics.ensure` early if its
-   profile is not ready. This is not for every NPC or every turn; non-dependent
-   observation, positioning, and parley continue. If `mechanics.ensure` returns
-   `source_work_required`, or `combat.resolve` returns `mechanics_not_ready`,
-   execute the exact returned `background_takeover`: `coordinator_fanout` when
-   its coordinator capability is true, `parent_flat_fanout` when its parent
-   capability is true, otherwise its advertised direct-leaf claim. Never
-   substitute `rules.roll`, `rules.opposed`, copied stub values, or a generic
-   profile. The existing `blocking_micro` semantics apply only to the current
-   mechanics-dependent settlement. This adds no new narrative or output gate.
+   Source-authored mechanics use `mechanics.ensure` before dependence and the
+   exact returned `background_takeover`; never substitute generic dice/profile
+   data. `blocking_micro` applies only to the current mechanics-dependent
+   settlement. On Pi the package auto-dispatches: the main KP must not discover
+   or invoke `progressive.claim_host_work`,
+   `progressive.fulfill_host_work`, `progressive.renew_host_work_leases`, or
+   `progressive.release_host_work_leases`, and must not author packs.
    Reuse authored data and freeze a semantically chosen fallback only when
    source evidence authorizes one. Emergent targets and typed weapon effects
    use `combat.resolve(target_npc_id=..., weapon_effect_ids=...)`. Load

@@ -102,6 +102,22 @@ occupation, and active madness under `party_investigators`; `director.advise`
 plans carry `rule_signal_notes` when a notable credit tier or a depleted Luck
 deserves attention.
 
+### Opening first-impression evidence
+
+Before a run's opening, draft narrative but not deterministic first
+impressions. Batch each independent `npc.reaction`, then batch its engagement
+write. Call `evidence.table_opening` with that narrative, the current `run_id`,
+and the opening reaction `roll_id` values as `presented_roll_ids` (`[]` is
+valid). It renders every public APP/Credit-Rating block, records the exact
+opening, and closes the pre-turn evidence prefix. Deliver its returned `text`
+unchanged. Never call it later to consume or hide an ordinary-turn roll;
+ordinary replies remain `state.journal` plus `turn.finalize`.
+
+This first-impression rule is a project extension rather than a rulebook-
+mandated flow. It adjusts initial attitude and early social difficulty but
+never locks later behavior; the frozen receipt is only a starting point, and
+relationships evolve through semantic KP judgment and `state.npc_update`.
+
 ## Reusable Investigator Selection
 
 When starting a new campaign, restarting a live playtest, or entering

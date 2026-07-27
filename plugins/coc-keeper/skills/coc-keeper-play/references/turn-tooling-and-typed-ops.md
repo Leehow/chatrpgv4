@@ -352,14 +352,15 @@ depend on the missing numbers may continue. A source/special item still calls
 
 Authored appendix or chapter-end data always wins. If `mechanics.ensure`
 returns `source_work_required`, or `combat.resolve` returns
-`mechanics_not_ready`, immediately invoke `progressive.claim_host_work` and
-spawn its exact returned `dispatch_tasks[0]` as the focused unqualified
-`coc-source-pack-worker` with
-`background=true` before any other host operation. The successful claim has
-already started the lease clock. On a task-return path, forward each exact
-returned `results[i]` once through `progressive.fulfill_host_work` when the
-child completes naturally; never poll or retrieve output. Never bypass the
-request with `rules.roll`,
+`mechanics_not_ready`, consume its exact returned `background_takeover`. On Pi
+the package auto-dispatches the private coordinator; the main KP must not
+discover or invoke `progressive.claim_host_work`,
+`progressive.fulfill_host_work`, `progressive.renew_host_work_leases`, or
+`progressive.release_host_work_leases`, and must not author a pack. On another
+host, execute only the exact capability-selected claim/spawn or coordinator
+action. A task-return fallback exact-forwards each unchanged `results[i]` once
+on natural completion; never poll or retrieve output. Never bypass the request
+with `rules.roll`,
 `rules.opposed`, `rules.damage`, copied stub values, or a generic profile. The
 current mechanics-dependent settlement may remain pending under the existing
 `blocking_micro` semantics; this adds no new narrative or output gate, and
@@ -474,21 +475,31 @@ It cannot read source pages, repair output, retry in the same task, or make KP
 decisions. The KP continues immediately and never retrieves the manager's
 summary. Failure summaries use stable classes: one occurrence may be transient,
 but three observed occurrences of the same class on the same adapter require a
-design review. This escalation is observability, not a runtime or prose gate.
-Task support alone is insufficient; never infer nested MCP access from the host
+design review. This escalation is observability, not a runtime or prose gate,
+and never gates player input. Task support alone is insufficient; never infer
+nested MCP access from the host
 brand, model name, or a successful generic child Task.
 
 During fresh source-bundle setup, begin a pre-confirmation opening warm start
-after `scenario.bind_pdf` and before delivering the investigator card that is
-pending player confirmation. The main KP first performs the bounded
-pre-skeleton semantics itself: use `progressive.prepare_opening` to publish only
-the minimum grounded skeleton, then create its exact accepted contiguous
-1–3-page `partial_opening` request. This minimum-skeleton step is intentionally
-not background work. Do not read the full module, neighboring-location packets,
-or appendix/mechanics pages.
+after `scenario.bind_pdf`. Use `progressive.prepare_opening` only to
+semantically select one structured `{location_id,title}` and the shortest
+sufficient accepted contiguous 1–3-page current-opening window from bounded
+previews. Then invoke `progressive.opening_bootstrap` once. The main KP never
+exact-reads candidate pages, publishes a skeleton, requests a pack, projects
+the opening, or authors/fulfills the pack on this path.
+
+The bootstrap derives an unresolved-clock skeleton, sparsely projects only a
+pristine campaign, queues the exact `partial_opening` request, and records a
+campaign-owned watch. The isolated worker's result must include required
+`coc.opening-setup-observation.v1` `opening_setup`: exact source-supported
+clock precision and request-window refs, or `unresolved` with no clock fields.
+Fulfillment applies it before the exact watch auto-projects. This eliminates
+KP projection ceremony; it does not create a narrative or player-action gate.
 
 After that setup request, or after an enter/dig/mechanics call exposes open host
-work, follow the projection's `dispatch_mode`. One ready group uses
+work, Pi stops at the projection and lets the package auto-dispatch the private
+lifecycle. The main KP performs none of the four claim/fulfill/renew/release
+operations. On other hosts, follow the projection's `dispatch_mode`. One ready group uses
 `direct_single_leaf`: execute its one host-selected `next_host_action` before
 any other host operation. On Codex this spawns the exact small task; the child
 claims and compiles its one packet in the same task, so the parent never leases
@@ -556,8 +567,8 @@ inspect the task, retrieve the pack or compact receipt, or call
 `coc.source-submit-receipt.v1` final output for audit only. Never claim source
 success to the player. A failed submission stays open or leased for existing
 recovery; do not repair or retry it. Consume durable availability only through
-a later naturally needed canonical entity or mechanics query (including the
-required opening projection), never a reassurance query or poll.
+a later naturally needed canonical entity or mechanics query; the campaign
+watch owns opening projection. Never issue a reassurance query or poll.
 
 For a host adapter without the named direct-submit transport, retain the exact
 R28 fallback. On a later real player turn inspect a completed child at most
@@ -577,8 +588,8 @@ again. Subsequent questions must consume the durable pack instead of dispatching
 another page read.
 
 During character setup, unfinished work simply continues while the character
-flow proceeds. If the opening pack is durable at final confirmation, invoke its
-projection and initial-move cards directly and open play. If the host does not
+flow proceeds. If the opening pack is durable at final confirmation, consume
+the already auto-projected opening and its initial-move card. If the host does not
 advertise `coc_source_pack_worker_v1=true`, do not claim for an imaginary child,
 fake a Task, or invent a task ID; keep the exact request durable for honest
 foreground handling. This source lifecycle remains owned by scenario import

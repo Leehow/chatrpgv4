@@ -158,118 +158,40 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    prefix so character-creation rolls cannot leak into the first ordinary turn.
 
    On hosts without that exact capability, retain the scenario-import
-   **pre-confirmation opening warm start** after bind and before delivering the
-   investigator card that is pending player confirmation. The main KP performs
-   only the bounded minimum-skeleton semantics. Character concepts may already
-   have been delivered as an intermediate update; even if the player answers
-   immediately, finish dispatching this minimum opening request before rolling
-   characteristics, creating the investigator, linking it, or rendering its
-   card. If the first
-   `progressive.prepare_opening` reports `opening_skeleton_missing` with no
-   source window, treat its complete `opening_page_candidates` only as bounded
-   selection hints—not provenance—and semantically choose the shortest
-   sufficient accepted contiguous current-opening window from `pdf_index`,
-   `review_state`, `parse_confidence`, and `grep_anchor_preview`. Prefer one
-   page only when it contains the complete current player-facing beat—not just
-   a heading or the first paragraph. Include authored date/time, all NPCs
-   materially present, the complete briefing/commission/pressure, and an
-   actionable route when those exist. A sentence, boxed passage, briefing, or
-   immediate choice continuing over the page boundary makes the continuation
-   page mandatory. Three pages is a
-   maximum, never a target: never pad forward or backward merely to fill it.
-   Include an adjacent page only when its preview semantically shows that
-   necessary current-opening setup crosses the page boundary; exclude previews
-   belonging to later travel, overnight beats, encounters, appendices, or
-   neighboring scenes. This is advisory live-KP semantic judgment, never
-   keyword/filename code or a hard gate. Reinvoke the same operation with those
-   `opening_pdf_indices`; while the skeleton is still missing it
-   validates the campaign-bound window and returns only its exact hash-bound
-   `cached_page_refs[].path` entries. Exact-read only those paths. For the first
-   `progressive.publish_skeleton` submission, copy the returned closed
-   `prefilled_template`, replace only its location placeholders, and omit every
-   optional source-evidenced field except the contract's narrow source-clock
-   exception: when these selected pages explicitly author the opening date/time
-   or phase, set `start_clock_status=source` and add only `start_clock` plus
-   exact `start_clock_source_refs`. When a time/phase is authored without a
-   date, preserve `local_datetime=null` and `local_date=null`; use a relative
-   calendar, `time_precision=day_phase`, a semantic `day_phase_hint`, and the
-   exact source-supported display rather than retaining the era's default date
-   or night phase. Then reinvoke `prepare_opening` with the
-   selected `start_location_id` and `opening_pdf_indices` and continue through
-   its returned cards. Never read a source manifest, use Bash,
-   `run_terminal_command`, `find`, `ls`, `rg`, globbing, directory enumeration,
-   repository search, speculative page reads, or any unselected/all-module body
-   read. Then create the exact contiguous 1–3-page `partial_opening` request.
-   The request response is the first dispatch source: consume its returned
-   `background_takeover` directly. Only when that response lacks a takeover may
-   the KP invoke `progressive.status` exactly once as dispatch acquisition, never
-   as a completion poll or discovery round trip.
+   **pre-confirmation opening warm start** after bind. Invoke
+   `progressive.prepare_opening`, then semantically choose the shortest
+   sufficient accepted contiguous 1–3-page window and one structured
+   `start_location` from its bounded candidate catalog. `grep_anchor_preview`
+   and `text_preview` are selection hints, never provenance; include an adjacent
+   page only when the current briefing, commission, pressure, immediately
+   present NPCs, source clock, or actionable route crosses the boundary. Never
+   pad to three, exact-read candidate pages in the main KP, inspect a manifest,
+   or search unselected/module-wide source.
 
-   Dispatch by the repository-selected `dispatch_mode`. For
-   `direct_single_leaf`, execute the returned host-selected
-   `next_host_action` before any other host operation. On Codex its exact
-   `action=spawn_background_task` task is one context-free background child;
-   do not claim in the parent, because that
-   small child task atomically claims and compiles its one packet, so no lease
-   clock runs during parent reasoning. On a named-submit host the selected
-   action instead claims once and immediately spawns every exact returned task.
-   Do not choose among alternate host routes because none are returned. Add no
-   prefix, suffix, transcript, reconstructed wrapper, or model override. This
-   is the normal path for one ready work group and avoids a manager whose only
-   job would be to create one leaf. During character confirmation do not wait.
-   When that child completes naturally, do not call an output-retrieval tool;
-   forward each exact returned `results[i]` once through
-   `next_host_action.on_natural_completion.operation`; do not rediscover it.
-   If the player has already
-   confirmed and the current opening still is not ready, waiting for that
-   already-running Tier 1 child is the permitted blocking minimum. For
-   `coordinator_fanout`, spawn exactly one
-   background coordinator from the exact
-   `coordinator_dispatch.codex_task` (Codex) or exact coordinator packet
-   (supported custom-agent host); the coordinator is reserved for multiple
-   independent groups. Task support alone is insufficient: require the
-   separately advertised source-worker or coordinator capability matching the
-   selected mode. Retain real task IDs only in volatile host context and do not
-   poll or retrieve output from the main KP. The
-   same dispatch failure may remain transient once; three observed occurrences
-   of the same class are a design issue rather than acceptable model variance.
-   This escalation is diagnostic and never gates player input.
-   The
-   `coc-character` skill does not own this source lifecycle. Never read all
-   module pages, neighboring locations, or appendices for this warm start.
-   Returned cards remain advisory and never create a player-action or output
-   gate; the KP owns source semantics and final table prose.
+   Invoke `progressive.opening_bootstrap` with the structured
+   `{location_id,title}` and selected page indices. This thin canonical
+   operation derives the unresolved-clock skeleton, sparsely projects only a
+   pristine campaign, enqueues the exact `partial_opening` request, and records
+   the campaign-owned automatic-projection watch. The main KP must not call
+   `progressive.publish_skeleton`, `progressive.request_opening_pack`, or
+   `progressive.project_opening` on this path. The isolated worker exact-reads
+   only the selected pages and returns required `opening_setup`: exact
+   source-supported clock precision and refs, or `unresolved` without invented
+   date/time. Fulfillment applies that observation and drains only the exact
+   campaign watch.
 
-   On Grok, the child submits directly and retains its compact strict receipt
-   for audit. The main KP treats the host completion reminder as
-   notification/liveness only: it must not call `get_task_output`,
-   `get_command_or_subagent_output`, wait, poll, inspect, retrieve the pack or
-   receipt, call `progressive.fulfill_host_work`, or claim success to the
-   player. Failed submission stays open or leased for existing recovery; the
-   main KP never repairs or retries it. Consume durable availability only
-   through a later naturally needed canonical entity/mechanics or
-   opening-projection query, never a reassurance query. Other hosts retain the
-   exact unchanged-result fallback.
-   Unfinished work does not delay character flow. A host without an applicable
-   coordinator or direct-child capability must not fake a Task or claim work
-   for an imaginary child.
-
-   If neither the request nor the one acquisition status exposes a takeover,
-   deliver the pending confirmation card without waiting; a later natural
-   `session.resume` or `scene.context` may expose it. Never loop on status.
-   A source-task completion notice is liveness only. When the opening is next
-   actually needed, distinguish the pre-confirmation nonblocking interval from
-   the post-confirmation blocking minimum. If the player has confirmed and the
-   one current opening source task is still running, tell the player that the
-   opening is finishing, keep the host turn alive, and await its natural
-   completion notification within the opening budget. This is the permitted
-   residual Tier 1A wait, not a status poll or task-output retrieval. Do not
-   call `progressive.prepare_opening` while that known source task is still
-   running. After its completion notice, call `progressive.prepare_opening`
-   exactly once and execute its exact returned projection card. Do not guess
-   `progressive.project_opening` arguments, probe it repeatedly, or declare the
-   opening failed merely because the already-running coordinator was not done
-   at character confirmation.
+   Consume the returned `background_takeover` without waiting or polling. On
+   Pi, the package auto-dispatches it and the main KP must not discover or
+   invoke `progressive.claim_host_work`, `progressive.fulfill_host_work`,
+   `progressive.renew_host_work_leases`, or
+   `progressive.release_host_work_leases`, and must never author a pack. Other
+   hosts execute only the exact returned capability-selected action; named
+   submit owns merge, while an explicit natural-completion fallback exact-
+   forwards the unchanged result. A source-task notice is liveness only.
+   Consume durable opening availability through the next naturally needed
+   canonical query; automatic projection removes any KP projection ceremony.
+   Character work continues in parallel, and only an already-running Tier 1
+   minimum may delay the opening after final character confirmation.
 8. Route ordinary play to `coc-keeper-play`.
 9. Route rules questions and challenges to `coc-meta`.
 10. Route combat, chase, sanity, and spell events to their subsystem skills;

@@ -88,6 +88,8 @@
     "coc_source_coordinator_v1": true,
     "coc_source_coordinator_v1_status": "experimental",
     "coc_source_coordinator_v1_adapter": "pi_private_lifecycle",
+    "coc_source_coordinator_v1_provider_evidence": "openai_gpt_5_6_luna_probe_only",
+    "coc_source_coordinator_v1_grok_evidence": "pending_lead_live_lifecycle",
     "max_source_coordinator_leaves": 4,
     "coc_source_parent_fanout_v1": false,
     "coc_source_parent_fanout_v1_status": "unavailable",

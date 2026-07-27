@@ -166,6 +166,28 @@ def test_mcp_hotset_and_no_repeated_full_catalog_guidance():
     assert "do not" in compact and "re-list the entire catalog" in compact
 
 
+def test_pi_progressive_lifecycle_stays_private_and_opening_is_bootstrapped():
+    main = " ".join(_text(MAIN).split()).lower()
+    package = " ".join(_package_text().split()).lower()
+    for operation in (
+        "progressive.claim_host_work",
+        "progressive.fulfill_host_work",
+        "progressive.renew_host_work_leases",
+        "progressive.release_host_work_leases",
+    ):
+        assert operation in main
+    assert "on pi the package auto-dispatches" in main
+    assert "must not discover or invoke" in main
+    for phrase in (
+        "progressive.opening_bootstrap",
+        "coc.opening-setup-observation.v1",
+        "campaign-owned watch",
+        "source-supported clock precision",
+        "main kp never",
+    ):
+        assert phrase in package, phrase
+
+
 def test_package_retains_prior_section_anchors_and_hard_phrases():
     package = _package_text()
     for anchor in PACKAGE_SECTION_ANCHORS:

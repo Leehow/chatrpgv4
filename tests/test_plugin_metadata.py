@@ -773,7 +773,7 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     ).lower()
     for phrase in (
         "`coc_source_coordinator_v1=true`",
-        "`coordinator_dispatch.codex_task`",
+            "`progressive.background_takeover.coordinator_dispatch.codex_task`",
         "`coordinator_fanout`",
         "`parent_flat_fanout`",
         "`coc_source_parent_fanout_v1=true`",
@@ -784,6 +784,44 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "never gates player input",
     ):
         assert phrase in skill_text, phrase
+
+
+def test_pi_coordinator_capability_does_not_claim_grok_provider_evidence():
+    pi = _json(
+        PLUGIN_ROOT / "references" / "host-capabilities.json"
+    )["pi"]
+    assert pi["coc_source_coordinator_v1"] is True
+    assert pi["coc_source_coordinator_v1_status"] == "experimental"
+    assert pi["coc_source_coordinator_v1_provider_evidence"] == (
+        "openai_gpt_5_6_luna_probe_only"
+    )
+    assert pi["coc_source_coordinator_v1_grok_evidence"] == (
+        "pending_lead_live_lifecycle"
+    )
+    readme = _text(PLUGIN_ROOT / "pi" / "README.md")
+    for phrase in (
+        "openai/gpt-5.6-luna",
+        "xai/grok-4.5",
+        '"defaultThinkingLevel": "off"',
+        "must never discover",
+    ):
+        assert phrase in readme
+
+
+def test_pi_ocr_adapter_does_not_produce_source_bundles():
+    adapter = _text(PLUGIN_ROOT / "pi" / "bin" / "coc-ocr-adapter.py")
+    assert 'choices=["status", "fast", "enhance", "export"]' in adapter
+    for forbidden in (
+        "def op_bundle",
+        '"bundle"',
+        "--source",
+        "--max-pages",
+        '"producer": "codex-pdf-skill"',
+        '"printed_page"',
+        '"printed_label"',
+        '"parse_confidence": 0.85',
+    ):
+        assert forbidden not in adapter
 
 
 def test_codex_opening_source_coordinator_is_a_bounded_parallel_document_lane():
@@ -992,11 +1030,11 @@ def test_source_scope_locator_is_bounded_nonblocking_and_prompt_first():
         assert phrase in compact, phrase
 
     play = " ".join(
-        _text(PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md").split()
+        _skill_package_text(PLUGIN_ROOT / "skills" / "coc-keeper-play").split()
     ).lower()
-    assert "`scene.context.progressive.source_scope_takeover`" in play
+    assert "source-scope and background work follow the exact returned takeover" in play
     assert "`ready_for_background_count=0`" in play
-    assert "use the stable `dispatch_key`" in play
+    assert "using the stable `dispatch_key`" in play
 
 
 def test_fresh_raw_pdf_skill_catalog_routes_only_through_coc_main():
@@ -1038,20 +1076,18 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "only after confirmation use `investigator.create`",
         "the card is not an opening gate",
         "pre-confirmation opening warm start",
-        "exact contiguous 1–3-page `partial_opening` request",
-        "`direct_single_leaf`",
-        "host-selected `next_host_action`",
-        "one ready work group",
-        "real task ids only in volatile host context",
-        "host completion reminder as notification/liveness only",
-        "must not call `get_task_output`",
-        "`get_command_or_subagent_output`",
-        "never a reassurance query",
-        "invoke `progressive.status` exactly once as dispatch acquisition",
-        "never loop on status",
-        "keep the host turn alive",
-        "permitted residual tier 1a wait",
-        "declare the opening failed merely because",
+        "`progressive.prepare_opening`",
+        "structured `start_location`",
+        "`progressive.opening_bootstrap`",
+        "campaign-owned automatic-projection watch",
+        "required `opening_setup`",
+        "main kp must not call `progressive.publish_skeleton`",
+        "on pi, the package auto-dispatches",
+        "must not discover or invoke `progressive.claim_host_work`",
+        "`progressive.renew_host_work_leases`",
+        "`progressive.release_host_work_leases`",
+        "named submit owns merge",
+        "character work continues in parallel",
     ):
         assert phrase in main, phrase
 
@@ -1062,34 +1098,18 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
     ).lower()
     for phrase in (
         "pre-confirmation opening warm start",
-        "intentionally **not** described as background work",
-        "host-selected `next_host_action`",
-        "child atomically claims and compiles its packet",
-        "a one-group request must not pay a manager-to-one-leaf hop",
-        "real task ids only in volatile host-session context",
-        "must not read those claimed packet pages itself",
-        "source child submits the complete outer result itself through its named submit-only mcp",
-        "host completion reminder as notification/liveness only",
-        "never call `get_task_output` or `get_command_or_subagent_output`",
-        "retrieve the pack or compact receipt",
-        "invoke `progressive.status` exactly once to acquire dispatch",
-        "request response is authoritative for immediate dispatch",
-        "keep the host turn alive",
-        "only permitted `blocking_micro` dependency",
-        "declare the opening failed merely because",
-        "child retains its compact `coc.source-submit-receipt.v1` final output for audit only",
-        "never claim source success to the player",
-        "naturally needed canonical entity or mechanics query",
-        "never a reassurance query or poll",
-        "`coc-character` owns character semantics and confirmation, not source work",
-        "focused keeper launcher",
-        "without parent task-output retrieval",
-        "add no prefix, suffix, transcript, optional-row request, reconstructed wrapper, or model override",
-        "existing recovery",
-        "retain the exact r28 fallback",
-        "`worker_result=result` object",
-        "never extract or retype `job_id`, `pack`, or `related_packs`",
-        "trust fallback success only when `ok=true` and durable `request_status=fulfilled`",
+        "`progressive.prepare_opening`",
+        "`progressive.opening_bootstrap`",
+        "campaign-owned automatic-projection watch",
+        "`coc.opening-setup-observation.v1` `opening_setup`",
+        "exact window refs and source-supported clock precision",
+        "otherwise it returns `status=unresolved`",
+        "private lifecycle operations hidden from the main-kp discovery surface",
+        "never wait, poll, retrieve source output, or perform a reassurance query",
+        "parent never reconstructs or repairs it",
+        "main kp never calls `project_opening`",
+        "must not fake a task",
+        "grok acceptance must preserve the real host task/completion",
     ):
         assert phrase in scenario, phrase
 
@@ -1097,26 +1117,19 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         _text(PLUGIN_ROOT / "agents" / "coc-keeper-kp.md").split()
     ).lower()
     for phrase in (
-            "`action=spawn_background_task` task runs with `background=true`",
-        "real host task id only in the host session, never module truth",
-        "claimed dispatch task transfers its exact page read",
-        "do not fake a task",
-        "without parent task-output retrieval",
-            "selected serialized task json is the entire child task prompt",
-        "add no prefix, suffix, transcript, optional-row request, or schema hint",
-        "existing recovery",
-        "source child owns submission through its named submit-only mcp",
-        "host completion reminder as notification/liveness only",
-        "never call `get_task_output` or `get_command_or_subagent_output`",
-        "retrieve the pack or compact receipt",
-        "child retains its compact `coc.source-submit-receipt.v1` final output for audit only",
-        "never claim source success to the player",
-        "naturally needed canonical entity or mechanics query",
-        "never issue a reassurance query or poll",
-        "r28-compatible fallback",
-        "`worker_result=result`",
-        "never extract or retype `job_id`, `pack`, or `related_packs`",
-        "trust fallback success only when `ok=true` and durable `request_status=fulfilled`",
+        "`progressive.prepare_opening`",
+        "`progressive.opening_bootstrap`",
+        "campaign-owned automatic-projection watch",
+        "required closed `opening_setup` observation",
+        "source-supported clock precision with exact window refs",
+        "on pi, stop at the returned `background_takeover`",
+        "package auto-dispatches the exact private coordinator",
+        "must not discover or invoke `progressive.claim_host_work`",
+        "`progressive.renew_host_work_leases`",
+        "`progressive.release_host_work_leases`",
+        "must not author a pack",
+        "naturally needed canonical query",
+        "real grok acceptance must use the focused keeper launcher",
     ):
         assert phrase in profile, phrase
 
@@ -1130,30 +1143,17 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         ).split()
     ).lower()
     for phrase in (
-        "claim once only",
-        "focused unqualified `coc-source-pack-worker` with `background=true`",
-        "do not use the plugin-qualified agent",
-        "must not read those exact packet pages itself",
-        "deliver the character confirmation text immediately after spawning and never wait for the child",
-        "only after final character confirmation",
-        "not `coc-character`",
-        "focused keeper launcher",
-        "without parent task-output retrieval",
-        "serialized returned dispatch task json is the entire child task prompt",
-        "add no prefix, suffix, transcript, optional-row request, or schema hint",
-        "existing recovery",
-        "installed-plugin projection's narrow read plus named-submit profile",
-        "host completion reminder as notification/liveness only",
-        "must not call `get_task_output` or `get_command_or_subagent_output`",
-        "retrieve the pack or compact receipt",
-        "child retains its compact `coc.source-submit-receipt.v1` final output for audit only",
-        "never claim source success to the player",
-        "naturally needed canonical entity or mechanics query",
-        "never a reassurance query or poll",
-        "retain the exact r28 fallback",
-        "`worker_result=result`",
-        "never extract or retype `job_id`, `pack`, or `related_packs`",
-        "trust fallback success only when `ok=true` and durable `request_status=fulfilled`",
+        "`progressive.prepare_opening`",
+        "`progressive.opening_bootstrap`",
+        "campaign-owned watch",
+        "`coc.opening-setup-observation.v1` `opening_setup`",
+        "exact source-supported clock precision and request-window refs",
+        "pi stops at the projection",
+        "package auto-dispatch the private lifecycle",
+        "main kp performs none of the four claim/fulfill/renew/release operations",
+        "consume durable availability only through a later naturally needed canonical",
+        "campaign watch owns opening projection",
+        "real grok acceptance uses the focused keeper launcher",
     ):
         assert phrase in tooling, phrase
 
@@ -1190,7 +1190,7 @@ def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
         ).split()
     ).lower()
 
-    for surface in (profile, play, tooling, scenario):
+    for surface in (profile, tooling, scenario):
         for phrase in (
             "materially present",
             "conflict is semantically approaching",
@@ -1206,9 +1206,24 @@ def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
         ):
             assert phrase in surface, phrase
 
-    for surface in (profile, tooling, scenario):
+    for phrase in (
+        "`mechanics.ensure`",
+        "exact returned `background_takeover`",
+        "never substitute generic dice/profile data",
+        "`blocking_micro`",
+        "on pi the package auto-dispatches",
+        "`progressive.claim_host_work`",
+        "`progressive.fulfill_host_work`",
+        "`progressive.renew_host_work_leases`",
+        "`progressive.release_host_work_leases`",
+    ):
+        assert phrase in play, phrase
+
+    for surface in (profile, tooling):
         assert "`progressive.claim_host_work`" in surface
         assert "dispatch_mode" in surface
+    assert "`progressive.claim_host_work`" in scenario
+    assert "exact capability-selected action" in scenario
 
     for surface in (profile, tooling, scenario, combat):
         for phrase in (
@@ -1775,15 +1790,12 @@ def test_keeper_play_professional_inference_boundary_is_always_on():
         "directly observable facts or objects",
         "downgraded substitute",
         "distinct information layers",
-        "not a keyword map or hard narrative gate",
     ):
         assert phrase in play_main, phrase
     # Main skill must reject general observation as expert-conclusion substitute.
-    assert "must **not** return the same diagnosis" in play_main or (
-        "must not return the same diagnosis" in play_main
-    )
-    assert "professional conclusions" in play_main
-    assert "check adjudication flow" in play_main
+    assert "must not emit the same diagnosis" in tooling
+    assert "professional conclusion" in tooling
+    assert "check adjudication flow" in tooling
     # Orientation points KP at the boundary before skill selection.
     assert "professional inference boundary before selecting a skill" in play_main
 

@@ -132,10 +132,18 @@ Exact submission/fallback top-level shape:
     {
       "job_id": "<exact request job_id>",
       "pack": {},
-      "related_packs": []
+      "related_packs": [],
+      "opening_setup": {
+        "schema_version": 1,
+        "contract_id": "coc.opening-setup-observation.v1",
+        "status": "unresolved"
+      }
     }
   ]
 }
+
+`opening_setup` is required only for `kind=partial_opening`; omit it for every
+other request kind.
 
 ## Canonical pack field names (emit only these)
 
@@ -186,8 +194,19 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
   present NPC pairs. Never assert a present NPC without both its same-pack
   `npc_id` and source-bounded immediate agenda. Use `affordances` for
   player-usable courses of action; use `scene_edges` only when the selected
-  source actually establishes a destination location. Do not infer a clock,
-  route, person, or fact that the reviewed source does not support.
+  source actually establishes a destination location. Do not infer a route,
+  person, fact, date, or clock precision that the reviewed source does not
+  support.
+
+  The same result row must include the closed
+  `coc.opening-setup-observation.v1` `opening_setup`. Use `status=source` only
+  when the selected pages explicitly establish the opening clock; then copy
+  exact request-bound `{source_id,pdf_index}` refs and preserve only supported
+  precision. A month, season, or day phase never authorizes an invented day,
+  year, minute, timezone, `local_date`, or `local_datetime`. Use
+  `status=unresolved` with no clock fields when the exact window does not
+  establish one. This observation is transient fulfillment metadata, never a
+  field inside the location pack.
 
   Before returning `status=usable`, perform a semantic opening-completeness
   pass over the whole selected window: current situation; authored choices or

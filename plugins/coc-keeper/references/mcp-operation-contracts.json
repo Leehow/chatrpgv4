@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:e60c130b45354a20747d2fb9b31337cba50ad2d34d227e8789c05d530b9765a1",
+  "content_sha256": "sha256:db24611081eb613550c9c193146391a633fbb5e2416b828b3614d48f12bd9c4d",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 95,
+  "operation_count": 98,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -1003,6 +1003,11 @@
             "description": "legacy explicit job id; mutually exclusive with worker_result",
             "type": "string"
           },
+          "opening_setup": {
+            "additionalProperties": true,
+            "description": "required closed opening clock observation for partial_opening; normally carried inside worker_result",
+            "type": "object"
+          },
           "pack": {
             "additionalProperties": true,
             "description": "legacy explicit pack; mutually exclusive with worker_result",
@@ -1022,6 +1027,10 @@
             "properties": {
               "job_id": {
                 "type": "string"
+              },
+              "opening_setup": {
+                "additionalProperties": true,
+                "type": "object"
               },
               "pack": {
                 "additionalProperties": true,
@@ -1046,6 +1055,62 @@
       },
       "needs_campaign": true,
       "summary": "Submit one exact source-worker result for an open progressive parsing request. This is the canonical closure path: it validates the request/entity binding, marks the handoff fulfilled, and re-enqueues campaign merge work."
+    },
+    "progressive.opening_bootstrap": {
+      "canonical_operation": "progressive.opening_bootstrap",
+      "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "opening_pdf_indices": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          },
+          "start_location": {
+            "additionalProperties": false,
+            "properties": {
+              "location_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "location_id",
+              "title"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "campaign",
+          "start_location",
+          "opening_pdf_indices"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills."
     },
     "progressive.prepare_opening": {
       "canonical_operation": "progressive.prepare_opening",
@@ -1241,6 +1306,95 @@
       },
       "needs_campaign": true,
       "summary": "Validate and register one later host-PDF page window for the campaign's existing progressive asset root. This caches reviewed pages only; it does not parse PDF bytes or compile semantic entity packs."
+    },
+    "progressive.release_host_work_leases": {
+      "canonical_operation": "progressive.release_host_work_leases",
+      "description": "Host-lifecycle operation that gracefully releases only exact leases owned by one executor. Abrupt crashes still recover through bounded TTL. Canonical operation `progressive.release_host_work_leases`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "executor_id": {
+            "type": "string"
+          },
+          "lease_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "asset_root_id",
+          "executor_id",
+          "lease_ids",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Host-lifecycle operation that gracefully releases only exact leases owned by one executor. Abrupt crashes still recover through bounded TTL."
+    },
+    "progressive.renew_host_work_leases": {
+      "canonical_operation": "progressive.renew_host_work_leases",
+      "description": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation. Canonical operation `progressive.renew_host_work_leases`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_root_id": {
+            "type": "string"
+          },
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "executor_id": {
+            "type": "string"
+          },
+          "lease_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "lease_seconds": {
+            "maximum": 3600,
+            "minimum": 30,
+            "type": "integer"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "asset_root_id",
+          "executor_id",
+          "lease_ids",
+          "lease_seconds"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Host-lifecycle operation that renews only exact leases owned by one executor. It is not a Keeper source-reading operation."
     },
     "progressive.request_deepen": {
       "canonical_operation": "progressive.request_deepen",
