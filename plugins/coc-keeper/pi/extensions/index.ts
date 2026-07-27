@@ -87,12 +87,22 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
   const envelope = objectOrNull(value);
   if (envelope?.ok !== true) return null;
   const data = objectOrNull(envelope?.data);
-  const takeover = objectOrNull(data?.background_takeover);
-  const action = objectOrNull(takeover?.next_host_action);
-  const task = objectOrNull(action?.task);
-  if (action?.action !== "invoke_coc_dispatch_source_work"
-    || task?.contract_id !== "coc.pi-source-coordinator-task.v1") return null;
-  return task;
+  const progressive = objectOrNull(data?.progressive);
+  const sceneContext = objectOrNull(data?.scene_context);
+  const resumeProgressive = objectOrNull(sceneContext?.progressive);
+  const takeovers = [
+    objectOrNull(data?.background_takeover),
+    objectOrNull(progressive?.background_takeover),
+    objectOrNull(resumeProgressive?.background_takeover),
+  ];
+  const tasks: JsonObject[] = [];
+  for (const takeover of takeovers) {
+    const action = objectOrNull(takeover?.next_host_action);
+    const task = objectOrNull(action?.task);
+    if (action?.action === "invoke_coc_dispatch_source_work"
+      && task?.contract_id === "coc.pi-source-coordinator-task.v1") tasks.push(task);
+  }
+  return tasks.length === 1 ? tasks[0] : null;
 }
 
 interface AutoDispatchDeps {
@@ -128,7 +138,7 @@ async function autoDispatchCoordinator(deps: AutoDispatchDeps, toolName: string,
     return;
   }
   const active = deps.activeManager();
-  if (active && (active.state(key) || active.activeCount() > 0)) return;
+  if (active?.state(key)) return;
   const launch = deps.launchContext();
   if (!launch) {
     deps.audit({ status: "launch_context_unavailable", dispatch_key: key, failure_class: "launch_context_unavailable" });

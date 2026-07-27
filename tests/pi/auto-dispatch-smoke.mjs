@@ -8,6 +8,7 @@ import process from "node:process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
+const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts"));
 const { findAutoDispatchTask, autoDispatchCoordinator } = main.__test;
 const instruction = path.join(root, "plugins/coc-keeper/agents/coc-source-coordinator.md");
 const problems = [];
@@ -29,20 +30,90 @@ function coordinatorTask(packetId = "coord-auto-1") {
   };
 }
 
-function takeoverResult(task) {
+function takeover(task) {
+  return {
+    schema_version: 1, kind: "ready_background_source_work",
+    dispatch_mode: "coordinator_fanout", host_adapter: "pi",
+    next_host_action: {
+      schema_version: 1, action: "invoke_coc_dispatch_source_work",
+      task, parent_waits: false,
+    },
+  };
+}
+
+function directTakeoverResult(task) {
   return {
     ok: true, tool: "progressive.prepare_session",
+    data: { background_takeover: takeover(task) },
+  };
+}
+
+function sceneContextResult(task) {
+  return {
+    ok: true, tool: "scene.context",
     data: {
-      background_takeover: {
-        schema_version: 1, kind: "ready_background_source_work",
-        dispatch_mode: "coordinator_fanout", host_adapter: "pi",
-        next_host_action: {
-          schema_version: 1, action: "invoke_coc_dispatch_source_work",
-          task, parent_waits: false,
+      scene: { scene_id: "scene-auto" },
+      progressive: {
+        status: "active",
+        background_takeover: takeover(task),
+      },
+    },
+  };
+}
+
+function sessionResumeResult(task) {
+  return {
+    ok: true, tool: "session.resume",
+    data: {
+      mode: "resumed",
+      scene_context: {
+        scene: { scene_id: "scene-resumed" },
+        progressive: {
+          status: "active",
+          background_takeover: takeover(task),
         },
       },
     },
   };
+}
+
+function coordinatorReceipt(packetId) {
+  return {
+    schema_version: 1,
+    contract_id: "coc.source-coordinator-result.v1",
+    packet_id: packetId,
+    status: "idle",
+    claim_calls: 1,
+    claimed_packet_count: 0,
+    leaf_task_count: 0,
+    fulfilled_result_count: 0,
+    failure_class: null,
+    design_issue_threshold: 3,
+  };
+}
+
+function coordinatorEvents(packetId) {
+  const receipt = coordinatorReceipt(packetId);
+  return [
+    {
+      type: "message_end",
+      message: {
+        role: "toolResult",
+        toolCallId: `call-${packetId}`,
+        toolName: "coc_run_source_coordinator",
+        content: [{ type: "text", text: JSON.stringify(receipt) }],
+        details: receipt,
+        isError: false,
+      },
+    },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: JSON.stringify(receipt) }],
+      },
+    },
+  ];
 }
 
 function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
@@ -67,22 +138,68 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   return { deps, audit, submits };
 }
 
-// Extractor: only data.background_takeover.next_host_action resolves.
+function realManagerHarness() {
+  const launches = [];
+  const controls = new Map();
+  const lifecycle = [];
+  const manager = new runtime.CoordinatorDispatchManager(
+    (task) => {
+      const key = task.packet.packet_id;
+      launches.push(key);
+      let resolveCompletion;
+      const control = {
+        completion: new Promise((resolve) => resolveCompletion = resolve),
+        resolve: (events = coordinatorEvents(key)) => resolveCompletion(events),
+        terminated: false,
+      };
+      controls.set(key, control);
+      return {
+        child: {},
+        activation: Promise.resolve({ type: "agent_start" }),
+        completion: control.completion,
+        terminate: async () => { control.terminated = true; },
+      };
+    },
+    undefined,
+    (observation) => lifecycle.push(observation),
+  );
+  return { ...harness({ manager }), manager, launches, controls, lifecycle };
+}
+
+async function nextTurn() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Extractor: all named canonical producer projections resolve, without recursion.
 {
-  const task = coordinatorTask();
-  check("extractor finds exact task", JSON.stringify(findAutoDispatchTask(takeoverResult(task))) === JSON.stringify(task));
+  const directTask = coordinatorTask("coord-direct");
+  const sceneTask = coordinatorTask("coord-scene");
+  const resumeTask = coordinatorTask("coord-resume");
+  check("extractor finds direct progressive task", JSON.stringify(findAutoDispatchTask(directTakeoverResult(directTask))) === JSON.stringify(directTask));
+  check("extractor finds scene.context progressive task", JSON.stringify(findAutoDispatchTask(sceneContextResult(sceneTask))) === JSON.stringify(sceneTask));
+  check("extractor finds session.resume scene_context task", JSON.stringify(findAutoDispatchTask(sessionResumeResult(resumeTask))) === JSON.stringify(resumeTask));
   check("extractor ignores plain results", findAutoDispatchTask({ ok: true, data: { status: "PASS" } }) === null);
-  check("extractor ignores failed envelopes", findAutoDispatchTask({ ...takeoverResult(task), ok: false }) === null);
-  check("extractor ignores top-level action", findAutoDispatchTask({ next_host_action: { action: "invoke_coc_dispatch_source_work", task } }) === null);
-  check("extractor ignores arbitrary nesting", findAutoDispatchTask({ data: { wrapper: takeoverResult(task).data } }) === null);
-  check("extractor ignores arrays", findAutoDispatchTask({ data: [{ background_takeover: takeoverResult(task).data.background_takeover }] }) === null);
+  check("extractor ignores failed envelopes", findAutoDispatchTask({ ...directTakeoverResult(directTask), ok: false }) === null);
+  check("extractor ignores top-level action", findAutoDispatchTask({ next_host_action: { action: "invoke_coc_dispatch_source_work", task: directTask } }) === null);
+  check("extractor ignores arbitrary nesting", findAutoDispatchTask({ ok: true, data: { wrapper: sceneContextResult(sceneTask).data } }) === null);
+  check("extractor ignores arrays", findAutoDispatchTask({ ok: true, data: [{ background_takeover: takeover(directTask) }] }) === null);
+  check("extractor rejects ambiguous named paths", findAutoDispatchTask({
+    ok: true,
+    data: {
+      background_takeover: takeover(directTask),
+      progressive: { background_takeover: takeover(sceneTask) },
+    },
+  }) === null);
   check("extractor ignores foreign actions", findAutoDispatchTask({
-    data: { background_takeover: { next_host_action: { action: "spawn_background_task", task } } },
+    ok: true,
+    data: { background_takeover: { next_host_action: { action: "spawn_background_task", task: directTask } } },
   }) === null);
   check("extractor ignores foreign contracts", findAutoDispatchTask({
+    ok: true,
     data: { background_takeover: { next_host_action: { action: "invoke_coc_dispatch_source_work", task: { contract_id: "coc.other.v1" } } } },
   }) === null);
   check("extractor ignores strings", findAutoDispatchTask({
+    ok: true,
     data: { background_takeover: '{"next_host_action":{"action":"invoke_coc_dispatch_source_work"}}' },
   }) === null);
 }
@@ -91,7 +208,7 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
 {
   const task = coordinatorTask();
   const { deps, audit, submits } = harness();
-  await autoDispatchCoordinator(deps, "coc_invoke", takeoverResult(task));
+  await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(task));
   check("one submit", submits.length === 1);
   check("submit carries exact task", JSON.stringify(submits[0]?.task) === JSON.stringify(task));
   check("submit carries launch context", submits[0]?.launch?.cwd === root && submits[0]?.launch?.provider === "offline");
@@ -110,37 +227,96 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
 {
   const task = coordinatorTask("coord-discover");
   const { deps, audit, submits } = harness();
-  await autoDispatchCoordinator(deps, "coc_discover", takeoverResult(task));
+  await autoDispatchCoordinator(deps, "coc_discover", directTakeoverResult(task));
   check("discover cannot dispatch", submits.length === 0 && audit.length === 0);
 }
 
 // Capability disabled skips silently.
 {
   const { deps, audit, submits } = harness({ enabled: false });
-  await autoDispatchCoordinator(deps, "coc_invoke", takeoverResult(coordinatorTask()));
+  await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(coordinatorTask()));
   check("disabled capability skips", submits.length === 0 && audit.length === 0);
 }
 
-// Already-submitted packet_id and busy manager both skip without a new submit.
+// Same-key takeover is idempotent.
 {
   const task = coordinatorTask();
   const deduped = harness({
     manager: { state: (key) => (key === task.packet.packet_id ? { status: "submitted" } : undefined), activeCount: () => 0, submit: async () => { throw new Error("must not submit"); } },
   });
-  await autoDispatchCoordinator(deduped.deps, "coc_invoke", takeoverResult(task));
+  await autoDispatchCoordinator(deduped.deps, "coc_invoke", directTakeoverResult(task));
   check("deduped packet skips", deduped.audit.length === 0);
-  const busy = harness({
-    manager: { state: () => undefined, activeCount: () => 1, submit: async () => { throw new Error("must not submit"); } },
-  });
-  await autoDispatchCoordinator(busy.deps, "coc_invoke", takeoverResult(coordinatorTask("coord-other")));
-  check("active coordinator skips", busy.audit.length === 0);
+}
+
+// A distinct packet is retained while A is active, then launched exactly once.
+{
+  const queue = realManagerHarness();
+  const taskA = coordinatorTask("coord-queue-a");
+  const taskB = coordinatorTask("coord-queue-b");
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(taskA));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(taskB));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(taskB));
+  check("A active and B bounded pending", queue.manager.activeCount() === 1
+    && queue.manager.pendingCount() === 1
+    && queue.launches.join(",") === "coord-queue-a");
+  check("B duplicate is silent", queue.audit.length === 2
+    && queue.audit[0].status === "submitted"
+    && queue.audit[1].status === "pending");
+  queue.controls.get("coord-queue-a").resolve();
+  await nextTurn();
+  check("B launches once after A terminal", queue.launches.join(",") === "coord-queue-a,coord-queue-b"
+    && queue.manager.pendingCount() === 0);
+  queue.controls.get("coord-queue-b").resolve();
+  await nextTurn();
+  check("A and B complete once", queue.lifecycle.filter((entry) => entry.status === "completed").length === 2);
+}
+
+// One pending slot coalesces to the latest canonical wakeup.
+{
+  const queue = realManagerHarness();
+  const taskA = coordinatorTask("coord-coalesce-a");
+  const taskB = coordinatorTask("coord-coalesce-b");
+  const taskC = coordinatorTask("coord-coalesce-c");
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(taskA));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(taskB));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(taskC));
+  check("pending slot remains bounded", queue.manager.pendingCount() === 1);
+  check("older pending wakeup is visibly superseded", queue.manager.state("coord-coalesce-b")?.failure_class === "coordinator_superseded"
+    && queue.manager.state("coord-coalesce-b")?.superseded_by === "coord-coalesce-c"
+    && queue.lifecycle.some((entry) => entry.dispatch_key === "coord-coalesce-b"
+      && entry.failure_class === "coordinator_superseded"
+      && entry.superseded_by === "coord-coalesce-c"));
+  queue.controls.get("coord-coalesce-a").resolve();
+  await nextTurn();
+  check("only latest pending wakeup launches", queue.launches.join(",") === "coord-coalesce-a,coord-coalesce-c");
+  queue.controls.get("coord-coalesce-c").resolve();
+  await nextTurn();
+}
+
+// Shutdown terminalizes active and pending ownership; late completion cannot drain.
+{
+  const queue = realManagerHarness();
+  const taskA = coordinatorTask("coord-shutdown-a");
+  const taskB = coordinatorTask("coord-shutdown-b");
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(taskA));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(taskB));
+  await queue.manager.shutdown();
+  check("shutdown clears bounded ownership", queue.manager.activeCount() === 0
+    && queue.manager.pendingCount() === 0
+    && queue.controls.get("coord-shutdown-a").terminated);
+  queue.controls.get("coord-shutdown-a").resolve();
+  await nextTurn();
+  check("shutdown forbids late pending launch", queue.launches.join(",") === "coord-shutdown-a");
+  check("shutdown lifecycle stays exactly once per owned key", queue.lifecycle.length === 2
+    && new Set(queue.lifecycle.map((entry) => entry.dispatch_key)).size === 2
+    && queue.lifecycle.every((entry) => entry.failure_class === "coordinator_shutdown"));
 }
 
 // Submit failure is swallowed and recorded, never thrown.
 {
   const task = coordinatorTask();
   const { deps, audit } = harness({ failSubmit: true });
-  await autoDispatchCoordinator(deps, "coc_invoke", takeoverResult(task));
+  await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(task));
   check("submit failure swallowed", audit.length === 1 && audit[0].status === "submit_failed" && audit[0].dispatch_key === task.packet.packet_id);
   check("submit failure is bounded", !Object.hasOwn(audit[0], "error"));
 }
@@ -150,7 +326,7 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   const bad = coordinatorTask("coord-invalid");
   bad.instruction_ref = path.join(root, "plugins/coc-keeper/agents/coc-source-pack-worker.md");
   const { deps, audit, submits } = harness();
-  await autoDispatchCoordinator(deps, "coc_invoke", takeoverResult(bad));
+  await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(bad));
   check("invalid task recorded", submits.length === 0 && audit.length === 1 && audit[0].status === "validation_failed");
   check("validation audit is bounded", !Object.hasOwn(audit[0], "error"));
 }
@@ -160,11 +336,11 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   const drifted = coordinatorTask("coord-drift");
   drifted.packet.workspace_root = path.join(root, "elsewhere");
   const { deps, audit, submits } = harness();
-  await autoDispatchCoordinator(deps, "coc_invoke", takeoverResult(drifted));
+  await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(drifted));
   check("workspace drift recorded", submits.length === 0 && audit.length === 1 && audit[0].status === "workspace_drift");
   const noModel = harness();
   noModel.deps.launchContext = () => null;
-  await autoDispatchCoordinator(noModel.deps, "coc_invoke", takeoverResult(coordinatorTask("coord-nomodel")));
+  await autoDispatchCoordinator(noModel.deps, "coc_invoke", directTakeoverResult(coordinatorTask("coord-nomodel")));
   check("missing model is bounded diagnostic", noModel.submits.length === 0
     && noModel.audit.length === 1
     && noModel.audit[0].status === "launch_context_unavailable"
@@ -175,7 +351,7 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
 {
   const { deps, audit, submits } = harness();
   deps.enabled = async () => { throw new Error("raw provider secret"); };
-  await autoDispatchCoordinator(deps, "coc_invoke", takeoverResult(coordinatorTask("coord-capability-error")));
+  await autoDispatchCoordinator(deps, "coc_invoke", directTakeoverResult(coordinatorTask("coord-capability-error")));
   check("capability error blocks dispatch", submits.length === 0);
   check("capability error is bounded", audit.length === 1
     && audit[0].status === "capability_check_failed"
