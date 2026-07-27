@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:bfacf0dbe7c306b32bf85e5a3a851a94ccafd366989aa7fbf19a3a69f370bb2d",
+  "content_sha256": "sha256:f26431d802b3481a170c57893c9c6726147d2fe6456361729d56aeebcdff02b1",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -15,7 +15,7 @@
     "turn.output_context",
     "turn.finalize"
   ],
-  "operation_count": 109,
+  "operation_count": 110,
   "operations": {
     "actions.advise": {
       "canonical_operation": "actions.advise",
@@ -4191,6 +4191,10 @@
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
           },
+          "consumable": {
+            "description": "kind=gear only: using this item spends charges (state.item_use)",
+            "type": "boolean"
+          },
           "decision_id": {
             "description": "idempotency key",
             "type": "string"
@@ -4222,6 +4226,10 @@
           "npc_id": {
             "description": "NPC actor id (exactly one of investigator/npc_id)",
             "type": "string"
+          },
+          "quantity": {
+            "description": "kind=gear only: initial charges for a consumable stack (default 1)",
+            "type": "integer"
           },
           "root": {
             "description": "Project root containing .coc; defaults to the host workspace.",
@@ -4292,6 +4300,50 @@
       },
       "needs_campaign": true,
       "summary": "Remove an item or weapon from an investigator or NPC (lost, spent, given away, looted). Removing character-sheet equipment or a weapon records a campaign-local loss; removing an NPC weapon updates its runtime override."
+    },
+    "state.item_use": {
+      "canonical_operation": "state.item_use",
+      "description": "Use charges of an investigator's consumable item (bandage, laudanum, torch). Decrements quantity; at zero the item leaves the inventory for good. Non-consumables are rejected: use state.item_remove when one is lost or spent. Canonical operation `state.item_use`; the result envelope is authoritative.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign": {
+            "description": "Campaign id. Required for campaign-bound operations.",
+            "type": "string"
+          },
+          "count": {
+            "description": "charges to consume (default 1)",
+            "type": "integer"
+          },
+          "decision_id": {
+            "description": "idempotency key",
+            "type": "string"
+          },
+          "investigator": {
+            "description": "investigator id",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "consumable item id to use",
+            "type": "string"
+          },
+          "note": {
+            "description": "how/why the item was used",
+            "type": "string"
+          },
+          "root": {
+            "description": "Project root containing .coc; defaults to the host workspace.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign",
+          "item_id"
+        ],
+        "type": "object"
+      },
+      "needs_campaign": true,
+      "summary": "Use charges of an investigator's consumable item (bandage, laudanum, torch). Decrements quantity; at zero the item leaves the inventory for good. Non-consumables are rejected: use state.item_remove when one is lost or spent."
     },
     "state.journal": {
       "canonical_operation": "state.journal",
