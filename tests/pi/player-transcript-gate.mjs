@@ -12,7 +12,8 @@ main.registerPlayerTranscriptGate({
     registered.push(handler);
     handlers.set(type, registered);
   },
-}, () => openingContinuationGate.acceptVisibleAssistantFinal());
+}, (message) => openingContinuationGate.acceptVisibleAssistantFinal(message),
+(message) => openingContinuationGate.bindVisibleAssistantOutput(message));
 
 async function emit(type, message) {
   let result;
@@ -30,6 +31,10 @@ async function emit(type, message) {
 
 function types(message) {
   return message.content.map((part) => part.type);
+}
+
+async function bindFinalProvenance(message) {
+  await emit("message_start", { ...message });
 }
 
 const start = {
@@ -70,24 +75,29 @@ const narrationFinal = {
 const narrationResult = await emit("message_end", narrationFinal);
 
 openingContinuationGate.trackOpeningDispatch("coord-wait-text");
-const waitFinal = {
-  role: "assistant",
-  content: [{ type: "text", text: "解析仍在进行，请稍候。" }],
-};
-const waitResult = await emit("message_end", waitFinal);
+openingContinuationGate.queueVisibleAssistantDisposition("operational_wait");
+openingContinuationGate.markIndependentVisibleOutput();
 const unrelatedWhileAwaiting = {
   role: "assistant",
   content: [{ type: "text", text: "你的调查员装备与背景已经整理完毕。" }],
 };
+await bindFinalProvenance(unrelatedWhileAwaiting);
 const unrelatedWhileAwaitingResult = await emit(
   "message_end",
   unrelatedWhileAwaiting,
 );
+const waitFinal = {
+  role: "assistant",
+  content: [{ type: "text", text: "解析仍在进行，请稍候。" }],
+};
+await bindFinalProvenance(waitFinal);
+const waitResult = await emit("message_end", waitFinal);
 openingContinuationGate.markOpeningProjected();
 const validOpening = {
   role: "assistant",
   content: [{ type: "text", text: "马车在白昼里停到城堡门前。" }],
 };
+await bindFinalProvenance(validOpening);
 const validOpeningResult = await emit("message_end", validOpening);
 
 const user = {
@@ -138,10 +148,12 @@ await Promise.resolve();
 const consumedDeferredWhileAwaiting = consumedSent.length === 0
   && consumedAppended.length === 1;
 openingContinuationGate.markOpeningProjected();
-await emit("message_end", {
+const consumedOpening = {
   role: "assistant",
   content: [{ type: "text", text: "任意正常桌面叙事。" }],
-});
+};
+await bindFinalProvenance(consumedOpening);
+await emit("message_end", consumedOpening);
 openingContinuationGate.markAgentEnd();
 const consumedReport = await consumedPromise;
 
@@ -166,6 +178,7 @@ const terminalBlocker = {
   role: "assistant",
   content: [{ type: "text", text: "开场资料处理终止，需要重新确认来源边界。" }],
 };
+await bindFinalProvenance(terminalBlocker);
 const terminalBlockerResult = await emit("message_end", terminalBlocker);
 openingContinuationGate.markAgentEnd();
 const unfinishedReport = await unfinishedPromise;

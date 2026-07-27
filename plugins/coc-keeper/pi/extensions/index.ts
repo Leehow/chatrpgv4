@@ -79,28 +79,44 @@ function hideUnsettledAssistantText(message: unknown): void {
 // altering the provider's accumulated response. A tool-free final message is
 // then rendered normally; a tool-bearing final message keeps only non-text
 // parts so its framing never enters the transcript or later model context.
+type VisibleAssistantDisposition =
+  | "operational_wait"
+  | "independent"
+  | "projected_opening"
+  | "terminal_blocker";
+
 export class OpeningTerminalContinuationGate {
+  private readonly visibleDispositions =
+    new WeakMap<object, VisibleAssistantDisposition>();
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
   private readonly pending = new Map<string, {
     promise: Promise<boolean>;
     resolve: (shouldWake: boolean) => void;
   }>();
   private agentActive = false;
-  private visibleDisposition:
-    | "operational_wait"
-    | "independent"
-    | "projected_opening"
-    | "terminal_blocker"
-    | null = null;
+  private queuedVisibleDispositions: VisibleAssistantDisposition[] = [];
 
   trackOpeningDispatch(dispatchKey: string): void {
     if (dispatchKey) {
       this.states.set(dispatchKey, "awaiting");
-      // The exact tool-free final immediately following a newly tracked
-      // foreground dispatch is host-owned operational wait output. Consume
-      // only that disposition; awaiting state alone never suppresses prose.
-      this.visibleDisposition = "operational_wait";
     }
+  }
+
+  queueVisibleAssistantDisposition(
+    disposition: VisibleAssistantDisposition,
+  ): void {
+    if (disposition === "operational_wait") {
+      this.queuedVisibleDispositions.push(disposition);
+    } else {
+      this.queuedVisibleDispositions.unshift(disposition);
+    }
+  }
+
+  bindVisibleAssistantOutput(message: unknown): void {
+    const assistant = assistantContentMessage(message);
+    if (!assistant) return;
+    const disposition = this.queuedVisibleDispositions.shift();
+    if (disposition) this.visibleDispositions.set(assistant.content, disposition);
   }
 
   markAgentStart(): void {
@@ -111,28 +127,35 @@ export class OpeningTerminalContinuationGate {
     for (const [key, state] of this.states) {
       if (state === "awaiting") this.states.set(key, "projected");
     }
-    this.visibleDisposition = "projected_opening";
+    this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
+      (disposition) => disposition !== "operational_wait",
+    );
+    this.queueVisibleAssistantDisposition("projected_opening");
   }
 
   markIndependentVisibleOutput(): void {
     if ([...this.states.values()].some((state) => state === "awaiting")) {
-      this.visibleDisposition = "independent";
+      this.queueVisibleAssistantDisposition("independent");
     }
   }
 
   markTerminalBlocker(): void {
     if ([...this.states.values()].some((state) => state === "awaiting")) {
-      this.visibleDisposition = "terminal_blocker";
+      this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
+        (disposition) => disposition !== "operational_wait",
+      );
+      this.queueVisibleAssistantDisposition("terminal_blocker");
     }
   }
 
-  markVisibleAssistantFinal(): void {
-    this.acceptVisibleAssistantFinal();
-  }
-
-  acceptVisibleAssistantFinal(): boolean {
-    const disposition = this.visibleDisposition;
-    this.visibleDisposition = null;
+  acceptVisibleAssistantFinal(message?: unknown): boolean {
+    const assistant = assistantContentMessage(message);
+    const disposition = assistant
+      ? this.visibleDispositions.get(assistant.content)
+      : undefined;
+    if (assistant) {
+      this.visibleDispositions.delete(assistant.content);
+    }
     if (disposition === "operational_wait") {
       return false;
     }
@@ -178,7 +201,7 @@ export class OpeningTerminalContinuationGate {
 
   reset(): void {
     this.agentActive = false;
-    this.visibleDisposition = null;
+    this.queuedVisibleDispositions = [];
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
     this.states.clear();
@@ -187,9 +210,11 @@ export class OpeningTerminalContinuationGate {
 
 export function registerPlayerTranscriptGate(
   pi: ExtensionAPI,
-  onVisibleAssistantFinal?: () => boolean | void,
+  onVisibleAssistantFinal?: (message: unknown) => boolean | void,
+  onAssistantMessageStart?: (message: unknown) => void,
 ): void {
   pi.on("message_start", (event) => {
+    onAssistantMessageStart?.(event.message);
     hideUnsettledAssistantText(event.message);
   });
   pi.on("message_update", (event) => {
@@ -200,7 +225,7 @@ export function registerPlayerTranscriptGate(
     if (!assistant) return;
     if (!assistant.content.some((part) => part.type === "toolCall")) {
       if (assistant.content.some((part) => part.type === "text")) {
-        if (onVisibleAssistantFinal?.() === false) {
+        if (onVisibleAssistantFinal?.(event.message) === false) {
           return { message: withoutAssistantText(event.message) };
         }
       }
@@ -539,7 +564,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const dispatchKey = typeof packet?.packet_id === "string"
           ? packet.packet_id.trim()
           : "";
-        if (dispatchKey) openingContinuationGate.trackOpeningDispatch(dispatchKey);
+        if (dispatchKey) {
+          openingContinuationGate.trackOpeningDispatch(dispatchKey);
+          openingContinuationGate.queueVisibleAssistantDisposition(
+            "operational_wait",
+          );
+        }
       }
       const envelope = objectOrNull(value);
       const data = objectOrNull(envelope?.data);
@@ -628,7 +658,8 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   registerPlayerTranscriptGate(
     pi,
-    () => openingContinuationGate.acceptVisibleAssistantFinal(),
+    (message) => openingContinuationGate.acceptVisibleAssistantFinal(message),
+    (message) => openingContinuationGate.bindVisibleAssistantOutput(message),
   );
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();
