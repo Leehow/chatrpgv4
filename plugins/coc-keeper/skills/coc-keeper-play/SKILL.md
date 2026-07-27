@@ -62,7 +62,7 @@ each turn. Prefer a known tool, then describe only it if parameters are unclear.
 
 ## Context Recovery (Always Active)
 
-Model context is disposable; the campaign is not. On host start, switch, or compaction, call `session.resume` first; it is recovery, not a pipeline. Do not reopen merged saves/context/transcript/catalog.
+`session.resume` is prior-context recovery; never use it after create/setup in the current initial request. Keep receipts; do not reopen saves/context/transcript/catalog.
 
 Call it **once per host context epoch**, not per turn; reuse its working set/receipts until a new epoch. A missed resume is soft advice, not a fifth gate. Retain `ordinary_turn_operations` and exact schemas. A `recovery_index_projection` uses only exact cards needed now—never files, Bash, or reassurance discovery.
 
@@ -276,6 +276,10 @@ settled finalization.
    or invoke `progressive.claim_host_work`,
    `progressive.fulfill_host_work`, `progressive.renew_host_work_leases`, or
    `progressive.release_host_work_leases`, and must not author packs.
+   While open, do not call `progressive.status` or repeat
+   `progressive.prepare_opening` / `progressive.opening_bootstrap` / dispatch.
+   At dependency await the terminal notice; consume `fulfilled` via the next
+   natural query; no loop.
    Reuse authored data and freeze a semantically chosen fallback only when
    source evidence authorizes one. Emergent targets and typed weapon effects
    use `combat.resolve(target_npc_id=..., weapon_effect_ids=...)`. Load

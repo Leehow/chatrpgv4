@@ -178,12 +178,27 @@ def test_pi_progressive_lifecycle_stays_private_and_opening_is_bootstrapped():
         assert operation in main
     assert "on pi the package auto-dispatches" in main
     assert "must not discover or invoke" in main
+    assert "`progressive.status`" in main
+    assert "terminal notice" in main
+    assert "repeat `progressive.prepare_opening`" in main
     for phrase in (
         "progressive.opening_bootstrap",
         "coc.opening-setup-observation.v1",
         "campaign-owned watch",
         "source-supported clock precision",
         "main kp never",
+    ):
+        assert phrase in package, phrase
+
+
+def test_pi_source_lifecycle_is_terminal_driven_not_polled():
+    package = " ".join(_package_text().split()).lower()
+    for phrase in (
+        "do not call `progressive.status`",
+        "repeat `progressive.prepare_opening` / `progressive.opening_bootstrap`",
+        "terminal notice",
+        "next natural query",
+        "terminal failure",
     ):
         assert phrase in package, phrase
 

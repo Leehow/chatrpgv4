@@ -54,8 +54,12 @@ first. In an empty or unknown workspace, invoke its exact
 `coc_invoke`; pass the current host workspace's absolute path as outer
 `root` on that and every later `coc_invoke`, and never use plugin storage as
 campaign storage. Never search files or construct a shell setup command. Once a
-campaign id is known, invoke its `session.resume` card exactly once. Read
-`wire.control` first. If
+campaign id is known from a campaign generation that predates this host
+context, invoke its `session.resume` card exactly once. If the current initial request
+just created, quick-started, bound, or otherwise set up the campaign, those
+receipts are current context: continue directly and do not call
+`session.resume` merely because the id now exists. Read `wire.control` first
+when a real continuation is resumed. If
 `resume_acknowledged=true`, trust the returned working set and continue; do not
 reread files, repeat `scene.context`, or rediscover schemas for reassurance. A
 returned operation card carrying `discovery_required=false` is an
@@ -229,6 +233,18 @@ the exact private coordinator. The main KP must not discover or invoke
 wait or poll. Consume the durable result only through the next naturally needed
 canonical query. The host-specific routes below apply only when their exact
 capability and action are visibly returned to a non-Pi main host.
+
+Retain the accepted `progressive.prepare_opening` selection,
+`progressive.opening_bootstrap` receipt, dispatch key, and campaign watch for
+this bound scenario generation. While the Pi coordinator is open, do not call
+`progressive.status`, repeat either opening operation, or re-dispatch.
+`progressive.status` is not a coordinator completion signal. Continue
+independent character work; if the opening boundary arrives first, passively
+await the one host terminal lifecycle notice. On terminal `fulfilled`, adopt
+the campaign watch's auto-projected `opening_setup` through the next naturally
+needed scene/opening query; never claim, fulfill, renew, release, status-check,
+prepare, bootstrap, or project it manually. A terminal failure is an explicit
+recovery boundary, not permission to spin.
 
 When `dispatch_mode=coordinator_fanout` and capability discovery returns
 `coc_source_coordinator_v1=true`, status

@@ -53,6 +53,15 @@ Keep machine-facing markers, JSON keys, filenames, canonical skill keys, rule en
 - The user is the player unless they explicitly ask for another table role.
 - Campaign setup starts before character creation.
 
+## Continuation Versus Current Setup
+
+`session.resume` recovers an exact-schema campaign generation that existed
+before the current host start, switch, or compaction. It is the first campaign
+call only for that continuation case. Campaign creation, quick start, binding,
+or setup completed in the current initial request already establishes current
+context; keep those receipts and do not call `session.resume` later in the same
+request merely because a campaign id is now available.
+
 ## Markers
 
 Use ASCII markers only:

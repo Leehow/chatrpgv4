@@ -58,6 +58,11 @@ moves a scene, waits, claims, or fulfills. Do not separately call
 `progressive.publish_skeleton`, `progressive.request_opening_pack`, or
 `progressive.project_opening`.
 
+Treat the accepted preparation and bootstrap as one retained setup decision for
+this bound scenario generation. Do not repeat `progressive.prepare_opening` or
+`progressive.opening_bootstrap` to check progress, recover by guesswork, or
+choose a different opening while its returned source lifecycle is open.
+
 The isolated worker exact-reads only the selected request pages and returns a
 closed location pack plus required
 `coc.opening-setup-observation.v1` `opening_setup`. It uses `status=source` only
@@ -118,7 +123,10 @@ source bundle uses character confirmation as overlap:
    lifecycle operations hidden from the main-KP discovery surface. On another
    host, execute only its exact capability-selected action.
 4. Deliver the pending character card immediately and continue character work.
-   Never wait, poll, retrieve source output, or perform a reassurance query.
+   Never actively wait, poll, retrieve source output, or perform a reassurance
+   query. If character confirmation reaches the opening boundary first,
+   passively await the one host terminal lifecycle notice without calling
+   `progressive.status`.
 
 The isolated worker's `partial_opening` row must carry required
 `opening_setup`; fulfillment validates and applies it before the campaign-bound
@@ -126,8 +134,13 @@ watch auto-projects. Named-submit children own merge. A non-direct fallback may
 exact-forward an unchanged completed result once, including `opening_setup`,
 but the parent never reconstructs or repairs it. A source-task notice is
 liveness only; consume durability through the next naturally needed canonical
-query. Only an already-running Tier 1 minimum may delay opening after final
-character confirmation. The main KP never calls `project_opening` on this path.
+query. On Pi, a terminal `fulfilled` notice means adopt the campaign watch's
+auto-projected `opening_setup` on that natural query; it does not authorize
+`progressive.status`, a second prepare/bootstrap, manual claim/fulfill, or
+`project_opening`. A terminal failure is an explicit recovery boundary, not a
+reason to loop. Only an already-running Tier 1 minimum may delay opening after
+final character confirmation. The main KP never calls `project_opening` on
+this path.
 
 A host without an applicable capability must not fake a task, claim for an
 imaginary child, or hand-fill the pack. Grok acceptance must preserve the real
@@ -188,7 +201,7 @@ in fiction) **without** a scene move yet, call:
 | `progressive.request_deepen` | KP dig path: structured `{kind, target_id}` only |
 | `progressive.request_mechanics` | Resolve an NPC/item's indexed authored parameters without reparsing its body |
 | `progressive.follow_mentions` | Batch structured `[{kind,ref_id,raw_label?,source_page_indices?}]` |
-| `progressive.status` | Queue + detached worker status + entity parse_state |
+| `progressive.status` | Concrete later dig/entity diagnostic only; never a Pi private-coordinator progress poll or terminal wait |
 | `progressive.fulfill_host_work` | Private lifecycle/fallback exact-forward closure for one returned open `job_id`; hidden from the Pi main KP |
 
 `state.record_clue` also follows **structured** `mentions[]` on that clue row
@@ -228,6 +241,11 @@ mentions. Until the host puts a deep pack, play continues with
   does not discover or invoke claim, fulfill, lease renewal, or lease release.
   Canonical owner-checked renew/release plus TTL recovery belong to the host
   lifecycle; no main-KP lease ledger or hand-authored pack is allowed.
+- While that Pi lifecycle is open, the main KP also does not call
+  `progressive.status`, repeat opening preparation/bootstrap, or re-dispatch.
+  It responds only to the host terminal notice; `fulfilled` is consumed through
+  the next naturally needed canonical query that exposes the auto-projected
+  opening setup.
 - Requests are grouped by PDF identity + semantic aspect + exact page set.
   Mechanics jobs use only their `mechanics_index` locator pages; narrative
   profile/body pages must not inflate a blocking appendix lookup.

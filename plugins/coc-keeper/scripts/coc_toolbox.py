@@ -12353,7 +12353,7 @@ def _tool_session_begin(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "session.resume",
-    "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context.",
+    "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request.",
     {
         "investigator": {
             "type": "string",
@@ -13176,7 +13176,9 @@ def _fit_opening_data_budget(
     "Experimental strict read-only planner for one source-authored opening. "
     "It validates an accepted 1..3-page window and returns bounded readiness "
     "plus optional mutation cards; it never parses, queues, projects, moves, "
-    "narrates, supervises background work, or gates player actions.",
+    "narrates, supervises background work, or gates player actions. Retain the "
+    "accepted selection for this bound scenario generation; after opening "
+    "bootstrap, do not repeat this planner as a progress or recovery query.",
     {
         "start_location_id": {
             "type": ["string", "null"], "maxLength": 128,
@@ -13612,7 +13614,9 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
     "Deterministically publishes the minimal source-bound opening skeleton, "
     "projects sparse pristine campaign state, enqueues one exact foreground "
     "source window, and records a campaign-owned auto-projection watch. It "
-    "never reads prose, moves a scene, narrates, waits, claims, or fulfills.",
+    "never reads prose, moves a scene, narrates, waits, claims, or fulfills. "
+    "Invoke once for the accepted setup decision and retain its receipt/watch; "
+    "follow the returned host lifecycle instead of repeating bootstrap.",
     {
         "start_location": {
             "type": "object",
@@ -16250,7 +16254,10 @@ def submit_source_worker_result(root: Path, payload: dict[str, Any]) -> dict[str
     "progressive.status",
     "Read progressive parse queue + optional entity status for the campaign asset root. "
     "Also reports whether the detached parallel queue worker is running. "
-    "Keeper-only; use before inventing detail on a dig target.",
+    "Keeper-only diagnostic for a concrete later dig/entity decision. It is not "
+    "a Pi private-coordinator completion signal: while that lifecycle is open, "
+    "await its terminal notice without polling, reassurance queries, repeat "
+    "preparation/bootstrap, or manual claim/fulfillment.",
     {
         "kind": {
             "type": "string",

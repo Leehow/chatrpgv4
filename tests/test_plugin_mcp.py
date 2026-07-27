@@ -862,6 +862,27 @@ def test_mcp_contract_archive_matches_toolbox_and_is_deterministic():
     assert len(on_disk["listed_hotset"]) == 12
     assert on_disk["listed_hotset"][0] == "session.resume"
 
+    resume_description = on_disk["operations"]["session.resume"]["description"]
+    assert "predates this host startup" in resume_description
+    assert "do not call it after creating" in resume_description
+    status_description = on_disk["operations"]["progressive.status"][
+        "description"
+    ]
+    assert "not a Pi private-coordinator completion signal" in status_description
+    assert "await its terminal notice without polling" in status_description
+    prepare_description = on_disk["operations"][
+        "progressive.prepare_opening"
+    ]["description"]
+    assert "after opening bootstrap, do not repeat this planner" in (
+        prepare_description
+    )
+    bootstrap_description = on_disk["operations"][
+        "progressive.opening_bootstrap"
+    ]["description"]
+    assert "follow the returned host lifecycle instead of repeating bootstrap" in (
+        bootstrap_description
+    )
+
     # Nested finalizer contract remains complete in the archive.
     finalize = on_disk["operations"]["turn.finalize"]
     coverage_item = finalize["inputSchema"]["properties"]["coverage"]["items"]

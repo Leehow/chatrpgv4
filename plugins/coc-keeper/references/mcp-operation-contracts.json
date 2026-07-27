@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:db24611081eb613550c9c193146391a633fbb5e2416b828b3614d48f12bd9c4d",
+  "content_sha256": "sha256:8242a6f6f4311d39855d02d09464d54e19343e2d966cbb60194aa641b0d96107",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -1058,7 +1058,7 @@
     },
     "progressive.opening_bootstrap": {
       "canonical_operation": "progressive.opening_bootstrap",
-      "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
+      "description": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap. Canonical operation `progressive.opening_bootstrap`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1110,11 +1110,11 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills."
+      "summary": "Deterministically publishes the minimal source-bound opening skeleton, projects sparse pristine campaign state, enqueues one exact foreground source window, and records a campaign-owned auto-projection watch. It never reads prose, moves a scene, narrates, waits, claims, or fulfills. Invoke once for the accepted setup decision and retain its receipt/watch; follow the returned host lifecycle instead of repeating bootstrap."
     },
     "progressive.prepare_opening": {
       "canonical_operation": "progressive.prepare_opening",
-      "description": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
+      "description": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query. Canonical operation `progressive.prepare_opening`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1186,7 +1186,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions."
+      "summary": "Experimental strict read-only planner for one source-authored opening. It validates an accepted 1..3-page window and returns bounded readiness plus optional mutation cards; it never parses, queues, projects, moves, narrates, supervises background work, or gates player actions. Retain the accepted selection for this bound scenario generation; after opening bootstrap, do not repeat this planner as a progress or recovery query."
     },
     "progressive.project_opening": {
       "canonical_operation": "progressive.project_opening",
@@ -1645,7 +1645,7 @@
     },
     "progressive.status": {
       "canonical_operation": "progressive.status",
-      "description": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only; use before inventing detail on a dig target. Canonical operation `progressive.status`; the result envelope is authoritative.",
+      "description": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only diagnostic for a concrete later dig/entity decision. It is not a Pi private-coordinator completion signal: while that lifecycle is open, await its terminal notice without polling, reassurance queries, repeat preparation/bootstrap, or manual claim/fulfillment. Canonical operation `progressive.status`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -1672,7 +1672,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only; use before inventing detail on a dig target."
+      "summary": "Read progressive parse queue + optional entity status for the campaign asset root. Also reports whether the detached parallel queue worker is running. Keeper-only diagnostic for a concrete later dig/entity decision. It is not a Pi private-coordinator completion signal: while that lifecycle is open, await its terminal notice without polling, reassurance queries, repeat preparation/bootstrap, or manual claim/fulfillment."
     },
     "rules.build_scale": {
       "canonical_operation": "rules.build_scale",
@@ -2941,7 +2941,7 @@
     },
     "session.resume": {
       "canonical_operation": "session.resume",
-      "description": "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context. Canonical operation `session.resume`; the result envelope is authoritative.",
+      "description": "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request. Canonical operation `session.resume`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2973,7 +2973,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Load one bounded, hash-bound Keeper recovery bundle after startup, process restart, or context compaction. This is the first campaign call in a fresh host context."
+      "summary": "Load one bounded, hash-bound Keeper recovery bundle when continuing a campaign generation that predates this host startup, process restart, switch, or context compaction. It is the first campaign call only for that continuation case; do not call it after creating, quick-starting, binding, or setting up the campaign in the current initial request."
     },
     "setup.inspect": {
       "canonical_operation": "setup.inspect",

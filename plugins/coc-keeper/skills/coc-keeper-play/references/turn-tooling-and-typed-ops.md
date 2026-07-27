@@ -499,7 +499,14 @@ KP projection ceremony; it does not create a narrative or player-action gate.
 After that setup request, or after an enter/dig/mechanics call exposes open host
 work, Pi stops at the projection and lets the package auto-dispatch the private
 lifecycle. The main KP performs none of the four claim/fulfill/renew/release
-operations. On other hosts, follow the projection's `dispatch_mode`. One ready group uses
+operations. It retains the accepted prepare/bootstrap receipt, dispatch key,
+and campaign watch; while the lifecycle is open it does not call
+`progressive.status`, repeat preparation/bootstrap, or re-dispatch. If the
+dependent opening boundary arrives first, it passively awaits the one host
+terminal notice. Terminal `fulfilled` is adopted through the next naturally
+needed canonical query that exposes the watch's auto-projected `opening_setup`;
+terminal failure is a recovery boundary, not a polling loop. On other hosts,
+follow the projection's `dispatch_mode`. One ready group uses
 `direct_single_leaf`: execute its one host-selected `next_host_action` before
 any other host operation. On Codex this spawns the exact small task; the child
 claims and compiles its one packet in the same task, so the parent never leases

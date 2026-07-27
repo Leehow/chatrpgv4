@@ -17,7 +17,7 @@ does not make repository code a PDF parser.
 
 Use this skill after an explicit COC activation request such as `activate COC mode`, `enter COC mode`, `start COC game`, `continue COC campaign`, or equivalent Chinese natural language.
 
-**Dedicated `pi-coc` desktop:** entering the session **is** activation. COC mode is already on. Do **not** ask the player to say「激活 COC」or wait for an activation phrase. On a fresh desktop, begin this skill’s onboarding immediately; on resume, continue the table (prefer `session.resume` when a campaign is bound). Host-injected `coc-pi-table-open` messages are activation equivalents.
+**Dedicated `pi-coc` desktop:** entering the session **is** activation. COC mode is already on. Do **not** ask the player to say「激活 COC」or wait for an activation phrase. On a fresh desktop, begin this skill’s onboarding immediately. Use `session.resume` only to continue a campaign generation that predates the current host context; campaign creation/setup performed in this same initial request is already current context and must not be followed by `session.resume`. Host-injected `coc-pi-table-open` messages are activation equivalents.
 
 Also treat **host try / plugin demo** prompts as activation. Cursor (and similar hosts) may inject prompts like:
 
@@ -45,6 +45,12 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    rediscover Quick Fire metadata already owned by `coc-character`.
 3. Select the visible play language at campaign setup, defaulting to `zh-Hans`, and persist it as `play_language`.
 4. Select or create a campaign before character creation or play.
+   The continuation recovery first-call rule applies only when this host context
+   is reopening an already-existing exact-schema campaign generation. If the
+   current initial request just created, quick-started, bound, or otherwise set
+   up this campaign, retain those current receipts and continue directly. Do
+   not call `session.resume` later in that same request merely because a
+   campaign id now exists.
 5. **Scenario onboarding (mandatory for new campaigns).** If the selected campaign is newly created and has no bound scenario (`active_scenario_id` is empty), you MUST proactively present a clear, beginner-facing choice before doing anything else:
 
    > **你有现成的剧本吗？ / Do you have a scenario ready?**
@@ -180,7 +186,15 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    date/time. Fulfillment applies that observation and drains only the exact
    campaign watch.
 
-   Consume the returned `background_takeover` without waiting or polling. On
+   `prepare_opening` and `opening_bootstrap` are one setup decision for this
+   bound scenario generation. Retain the accepted selection, bootstrap
+   receipt, dispatch key, and campaign watch. Once bootstrap has accepted it,
+   do not call either operation again to check progress, recover an error, or
+   improve the opening; follow the returned lifecycle or report its explicit
+   terminal failure instead.
+
+   Consume the returned `background_takeover` without active waiting or
+   polling. On
    Pi, the package auto-dispatches it and the main KP must not discover or
    invoke `progressive.claim_host_work`, `progressive.fulfill_host_work`,
    `progressive.renew_host_work_leases`, or
@@ -188,10 +202,17 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    hosts execute only the exact returned capability-selected action; named
    submit owns merge, while an explicit natural-completion fallback exact-
    forwards the unchanged result. A source-task notice is liveness only.
-   Consume durable opening availability through the next naturally needed
-   canonical query; automatic projection removes any KP projection ceremony.
-   Character work continues in parallel, and only an already-running Tier 1
-   minimum may delay the opening after final character confirmation.
+   While the Pi coordinator is open, `progressive.status` is neither its
+   completion signal nor a recovery operation: do not call it for reassurance
+   and do not re-dispatch or re-bootstrap. Character work continues in
+   parallel. If character confirmation reaches the opening boundary first,
+   passively wait for the one host terminal lifecycle notice rather than
+   issuing a status query. On `fulfilled`, adopt the campaign watch's
+   auto-projected opening setup through the next naturally needed canonical
+   scene/opening query; do not claim, fulfill, prepare, bootstrap, status-check,
+   or project it manually. On a terminal failure, surface the returned recovery
+   boundary instead of looping. Only that already-running Tier 1 minimum may
+   delay opening after final character confirmation.
 8. Route ordinary play to `coc-keeper-play`.
 9. Route rules questions and challenges to `coc-meta`.
 10. Route combat, chase, sanity, and spell events to their subsystem skills;

@@ -1129,6 +1129,9 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "must not discover or invoke `progressive.claim_host_work`",
         "`progressive.renew_host_work_leases`",
         "`progressive.release_host_work_leases`",
+        "`progressive.status` is neither its completion signal",
+        "passively wait for the one host terminal lifecycle notice",
+        "auto-projected opening setup",
         "named submit owns merge",
         "character work continues in parallel",
     ):
@@ -1148,7 +1151,9 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "exact window refs and source-supported clock precision",
         "otherwise it returns `status=unresolved`",
         "private lifecycle operations hidden from the main-kp discovery surface",
-        "never wait, poll, retrieve source output, or perform a reassurance query",
+        "never actively wait, poll, retrieve source output, or perform a reassurance query",
+        "passively await the one host terminal lifecycle notice",
+        "does not authorize `progressive.status`, a second prepare/bootstrap",
         "parent never reconstructs or repairs it",
         "main kp never calls `project_opening`",
         "must not fake a task",
@@ -1171,6 +1176,9 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "`progressive.renew_host_work_leases`",
         "`progressive.release_host_work_leases`",
         "must not author a pack",
+        "`progressive.status` is not a coordinator completion signal",
+        "passively await the one host terminal lifecycle notice",
+        "auto-projected `opening_setup`",
         "naturally needed canonical query",
         "real grok acceptance must use the focused keeper launcher",
     ):
@@ -1194,11 +1202,37 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "pi stops at the projection",
         "package auto-dispatch the private lifecycle",
         "main kp performs none of the four claim/fulfill/renew/release operations",
+        "does not call `progressive.status`, repeat preparation/bootstrap",
+        "passively awaits the one host terminal notice",
         "consume durable availability only through a later naturally needed canonical",
         "campaign watch owns opening projection",
         "real grok acceptance uses the focused keeper launcher",
     ):
         assert phrase in tooling, phrase
+
+
+def test_resume_is_continuation_only_not_fresh_setup_rehydration():
+    surfaces = {
+        "main": _text(PLUGIN_ROOT / "skills" / "coc-main" / "SKILL.md"),
+        "play": _text(
+            PLUGIN_ROOT / "skills" / "coc-keeper-play" / "SKILL.md"
+        ),
+        "profile": _text(PLUGIN_ROOT / "agents" / "coc-keeper-kp.md"),
+        "protocol": _text(PLUGIN_ROOT / "references" / "mode-protocol.md"),
+    }
+    compact = {
+        name: " ".join(text.split()).lower()
+        for name, text in surfaces.items()
+    }
+    for name, text in compact.items():
+        assert "session.resume" in text, name
+        assert "current initial request" in text, name
+    assert "predates the current host context" in compact["main"]
+    assert "prior-context recovery" in compact["play"]
+    assert "merely because the id now exists" in compact["profile"]
+    assert "first campaign call only for that continuation case" in (
+        compact["protocol"]
+    )
 
 
 def test_source_mechanics_required_uses_background_worker_without_roll_bypass():
