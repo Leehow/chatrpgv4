@@ -210,6 +210,16 @@ well-formed 64-hex digest, a foreign page, or an uncached appendix is not proof.
 ### Body aspect (`source_aspect=body`)
 
 - Set `parse_state` to `partial` or `deep` as requested by the job.
+- For every body-location request carrying `request.result_contract`
+  (`deepen_location`, `partial_neighbor`, or `partial_opening`), treat that
+  closed object as authoritative. Copy its `location_pack.fixed_fields`,
+  `copy_from_request`, and `empty_defaults` before adding source-supported
+  semantics. Use its exact row templates and canonical names: `location_id`
+  rather than `entity_id`, `title` rather than `name`, `clue_id` rather than a
+  clue `id`, and `scene_edges[].to` rather than `destination`. Return the
+  location entity itself, never an entity wrapper. If the required fields
+  cannot be supplied, return `status=abstain` with `results=[]`; never ask the
+  parent to repair a usable result.
 - For `kind=partial_opening`, require
   `request_purpose=foreground_opening_slice`. The packet-level and request-level
   `requested_source_scope` and `source_scope_signature` must match, and

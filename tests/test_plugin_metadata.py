@@ -391,6 +391,25 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "time_precision": "day_phase",
         "day_phase_hint": "<morning|afternoon|evening|night>",
     }
+    body_location = contract["packet"]["body_location"]
+    assert body_location["request_kinds"] == [
+        "deepen_location", "partial_neighbor",
+    ]
+    assert "result_contract" in body_location["required_request_fields"]
+    assert body_location["result_contract_id"] == "coc.location-body-pack.v1"
+    body_requirements = body_location["result_contract_requirements"]
+    assert body_requirements["closed"] is True
+    assert body_requirements["parse_state_by_kind"] == {
+        "deepen_location": "deep",
+        "partial_neighbor": "partial",
+    }
+    assert body_requirements["canonical_field_names"] == {
+        "location_id": "not entity_id",
+        "title": "not name",
+        "clues[].clue_id": "not clues[].id",
+        "scene_edges[].to": "not scene_edges[].destination",
+    }
+    assert body_requirements["parent_repair_allowed"] is False
     assert opening_setup["start_clock_source_ref_required_fields"] == [
         "source_id", "pdf_index",
     ]
@@ -576,6 +595,11 @@ def test_background_source_pack_worker_is_bounded_and_host_neutral():
         "compile exactly one `coc.source-pack-worker.v1` json object",
         "request_purpose=foreground_opening_slice",
         "request.result_contract",
+        "`deepen_location`, `partial_neighbor`, or `partial_opening`",
+        "`location_id` rather than `entity_id`",
+        "`title` rather than `name`",
+        "`clue_id` rather than a clue `id`",
+        "`scene_edges[].to` rather than `destination`",
         "`phase` and `precision` are unsupported aliases",
         "never abbreviate `day_phase_hint` or `time_precision`",
         "\"calendar_mode\": \"relative\"",

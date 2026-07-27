@@ -521,8 +521,48 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert request["cached_scope_complete"] is True
     assert request["cached_page_refs"][0]["pdf_index"] == 1
     assert "do not reopen the PDF" in request["instruction"]
+    assert "closed result_contract" in request["instruction"]
     assert "fulfillment operation binds the request transiently" in request[
         "instruction"
+    ]
+    result_contract = request["result_contract"]
+    assert result_contract["contract_id"] == "coc.location-body-pack.v1"
+    assert result_contract["closed"] is True
+    assert result_contract["parse_state"] == "deep"
+    assert result_contract["required_location_fields"] == [
+        "location_id",
+        "player_safe_summary",
+        "source_page_indices",
+        "source_refs",
+    ]
+    location_pack_contract = result_contract["location_pack"]
+    assert location_pack_contract["fixed_fields"] == {
+        "parse_state": "deep",
+        "evidence_gap": False,
+        "origin": "source",
+    }
+    assert location_pack_contract["copy_from_request"] == {
+        "location_id": "target_id",
+        "host_work_job_id": "job_id",
+        "source_page_indices": "requested_pdf_indices",
+        "source_refs": {
+            "from": "cached_page_refs",
+            "select_fields": ["source_id", "pdf_index", "text_sha256"],
+            "scope": "exact",
+        },
+    }
+    assert location_pack_contract["required_semantic_fields"] == [
+        "title", "player_safe_summary",
+    ]
+    assert location_pack_contract["row_contracts"]["clue"]["required_fields"] == [
+        "clue_id",
+        "player_safe_summary",
+        "discovery",
+        "provenance",
+        "source_refs",
+    ]
+    assert location_pack_contract["row_contracts"]["scene_edge"]["required_fields"] == [
+        "to",
     ]
 
     open_requests = assets.list_host_work_requests(tmp_path, "qw-demo")
@@ -572,6 +612,7 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assert packet["cached_scope_complete"] is True
     assert packet["requested_pdf_indices"] == [1]
     assert packet["requests"][0]["job_id"] == request["job_id"]
+    assert packet["requests"][0]["result_contract"] == result_contract
     assert any("continue play" in hint for hint in claim_hints)
     leased_request = assets.list_host_work_requests(tmp_path, "qw-demo")[0]
 
@@ -1151,6 +1192,13 @@ def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):
     first = worker.run_worker_once(tmp_path, parallel=1)
     first_request_path = Path(first["results"][0]["host_work_request"])
     first_request = json.loads(first_request_path.read_text(encoding="utf-8"))
+    assert first_request["result_contract"]["contract_id"] == (
+        "coc.location-body-pack.v1"
+    )
+    assert first_request["result_contract"]["parse_state"] == "deep"
+    assert first_request["result_contract"]["location_pack"]["fixed_fields"][
+        "parse_state"
+    ] == "deep"
     assert first_request["requested_pdf_indices"] == [1]
 
     _register_qw_source_pages(tmp_path, {2: "# Cellar context\n"})
@@ -1210,6 +1258,13 @@ def test_deep_job_supersedes_open_partial_neighbor_request(tmp_path: Path):
     first = worker.run_worker_once(tmp_path, parallel=1)
     first_request_path = Path(first["results"][0]["host_work_request"])
     first_request = json.loads(first_request_path.read_text(encoding="utf-8"))
+    assert first_request["result_contract"]["contract_id"] == (
+        "coc.location-body-pack.v1"
+    )
+    assert first_request["result_contract"]["parse_state"] == "partial"
+    assert first_request["result_contract"]["location_pack"]["fixed_fields"][
+        "parse_state"
+    ] == "partial"
 
     deep = assets.enqueue_job(
         tmp_path,
@@ -1227,6 +1282,10 @@ def test_deep_job_supersedes_open_partial_neighbor_request(tmp_path: Path):
             encoding="utf-8"
         )
     )
+    assert replacement_request["result_contract"]["contract_id"] == (
+        "coc.location-body-pack.v1"
+    )
+    assert replacement_request["result_contract"]["parse_state"] == "deep"
     assert replacement_request["superseded_host_job_ids"] == [
         first_request["job_id"],
     ]

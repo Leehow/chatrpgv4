@@ -324,6 +324,53 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
     }
 
 
+def _body_location_result_contract(*, parse_state: str) -> dict[str, Any]:
+    """Return the closed reusable location-pack shape for body host work."""
+    opening_contract = _foreground_opening_result_contract()
+    location_pack = opening_contract["location_pack"]
+    location_pack["fixed_fields"]["parse_state"] = parse_state
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.location-body-pack.v1",
+        "closed": True,
+        "parse_state": parse_state,
+        "evidence_gap": False,
+        "required_location_fields": list(
+            opening_contract["required_location_fields"]
+        ),
+        "exact_source_scope": True,
+        "worker_result_pack_shape": opening_contract[
+            "worker_result_pack_shape"
+        ],
+        "location_pack": location_pack,
+        "submission_guidance": {
+            "copy_contract_values": [
+                "location_pack.fixed_fields",
+                "location_pack.copy_from_request",
+                "location_pack.empty_defaults",
+            ],
+            "semantic_default_replacement": {
+                "clues": "populate source-authored clues supported by this scope",
+                "affordances": (
+                    "populate source-authored immediately usable courses of action"
+                ),
+                "mentions": (
+                    "populate source-authored named people or places referenced "
+                    "but not materially present"
+                ),
+                "scene_edges": "populate only source-established destination locations",
+            },
+            "all_empty_semantic_arrays_allowed_only_when_source_authors_none": True,
+            "self_check_before_status_usable": True,
+            "unsatisfied_required_fields_result": {
+                "status": "abstain",
+                "results": [],
+            },
+            "parent_repair_allowed": False,
+        },
+    }
+
+
 def _mechanics_locator_result_contract(
     *,
     file_sha256: str,
@@ -1184,12 +1231,29 @@ def _write_host_work_request(
             "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
             "is true, do not reopen the PDF for this scope. Extract only a "
             "reusable partial neighbor pack; register a new validated source "
-            "bundle window only for missing pdf_indices. Submit the complete outer "
-            "result through the named source transport, or return it unchanged to the "
-            "exact fallback parent, with parse_state=partial and "
-            "evidence_gap=false, source_page_indices, and host_timing; the "
-            "fulfillment operation binds the request transiently."
+            "bundle window only for missing pdf_indices. Follow the closed "
+            "result_contract: copy fixed_fields, copy_from_request, and "
+            "empty_defaults; use exact canonical row templates and field names, "
+            "and return the direct location entity rather than a wrapper. If "
+            "required fields cannot be supplied, return status=abstain with "
+            "results=[]; the parent must not repair a usable result. Submit the "
+            "complete outer result through the named source transport, or return "
+            "it unchanged to the exact fallback parent."
             if str(job.get("kind") or "") == "partial_neighbor"
+            else
+            "Host PDF skill: read exactly cached_page_refs for this bounded "
+            "location deepening. If cached_scope_complete is true, do not reopen "
+            "the PDF for this scope. Follow the closed result_contract: copy "
+            "fixed_fields, copy_from_request, and empty_defaults before replacing "
+            "them only with source-supported semantics; use every canonical row "
+            "template and field name rather than intuitive aliases. Return the "
+            "direct location entity pack, never an entity wrapper. If required "
+            "fields cannot be supplied, return status=abstain with results=[]; "
+            "the parent must not repair a usable result. Submit the complete "
+            "outer result through the named source transport, or return it "
+            "unchanged to the exact fallback parent; the fulfillment operation "
+            "binds the request transiently."
+            if job_kind == "deepen_location"
             else
             "Host PDF skill: read cached_page_refs first. If cached_scope_complete "
             "is true, do not reopen the PDF for this scope. Register a new "
@@ -1210,6 +1274,12 @@ def _write_host_work_request(
     coc_module_assets.validate_host_work_request_shape(payload)
     if job_kind == "partial_opening":
         payload["result_contract"] = _foreground_opening_result_contract()
+    elif job_kind in {"deepen_location", "partial_neighbor"}:
+        payload["result_contract"] = _body_location_result_contract(
+            parse_state=(
+                "partial" if job_kind == "partial_neighbor" else "deep"
+            ),
+        )
     elif job_kind == "locate_mechanics_index":
         payload["result_contract"] = _mechanics_locator_result_contract(
             file_sha256=str(payload.get("file_sha256") or ""),

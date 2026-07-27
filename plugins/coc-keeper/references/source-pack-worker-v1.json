@@ -351,6 +351,50 @@
         "submit the complete outer result through the named direct transport, or return it unchanged to an adapter that lacks that transport; partial_opening is never deep coverage"
       ]
     },
+    "body_location": {
+      "request_kinds": ["deepen_location", "partial_neighbor"],
+      "source_aspect": "body",
+      "required_request_fields": [
+        "job_id",
+        "target_id",
+        "requested_pdf_indices",
+        "cached_page_refs",
+        "result_contract"
+      ],
+      "result_contract_id": "coc.location-body-pack.v1",
+      "result_contract_requirements": {
+        "closed": true,
+        "parse_state_by_kind": {
+          "deepen_location": "deep",
+          "partial_neighbor": "partial"
+        },
+        "required_location_fields": [
+          "location_id",
+          "player_safe_summary",
+          "source_page_indices",
+          "source_refs"
+        ],
+        "worker_result_pack_shape": "direct_location_entity; never nest it under a location key",
+        "location_pack_contract_source": "same canonical location_pack field, source-ref, and row contracts carried by foreground_opening_slice.result_contract",
+        "canonical_field_names": {
+          "location_id": "not entity_id",
+          "title": "not name",
+          "clues[].clue_id": "not clues[].id",
+          "scene_edges[].to": "not scene_edges[].destination"
+        },
+        "unsatisfied_required_fields_result": {
+          "status": "abstain",
+          "results": []
+        },
+        "parent_repair_allowed": false
+      },
+      "rules": [
+        "copy request.result_contract location_pack.fixed_fields, copy_from_request, and empty_defaults before source-supported semantic replacement",
+        "use exact canonical row templates and field names rather than intuitive aliases",
+        "return the direct location entity pack without an entity wrapper",
+        "submit status=abstain with results=[] when required fields cannot be supplied; never ask the parent to repair a usable result"
+      ]
+    },
     "mechanics_locator_pass": {
       "request_kind": "locate_mechanics_index",
       "request_purpose": "mechanics_locator_pass",
