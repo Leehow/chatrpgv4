@@ -662,6 +662,15 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "currentContinued": True,
             },
         },
+        "realLoop": {
+            "piVersion": "0.81.1",
+            "sameContentObject": False,
+            "startLength": 0,
+            "endLength": 1,
+            "unrelatedFirstVisible": True,
+            "toolBearingTextHidden": True,
+            "operationalWaitSuppressed": True,
+        },
     }
 
 

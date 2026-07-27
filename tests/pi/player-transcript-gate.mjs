@@ -4,6 +4,16 @@ import process from "node:process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const main = await import(path.join(root, "plugins/coc-keeper/pi/extensions/index.ts"));
+const { runAgentLoop } = await import(path.join(
+  root,
+  "runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/"
+    + "node_modules/@earendil-works/pi-agent-core/dist/index.js",
+));
+const { createAssistantMessageEventStream } = await import(path.join(
+  root,
+  "runtime/adapters/keeper/node_modules/@earendil-works/pi-coding-agent/"
+    + "node_modules/@earendil-works/pi-ai/dist/index.js",
+));
 const handlers = new Map();
 const openingContinuationGate = new main.OpeningTerminalContinuationGate();
 main.registerPlayerTranscriptGate({
@@ -12,8 +22,7 @@ main.registerPlayerTranscriptGate({
     registered.push(handler);
     handlers.set(type, registered);
   },
-}, (message) => openingContinuationGate.acceptVisibleAssistantFinal(message),
-(message) => openingContinuationGate.bindVisibleAssistantOutput(message));
+}, () => openingContinuationGate.acceptVisibleAssistantFinal());
 
 async function emit(type, message) {
   let result;
@@ -33,8 +42,131 @@ function types(message) {
   return message.content.map((part) => part.type);
 }
 
-async function bindFinalProvenance(message) {
-  await emit("message_start", { ...message });
+async function realRunAgentLoopProbe() {
+  const realHandlers = new Map();
+  const gate = new main.OpeningTerminalContinuationGate();
+  main.registerPlayerTranscriptGate({
+    on(type, handler) {
+      const registered = realHandlers.get(type) || [];
+      registered.push(handler);
+      realHandlers.set(type, registered);
+    },
+  }, () => gate.acceptVisibleAssistantFinal());
+  gate.trackOpeningDispatch("real-loop-opening");
+  gate.queueVisibleAssistantDisposition("operational_wait");
+  gate.markIndependentVisibleOutput();
+
+  const usage = {
+    input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
+    totalTokens: 0,
+  };
+  const base = {
+    role: "assistant", api: "openai-responses", provider: "probe",
+    model: "probe", usage, stopReason: "stop", timestamp: 100,
+  };
+  const responses = [
+    {
+      ...base,
+      content: [{ type: "text", text: "无关的角色准备说明。" }],
+    },
+    {
+      ...base,
+      content: [
+        { type: "text", text: "工具过渡。" },
+        { type: "toolCall", id: "probe-call", name: "probe_tool", arguments: {} },
+      ],
+      stopReason: "toolUse",
+      timestamp: 101,
+    },
+    {
+      ...base,
+      content: [{ type: "text", text: "开篇仍在后台处理中。" }],
+      timestamp: 102,
+    },
+  ];
+  const finals = [];
+  let responseIndex = 0;
+  let followUpSent = false;
+  let waitStart;
+  let waitEnd;
+  const streamFn = () => {
+    const stream = createAssistantMessageEventStream();
+    const finalMessage = responses[responseIndex++];
+    queueMicrotask(() => {
+      stream.push({ type: "start", partial: { ...finalMessage, content: [] } });
+      stream.push({ type: "done", message: finalMessage });
+    });
+    return stream;
+  };
+  await runAgentLoop(
+    [{
+      role: "user",
+      content: [{ type: "text", text: "开始。" }],
+      timestamp: 1,
+    }],
+    {
+      systemPrompt: "probe",
+      messages: [],
+      tools: [{
+        name: "probe_tool",
+        label: "probe",
+        description: "probe",
+        parameters: {
+          type: "object", properties: {}, additionalProperties: false,
+        },
+        async execute() {
+          return {
+            content: [{ type: "text", text: "ok" }],
+            details: { ok: true },
+          };
+        },
+      }],
+    },
+    {
+      model: {
+        id: "probe", name: "probe", provider: "probe",
+        api: "openai-responses", reasoning: false, input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 1000, maxTokens: 100,
+      },
+      convertToLlm: (messages) => messages,
+      getFollowUpMessages() {
+        if (!followUpSent && responseIndex === 1) {
+          followUpSent = true;
+          return [{
+            role: "user",
+            content: [{ type: "text", text: "继续。" }],
+            timestamp: 2,
+          }];
+        }
+        return [];
+      },
+    },
+    async (event) => {
+      if (event.type === "message_start" && event.message.role === "assistant") {
+        if (event.message.timestamp === 102) waitStart = event.message;
+      }
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        if (event.message.timestamp === 102) waitEnd = event.message;
+        let transformed;
+        for (const handler of realHandlers.get("message_end") || []) {
+          transformed = await handler(event, {});
+        }
+        finals.push(transformed?.message ?? event.message);
+      }
+    },
+    undefined,
+    streamFn,
+  );
+  return {
+    piVersion: "0.81.1",
+    sameContentObject: waitStart?.content === waitEnd?.content,
+    startLength: waitStart?.content?.length,
+    endLength: waitEnd?.content?.length,
+    unrelatedFirstVisible: types(finals[0]).includes("text"),
+    toolBearingTextHidden: JSON.stringify(types(finals[1])) === '["toolCall"]',
+    operationalWaitSuppressed: types(finals[2]).length === 0,
+  };
 }
 
 const start = {
@@ -81,7 +213,6 @@ const unrelatedWhileAwaiting = {
   role: "assistant",
   content: [{ type: "text", text: "你的调查员装备与背景已经整理完毕。" }],
 };
-await bindFinalProvenance(unrelatedWhileAwaiting);
 const unrelatedWhileAwaitingResult = await emit(
   "message_end",
   unrelatedWhileAwaiting,
@@ -90,14 +221,12 @@ const waitFinal = {
   role: "assistant",
   content: [{ type: "text", text: "解析仍在进行，请稍候。" }],
 };
-await bindFinalProvenance(waitFinal);
 const waitResult = await emit("message_end", waitFinal);
 openingContinuationGate.markOpeningProjected();
 const validOpening = {
   role: "assistant",
   content: [{ type: "text", text: "马车在白昼里停到城堡门前。" }],
 };
-await bindFinalProvenance(validOpening);
 const validOpeningResult = await emit("message_end", validOpening);
 
 const user = {
@@ -152,7 +281,6 @@ const consumedOpening = {
   role: "assistant",
   content: [{ type: "text", text: "任意正常桌面叙事。" }],
 };
-await bindFinalProvenance(consumedOpening);
 await emit("message_end", consumedOpening);
 openingContinuationGate.markAgentEnd();
 const consumedReport = await consumedPromise;
@@ -178,7 +306,6 @@ const terminalBlocker = {
   role: "assistant",
   content: [{ type: "text", text: "开场资料处理终止，需要重新确认来源边界。" }],
 };
-await bindFinalProvenance(terminalBlocker);
 const terminalBlockerResult = await emit("message_end", terminalBlocker);
 openingContinuationGate.markAgentEnd();
 const unfinishedReport = await unfinishedPromise;
@@ -206,6 +333,7 @@ const currentReport = await main.publishCoordinatorTerminal({
 }, { ...terminalReceipt, packet_id: reusedDispatchKey }, currentContinuedDispatches,
 (dispatchKey) => openingContinuationGate.decideWake(dispatchKey));
 const staleReport = await stalePromise;
+const realLoop = await realRunAgentLoopProbe();
 
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
@@ -257,4 +385,5 @@ process.stdout.write(JSON.stringify({
       currentContinued: currentContinuedDispatches.has(reusedDispatchKey),
     },
   },
+  realLoop,
 }));

@@ -86,8 +86,6 @@ type VisibleAssistantDisposition =
   | "terminal_blocker";
 
 export class OpeningTerminalContinuationGate {
-  private readonly visibleDispositions =
-    new WeakMap<object, VisibleAssistantDisposition>();
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
   private readonly pending = new Map<string, {
     promise: Promise<boolean>;
@@ -110,13 +108,6 @@ export class OpeningTerminalContinuationGate {
     } else {
       this.queuedVisibleDispositions.unshift(disposition);
     }
-  }
-
-  bindVisibleAssistantOutput(message: unknown): void {
-    const assistant = assistantContentMessage(message);
-    if (!assistant) return;
-    const disposition = this.queuedVisibleDispositions.shift();
-    if (disposition) this.visibleDispositions.set(assistant.content, disposition);
   }
 
   markAgentStart(): void {
@@ -148,14 +139,11 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
-  acceptVisibleAssistantFinal(message?: unknown): boolean {
-    const assistant = assistantContentMessage(message);
-    const disposition = assistant
-      ? this.visibleDispositions.get(assistant.content)
-      : undefined;
-    if (assistant) {
-      this.visibleDispositions.delete(assistant.content);
-    }
+  acceptVisibleAssistantFinal(): boolean {
+    // Only the transcript gate's confirmed tool-free assistant final reaches
+    // this method. Streaming starts/updates and tool-bearing finals cannot
+    // consume host provenance.
+    const disposition = this.queuedVisibleDispositions.shift();
     if (disposition === "operational_wait") {
       return false;
     }
@@ -210,11 +198,9 @@ export class OpeningTerminalContinuationGate {
 
 export function registerPlayerTranscriptGate(
   pi: ExtensionAPI,
-  onVisibleAssistantFinal?: (message: unknown) => boolean | void,
-  onAssistantMessageStart?: (message: unknown) => void,
+  onVisibleAssistantFinal?: () => boolean | void,
 ): void {
   pi.on("message_start", (event) => {
-    onAssistantMessageStart?.(event.message);
     hideUnsettledAssistantText(event.message);
   });
   pi.on("message_update", (event) => {
@@ -225,7 +211,7 @@ export function registerPlayerTranscriptGate(
     if (!assistant) return;
     if (!assistant.content.some((part) => part.type === "toolCall")) {
       if (assistant.content.some((part) => part.type === "text")) {
-        if (onVisibleAssistantFinal?.(event.message) === false) {
+        if (onVisibleAssistantFinal?.() === false) {
           return { message: withoutAssistantText(event.message) };
         }
       }
@@ -658,8 +644,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   registerPlayerTranscriptGate(
     pi,
-    (message) => openingContinuationGate.acceptVisibleAssistantFinal(message),
-    (message) => openingContinuationGate.bindVisibleAssistantOutput(message),
+    () => openingContinuationGate.acceptVisibleAssistantFinal(),
   );
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();
