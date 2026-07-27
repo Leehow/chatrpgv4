@@ -553,6 +553,80 @@ def test_same_destination_unmatched_travel_minutes_fails_closed(campaign_ws):
     assert after["data"]["active_scene_id"] == active_id
 
 
+def test_same_destination_missing_and_timed_edges_make_omission_ambiguous(
+    campaign_ws,
+):
+    world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    active_id = world["active_scene_id"]
+    graph_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    story_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    active_scene = next(
+        scene for scene in story_graph["scenes"]
+        if scene["scene_id"] == active_id
+    )
+    destination = active_scene["scene_edges"][0]["to"]
+    active_scene["scene_edges"] = [
+        {
+            "to": destination,
+            "kind": "travel",
+            "when": {"kind": "always"},
+        },
+        {
+            "to": destination,
+            "kind": "travel",
+            "when": {
+                "kind": "narrative",
+                "description": "the party chooses the timed authored route",
+            },
+            "travel_minutes": 120,
+        },
+    ]
+    _write_json(graph_path, story_graph)
+    coc_toolbox.coc_compiled_archive.publish_from_campaign(
+        campaign_ws["campaign_dir"]
+    )
+    context = _run(campaign_ws, "scene.context")
+    cards = [
+        row["operation_opportunity"]["prefilled_arguments"]
+        for row in context["data"]["exits"]
+        if row["to"] == destination
+    ]
+    assert cards == [
+        {"scene_id": destination},
+        {"scene_id": destination, "travel_minutes": 120},
+    ]
+
+    protected_paths = [
+        campaign_ws["campaign_dir"] / "save" / "world-state.json",
+        campaign_ws["campaign_dir"] / "save" / "time-state.json",
+        campaign_ws["campaign_dir"] / "save" / "time-triggers.json",
+    ]
+    before = {path: path.read_bytes() for path in protected_paths}
+    rejected = _run(campaign_ws, "state.move_scene", {
+        **cards[0],
+        "reason": "the no-duration card is ambiguous beside a timed route",
+        "decision_id": "same-destination-mixed-omission",
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_param"
+    assert {path: path.read_bytes() for path in protected_paths} == before
+
+    moved = _run(campaign_ws, "state.move_scene", {
+        **cards[1],
+        "reason": "the exact timed card resolves the mixed edge set",
+        "decision_id": "same-destination-mixed-timed",
+    })
+    assert moved["ok"] is True, moved
+    assert moved["data"]["travel_minutes"] == 120
+    assert moved["data"]["travel_time_source"] == "source_scene_edge"
+    assert moved["data"]["time_scene_change"]["elapsed_minutes"] == 120
+
+
 
 
 
