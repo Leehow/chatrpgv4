@@ -601,13 +601,13 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "nonblocking_background_after_finalized_output"
             ),
             "digestMatches": True,
-            "mismatchVisible": True,
-            "followUpVisible": True,
+            "mismatchReplacedExact": True,
+            "followUpSuppressed": True,
         },
-        "arbitraryBeforeExactReturned": True,
+        "arbitraryBeforeExactReplacedExact": True,
         "toolBearingAfterFinalizeTypes": ["toolCall"],
-        "finalizedNarrationReturned": True,
-        "mismatchAfterExactReturned": True,
+        "finalizedNarrationSuppressed": True,
+        "mismatchAfterExactSuppressed": True,
         "finalizedWake": {
             "appended": 1,
             "sent": 0,
@@ -766,6 +766,32 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
             "exactVisible": True,
             "redundantSuppressed": True,
             "queuedCustomObserved": True,
+        },
+        "adversarialFinalizationInterleave": {
+            "armed": True,
+            "durableOrder": [
+                "coc-source-coordinator-lifecycle",
+                "coc-source-coordinator-terminal",
+            ],
+            "terminalReport": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "suppressed_nonblocking",
+                "player_transcript": "suppressed",
+            },
+            "sent": 0,
+            "decideWakeCalls": 0,
+            "replacement": {
+                "exact": True,
+                "wrongSuppressed": True,
+                "textParts": 1,
+                "staleSignatureRemoved": True,
+            },
+            "duplicateExactSuppressed": True,
+            "exactAssistantAllowedOnce": True,
+            "stalePreviousEpochAllowed": True,
+            "openingExactAllowed": True,
+            "openingWakeConsumed": True,
         },
     }
 

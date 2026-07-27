@@ -84,6 +84,27 @@ function withoutAssistantText<T>(message: T): T {
   } as T;
 }
 
+function withExactAssistantText<T>(message: T, exactText: string): T {
+  const assistant = assistantContentMessage(message);
+  if (!assistant) return message;
+  let inserted = false;
+  const content: AssistantContentPart[] = [];
+  for (const part of assistant.content) {
+    if (part.type !== "text") {
+      content.push(part);
+      continue;
+    }
+    if (inserted) continue;
+    content.push({ type: "text", text: exactText });
+    inserted = true;
+  }
+  if (!inserted) content.push({ type: "text", text: exactText });
+  return {
+    ...(message as object),
+    content,
+  } as T;
+}
+
 function hideUnsettledAssistantText(message: unknown): void {
   const assistant = assistantContentMessage(message);
   if (!assistant) return;
@@ -93,13 +114,17 @@ function hideUnsettledAssistantText(message: unknown): void {
 // Pi emits extensions before TUI listeners. Streaming events contain shallow
 // message copies, so hiding their text delays it at the player boundary without
 // altering the provider's accumulated response. A tool-free final message is
-// then rendered normally; a tool-bearing final message keeps only non-text
-// parts so its framing never enters the transcript or later model context.
+// rendered normally unless a same-epoch finalizer receipt exact-replaces it;
+// a tool-bearing final message keeps only non-text parts so its framing never
+// enters the transcript or later model context.
 type VisibleAssistantDisposition =
   | "operational_wait"
   | "independent"
   | "projected_opening"
   | "terminal_blocker";
+type VisibleAssistantFinalDecision =
+  | boolean
+  | { replacementText: string };
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
@@ -282,14 +307,13 @@ export class OpeningTerminalContinuationGate {
     };
   }
 
-  acceptVisibleAssistantFinal(visibleText: string): boolean {
+  acceptVisibleAssistantFinal(
+    visibleText: string,
+  ): VisibleAssistantFinalDecision {
     // Only the transcript gate's confirmed tool-free assistant final reaches
     // this method. Streaming starts/updates and tool-bearing finals cannot
     // consume host provenance.
     const disposition = this.queuedVisibleDispositions.shift();
-    if (disposition === "operational_wait") {
-      return false;
-    }
     if (disposition === "projected_opening") {
       for (const [key, state] of this.states) {
         if (state === "projected") this.states.set(key, "published");
@@ -303,11 +327,30 @@ export class OpeningTerminalContinuationGate {
     if (
       finalized?.delivered === false
       && finalized.epoch === this.playerTurnEpoch
-      && finalized.renderedText === visibleText
-      && finalized.renderedSha256 === visibleSha256
     ) {
       finalized.delivered = true;
-      return true;
+      if (
+        finalized.renderedText === visibleText
+        && finalized.renderedSha256 === visibleSha256
+      ) {
+        return true;
+      }
+      return { replacementText: finalized.renderedText };
+    }
+    if (disposition === "operational_wait") {
+      return false;
+    }
+    if (
+      disposition === undefined
+      && finalized?.delivered === true
+      && finalized.epoch === this.playerTurnEpoch
+    ) {
+      // Once the same-epoch finalizer receipt has been delivered, no
+      // tool-free model chatter may create a second player output. A new real
+      // user message clears the receipt; explicit host dispositions such as a
+      // blocking opening failure remain independently visible.
+      this.nonblockingContinuation = null;
+      return false;
     }
     const continuation = this.nonblockingContinuation;
     if (
@@ -370,7 +413,9 @@ export class OpeningTerminalContinuationGate {
 
 export function registerPlayerTranscriptGate(
   pi: ExtensionAPI,
-  onVisibleAssistantFinal?: (visibleText: string) => boolean | void,
+  onVisibleAssistantFinal?: (
+    visibleText: string,
+  ) => VisibleAssistantFinalDecision | void,
   onMessageStart?: (message: unknown) => void,
 ): void {
   pi.on("message_start", (event) => {
@@ -386,8 +431,21 @@ export function registerPlayerTranscriptGate(
     if (!assistant.content.some((part) => part.type === "toolCall")) {
       const visibleText = visibleAssistantText(assistant);
       if (visibleText !== null) {
-        if (onVisibleAssistantFinal?.(visibleText) === false) {
+        const decision = onVisibleAssistantFinal?.(visibleText);
+        if (decision === false) {
           return { message: withoutAssistantText(event.message) };
+        }
+        if (
+          decision
+          && typeof decision === "object"
+          && typeof decision.replacementText === "string"
+        ) {
+          return {
+            message: withExactAssistantText(
+              event.message,
+              decision.replacementText,
+            ),
+          };
         }
       }
       return;

@@ -54,6 +54,13 @@ function types(message) {
   return message.content.map((part) => part.type);
 }
 
+function text(message) {
+  return message.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
 async function realRunAgentLoopProbe() {
   const realHandlers = new Map();
   const gate = new main.OpeningTerminalContinuationGate();
@@ -265,6 +272,7 @@ async function realFinalizationLoopProbe() {
           type: "object", properties: {}, additionalProperties: false,
         },
         async execute() {
+          armed = gate.markFinalizedOutputReady(exactText, digest(exactText));
           return {
             content: [{ type: "text", text: "ok" }],
             details: { ok: true },
@@ -317,13 +325,6 @@ async function realFinalizationLoopProbe() {
       let transformed;
       for (const handler of realHandlers.get(event.type) || []) {
         transformed = await handler(event, {});
-      }
-      if (
-        !armed
-        && event.type === "message_start"
-        && event.message?.role === "user"
-      ) {
-        armed = gate.markFinalizedOutputReady(exactText, digest(exactText));
       }
       if (event.type === "message_end" && event.message.role === "assistant") {
         finals.push(transformed?.message ?? event.message);
@@ -508,6 +509,111 @@ async function realEarlyFinalizationLoopProbe() {
     queuedCustomObserved: eventTrace.includes(
       "message_start:custom:coc-source-coordinator-terminal-continuation",
     ),
+  };
+}
+
+async function adversarialFinalizationInterleaveProbe() {
+  const probeHandlers = new Map();
+  const gate = new main.OpeningTerminalContinuationGate();
+  main.registerPlayerTranscriptGate({
+    on(type, handler) {
+      const registered = probeHandlers.get(type) || [];
+      registered.push(handler);
+      probeHandlers.set(type, registered);
+    },
+  }, (visibleText) => gate.acceptVisibleAssistantFinal(visibleText),
+  (message) => gate.observeMessageStart(message));
+  const probeEmit = async (type, message) => {
+    let transformed;
+    for (const handler of probeHandlers.get(type) || []) {
+      transformed = await handler({ type, message }, {});
+    }
+    return transformed;
+  };
+
+  const exactText = "哈希绑定的第二回合终态叙事。";
+  await probeEmit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "我按使命出发。" }],
+  });
+  const armed = gate.markFinalizedOutputReady(exactText, digest(exactText));
+  const durableEntries = [];
+  const sent = [];
+  let decideWakeCalls = 0;
+  durableEntries.push([
+    "coc-source-coordinator-lifecycle",
+    { status: "completed", dispatch_key: "coord-interleaved-finalizer" },
+  ]);
+  const terminalReport = await main.publishCoordinatorTerminal({
+    appendEntry: (...args) => durableEntries.push(args),
+    sendMessage: (...args) => sent.push(args),
+  }, {
+    schema_version: 1,
+    contract_id: "coc.source-coordinator-result.v1",
+    packet_id: "coord-interleaved-finalizer",
+    status: "fulfilled",
+    failure_class: null,
+  }, new Set(), () => {
+    decideWakeCalls += 1;
+    return true;
+  }, (dispatchKey, terminalStatus) => (
+    gate.coordinatorContinuationContext(dispatchKey, terminalStatus)
+  ));
+  const wrong = {
+    role: "assistant",
+    content: [{
+      type: "text",
+      text: "已记下绑定；请继续行动。",
+      textSignature: "provider-signature-for-wrong-text",
+    }],
+  };
+  const wrongResult = await probeEmit("message_end", wrong);
+  const replaced = wrongResult?.message ?? wrong;
+  const duplicateExact = {
+    role: "assistant",
+    content: [{ type: "text", text: exactText }],
+  };
+  const duplicateResult = await probeEmit("message_end", duplicateExact);
+
+  const exactGate = new main.OpeningTerminalContinuationGate();
+  exactGate.markExternalUserInput();
+  exactGate.markFinalizedOutputReady(exactText, digest(exactText));
+  const exactDecision = exactGate.acceptVisibleAssistantFinal(exactText);
+
+  const staleGate = new main.OpeningTerminalContinuationGate();
+  staleGate.markExternalUserInput();
+  staleGate.markFinalizedOutputReady("旧终态。", digest("旧终态。"));
+  staleGate.markExternalUserInput();
+  const staleDecision = staleGate.acceptVisibleAssistantFinal("新回合普通叙事。");
+
+  const openingGate = new main.OpeningTerminalContinuationGate();
+  openingGate.markExternalUserInput();
+  openingGate.trackOpeningDispatch("coord-opening-finalizer");
+  openingGate.markOpeningProjected();
+  openingGate.markFinalizedOutputReady(exactText, digest(exactText));
+  const openingDecision = openingGate.acceptVisibleAssistantFinal(exactText);
+
+  return {
+    armed,
+    durableOrder: durableEntries.map(([kind]) => kind),
+    terminalReport,
+    sent: sent.length,
+    decideWakeCalls,
+    replacement: {
+      exact: text(replaced) === exactText,
+      wrongSuppressed: !text(replaced).includes("已记下绑定"),
+      textParts: replaced.content.filter((part) => part.type === "text").length,
+      staleSignatureRemoved:
+        !Object.hasOwn(replaced.content.find((part) => part.type === "text"), "textSignature"),
+    },
+    duplicateExactSuppressed: types(
+      duplicateResult?.message ?? duplicateExact,
+    ).length === 0,
+    exactAssistantAllowedOnce: exactDecision === true,
+    stalePreviousEpochAllowed: staleDecision === true,
+    openingExactAllowed: openingDecision === true,
+    openingWakeConsumed:
+      openingGate.decideWake("coord-opening-finalizer") === false,
   };
 }
 
@@ -858,6 +964,8 @@ const staleReport = await stalePromise;
 const realLoop = await realRunAgentLoopProbe();
 const realFinalizationLoop = await realFinalizationLoopProbe();
 const realEarlyFinalizationLoop = await realEarlyFinalizationLoopProbe();
+const adversarialFinalizationInterleave =
+  await adversarialFinalizationInterleaveProbe();
 
 process.stdout.write(JSON.stringify({
   registered: [...handlers.keys()].sort(),
@@ -882,13 +990,18 @@ process.stdout.write(JSON.stringify({
     digestMatches:
       earlyMismatchContext.finalized_rendered_sha256
         === digest("只允许这条精确输出。"),
-    mismatchVisible: earlyMismatchOutputVisible,
-    followUpVisible: earlyMismatchFollowUpVisible,
+    mismatchReplacedExact:
+      earlyMismatchOutputVisible?.replacementText
+        === "只允许这条精确输出。",
+    followUpSuppressed: earlyMismatchFollowUpVisible === false,
   },
-  arbitraryBeforeExactReturned: arbitraryBeforeExact === undefined,
+  arbitraryBeforeExactReplacedExact:
+    text(arbitraryBeforeExact.message) === finalizedText,
   toolBearingAfterFinalizeTypes: types(toolBearingAfterFinalize.message),
-  finalizedNarrationReturned: finalizedNarrationResult === undefined,
-  mismatchAfterExactReturned: mismatchAfterExact === undefined,
+  finalizedNarrationSuppressed:
+    types(finalizedNarrationResult.message).length === 0,
+  mismatchAfterExactSuppressed:
+    types(mismatchAfterExact.message).length === 0,
   finalizedWake: {
     appended: finalizedWakeAppended.length,
     sent: finalizedWakeSent.length,
@@ -947,4 +1060,5 @@ process.stdout.write(JSON.stringify({
   realLoop,
   realFinalizationLoop,
   realEarlyFinalizationLoop,
+  adversarialFinalizationInterleave,
 }));
