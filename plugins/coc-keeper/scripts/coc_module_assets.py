@@ -54,14 +54,25 @@ HOST_WORK_CLOSED_STATUSES = frozenset({
 })
 HOST_WORK_LEVELS = ("current_dependency", "near_term", "bounded_warm")
 HOST_WORK_OPEN_CLASSES = (
-    "runnable", "leased", "awaiting_scope", "awaiting_cache",
+    "runnable", "leased", "awaiting_scope", "awaiting_cache", "legacy_unowned",
 )
 HOST_WORK_DEPENDENCY_FIELDS = frozenset({
     "operation", "subject", "settlement_id", "decision_id",
     "source_scope_signature",
 })
 HOST_WORK_DEPENDENCY_SUBJECT_FIELDS = frozenset({"kind", "id"})
+HOST_WORK_CONSUMER_FIELDS = frozenset({
+    "campaign_id", "scenario_binding_sha256", "intent_kind",
+})
+HOST_WORK_CONSUMER_INTENTS = frozenset({
+    "opening", "scene_enter", "player_dig", "neighbor_prefetch",
+    "mechanics", "source_scope_reattach",
+})
 OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES = 96
+# text_preview caps are UTF-8 byte budgets (not char counts): CJK page bodies
+# cost ~3 bytes per char and must share prepare_opening's 12 KiB data budget.
+OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_MAX_BYTES = 600
+OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_TOTAL_MAX_BYTES = 4096
 FULFILLED_PACK_RECEIPT_SCHEMA_VERSION = 1
 FULFILLED_PACK_DIGEST_KIND = "canonical_entity_pack"
 FULFILLED_PACK_DIGEST_VERSION = 1
@@ -83,6 +94,8 @@ _ENTITY_ID_KEY = {
     "threat": "threat_id",
 }
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CACHED_PAGE_DRIFT_RE = re.compile(r"^cached (?:structured )?page (\d+) content drift")
+_HTML_TAG_RE = re.compile(r"<[^>]*>")
 _HEX = frozenset("0123456789abcdef")
 _EXIT_CONDITION_KINDS = frozenset({
     "always", "clue_discovered", "clock_reaches", "flag_set", "narrative",
@@ -252,6 +265,85 @@ def validate_host_work_contract(
     return level, None
 
 
+def _scenario_binding_sha256(scenario: dict[str, Any]) -> str:
+    source = scenario.get("source") if isinstance(scenario.get("source"), dict) else {}
+    material = {
+        "source_cache_asset_root_id": scenario.get("source_cache_asset_root_id"),
+        "progressive_asset_root_id": scenario.get("progressive_asset_root_id"),
+        "source": {
+            key: source.get(key)
+            for key in ("source_id", "file_sha256", "bundle_sha256")
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(material, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def campaign_consumer_ref(
+    workspace: Path,
+    campaign_id: str,
+    asset_root_id: str,
+    *,
+    intent_kind: str,
+) -> dict[str, Any]:
+    campaign = _require_id(campaign_id, "campaign_id")
+    intent = str(intent_kind or "").strip()
+    if intent not in HOST_WORK_CONSUMER_INTENTS:
+        raise ModuleAssetsError("consumer intent_kind is invalid")
+    scenario_path = (
+        _coc_root(workspace) / "campaigns" / campaign / "scenario" / "scenario.json"
+    )
+    if not scenario_path.is_file():
+        raise ModuleAssetsError("consumer campaign scenario is missing")
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    pointers = {
+        str(scenario.get("source_cache_asset_root_id") or "").strip(),
+        str(scenario.get("progressive_asset_root_id") or "").strip(),
+    } - {""}
+    if asset_root_id not in pointers:
+        raise ModuleAssetsError("consumer campaign is bound to another asset root")
+    return {
+        "campaign_id": campaign,
+        "scenario_binding_sha256": _scenario_binding_sha256(scenario),
+        "intent_kind": intent,
+    }
+
+
+def validate_host_work_consumer_refs(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value:
+        raise ModuleAssetsError("consumer_refs must be a non-empty array")
+    normalized: list[dict[str, Any]] = []
+    for position, row in enumerate(value):
+        if not isinstance(row, dict) or set(row) != HOST_WORK_CONSUMER_FIELDS:
+            raise ModuleAssetsError(
+                f"consumer_refs[{position}] must contain exactly campaign_id, "
+                "scenario_binding_sha256, and intent_kind"
+            )
+        campaign_id = _require_id(
+            row.get("campaign_id"), f"consumer_refs[{position}].campaign_id",
+        )
+        digest = _require_sha256(
+            row.get("scenario_binding_sha256"),
+            f"consumer_refs[{position}].scenario_binding_sha256",
+        )
+        intent = str(row.get("intent_kind") or "").strip()
+        if intent not in HOST_WORK_CONSUMER_INTENTS:
+            raise ModuleAssetsError(
+                f"consumer_refs[{position}].intent_kind is invalid"
+            )
+        normalized.append({
+            "campaign_id": campaign_id,
+            "scenario_binding_sha256": digest,
+            "intent_kind": intent,
+        })
+    unique = {
+        json.dumps(row, sort_keys=True, separators=(",", ":")): row
+        for row in normalized
+    }
+    return [unique[key] for key in sorted(unique)]
+
+
 def validate_host_work_request_shape(request: Any) -> None:
     """Reject non-current durable rows instead of inferring contract fields."""
     if not isinstance(request, dict):
@@ -276,6 +368,16 @@ def validate_host_work_request_shape(request: Any) -> None:
         )
     if level == "current_dependency" and dependency_ref is None:
         raise ModuleAssetsError("current host-work request requires dependency_ref")
+    consumer_refs = request.get("consumer_refs")
+    if consumer_refs is None:
+        if request.get("consumer_state") not in {None, "legacy_unowned"}:
+            raise ModuleAssetsError("host-work consumer_state is invalid")
+    else:
+        canonical = validate_host_work_consumer_refs(consumer_refs)
+        if canonical != consumer_refs:
+            raise ModuleAssetsError("host-work consumer_refs are not canonical")
+        if request.get("consumer_state") not in {None, "owned"}:
+            raise ModuleAssetsError("owned host-work consumer_state is invalid")
 
 
 def _same_entity_work(row: dict[str, Any], job_kind: str, target_id: str) -> bool:
@@ -1106,10 +1208,20 @@ def init_module_root(
     identity: dict[str, Any],
     file_sha256: str,
     source: dict[str, Any] | None = None,
+    recovered_from_asset_root_id: str | None = None,
+    recovery_family_root_id: str | None = None,
 ) -> Path:
     """Create empty durable root and register it. Idempotent if same sha."""
     digest = _require_sha256(file_sha256, "file_sha256")
     root_id = _require_id(asset_root_id, "asset_root_id")
+    if recovered_from_asset_root_id is not None:
+        recovered_from_asset_root_id = _require_id(
+            recovered_from_asset_root_id, "recovered_from_asset_root_id",
+        )
+    if recovery_family_root_id is not None:
+        recovery_family_root_id = _require_id(
+            recovery_family_root_id, "recovery_family_root_id",
+        )
     mod = _module_dir(workspace, root_id)
     mod.mkdir(parents=True, exist_ok=True)
     for sub in ("pages", "entities", "handouts"):
@@ -1151,6 +1263,30 @@ def init_module_root(
             identity_doc["source_bundles"] = json.loads(
                 json.dumps(prev["source_bundles"])
             )
+        if recovered_from_asset_root_id is None:
+            previous_recovery = str(
+                prev.get("recovered_from_asset_root_id") or ""
+            ).strip()
+            if previous_recovery:
+                recovered_from_asset_root_id = previous_recovery
+        previous_family = str(prev.get("recovery_family_root_id") or "").strip()
+        if recovery_family_root_id is None and previous_family:
+            recovery_family_root_id = previous_family
+        elif (
+            recovery_family_root_id is not None
+            and previous_family
+            and previous_family != recovery_family_root_id
+        ):
+            raise ModuleAssetsError(
+                "recovery_family_root_id differs from the existing asset root"
+            )
+    if recovery_family_root_id is None:
+        recovery_family_root_id = root_id
+    if root_id == recovery_family_root_id and recovered_from_asset_root_id is not None:
+        raise ModuleAssetsError("recovery family root cannot have recovered_from provenance")
+    if recovered_from_asset_root_id is not None:
+        identity_doc["recovered_from_asset_root_id"] = recovered_from_asset_root_id
+    identity_doc["recovery_family_root_id"] = recovery_family_root_id
     if source_identity is not None:
         identity_doc["source"] = source_identity
     identity_doc.setdefault("source_bundles", [])
@@ -1175,9 +1311,30 @@ def init_module_root(
     by_sha = registry.setdefault("by_file_sha256", {})
     owner = by_sha.get(digest)
     if owner and owner != root_id:
-        raise ModuleAssetsError(
-            f"file_sha256 already registered under asset_root_id {owner!r}"
+        owner_identity_path = _module_dir(workspace, str(owner)) / "identity.json"
+        owner_family = ""
+        if owner_identity_path.is_file():
+            try:
+                owner_identity = json.loads(
+                    owner_identity_path.read_text(encoding="utf-8")
+                )
+                owner_family = str(
+                    owner_identity.get("recovery_family_root_id")
+                    or owner_identity.get("asset_root_id")
+                    or ""
+                ).strip()
+            except (OSError, ValueError, json.JSONDecodeError):
+                owner_family = ""
+        same_family = bool(
+            owner_family and owner_family == recovery_family_root_id
         )
+        if recovered_from_asset_root_id != owner and not same_family:
+            raise ModuleAssetsError(
+                f"file_sha256 already registered under asset_root_id {owner!r}"
+            )
+        # Drift auto-recovery: the superseded root stays on disk untouched as
+        # prior extraction evidence; the content-addressed pointer moves to
+        # the recovered root so later binds of the same file reuse it.
     modules[root_id] = {
         "asset_root_id": root_id,
         "file_sha256": digest,
@@ -1804,6 +1961,13 @@ def _put_revisioned_page_unlocked(
     }
 
 
+def _normalized_page_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized.endswith("\n"):
+        normalized += "\n"
+    return normalized
+
+
 def put_page(
     workspace: Path,
     asset_root_id: str,
@@ -1820,9 +1984,7 @@ def put_page(
     if not (mod / "identity.json").is_file():
         raise ModuleAssetsError("init_module_root before put_page")
     stem = f"{pdf_index:04d}"
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    if not normalized.endswith("\n"):
-        normalized += "\n"
+    normalized = _normalized_page_text(text)
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     supplied_meta = dict(meta or {})
     revision_ref = supplied_meta.get("ocr_revision")
@@ -2010,6 +2172,194 @@ def cached_page_ref(
     return ref
 
 
+def _first_cached_page_drift(
+    workspace: Path,
+    root_id: str,
+    pages: list[Any],
+) -> int | None:
+    """Read-only scan: first bundle pdf_index drifting from the cached root.
+
+    Bind runs this before any write into an existing root so a different
+    extraction of the same PDF can be redirected to a fresh asset root
+    without mutating the prior extraction's evidence.  Pages the ingest loop
+    would reject (bad index, empty text) are skipped here and still fail
+    later at put_page; revision-layer pages use a different integrity class
+    and are not scanned.
+    """
+    pages_dir = _module_dir(workspace, root_id) / "pages"
+    if not pages_dir.is_dir():
+        return None
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        pdf_index = page.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            continue
+        if isinstance(page.get("ocr_revision"), dict):
+            continue
+        text = page.get("text")
+        if isinstance(text, str) and text.strip():
+            md_path = pages_dir / f"{pdf_index:04d}.md"
+            if md_path.is_file():
+                cached_digest = hashlib.sha256(
+                    md_path.read_text(encoding="utf-8").encode("utf-8")
+                ).hexdigest()
+                digest = hashlib.sha256(
+                    _normalized_page_text(text).encode("utf-8")
+                ).hexdigest()
+                if cached_digest != digest:
+                    return pdf_index
+        structured = page.get("structured_data")
+        if isinstance(structured, dict):
+            structured_sha256 = str(structured.get("sha256") or "")
+            structured_path = pages_dir / f"{pdf_index:04d}.structured.json"
+            if (
+                structured_sha256
+                and structured_path.is_file()
+                and hashlib.sha256(structured_path.read_bytes()).hexdigest()
+                != structured_sha256
+            ):
+                return pdf_index
+    return None
+
+
+def _recovery_family_root_id(workspace: Path, asset_root_id: str) -> str:
+    """Resolve one immutable recovery family, rejecting malformed ancestry."""
+    current = _require_id(asset_root_id, "asset_root_id")
+    visited: set[str] = set()
+    while True:
+        if current in visited:
+            raise ModuleAssetsError("asset-root recovery lineage contains a cycle")
+        visited.add(current)
+        path = _module_dir(workspace, current) / "identity.json"
+        if not path.is_file():
+            return current
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise ModuleAssetsError(
+                f"asset-root recovery identity {current!r} is unreadable"
+            ) from exc
+        declared = str(document.get("recovery_family_root_id") or "").strip()
+        if declared:
+            family = _require_id(declared, "recovery_family_root_id")
+            if family == current:
+                return family
+            current = family
+            continue
+        parent = str(document.get("recovered_from_asset_root_id") or "").strip()
+        if not parent:
+            return current
+        current = _require_id(parent, "recovered_from_asset_root_id")
+
+
+def _bundle_pages_compatible_with_root(
+    workspace: Path,
+    asset_root_id: str,
+    pages: list[Any],
+) -> bool:
+    """True only when at least one immutable page overlaps and none drift."""
+    pages_dir = _module_dir(workspace, asset_root_id) / "pages"
+    if not pages_dir.is_dir():
+        return False
+    overlap = False
+    for page in pages:
+        if not isinstance(page, dict) or isinstance(page.get("ocr_revision"), dict):
+            continue
+        pdf_index = page.get("pdf_index")
+        if isinstance(pdf_index, bool) or not isinstance(pdf_index, int) or pdf_index < 0:
+            continue
+        text = page.get("text")
+        markdown_path = pages_dir / f"{pdf_index:04d}.md"
+        if isinstance(text, str) and text.strip() and markdown_path.is_file():
+            overlap = True
+            cached = hashlib.sha256(markdown_path.read_bytes()).hexdigest()
+            incoming = hashlib.sha256(
+                _normalized_page_text(text).encode("utf-8")
+            ).hexdigest()
+            if cached != incoming:
+                return False
+        structured = page.get("structured_data")
+        structured_path = pages_dir / f"{pdf_index:04d}.structured.json"
+        if isinstance(structured, dict) and structured_path.is_file():
+            overlap = True
+            if (
+                hashlib.sha256(structured_path.read_bytes()).hexdigest()
+                != str(structured.get("sha256") or "")
+            ):
+                return False
+    return overlap
+
+
+def _allocate_drift_recovery_root_id(
+    workspace: Path,
+    *,
+    family_root_id: str,
+    file_sha256: str,
+    pages: list[Any],
+) -> tuple[str, bool]:
+    """Pick canonical family suffix; reuse only a content-compatible member."""
+    family = _require_id(family_root_id, "recovery_family_root_id")
+    family_path = _module_dir(workspace, family) / "identity.json"
+    if family_path.is_file() and _bundle_pages_compatible_with_root(
+        workspace, family, pages,
+    ):
+        return family, True
+    suffix = 2
+    while True:
+        candidate = _require_id(f"{family}-r{suffix}", "asset_root_id")
+        identity_path = _module_dir(workspace, candidate) / "identity.json"
+        if not identity_path.is_file():
+            return candidate, False
+        try:
+            document = json.loads(identity_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            document = None
+        if (
+            isinstance(document, dict)
+            and str(document.get("file_sha256") or "") == file_sha256
+            and str(
+                document.get("recovery_family_root_id")
+                or document.get("asset_root_id")
+                or ""
+            ) == family
+            and _bundle_pages_compatible_with_root(
+                workspace, candidate, pages,
+            )
+        ):
+            return candidate, True
+        suffix += 1
+
+
+def _campaigns_referencing_asset_root(
+    workspace: Path,
+    asset_root_id: str,
+) -> list[str]:
+    """Campaign ids whose scenario pointers still name this asset root."""
+    campaigns_dir = _coc_root(workspace) / "campaigns"
+    if not campaigns_dir.is_dir():
+        return []
+    referencing: list[str] = []
+    for scenario_path in sorted(campaigns_dir.glob("*/scenario/scenario.json")):
+        try:
+            scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(scenario, dict):
+            continue
+        pointers = {
+            str(scenario.get("source_cache_asset_root_id") or "").strip(),
+            str(scenario.get("progressive_asset_root_id") or "").strip(),
+        }
+        if asset_root_id in pointers:
+            referencing.append(scenario_path.parent.parent.name)
+    return referencing
+
+
 def register_source_bundle(
     workspace: Path,
     source_bundle: Path | str | dict[str, Any],
@@ -2058,190 +2408,273 @@ def register_source_bundle(
     if not existing:
         identity.setdefault("canonical_module_id", root_id)
         identity.setdefault("canonical_title", source.get("title") or root_id)
-    # Lock order is intentionally non-nested: initialize/merge identity under
-    # source-bundles.lock, release it, publish pages under their stable-id
-    # locks, then reacquire source-bundles.lock to append the bundle row.
-    # This prevents lost rows without holding one advisory lock inside another.
-    bundle_identity_lock = _module_dir(workspace, root_id) / "source-bundles.lock"
-    with coc_fileio.advisory_file_lock(bundle_identity_lock):
-        mod = init_module_root(
-            workspace,
-            asset_root_id=root_id,
-            identity=identity,
-            file_sha256=file_sha256,
-            source=source,
+    def _ingest(
+        target_root_id: str,
+        target_identity: dict[str, Any],
+        *,
+        reused_existing: bool,
+        recovered_from: str | None,
+        recovery_family_root_id: str | None = None,
+    ) -> dict[str, Any]:
+        # Lock order is intentionally non-nested: initialize/merge identity
+        # under source-bundles.lock, release it, publish pages under their
+        # stable-id locks, then reacquire source-bundles.lock to append the
+        # bundle row.  This prevents lost rows without holding one advisory
+        # lock inside another.
+        bundle_identity_lock = (
+            _module_dir(workspace, target_root_id) / "source-bundles.lock"
         )
-
-    page_results: list[dict[str, Any]] = []
-    for page in bundle["pages"]:
-        if not isinstance(page, dict):
-            raise ModuleAssetsError("source bundle page must be an object")
-        pdf_index = page.get("pdf_index")
-        if (
-            isinstance(pdf_index, bool)
-            or not isinstance(pdf_index, int)
-            or pdf_index < 0
-        ):
-            raise ModuleAssetsError(
-                "source bundle page pdf_index must be a non-negative integer"
+        with coc_fileio.advisory_file_lock(bundle_identity_lock):
+            mod = init_module_root(
+                workspace,
+                asset_root_id=target_root_id,
+                identity=target_identity,
+                file_sha256=file_sha256,
+                source=source,
+                recovered_from_asset_root_id=recovered_from,
+                recovery_family_root_id=recovery_family_root_id,
             )
-        structured = (
-            page.get("structured_data")
-            if isinstance(page.get("structured_data"), dict)
-            else None
-        )
-        structured_meta: dict[str, Any] = {}
-        if structured is not None:
-            structured_text = structured.get("text")
-            structured_sha256 = str(structured.get("sha256") or "")
-            if not isinstance(structured_text, str):
-                raise ModuleAssetsError(
-                    f"structured page {pdf_index} is missing validated JSON text"
-                )
-            actual_structured_sha256 = hashlib.sha256(
-                structured_text.encode("utf-8")
-            ).hexdigest()
-            if actual_structured_sha256 != structured_sha256:
-                raise ModuleAssetsError(
-                    f"structured page {pdf_index} content hash drift"
-                )
-            revisioned = isinstance(page.get("ocr_revision"), dict)
-            structured_path = mod / "pages" / f"{int(pdf_index):04d}.structured.json"
-            if not revisioned:
-                if structured_path.is_file():
-                    existing_sha256 = hashlib.sha256(
-                        structured_path.read_bytes()
-                    ).hexdigest()
-                    if existing_sha256 != structured_sha256:
-                        raise ModuleAssetsError(
-                            f"cached structured page {pdf_index} content drift; "
-                            "reuse the accepted page artifact instead of overwriting it"
-                        )
-                else:
-                    coc_fileio.write_text_atomic(structured_path, structured_text)
-            structured_meta = {
-                "structured_data_path": (
-                    str(structured_path) if not revisioned else None
-                ),
-                "structured_data_sha256": structured_sha256,
-                "structured_data_format": structured.get("format"),
-                "structured_data_producer": structured.get("producer"),
-                "structured_data_model": structured.get("model"),
-                **({"_structured_text": structured_text} if revisioned else {}),
-            }
-        page_result = put_page(
-            workspace,
-            root_id,
-            pdf_index,
-            page.get("text"),
-            meta={
-                "source_id": source.get("source_id"),
-                "file_sha256": file_sha256,
-                "bundle_sha256": bundle_sha256,
-                "producer_text_sha256": page.get("producer_text_sha256"),
-                "review_state": page.get("review_state"),
-                "parse_confidence": page.get("parse_confidence"),
-                "grep_anchors": list(page.get("grep_anchors") or []),
-                "printed_page": page.get("printed_page"),
-                "printed_label": page.get("printed_label"),
-                "source_bundle_path": source.get("source_bundle_path"),
-                "markdown_path": page.get("markdown_path"),
-                "ocr_revision": page.get("ocr_revision"),
-                **structured_meta,
-            },
-        )
-        if structured_meta:
-            page_result["structured_data"] = {
-                key: value for key, value in structured_meta.items()
-                if not key.startswith("_")
-            }
-        page_results.append(page_result)
 
-    identity_path = mod / "identity.json"
-    with coc_fileio.advisory_file_lock(bundle_identity_lock):
-        identity_doc = json.loads(identity_path.read_text(encoding="utf-8"))
-        bundle_rows = [
-            row
-            for row in (identity_doc.get("source_bundles") or [])
-            if isinstance(row, dict) and row.get("bundle_sha256") != bundle_sha256
-        ]
-        previous = next(
-            (
+        page_results: list[dict[str, Any]] = []
+        for page in bundle["pages"]:
+            if not isinstance(page, dict):
+                raise ModuleAssetsError("source bundle page must be an object")
+            pdf_index = page.get("pdf_index")
+            if (
+                isinstance(pdf_index, bool)
+                or not isinstance(pdf_index, int)
+                or pdf_index < 0
+            ):
+                raise ModuleAssetsError(
+                    "source bundle page pdf_index must be a non-negative integer"
+                )
+            structured = (
+                page.get("structured_data")
+                if isinstance(page.get("structured_data"), dict)
+                else None
+            )
+            structured_meta: dict[str, Any] = {}
+            if structured is not None:
+                structured_text = structured.get("text")
+                structured_sha256 = str(structured.get("sha256") or "")
+                if not isinstance(structured_text, str):
+                    raise ModuleAssetsError(
+                        f"structured page {pdf_index} is missing validated JSON text"
+                    )
+                actual_structured_sha256 = hashlib.sha256(
+                    structured_text.encode("utf-8")
+                ).hexdigest()
+                if actual_structured_sha256 != structured_sha256:
+                    raise ModuleAssetsError(
+                        f"structured page {pdf_index} content hash drift"
+                    )
+                revisioned = isinstance(page.get("ocr_revision"), dict)
+                structured_path = (
+                    mod / "pages" / f"{int(pdf_index):04d}.structured.json"
+                )
+                if not revisioned:
+                    if structured_path.is_file():
+                        existing_sha256 = hashlib.sha256(
+                            structured_path.read_bytes()
+                        ).hexdigest()
+                        if existing_sha256 != structured_sha256:
+                            raise ModuleAssetsError(
+                                f"cached structured page {pdf_index} content drift; "
+                                "reuse the accepted page artifact instead of overwriting it"
+                            )
+                    else:
+                        coc_fileio.write_text_atomic(
+                            structured_path, structured_text,
+                        )
+                structured_meta = {
+                    "structured_data_path": (
+                        str(structured_path) if not revisioned else None
+                    ),
+                    "structured_data_sha256": structured_sha256,
+                    "structured_data_format": structured.get("format"),
+                    "structured_data_producer": structured.get("producer"),
+                    "structured_data_model": structured.get("model"),
+                    **({"_structured_text": structured_text} if revisioned else {}),
+                }
+            page_result = put_page(
+                workspace,
+                target_root_id,
+                pdf_index,
+                page.get("text"),
+                meta={
+                    "source_id": source.get("source_id"),
+                    "file_sha256": file_sha256,
+                    "bundle_sha256": bundle_sha256,
+                    "producer_text_sha256": page.get("producer_text_sha256"),
+                    "review_state": page.get("review_state"),
+                    "parse_confidence": page.get("parse_confidence"),
+                    "grep_anchors": list(page.get("grep_anchors") or []),
+                    "printed_page": page.get("printed_page"),
+                    "printed_label": page.get("printed_label"),
+                    "source_bundle_path": source.get("source_bundle_path"),
+                    "markdown_path": page.get("markdown_path"),
+                    "ocr_revision": page.get("ocr_revision"),
+                    **structured_meta,
+                },
+            )
+            if structured_meta:
+                page_result["structured_data"] = {
+                    key: value for key, value in structured_meta.items()
+                    if not key.startswith("_")
+                }
+            page_results.append(page_result)
+
+        identity_path = mod / "identity.json"
+        with coc_fileio.advisory_file_lock(bundle_identity_lock):
+            identity_doc = json.loads(identity_path.read_text(encoding="utf-8"))
+            bundle_rows = [
                 row
                 for row in (identity_doc.get("source_bundles") or [])
-                if isinstance(row, dict)
-                and row.get("bundle_sha256") == bundle_sha256
-            ),
-            None,
-        )
-        bundle_rows.append({
+                if isinstance(row, dict) and row.get("bundle_sha256") != bundle_sha256
+            ]
+            previous = next(
+                (
+                    row
+                    for row in (identity_doc.get("source_bundles") or [])
+                    if isinstance(row, dict)
+                    and row.get("bundle_sha256") == bundle_sha256
+                ),
+                None,
+            )
+            bundle_rows.append({
+                "bundle_sha256": bundle_sha256,
+                "source_bundle_path": source.get("source_bundle_path"),
+                "pdf_indices": sorted(
+                    int(page["pdf_index"]) for page in bundle["pages"]
+                ),
+                "page_revisions": [
+                    {
+                        "pdf_index": int(page["pdf_index"]),
+                        "text_sha256": str(page.get("text_sha256") or ""),
+                        **(
+                            {
+                                "ocr_revision": json.loads(
+                                    json.dumps(page["ocr_revision"])
+                                )
+                            }
+                            if isinstance(page.get("ocr_revision"), dict) else {}
+                        ),
+                        **(
+                            {
+                                "structured_data_sha256": page[
+                                    "structured_data"
+                                ]["sha256"]
+                            }
+                            if isinstance(page.get("structured_data"), dict) else {}
+                        ),
+                    }
+                    for page in sorted(
+                        bundle["pages"], key=lambda row: int(row["pdf_index"])
+                    )
+                ],
+                "registered_at": (
+                    previous.get("registered_at")
+                    if isinstance(previous, dict) and previous.get("registered_at")
+                    else _now_iso()
+                ),
+            })
+            identity_doc["source_bundles"] = sorted(
+                bundle_rows, key=lambda row: str(row.get("bundle_sha256") or "")
+            )
+            identity_doc["updated_at"] = _now_iso()
+            _write_json(identity_path, identity_doc)
+        elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
+        return {
+            "asset_root_id": target_root_id,
+            "requested_asset_root_id": requested_root_id,
+            "reused_existing_root": reused_existing,
             "bundle_sha256": bundle_sha256,
-            "source_bundle_path": source.get("source_bundle_path"),
-            "pdf_indices": sorted(
-                int(page["pdf_index"]) for page in bundle["pages"]
-            ),
+            "cached_pdf_indices": [row["pdf_index"] for row in page_results],
             "page_revisions": [
                 {
-                    "pdf_index": int(page["pdf_index"]),
-                    "text_sha256": str(page.get("text_sha256") or ""),
+                    "pdf_index": row["pdf_index"],
                     **(
-                        {
-                            "ocr_revision": json.loads(
-                                json.dumps(page["ocr_revision"])
-                            )
-                        }
-                        if isinstance(page.get("ocr_revision"), dict) else {}
+                        {"ocr_revision": json.loads(json.dumps(row["ocr_revision"]))}
+                        if isinstance(row.get("ocr_revision"), dict) else {}
                     ),
+                    "text_sha256": row["text_sha256"],
                     **(
-                        {
-                            "structured_data_sha256": page[
-                                "structured_data"
-                            ]["sha256"]
-                        }
-                        if isinstance(page.get("structured_data"), dict) else {}
+                        {"structured_data_sha256": row["structured_data_sha256"]}
+                        if row.get("structured_data_sha256") else {}
                     ),
                 }
-                for page in sorted(
-                    bundle["pages"], key=lambda row: int(row["pdf_index"])
-                )
+                for row in page_results
             ],
-            "registered_at": (
-                previous.get("registered_at")
-                if isinstance(previous, dict) and previous.get("registered_at")
-                else _now_iso()
-            ),
-        })
-        identity_doc["source_bundles"] = sorted(
-            bundle_rows, key=lambda row: str(row.get("bundle_sha256") or "")
+            "new_page_count": sum(not row["reused"] for row in page_results),
+            "reused_page_count": sum(bool(row["reused"]) for row in page_results),
+            "bundle_validation_and_cache_ms": elapsed_ms,
+        }
+
+    drifted_pdf_index = _first_cached_page_drift(
+        workspace, root_id, bundle["pages"],
+    )
+    if drifted_pdf_index is None:
+        try:
+            return _ingest(
+                root_id, identity,
+                reused_existing=bool(existing), recovered_from=None,
+                recovery_family_root_id=_recovery_family_root_id(
+                    workspace, root_id,
+                ),
+            )
+        except ModuleAssetsError as exc:
+            drift_match = _CACHED_PAGE_DRIFT_RE.match(str(exc))
+            if drift_match is None:
+                raise
+            # A concurrent publish landed between the read-only scan and the
+            # write; fall through to the same one-shot recovery.
+            drifted_pdf_index = int(drift_match.group(1))
+
+    # Content-drift auto-recovery: replay the ingest once into a fresh asset
+    # root derived from the failed one.  The superseded root is never mutated;
+    # it stays on disk as prior extraction evidence.
+    referencing = _campaigns_referencing_asset_root(workspace, root_id)
+    if referencing:
+        raise ModuleAssetsError(
+            f"cached page {drifted_pdf_index} content drift; bind a different "
+            "PDF identity instead of overwriting page evidence. Auto-recovery "
+            f"into a fresh asset root is refused because campaign(s) still "
+            f"reference asset root {root_id!r}: {', '.join(referencing)}. "
+            "Re-point or retire those campaigns first, or register this "
+            "extraction under an explicit unused asset root id."
         )
-        identity_doc["updated_at"] = _now_iso()
-        _write_json(identity_path, identity_doc)
-    elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
-    return {
-        "asset_root_id": root_id,
+    family_root_id = _recovery_family_root_id(workspace, root_id)
+    fresh_root_id, reused_family_member = _allocate_drift_recovery_root_id(
+        workspace,
+        family_root_id=family_root_id,
+        file_sha256=file_sha256,
+        pages=bundle["pages"],
+    )
+    recovery_identity = dict(module_identity or {})
+    recovery_identity.setdefault("canonical_module_id", fresh_root_id)
+    recovery_identity.setdefault(
+        "canonical_title", source.get("title") or fresh_root_id,
+    )
+    result = _ingest(
+        fresh_root_id, recovery_identity,
+        reused_existing=reused_family_member,
+        recovered_from=None if reused_family_member else root_id,
+        recovery_family_root_id=family_root_id,
+    )
+    result["auto_recovered_from_drift"] = {
         "requested_asset_root_id": requested_root_id,
-        "reused_existing_root": bool(existing),
-        "bundle_sha256": bundle_sha256,
-        "cached_pdf_indices": [row["pdf_index"] for row in page_results],
-        "page_revisions": [
-            {
-                "pdf_index": row["pdf_index"],
-                **(
-                    {"ocr_revision": json.loads(json.dumps(row["ocr_revision"]))}
-                    if isinstance(row.get("ocr_revision"), dict) else {}
-                ),
-                "text_sha256": row["text_sha256"],
-                **(
-                    {"structured_data_sha256": row["structured_data_sha256"]}
-                    if row.get("structured_data_sha256") else {}
-                ),
-            }
-            for row in page_results
-        ],
-        "new_page_count": sum(not row["reused"] for row in page_results),
-        "reused_page_count": sum(bool(row["reused"]) for row in page_results),
-        "bundle_validation_and_cache_ms": elapsed_ms,
+        "superseded_asset_root_id": root_id,
+        "fresh_asset_root_id": fresh_root_id,
+        "drifted_pdf_index": drifted_pdf_index,
     }
+    result["warnings"] = [
+        f"cached page {drifted_pdf_index} content drift in asset root "
+        f"{root_id!r}; this extraction was registered into fresh asset root "
+        f"{fresh_root_id!r} instead. The superseded root was left untouched "
+        "as prior extraction evidence, and by_file_sha256 now resolves to "
+        "the recovered root.",
+    ]
+    return result
 
 
 def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
@@ -2544,12 +2977,15 @@ def opening_page_candidate_catalog(
     *,
     bundle_sha256: str,
 ) -> dict[str, Any]:
-    """Return the bound bundle's complete meta-only page selection hints.
+    """Return the bound bundle's complete page selection hints.
 
     ``progressive.prepare_opening`` reuses this one catalog for foreground
     opening and deferred mechanics-locator selection.  The live Keeper chooses
     each exact window semantically.  Rows are hints, never source provenance;
-    page bodies are deliberately not read here.
+    each row carries accepted page metadata plus a bounded whitespace-collapsed
+    ``text_preview`` of the cached page body (markup tags stripped, byte-bounded
+    so CJK pages cannot crowd out the prepare_opening data budget), and all
+    previews together stay under one total byte cap.
     """
     bundle_digest = _require_sha256(bundle_sha256, "bundle_sha256")
     module_root = _module_dir(workspace, asset_root_id)
@@ -2629,6 +3065,14 @@ def opening_page_candidate_catalog(
                 continue
             registered_page_bundles.setdefault(pdf_index, set()).add(digest)
 
+    per_candidate_text_limit = min(
+        OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_MAX_BYTES,
+        max(
+            0,
+            OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_TOTAL_MAX_BYTES // len(pdf_indices),
+        ),
+    )
+
     def bounded_preview(anchors: list[str]) -> str:
         text = " | ".join(anchor.strip() for anchor in anchors)
         encoded = text.encode("utf-8")
@@ -2643,6 +3087,22 @@ def opening_page_candidate_catalog(
                 prefix = prefix[:-1]
         return "..."
 
+    def text_preview(text: str) -> str:
+        collapsed = " ".join(_HTML_TAG_RE.sub(" ", text).split())
+        if per_candidate_text_limit <= 0:
+            return ""
+        encoded = collapsed.encode("utf-8")
+        if len(encoded) <= per_candidate_text_limit:
+            return collapsed
+        prefix = encoded[: per_candidate_text_limit - 3]
+        while prefix:
+            try:
+                return prefix.decode("utf-8").rstrip() + "..."
+            except UnicodeDecodeError:
+                prefix = prefix[:-1]
+        return "..."
+
+    anchors_declared = False
     candidates: list[dict[str, Any]] = []
     for pdf_index in pdf_indices:
         meta = None
@@ -2741,18 +3201,50 @@ def opening_page_candidate_catalog(
                 raise ModuleAssetsError(
                     f"opening cached pdf_index {pdf_index} claims unregistered source bundle coverage"
                 )
+        if isinstance(revision_ref, dict):
+            text_path = Path(str(meta.get("path") or "")).resolve()
+            try:
+                text_path.relative_to(module_root.resolve())
+            except ValueError as exc:
+                raise ModuleAssetsError(
+                    f"opening cached pdf_index {pdf_index} page text escapes cache"
+                ) from exc
+        else:
+            text_path = module_root / "pages" / f"{pdf_index:04d}.md"
+        if not text_path.is_file():
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} page text is missing"
+            )
+        page_text = text_path.read_text(encoding="utf-8")
+        if hashlib.sha256(page_text.encode("utf-8")).hexdigest() != str(
+            meta.get("text_sha256") or ""
+        ):
+            raise ModuleAssetsError(
+                f"opening cached pdf_index {pdf_index} page text drifted from "
+                "its accepted metadata"
+            )
+        anchors_declared = anchors_declared or bool(anchors)
         candidates.append({
             "pdf_index": pdf_index,
             "review_state": review_state,
             "parse_confidence": parse_confidence,
             "grep_anchor_preview": bounded_preview(list(anchors)),
+            "text_preview": text_preview(page_text),
         })
-    return {
+    result: dict[str, Any] = {
         "opening_page_candidates": candidates,
         "opening_page_candidate_total": len(candidates),
         "opening_page_candidate_complete": True,
         "opening_page_candidate_role": "selection_hint_only_not_provenance",
+        "anchors_declared": anchors_declared,
     }
+    if not anchors_declared:
+        result["opening_window_selection_advisory"] = (
+            "producer declared no grep_anchors; text_preview is the only "
+            "window-selection signal, so exact-read adjacent cached pages "
+            "before locking the opening window"
+        )
+    return result
 
 
 def validate_opening_source_window(
@@ -3662,6 +4154,8 @@ def host_work_operational_class(request: dict[str, Any]) -> str:
         return "stale"
     if str(request.get("dispatch_state") or "") == "leased":
         return "leased"
+    if request.get("consumer_state") == "legacy_unowned":
+        return "legacy_unowned"
     requested = request.get("requested_pdf_indices")
     exact_scope = (
         isinstance(requested, list)
@@ -3701,6 +4195,54 @@ def _refresh_host_work_lifecycle(
 ) -> bool:
     """Refresh cache availability and recover an expired lease in place."""
     changed = _refresh_host_work_cache(workspace, asset_root_id, request)
+    refs = request.get("consumer_refs")
+    if isinstance(refs, list) and refs:
+        live: list[dict[str, Any]] = []
+        for ref in refs:
+            if not isinstance(ref, dict):
+                continue
+            campaign_id = str(ref.get("campaign_id") or "")
+            scenario_path = (
+                _coc_root(workspace) / "campaigns" / campaign_id
+                / "scenario" / "scenario.json"
+            )
+            try:
+                scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            pointers = {
+                str(scenario.get("source_cache_asset_root_id") or "").strip(),
+                str(scenario.get("progressive_asset_root_id") or "").strip(),
+            }
+            if (
+                asset_root_id in pointers
+                and _scenario_binding_sha256(scenario)
+                == ref.get("scenario_binding_sha256")
+            ):
+                live.append(ref)
+        if live != refs:
+            stale = [ref for ref in refs if ref not in live]
+            request["stale_consumer_refs"] = [
+                *list(request.get("stale_consumer_refs") or []),
+                *stale,
+            ]
+            if live:
+                request["consumer_refs"] = live
+            else:
+                request.pop("consumer_refs", None)
+                request.pop("consumer_state", None)
+            changed = True
+        if not live and str(request.get("status") or "open") not in HOST_WORK_CLOSED_STATUSES:
+            request["status"] = "superseded"
+            request["superseded_at"] = now.isoformat()
+            request["stale_reason"] = "consumer_binding_stale"
+            request.pop("dispatch_state", None)
+            for key in ("lease_id", "leased_at", "lease_expires_at", "executor_id"):
+                request.pop(key, None)
+            changed = True
+    elif request.get("consumer_state") != "legacy_unowned":
+        request["consumer_state"] = "legacy_unowned"
+        changed = True
     if _lease_is_expired(request, now):
         request["last_lease_expired_at"] = now.isoformat()
         request.pop("dispatch_state", None)
@@ -3757,6 +4299,7 @@ def _requeue_invalid_host_work_jobs(
                     "job_id", "kind", "target_id", "priority", "reason",
                     "enqueued_at", "request_purpose", "requested_source_scope",
                     "source_scope_signature", "supersedes_host_job_ids",
+                    "consumer_refs",
                 )
                 if key in source
             }
@@ -3916,7 +4459,7 @@ def claim_host_work_requests(
                         "cached_scope_complete", "batch_subjects",
                         "request_purpose", "requested_source_scope",
                         "source_scope_signature", "result_contract",
-                        "work_level",
+                        "work_level", "consumer_refs", "consumer_state",
                     )
                 }
                 if request["work_level"] == "current_dependency":
@@ -3970,6 +4513,9 @@ def claim_host_work_requests(
                 ),
                 "result_delivery": result_delivery,
                 "requests": packet_requests,
+                "consumer_refs": json.loads(json.dumps(
+                    exemplar.get("consumer_refs") or []
+                )),
             })
     _requeue_invalid_host_work_jobs(
         workspace, asset_root_id, invalid_job_ids,
@@ -3984,6 +4530,140 @@ def claim_host_work_requests(
         workspace, asset_root_id,
     )
     return result
+
+
+def release_host_work_leases(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    executor_id: str,
+    reason: str,
+    lease_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Gracefully release only leases owned by one exact executor.
+
+    Abrupt process loss still relies on the durable TTL recovery path.  This
+    operation intentionally cannot release by root, prefix, or lease id alone.
+    """
+    executor = str(executor_id or "").strip()
+    if not executor or len(executor) > 128:
+        raise ModuleAssetsError("executor_id must be 1..128 characters")
+    release_reason = str(reason or "").strip()
+    if not release_reason or len(release_reason) > 256:
+        raise ModuleAssetsError("reason must be 1..256 characters")
+    wanted = None
+    if lease_ids is not None:
+        if not isinstance(lease_ids, list) or any(
+            not isinstance(value, str) or not value.strip() for value in lease_ids
+        ):
+            raise ModuleAssetsError("lease_ids must be non-empty strings")
+        wanted = {value.strip() for value in lease_ids}
+    module_root = _module_dir(workspace, asset_root_id)
+    work_dir = module_root / "host-work"
+    released: list[str] = []
+    skipped: list[str] = []
+    now = datetime.now(timezone.utc)
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        for path in sorted(work_dir.glob("*.json")) if work_dir.is_dir() else []:
+            try:
+                request = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(request, dict):
+                continue
+            lease_id = str(request.get("lease_id") or "")
+            if wanted is not None and lease_id not in wanted:
+                continue
+            job_id = str(request.get("job_id") or path.stem)
+            if (
+                str(request.get("status") or "open") in HOST_WORK_CLOSED_STATUSES
+                or str(request.get("dispatch_state") or "") != "leased"
+                or str(request.get("executor_id") or "") != executor
+                or not lease_id
+            ):
+                skipped.append(job_id)
+                continue
+            request["last_lease_released_at"] = now.isoformat()
+            request["last_lease_release_reason"] = release_reason
+            request["last_lease_id"] = lease_id
+            request.pop("dispatch_state", None)
+            for key in (
+                "lease_id", "leased_at", "lease_expires_at", "executor_id",
+            ):
+                request.pop(key, None)
+            _sync_host_work_dispatch_state(request)
+            _write_json(path, request)
+            released.append(job_id)
+    return {
+        "asset_root_id": asset_root_id,
+        "executor_id": executor,
+        "released_job_ids": released,
+        "skipped_job_ids": skipped,
+        "release_reason": release_reason,
+    }
+
+
+def renew_host_work_leases(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    executor_id: str,
+    lease_ids: list[str],
+    lease_seconds: int,
+) -> dict[str, Any]:
+    """Extend live leases only when both executor and lease identity match."""
+    executor = str(executor_id or "").strip()
+    if not executor or len(executor) > 128:
+        raise ModuleAssetsError("executor_id must be 1..128 characters")
+    if not isinstance(lease_ids, list) or not lease_ids or any(
+        not isinstance(value, str) or not value.strip() for value in lease_ids
+    ):
+        raise ModuleAssetsError("lease_ids must contain non-empty strings")
+    if (
+        isinstance(lease_seconds, bool)
+        or not isinstance(lease_seconds, int)
+        or not 30 <= lease_seconds <= 3600
+    ):
+        raise ModuleAssetsError("lease_seconds must be an integer from 30 through 3600")
+    wanted = {value.strip() for value in lease_ids}
+    module_root = _module_dir(workspace, asset_root_id)
+    work_dir = module_root / "host-work"
+    now = datetime.now(timezone.utc)
+    renewed: list[str] = []
+    skipped: list[str] = []
+    with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
+        for path in sorted(work_dir.glob("*.json")) if work_dir.is_dir() else []:
+            try:
+                request = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(request, dict):
+                continue
+            lease_id = str(request.get("lease_id") or "")
+            if lease_id not in wanted:
+                continue
+            job_id = str(request.get("job_id") or path.stem)
+            if (
+                str(request.get("status") or "open") in HOST_WORK_CLOSED_STATUSES
+                or str(request.get("dispatch_state") or "") != "leased"
+                or str(request.get("executor_id") or "") != executor
+                or _lease_is_expired(request, now)
+            ):
+                skipped.append(job_id)
+                continue
+            request["lease_expires_at"] = (
+                now + timedelta(seconds=lease_seconds)
+            ).isoformat()
+            request["lease_renewed_at"] = now.isoformat()
+            _write_json(path, request)
+            renewed.append(job_id)
+    return {
+        "asset_root_id": asset_root_id,
+        "executor_id": executor,
+        "renewed_job_ids": renewed,
+        "skipped_job_ids": skipped,
+        "lease_expires_after_seconds": lease_seconds,
+    }
 
 
 def _list_host_work_requests_unlocked(
@@ -4027,6 +4707,7 @@ def _list_host_work_requests_unlocked(
             workspace, asset_root_id, request, now=now,
         ):
             _write_json(path, request)
+            status = str(request.get("status") or "open")
         if not include_closed and status in HOST_WORK_CLOSED_STATUSES:
             continue
         requested_indices = list(request.get("requested_pdf_indices") or [])
@@ -4063,6 +4744,17 @@ def _list_host_work_requests_unlocked(
             "deadline_class": deadline_class,
             "work_level": work_level,
             "work_group_id": request.get("work_group_id"),
+            "consumer_refs": json.loads(json.dumps(
+                request.get("consumer_refs") or []
+            )),
+            "consumer_state": (
+                request.get("consumer_state")
+                or ("stale" if status == "superseded" else "legacy_unowned")
+            ),
+            "stale_consumer_refs": json.loads(json.dumps(
+                request.get("stale_consumer_refs") or []
+            )),
+            "stale_reason": request.get("stale_reason"),
             "dispatch_state": request.get("dispatch_state") or "awaiting_scope",
             "operational_class": host_work_operational_class(request),
             "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
@@ -4761,6 +5453,7 @@ def enqueue_job(
     requested_source_scope: dict[str, Any] | None = None,
     work_level: str | None = None,
     dependency_ref: dict[str, Any] | None = None,
+    consumer_refs: list[dict[str, Any]] | None = None,
     kick_worker: bool = True,
 ) -> dict[str, Any]:
     if kind not in JOB_KINDS:
@@ -4768,6 +5461,10 @@ def enqueue_job(
     tid = _require_id(target_id, "target_id")
     canonical_work_level, canonical_dependency_ref = validate_host_work_contract(
         work_level or _default_host_work_level(kind), dependency_ref,
+    )
+    canonical_consumer_refs = (
+        validate_host_work_consumer_refs(consumer_refs)
+        if consumer_refs is not None else None
     )
     exact_source_scope: dict[str, Any] | None = None
     exact_source_signature: str | None = None
@@ -4874,6 +5571,19 @@ def enqueue_job(
                         json.dumps(canonical_dependency_ref)
                     )
                     pending_changed = True
+            if canonical_consumer_refs is not None:
+                existing_consumers = (
+                    validate_host_work_consumer_refs(job["consumer_refs"])
+                    if isinstance(job.get("consumer_refs"), list)
+                    and job.get("consumer_refs")
+                    else []
+                )
+                combined = validate_host_work_consumer_refs(
+                    [*existing_consumers, *canonical_consumer_refs]
+                )
+                if combined != existing_consumers:
+                    job["consumer_refs"] = combined
+                    pending_changed = True
             if _job_depth(str(job.get("kind") or "")) < _job_depth(kind):
                 job["promoted_from"] = job.get("kind")
                 job["kind"] = kind
@@ -4974,6 +5684,8 @@ def enqueue_job(
                 job["dependency_ref"] = json.loads(
                     json.dumps(canonical_dependency_ref)
                 )
+            if canonical_consumer_refs is not None:
+                job["consumer_refs"] = canonical_consumer_refs
             pending_supersedes = sorted({
                 str(row.get("job_id") or "").strip()
                 for row in stale_host_rows
@@ -5002,6 +5714,28 @@ def enqueue_job(
             _write_json(path, queue)
         else:
             job = deduped_job
+    if dedupe_state == "awaiting_host_pack" and canonical_consumer_refs is not None:
+        request_path = (
+            _module_dir(workspace, asset_root_id)
+            / "host-work" / f"{job.get('job_id')}.json"
+        )
+        with coc_fileio.advisory_file_lock(
+            _module_dir(workspace, asset_root_id) / "host-work.lock"
+        ):
+            if request_path.is_file():
+                request = json.loads(request_path.read_text(encoding="utf-8"))
+                existing_consumers = (
+                    validate_host_work_consumer_refs(request["consumer_refs"])
+                    if isinstance(request.get("consumer_refs"), list)
+                    and request.get("consumer_refs")
+                    else []
+                )
+                request["consumer_refs"] = validate_host_work_consumer_refs(
+                    [*existing_consumers, *canonical_consumer_refs]
+                )
+                request["consumer_state"] = "owned"
+                _sync_host_work_dispatch_state(request)
+                _write_json(request_path, request)
     pending_supersedes = list(job.get("supersedes_host_job_ids") or [])
     # Non-blocking: dig/enter must not wait on host PDF. Background worker
     # claims pending jobs in parallel and merges ready packs.

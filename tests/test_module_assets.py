@@ -693,8 +693,8 @@ def test_exact_opening_window_and_partial_job_are_scope_bound(
         )
 
 
-def test_opening_page_candidate_catalog_is_bundle_scoped_and_meta_only(
-    tmp_path: Path, monkeypatch,
+def test_opening_page_candidate_catalog_is_bundle_scoped_with_bounded_previews(
+    tmp_path: Path,
 ):
     first_bundle, file_sha, _page_sha = _write_host_bundle(
         tmp_path, page_count=3, include_page_one=True,
@@ -730,14 +730,6 @@ def test_opening_page_candidate_catalog_is_bundle_scoped_and_meta_only(
         tmp_path, second_bundle, asset_root_id="opening-catalog",
     )
 
-    original_read_text = Path.read_text
-
-    def reject_page_body_reads(path: Path, *args, **kwargs):
-        if path.suffix == ".md":
-            raise AssertionError("candidate catalog must not read page bodies")
-        return original_read_text(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", reject_page_body_reads)
     catalog = assets.opening_page_candidate_catalog(
         tmp_path,
         "opening-catalog",
@@ -751,10 +743,12 @@ def test_opening_page_candidate_catalog_is_bundle_scoped_and_meta_only(
     assert catalog["opening_page_candidate_role"] == (
         "selection_hint_only_not_provenance"
     )
+    assert catalog["anchors_declared"] is True
+    assert "opening_window_selection_advisory" not in catalog
     assert all(
         set(row) == {
             "pdf_index", "review_state", "parse_confidence",
-            "grep_anchor_preview",
+            "grep_anchor_preview", "text_preview",
         }
         for row in catalog["opening_page_candidates"]
     )
@@ -762,6 +756,20 @@ def test_opening_page_candidate_catalog_is_bundle_scoped_and_meta_only(
         len(row["grep_anchor_preview"].encode("utf-8"))
         <= assets.OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES
         for row in catalog["opening_page_candidates"]
+    )
+    assert catalog["opening_page_candidates"][0]["text_preview"] == (
+        "# Hospital Dr Percival guards a source-bound secret."
+    )
+    assert catalog["opening_page_candidates"][1]["text_preview"] == (
+        "# Appendix A complete accepted mechanics appendix."
+    )
+    total_preview_bytes = sum(
+        len(row["text_preview"].encode("utf-8"))
+        for row in catalog["opening_page_candidates"]
+    )
+    assert total_preview_bytes <= (
+        assets.OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_TOTAL_MAX_BYTES
+        + 3 * len(catalog["opening_page_candidates"])
     )
     second_catalog = assets.opening_page_candidate_catalog(
         tmp_path,
@@ -778,6 +786,418 @@ def test_opening_page_candidate_catalog_is_bundle_scoped_and_meta_only(
     assert len(second_preview.encode("utf-8")) <= (
         assets.OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES
     )
+    second_text_preview = second_catalog["opening_page_candidates"][0][
+        "text_preview"
+    ]
+    assert second_text_preview.startswith("# Later Place 开场线索")
+    assert len(second_text_preview.encode("utf-8")) <= (
+        assets.OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_MAX_BYTES + 3
+    )
+
+
+def test_opening_page_candidate_catalog_without_anchors_adds_advisory(
+    tmp_path: Path,
+):
+    bundle, _file_sha, _page_sha = _write_host_bundle(tmp_path)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["pages"][0]["grep_anchors"] = []
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    registration = assets.register_source_bundle(
+        tmp_path, bundle, asset_root_id="anchorless-catalog",
+    )
+
+    catalog = assets.opening_page_candidate_catalog(
+        tmp_path,
+        "anchorless-catalog",
+        bundle_sha256=registration["bundle_sha256"],
+    )
+    assert catalog["anchors_declared"] is False
+    assert "grep_anchors" in catalog["opening_window_selection_advisory"]
+    assert "text_preview" in catalog["opening_window_selection_advisory"]
+    row = catalog["opening_page_candidates"][0]
+    assert row["grep_anchor_preview"] == ""
+    assert row["text_preview"] == (
+        "# Hospital Dr Percival guards a source-bound secret."
+    )
+
+
+def _write_reextracted_bundle(
+    tmp_path: Path,
+    *,
+    name: str,
+    file_sha: str,
+    page_text: bytes,
+) -> Path:
+    """Same PDF identity as ``_write_host_bundle`` but different page text."""
+    bundle = tmp_path / name
+    bundle.mkdir()
+    (bundle / "page-0000.md").write_bytes(page_text)
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:bound-module",
+            "title": "Bound Module",
+            "path": str(tmp_path / "bound-module.pdf"),
+            "file_sha256": file_sha,
+            "page_count": 1,
+        },
+        "pages": [{
+            "pdf_index": 0,
+            "markdown_path": "page-0000.md",
+            "text_sha256": hashlib.sha256(page_text).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.88,
+            "grep_anchors": [],
+        }],
+    }), encoding="utf-8")
+    return bundle
+
+
+def test_register_source_bundle_auto_recovers_from_content_drift(tmp_path: Path):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    old_mod = assets._module_dir(tmp_path, old_root)
+    old_page_before = (old_mod / "pages" / "0000.md").read_bytes()
+    old_meta_before = (old_mod / "pages" / "0000.meta.json").read_bytes()
+
+    new_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="reextracted-source",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nA different extraction of the same page.\n",
+    )
+    recovered = assets.register_source_bundle(tmp_path, new_bundle)
+
+    fresh_root = f"{old_root}-r2"
+    assert recovered["asset_root_id"] == fresh_root
+    assert recovered["reused_existing_root"] is False
+    assert recovered["auto_recovered_from_drift"] == {
+        "requested_asset_root_id": None,
+        "superseded_asset_root_id": old_root,
+        "fresh_asset_root_id": fresh_root,
+        "drifted_pdf_index": 0,
+    }
+    assert any(
+        "content drift" in warning for warning in recovered["warnings"]
+    )
+    # The superseded root is prior extraction evidence: byte-identical.
+    assert (old_mod / "pages" / "0000.md").read_bytes() == old_page_before
+    assert (old_mod / "pages" / "0000.meta.json").read_bytes() == old_meta_before
+    # The fresh root carries the new extraction plus recovery provenance.
+    fresh_mod = assets._module_dir(tmp_path, fresh_root)
+    assert (fresh_mod / "pages" / "0000.md").read_text(encoding="utf-8") == (
+        "# Hospital\n\nA different extraction of the same page.\n"
+    )
+    identity = json.loads(
+        (fresh_mod / "identity.json").read_text(encoding="utf-8")
+    )
+    assert identity["recovered_from_asset_root_id"] == old_root
+    registry = assets.load_registry(tmp_path)
+    assert registry["by_file_sha256"][file_sha] == fresh_root
+    assert registry["modules"][old_root]["asset_root_id"] == old_root
+
+
+def test_register_source_bundle_drift_recovery_is_idempotent(tmp_path: Path):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    new_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="reextracted-source",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nA different extraction of the same page.\n",
+    )
+    recovered = assets.register_source_bundle(tmp_path, new_bundle)
+    fresh_root = recovered["asset_root_id"]
+    assert fresh_root == f"{old_root}-r2"
+
+    repeated = assets.register_source_bundle(tmp_path, new_bundle)
+    assert repeated["asset_root_id"] == fresh_root
+    assert repeated["reused_existing_root"] is True
+    assert "auto_recovered_from_drift" not in repeated
+    assert repeated["new_page_count"] == 0
+    assert repeated["reused_page_count"] == 1
+
+    # A later campaign binding the same file under an explicit scenario id
+    # also lands on the recovered root instead of allocating another suffix.
+    rebound = assets.register_source_bundle(
+        tmp_path, new_bundle, asset_root_id="another-scenario",
+    )
+    assert rebound["asset_root_id"] == fresh_root
+    assert rebound["requested_asset_root_id"] == "another-scenario"
+    assert "auto_recovered_from_drift" not in rebound
+    assert not assets._module_dir(tmp_path, f"{old_root}-r3").exists()
+
+
+def test_register_source_bundle_recovery_family_allocates_canonical_members(
+    tmp_path: Path,
+):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)["asset_root_id"]
+    old_tree = {
+        path.relative_to(assets._module_dir(tmp_path, old_root)).as_posix():
+        path.read_bytes()
+        for path in assets._module_dir(tmp_path, old_root).rglob("*")
+        if path.is_file()
+    }
+    second_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="reextracted-second",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nSecond accepted extraction.\n",
+    )
+    third_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="reextracted-third",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nThird accepted extraction.\n",
+    )
+
+    second = assets.register_source_bundle(tmp_path, second_bundle)
+    third = assets.register_source_bundle(tmp_path, third_bundle)
+    assert second["asset_root_id"] == f"{old_root}-r2"
+    assert third["asset_root_id"] == f"{old_root}-r3"
+    assert assets.register_source_bundle(
+        tmp_path, second_bundle,
+    )["asset_root_id"] == f"{old_root}-r2"
+    assert assets.register_source_bundle(
+        tmp_path, third_bundle,
+    )["asset_root_id"] == f"{old_root}-r3"
+
+    second_identity = json.loads(
+        (
+            assets._module_dir(tmp_path, f"{old_root}-r2")
+            / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    third_identity = json.loads(
+        (
+            assets._module_dir(tmp_path, f"{old_root}-r3")
+            / "identity.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert second_identity["recovery_family_root_id"] == old_root
+    assert second_identity["recovered_from_asset_root_id"] == old_root
+    assert third_identity["recovery_family_root_id"] == old_root
+    assert third_identity["recovered_from_asset_root_id"] == f"{old_root}-r2"
+    for relative, content in old_tree.items():
+        assert (
+            assets._module_dir(tmp_path, old_root) / relative
+        ).read_bytes() == content
+
+
+def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="lease-module",
+        identity={"canonical_module_id": "lease-module"},
+        file_sha256=FAKE_SHA,
+    )
+    assets.put_page(tmp_path, "lease-module", 0, "lease source page")
+    scenario_dir = tmp_path / ".coc" / "campaigns" / "lease-camp" / "scenario"
+    scenario_dir.mkdir(parents=True)
+    scenario = {
+        "source_cache_asset_root_id": "lease-module",
+        "progressive_asset_root_id": "lease-module",
+        "source": {},
+    }
+    (scenario_dir / "scenario.json").write_text(
+        json.dumps(scenario), encoding="utf-8",
+    )
+    consumer = assets.campaign_consumer_ref(
+        tmp_path, "lease-camp", "lease-module", intent_kind="player_dig",
+    )
+    work_dir = assets._module_dir(tmp_path, "lease-module") / "host-work"
+    work_dir.mkdir()
+    request_path = work_dir / "job-lease.json"
+    request_path.write_text(json.dumps({
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-lease",
+        "asset_root_id": "lease-module",
+        "kind": "deepen_location",
+        "target_id": "library",
+        "priority": 10,
+        "status": "open",
+        "work_level": "near_term",
+        "requested_pdf_indices": [0],
+        "cached_scope_complete": True,
+        "dispatch_state": "ready",
+        "work_group_id": "group-lease",
+        "consumer_refs": [consumer],
+        "consumer_state": "owned",
+    }), encoding="utf-8")
+    packet = assets.claim_host_work_requests(
+        tmp_path,
+        "lease-module",
+        executor_id="coordinator-a",
+        lease_seconds=60,
+    )["packets"][0]
+    lease_id = packet["packet_id"]
+
+    wrong_renew = assets.renew_host_work_leases(
+        tmp_path,
+        "lease-module",
+        executor_id="coordinator-b",
+        lease_ids=[lease_id],
+        lease_seconds=120,
+    )
+    assert wrong_renew["renewed_job_ids"] == []
+    assert wrong_renew["skipped_job_ids"] == ["job-lease"]
+    renewed = assets.renew_host_work_leases(
+        tmp_path,
+        "lease-module",
+        executor_id="coordinator-a",
+        lease_ids=[lease_id],
+        lease_seconds=120,
+    )
+    assert renewed["renewed_job_ids"] == ["job-lease"]
+
+    wrong_release = assets.release_host_work_leases(
+        tmp_path,
+        "lease-module",
+        executor_id="coordinator-b",
+        lease_ids=[lease_id],
+        reason="shutdown",
+    )
+    assert wrong_release["released_job_ids"] == []
+    released = assets.release_host_work_leases(
+        tmp_path,
+        "lease-module",
+        executor_id="coordinator-a",
+        lease_ids=[lease_id],
+        reason="shutdown",
+    )
+    assert released["released_job_ids"] == ["job-lease"]
+    stored = json.loads(request_path.read_text(encoding="utf-8"))
+    assert stored["dispatch_state"] == "ready"
+    assert stored["last_lease_id"] == lease_id
+    assert stored["last_lease_release_reason"] == "shutdown"
+    assert "executor_id" not in stored
+    assert "lease_id" not in stored
+
+
+def test_host_work_stale_consumers_supersede_and_legacy_stays_unclaimable(
+    tmp_path: Path,
+):
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="consumer-module",
+        identity={"canonical_module_id": "consumer-module"},
+        file_sha256=FAKE_SHA,
+    )
+    assets.put_page(tmp_path, "consumer-module", 0, "consumer source")
+    scenario_dir = tmp_path / ".coc" / "campaigns" / "consumer-camp" / "scenario"
+    scenario_dir.mkdir(parents=True)
+    scenario_path = scenario_dir / "scenario.json"
+    scenario_path.write_text(json.dumps({
+        "source_cache_asset_root_id": "consumer-module",
+        "progressive_asset_root_id": "consumer-module",
+        "source": {},
+    }), encoding="utf-8")
+    consumer = assets.campaign_consumer_ref(
+        tmp_path, "consumer-camp", "consumer-module", intent_kind="player_dig",
+    )
+    work_dir = assets._module_dir(tmp_path, "consumer-module") / "host-work"
+    work_dir.mkdir()
+    common = {
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "asset_root_id": "consumer-module",
+        "kind": "deepen_location",
+        "target_id": "library",
+        "priority": 10,
+        "status": "open",
+        "work_level": "near_term",
+        "requested_pdf_indices": [0],
+        "cached_scope_complete": True,
+        "dispatch_state": "ready",
+        "work_group_id": "consumer-group",
+    }
+    (work_dir / "owned.json").write_text(json.dumps({
+        **common,
+        "job_id": "owned",
+        "consumer_refs": [consumer],
+        "consumer_state": "owned",
+    }), encoding="utf-8")
+    (work_dir / "legacy.json").write_text(json.dumps({
+        **common,
+        "job_id": "legacy",
+        "consumer_state": "legacy_unowned",
+    }), encoding="utf-8")
+    scenario_path.write_text(json.dumps({
+        "source_cache_asset_root_id": "different-module",
+        "source": {},
+    }), encoding="utf-8")
+
+    rows = assets.list_host_work_requests(
+        tmp_path, "consumer-module", include_closed=True, limit=None,
+    )
+    owned = next(row for row in rows if row["job_id"] == "owned")
+    legacy = next(row for row in rows if row["job_id"] == "legacy")
+    assert owned["status"] == "superseded"
+    assert owned["operational_class"] == "stale"
+    assert owned["stale_reason"] == "consumer_binding_stale"
+    assert owned["stale_consumer_refs"] == [consumer]
+    assert legacy["operational_class"] == "legacy_unowned"
+    assert assets.claim_host_work_requests(
+        tmp_path,
+        "consumer-module",
+        executor_id="automatic",
+    )["packets"] == []
+
+
+def test_register_source_bundle_drift_recovery_refused_when_campaign_bound(
+    tmp_path: Path,
+):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    scenario_dir = tmp_path / ".coc" / "campaigns" / "camp-old" / "scenario"
+    scenario_dir.mkdir(parents=True)
+    (scenario_dir / "scenario.json").write_text(json.dumps({
+        "schema_version": 1,
+        "source_cache_asset_root_id": old_root,
+    }), encoding="utf-8")
+
+    new_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="reextracted-source",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nA different extraction of the same page.\n",
+    )
+    with pytest.raises(assets.ModuleAssetsError, match="camp-old"):
+        assets.register_source_bundle(tmp_path, new_bundle)
+    assert not assets._module_dir(tmp_path, f"{old_root}-r2").exists()
+
+
+def test_register_source_bundle_non_drift_error_does_not_recover(tmp_path: Path):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    bundle_dict = {
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "bundle_sha256": "c" * 64,
+        "source": {
+            "source_id": "pdf:bound-module",
+            "title": "Bound Module",
+            "path": str(tmp_path / "bound-module.pdf"),
+            "file_sha256": file_sha,
+            "page_count": 1,
+            "producer": "codex-pdf-skill",
+            "bundle_sha256": "c" * 64,
+        },
+        "pages": [{"pdf_index": -1, "text": "replacement text"}],
+    }
+    with pytest.raises(assets.ModuleAssetsError, match="non-negative integer"):
+        assets.register_source_bundle(tmp_path, bundle_dict)
+    assert not assets._module_dir(tmp_path, f"{old_root}-r2").exists()
 
 
 @pytest.mark.parametrize(

@@ -1085,6 +1085,9 @@ def _error_recovery_hints(code: str) -> list[str]:
         "invalid_source_worker_pack": [
             "reject this child result unchanged; the parent must not repair or rewrite the pack, call describe/discover, retry fulfillment, or poll the same task again; leave the request unfulfilled for existing lease recovery"
         ],
+        "pack_semantic_fields_missing": [
+            "the pack lacks contract-required semantic fields and can never satisfy projection readiness; reject this child result unchanged, do not repair or retry fulfillment, and leave the request unfulfilled for existing lease recovery"
+        ],
         "treatment_already_used": [
             "the attempted treatment remains spent; consider another rules-valid treatment or natural recovery"
         ],
@@ -13114,6 +13117,19 @@ def _fit_opening_data_budget(
             removed = True
             break
         if not removed:
+            # Selection hints are best-effort: sacrifice byte-heavy previews
+            # (e.g. CJK pages) only when nothing else can shrink, and say so
+            # rather than failing the whole preparation closed.
+            candidates = data.get("opening_page_candidates")
+            if isinstance(candidates, list) and any(
+                isinstance(row, dict) and row.get("text_preview")
+                for row in candidates
+            ):
+                for row in candidates:
+                    if isinstance(row, dict):
+                        row.pop("text_preview", None)
+                data["text_preview_omitted_for_budget"] = True
+                continue
             code = (
                 "opening_selected_candidate_too_large"
                 if selected_start_location_id
@@ -13563,6 +13579,173 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
 
 
 @tool(
+    "progressive.opening_bootstrap",
+    "Deterministically publishes the minimal source-bound opening skeleton, "
+    "projects sparse pristine campaign state, enqueues one exact foreground "
+    "source window, and records a campaign-owned auto-projection watch. It "
+    "never reads prose, moves a scene, narrates, waits, claims, or fulfills.",
+    {
+        "start_location": {
+            "type": "object",
+            "required": True,
+            "properties": {
+                "location_id": {
+                    "type": "string", "minLength": 1, "maxLength": 128,
+                    "pattern": _OPENING_SAFE_ID_PATTERN,
+                },
+                "title": {"type": "string", "minLength": 1, "maxLength": 240},
+            },
+            "required_fields": ["location_id", "title"],
+            "additionalProperties": False,
+        },
+        "opening_pdf_indices": {
+            "type": "array", "required": True, "minItems": 1, "maxItems": 3,
+            "uniqueItems": True, "items": {"type": "integer", "minimum": 0},
+        },
+    },
+)
+def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
+    if ctx.campaign_dir is None:
+        raise ToolError("invalid_param", "campaign required")
+    start = args.get("start_location")
+    if not isinstance(start, dict) or set(start) != {"location_id", "title"}:
+        raise ToolError(
+            "invalid_param",
+            "start_location must contain exactly location_id and title",
+        )
+    location_id = _opening_start_selector(
+        start.get("location_id"), required=True,
+    )
+    title = str(start.get("title") or "").strip()
+    if not title or len(title) > 240:
+        raise ToolError("invalid_param", "start_location.title is required")
+    pages = _opening_page_list(args.get("opening_pdf_indices"))
+    assert pages is not None
+    if pages != sorted(pages) or any(
+        right != left + 1 for left, right in zip(pages, pages[1:])
+    ):
+        raise ToolError(
+            "invalid_param",
+            "opening_pdf_indices must be ascending and contiguous",
+        )
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            ctx.root, str(ctx.campaign_id),
+        )
+        scope = coc_module_project.coc_module_assets.validate_opening_source_window(
+            ctx.root,
+            root_info["asset_root_id"],
+            bundle_sha256=root_info["bundle_sha256"],
+            pdf_indices=pages,
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
+        raise ToolError("opening_source_window_invalid", str(exc)) from exc
+    if not coc_module_project.campaign_is_pristine_for_opening(
+        root_info["campaign_dir"]
+    ):
+        raise ToolError(
+            "opening_bootstrap_non_pristine",
+            "opening bootstrap cannot overwrite played campaign state",
+        )
+    assets_mod = coc_module_project.coc_module_assets
+    skeleton = assets_mod.get_skeleton(ctx.root, root_info["asset_root_id"])
+    stored: dict[str, Any] | None = None
+    if skeleton is None:
+        skeleton = {
+            "schema_version": 1,
+            "parse_tier": 1,
+            "source": {
+                key: root_info[key]
+                for key in ("source_id", "file_sha256", "page_count", "producer")
+            },
+            "start_candidates": [location_id],
+            "locations": [{
+                "location_id": location_id,
+                "title": title,
+                "parse_state": "toc_only",
+            }],
+            "mechanics_locator_pass_status": "pending",
+            "mechanics_index": [],
+            "start_clock_status": "unresolved",
+        }
+        try:
+            stored = assets_mod.put_skeleton(
+                ctx.root, root_info["asset_root_id"], skeleton,
+            )
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("opening_skeleton_store_failed", str(exc)) from exc
+    else:
+        matching = [
+            row for row in (skeleton.get("locations") or [])
+            if isinstance(row, dict)
+            and row.get("location_id") == location_id
+            and str(row.get("title") or "").strip() == title
+        ]
+        if (
+            location_id not in (skeleton.get("start_candidates") or [])
+            or len(matching) != 1
+        ):
+            raise ToolError(
+                "opening_bootstrap_conflict",
+                "existing skeleton has a different start location id/title",
+            )
+    try:
+        projected = coc_module_project.project_skeleton_to_campaign(
+            ctx.root, str(ctx.campaign_id), root_info["asset_root_id"],
+        )
+        watch = coc_module_project.register_opening_projection_watch(
+            ctx.root,
+            str(ctx.campaign_id),
+            asset_root_id=root_info["asset_root_id"],
+            source_file_sha256=root_info["file_sha256"],
+            bundle_sha256=root_info["bundle_sha256"],
+            start_location_id=location_id,
+            source_scope=scope,
+        )
+    except coc_module_project.OpeningPreparationError as exc:
+        raise ToolError(exc.code, exc.message) from exc
+    except coc_module_project.ModuleProjectError as exc:
+        raise ToolError("opening_sparse_projection_failed", str(exc)) from exc
+    request_data, request_warnings, request_hints = (
+        _tool_progressive_request_opening_pack(ctx, {
+            "asset_root_id": root_info["asset_root_id"],
+            "source_file_sha256": root_info["file_sha256"],
+            "start_location_id": location_id,
+            "opening_pdf_indices": pages,
+            "request_purpose": assets_mod.FOREGROUND_OPENING_PURPOSE,
+        })
+    )
+    if request_data.get("status") == "current":
+        request_data["automatic_projection"] = (
+            coc_module_project.drain_opening_projection_watches(
+                ctx.root,
+                root_info["asset_root_id"],
+                start_location_id=location_id,
+                source_scope_signature=assets_mod.opening_source_scope_signature(
+                    scope
+                ),
+            )
+        )
+    return {
+        "status": request_data.get("status"),
+        "idempotent": stored is None and bool(request_data.get("idempotent")),
+        "asset_root_id": root_info["asset_root_id"],
+        "source_file_sha256": root_info["file_sha256"],
+        "start_location": {
+            "location_id": location_id,
+            "title": title,
+        },
+        "opening_pdf_indices": pages,
+        "skeleton_store": stored,
+        "sparse_projection": projected,
+        "projection_watch": watch,
+        "source_work": request_data,
+    }, request_warnings, request_hints
+
+
+@tool(
     "progressive.publish_skeleton",
     "Experimental canonical publication of one structured source-bound skeleton. "
     "Stores validated shared module truth, then projects sparse campaign IR as a "
@@ -13799,6 +13982,14 @@ def _tool_progressive_request_opening_pack(ctx: Ctx, args: dict[str, Any]):
                     assets_mod.opening_source_scope_signature(window["scope"])
                 ),
             },
+            consumer_refs=[
+                assets_mod.campaign_consumer_ref(
+                    ctx.root,
+                    str(ctx.campaign_id),
+                    root_id,
+                    intent_kind="opening",
+                )
+            ],
         )
     except assets_mod.ModuleAssetsError as exc:
         code = (
@@ -13984,6 +14175,14 @@ def _tool_progressive_request_locator_pass(ctx: Ctx, args: dict[str, Any]):
             reason=assets_mod.MECHANICS_LOCATOR_PURPOSE,
             request_purpose=assets_mod.MECHANICS_LOCATOR_PURPOSE,
             requested_source_scope=scope,
+            consumer_refs=[
+                assets_mod.campaign_consumer_ref(
+                    ctx.root,
+                    str(ctx.campaign_id),
+                    root_id,
+                    intent_kind="mechanics",
+                )
+            ],
         )
     except assets_mod.ModuleAssetsError as exc:
         code = (
@@ -14411,7 +14610,78 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
             "no exact cached-page group is ready; unresolved or uncached requests "
             "remain visible in progressive.status for a bounded host PDF window"
         )
-    return result, [], hints
+    warnings: list[str] = []
+    if _pi_auto_dispatch_active() and result_delivery != "task_return_to_parent":
+        # The Pi coordinator child always claims with
+        # result_delivery=task_return_to_parent (validated in
+        # pi/lib/runtime.ts); any other delivery on Pi is the main Keeper
+        # racing the auto-dispatched coordinator.
+        warnings.append(
+            "Pi source-work race: progressive.claim_host_work was called with "
+            f"result_delivery={result_delivery!r}. "
+            + _PI_SOURCE_WORK_RACE_WARNING
+        )
+    return result, warnings, hints
+
+
+@tool(
+    "progressive.renew_host_work_leases",
+    "Host-lifecycle operation that renews only exact leases owned by one "
+    "executor. It is not a Keeper source-reading operation.",
+    {
+        "asset_root_id": {"type": "string", "required": True},
+        "executor_id": {"type": "string", "required": True},
+        "lease_ids": {
+            "type": "array", "required": True, "minItems": 1,
+            "items": {"type": "string"},
+        },
+        "lease_seconds": {
+            "type": "integer", "required": True, "minimum": 30, "maximum": 3600,
+        },
+    },
+)
+def _tool_progressive_renew_host_work_leases(ctx: Ctx, args: dict[str, Any]):
+    assets_mod = coc_module_project.coc_module_assets
+    try:
+        result = assets_mod.renew_host_work_leases(
+            ctx.root,
+            str(args.get("asset_root_id") or ""),
+            executor_id=str(args.get("executor_id") or ""),
+            lease_ids=list(args.get("lease_ids") or []),
+            lease_seconds=args.get("lease_seconds"),
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    return result, [], []
+
+
+@tool(
+    "progressive.release_host_work_leases",
+    "Host-lifecycle operation that gracefully releases only exact leases "
+    "owned by one executor. Abrupt crashes still recover through bounded TTL.",
+    {
+        "asset_root_id": {"type": "string", "required": True},
+        "executor_id": {"type": "string", "required": True},
+        "lease_ids": {
+            "type": "array", "required": True, "minItems": 1,
+            "items": {"type": "string"},
+        },
+        "reason": {"type": "string", "required": True, "maxLength": 256},
+    },
+)
+def _tool_progressive_release_host_work_leases(ctx: Ctx, args: dict[str, Any]):
+    assets_mod = coc_module_project.coc_module_assets
+    try:
+        result = assets_mod.release_host_work_leases(
+            ctx.root,
+            str(args.get("asset_root_id") or ""),
+            executor_id=str(args.get("executor_id") or ""),
+            lease_ids=list(args.get("lease_ids") or []),
+            reason=str(args.get("reason") or ""),
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("invalid_param", str(exc)) from exc
+    return result, [], []
 
 
 @tool(
@@ -14426,6 +14696,7 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
                 "job_id": {"type": "string"},
                 "pack": {"type": "object"},
                 "related_packs": {"type": "array"},
+                "opening_setup": {"type": "object"},
             },
             "required_fields": ["job_id", "pack", "related_packs"],
             "additionalProperties": False,
@@ -14445,6 +14716,13 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
         "related_packs": {
             "type": "array",
             "desc": "legacy optional same-page batch; mutually exclusive with worker_result",
+        },
+        "opening_setup": {
+            "type": "object",
+            "desc": (
+                "required closed opening clock observation for partial_opening; "
+                "normally carried inside worker_result"
+            ),
         },
         "host_task_timing": {
             "type": "object",
@@ -14467,7 +14745,24 @@ def _tool_progressive_fulfill_host_work(ctx: Ctx, args: dict[str, Any]):
     root_id = coc_module_project.campaign_asset_root_id(ctx.campaign_dir)
     if not root_id:
         raise ToolError("invalid_param", "campaign is not progressive")
-    return _fulfill_host_work_for_asset(ctx, args, root_id=root_id)
+    data, warnings, hints = _fulfill_host_work_for_asset(
+        ctx, args, root_id=root_id,
+    )
+    if (
+        _pi_auto_dispatch_active()
+        and "worker_result" not in args
+        and "pack" in args
+    ):
+        # The Pi coordinator child only ever forwards one exact worker_result
+        # (pi/lib/runtime.ts runCoordinatorLifecycle); a directly supplied
+        # pack is the main Keeper hand-authoring source work.
+        warnings = [
+            *warnings,
+            "Pi source-work race: progressive.fulfill_host_work was called "
+            "with a directly supplied pack instead of an exact-forwarded "
+            "worker_result. " + _PI_SOURCE_WORK_RACE_WARNING,
+        ]
+    return data, warnings, hints
 
 
 def _source_submit_lock_path(ctx: Ctx) -> Path:
@@ -14488,10 +14783,233 @@ def _fulfill_host_work_for_asset(
         raise ToolError("campaign_busy", str(exc)) from exc
 
 
+def _pi_auto_dispatch_active() -> bool:
+    """True when the Pi host extension auto-dispatches ready source work."""
+    if str(os.environ.get("COC_HOST") or "").lower() != "pi":
+        return False
+    # Headless Pi cannot spawn the source coordinator; the main KP owns the
+    # direct claim/fulfill fallback there (see the claim headless hints).
+    return str(os.environ.get("COC_PI_HEADLESS") or "").lower() not in {
+        "1", "true", "yes",
+    }
+
+
+_PI_SOURCE_WORK_RACE_WARNING = (
+    "on Pi the host extension auto-dispatches ready source work to the Pi "
+    "source coordinator; the main Keeper must not claim host work, fulfill "
+    "host work, or author source packs itself. Continue play and await the "
+    "coordinator terminal notice, then consume durable packs only through "
+    "later canonical entity/mechanics queries."
+)
+
+# These fields are owned by the job binding and repository canonicalization
+# (the exact source-scope check above, put_entity's id write, and cache-derived
+# source_refs), so the semantic gate never double-gates them.
+_LOCATION_PACK_STRUCTURAL_FIELDS = frozenset({
+    "location_id", "source_page_indices", "source_refs",
+})
+# Static floor from source-pack-worker-v1 location_pack.required_semantic_fields.
+_LOCATION_PACK_DEFAULT_SEMANTIC_FIELDS = ("title", "player_safe_summary")
+
+
+def _location_pack_required_semantic_fields(
+    request: dict[str, Any],
+) -> list[str]:
+    """Return the closed semantic fields one fulfilled location pack must carry.
+
+    The static worker-contract floor always applies; a stored request
+    result_contract may name additional fields through its
+    location_pack.required_semantic_fields / required_location_fields lists.
+    """
+    required = list(_LOCATION_PACK_DEFAULT_SEMANTIC_FIELDS)
+    contract = request.get("result_contract")
+    if isinstance(contract, dict):
+        named: list[Any] = []
+        location_pack = contract.get("location_pack")
+        if isinstance(location_pack, dict):
+            named.extend(location_pack.get("required_semantic_fields") or [])
+        named.extend(contract.get("required_location_fields") or [])
+        for value in named:
+            text = str(value).strip()
+            if (
+                text
+                and text not in _LOCATION_PACK_STRUCTURAL_FIELDS
+                and text not in required
+            ):
+                required.append(text)
+    return required
+
+
+def _require_location_pack_semantic_fields(
+    pack: dict[str, Any],
+    request: dict[str, Any],
+    *,
+    field: str,
+) -> None:
+    """Reject a location pack that could merge but never satisfy projection."""
+    missing = [
+        name
+        for name in _location_pack_required_semantic_fields(request)
+        if not isinstance(pack.get(name), str) or not str(pack.get(name)).strip()
+    ]
+    if missing:
+        raise ToolError(
+            "pack_semantic_fields_missing",
+            f"{field} is missing contract-required semantic fields: "
+            + ", ".join(missing),
+        )
+
+
+def _apply_opening_setup_observation(
+    ctx: Ctx,
+    *,
+    root_id: str,
+    request: dict[str, Any],
+    opening_setup: Any,
+) -> dict[str, Any]:
+    """Validate one closed source-clock observation before entity writes."""
+    assets_mod = coc_module_project.coc_module_assets
+    if not isinstance(opening_setup, dict):
+        raise ToolError(
+            "opening_setup_invalid",
+            "partial_opening worker result requires opening_setup",
+        )
+    required = {"schema_version", "contract_id", "status"}
+    allowed = required | {"start_clock", "start_clock_source_refs"}
+    if set(opening_setup) - allowed or not required <= set(opening_setup):
+        raise ToolError(
+            "opening_setup_invalid",
+            "opening_setup has unsupported or missing fields",
+        )
+    if (
+        opening_setup.get("schema_version") != 1
+        or opening_setup.get("contract_id")
+        != "coc.opening-setup-observation.v1"
+    ):
+        raise ToolError(
+            "opening_setup_invalid",
+            "opening_setup contract must be coc.opening-setup-observation.v1",
+        )
+    status = str(opening_setup.get("status") or "")
+    if status not in {"source", "unresolved"}:
+        raise ToolError(
+            "opening_setup_invalid",
+            "opening_setup.status must be source or unresolved",
+        )
+    try:
+        exact_scope = assets_mod.validate_opening_source_scope(
+            ctx.root, root_id, request.get("requested_source_scope"),
+        )
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("opening_setup_invalid", str(exc)) from exc
+    if status == "unresolved":
+        if set(opening_setup) != required:
+            raise ToolError(
+                "opening_setup_invalid",
+                "unresolved opening_setup must not carry clock data",
+            )
+        return {"status": "unresolved", "skeleton_updated": False}
+    if set(opening_setup) != allowed:
+        raise ToolError(
+            "opening_setup_invalid",
+            "source opening_setup requires start_clock and start_clock_source_refs",
+        )
+    clock = opening_setup.get("start_clock")
+    refs = opening_setup.get("start_clock_source_refs")
+    if not isinstance(clock, dict) or not isinstance(refs, list) or not refs:
+        raise ToolError(
+            "opening_setup_invalid",
+            "source opening_setup requires a clock object and non-empty refs",
+        )
+    ref_indices: list[int] = []
+    for position, ref in enumerate(refs):
+        if not isinstance(ref, dict) or set(ref) != {"source_id", "pdf_index"}:
+            raise ToolError(
+                "opening_setup_invalid",
+                f"start_clock_source_refs[{position}] must contain source_id and pdf_index",
+            )
+        if ref.get("source_id") != exact_scope["source_id"]:
+            raise ToolError(
+                "opening_setup_invalid", "clock source_id is outside the request",
+            )
+        pdf_index = ref.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index not in exact_scope["pdf_indices"]
+        ):
+            raise ToolError(
+                "opening_setup_invalid", "clock source ref is outside the request",
+            )
+        ref_indices.append(pdf_index)
+    if len(ref_indices) != len(set(ref_indices)):
+        raise ToolError("opening_setup_invalid", "clock source refs repeat a page")
+    skeleton_path = assets_mod._module_dir(ctx.root, root_id) / "skeleton.json"
+    lock_path = assets_mod._module_dir(ctx.root, root_id) / "skeleton.lock"
+    with coc_fileio.advisory_file_lock(lock_path):
+        skeleton = assets_mod.get_skeleton(ctx.root, root_id)
+        if not isinstance(skeleton, dict):
+            raise ToolError("opening_setup_invalid", "opening skeleton is missing")
+        current_status = str(skeleton.get("start_clock_status") or "")
+        if current_status not in {"unresolved", "source"}:
+            raise ToolError(
+                "opening_setup_conflict",
+                "existing skeleton clock is not worker-resolvable",
+            )
+        try:
+            canonical_refs = assets_mod._cached_source_refs(
+                ctx.root,
+                root_id,
+                {"source_refs": refs},
+                field="opening_setup.start_clock",
+            )
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("opening_setup_invalid", str(exc)) from exc
+        if current_status == "source":
+            if (
+                skeleton.get("start_clock") != clock
+                or [
+                    (row.get("source_id"), row.get("pdf_index"))
+                    for row in skeleton.get("start_clock_source_refs") or []
+                ]
+                != [
+                    (row.get("source_id"), row.get("pdf_index"))
+                    for row in canonical_refs
+                ]
+            ):
+                raise ToolError(
+                    "opening_setup_conflict",
+                    "existing source clock differs from this observation",
+                )
+            return {
+                "status": "source",
+                "skeleton_updated": False,
+                "skeleton_path": str(skeleton_path),
+            }
+        updated = deepcopy(skeleton)
+        updated["start_clock_status"] = "source"
+        updated["start_clock"] = deepcopy(clock)
+        updated["start_clock_source_refs"] = canonical_refs
+        try:
+            # put_skeleton canonicalizes refs and validates the existing clock
+            # schema before any entity pack can be written.
+            assets_mod.put_skeleton(ctx.root, root_id, updated)
+            canonical = assets_mod.get_skeleton(ctx.root, root_id)
+        except assets_mod.ModuleAssetsError as exc:
+            raise ToolError("opening_setup_invalid", str(exc)) from exc
+        assert isinstance(canonical, dict)
+    return {
+        "status": "source",
+        "skeleton_updated": current_status == "unresolved",
+        "skeleton_path": str(skeleton_path),
+    }
+
+
 def _fulfill_host_work_for_asset_unlocked(
     ctx: Ctx, args: dict[str, Any], *, root_id: str,
 ):
     assets_mod = coc_module_project.coc_module_assets
+    opening_setup_result: dict[str, Any] | None = None
 
     # The preferred path keeps the source child's closed result item intact at
     # the host boundary.  Unwrap it once here, then run the unchanged strict
@@ -14499,7 +15017,9 @@ def _fulfill_host_work_for_asset_unlocked(
     # available for older callers but may never be merged with this envelope.
     if "worker_result" in args:
         mixed_fields = [
-            field for field in ("job_id", "pack", "related_packs")
+            field for field in (
+                "job_id", "pack", "related_packs", "opening_setup",
+            )
             if field in args
         ]
         if mixed_fields:
@@ -14511,10 +15031,17 @@ def _fulfill_host_work_for_asset_unlocked(
         worker_result = args.get("worker_result")
         if not isinstance(worker_result, dict):
             raise ToolError("invalid_param", "worker_result must be an object")
-        if set(worker_result) != {"job_id", "pack", "related_packs"}:
+        allowed_worker_fields = {
+            "job_id", "pack", "related_packs", "opening_setup",
+        }
+        if (
+            set(worker_result) - allowed_worker_fields
+            or not {"job_id", "pack", "related_packs"} <= set(worker_result)
+        ):
             raise ToolError(
                 "invalid_source_worker_pack",
-                "worker_result must contain exactly job_id, pack, and related_packs",
+                "worker_result must contain job_id, pack, related_packs and "
+                "may contain only opening_setup in addition",
             )
         exact_result = deepcopy(worker_result)
         if not str(exact_result.get("job_id") or "").strip():
@@ -15264,6 +15791,34 @@ def _fulfill_host_work_for_asset_unlocked(
                     "opening_source_scope_mismatch",
                     "partial opening pack source scope must equal the exact request",
                 )
+        if entity_kind == "location":
+            # A location pack without its closed semantic fields merges cleanly
+            # but can never satisfy opening readiness; reject it before merge.
+            _require_location_pack_semantic_fields(pack, request, field="pack")
+        if job_kind == "partial_opening":
+            validation_pack = deepcopy(pack)
+            validation_pack.pop("host_work_job_id", None)
+            validation_pack["schema_version"] = assets_mod.SCHEMA_VERSION
+            validation_pack["location_id"] = target_id
+            try:
+                assets_mod._canonicalize_entity_source_evidence(
+                    ctx.root, root_id, "location", validation_pack,
+                )
+                assets_mod._validate_entity_pack(
+                    "location",
+                    validation_pack,
+                    workspace=ctx.root,
+                    asset_root_id=root_id,
+                    entity_id=target_id,
+                )
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError("invalid_param", str(exc)) from exc
+            opening_setup_result = _apply_opening_setup_observation(
+                ctx,
+                root_id=root_id,
+                request=request,
+                opening_setup=args.get("opening_setup"),
+            )
     try:
         result = assets_mod.put_entity(
             ctx.root, root_id, entity_kind, target_id, pack,
@@ -15338,6 +15893,12 @@ def _fulfill_host_work_for_asset_unlocked(
         else:
             related_pack["parse_state"] = "deep"
             related_pack.pop("host_work_job_id", None)
+            if related_kind == "location":
+                _require_location_pack_semantic_fields(
+                    related_pack,
+                    request,
+                    field=f"related_packs[{index}].pack",
+                )
             if pack.get("host_timing") and not related_pack.get("host_timing"):
                 related_pack["host_timing"] = deepcopy(pack["host_timing"])
         try:
@@ -15370,12 +15931,24 @@ def _fulfill_host_work_for_asset_unlocked(
                 target_id=subject_id,
                 priority=100,
                 reason="mechanics_pack_ready",
+                consumer_refs=(
+                    deepcopy(request.get("consumer_refs"))
+                    if request.get("consumer_refs") else None
+                ),
             )
 
     if job_kind == "partial_opening":
+        automatic_projection = coc_module_project.drain_opening_projection_watches(
+            ctx.root,
+            root_id,
+            start_location_id=target_id,
+            source_scope_signature=str(
+                request.get("source_scope_signature") or ""
+            ),
+        )
         success_hints = [
-            "the exact reusable partial opening pack is durable; call "
-            "progressive.prepare_opening and use its returned mutation card",
+            "the exact reusable partial opening pack is durable; exact "
+            "campaign-owned projection watches were drained automatically",
         ]
     elif job_kind in {"resolve_npc_mechanics", "resolve_item_mechanics"}:
         success_hints = [
@@ -15403,6 +15976,11 @@ def _fulfill_host_work_for_asset_unlocked(
         "put": result,
         "related_puts": related_results,
         "measured_host_timing": measured_host_timing,
+        "opening_setup": opening_setup_result,
+        **(
+            {"automatic_projection": automatic_projection}
+            if job_kind == "partial_opening" else {}
+        ),
     }, [], success_hints
 
 
@@ -15410,7 +15988,8 @@ _SOURCE_RESULT_FIELDS = {
     "schema_version", "contract_id", "packet_id", "work_group_id",
     "status", "results",
 }
-_SOURCE_RESULT_ITEM_FIELDS = {"job_id", "pack", "related_packs"}
+_SOURCE_RESULT_ITEM_REQUIRED_FIELDS = {"job_id", "pack", "related_packs"}
+_SOURCE_RESULT_ITEM_FIELDS = _SOURCE_RESULT_ITEM_REQUIRED_FIELDS | {"opening_setup"}
 _SOURCE_RESULT_CONTRACT = "coc.source-pack-worker.v1"
 _SOURCE_SUBMIT_RECEIPT_CONTRACT = "coc.source-submit-receipt.v1"
 
@@ -15470,10 +16049,15 @@ def _validate_source_result_submission(
     results: list[dict[str, Any]] = []
     job_ids: set[str] = set()
     for index, raw in enumerate(raw_results):
-        if not isinstance(raw, dict) or set(raw) != _SOURCE_RESULT_ITEM_FIELDS:
+        if (
+            not isinstance(raw, dict)
+            or set(raw) - _SOURCE_RESULT_ITEM_FIELDS
+            or not _SOURCE_RESULT_ITEM_REQUIRED_FIELDS <= set(raw)
+        ):
             raise ToolError(
                 "invalid_source_worker_pack",
-                f"results[{index}] must contain exactly job_id, pack, and related_packs",
+                f"results[{index}] must contain job_id, pack, related_packs "
+                "and may contain only opening_setup in addition",
             )
         job_id = _source_result_id(raw.get("job_id"), field=f"results[{index}].job_id")
         if job_id in job_ids:

@@ -54,6 +54,19 @@ def _foreground_opening_result_contract() -> dict[str, Any]:
         "worker_result_pack_shape": (
             "direct_location_entity; never nest it under a location key"
         ),
+        "opening_setup": {
+            "schema_version": 1,
+            "contract_id": "coc.opening-setup-observation.v1",
+            "status_values": ["source", "unresolved"],
+            "required": True,
+            "source_requires": ["start_clock", "start_clock_source_refs"],
+            "unresolved_forbids": ["start_clock", "start_clock_source_refs"],
+            "source_ref_scope": "exact_requested_pdf_indices",
+            "precision_rule": (
+                "preserve only source-supported precision; never invent a "
+                "date, day, hour, local_datetime, or calendar year"
+            ),
+        },
         "location_pack": {
             "fixed_fields": {
                 "parse_state": "partial",
@@ -1045,6 +1058,20 @@ def _write_host_work_request(
         "work_group_id": work_group_id,
         "dispatch_state": dispatch_state,
         "dispatch_attempts": 0,
+        "consumer_refs": (
+            coc_module_assets.validate_host_work_consumer_refs(
+                job["consumer_refs"]
+            )
+            if isinstance(job.get("consumer_refs"), list)
+            and job.get("consumer_refs")
+            else None
+        ),
+        "consumer_state": (
+            "owned"
+            if isinstance(job.get("consumer_refs"), list)
+            and job.get("consumer_refs")
+            else "legacy_unowned"
+        ),
         "instruction": (
             "Source scope is unknown. Do not open or scan the PDF and do not "
             "scan unrelated cached pages. Leave this request unresolved until "
@@ -1072,7 +1099,10 @@ def _write_host_work_request(
             "requested_pdf_indices for request_purpose=foreground_opening_slice. "
             "Return one reusable location pack with parse_state=partial, "
             "evidence_gap=false and exact source_page_indices/source_refs. Follow "
-            "the closed result_contract: include player_safe_summary and, for each "
+            "the closed result_contract: include player_safe_summary and the "
+            "versioned opening_setup observation outside pack; use unresolved "
+            "when this exact window does not author a start clock, and preserve "
+            "source precision without inventing date/hour/year. For each "
             "materially present NPC, same-pack npc_id plus a source-bounded immediate "
             "agenda. Missing agenda is soft_deferred and must not cause replacement "
             "before opening. "
@@ -1129,6 +1159,8 @@ def _write_host_work_request(
             "scope. Do not invent handout/secret bodies without page evidence."
         ),
     }
+    if payload["consumer_refs"] is None:
+        payload.pop("consumer_refs")
     if dependency_ref is not None:
         payload["dependency_ref"] = dependency_ref
     coc_module_assets.validate_host_work_request_shape(payload)

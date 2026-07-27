@@ -10540,6 +10540,7 @@ def _opening_component_workspace(
     tmp_path: Path,
     *,
     extra_pdf_indices: tuple[int, ...] = (),
+    page_body: str | None = None,
 ) -> dict:
     workspace = tmp_path / "opening-workspace"
     campaign_id = "opening-component"
@@ -10558,7 +10559,7 @@ def _opening_component_workspace(
         page = (
             "# Opening\n\nA bounded authored opening.\n"
             if pdf_index == 0
-            else f"# Appendix {pdf_index}\n\nAccepted extra source page.\n"
+            else f"# Appendix {pdf_index}\n\n{page_body or 'Accepted extra source page.'}\n"
         ).encode()
         markdown_path = f"page-{pdf_index:04d}.md"
         (bundle / markdown_path).write_bytes(page)
@@ -10570,7 +10571,8 @@ def _opening_component_workspace(
             "parse_confidence": 0.99,
             "grep_anchors": [
                 "A bounded authored opening."
-                if pdf_index == 0 else "Accepted extra source page."
+                if pdf_index == 0
+                else (page_body or "Accepted extra source page.").split("，")[0]
             ],
         })
     (bundle / "manifest.json").write_text(json.dumps({
@@ -11433,6 +11435,7 @@ def test_opening_request_returns_inline_takeover_for_source_coordinator(
             "job_id": packet["requests"][0]["job_id"],
             "pack": _opening_component_pack(parse_state="partial"),
             "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
         },
     })
     assert fulfilled["ok"] is True, fulfilled
@@ -11472,6 +11475,285 @@ def _opening_component_pack(**overrides) -> dict:
     }
     pack.update(overrides)
     return pack
+
+
+def _opening_setup_unresolved() -> dict:
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.opening-setup-observation.v1",
+        "status": "unresolved",
+    }
+
+
+def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    args = {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    }
+    first = _run(ws, "progressive.opening_bootstrap", args)
+    assert first["ok"] is True, first
+    assert first["data"]["source_work"]["status"] == "queued"
+    repeated = _run(ws, "progressive.opening_bootstrap", args)
+    assert repeated["ok"] is True, repeated
+    assert repeated["data"]["source_work"]["status"] == "coalesced"
+    conflict = _run(ws, "progressive.opening_bootstrap", {
+        **args,
+        "start_location": {
+            "location_id": "opening",
+            "title": "Different",
+        },
+    })
+    assert conflict["ok"] is False
+    assert conflict["error"]["code"] == "opening_bootstrap_conflict"
+
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_bootstrap_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": first["data"]["source_work"]["job_id"],
+                "pack": _opening_component_pack(parse_state="partial"),
+                "related_packs": [],
+                "opening_setup": _opening_setup_unresolved(),
+            "opening_setup": _opening_setup_unresolved(),
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["automatic_projection"][0]["status"] == "complete"
+    scenario = json.loads(
+        (
+            ws["campaign_dir"] / "scenario" / "scenario.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert scenario["opening_projection_watch"]["status"] == "complete"
+
+
+def test_opening_setup_source_clock_preserves_relative_precision(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_clock_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": boot["data"]["source_work"]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": {
+                "schema_version": 1,
+                "contract_id": "coc.opening-setup-observation.v1",
+                "status": "source",
+                "start_clock": {
+                    "calendar_mode": "relative",
+                    "local_datetime": None,
+                    "local_date": None,
+                    "timezone": None,
+                    "display": "上午（日期未注明）",
+                    "time_precision": "day_phase",
+                    "day_phase_hint": "morning",
+                },
+                "start_clock_source_refs": [{
+                    "source_id": ws["skeleton"]["source"]["source_id"],
+                    "pdf_index": 0,
+                }],
+            },
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["opening_setup"]["skeleton_updated"] is True
+    time_state = json.loads(
+        (
+            ws["campaign_dir"] / "save" / "time-state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert time_state["clock"]["local_datetime"] is None
+    assert time_state["clock"]["local_date"] is None
+    assert time_state["clock"]["time_precision"] == "day_phase"
+    assert time_state["clock"]["day_phase_hint"] == "morning"
+
+
+def test_direct_source_submit_drains_only_exact_campaign_watch(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    other_id = "opening-unwatched"
+    coc_state.create_campaign(
+        ws["workspace"], other_id, "Unwatched", play_language="zh-Hans",
+    )
+    other_scenario_path = (
+        ws["workspace"] / ".coc" / "campaigns" / other_id
+        / "scenario" / "scenario.json"
+    )
+    other_scenario = json.loads(
+        (
+            ws["campaign_dir"] / "scenario" / "scenario.json"
+        ).read_text(encoding="utf-8")
+    )
+    _write_json(other_scenario_path, other_scenario)
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_direct_watch_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    claimed = coc_toolbox.coc_module_project.coc_module_assets.claim_host_work_requests(
+        ws["workspace"],
+        ws["asset_root_id"],
+        executor_id="direct-watch-test",
+        result_delivery="named_submit",
+    )
+    packet = claimed["packets"][0]
+    receipt = coc_toolbox.submit_source_worker_result(
+        ws["workspace"],
+        {
+            "schema_version": 1,
+            "contract_id": "coc.source-pack-worker.v1",
+            "packet_id": packet["packet_id"],
+            "work_group_id": packet["work_group_id"],
+            "status": "usable",
+            "results": [{
+                "job_id": packet["requests"][0]["job_id"],
+                "pack": _opening_component_pack(parse_state="partial"),
+                "related_packs": [],
+                "opening_setup": _opening_setup_unresolved(),
+            }],
+        },
+    )
+    assert receipt["ok"] is True, receipt
+    watched = json.loads(
+        (
+            ws["campaign_dir"] / "scenario" / "scenario.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert watched["opening_projection_watch"]["status"] == "complete"
+    untouched = json.loads(other_scenario_path.read_text(encoding="utf-8"))
+    assert "opening_projection_watch" not in untouched
+    assert "opening_projection_receipt" not in untouched
+
+
+def test_opening_watch_refuses_non_pristine_without_rolling_back_pack(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_non_pristine_watch_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world = json.loads(world_path.read_text(encoding="utf-8"))
+    world["active_scene_id"] = "already-playing"
+    _write_json(world_path, world)
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": boot["data"]["source_work"]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["request_status"] == "fulfilled"
+    assert fulfilled["data"]["automatic_projection"][0]["status"] == (
+        "refused_terminal"
+    )
+    stored_pack = coc_toolbox.coc_module_project.coc_module_assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert stored_pack["parse_state"] == "partial"
+
+
+def test_opening_setup_rejects_clock_ref_outside_exact_window_before_writes(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(1,))
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {
+            "location_id": "opening",
+            "title": "Opening",
+        },
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_bad_clock_ref_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": boot["data"]["source_work"]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": {
+                "schema_version": 1,
+                "contract_id": "coc.opening-setup-observation.v1",
+                "status": "source",
+                "start_clock": {
+                    "calendar_mode": "relative",
+                    "local_datetime": None,
+                    "local_date": None,
+                    "timezone": None,
+                    "display": "Morning",
+                    "time_precision": "day_phase",
+                    "day_phase_hint": "morning",
+                },
+                "start_clock_source_refs": [{
+                    "source_id": ws["skeleton"]["source"]["source_id"],
+                    "pdf_index": 1,
+                }],
+            },
+        },
+    })
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "opening_setup_invalid"
+    skeleton = coc_toolbox.coc_module_project.coc_module_assets.get_skeleton(
+        ws["workspace"], ws["asset_root_id"],
+    )
+    assert skeleton["start_clock_status"] == "unresolved"
+    pack = coc_toolbox.coc_module_project.coc_module_assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert pack["parse_state"] == "named_only"
 
 
 def _publish_and_project_opening_component(ws: dict, *, pack: dict | None = None):
@@ -11540,12 +11822,15 @@ def test_prepare_opening_is_strict_read_only_and_skips_recovery(
         "review_state": "manual_accepted",
         "parse_confidence": 0.99,
         "grep_anchor_preview": "A bounded authored opening.",
+        "text_preview": "# Opening A bounded authored opening.",
     }]
     assert data["opening_page_candidate_total"] == 1
     assert data["opening_page_candidate_complete"] is True
     assert data["opening_page_candidate_role"] == (
         "selection_hint_only_not_provenance"
     )
+    assert data["anchors_declared"] is True
+    assert "opening_window_selection_advisory" not in data
     skeleton_contract = data["mutation_cards"][0][
         "skeleton_argument_contract"
     ]
@@ -11691,6 +11976,17 @@ def test_missing_skeleton_page_catalog_is_complete_bounded_and_fail_closed(
         <= candidate_preview_limit
         for row in data["opening_page_candidates"]
     )
+    per_candidate_text_limit = min(
+        coc_toolbox.coc_module_project.coc_module_assets
+        .OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_MAX_BYTES,
+        coc_toolbox.coc_module_project.coc_module_assets
+        .OPENING_PAGE_CANDIDATE_TEXT_PREVIEW_TOTAL_MAX_BYTES // 32,
+    )
+    assert all(
+        len(row["text_preview"].encode("utf-8")) <= per_candidate_text_limit + 3
+        for row in data["opening_page_candidates"]
+    )
+    assert data["anchors_declared"] is True
     assert data["encoded_data_bytes"] <= data["encoded_data_budget_bytes"]
     assert any(
         card["operation"] == "progressive.publish_skeleton"
@@ -11722,6 +12018,27 @@ def test_missing_skeleton_page_catalog_is_complete_bounded_and_fail_closed(
     assert locator_data["encoded_data_bytes"] <= locator_data[
         "encoded_data_budget_bytes"
     ]
+
+
+def test_missing_skeleton_page_catalog_fits_budget_with_cjk_pages(
+    tmp_path: Path,
+):
+    # Regression: CJK page bodies cost ~3 UTF-8 bytes per char, so char-bounded
+    # previews once sank the mandatory 12 KiB preparation budget and failed
+    # prepare_opening closed. Previews must be byte-bounded and survive.
+    ws = _opening_component_workspace(
+        tmp_path,
+        extra_pdf_indices=tuple(range(1, 32)),
+        page_body="圣诞季降临卡尔克萨，村民丢弃盛水器具集体渴死。" * 8,
+    )
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    data = prepared["data"]
+    assert data["opening_page_candidate_total"] == 32
+    assert data["encoded_data_bytes"] <= data["encoded_data_budget_bytes"]
+    assert "text_preview_omitted_for_budget" not in data
+    previews = [row["text_preview"] for row in data["opening_page_candidates"]]
+    assert any("圣诞季" in preview for preview in previews)
 
 
 def test_opening_component_publish_project_prepare_and_initial_defer(
@@ -13125,12 +13442,13 @@ def test_partial_opening_fulfill_hint_claims_only_explicit_projection(
                 "location": _opening_component_pack(parse_state="partial"),
             },
             "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
         },
     })
     assert fulfilled["ok"] is True, fulfilled
     assert len(fulfilled["hints"]) == 1
     assert "exact reusable partial opening pack is durable" in fulfilled["hints"][0]
-    assert "progressive.prepare_opening" in fulfilled["hints"][0]
+    assert "projection watches were drained automatically" in fulfilled["hints"][0]
     assert "ready for" not in fulfilled["hints"][0]
     assert "re-enqueued" not in fulfilled["hints"][0]
     prepared = _run(ws, "progressive.prepare_opening")
@@ -13197,8 +13515,12 @@ def test_partial_opening_missing_npc_agenda_projects_without_repack(
         }],
     )
     fulfilled = _run(ws, "progressive.fulfill_host_work", {
-        "job_id": requested["data"]["job_id"],
-        "pack": pack,
+        "worker_result": {
+            "job_id": requested["data"]["job_id"],
+            "pack": pack,
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
     })
     assert fulfilled["ok"] is True, fulfilled
 
@@ -13306,8 +13628,12 @@ def _fulfilled_partial_opening_workspace(
     assert materialized["claimed"] == 1
     job_id = requested["data"]["job_id"]
     fulfilled = _run(ws, "progressive.fulfill_host_work", {
-        "job_id": job_id,
-        "pack": _opening_component_pack(parse_state="partial"),
+        "worker_result": {
+            "job_id": job_id,
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
     })
     assert fulfilled["ok"] is True, fulfilled
     module_root = (
@@ -13385,8 +13711,12 @@ def test_changed_partial_pack_cannot_reuse_old_fulfillment_and_replacement_can(
     assert materialized["claimed"] == 1
     replacement_pack = json.loads(entity_path.read_text(encoding="utf-8"))
     fulfilled = _run(ws, "progressive.fulfill_host_work", {
-        "job_id": replacement_request["data"]["job_id"],
-        "pack": replacement_pack,
+        "worker_result": {
+            "job_id": replacement_request["data"]["job_id"],
+            "pack": replacement_pack,
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
     })
     assert fulfilled["ok"] is True, fulfilled
     rebound = assets.get_entity(
@@ -13482,6 +13812,231 @@ def test_partial_receipt_mismatch_refuses_prepare_request_and_project(
         path.name: path.read_bytes()
         for path in (ws["campaign_dir"] / "scenario").glob("*.json")
     } == scenario_before
+
+
+def _requested_partial_opening(
+    tmp_path: Path,
+    monkeypatch,
+    worker_module_suffix: str,
+) -> tuple[dict, str]:
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    published = _run(ws, "progressive.publish_skeleton", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "skeleton": ws["skeleton"],
+    })
+    assert published["ok"] is True, published
+    requested = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert requested["ok"] is True, requested
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        f"coc_module_queue_worker_{worker_module_suffix}",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    return ws, requested["data"]["job_id"]
+
+
+def test_location_pack_required_semantic_fields_honors_stored_contract():
+    required = coc_toolbox._location_pack_required_semantic_fields
+    assert required({}) == ["title", "player_safe_summary"]
+    assert required({"result_contract": "not-an-object"}) == [
+        "title", "player_safe_summary",
+    ]
+    # The stored contract may name extra semantic fields, while structural
+    # transport fields stay owned by the job binding and never double-gate.
+    assert required({
+        "result_contract": {
+            "required_location_fields": [
+                "location_id", "player_safe_summary",
+                "source_page_indices", "source_refs",
+            ],
+            "location_pack": {
+                "required_semantic_fields": ["title", "dramatic_question"],
+            },
+        },
+    }) == ["title", "player_safe_summary", "dramatic_question"]
+
+
+def test_partial_opening_fulfill_rejects_pack_missing_semantic_fields(
+    tmp_path: Path, monkeypatch,
+):
+    ws, job_id = _requested_partial_opening(
+        tmp_path, monkeypatch, "semantic_gate_reject",
+    )
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+
+    thin = _opening_component_pack(parse_state="partial", player_safe_summary="")
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": job_id,
+        "pack": thin,
+        "related_packs": [],
+    })
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "pack_semantic_fields_missing"
+    assert "player_safe_summary" in rejected["error"]["message"]
+    assert "title" not in rejected["error"]["message"]
+    assert "leave the request unfulfilled" in rejected["hints"][0]
+
+    bare = _opening_component_pack(parse_state="partial")
+    bare.pop("title")
+    bare.pop("player_safe_summary")
+    rejected_bare = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": job_id,
+        "pack": bare,
+        "related_packs": [],
+    })
+    assert rejected_bare["ok"] is False
+    assert rejected_bare["error"]["code"] == "pack_semantic_fields_missing"
+    assert "title" in rejected_bare["error"]["message"]
+    assert "player_safe_summary" in rejected_bare["error"]["message"]
+
+    stub = assets.get_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening",
+    )
+    assert stub is not None
+    assert stub["parse_state"] == "named_only"
+    assert "player_safe_summary" not in stub
+    request = next(
+        row for row in assets.list_host_work_requests(
+            ws["workspace"], ws["asset_root_id"], include_closed=True, limit=None,
+        )
+        if row["job_id"] == job_id
+    )
+    assert request["status"] != "fulfilled"
+
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": job_id,
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert fulfilled["data"]["request_status"] == "fulfilled"
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    assert prepared["data"]["selected_start_pack_ready"] is True
+
+
+def test_pi_host_warns_when_keeper_races_claim_and_hand_pack_fulfill(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws, job_id = _requested_partial_opening(
+        tmp_path, monkeypatch, "pi_race_fixture",
+    )
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+
+    # The legit coordinator child claims with task_return_to_parent and never
+    # trips the warning (pi/lib/runtime.ts validates this prefill).
+    legit_claim = _run(ws, "progressive.claim_host_work", {
+        "executor_id": "source-coordinator:0123456789abcdef",
+        "limit": 1,
+        "result_delivery": "task_return_to_parent",
+    })
+    assert legit_claim["ok"] is True, legit_claim
+    assert not any(
+        "auto-dispatches" in row for row in legit_claim["warnings"]
+    )
+
+    raced_claim = _run(ws, "progressive.claim_host_work", {
+        "executor_id": "opening-owner:v3",
+        "limit": 1,
+        "result_delivery": "return_to_parent",
+    })
+    assert raced_claim["ok"] is True, raced_claim
+    assert any(
+        "auto-dispatches" in row and "must not claim" in row
+        for row in raced_claim["warnings"]
+    )
+
+    raced_fulfill = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": job_id,
+        "pack": _opening_component_pack(parse_state="partial"),
+        "related_packs": [],
+        "opening_setup": _opening_setup_unresolved(),
+    })
+    assert raced_fulfill["ok"] is True, raced_fulfill
+    assert any(
+        "directly supplied pack" in row and "auto-dispatches" in row
+        for row in raced_fulfill["warnings"]
+    )
+
+    # The legit child fulfills by exact-forwarding one worker_result; it must
+    # never trip the warning, even on a later replacement job.
+    module_root = (
+        ws["workspace"] / ".coc" / "module-assets" / ws["asset_root_id"]
+    )
+    entity_path = module_root / "entities" / "location-opening.json"
+    changed = json.loads(entity_path.read_text(encoding="utf-8"))
+    changed["player_safe_summary"] = "Changed after the first fulfillment."
+    changed["host_work_job_id"] = job_id
+    assets.put_entity(
+        ws["workspace"], ws["asset_root_id"], "location", "opening", changed,
+    )
+    replacement = _run(ws, "progressive.request_opening_pack", {
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "start_location_id": "opening",
+        "opening_pdf_indices": [0],
+        "request_purpose": "foreground_opening_slice",
+    })
+    assert replacement["ok"] is True, replacement
+    assert replacement["data"]["job_id"] != job_id
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_pi_race_replacement",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    forwarded = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": replacement["data"]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": _opening_setup_unresolved(),
+        },
+    })
+    assert forwarded["ok"] is True, forwarded
+    assert not any(
+        "auto-dispatches" in row for row in forwarded["warnings"]
+    )
+
+
+def test_pi_headless_claim_and_hand_pack_fulfill_stay_silent(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_HOST", "pi")
+    monkeypatch.setenv("COC_PI_HEADLESS", "1")
+    ws, job_id = _requested_partial_opening(
+        tmp_path, monkeypatch, "pi_headless_fixture",
+    )
+
+    # Headless Pi cannot spawn the coordinator; the main KP owns the direct
+    # claim/fulfill fallback there, so neither call warns.
+    claimed = _run(ws, "progressive.claim_host_work", {
+        "executor_id": "pi-headless-keeper",
+        "limit": 1,
+    })
+    assert claimed["ok"] is True, claimed
+    assert claimed["data"]["dispatch_task_count"] == 0
+    assert not any("auto-dispatches" in row for row in claimed["warnings"])
+
+    fulfilled = _run(ws, "progressive.fulfill_host_work", {
+        "job_id": job_id,
+        "pack": _opening_component_pack(parse_state="partial"),
+        "related_packs": [],
+        "opening_setup": _opening_setup_unresolved(),
+    })
+    assert fulfilled["ok"] is True, fulfilled
+    assert not any("auto-dispatches" in row for row in fulfilled["warnings"])
 
 
 def test_wrong_page_pack_blocks_source_projection_not_ordinary_play(

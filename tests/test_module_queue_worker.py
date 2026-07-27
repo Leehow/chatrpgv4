@@ -206,6 +206,20 @@ def _campaign(tmp_path: Path, asset_root: str = "qw-demo") -> str:
     return cid
 
 
+def _consumer(
+    tmp_path: Path,
+    *,
+    asset_root: str = "qw-demo",
+    intent_kind: str = "player_dig",
+) -> list[dict]:
+    return [assets.campaign_consumer_ref(
+        tmp_path,
+        "qw-camp",
+        asset_root,
+        intent_kind=intent_kind,
+    )]
+
+
 def _clear_queue(tmp_path: Path, asset_root: str = "qw-demo") -> None:
     qpath = tmp_path / ".coc/module-assets" / asset_root / "parse-queue.json"
     qpath.write_text(
@@ -371,6 +385,7 @@ def _accepted_scope(tmp_path: Path, pdf_index: int) -> tuple[dict, dict]:
 def _produce_host_request(
     tmp_path: Path, *, kind: str, target_id: str, **enqueue_args,
 ) -> tuple[dict, Path]:
+    enqueue_args.setdefault("consumer_refs", _consumer(tmp_path))
     queued = assets.enqueue_job(
         tmp_path, "qw-demo", kind=kind, target_id=target_id, **enqueue_args,
     )
@@ -406,6 +421,7 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assets.enqueue_job(
         tmp_path, "qw-demo", kind="deepen_location", target_id="cellar", priority=50,
         reason="dig",
+        consumer_refs=_consumer(tmp_path),
     )
     # attic has deep pack → should merge
     assets.put_entity(tmp_path, "qw-demo", "location", "attic", _deep("attic"))
@@ -414,6 +430,7 @@ def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
     assets.enqueue_job(
         tmp_path, "qw-demo", kind="deepen_location", target_id="cellar", priority=50,
         reason="dig",
+        consumer_refs=_consumer(tmp_path),
     )
     assets.enqueue_job(
         tmp_path, "qw-demo", kind="deepen_location", target_id="attic", priority=50,
@@ -592,6 +609,7 @@ def test_partial_opening_host_request_and_packet_keep_exact_subset(tmp_path: Pat
             "subject": {"kind": "location", "id": "opening"},
             "source_scope_signature": assets.opening_source_scope_signature(scope),
         },
+        consumer_refs=_consumer(tmp_path, intent_kind="opening"),
     )
 
     result = worker.run_worker_once(tmp_path, parallel=1)
@@ -841,7 +859,7 @@ def test_unknown_source_scope_never_expands_to_all_cached_pages(tmp_path: Path):
     assert "do not scan unrelated cached pages" in request["instruction"]
     lifecycle = assets.host_work_lifecycle_summary(tmp_path, "qw-demo")
     assert lifecycle["open_host_work_count"] == 1
-    assert lifecycle["awaiting_scope_count"] == 1
+    assert lifecycle["legacy_unowned_count"] == 1
     assert lifecycle["runnable_count"] == 0
     assert lifecycle["stranded_ready_count"] == 0
     assert assets.claim_host_work_requests(
@@ -899,6 +917,7 @@ def test_exact_scope_waits_for_cache_then_becomes_runnable(tmp_path: Path):
         kind="deepen_location",
         target_id="chapel",
         reason="known scope whose accepted page is not cached yet",
+        consumer_refs=_consumer(tmp_path),
     )
     produced = worker.run_worker_once(tmp_path, parallel=1)
     request_path = Path(produced["results"][0]["host_work_request"])
@@ -1419,6 +1438,7 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
             target_id=target_id,
             priority=80,
             reason="bounded background test",
+            consumer_refs=_consumer(tmp_path),
         )
     produced = worker.run_worker_once(tmp_path, parallel=2)
     assert produced["claimed"] == 2
@@ -1479,6 +1499,7 @@ def test_claim_orders_current_dependency_before_higher_priority_near_term(
         target_id="cellar",
         priority=999,
         reason="high priority near-term",
+        consumer_refs=_consumer(tmp_path),
     )
     assets.enqueue_job(
         tmp_path,
@@ -1495,6 +1516,7 @@ def test_claim_orders_current_dependency_before_higher_priority_near_term(
             "subject": {"kind": "location", "id": "opening"},
             "source_scope_signature": signature,
         },
+        consumer_refs=_consumer(tmp_path, intent_kind="opening"),
     )
     assert worker.run_worker_once(tmp_path, parallel=2)["claimed"] == 2
 

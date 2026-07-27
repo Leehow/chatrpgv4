@@ -1175,6 +1175,21 @@ def campaign_asset_root_id(campaign_dir: Path) -> str | None:
     return None
 
 
+def _campaign_consumer_refs(
+    workspace: Path,
+    campaign_id: str,
+    asset_root_id: str,
+    *,
+    intent_kind: str,
+) -> list[dict[str, Any]]:
+    return [coc_module_assets.campaign_consumer_ref(
+        workspace,
+        campaign_id,
+        asset_root_id,
+        intent_kind=intent_kind,
+    )]
+
+
 def resolve_opening_preparation_root(
     workspace: Path,
     campaign_id: str,
@@ -3134,6 +3149,187 @@ def opening_projection_state_is_fresh(
     )
 
 
+def register_opening_projection_watch(
+    workspace: Path,
+    campaign_id: str,
+    *,
+    asset_root_id: str,
+    source_file_sha256: str,
+    bundle_sha256: str,
+    start_location_id: str,
+    source_scope: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist one campaign-owned exact projection intent.
+
+    The reusable source job remains campaign-agnostic.  This watch is the only
+    authority that permits later fulfillment to mutate a campaign.
+    """
+    root_info = resolve_opening_preparation_root(workspace, campaign_id)
+    if (
+        root_info["asset_root_id"] != asset_root_id
+        or root_info["file_sha256"] != source_file_sha256
+        or root_info["bundle_sha256"] != bundle_sha256
+    ):
+        raise OpeningPreparationError(
+            "opening_source_identity_mismatch",
+            "projection watch does not match the campaign-bound source",
+        )
+    canonical_scope = coc_module_assets.validate_opening_source_scope(
+        workspace, asset_root_id, source_scope,
+    )
+    signature = coc_module_assets.opening_source_scope_signature(canonical_scope)
+    campaign_dir = root_info["campaign_dir"]
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    watch = {
+        "schema_version": 1,
+        "campaign_id": campaign_id,
+        "asset_root_id": asset_root_id,
+        "source_file_sha256": source_file_sha256,
+        "bundle_sha256": bundle_sha256,
+        "start_location_id": parse_opening_start_selector(
+            start_location_id, required=True,
+        ),
+        "source_scope": canonical_scope,
+        "source_scope_signature": signature,
+        "created_at": _now_iso(),
+        "status": "pending",
+    }
+    with coc_fileio.advisory_file_lock(
+        campaign_dir / "scenario" / "opening-projection.lock"
+    ):
+        scenario = _load_json(scenario_path, {})
+        existing = scenario.get("opening_projection_watch")
+        if isinstance(existing, dict):
+            comparable = {
+                key: existing.get(key) for key in (
+                    "schema_version", "campaign_id", "asset_root_id",
+                    "source_file_sha256", "bundle_sha256",
+                    "start_location_id", "source_scope",
+                    "source_scope_signature",
+                )
+            }
+            expected = {
+                key: watch[key] for key in comparable
+            }
+            if comparable != expected:
+                raise OpeningPreparationError(
+                    "opening_projection_watch_conflict",
+                    "campaign already owns a different opening projection watch",
+                )
+            return json.loads(json.dumps(existing))
+        scenario["opening_projection_watch"] = watch
+        _write_json(scenario_path, scenario)
+    return watch
+
+
+def drain_opening_projection_watches(
+    workspace: Path,
+    asset_root_id: str,
+    *,
+    start_location_id: str,
+    source_scope_signature: str,
+) -> list[dict[str, Any]]:
+    """Project only exact campaign-owned watches after pack fulfillment."""
+    outcomes: list[dict[str, Any]] = []
+    for campaign_id in coc_module_assets._campaigns_referencing_asset_root(
+        workspace, asset_root_id,
+    ):
+        campaign_dir = _campaign_dir(workspace, campaign_id)
+        scenario_path = campaign_dir / "scenario" / "scenario.json"
+        lock_path = campaign_dir / "scenario" / "opening-projection.lock"
+        with coc_fileio.advisory_file_lock(lock_path):
+            scenario = _load_json(scenario_path, {})
+            watch = scenario.get("opening_projection_watch")
+            if not isinstance(watch, dict):
+                continue
+            if (
+                watch.get("schema_version") != 1
+                or watch.get("campaign_id") != campaign_id
+                or watch.get("asset_root_id") != asset_root_id
+                or watch.get("start_location_id") != start_location_id
+                or watch.get("source_scope_signature") != source_scope_signature
+                or watch.get("status") in {"complete", "refused_terminal"}
+            ):
+                continue
+            try:
+                root_info = resolve_opening_preparation_root(
+                    workspace, campaign_id,
+                )
+                canonical_scope = coc_module_assets.validate_opening_source_scope(
+                    workspace, asset_root_id, watch.get("source_scope"),
+                )
+                if (
+                    root_info["asset_root_id"] != asset_root_id
+                    or root_info["file_sha256"] != watch.get("source_file_sha256")
+                    or root_info["bundle_sha256"] != watch.get("bundle_sha256")
+                    or coc_module_assets.opening_source_scope_signature(
+                        canonical_scope
+                    ) != source_scope_signature
+                ):
+                    raise OpeningPreparationError(
+                        "opening_projection_watch_stale",
+                        "campaign/source binding no longer matches the watch",
+                    )
+                if not campaign_is_pristine_for_opening(campaign_dir):
+                    raise OpeningPreparationError(
+                        "opening_projection_non_pristine",
+                        "automatic opening projection cannot overwrite played state",
+                    )
+                # A worker may have resolved source clock metadata after sparse
+                # setup. Refresh only pristine state before selected projection.
+                project_skeleton_to_campaign(
+                    workspace, campaign_id, asset_root_id,
+                )
+                projection = project_selected_opening(
+                    workspace,
+                    campaign_id,
+                    asset_root_id,
+                    str(watch["source_file_sha256"]),
+                    start_location_id,
+                    list(canonical_scope["pdf_indices"]),
+                )
+            except Exception as exc:  # durable pack remains reusable
+                error_code = str(getattr(exc, "code", "") or "")
+                terminal = error_code in {
+                    "opening_projection_watch_stale",
+                    "opening_projection_non_pristine",
+                    "opening_source_identity_mismatch",
+                    "opening_root_mismatch",
+                }
+                watch["status"] = (
+                    "refused_terminal" if terminal else "retryable_error"
+                )
+                watch["last_error"] = {
+                    "code": error_code or None,
+                    "type": type(exc).__name__[:80],
+                    "message": str(exc)[:320],
+                }
+                watch["last_attempt_at"] = _now_iso()
+                scenario["opening_projection_watch"] = watch
+                _write_json(scenario_path, scenario)
+                outcomes.append({
+                    "campaign_id": campaign_id,
+                    "status": watch["status"],
+                    "error": json.loads(json.dumps(watch["last_error"])),
+                })
+                continue
+            watch["status"] = "complete"
+            watch["completed_at"] = _now_iso()
+            watch["projection_receipt"] = json.loads(json.dumps(
+                projection.get("opening_projection_receipt")
+            ))
+            watch.pop("last_error", None)
+            scenario = _load_json(scenario_path, {})
+            scenario["opening_projection_watch"] = watch
+            _write_json(scenario_path, scenario)
+            outcomes.append({
+                "campaign_id": campaign_id,
+                "status": "complete",
+                "projection": projection,
+            })
+    return outcomes
+
+
 def project_selected_opening(
     workspace: Path,
     campaign_id: str,
@@ -3494,6 +3690,24 @@ def on_enter_scene(
     skeleton = coc_module_assets.get_skeleton(workspace, root_id) or {}
     host_hints: list[str] = []
     actions: list[dict[str, Any]] = []
+    campaign_local_scene = False
+    try:
+        current_ir = load_campaign_ir(campaign_dir)
+        campaign_scene = next(
+            (
+                row for row in (
+                    (current_ir.get("story-graph.json") or {}).get("scenes") or []
+                )
+                if isinstance(row, dict) and row.get("scene_id") == sid
+            ),
+            None,
+        )
+        campaign_local_scene = bool(
+            isinstance(campaign_scene, dict)
+            and _opening_campaign_local_row(campaign_scene)
+        )
+    except ModuleProjectError:
+        campaign_local_scene = False
 
     pack = coc_module_assets.get_entity(workspace, root_id, "location", sid)
     merged = False
@@ -3521,8 +3735,13 @@ def on_enter_scene(
                 source_scope=_source_scope(mention),
             )
             actions.append({"ensure_stub": stub})
-    if not pack or not _is_deep_state(pack.get("parse_state")) or pack.get(
-        "evidence_gap"
+    if (
+        not campaign_local_scene
+        and (
+            not pack
+            or not _is_deep_state(pack.get("parse_state"))
+            or pack.get("evidence_gap")
+        )
     ):
         q = coc_module_assets.enqueue_job(
             workspace, root_id,
@@ -3530,6 +3749,9 @@ def on_enter_scene(
             target_id=sid,
             priority=100,
             reason=f"enter:{sid}",
+            consumer_refs=_campaign_consumer_refs(
+                workspace, campaign_id, root_id, intent_kind="scene_enter",
+            ),
         )
         actions.append({"enqueue": q})
         host_hints.append(
@@ -3541,6 +3763,11 @@ def on_enter_scene(
                 workspace, root_id, "location", sid,
                 reason=f"enter:{sid}",
             )
+    elif campaign_local_scene:
+        actions.append({
+            "shared_source_enqueue_skipped": sid,
+            "reason": "campaign_local_authority",
+        })
 
     # Neighbor hot ring (depth 1)
     neighbors = _neighbor_ids_from_skeleton(skeleton, sid)
@@ -3604,6 +3831,9 @@ def on_enter_scene(
             target_id=nid,
             priority=40,
             reason=f"neighbor_of:{sid}",
+            consumer_refs=_campaign_consumer_refs(
+                workspace, campaign_id, root_id, intent_kind="neighbor_prefetch",
+            ),
         )
         prefetched_neighbors.append(nid)
         host_hints.append(
@@ -4156,6 +4386,9 @@ def follow_structured_mentions(
                 target_id=ref,
                 priority=priority,
                 reason=reason,
+                consumer_refs=_campaign_consumer_refs(
+                    workspace, campaign_id, root_id, intent_kind="player_dig",
+                ),
             )
             actions.append({"enqueue": enqueue_result})
         if not status["deep_ready"]:
@@ -4361,7 +4594,9 @@ def resolve_source_scope(
         or str(request.get("target_id") or "") != target_id
     ):
         raise ModuleProjectError("source-scope job target does not match")
-    if coc_module_assets.host_work_operational_class(request) != "awaiting_scope":
+    if coc_module_assets.host_work_operational_class(request) not in {
+        "awaiting_scope", "legacy_unowned",
+    }:
         raise ModuleProjectError("source-scope job is no longer awaiting_scope")
 
     cached_before = set(
@@ -4417,6 +4652,10 @@ def resolve_source_scope(
         reason=str(request.get("reason") or "source_scope_locator"),
         work_level=str(request.get("work_level") or "near_term"),
         dependency_ref=request.get("dependency_ref"),
+        consumer_refs=_campaign_consumer_refs(
+            workspace, campaign_id, root_id,
+            intent_kind="source_scope_reattach",
+        ),
         kick_worker=False,
     )
     worker = _load_sibling(
@@ -4515,6 +4754,9 @@ def request_mechanics(
             target_id=target_id,
             priority=priority,
             reason=reason,
+            consumer_refs=_campaign_consumer_refs(
+                workspace, campaign_id, root_id, intent_kind="mechanics",
+            ),
         )
     return {
         "progressive": True,
