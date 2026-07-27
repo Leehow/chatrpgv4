@@ -1115,22 +1115,25 @@ def write_ir_to_campaign(
     # stamp progressive marker on scenario.json if present
     sc_path = scenario_dir / "scenario.json"
     meta = ir.get("module-meta.json") or {}
-    sc = _load_json(sc_path, {}) if sc_path.is_file() else {
-        "schema_version": 1,
-        "scenario_id": meta.get("scenario_id") if isinstance(meta, dict) else None,
-        "title": meta.get("title") if isinstance(meta, dict) else None,
-    }
-    if isinstance(sc, dict):
-        sc["progressive"] = True
-        sc["progressive_projected_at"] = _now_iso()
-        if asset_root_id:
-            sc["progressive_asset_root_id"] = asset_root_id
-        if isinstance(meta, dict):
-            if meta.get("title"):
-                sc["title"] = meta["title"]
-            if meta.get("scenario_id"):
-                sc["scenario_id"] = meta["scenario_id"]
-        _write_json(sc_path, sc)
+    with coc_fileio.advisory_file_lock(
+        scenario_dir / "opening-projection.lock"
+    ):
+        sc = _load_json(sc_path, {}) if sc_path.is_file() else {
+            "schema_version": 1,
+            "scenario_id": meta.get("scenario_id") if isinstance(meta, dict) else None,
+            "title": meta.get("title") if isinstance(meta, dict) else None,
+        }
+        if isinstance(sc, dict):
+            sc["progressive"] = True
+            sc["progressive_projected_at"] = _now_iso()
+            if asset_root_id:
+                sc["progressive_asset_root_id"] = asset_root_id
+            if isinstance(meta, dict):
+                if meta.get("title"):
+                    sc["title"] = meta["title"]
+                if meta.get("scenario_id"):
+                    sc["scenario_id"] = meta["scenario_id"]
+            _write_json(sc_path, sc)
     if isinstance(meta, dict):
         # Normalize era on the written module-meta for downstream readers.
         identity = meta.get("module_identity") if isinstance(meta.get("module_identity"), dict) else {}
@@ -3222,6 +3225,50 @@ def register_opening_projection_watch(
     return watch
 
 
+_OPENING_WATCH_IDENTITY_FIELDS = (
+    "schema_version", "campaign_id", "asset_root_id", "source_file_sha256",
+    "bundle_sha256", "start_location_id", "source_scope",
+    "source_scope_signature",
+)
+
+
+def _opening_watch_identity(watch: Any) -> dict[str, Any] | None:
+    if not isinstance(watch, dict):
+        return None
+    return {
+        key: json.loads(json.dumps(watch.get(key)))
+        for key in _OPENING_WATCH_IDENTITY_FIELDS
+    }
+
+
+def _merge_opening_projection_watch_status(
+    campaign_dir: Path,
+    expected_identity: dict[str, Any],
+    updates: dict[str, Any],
+    *,
+    remove_fields: tuple[str, ...] = (),
+) -> dict[str, Any] | None:
+    """CAS-merge only watch lifecycle fields into the latest scenario bytes."""
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    lock_path = campaign_dir / "scenario" / "opening-projection.lock"
+    with coc_fileio.advisory_file_lock(lock_path):
+        scenario = _load_json(scenario_path, {})
+        current = scenario.get("opening_projection_watch")
+        if _opening_watch_identity(current) != expected_identity:
+            return None
+        assert isinstance(current, dict)
+        # A concurrent successful/terminal attempt wins over a stale retry.
+        if str(current.get("status") or "") in {"complete", "refused_terminal"}:
+            return json.loads(json.dumps(current))
+        merged = json.loads(json.dumps(current))
+        merged.update(json.loads(json.dumps(updates)))
+        for field in remove_fields:
+            merged.pop(field, None)
+        scenario["opening_projection_watch"] = merged
+        _write_json(scenario_path, scenario)
+        return merged
+
+
 def drain_opening_projection_watches(
     workspace: Path,
     asset_root_id: str,
@@ -3251,82 +3298,99 @@ def drain_opening_projection_watches(
                 or watch.get("status") in {"complete", "refused_terminal"}
             ):
                 continue
-            try:
-                root_info = resolve_opening_preparation_root(
-                    workspace, campaign_id,
-                )
-                canonical_scope = coc_module_assets.validate_opening_source_scope(
-                    workspace, asset_root_id, watch.get("source_scope"),
-                )
-                if (
-                    root_info["asset_root_id"] != asset_root_id
-                    or root_info["file_sha256"] != watch.get("source_file_sha256")
-                    or root_info["bundle_sha256"] != watch.get("bundle_sha256")
-                    or coc_module_assets.opening_source_scope_signature(
-                        canonical_scope
-                    ) != source_scope_signature
-                ):
-                    raise OpeningPreparationError(
-                        "opening_projection_watch_stale",
-                        "campaign/source binding no longer matches the watch",
-                    )
-                if not campaign_is_pristine_for_opening(campaign_dir):
-                    raise OpeningPreparationError(
-                        "opening_projection_non_pristine",
-                        "automatic opening projection cannot overwrite played state",
-                    )
-                # A worker may have resolved source clock metadata after sparse
-                # setup. Refresh only pristine state before selected projection.
-                project_skeleton_to_campaign(
-                    workspace, campaign_id, asset_root_id,
-                )
-                projection = project_selected_opening(
-                    workspace,
-                    campaign_id,
-                    asset_root_id,
-                    str(watch["source_file_sha256"]),
-                    start_location_id,
-                    list(canonical_scope["pdf_indices"]),
-                )
-            except Exception as exc:  # durable pack remains reusable
-                error_code = str(getattr(exc, "code", "") or "")
-                terminal = error_code in {
+            watch = json.loads(json.dumps(watch))
+            expected_identity = _opening_watch_identity(watch)
+        assert expected_identity is not None
+        try:
+            root_info = resolve_opening_preparation_root(
+                workspace, campaign_id,
+            )
+            canonical_scope = coc_module_assets.validate_opening_source_scope(
+                workspace, asset_root_id, watch.get("source_scope"),
+            )
+            if (
+                root_info["asset_root_id"] != asset_root_id
+                or root_info["file_sha256"] != watch.get("source_file_sha256")
+                or root_info["bundle_sha256"] != watch.get("bundle_sha256")
+                or coc_module_assets.opening_source_scope_signature(
+                    canonical_scope
+                ) != source_scope_signature
+            ):
+                raise OpeningPreparationError(
                     "opening_projection_watch_stale",
-                    "opening_projection_non_pristine",
-                    "opening_source_identity_mismatch",
-                    "opening_root_mismatch",
-                }
-                watch["status"] = (
-                    "refused_terminal" if terminal else "retryable_error"
+                    "campaign/source binding no longer matches the watch",
                 )
-                watch["last_error"] = {
-                    "code": error_code or None,
-                    "type": type(exc).__name__[:80],
-                    "message": str(exc)[:320],
-                }
-                watch["last_attempt_at"] = _now_iso()
-                scenario["opening_projection_watch"] = watch
-                _write_json(scenario_path, scenario)
-                outcomes.append({
-                    "campaign_id": campaign_id,
-                    "status": watch["status"],
-                    "error": json.loads(json.dumps(watch["last_error"])),
-                })
-                continue
-            watch["status"] = "complete"
-            watch["completed_at"] = _now_iso()
-            watch["projection_receipt"] = json.loads(json.dumps(
-                projection.get("opening_projection_receipt")
-            ))
-            watch.pop("last_error", None)
-            scenario = _load_json(scenario_path, {})
-            scenario["opening_projection_watch"] = watch
-            _write_json(scenario_path, scenario)
+            if not campaign_is_pristine_for_opening(campaign_dir):
+                raise OpeningPreparationError(
+                    "opening_projection_non_pristine",
+                    "automatic opening projection cannot overwrite played state",
+                )
+            # Projection writers use the same canonical scenario lock. The
+            # watch attempt itself never writes a pre-attempt scenario copy.
+            project_skeleton_to_campaign(
+                workspace, campaign_id, asset_root_id,
+            )
+            projection = project_selected_opening(
+                workspace,
+                campaign_id,
+                asset_root_id,
+                str(watch["source_file_sha256"]),
+                start_location_id,
+                list(canonical_scope["pdf_indices"]),
+            )
+        except Exception as exc:  # durable pack remains reusable
+            error_code = str(getattr(exc, "code", "") or "")
+            terminal = error_code in {
+                "opening_projection_watch_stale",
+                "opening_projection_non_pristine",
+                "opening_source_identity_mismatch",
+                "opening_root_mismatch",
+            }
+            last_error = {
+                "code": error_code or None,
+                "type": type(exc).__name__[:80],
+                "message": str(exc)[:320],
+            }
+            merged = _merge_opening_projection_watch_status(
+                campaign_dir,
+                expected_identity,
+                {
+                    "status": (
+                        "refused_terminal" if terminal else "retryable_error"
+                    ),
+                    "last_error": last_error,
+                    "last_attempt_at": _now_iso(),
+                },
+            )
             outcomes.append({
                 "campaign_id": campaign_id,
-                "status": "complete",
-                "projection": projection,
+                "status": (
+                    str(merged.get("status"))
+                    if isinstance(merged, dict) else "watch_changed"
+                ),
+                "error": json.loads(json.dumps(last_error)),
             })
+            continue
+        merged = _merge_opening_projection_watch_status(
+            campaign_dir,
+            expected_identity,
+            {
+                "status": "complete",
+                "completed_at": _now_iso(),
+                "projection_receipt": json.loads(json.dumps(
+                    projection.get("opening_projection_receipt")
+                )),
+            },
+            remove_fields=("last_error",),
+        )
+        outcomes.append({
+            "campaign_id": campaign_id,
+            "status": (
+                str(merged.get("status"))
+                if isinstance(merged, dict) else "watch_changed"
+            ),
+            "projection": projection,
+        })
     return outcomes
 
 
@@ -3454,12 +3518,15 @@ def project_selected_opening(
             "canonical selected opening projection did not pass its slice check",
         )
     scenario_path = campaign_dir / "scenario" / "scenario.json"
-    scenario = _load_json(scenario_path, {})
-    scenario["opening_projection_receipt"] = receipt
-    scenario["opening_projection_source_binding"] = json.loads(json.dumps(
-        payload["source_binding"]
-    ))
-    _write_json(scenario_path, scenario)
+    with coc_fileio.advisory_file_lock(
+        campaign_dir / "scenario" / "opening-projection.lock"
+    ):
+        scenario = _load_json(scenario_path, {})
+        scenario["opening_projection_receipt"] = receipt
+        scenario["opening_projection_source_binding"] = json.loads(json.dumps(
+            payload["source_binding"]
+        ))
+        _write_json(scenario_path, scenario)
     if not opening_projection_state_is_fresh(
         workspace,
         campaign_dir,
@@ -3626,6 +3693,37 @@ def _is_usable_location_pack(pack: Any) -> bool:
     )
 
 
+def _location_has_shared_source_authority(
+    skeleton: dict[str, Any],
+    location_id: str,
+    *,
+    pack: Any = None,
+    campaign_scene: Any = None,
+) -> bool:
+    """Require positive structured source authority before shared enqueue."""
+    if any(
+        isinstance(row, dict)
+        and str(row.get("location_id") or "") == location_id
+        for row in skeleton.get("locations") or []
+    ):
+        return True
+    for row in (pack, campaign_scene):
+        if not isinstance(row, dict):
+            continue
+        provenance = (
+            row.get("provenance")
+            if isinstance(row.get("provenance"), dict) else {}
+        )
+        if (
+            str(provenance.get("authority") or "") == "source_authored"
+            and bool(_source_scope(row) or _source_scope(provenance))
+        ):
+            return True
+        if str(row.get("origin") or "") == "source" and bool(_source_scope(row)):
+            return True
+    return False
+
+
 def _neighbor_ids_from_skeleton(
     skeleton: dict[str, Any], location_id: str,
 ) -> list[str]:
@@ -3691,6 +3789,7 @@ def on_enter_scene(
     host_hints: list[str] = []
     actions: list[dict[str, Any]] = []
     campaign_local_scene = False
+    campaign_scene: dict[str, Any] | None = None
     try:
         current_ir = load_campaign_ir(campaign_dir)
         campaign_scene = next(
@@ -3710,8 +3809,11 @@ def on_enter_scene(
         campaign_local_scene = False
 
     pack = coc_module_assets.get_entity(workspace, root_id, "location", sid)
+    shared_source_authority = _location_has_shared_source_authority(
+        skeleton, sid, pack=pack, campaign_scene=campaign_scene,
+    )
     merged = False
-    if _is_usable_location_pack(pack):
+    if shared_source_authority and _is_usable_location_pack(pack):
         ir = load_campaign_ir(campaign_dir)
         ir = merge_deep_location_into_ir(ir, pack)
         write_ir_to_campaign(campaign_dir, ir, asset_root_id=root_id)
@@ -3736,7 +3838,8 @@ def on_enter_scene(
             )
             actions.append({"ensure_stub": stub})
     if (
-        not campaign_local_scene
+        shared_source_authority
+        and not campaign_local_scene
         and (
             not pack
             or not _is_deep_state(pack.get("parse_state"))
@@ -3763,10 +3866,13 @@ def on_enter_scene(
                 workspace, root_id, "location", sid,
                 reason=f"enter:{sid}",
             )
-    elif campaign_local_scene:
+    elif campaign_local_scene or not shared_source_authority:
         actions.append({
             "shared_source_enqueue_skipped": sid,
-            "reason": "campaign_local_authority",
+            "reason": (
+                "campaign_local_authority"
+                if campaign_local_scene else "no_structured_source_authority"
+            ),
         })
 
     # Neighbor hot ring (depth 1)
@@ -4316,6 +4422,40 @@ def follow_structured_mentions(
     followed: list[dict[str, Any]] = []
     host_hints: list[str] = []
     actions: list[dict[str, Any]] = []
+    skeleton = coc_module_assets.get_skeleton(workspace, root_id) or {}
+
+    def source_authorized(kind: str, ref: str, scope: dict[str, Any]) -> bool:
+        if scope:
+            return True
+        collections = {
+            "location": ("locations", "location_id"),
+            "npc": ("npc_roster", "npc_id"),
+            "item": ("items", "item_id"),
+            "clue": ("clues", "clue_id"),
+            "handout": ("handouts", "handout_id"),
+            "threat": ("threats", "threat_id"),
+        }
+        collection, id_field = collections[kind]
+        if any(
+            isinstance(row, dict)
+            and str(row.get(id_field) or "") == ref
+            for row in skeleton.get(collection) or []
+        ):
+            return True
+        pack = coc_module_assets.get_entity(workspace, root_id, kind, ref)
+        if not isinstance(pack, dict):
+            return False
+        provenance = (
+            pack.get("provenance")
+            if isinstance(pack.get("provenance"), dict) else {}
+        )
+        return bool(
+            _source_scope(pack)
+            or (
+                str(provenance.get("authority") or "") == "source_authored"
+                and _source_scope(provenance)
+            )
+        )
 
     # Prefer linking dig targets from the party's current scene when present.
     link_from: str | None = None
@@ -4340,6 +4480,24 @@ def follow_structured_mentions(
             source_scope = _campaign_entity_source_scope(
                 campaign_dir, kind, ref,
             )
+        if not source_authorized(kind, ref, source_scope):
+            actions.append({
+                "shared_source_enqueue_skipped": ref,
+                "kind": kind,
+                "reason": "no_structured_source_authority",
+            })
+            followed.append({
+                "kind": kind,
+                "ref_id": ref,
+                "raw_label": label,
+                "status": None,
+                "enqueued": False,
+                "deduped": False,
+                "dedupe_state": None,
+                "canonical_scene_id": None,
+                "shared_source_enqueue_skipped": True,
+            })
+            continue
         stub = coc_module_assets.ensure_stub(
             workspace, root_id, kind, ref,
             title=label,

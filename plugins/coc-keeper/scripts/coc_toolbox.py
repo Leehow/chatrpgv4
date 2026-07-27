@@ -718,7 +718,7 @@ _CONTINUATION_DOMAINS = (
     "scene", "world", "pacing", "clues", "npc", "npc_presence", "time",
     "active_effects", "attempts", "flags", "party", "module_progressive",
 )
-_SESSION_RESUME_DATA_MAX_BYTES = 128 * 1024
+_SESSION_RESUME_DATA_MAX_BYTES = 40 * 1024
 
 
 def _wire_bytes(value: Any) -> int:
@@ -818,12 +818,41 @@ def _bound_session_resume_data(data: dict[str, Any]) -> dict[str, Any]:
     capsule = bounded.get("semantic_capsule")
     if over() and isinstance(capsule, dict):
         summaries = capsule.get("recent_summaries")
-        # Keep a longer continuity window for cold-start hosts; only compress
-        # when still over budget after other reductions.
-        if isinstance(summaries, list) and len(summaries) > 8:
-            capsule["recent_summaries"] = summaries[-8:]
-            capsule["older_summary_count"] = len(summaries) - 8
-            reductions.append("older_semantic_summaries_to_count")
+        if isinstance(summaries, list):
+            original_count = len(summaries)
+            kept = list(summaries)
+            # Deterministically discard oldest inline summaries one at a time,
+            # but keep the latest two continuity beats whenever present.
+            while over() and len(kept) > 2:
+                kept.pop(0)
+                capsule["recent_summaries"] = deepcopy(kept)
+                capsule["older_summary_count"] = original_count - len(kept)
+            if original_count != len(kept):
+                reductions.append("older_semantic_summaries_to_count")
+            if over() and kept:
+                # If even the last two exact strings exceed the envelope,
+                # retain their ordered typed identities for exact drilldown.
+                capsule["recent_summaries"] = [
+                    {
+                        "summary_index": original_count - len(kept) + index,
+                        "summary_sha256": hashlib.sha256(
+                            str(summary).encode("utf-8")
+                        ).hexdigest(),
+                        "summary_bytes": len(str(summary).encode("utf-8")),
+                        "summary_ref": {
+                            "operation": "session.continuation_detail",
+                            "invoke_via": "coc_invoke",
+                            "prefilled_arguments": {
+                                "section": "recent_summaries",
+                                "offset": original_count - len(kept) + index,
+                                "limit": 1,
+                            },
+                            "missing_arguments": [],
+                        },
+                    }
+                    for index, summary in enumerate(kept)
+                ]
+                reductions.append("recent_semantic_summaries_to_typed_refs")
 
     if over() and bounded.get("pending_output_context") is not None:
         bounded["pending_output_context"] = {
@@ -13652,8 +13681,9 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
     assets_mod = coc_module_project.coc_module_assets
     skeleton = assets_mod.get_skeleton(ctx.root, root_info["asset_root_id"])
     stored: dict[str, Any] | None = None
+    pending_skeleton: dict[str, Any] | None = None
     if skeleton is None:
-        skeleton = {
+        pending_skeleton = {
             "schema_version": 1,
             "parse_tier": 1,
             "source": {
@@ -13670,12 +13700,6 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
             "mechanics_index": [],
             "start_clock_status": "unresolved",
         }
-        try:
-            stored = assets_mod.put_skeleton(
-                ctx.root, root_info["asset_root_id"], skeleton,
-            )
-        except assets_mod.ModuleAssetsError as exc:
-            raise ToolError("opening_skeleton_store_failed", str(exc)) from exc
     else:
         matching = [
             row for row in (skeleton.get("locations") or [])
@@ -13692,9 +13716,8 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
                 "existing skeleton has a different start location id/title",
             )
     try:
-        projected = coc_module_project.project_skeleton_to_campaign(
-            ctx.root, str(ctx.campaign_id), root_info["asset_root_id"],
-        )
+        # Conflict-first reservation: no source/campaign projection mutation
+        # occurs until the exact campaign-owned watch has been validated.
         watch = coc_module_project.register_opening_projection_watch(
             ctx.root,
             str(ctx.campaign_id),
@@ -13703,6 +13726,18 @@ def _tool_progressive_opening_bootstrap(ctx: Ctx, args: dict[str, Any]):
             bundle_sha256=root_info["bundle_sha256"],
             start_location_id=location_id,
             source_scope=scope,
+        )
+        if pending_skeleton is not None:
+            try:
+                stored = assets_mod.put_skeleton(
+                    ctx.root, root_info["asset_root_id"], pending_skeleton,
+                )
+            except assets_mod.ModuleAssetsError as exc:
+                raise ToolError(
+                    "opening_skeleton_store_failed", str(exc),
+                ) from exc
+        projected = coc_module_project.project_skeleton_to_campaign(
+            ctx.root, str(ctx.campaign_id), root_info["asset_root_id"],
         )
     except coc_module_project.OpeningPreparationError as exc:
         raise ToolError(exc.code, exc.message) from exc
@@ -14921,6 +14956,10 @@ def _apply_opening_setup_observation(
             "opening_setup_invalid",
             "source opening_setup requires a clock object and non-empty refs",
         )
+    try:
+        clock = assets_mod.validate_opening_clock(clock)
+    except assets_mod.ModuleAssetsError as exc:
+        raise ToolError("opening_setup_invalid", str(exc)) from exc
     ref_indices: list[int] = []
     for position, ref in enumerate(refs):
         if not isinstance(ref, dict) or set(ref) != {"source_id", "pdf_index"}:

@@ -10,6 +10,7 @@ Layout: workspace ``.coc/module-assets/`` (local only, not git).
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -50,7 +51,7 @@ MECHANICS_LOCATOR_PURPOSE = "mechanics_locator_pass"
 MECHANICS_LOCATOR_TARGET_ID = "mechanics-index"
 HOST_WORK_SCHEMA_VERSION = 2
 HOST_WORK_CLOSED_STATUSES = frozenset({
-    "fulfilled", "cancelled", "superseded",
+    "fulfilled", "cancelled", "superseded", "quarantined",
 })
 HOST_WORK_LEVELS = ("current_dependency", "near_term", "bounded_warm")
 HOST_WORK_OPEN_CLASSES = (
@@ -67,6 +68,28 @@ HOST_WORK_CONSUMER_FIELDS = frozenset({
 HOST_WORK_CONSUMER_INTENTS = frozenset({
     "opening", "scene_enter", "player_dig", "neighbor_prefetch",
     "mechanics", "source_scope_reattach",
+})
+OPENING_CLOCK_REQUIRED_FIELDS = frozenset({
+    "calendar_mode",
+    "local_datetime",
+    "local_date",
+    "timezone",
+    "display",
+    "time_precision",
+    "day_phase_hint",
+})
+OPENING_CLOCK_OPTIONAL_FIELDS = frozenset({
+    "location_id",
+    "day_phase_boundaries",
+})
+OPENING_CLOCK_CALENDAR_MODES = frozenset({
+    "relative", "gregorian", "julian", "proleptic_gregorian", "fictional",
+})
+OPENING_CLOCK_PRECISIONS = frozenset({
+    "exact", "minute", "hour", "date", "day_phase", "unknown",
+})
+OPENING_CLOCK_DAY_PHASES = frozenset({
+    "morning", "afternoon", "evening", "night",
 })
 OPENING_PAGE_CANDIDATE_PREVIEW_MAX_BYTES = 96
 # text_preview caps are UTF-8 byte budgets (not char counts): CJK page bodies
@@ -350,6 +373,18 @@ def validate_host_work_request_shape(request: Any) -> None:
         raise ModuleAssetsError("host-work request must be an object")
     if request.get("schema_version") != HOST_WORK_SCHEMA_VERSION:
         raise ModuleAssetsError("host-work request schema_version is not current")
+    if request.get("status") == "quarantined":
+        _require_id(request.get("job_id"), "host-work.job_id")
+        _require_id(request.get("asset_root_id"), "host-work.asset_root_id")
+        _require_sha256(
+            request.get("rejected_evidence_sha256"),
+            "host-work.rejected_evidence_sha256",
+        )
+        if not isinstance(request.get("quarantine_reason"), str) or not str(
+            request.get("quarantine_reason")
+        ).strip():
+            raise ModuleAssetsError("quarantined host-work requires reason")
+        return
     if "consumer" in request or "dependency" in request:
         raise ModuleAssetsError(
             "host-work request contains removed dependency projection fields"
@@ -1210,6 +1245,7 @@ def init_module_root(
     source: dict[str, Any] | None = None,
     recovered_from_asset_root_id: str | None = None,
     recovery_family_root_id: str | None = None,
+    publish_registry: bool = True,
 ) -> Path:
     """Create empty durable root and register it. Idempotent if same sha."""
     digest = _require_sha256(file_sha256, "file_sha256")
@@ -1306,6 +1342,31 @@ def init_module_root(
     if not license_path.is_file():
         coc_fileio.write_text_atomic(license_path, LICENSE_NOTE)
 
+    if publish_registry:
+        with coc_fileio.advisory_file_lock(
+            assets_root(workspace) / "registry.lock"
+        ):
+            _publish_module_root_registry(
+                workspace,
+                root_id=root_id,
+                digest=digest,
+                identity=identity,
+                recovered_from_asset_root_id=recovered_from_asset_root_id,
+                recovery_family_root_id=recovery_family_root_id,
+            )
+    return mod
+
+
+def _publish_module_root_registry(
+    workspace: Path,
+    *,
+    root_id: str,
+    digest: str,
+    identity: dict[str, Any] | None,
+    recovered_from_asset_root_id: str | None,
+    recovery_family_root_id: str,
+) -> None:
+    """Move the content pointer only after a complete root is durable."""
     registry = load_registry(workspace)
     modules = registry.setdefault("modules", {})
     by_sha = registry.setdefault("by_file_sha256", {})
@@ -1332,9 +1393,6 @@ def init_module_root(
             raise ModuleAssetsError(
                 f"file_sha256 already registered under asset_root_id {owner!r}"
             )
-        # Drift auto-recovery: the superseded root stays on disk untouched as
-        # prior extraction evidence; the content-addressed pointer moves to
-        # the recovered root so later binds of the same file reuse it.
     modules[root_id] = {
         "asset_root_id": root_id,
         "file_sha256": digest,
@@ -1344,7 +1402,6 @@ def init_module_root(
     }
     by_sha[digest] = root_id
     save_registry(workspace, registry)
-    return mod
 
 
 def lookup_by_sha256(workspace: Path, file_sha256: str) -> dict[str, Any] | None:
@@ -1354,6 +1411,145 @@ def lookup_by_sha256(workspace: Path, file_sha256: str) -> dict[str, Any] | None
     if not root_id:
         return None
     return (registry.get("modules") or {}).get(root_id)
+
+
+def validate_opening_clock(value: Any) -> dict[str, Any]:
+    """Validate the closed, no-default source-authored opening clock.
+
+    Every precision-bearing field is explicit so downstream campaign clock
+    projection cannot fill an omitted source fact from an era preset.
+    """
+    if not isinstance(value, dict):
+        raise ModuleAssetsError("start_clock must be an object")
+    fields = set(value)
+    allowed = OPENING_CLOCK_REQUIRED_FIELDS | OPENING_CLOCK_OPTIONAL_FIELDS
+    if fields - allowed or not OPENING_CLOCK_REQUIRED_FIELDS <= fields:
+        raise ModuleAssetsError(
+            "start_clock must contain exactly the required canonical precision "
+            "fields plus optional location_id/day_phase_boundaries"
+        )
+    mode = value.get("calendar_mode")
+    if mode not in OPENING_CLOCK_CALENDAR_MODES:
+        raise ModuleAssetsError("start_clock.calendar_mode is invalid")
+    precision = value.get("time_precision")
+    if precision not in OPENING_CLOCK_PRECISIONS:
+        raise ModuleAssetsError("start_clock.time_precision is invalid")
+    display = value.get("display")
+    if not isinstance(display, str) or not display.strip():
+        raise ModuleAssetsError("start_clock.display must be non-empty")
+
+    local_datetime = value.get("local_datetime")
+    local_date = value.get("local_date")
+    timezone_value = value.get("timezone")
+    day_phase = value.get("day_phase_hint")
+    if local_datetime is not None and not isinstance(local_datetime, str):
+        raise ModuleAssetsError("start_clock.local_datetime must be string or null")
+    if local_date is not None and not isinstance(local_date, str):
+        raise ModuleAssetsError("start_clock.local_date must be string or null")
+    if timezone_value is not None and (
+        not isinstance(timezone_value, str) or not timezone_value.strip()
+    ):
+        raise ModuleAssetsError("start_clock.timezone must be non-empty string or null")
+    if day_phase is not None and day_phase not in OPENING_CLOCK_DAY_PHASES:
+        raise ModuleAssetsError("start_clock.day_phase_hint is invalid")
+
+    normalized_datetime: str | None = None
+    normalized_date: str | None = None
+    if isinstance(local_datetime, str):
+        try:
+            parsed_datetime = datetime.fromisoformat(local_datetime)
+        except ValueError as exc:
+            raise ModuleAssetsError(
+                "start_clock.local_datetime must be ISO local datetime"
+            ) from exc
+        if parsed_datetime.tzinfo is not None:
+            raise ModuleAssetsError(
+                "start_clock.local_datetime must not embed a timezone offset"
+            )
+        normalized_datetime = parsed_datetime.isoformat()
+    if isinstance(local_date, str):
+        try:
+            normalized_date = datetime.strptime(local_date, "%Y-%m-%d").date().isoformat()
+        except ValueError as exc:
+            raise ModuleAssetsError(
+                "start_clock.local_date must be ISO date"
+            ) from exc
+
+    if mode == "relative":
+        if (
+            normalized_datetime is not None
+            or normalized_date is not None
+            or timezone_value is not None
+        ):
+            raise ModuleAssetsError(
+                "relative start_clock requires explicit null local_datetime, "
+                "local_date, and timezone"
+            )
+        if precision not in {"day_phase", "unknown"}:
+            raise ModuleAssetsError(
+                "relative start_clock precision must be day_phase or unknown"
+            )
+    elif precision in {"exact", "minute", "hour"}:
+        if normalized_datetime is None:
+            raise ModuleAssetsError(
+                f"start_clock.time_precision={precision} requires local_datetime"
+            )
+        datetime_date = normalized_datetime.split("T", 1)[0]
+        if normalized_date != datetime_date:
+            raise ModuleAssetsError(
+                "start_clock.local_date must match local_datetime precision"
+            )
+    elif precision == "date":
+        if normalized_datetime is not None or normalized_date is None:
+            raise ModuleAssetsError(
+                "date precision requires null local_datetime and an ISO local_date"
+            )
+    elif precision == "day_phase":
+        if normalized_datetime is not None or day_phase is None:
+            raise ModuleAssetsError(
+                "day_phase precision requires null local_datetime and a known "
+                "day_phase_hint"
+            )
+        if mode != "relative" and normalized_date is None:
+            raise ModuleAssetsError(
+                "calendar day_phase precision requires an ISO local_date"
+            )
+    elif precision == "unknown":
+        if normalized_datetime is not None or normalized_date is not None or day_phase is not None:
+            raise ModuleAssetsError(
+                "unknown precision requires null datetime/date/day_phase"
+            )
+
+    if precision != "day_phase" and day_phase is not None:
+        raise ModuleAssetsError(
+            "start_clock.day_phase_hint is only valid for day_phase precision"
+        )
+    boundaries = value.get("day_phase_boundaries")
+    if boundaries is not None:
+        if not isinstance(boundaries, dict) or set(boundaries) != {
+            "morning_start", "afternoon_start", "evening_start", "night_start",
+        }:
+            raise ModuleAssetsError(
+                "start_clock.day_phase_boundaries must contain exactly four starts"
+            )
+        for boundary in boundaries.values():
+            if not isinstance(boundary, str) or re.fullmatch(
+                r"(?:[01]\d|2[0-3]):[0-5]\d", boundary,
+            ) is None:
+                raise ModuleAssetsError(
+                    "start_clock.day_phase_boundaries values must be HH:MM"
+                )
+    location_id = value.get("location_id")
+    if location_id is not None:
+        _require_id(location_id, "start_clock.location_id")
+
+    normalized = json.loads(json.dumps(value))
+    normalized["display"] = display.strip()
+    normalized["local_datetime"] = normalized_datetime
+    normalized["local_date"] = normalized_date
+    if isinstance(timezone_value, str):
+        normalized["timezone"] = timezone_value.strip()
+    return normalized
 
 
 def validate_skeleton(skeleton: dict[str, Any]) -> list[str]:
@@ -1766,6 +1962,7 @@ def put_skeleton(
                 raise ModuleAssetsError(
                     "start_clock_status=source requires start_clock"
                 )
+            doc["start_clock"] = validate_opening_clock(doc["start_clock"])
             clock_refs = doc.get("start_clock_source_refs")
             if not isinstance(clock_refs, list) or not clock_refs:
                 raise ModuleAssetsError(
@@ -2360,6 +2557,138 @@ def _campaigns_referencing_asset_root(
     return referencing
 
 
+def _canonicalize_source_bundle(bundle: Any) -> dict[str, Any]:
+    """Fully validate one already-loaded host bundle before cache writes."""
+    if (
+        not isinstance(bundle, dict)
+        or bundle.get("schema_version") != coc_pdf_bundle.SCHEMA_VERSION
+        or bundle.get("producer") != coc_pdf_bundle.PRODUCER
+        or not isinstance(bundle.get("source"), dict)
+        or not isinstance(bundle.get("pages"), list)
+        or not bundle.get("pages")
+    ):
+        raise ModuleAssetsError("source bundle is not a validated host bundle")
+    result = json.loads(json.dumps(bundle))
+    source = result["source"]
+    file_sha256 = _require_sha256(
+        source.get("file_sha256"), "source.file_sha256",
+    )
+    normalized_source = _normalized_source_identity(
+        source, file_sha256=file_sha256,
+    )
+    assert normalized_source is not None
+    page_count = int(normalized_source["page_count"])
+    seen: set[int] = set()
+    canonical_pages: list[dict[str, Any]] = []
+    for position, page in enumerate(result["pages"]):
+        if not isinstance(page, dict):
+            raise ModuleAssetsError(
+                f"source bundle page {position} must be an object"
+            )
+        pdf_index = page.get("pdf_index")
+        if (
+            isinstance(pdf_index, bool)
+            or not isinstance(pdf_index, int)
+            or pdf_index < 0
+        ):
+            raise ModuleAssetsError(
+                "source bundle page pdf_index must be a non-negative integer"
+            )
+        if not 0 <= pdf_index < page_count:
+            raise ModuleAssetsError(
+                "source bundle page pdf_index is outside source.page_count"
+            )
+        if pdf_index in seen:
+            raise ModuleAssetsError(
+                f"source bundle repeats pdf_index {pdf_index}"
+            )
+        seen.add(pdf_index)
+        text = page.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ModuleAssetsError("page text must be non-empty")
+        normalized_text = _normalized_page_text(text)
+        text_sha256 = hashlib.sha256(
+            normalized_text.encode("utf-8")
+        ).hexdigest()
+        declared_text_sha256 = page.get("text_sha256")
+        if (
+            declared_text_sha256 is not None
+            and _require_sha256(
+                declared_text_sha256,
+                f"pages[{position}].text_sha256",
+            ) != text_sha256
+        ):
+            raise ModuleAssetsError(
+                f"source bundle page {pdf_index} normalized text hash drift"
+            )
+        producer_text_sha256 = _require_sha256(
+            page.get("producer_text_sha256"),
+            f"pages[{position}].producer_text_sha256",
+        )
+        review_state = page.get("review_state")
+        if review_state not in coc_pdf_bundle.ACCEPTED_REVIEW_STATES:
+            raise ModuleAssetsError(
+                f"source bundle page {pdf_index} review_state is invalid"
+            )
+        confidence = page.get("parse_confidence")
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, (int, float))
+            or not 0 <= confidence <= 1
+        ):
+            raise ModuleAssetsError(
+                f"source bundle page {pdf_index} parse_confidence is invalid"
+            )
+        anchors = page.get("grep_anchors")
+        if not isinstance(anchors, list) or any(
+            not isinstance(anchor, str) or not anchor.strip()
+            for anchor in anchors
+        ):
+            raise ModuleAssetsError(
+                f"source bundle page {pdf_index} grep_anchors are invalid"
+            )
+        structured = page.get("structured_data")
+        if structured is not None:
+            if not isinstance(structured, dict):
+                raise ModuleAssetsError(
+                    f"structured page {pdf_index} must be an object"
+                )
+            structured_text = structured.get("text")
+            structured_sha256 = _require_sha256(
+                structured.get("sha256"),
+                f"pages[{position}].structured_data.sha256",
+            )
+            if not isinstance(structured_text, str) or (
+                hashlib.sha256(structured_text.encode("utf-8")).hexdigest()
+                != structured_sha256
+            ):
+                raise ModuleAssetsError(
+                    f"structured page {pdf_index} content hash drift"
+                )
+        canonical = json.loads(json.dumps(page))
+        canonical["text"] = normalized_text
+        canonical["text_sha256"] = text_sha256
+        canonical["producer_text_sha256"] = producer_text_sha256
+        canonical["grep_anchors"] = sorted(set(anchors))
+        canonical_pages.append(canonical)
+    result["pages"] = sorted(canonical_pages, key=lambda row: row["pdf_index"])
+    assets = result.get("assets") or []
+    if not isinstance(assets, list):
+        raise ModuleAssetsError("source bundle assets must be a list")
+    expected_bundle_sha256 = coc_pdf_bundle._canonical_digest(
+        source, result["pages"], assets,
+    )
+    declared_bundle_sha256 = _require_sha256(
+        result.get("bundle_sha256") or source.get("bundle_sha256"),
+        "bundle_sha256",
+    )
+    if expected_bundle_sha256 != declared_bundle_sha256:
+        raise ModuleAssetsError("source bundle canonical digest drift")
+    result["bundle_sha256"] = expected_bundle_sha256
+    result["source"]["bundle_sha256"] = expected_bundle_sha256
+    return result
+
+
 def register_source_bundle(
     workspace: Path,
     source_bundle: Path | str | dict[str, Any],
@@ -2378,14 +2707,7 @@ def register_source_bundle(
         bundle = source_bundle
     else:
         bundle = coc_pdf_bundle.load_host_bundle(source_bundle)
-    if (
-        not isinstance(bundle, dict)
-        or bundle.get("schema_version") != coc_pdf_bundle.SCHEMA_VERSION
-        or bundle.get("producer") != coc_pdf_bundle.PRODUCER
-        or not isinstance(bundle.get("source"), dict)
-        or not isinstance(bundle.get("pages"), list)
-    ):
-        raise ModuleAssetsError("source bundle is not a validated host bundle")
+    bundle = _canonicalize_source_bundle(bundle)
     source = dict(bundle["source"])
     file_sha256 = _require_sha256(source.get("file_sha256"), "source.file_sha256")
     bundle_sha256 = _require_sha256(
@@ -2433,6 +2755,7 @@ def register_source_bundle(
                 source=source,
                 recovered_from_asset_root_id=recovered_from,
                 recovery_family_root_id=recovery_family_root_id,
+                publish_registry=False,
             )
 
         page_results: list[dict[str, Any]] = []
@@ -2583,6 +2906,23 @@ def register_source_bundle(
             )
             identity_doc["updated_at"] = _now_iso()
             _write_json(identity_path, identity_doc)
+        identity_doc = json.loads(identity_path.read_text(encoding="utf-8"))
+        canonical_family = str(
+            identity_doc.get("recovery_family_root_id") or target_root_id
+        )
+        # Registry publication is the final commit point. A partial staged
+        # family member may remain as evidence, but it is never current.
+        with coc_fileio.advisory_file_lock(
+            assets_root(workspace) / "registry.lock"
+        ):
+            _publish_module_root_registry(
+                workspace,
+                root_id=target_root_id,
+                digest=file_sha256,
+                identity=target_identity,
+                recovered_from_asset_root_id=recovered_from,
+                recovery_family_root_id=canonical_family,
+            )
         elapsed_ms = max(0, round((time.perf_counter() - started) * 1000))
         return {
             "asset_root_id": target_root_id,
@@ -2630,51 +2970,73 @@ def register_source_bundle(
             # write; fall through to the same one-shot recovery.
             drifted_pdf_index = int(drift_match.group(1))
 
-    # Content-drift auto-recovery: replay the ingest once into a fresh asset
-    # root derived from the failed one.  The superseded root is never mutated;
-    # it stays on disk as prior extraction evidence.
-    referencing = _campaigns_referencing_asset_root(workspace, root_id)
-    if referencing:
-        raise ModuleAssetsError(
-            f"cached page {drifted_pdf_index} content drift; bind a different "
-            "PDF identity instead of overwriting page evidence. Auto-recovery "
-            f"into a fresh asset root is refused because campaign(s) still "
-            f"reference asset root {root_id!r}: {', '.join(referencing)}. "
-            "Re-point or retire those campaigns first, or register this "
-            "extraction under an explicit unused asset root id."
-        )
     family_root_id = _recovery_family_root_id(workspace, root_id)
-    fresh_root_id, reused_family_member = _allocate_drift_recovery_root_id(
-        workspace,
-        family_root_id=family_root_id,
-        file_sha256=file_sha256,
-        pages=bundle["pages"],
-    )
-    recovery_identity = dict(module_identity or {})
-    recovery_identity.setdefault("canonical_module_id", fresh_root_id)
-    recovery_identity.setdefault(
-        "canonical_title", source.get("title") or fresh_root_id,
-    )
-    result = _ingest(
-        fresh_root_id, recovery_identity,
-        reused_existing=reused_family_member,
-        recovered_from=None if reused_family_member else root_id,
-        recovery_family_root_id=family_root_id,
-    )
-    result["auto_recovered_from_drift"] = {
-        "requested_asset_root_id": requested_root_id,
-        "superseded_asset_root_id": root_id,
-        "fresh_asset_root_id": fresh_root_id,
-        "drifted_pdf_index": drifted_pdf_index,
-    }
-    result["warnings"] = [
-        f"cached page {drifted_pdf_index} content drift in asset root "
-        f"{root_id!r}; this extraction was registered into fresh asset root "
-        f"{fresh_root_id!r} instead. The superseded root was left untouched "
-        "as prior extraction evidence, and by_file_sha256 now resolves to "
-        "the recovered root.",
-    ]
-    return result
+    # Serialize family-member allocation and publication. Different accepted
+    # concurrent extractions receive different immutable suffixes; no loser
+    # can move the registry pointer onto a partial member.
+    with coc_fileio.advisory_file_lock(
+        assets_root(workspace) / f"{family_root_id}.recovery.lock"
+    ):
+        current = lookup_by_sha256(workspace, file_sha256)
+        current_root_id = str(
+            (current or {}).get("asset_root_id") or root_id
+        )
+        current_drift = _first_cached_page_drift(
+            workspace, current_root_id, bundle["pages"],
+        )
+        if current_drift is None:
+            return _ingest(
+                current_root_id,
+                {} if current else identity,
+                reused_existing=bool(current),
+                recovered_from=None,
+                recovery_family_root_id=family_root_id,
+            )
+        drifted_pdf_index = current_drift
+        root_id = current_root_id
+        # Content-drift auto-recovery stages into a fresh family member. The
+        # superseded root stays byte-identical prior extraction evidence.
+        referencing = _campaigns_referencing_asset_root(workspace, root_id)
+        if referencing:
+            raise ModuleAssetsError(
+                f"cached page {drifted_pdf_index} content drift; bind a different "
+                "PDF identity instead of overwriting page evidence. Auto-recovery "
+                f"into a fresh asset root is refused because campaign(s) still "
+                f"reference asset root {root_id!r}: {', '.join(referencing)}. "
+                "Re-point or retire those campaigns first, or register this "
+                "extraction under an explicit unused asset root id."
+            )
+        fresh_root_id, reused_family_member = _allocate_drift_recovery_root_id(
+            workspace,
+            family_root_id=family_root_id,
+            file_sha256=file_sha256,
+            pages=bundle["pages"],
+        )
+        recovery_identity = dict(module_identity or {})
+        recovery_identity.setdefault("canonical_module_id", fresh_root_id)
+        recovery_identity.setdefault(
+            "canonical_title", source.get("title") or fresh_root_id,
+        )
+        result = _ingest(
+            fresh_root_id, recovery_identity,
+            reused_existing=reused_family_member,
+            recovered_from=None if reused_family_member else root_id,
+            recovery_family_root_id=family_root_id,
+        )
+        result["auto_recovered_from_drift"] = {
+            "requested_asset_root_id": requested_root_id,
+            "superseded_asset_root_id": root_id,
+            "fresh_asset_root_id": fresh_root_id,
+            "drifted_pdf_index": drifted_pdf_index,
+        }
+        result["warnings"] = [
+            f"cached page {drifted_pdf_index} content drift in asset root "
+            f"{root_id!r}; this extraction was registered into fresh asset root "
+            f"{fresh_root_id!r} instead. The superseded root was left untouched "
+            "as prior extraction evidence, and by_file_sha256 now resolves to "
+            "the recovered root.",
+        ]
+        return result
 
 
 def _source_indices(value: dict[str, Any], *, field: str) -> list[int]:
@@ -4337,6 +4699,46 @@ def _requeue_invalid_host_work_jobs(
             _write_json(queue_path, queue)
 
 
+def _quarantine_host_work_request(
+    workspace: Path,
+    asset_root_id: str,
+    path: Path,
+    raw_bytes: bytes,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """Preserve rejected bytes append-only and disposition the live row."""
+    digest = hashlib.sha256(raw_bytes).hexdigest()
+    module_root = _module_dir(workspace, asset_root_id)
+    rejected_dir = module_root / "host-work-rejected"
+    rejected_dir.mkdir(parents=True, exist_ok=True)
+    evidence_path = rejected_dir / f"{path.stem}-{digest}.json"
+    if not evidence_path.is_file():
+        _write_json(evidence_path, {
+            "schema_version": 1,
+            "source_path": str(path),
+            "rejected_evidence_sha256": digest,
+            "raw_base64": base64.b64encode(raw_bytes).decode("ascii"),
+        })
+    try:
+        job_id = _require_id(path.stem, "host-work.job_id")
+    except ModuleAssetsError:
+        job_id = f"quarantine-{digest[:20]}"
+    record = {
+        "schema_version": HOST_WORK_SCHEMA_VERSION,
+        "job_id": job_id,
+        "asset_root_id": asset_root_id,
+        "status": "quarantined",
+        "dispatch_state": "quarantined",
+        "quarantined_at": _now_iso(),
+        "quarantine_reason": str(reason)[:320],
+        "rejected_evidence_sha256": digest,
+        "rejected_evidence_path": str(evidence_path),
+    }
+    _write_json(path, record)
+    return record
+
+
 def claim_host_work_requests(
     workspace: Path,
     asset_root_id: str,
@@ -4389,22 +4791,35 @@ def claim_host_work_requests(
         }
     now = datetime.now(timezone.utc)
     rows: list[tuple[Path, dict[str, Any]]] = []
-    invalid_job_ids: list[str] = []
     with coc_fileio.advisory_file_lock(module_root / "host-work.lock"):
         for path in sorted(work_dir.glob("*.json")):
             try:
-                request = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                raw_bytes = path.read_bytes()
+            except OSError:
+                continue
+            try:
+                request = json.loads(raw_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                _quarantine_host_work_request(
+                    workspace, asset_root_id, path, raw_bytes,
+                    reason=f"invalid_json:{type(exc).__name__}",
+                )
                 continue
             if not isinstance(request, dict):
+                _quarantine_host_work_request(
+                    workspace, asset_root_id, path, raw_bytes,
+                    reason="host_work_request_not_object",
+                )
                 continue
             if str(request.get("status") or "open") in HOST_WORK_CLOSED_STATUSES:
                 continue
             try:
                 validate_host_work_request_shape(request)
-            except ModuleAssetsError:
-                invalid_job_ids.append(str(request.get("job_id") or path.stem))
-                path.unlink(missing_ok=True)
+            except ModuleAssetsError as exc:
+                _quarantine_host_work_request(
+                    workspace, asset_root_id, path, raw_bytes,
+                    reason=str(exc),
+                )
                 continue
             changed = _refresh_host_work_lifecycle(
                 workspace, asset_root_id, request, now=now,
@@ -4517,9 +4932,6 @@ def claim_host_work_requests(
                     exemplar.get("consumer_refs") or []
                 )),
             })
-    _requeue_invalid_host_work_jobs(
-        workspace, asset_root_id, invalid_job_ids,
-    )
     result = {
         "packets": packets,
         "leased_group_count": len(packets),
@@ -4643,6 +5055,11 @@ def renew_host_work_leases(
             if lease_id not in wanted:
                 continue
             job_id = str(request.get("job_id") or path.stem)
+            lifecycle_changed = _refresh_host_work_lifecycle(
+                workspace, asset_root_id, request, now=now,
+            )
+            if lifecycle_changed:
+                _write_json(path, request)
             if (
                 str(request.get("status") or "open") in HOST_WORK_CLOSED_STATUSES
                 or str(request.get("dispatch_state") or "") != "leased"
@@ -4687,21 +5104,49 @@ def _list_host_work_requests_unlocked(
     now = datetime.now(timezone.utc)
     for path in sorted(work_dir.glob("*.json")):
         try:
-            request = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            raw_bytes = path.read_bytes()
+        except OSError:
+            continue
+        try:
+            request = json.loads(raw_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            _quarantine_host_work_request(
+                workspace, asset_root_id, path, raw_bytes,
+                reason=f"invalid_json:{type(exc).__name__}",
+            )
             continue
         if not isinstance(request, dict):
+            _quarantine_host_work_request(
+                workspace, asset_root_id, path, raw_bytes,
+                reason="host_work_request_not_object",
+            )
             continue
         status = str(request.get("status") or "open")
         try:
             validate_host_work_request_shape(request)
-        except ModuleAssetsError:
-            path.unlink(missing_ok=True)
-            if (
-                status not in HOST_WORK_CLOSED_STATUSES
-                and invalid_job_ids is not None
-            ):
-                invalid_job_ids.append(str(request.get("job_id") or path.stem))
+        except ModuleAssetsError as exc:
+            _quarantine_host_work_request(
+                workspace, asset_root_id, path, raw_bytes,
+                reason=str(exc),
+            )
+            continue
+        if status == "quarantined":
+            if include_closed:
+                rows.append({
+                    "job_id": request.get("job_id"),
+                    "asset_root_id": request.get("asset_root_id"),
+                    "status": "quarantined",
+                    "dispatch_state": "quarantined",
+                    "operational_class": "stale",
+                    "quarantine_reason": request.get("quarantine_reason"),
+                    "rejected_evidence_sha256": request.get(
+                        "rejected_evidence_sha256"
+                    ),
+                    "rejected_evidence_path": request.get(
+                        "rejected_evidence_path"
+                    ),
+                    "path": str(path),
+                })
             continue
         if status not in HOST_WORK_CLOSED_STATUSES and _refresh_host_work_lifecycle(
             workspace, asset_root_id, request, now=now,
@@ -5534,6 +5979,23 @@ def enqueue_job(
             and row.get("dependency_ref") == canonical_dependency_ref
         )
 
+    def merge_consumers(row: dict[str, Any]) -> bool:
+        if canonical_consumer_refs is None:
+            return False
+        existing_consumers = (
+            validate_host_work_consumer_refs(row["consumer_refs"])
+            if isinstance(row.get("consumer_refs"), list)
+            and row.get("consumer_refs")
+            else []
+        )
+        combined = validate_host_work_consumer_refs(
+            [*existing_consumers, *canonical_consumer_refs]
+        )
+        if combined == existing_consumers:
+            return False
+        row["consumer_refs"] = combined
+        return True
+
     def raise_exact_scope_conflict() -> None:
         label = (
             "opening_source_scope_conflict"
@@ -5571,19 +6033,8 @@ def enqueue_job(
                         json.dumps(canonical_dependency_ref)
                     )
                     pending_changed = True
-            if canonical_consumer_refs is not None:
-                existing_consumers = (
-                    validate_host_work_consumer_refs(job["consumer_refs"])
-                    if isinstance(job.get("consumer_refs"), list)
-                    and job.get("consumer_refs")
-                    else []
-                )
-                combined = validate_host_work_consumer_refs(
-                    [*existing_consumers, *canonical_consumer_refs]
-                )
-                if combined != existing_consumers:
-                    job["consumer_refs"] = combined
-                    pending_changed = True
+            if merge_consumers(job):
+                pending_changed = True
             if _job_depth(str(job.get("kind") or "")) < _job_depth(kind):
                 job["promoted_from"] = job.get("kind")
                 job["kind"] = kind
@@ -5611,6 +6062,9 @@ def enqueue_job(
                 ):
                     if exact_source_scope is not None and not exact_scoped_row_matches(job):
                         raise_exact_scope_conflict()
+                    if merge_consumers(job):
+                        queue["in_flight"] = list(queue.get("in_flight") or [])
+                        _write_json(path, queue)
                     deduped_job = job
                     dedupe_state = "in_flight"
                     break
@@ -5643,6 +6097,9 @@ def enqueue_job(
                             continue
                         if not exact_scoped_row_matches(request):
                             raise_exact_scope_conflict()
+                        if merge_consumers(row):
+                            queue["done"] = list(queue.get("done") or [])
+                            _write_json(path, queue)
                         deduped_job = row
                         dedupe_state = "awaiting_host_pack"
                         break
@@ -5657,6 +6114,9 @@ def enqueue_job(
                 if still_current:
                     if not exact_dependency_matches(row):
                         continue
+                    if merge_consumers(row):
+                        queue["done"] = list(queue.get("done") or [])
+                        _write_json(path, queue)
                     deduped_job = row
                     dedupe_state = "awaiting_host_pack"
                     break
@@ -5714,7 +6174,13 @@ def enqueue_job(
             _write_json(path, queue)
         else:
             job = deduped_job
-    if dedupe_state == "awaiting_host_pack" and canonical_consumer_refs is not None:
+    # Queue updates commit first, then host-work updates under its own lock.
+    # Materialization performs the inverse *read* while holding host-work.lock,
+    # but enqueue never nests these locks, so no cyclic lock ordering exists.
+    if (
+        dedupe_state in {"in_flight", "awaiting_host_pack"}
+        and canonical_consumer_refs is not None
+    ):
         request_path = (
             _module_dir(workspace, asset_root_id)
             / "host-work" / f"{job.get('job_id')}.json"

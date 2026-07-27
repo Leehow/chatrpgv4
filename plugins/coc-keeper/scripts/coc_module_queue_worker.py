@@ -1186,6 +1186,58 @@ def _write_host_work_request(
     })
     superseded: list[str] = []
     with coc_fileio.advisory_file_lock(root / "host-work.lock"):
+        # Host-work.lock is the publication lock. Re-read the authoritative
+        # queue row while holding it so an in-flight dedupe that committed
+        # before publication cannot lose a later campaign consumer. Enqueue
+        # never holds parse-queue.lock while acquiring host-work.lock.
+        queue_path = root / "parse-queue.json"
+        with coc_fileio.advisory_file_lock(root / "parse-queue.lock"):
+            try:
+                queue = json.loads(queue_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                queue = {}
+            latest = next(
+                (
+                    row
+                    for row in [
+                        *list(queue.get("pending") or []),
+                        *list(queue.get("in_flight") or []),
+                        *list(queue.get("done") or []),
+                    ]
+                    if isinstance(row, dict)
+                    and str(row.get("job_id") or "") == jid
+                ),
+                None,
+            )
+        combined_consumers: list[dict[str, Any]] = []
+        for candidate in (
+            payload.get("consumer_refs"),
+            latest.get("consumer_refs") if isinstance(latest, dict) else None,
+        ):
+            if isinstance(candidate, list) and candidate:
+                combined_consumers.extend(candidate)
+        if combined_consumers:
+            payload["consumer_refs"] = (
+                coc_module_assets.validate_host_work_consumer_refs(
+                    combined_consumers
+                )
+            )
+            payload["consumer_state"] = "owned"
+        if path.is_file():
+            try:
+                current = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                current = None
+            if isinstance(current, dict) and isinstance(
+                current.get("consumer_refs"), list,
+            ):
+                payload["consumer_refs"] = (
+                    coc_module_assets.validate_host_work_consumer_refs([
+                        *list(payload.get("consumer_refs") or []),
+                        *current["consumer_refs"],
+                    ])
+                )
+                payload["consumer_state"] = "owned"
         candidates: list[tuple[Path, dict[str, Any]]] = []
         for old_job_id in pending_supersedes:
             old_path = work_dir / f"{old_job_id}.json"

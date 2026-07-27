@@ -934,6 +934,75 @@ def test_register_source_bundle_drift_recovery_is_idempotent(tmp_path: Path):
     assert not assets._module_dir(tmp_path, f"{old_root}-r3").exists()
 
 
+def test_failed_second_page_recovery_never_moves_current_registry_pointer(
+    tmp_path: Path,
+):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(
+        tmp_path, page_count=2, include_page_one=True,
+    )
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    bundle = assets.coc_pdf_bundle.load_host_bundle(old_bundle)
+    replacement = "# Hospital\n\nDifferent accepted first page.\n"
+    bundle["pages"][0]["text"] = replacement
+    bundle["pages"][0]["text_sha256"] = hashlib.sha256(
+        replacement.encode()
+    ).hexdigest()
+    bundle["pages"][0]["producer_text_sha256"] = bundle["pages"][0][
+        "text_sha256"
+    ]
+    bundle["pages"][1]["text"] = ""
+    before_registry = json.loads(json.dumps(assets.load_registry(tmp_path)))
+
+    with pytest.raises(assets.ModuleAssetsError, match="page text must be non-empty"):
+        assets.register_source_bundle(tmp_path, bundle)
+
+    assert assets.load_registry(tmp_path) == before_registry
+    assert assets.lookup_by_sha256(tmp_path, file_sha)["asset_root_id"] == old_root
+    assert not assets._module_dir(tmp_path, f"{old_root}-r2").exists()
+
+
+def test_concurrent_recovery_publishes_complete_immutable_family_members(
+    tmp_path: Path,
+):
+    old_bundle, file_sha, _page_sha = _write_host_bundle(tmp_path)
+    old_root = assets.register_source_bundle(tmp_path, old_bundle)[
+        "asset_root_id"
+    ]
+    second_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="concurrent-second",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nConcurrent second extraction.\n",
+    )
+    third_bundle = _write_reextracted_bundle(
+        tmp_path,
+        name="concurrent-third",
+        file_sha=file_sha,
+        page_text=b"# Hospital\n\nConcurrent third extraction.\n",
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(
+            lambda path: assets.register_source_bundle(tmp_path, path),
+            [second_bundle, third_bundle],
+        ))
+
+    roots = {row["asset_root_id"] for row in results}
+    assert roots == {f"{old_root}-r2", f"{old_root}-r3"}
+    for root_id in roots:
+        module_root = assets._module_dir(tmp_path, root_id)
+        identity = json.loads(
+            (module_root / "identity.json").read_text(encoding="utf-8")
+        )
+        assert identity["recovery_family_root_id"] == old_root
+        assert (module_root / "pages" / "0000.md").is_file()
+        assert identity["source_bundles"]
+    current = assets.lookup_by_sha256(tmp_path, file_sha)["asset_root_id"]
+    assert current in roots
+
+
 def test_register_source_bundle_recovery_family_allocates_canonical_members(
     tmp_path: Path,
 ):
@@ -1079,6 +1148,79 @@ def test_host_work_lease_renew_and_release_require_exact_owner(tmp_path: Path):
     assert stored["last_lease_release_reason"] == "shutdown"
     assert "executor_id" not in stored
     assert "lease_id" not in stored
+
+
+def test_host_work_renew_supersedes_all_stale_consumers_before_extension(
+    tmp_path: Path,
+):
+    assets.init_module_root(
+        tmp_path,
+        asset_root_id="stale-renew-module",
+        identity={"canonical_module_id": "stale-renew-module"},
+        file_sha256=FAKE_SHA,
+    )
+    assets.put_page(tmp_path, "stale-renew-module", 0, "lease source page")
+    scenario_dir = tmp_path / ".coc" / "campaigns" / "stale-renew" / "scenario"
+    scenario_dir.mkdir(parents=True)
+    scenario_path = scenario_dir / "scenario.json"
+    scenario_path.write_text(json.dumps({
+        "source_cache_asset_root_id": "stale-renew-module",
+        "progressive_asset_root_id": "stale-renew-module",
+        "source": {},
+    }), encoding="utf-8")
+    consumer = assets.campaign_consumer_ref(
+        tmp_path,
+        "stale-renew",
+        "stale-renew-module",
+        intent_kind="player_dig",
+    )
+    work_dir = assets._module_dir(
+        tmp_path, "stale-renew-module",
+    ) / "host-work"
+    work_dir.mkdir()
+    request_path = work_dir / "job-stale-renew.json"
+    request_path.write_text(json.dumps({
+        "schema_version": assets.HOST_WORK_SCHEMA_VERSION,
+        "job_id": "job-stale-renew",
+        "asset_root_id": "stale-renew-module",
+        "kind": "deepen_location",
+        "target_id": "library",
+        "priority": 10,
+        "status": "open",
+        "work_level": "near_term",
+        "requested_pdf_indices": [0],
+        "cached_scope_complete": True,
+        "dispatch_state": "ready",
+        "work_group_id": "group-stale-renew",
+        "consumer_refs": [consumer],
+        "consumer_state": "owned",
+    }), encoding="utf-8")
+    lease_id = assets.claim_host_work_requests(
+        tmp_path,
+        "stale-renew-module",
+        executor_id="coordinator-a",
+        lease_seconds=60,
+    )["packets"][0]["packet_id"]
+    scenario_path.write_text(json.dumps({
+        "source_cache_asset_root_id": "other-module",
+        "source": {},
+    }), encoding="utf-8")
+
+    result = assets.renew_host_work_leases(
+        tmp_path,
+        "stale-renew-module",
+        executor_id="coordinator-a",
+        lease_ids=[lease_id],
+        lease_seconds=120,
+    )
+
+    assert result["renewed_job_ids"] == []
+    assert result["skipped_job_ids"] == ["job-stale-renew"]
+    stored = json.loads(request_path.read_text(encoding="utf-8"))
+    assert stored["status"] == "superseded"
+    assert stored["stale_reason"] == "consumer_binding_stale"
+    assert "lease_id" not in stored
+    assert "lease_expires_at" not in stored
 
 
 def test_host_work_stale_consumers_supersede_and_legacy_stays_unclaimable(
@@ -2281,9 +2423,13 @@ def test_source_bound_skeleton_requires_explicit_start_clock_semantics(tmp_path:
 
     skeleton["start_clock_status"] = "source"
     skeleton["start_clock"] = {
+        "calendar_mode": "gregorian",
         "local_datetime": "1975-10-12T23:15:00",
+        "local_date": "1975-10-12",
         "timezone": "local",
         "display": "1975年10月12日深夜11:15",
+        "time_precision": "minute",
+        "day_phase_hint": None,
     }
     skeleton["start_clock_source_refs"] = [{
         "source_id": "pdf:bound-module",

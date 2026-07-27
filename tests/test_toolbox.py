@@ -10781,6 +10781,11 @@ def test_unknown_scope_projects_locator_and_resolution_wakes_existing_queue(
     monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
     monkeypatch.setenv("COC_HOST", "codex")
     ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(2,))
+    ws["skeleton"]["locations"].append({
+        "location_id": "archive",
+        "title": "Archive",
+        "parse_state": "named_only",
+    })
     published = _run(ws, "progressive.publish_skeleton", {
         "asset_root_id": ws["asset_root_id"],
         "source_file_sha256": ws["file_sha256"],
@@ -11591,6 +11596,212 @@ def test_opening_setup_source_clock_preserves_relative_precision(
     assert time_state["clock"]["local_date"] is None
     assert time_state["clock"]["time_precision"] == "day_phase"
     assert time_state["clock"]["day_phase_hint"] == "morning"
+
+
+def _opening_state_bytes_without_audit(workspace: Path) -> dict[Path, bytes]:
+    return {
+        path.relative_to(workspace): path.read_bytes()
+        for path in (workspace / ".coc").rglob("*")
+        if path.is_file()
+        and not path.name.endswith(".lock")
+        and "logs" not in path.relative_to(workspace).parts
+    }
+
+
+def test_opening_bootstrap_watch_conflict_is_byte_preserving(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["opening_projection_watch"] = {
+        "schema_version": 1,
+        "campaign_id": ws["campaign_id"],
+        "asset_root_id": ws["asset_root_id"],
+        "source_file_sha256": ws["file_sha256"],
+        "bundle_sha256": scenario["source"]["bundle_sha256"],
+        "start_location_id": "different-opening",
+        "source_scope": {"different": True},
+        "source_scope_signature": "different",
+        "created_at": "2026-07-27T00:00:00+00:00",
+        "status": "pending",
+    }
+    _write_json(scenario_path, scenario)
+    before = _opening_state_bytes_without_audit(ws["workspace"])
+
+    rejected = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "opening_projection_watch_conflict"
+    assert _opening_state_bytes_without_audit(ws["workspace"]) == before
+
+
+@pytest.mark.parametrize("failed_phase", ["skeleton", "projection", "source_request"])
+def test_opening_bootstrap_retries_each_durable_phase(
+    tmp_path: Path, monkeypatch, failed_phase: str,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    assets_mod = coc_toolbox.coc_module_project.coc_module_assets
+    if failed_phase == "skeleton":
+        original = assets_mod.put_skeleton
+        calls = {"count": 0}
+
+        def fail_once(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise assets_mod.ModuleAssetsError("injected skeleton failure")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(assets_mod, "put_skeleton", fail_once)
+    elif failed_phase == "projection":
+        original = coc_toolbox.coc_module_project.project_skeleton_to_campaign
+        calls = {"count": 0}
+
+        def fail_once(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise coc_toolbox.coc_module_project.ModuleProjectError(
+                    "injected projection failure"
+                )
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            coc_toolbox.coc_module_project,
+            "project_skeleton_to_campaign",
+            fail_once,
+        )
+    else:
+        original = coc_toolbox._tool_progressive_request_opening_pack
+        calls = {"count": 0}
+
+        def fail_once(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise coc_toolbox.ToolError(
+                    "injected_source_request_failure",
+                    "injected source request failure",
+                )
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            coc_toolbox,
+            "_tool_progressive_request_opening_pack",
+            fail_once,
+        )
+    args = {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    }
+    first = _run(ws, "progressive.opening_bootstrap", args)
+    assert first["ok"] is False
+    second = _run(ws, "progressive.opening_bootstrap", args)
+    assert second["ok"] is True, second
+    scenario = json.loads(
+        (ws["campaign_dir"] / "scenario" / "scenario.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert scenario["opening_projection_watch"]["status"] == "pending"
+
+
+def test_opening_watch_retry_preserves_partial_and_concurrent_scenario_writes(
+    tmp_path: Path, monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    project_mod = coc_toolbox.coc_module_project
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+
+    def partial_write_then_fail(*args, **kwargs):
+        scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+        scenario["concurrent_marker"] = "must-survive"
+        project_mod._write_json(scenario_path, scenario)
+        raise project_mod.ModuleProjectError("injected partial projection")
+
+    monkeypatch.setattr(
+        project_mod, "project_skeleton_to_campaign", partial_write_then_fail,
+    )
+    watch = boot["data"]["projection_watch"]
+    outcome = project_mod.drain_opening_projection_watches(
+        ws["workspace"],
+        ws["asset_root_id"],
+        start_location_id="opening",
+        source_scope_signature=watch["source_scope_signature"],
+    )
+
+    assert outcome[0]["status"] == "retryable_error"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    assert scenario["concurrent_marker"] == "must-survive"
+    assert scenario["opening_projection_watch"]["status"] == "retryable_error"
+
+
+@pytest.mark.parametrize("clock", [
+    {"foo": "bar"},
+    {
+        "calendar_mode": "relative",
+        "local_datetime": "1925-01-15T20:00:00",
+        "local_date": None,
+        "timezone": None,
+        "display": "上午（日期未注明）",
+        "time_precision": "day_phase",
+        "day_phase_hint": "morning",
+    },
+    {
+        "calendar_mode": "gregorian",
+        "local_datetime": "1975-10-12T23:15:00",
+        "local_date": "1975-10-13",
+        "timezone": "America/Chicago",
+        "display": "1975-10-12 23:15",
+        "time_precision": "minute",
+        "day_phase_hint": None,
+    },
+])
+def test_opening_setup_rejects_invalid_clock_before_source_or_campaign_writes(
+    tmp_path: Path, monkeypatch, clock: dict,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    ws = _opening_component_workspace(tmp_path)
+    boot = _run(ws, "progressive.opening_bootstrap", {
+        "start_location": {"location_id": "opening", "title": "Opening"},
+        "opening_pdf_indices": [0],
+    })
+    assert boot["ok"] is True, boot
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_invalid_clock_test",
+        "coc_module_queue_worker.py",
+    )
+    assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    before = _opening_state_bytes_without_audit(ws["workspace"])
+    rejected = _run(ws, "progressive.fulfill_host_work", {
+        "worker_result": {
+            "job_id": boot["data"]["source_work"]["job_id"],
+            "pack": _opening_component_pack(parse_state="partial"),
+            "related_packs": [],
+            "opening_setup": {
+                "schema_version": 1,
+                "contract_id": "coc.opening-setup-observation.v1",
+                "status": "source",
+                "start_clock": clock,
+                "start_clock_source_refs": [{
+                    "source_id": ws["skeleton"]["source"]["source_id"],
+                    "pdf_index": 0,
+                }],
+            },
+        },
+    })
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "opening_setup_invalid"
+    assert _opening_state_bytes_without_audit(ws["workspace"]) == before
 
 
 def test_direct_source_submit_drains_only_exact_campaign_watch(

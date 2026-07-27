@@ -301,6 +301,13 @@ def test_resume_projection_has_a_fixed_total_byte_budget() -> None:
     assert "delivery_text_to_typed_read" in budget["reductions"]
     assert bounded["delivery"]["exact_text"] is None
     assert bounded["delivery"]["replay_operation"]["operation"] == "session.delivery_text"
+    summaries = bounded["semantic_capsule"]["recent_summaries"]
+    assert len(summaries) == 2
+    assert all(
+        isinstance(row, str) or row["summary_ref"]["operation"]
+        == "session.continuation_detail"
+        for row in summaries
+    )
 
 
 def test_resume_repairs_missing_compiled_archive_once_per_context(

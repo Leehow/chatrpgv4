@@ -2532,8 +2532,36 @@ def test_on_enter_non_progressive_skips(tmp_path: Path):
     assert result.get("skipped") is True
 
 
+def test_on_enter_unknown_scene_does_not_create_shared_source_work(tmp_path: Path):
+    _put_source_bound_skeleton(tmp_path)
+    camp = _make_campaign(tmp_path)
+    project.project_skeleton_to_campaign(tmp_path, camp.name, "prog-demo")
+    queue_path = assets.assets_root(tmp_path) / "prog-demo" / "parse-queue.json"
+    queue_path.write_text(json.dumps({
+        "schema_version": 1, "pending": [], "in_flight": [], "done": [],
+    }), encoding="utf-8")
+
+    result = project.on_enter_scene(
+        tmp_path, camp.name, "kp-invented-room",
+    )
+
+    assert any(
+        row.get("shared_source_enqueue_skipped") == "kp-invented-room"
+        and row.get("reason") == "no_structured_source_authority"
+        for row in result["actions"]
+    )
+    queue = assets.list_queue(tmp_path, "prog-demo")
+    assert not any(
+        row.get("target_id") == "kp-invented-room"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
+    )
+    assert assets.get_entity(
+        tmp_path, "prog-demo", "location", "kp-invented-room",
+    ) is None
+
+
 def test_request_deepen_player_dig_without_scene_move(tmp_path: Path):
-    """System gap fix: dig path enqueues without requiring state.move_scene."""
+    """Unknown dig without structured source authority remains campaign-local."""
     _put_source_bound_skeleton(tmp_path)
     assets.put_entity(tmp_path, "prog-demo", "location", "opening", _deep_opening_pack())
     camp = _make_campaign(tmp_path)
@@ -2550,29 +2578,26 @@ def test_request_deepen_player_dig_without_scene_move(tmp_path: Path):
     assert result["progressive"] is True
     assert result["target_id"] == "gypsy-hillside-camp"
     status = result.get("status") or {}
-    assert status.get("exists") is True
-    assert status.get("deep_ready") is False
-    assert status.get("evidence_gap") is True
-    assert any("host: deep-extract" in h for h in result.get("host_hints") or [])
+    assert not status
+    assert result["followed"][0]["shared_source_enqueue_skipped"] is True
+    assert not result.get("host_hints")
 
     stub = assets.get_entity(tmp_path, "prog-demo", "location", "gypsy-hillside-camp")
-    assert stub is not None
-    assert stub.get("parse_state") == "named_only"
-    assert stub.get("evidence_gap") is True
-    assert stub.get("dig_pending") is True
+    assert stub is None
 
     queue = assets.list_queue(tmp_path, "prog-demo")
-    pending = queue.get("pending") or []
-    assert any(
-        j.get("kind") == "deepen_location" and j.get("target_id") == "gypsy-hillside-camp"
-        for j in pending
+    assert not any(
+        row.get("target_id") == "gypsy-hillside-camp"
+        for row in queue["pending"] + queue["in_flight"] + queue["done"]
     )
-    # Dig target must land on story-graph (not improvised empty scene).
     sg = json.loads((camp / "scenario" / "story-graph.json").read_text(encoding="utf-8"))
     ids = {s["scene_id"] for s in sg["scenes"]}
-    assert "gypsy-hillside-camp" in ids
+    assert "gypsy-hillside-camp" not in ids
     sk = assets.get_skeleton(tmp_path, "prog-demo")
-    assert any(l.get("location_id") == "gypsy-hillside-camp" for l in sk.get("locations") or [])
+    assert not any(
+        row.get("location_id") == "gypsy-hillside-camp"
+        for row in sk.get("locations") or []
+    )
 
 
 def test_request_deepen_bounds_completed_queue_history(tmp_path: Path):

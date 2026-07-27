@@ -2,6 +2,7 @@
 """Tests for background parallel progressive parse-queue worker."""
 from __future__ import annotations
 
+import base64
 import importlib.util
 import hashlib
 import json
@@ -412,6 +413,63 @@ def test_claim_jobs_moves_to_in_flight(tmp_path: Path):
     assert q["pending"] == []
     assert len(q["in_flight"]) == 2
     assert all(j.get("worker_id") == "w-test" for j in q["in_flight"])
+
+
+def test_in_flight_dedupe_unions_consumers_into_eventual_packet(tmp_path: Path):
+    _campaign(tmp_path)
+    second_id = "qw-camp-two"
+    state.create_campaign(tmp_path, second_id, "QW Camp Two", play_language="zh-Hans")
+    project.project_skeleton_to_campaign(tmp_path, second_id, "qw-demo")
+    _clear_queue(tmp_path)
+    first_ref = _consumer(tmp_path)[0]
+    second_ref = assets.campaign_consumer_ref(
+        tmp_path, second_id, "qw-demo", intent_kind="player_dig",
+    )
+    queued = assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="cellar",
+        reason="first campaign",
+        consumer_refs=[first_ref],
+        kick_worker=False,
+    )
+    claimed_jobs = worker.claim_jobs(
+        tmp_path, "qw-demo", limit=1, worker_id="consumer-union",
+    )
+    assert len(claimed_jobs) == 1
+
+    deduped = assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="cellar",
+        reason="second campaign",
+        consumer_refs=[second_ref],
+        kick_worker=False,
+    )
+    assert deduped["dedupe_state"] == "in_flight"
+    in_flight = assets.list_queue(tmp_path, "qw-demo")["in_flight"][0]
+    assert in_flight["consumer_refs"] == assets.validate_host_work_consumer_refs(
+        [first_ref, second_ref]
+    )
+
+    processed = worker.process_claimed_job(
+        tmp_path, "qw-demo", claimed_jobs[0],
+    )
+    assert processed["result"] == "awaiting_host_pack"
+    packet = assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="consumer-packet",
+    )["packets"][0]
+    assert packet["requests"][0]["job_id"] == queued["job"]["job_id"]
+    assert packet["requests"][0]["consumer_refs"] == (
+        assets.validate_host_work_consumer_refs([first_ref, second_ref])
+    )
+    assert packet["consumer_refs"] == assets.validate_host_work_consumer_refs(
+        [first_ref, second_ref]
+    )
 
 
 def test_worker_once_parallel_awaiting_host_and_merge(tmp_path: Path):
@@ -1534,7 +1592,7 @@ def test_claim_orders_current_dependency_before_higher_priority_near_term(
     }
 
 
-def test_legacy_host_work_is_deleted_and_requeued_without_l1_inference(
+def test_legacy_host_work_is_quarantined_without_l1_inference_or_evidence_loss(
     tmp_path: Path,
 ):
     _campaign(tmp_path)
@@ -1549,17 +1607,45 @@ def test_legacy_host_work_is_deleted_and_requeued_without_l1_inference(
     legacy["schema_version"] = 1
     legacy["work_level"] = "current_dependency"
     legacy.pop("dependency_ref", None)
-    request_path.write_text(json.dumps(legacy), encoding="utf-8")
+    raw = json.dumps(legacy).encode()
+    request_path.write_bytes(raw)
 
     assert assets.list_host_work_requests(tmp_path, "qw-demo") == []
-    assert not request_path.exists()
-    queue = assets.list_queue(tmp_path, "qw-demo")
-    replacement = next(
-        row for row in queue["pending"]
-        if row["job_id"] == queued["job"]["job_id"]
+    assert request_path.exists()
+    disposition = json.loads(request_path.read_text(encoding="utf-8"))
+    assert disposition["status"] == "quarantined"
+    assert disposition["rejected_evidence_sha256"] == hashlib.sha256(raw).hexdigest()
+    evidence = json.loads(
+        Path(disposition["rejected_evidence_path"]).read_text(encoding="utf-8")
     )
-    assert replacement["work_level"] == "near_term"
-    assert "dependency_ref" not in replacement
+    assert base64.b64decode(evidence["raw_base64"]) == raw
+    queue = assets.list_queue(tmp_path, "qw-demo")
+    assert all(
+        row["job_id"] != queued["job"]["job_id"]
+        for row in queue["pending"]
+    )
+
+
+def test_malformed_host_work_is_quarantined_append_only(tmp_path: Path):
+    _campaign(tmp_path)
+    work_dir = assets._module_dir(tmp_path, "qw-demo") / "host-work"
+    work_dir.mkdir(exist_ok=True)
+    path = work_dir / "job-malformed.json"
+    raw = b'{"schema_version":2,"job_id":"job-malformed"'
+    path.write_bytes(raw)
+
+    claimed = assets.claim_host_work_requests(
+        tmp_path, "qw-demo", executor_id="quarantine-test",
+    )
+
+    assert claimed["packets"] == []
+    disposition = json.loads(path.read_text(encoding="utf-8"))
+    assert disposition["status"] == "quarantined"
+    assert disposition["rejected_evidence_sha256"] == hashlib.sha256(raw).hexdigest()
+    evidence = json.loads(
+        Path(disposition["rejected_evidence_path"]).read_text(encoding="utf-8")
+    )
+    assert base64.b64decode(evidence["raw_base64"]) == raw
 
 
 def test_superseded_entity_request_cannot_write_pack_after_lock_wait(
