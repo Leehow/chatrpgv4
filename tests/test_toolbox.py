@@ -458,6 +458,101 @@ def test_state_move_scene_rejects_malformed_travel_minutes_without_moving(
     assert after["data"]["active_scene_id"] == active_id
 
 
+def _install_same_destination_travel_edges(campaign_ws) -> tuple[str, str]:
+    world = json.loads(
+        (campaign_ws["campaign_dir"] / "save" / "world-state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    active_id = world["active_scene_id"]
+    graph_path = campaign_ws["campaign_dir"] / "scenario" / "story-graph.json"
+    story_graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    active_scene = next(
+        scene for scene in story_graph["scenes"]
+        if scene["scene_id"] == active_id
+    )
+    destination = active_scene["scene_edges"][0]["to"]
+    active_scene["scene_edges"] = [
+        {
+            "to": destination,
+            "kind": "travel",
+            "when": {"kind": "always"},
+            "travel_minutes": 60,
+        },
+        {
+            "to": destination,
+            "kind": "travel",
+            "when": {
+                "kind": "narrative",
+                "description": "the party chooses the slower source-authored route",
+            },
+            "travel_minutes": 120,
+        },
+    ]
+    _write_json(graph_path, story_graph)
+    coc_toolbox.coc_compiled_archive.publish_from_campaign(
+        campaign_ws["campaign_dir"]
+    )
+    return active_id, destination
+
+
+def test_same_destination_second_source_travel_card_is_accepted(campaign_ws):
+    _active_id, destination = _install_same_destination_travel_edges(campaign_ws)
+    context = _run(campaign_ws, "scene.context")
+    cards = [
+        row["operation_opportunity"]["prefilled_arguments"]
+        for row in context["data"]["exits"]
+        if row["to"] == destination
+    ]
+    assert cards == [
+        {"scene_id": destination, "travel_minutes": 60},
+        {"scene_id": destination, "travel_minutes": 120},
+    ]
+
+    moved = _run(campaign_ws, "state.move_scene", {
+        **cards[1],
+        "reason": "take the slower authored route",
+        "decision_id": "same-destination-second-edge",
+    })
+
+    assert moved["ok"] is True, moved
+    assert moved["data"]["travel_minutes"] == 120
+    assert moved["data"]["time_scene_change"]["elapsed_minutes"] == 120
+
+
+def test_same_destination_ambiguous_omitted_travel_minutes_fails_closed(
+    campaign_ws,
+):
+    active_id, destination = _install_same_destination_travel_edges(campaign_ws)
+
+    rejected = _run(campaign_ws, "state.move_scene", {
+        "scene_id": destination,
+        "reason": "ambiguous route without its exact exit card",
+        "decision_id": "same-destination-ambiguous",
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_param"
+    after = _run(campaign_ws, "scene.context")
+    assert after["data"]["active_scene_id"] == active_id
+
+
+def test_same_destination_unmatched_travel_minutes_fails_closed(campaign_ws):
+    active_id, destination = _install_same_destination_travel_edges(campaign_ws)
+
+    rejected = _run(campaign_ws, "state.move_scene", {
+        "scene_id": destination,
+        "travel_minutes": 90,
+        "reason": "duration absent from every authored edge",
+        "decision_id": "same-destination-unmatched",
+    })
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_param"
+    after = _run(campaign_ws, "scene.context")
+    assert after["data"]["active_scene_id"] == active_id
+
+
 
 
 

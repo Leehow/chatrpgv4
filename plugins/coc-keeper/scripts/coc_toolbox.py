@@ -19078,7 +19078,7 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
     active = world.get("active_scene_id")
     warnings: list[str] = []
     scene = _scene_by_id(sg, target)
-    source_travel_minutes: int | None = None
+    source_travel_minute_values: set[int] = set()
     if active is not None:
         active_scene = _scene_by_id(sg, str(active))
         for edge in (active_scene or {}).get("scene_edges") or []:
@@ -19086,25 +19086,33 @@ def _tool_state_move_scene(ctx: Ctx, args: dict[str, Any]):
                 continue
             value = edge.get("travel_minutes")
             if value is not None:
-                source_travel_minutes = int(value)
-            break
+                source_travel_minute_values.add(int(value))
+    requested_travel_minutes = (
+        int(args["travel_minutes"])
+        if args.get("travel_minutes") is not None
+        else None
+    )
     if (
-        source_travel_minutes is not None
-        and args.get("travel_minutes") is not None
-        and int(args["travel_minutes"]) != source_travel_minutes
+        source_travel_minute_values
+        and requested_travel_minutes is not None
+        and requested_travel_minutes not in source_travel_minute_values
     ):
         raise ToolError(
             "invalid_param",
-            "travel_minutes conflicts with the source-authored scene edge",
+            "travel_minutes does not match any source-authored edge to this scene",
         )
-    travel_minutes = (
-        int(args["travel_minutes"])
-        if args.get("travel_minutes") is not None
-        else int(source_travel_minutes or 0)
-    )
+    if requested_travel_minutes is None and len(source_travel_minute_values) > 1:
+        raise ToolError(
+            "invalid_param",
+            "multiple source-authored travel durations reach this scene; "
+            "use one exact scene.context exit card",
+        )
+    travel_minutes = requested_travel_minutes
+    if travel_minutes is None:
+        travel_minutes = next(iter(source_travel_minute_values), 0)
     travel_time_source = (
         "source_scene_edge"
-        if source_travel_minutes is not None
+        if source_travel_minute_values
         else ("typed_argument" if args.get("travel_minutes") is not None else "none")
     )
     if defer_initial:
