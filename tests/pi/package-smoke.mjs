@@ -24,7 +24,8 @@ await loader.reload();
 const extensions = loader.getExtensions();
 if (extensions.errors.length) throw new Error(JSON.stringify(extensions.errors));
 const toolNames = [...extensions.extensions[0].tools.keys()].sort();
-const skillNames = loader.getSkills().skills.map((skill) => skill.name).sort();
+const skillsResult = loader.getSkills();
+const skillNames = skillsResult.skills.map((skill) => skill.name).sort();
 const afterHandles = process._getActiveHandles().length;
 const offlineModel = {
   id: "offline", name: "Offline", provider: "offline",
@@ -43,6 +44,7 @@ process.stdout.write(JSON.stringify({
   extensionCount: extensions.extensions.length,
   toolNames,
   skillNames,
+  skillDiagnostics: skillsResult.diagnostics,
   childStartedOnLoad: afterHandles > beforeHandles,
   activeToolNames,
 }));

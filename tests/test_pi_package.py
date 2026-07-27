@@ -49,6 +49,7 @@ def test_root_manifest_loads_only_main_extension_and_canonical_skills():
     ]
     assert not {"subagent", "edit", "write", "coc_run_source_coordinator", "coc_read_source_packet"} & set(result["toolNames"])
     assert {"coc-main", "coc-keeper-play", "coc-story-director", "coc-rules-engine", "coc-character"} <= set(result["skillNames"])
+    assert result["skillDiagnostics"] == []
     assert result["childStartedOnLoad"] is False
     assert result["activeToolNames"] == result["toolNames"]
 
@@ -188,6 +189,7 @@ def test_revision_component_chain_bindings_activation_roles_and_secrets():
         assert surface["workspaceSkillAbsent"] is True
         assert surface["contextFiles"] == []
         assert "coc-main" in surface["skills"]
+        assert surface["skillDiagnostics"] == []
     assert result["exactModelThinking"] is True
     assert result["noTaskInArgv"] is True
     assert result["isolationFlags"] is True

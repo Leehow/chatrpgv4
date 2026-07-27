@@ -55,11 +55,13 @@ try {
   });
   const active = session.getActiveToolNames().sort();
   const registered = [...extensions.extensions.flatMap((extension) => [...extension.tools.keys()])].sort();
-  const skills = loader.getSkills().skills.map((skill) => skill.name).sort();
+  const skillsResult = loader.getSkills();
+  const skills = skillsResult.skills.map((skill) => skill.name).sort();
   const contextFiles = loader.getAgentsFiles().agentsFiles.map((entry) => entry.path);
   session.dispose();
   process.stdout.write(JSON.stringify({
-    role, extensionCount: extensions.extensions.length, active, registered, skills, contextFiles,
+    role, extensionCount: extensions.extensions.length, active, registered, skills,
+    skillDiagnostics: skillsResult.diagnostics, contextFiles,
     publicToolsAbsent: !registered.some((name) => [
       "coc_capabilities", "coc_discover", "coc_invoke", "coc_dispatch_source_work", "coc_progressive_ocr",
     ].includes(name)),
