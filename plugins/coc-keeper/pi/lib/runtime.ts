@@ -10,6 +10,7 @@ export type McpCaller = (name: string, args: JsonObject, signal?: AbortSignal) =
 
 export const MAX_BYTES = 256 * 1024;
 export const MAX_LEAVES = 4;
+export const MAX_PENDING_COORDINATOR_QUEUES = 4;
 export const MAX_RESULTS_PER_LEAF = 128;
 export const ACTIVATION_TIMEOUT_MS = 20_000;
 export const MCP_TIMEOUT_MS = 30_000;
@@ -206,11 +207,15 @@ export function validateCoordinatorTask(input: unknown): JsonObject {
   if (resolve(nonEmpty(task.instruction_ref, "instruction_ref")) !== COORDINATOR_INSTRUCTION) throw new Error("Pi coordinator instruction drift");
   const packet = asObject(task.packet, "coordinator packet");
   if (packet.schema_version !== 1 || packet.contract_id !== "coc.source-coordinator.v1") throw new Error("invalid coordinator packet contract");
+  nonEmpty(packet.workspace_root, "workspace_root");
+  nonEmpty(packet.campaign_id, "campaign_id");
+  if (packet.asset_root_id !== undefined) nonEmpty(packet.asset_root_id, "asset_root_id");
   const maxLeaves = packet.max_leaves;
   if (!Number.isInteger(maxLeaves) || (maxLeaves as number) < 1 || (maxLeaves as number) > MAX_LEAVES) throw new Error("invalid coordinator max_leaves");
   const claim = asObject(packet.claim_operation, "claim operation");
   const prefilled = asObject(claim.prefilled_arguments, "claim arguments");
   if (claim.operation !== "progressive.claim_host_work" || prefilled.result_delivery !== "task_return_to_parent") throw new Error("Pi coordinator claim must use task_return_to_parent");
+  nonEmpty(prefilled.executor_id, "claim executor_id");
   if (prefilled.limit !== maxLeaves) throw new Error("Pi coordinator claim limit drift");
   const fulfill = asObject(packet.fulfill_operation, "fulfill operation");
   if (fulfill.operation !== "progressive.fulfill_host_work") throw new Error("invalid coordinator fulfill operation");
@@ -462,12 +467,13 @@ export type CoordinatorLifecycleObservation =
 
 export class CoordinatorDispatchManager {
   private active: { key: string; run: ChildRun } | null = null;
-  private pending: {
+  private pending = new Map<string, {
+    queueIdentity: string;
     key: string;
     task: JsonObject;
     context: PrivateLaunchContext;
     signal?: AbortSignal;
-  } | null = null;
+  }>();
   private closing = false;
   private states = new Map<string, {
     status: string;
@@ -554,18 +560,49 @@ export class CoordinatorDispatchManager {
     context: PrivateLaunchContext,
     signal?: AbortSignal,
   ): JsonObject {
-    // Coordinator packets are bounded wakeups whose fixed claim operation
-    // re-reads the canonical ready queue. One newest pending wakeup is enough:
-    // it cannot run concurrently, and retaining more would create a second,
-    // unbounded scheduler beside the canonical host-work queue.
-    const superseded = this.pending;
+    const queueIdentity = this.queueIdentity(task, key);
+    // Packets within one exact queue identity are wakeups whose fixed claim
+    // operation re-reads that canonical queue. Cross-campaign/root/executor
+    // wakeups are retained independently; the small cap prevents this manager
+    // from becoming a second source-work scheduler.
+    const superseded = this.pending.get(queueIdentity);
     if (superseded) {
-      this.pending = null;
       this.fail(superseded.key, "dispatch", "coordinator_superseded", key);
+    } else if (this.pending.size >= MAX_PENDING_COORDINATOR_QUEUES) {
+      return {
+        status: "pending_overflow",
+        dispatch_key: key,
+        role: "coordinator",
+        failure_class: "pending_queue_capacity_reached",
+        reemit_required: true,
+        retry_after_active_terminal: true,
+        pending_queue_count: this.pending.size,
+      };
     }
-    this.pending = { key, task, context, signal };
+    this.pending.set(queueIdentity, { queueIdentity, key, task, context, signal });
     this.states.set(key, { status: "pending" });
-    return { status: "pending", dispatch_key: key, role: "coordinator" };
+    return {
+      status: "pending",
+      dispatch_key: key,
+      role: "coordinator",
+      pending_queue_count: this.pending.size,
+    };
+  }
+  private queueIdentity(task: JsonObject, key: string): string {
+    const packet = asObject(task.packet, "coordinator packet");
+    const claim = asObject(packet.claim_operation, "claim operation");
+    const prefilled = asObject(claim.prefilled_arguments, "claim arguments");
+    const assetRoot = typeof packet.asset_root_id === "string" && packet.asset_root_id.trim()
+      ? packet.asset_root_id.trim()
+      // Older component fixtures omit asset_root_id. Never coalesce those
+      // incomplete identities across packet ids.
+      : `packet:${key}`;
+    return JSON.stringify([
+      resolve(nonEmpty(packet.workspace_root, "workspace_root")),
+      nonEmpty(packet.campaign_id, "campaign_id"),
+      assetRoot,
+      nonEmpty(prefilled.executor_id, "claim executor_id"),
+    ]);
   }
   private async launchNow(
     task: JsonObject,
@@ -625,9 +662,15 @@ export class CoordinatorDispatchManager {
     return { status: "submitted", dispatch_key: key, role: "coordinator" };
   }
   private async drainPending(): Promise<void> {
-    if (this.closing || this.active || !this.pending) return;
-    const pending = this.pending;
-    this.pending = null;
+    if (this.closing || this.active || this.pending.size === 0) return;
+    const pending = this.pending.values().next().value as {
+      queueIdentity: string;
+      key: string;
+      task: JsonObject;
+      context: PrivateLaunchContext;
+      signal?: AbortSignal;
+    };
+    this.pending.delete(pending.queueIdentity);
     try { await this.launchNow(pending.task, pending.key, pending.context, pending.signal); }
     catch { /* launchNow records one bounded terminal failure */ }
   }
@@ -643,12 +686,12 @@ export class CoordinatorDispatchManager {
   }
   state(key: string) { return this.states.get(key); }
   activeCount() { return this.active ? 1 : 0; }
-  pendingCount() { return this.pending ? 1 : 0; }
+  pendingCount() { return this.pending.size; }
   async shutdown() {
     this.closing = true;
-    const waiting = this.pending;
-    this.pending = null;
-    if (waiting) this.fail(waiting.key, "shutdown", "coordinator_shutdown");
+    const waiting = [...this.pending.values()];
+    this.pending.clear();
+    for (const pending of waiting) this.fail(pending.key, "shutdown", "coordinator_shutdown");
     const owned = this.active;
     if (!owned) return;
     try { await owned.run.terminate(); }

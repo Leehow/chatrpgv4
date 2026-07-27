@@ -17,14 +17,18 @@ function check(label, condition) {
   if (!condition) problems.push(label);
 }
 
-function coordinatorTask(packetId = "coord-auto-1") {
+function coordinatorTask(packetId = "coord-auto-1", {
+  campaignId = "auto-dispatch-fixture",
+  assetRootId = "asset-auto",
+  executorId = "pi:fixture",
+} = {}) {
   return {
     schema_version: 1, contract_id: "coc.pi-source-coordinator-task.v1",
     instruction_ref: instruction, model_policy: "inherit_parent",
     packet: {
       schema_version: 1, contract_id: "coc.source-coordinator.v1", packet_id: packetId,
-      workspace_root: root, campaign_id: "auto-dispatch-fixture", max_leaves: 2,
-      claim_operation: { operation: "progressive.claim_host_work", prefilled_arguments: { executor_id: "pi:fixture", limit: 2, result_delivery: "task_return_to_parent" } },
+      workspace_root: root, campaign_id: campaignId, asset_root_id: assetRootId, max_leaves: 2,
+      claim_operation: { operation: "progressive.claim_host_work", prefilled_arguments: { executor_id: executorId, limit: 2, result_delivery: "task_return_to_parent" } },
       fulfill_operation: { operation: "progressive.fulfill_host_work" },
     },
   };
@@ -138,36 +142,109 @@ function harness({ enabled = true, manager = null, failSubmit = false } = {}) {
   return { deps, audit, submits };
 }
 
-function realManagerHarness() {
+function realManagerHarness({ deferActivationKeys = [] } = {}) {
+  const deferredActivation = new Set(deferActivationKeys);
   const launches = [];
   const controls = new Map();
   const lifecycle = [];
+  const notifications = [];
   const manager = new runtime.CoordinatorDispatchManager(
     (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
-      let resolveCompletion;
+      let resolveActivation, rejectActivation, resolveCompletion, rejectCompletion;
+      const activation = deferredActivation.has(key)
+        ? new Promise((resolve, reject) => {
+          resolveActivation = resolve;
+          rejectActivation = reject;
+        })
+        : Promise.resolve({ type: "agent_start" });
       const control = {
-        completion: new Promise((resolve) => resolveCompletion = resolve),
+        completion: new Promise((resolve, reject) => {
+          resolveCompletion = resolve;
+          rejectCompletion = reject;
+        }),
+        activate: () => resolveActivation?.({ type: "agent_start" }),
+        rejectActivation: () => rejectActivation?.(new Error("raw activation failure")),
         resolve: (events = coordinatorEvents(key)) => resolveCompletion(events),
+        reject: () => rejectCompletion(new Error("raw completion failure")),
         terminated: false,
       };
       controls.set(key, control);
       return {
         child: {},
-        activation: Promise.resolve({ type: "agent_start" }),
+        activation,
         completion: control.completion,
         terminate: async () => { control.terminated = true; },
       };
     },
-    undefined,
+    (receipt) => {
+      notifications.push(receipt.packet_id);
+      return { status: "delivered" };
+    },
     (observation) => lifecycle.push(observation),
   );
-  return { ...harness({ manager }), manager, launches, controls, lifecycle };
+  return { ...harness({ manager }), manager, launches, controls, lifecycle, notifications };
 }
 
 async function nextTurn() {
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function exerciseFailureDrain(mode) {
+  const prefix = `coord-drain-${mode}`;
+  const taskA = coordinatorTask(`${prefix}-a`);
+  const taskB = coordinatorTask(`${prefix}-b`, {
+    campaignId: `campaign-${mode}-b`,
+    assetRootId: `asset-${mode}-b`,
+    executorId: `executor-${mode}-b`,
+  });
+  const queue = realManagerHarness({
+    deferActivationKeys: mode === "activation" ? [taskA.packet.packet_id] : [],
+  });
+  let firstDispatch;
+  if (mode === "activation") {
+    firstDispatch = autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(taskA));
+    await nextTurn();
+  } else {
+    await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(taskA));
+  }
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(taskB));
+  check(`${mode}: B retained while A owned`, queue.manager.pendingCount() === 1);
+
+  if (mode === "activation") {
+    queue.controls.get(taskA.packet.packet_id).rejectActivation();
+    await firstDispatch;
+  } else if (mode === "process") {
+    queue.controls.get(taskA.packet.packet_id).reject();
+  } else {
+    queue.controls.get(taskA.packet.packet_id).resolve([]);
+  }
+  await nextTurn();
+  check(`${mode}: B launches once after A failure`, queue.launches.join(",") === `${taskA.packet.packet_id},${taskB.packet.packet_id}`);
+
+  // A late completion after failed activation has no registered completion
+  // consumer and must not launch B again.
+  if (mode === "activation") queue.controls.get(taskA.packet.packet_id).resolve();
+  queue.controls.get(taskB.packet.packet_id).resolve();
+  await nextTurn();
+  await nextTurn();
+  const byKey = new Map(queue.lifecycle.map((entry) => [entry.dispatch_key, entry]));
+  const expectedFailure = {
+    activation: ["activation", "coordinator_activation_failed"],
+    process: ["process", "coordinator_process_failed"],
+    framing: ["framing", "coordinator_result_invalid"],
+  }[mode];
+  check(`${mode}: one bounded lifecycle per key`, queue.lifecycle.length === 2
+    && byKey.size === 2
+    && byKey.get(taskA.packet.packet_id)?.status === "terminal_failure"
+    && byKey.get(taskA.packet.packet_id)?.failure_stage === expectedFailure[0]
+    && byKey.get(taskA.packet.packet_id)?.failure_class === expectedFailure[1]
+    && !Object.hasOwn(byKey.get(taskA.packet.packet_id), "error")
+    && byKey.get(taskB.packet.packet_id)?.status === "completed");
+  check(`${mode}: notification cannot duplicate drain`, queue.notifications.join(",") === taskB.packet.packet_id
+    && queue.launches.length === 2
+    && queue.manager.pendingCount() === 0);
 }
 
 // Extractor: all named canonical producer projections resolve, without recursion.
@@ -271,7 +348,7 @@ async function nextTurn() {
   check("A and B complete once", queue.lifecycle.filter((entry) => entry.status === "completed").length === 2);
 }
 
-// One pending slot coalesces to the latest canonical wakeup.
+// One pending slot per canonical queue identity coalesces to its latest wakeup.
 {
   const queue = realManagerHarness();
   const taskA = coordinatorTask("coord-coalesce-a");
@@ -280,7 +357,7 @@ async function nextTurn() {
   await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(taskA));
   await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(taskB));
   await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(taskC));
-  check("pending slot remains bounded", queue.manager.pendingCount() === 1);
+  check("same-queue pending slot remains one", queue.manager.pendingCount() === 1);
   check("older pending wakeup is visibly superseded", queue.manager.state("coord-coalesce-b")?.failure_class === "coordinator_superseded"
     && queue.manager.state("coord-coalesce-b")?.superseded_by === "coord-coalesce-c"
     && queue.lifecycle.some((entry) => entry.dispatch_key === "coord-coalesce-b"
@@ -292,6 +369,66 @@ async function nextTurn() {
   queue.controls.get("coord-coalesce-c").resolve();
   await nextTurn();
 }
+
+// Different canonical queue identities are retained independently and drain FIFO.
+{
+  const queue = realManagerHarness();
+  const taskA = coordinatorTask("coord-cross-a");
+  const taskB = coordinatorTask("coord-cross-b", {
+    campaignId: "campaign-b", assetRootId: "asset-b", executorId: "executor-b",
+  });
+  const taskC = coordinatorTask("coord-cross-c", {
+    campaignId: "campaign-c", assetRootId: "asset-c", executorId: "executor-c",
+  });
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(taskA));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(taskB));
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(taskC));
+  check("cross-queue wakeups both retained", queue.manager.pendingCount() === 2
+    && queue.manager.state(taskB.packet.packet_id)?.status === "pending"
+    && queue.manager.state(taskC.packet.packet_id)?.status === "pending");
+  queue.controls.get(taskA.packet.packet_id).resolve();
+  await nextTurn();
+  check("cross-queue B launches first", queue.launches.join(",") === "coord-cross-a,coord-cross-b");
+  queue.controls.get(taskB.packet.packet_id).resolve();
+  await nextTurn();
+  check("cross-queue C launches second", queue.launches.join(",") === "coord-cross-a,coord-cross-b,coord-cross-c");
+  queue.controls.get(taskC.packet.packet_id).resolve();
+  await nextTurn();
+  check("cross-queue keys each complete once", queue.lifecycle.filter((entry) => entry.status === "completed").length === 3
+    && new Set(queue.launches).size === 3);
+}
+
+// The pending-per-queue map is explicitly capped and overflow asks for re-emission.
+{
+  const queue = realManagerHarness();
+  const active = coordinatorTask("coord-cap-active");
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", directTakeoverResult(active));
+  for (let index = 0; index < runtime.MAX_PENDING_COORDINATOR_QUEUES; index += 1) {
+    const task = coordinatorTask(`coord-cap-${index}`, {
+      campaignId: `campaign-cap-${index}`,
+      assetRootId: `asset-cap-${index}`,
+      executorId: `executor-cap-${index}`,
+    });
+    await autoDispatchCoordinator(queue.deps, "coc_invoke", sceneContextResult(task));
+  }
+  const overflow = coordinatorTask("coord-cap-overflow", {
+    campaignId: "campaign-cap-overflow",
+    assetRootId: "asset-cap-overflow",
+    executorId: "executor-cap-overflow",
+  });
+  await autoDispatchCoordinator(queue.deps, "coc_invoke", sessionResumeResult(overflow));
+  const overflowAudit = queue.audit.at(-1);
+  check("pending queue cap enforced", queue.manager.pendingCount() === runtime.MAX_PENDING_COORDINATOR_QUEUES);
+  check("overflow remains retryable and visible", overflowAudit?.status === "pending_overflow"
+    && overflowAudit?.reemit_required === true
+    && overflowAudit?.retry_after_active_terminal === true
+    && queue.manager.state(overflow.packet.packet_id) === undefined);
+  await queue.manager.shutdown();
+}
+
+await exerciseFailureDrain("activation");
+await exerciseFailureDrain("process");
+await exerciseFailureDrain("framing");
 
 // Shutdown terminalizes active and pending ownership; late completion cannot drain.
 {

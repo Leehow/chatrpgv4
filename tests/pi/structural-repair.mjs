@@ -43,7 +43,7 @@ function coordinatorTask(packetId = "coord-structural", maxLeaves = 2) {
     instruction_ref: coordinatorInstruction, model_policy: "inherit_parent",
     packet: {
       schema_version: 1, contract_id: "coc.source-coordinator.v1", packet_id: packetId,
-      workspace_root: root, campaign_id: "fixture", max_leaves: maxLeaves,
+      workspace_root: root, campaign_id: "fixture", asset_root_id: "asset-fixture", max_leaves: maxLeaves,
       claim_operation: { operation: "progressive.claim_host_work", prefilled_arguments: { executor_id: "pi:test", limit: maxLeaves, result_delivery: "task_return_to_parent" } },
       fulfill_operation: { operation: "progressive.fulfill_host_work" },
     },

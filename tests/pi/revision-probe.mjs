@@ -48,11 +48,26 @@ function coordinatorTask(maxLeaves = 2) {
     instruction_ref: instructionCoordinator, model_policy: "inherit_parent",
     packet: {
       schema_version: 1, contract_id: "coc.source-coordinator.v1", packet_id: "coord-1",
-      workspace_root: root, campaign_id: "fixture", max_leaves: maxLeaves,
+      workspace_root: root, campaign_id: "fixture", asset_root_id: "asset-fixture", max_leaves: maxLeaves,
       claim_operation: { operation: "progressive.claim_host_work", prefilled_arguments: { executor_id: "pi:test", limit: maxLeaves, result_delivery: "task_return_to_parent" } },
       fulfill_operation: { operation: "progressive.fulfill_host_work" },
     },
   };
+}
+function coordinatorEvents(task) {
+  const receipt = coordinatorResult(task);
+  return [
+    {
+      type: "message_end",
+      message: {
+        role: "toolResult", toolCallId: `call-${task.packet.packet_id}`,
+        toolName: "coc_run_source_coordinator",
+        content: [{ type: "text", text: JSON.stringify(receipt) }],
+        details: receipt, isError: false,
+      },
+    },
+    ...terminal(receipt),
+  ];
 }
 
 async function privateSurface(role, task) {
@@ -130,19 +145,18 @@ try {
   });
   let submittedSettled = false;
   const launchOne = { cwd: root, provider: "provider-1", modelId: "model-1", thinking: "low" };
+  const secondTask = { ...coordinatorTask(), packet: { ...coordinatorTask().packet, packet_id: "coord-2" } };
+  const launchTwo = { cwd: root, provider: "provider-2", modelId: "model-2", thinking: "high" };
   const submittedPromise = manager.submit(coordinatorTask(), launchOne).then((value) => { submittedSettled = true; return value; });
   await Promise.resolve();
   const waitedForActivation = !submittedSettled;
-  let concurrentRejected = false;
-  try { await manager.submit({ ...coordinatorTask(), packet: { ...coordinatorTask().packet, packet_id: "coord-2" } }, launchOne); } catch { concurrentRejected = true; }
+  const concurrentPending = await manager.submit(secondTask, launchTwo);
   activationResolve({ type: "agent_start" });
   const submitted = await submittedPromise;
-  completionResolve(terminal(coordinatorResult(coordinatorTask())));
+  completionResolve(coordinatorEvents(coordinatorTask()));
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
-  const secondTask = { ...coordinatorTask(), packet: { ...coordinatorTask().packet, packet_id: "coord-2" } };
-  const launchTwo = { cwd: root, provider: "provider-2", modelId: "model-2", thinking: "high" };
-  const secondSubmitted = await manager.submit(secondTask, launchTwo);
-  secondCompletionResolve(terminal(coordinatorResult(secondTask)));
+  const secondReplay = await manager.submit(secondTask, launchTwo);
+  secondCompletionResolve(coordinatorEvents(secondTask));
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 0));
   await manager.shutdown();
 
@@ -292,6 +306,19 @@ try {
   const childAbortRejected = await abortRun.completion.then(() => false, () => true);
   delete process.env.COC_PI_COMMAND;
 
+  const approvedPendingSemantics = {
+    distinctPacketRetained: concurrentPending.status === "pending" && concurrentPending.dispatch_key === "coord-2",
+    retainedPacketLaunched: secondReplay.status === "submitted" && secondReplay.dispatch_key === "coord-2",
+    queuedLaunchKeepsOwnContext: JSON.stringify(capturedLaunches) === JSON.stringify([launchOne, launchTwo]),
+    activationFailureBounded: failureDuplicate.status === "terminal_failure"
+      && failureDuplicate.failure_stage === "activation"
+      && failureDuplicate.failure_class === "coordinator_activation_failed"
+      && !Object.hasOwn(failureDuplicate, "error"),
+  };
+  if (!Object.values(approvedPendingSemantics).every(Boolean)) {
+    throw new Error(`revision probe approved pending semantics failed: ${JSON.stringify(approvedPendingSemantics)}`);
+  }
+
   process.stdout.write(JSON.stringify({
     strictHappy: strictHappy.status,
     rejects,
@@ -299,8 +326,9 @@ try {
     claimCount: calls.filter((call) => call.operation === "progressive.claim_host_work").length,
     fulfillCount: calls.filter((call) => call.operation === "progressive.fulfill_host_work").length,
     forwardedIdentity,
-    waitedForActivation, concurrentRejected, submitted, activeShutdownTerminated,
-    secondSubmitted, capturedLaunches,
+    waitedForActivation, concurrentPending, submitted, activeShutdownTerminated,
+    secondReplay, capturedLaunches,
+    approvedPendingSemantics,
     failureDuplicate,
     readHappy,
     duplicateRefsRejected, symlinkRejected,

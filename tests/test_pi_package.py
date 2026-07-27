@@ -135,15 +135,26 @@ def test_revision_component_chain_bindings_activation_roles_and_secrets():
     assert result["fulfillCount"] == 2
     assert result["forwardedIdentity"] is True
     assert result["waitedForActivation"] is True
-    assert result["concurrentRejected"] is True
+    assert result["concurrentPending"] == {
+        "status": "pending",
+        "dispatch_key": "coord-2",
+        "role": "coordinator",
+        "pending_queue_count": 1,
+    }
     assert result["submitted"]["status"] == "submitted"
-    assert result["secondSubmitted"]["status"] == "submitted"
+    assert result["secondReplay"]["status"] == "submitted"
     assert result["capturedLaunches"] == [
         {"cwd": str(ROOT), "provider": "provider-1", "modelId": "model-1", "thinking": "low"},
         {"cwd": str(ROOT), "provider": "provider-2", "modelId": "model-2", "thinking": "high"},
     ]
+    assert all(result["approvedPendingSemantics"].values())
     assert result["activeShutdownTerminated"] is True
-    assert result["failureDuplicate"]["status"] == "terminal_failure"
+    assert result["failureDuplicate"] == {
+        "status": "terminal_failure",
+        "dispatch_key": "coord-1",
+        "failure_stage": "activation",
+        "failure_class": "coordinator_activation_failed",
+    }
     assert result["duplicateRefsRejected"] is True
     assert result["symlinkRejected"] is True
     assert result["tokenValueRejected"] is True
@@ -271,22 +282,32 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
         "duplicateRejected": True,
         "bindingRejected": True,
         "authorityRejected": True,
+        "contentDetailsRejected": True,
         "impossibleRejected": True,
         "designIssueRejected": True,
     }
     assert result["manager"]["notifications"] == 1
+    assert result["manager"]["lifecycle"] == 1
     assert result["manager"]["duplicateDiagnostic"]["status"] == "completed"
     assert result["manager"]["duplicateDiagnostic"]["terminal_receipt"]["packet_id"] == "coord-manager"
-    assert result["manager"]["absentState"]["status"] == "terminal_failure"
-    assert "exactly one lifecycle tool result" in result["manager"]["absentState"]["error"]
+    assert result["manager"]["absentState"] == {
+        "status": "terminal_failure",
+        "dispatch_key": "coord-manager-absent",
+        "failure_stage": "framing",
+        "failure_class": "coordinator_result_invalid",
+    }
     assert result["manager"]["absentNotifications"] == 0
+    assert result["manager"]["absentLifecycle"] == 1
+    assert result["manager"]["rejectedLifecycle"] == 1
     assert result["manager"]["throwingState"]["status"] == "completed"
     assert result["manager"]["throwingState"]["terminal_receipt"]["packet_id"] == "coord-manager-notify-failure"
     assert result["manager"]["throwingState"]["notification"] == {
         "status": "failed", "failure_class": "notification_callback_failed",
     }
+    assert result["manager"]["throwingLifecycle"] == 1
     assert result["manager"]["closingRejected"] is True
     assert result["manager"]["raceActive"] == 0
+    assert result["manager"]["raceLifecycle"] == 1
     assert result["notification"] == {
         "appended": 1,
         "sent": 1,
@@ -310,6 +331,14 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
         "partialAppendCalls": 1,
         "partialSendCalls": 1,
     }
+
+
+def test_pi_auto_dispatch_uses_named_paths_and_bounded_pending_queues():
+    completed = subprocess.run(
+        ["node", "--experimental-strip-types", str(ROOT / "tests/pi/auto-dispatch-smoke.mjs"), str(ROOT)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    assert completed.stdout.strip() == "auto-dispatch smoke OK"
 
 
 def test_real_node22_preactivation_failures_are_owned_and_cleaned():
