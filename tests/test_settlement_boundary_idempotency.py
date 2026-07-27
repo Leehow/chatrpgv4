@@ -2,8 +2,9 @@
 
 One settlement per (session_id, investigator_id, settlement_type): a repeat
 ``development.settle`` for an already-settled session/chapter boundary returns
-the original receipt with no new rolls or state diffs, and the battle report
-renders settlement from the canonical boundary receipt(s).
+the original receipt payload plus explicit replay provenance, with no new rolls
+or state diffs, and the battle report renders settlement from the canonical
+boundary receipt(s).
 """
 from __future__ import annotations
 
@@ -155,6 +156,27 @@ def _development_events(campaign: Path) -> list[dict]:
     ]
 
 
+def _assert_replay_of(replay: dict, original: dict) -> None:
+    replay_payload = dict(replay)
+    provenance = {
+        "replayed": replay_payload.pop("replayed"),
+        "replayed_from_boundary_id": replay_payload.pop(
+            "replayed_from_boundary_id"
+        ),
+        "replayed_from_ending_id": replay_payload.pop("replayed_from_ending_id"),
+    }
+    assert replay_payload == original
+    assert provenance == {
+        "replayed": True,
+        "replayed_from_boundary_id": original["result"]["settlement_boundary"][
+            "boundary_id"
+        ],
+        "replayed_from_ending_id": original["result"]["ending_evidence"][
+            "ending_id"
+        ],
+    }
+
+
 def _ledger(campaign: Path) -> dict:
     path = (
         campaign
@@ -188,7 +210,7 @@ def test_duplicate_boundary_settlement_replays_original_receipt(tmp_path):
     # original receipt is replayed without new rolls or state diffs.
     _persist_ending(campaign, "boundary-ending-two")
     second = _settle(tmp_path, character, 999)
-    assert second == first
+    _assert_replay_of(second, first)
     assert (campaign / "logs" / "rolls.jsonl").read_bytes() == rolls_before
     assert (campaign / "logs" / "events.jsonl").read_bytes() != events_before  # ending event only
     assert len(_development_events(campaign)) == 1
@@ -200,7 +222,7 @@ def test_duplicate_boundary_settlement_replays_original_receipt(tmp_path):
     # A third ending behaves identically.
     _persist_ending(campaign, "boundary-ending-three")
     third = _settle(tmp_path, character, 7)
-    assert third == first
+    _assert_replay_of(third, first)
     assert len(_luck_rolls(campaign)) == 1
 
     ledger = _ledger(campaign)
@@ -243,11 +265,13 @@ def test_empty_first_boundary_settles_once_then_replays(tmp_path):
     _persist_ending(campaign, "empty-ending-one")
     first = _settle(tmp_path, character, 3)
     assert first["result"]["luck_recovery"]["roll"] is not None
-    assert first["result"]["settlement_boundary"]["session_ids"] == []
+    assert first["result"]["settlement_boundary"]["session_ids"] == [
+        "camp:session:1"
+    ]
 
     _persist_ending(campaign, "empty-ending-two")
     second = _settle(tmp_path, character, 5)
-    assert second == first
+    _assert_replay_of(second, first)
     assert len(_luck_rolls(campaign)) == 1
     assert len(_ledger(campaign)["boundaries"]) == 1
 
@@ -284,9 +308,9 @@ def test_report_renders_canonical_boundary_receipt_not_last_ending(tmp_path):
     _persist_ending(campaign, "report-ending-one")
     first = _settle(tmp_path, character, 4)
     _persist_ending(campaign, "report-ending-two")
-    assert _settle(tmp_path, character, 8) == first
+    _assert_replay_of(_settle(tmp_path, character, 8), first)
     _persist_ending(campaign, "report-ending-three")
-    assert _settle(tmp_path, character, 9) == first
+    _assert_replay_of(_settle(tmp_path, character, 9), first)
 
     run = tmp_path / "run"
     run_campaign = run / "sandbox" / ".coc" / "campaigns" / "camp"
