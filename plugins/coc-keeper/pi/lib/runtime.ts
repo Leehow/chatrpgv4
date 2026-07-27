@@ -271,7 +271,6 @@ export type LeaseLifecycleObservation = {
   failure_class?:
     | "lease_ownership_mismatch"
     | "lease_ownership_partial"
-    | "lease_ownership_unconfirmed"
     | "lease_response_invalid"
     | "lease_call_failed";
   recovery?: "bounded_ttl";
@@ -1185,6 +1184,74 @@ export function rejectSecretDisclosure(value: unknown, secrets: Record<string, s
   visit(value);
 }
 
+type LeaseCoverageDisposition =
+  | { status: "succeeded" }
+  | {
+    status: "partial" | "rejected" | "failed";
+    failure_class:
+      | "lease_ownership_mismatch"
+      | "lease_ownership_partial"
+      | "lease_response_invalid";
+  };
+
+function exactJobIdArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const ids: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !item.trim() || item !== item.trim()) return null;
+    ids.push(item);
+  }
+  if (new Set(ids).size !== ids.length) return null;
+  return ids;
+}
+
+function classifyLeaseCoverage(
+  positiveValue: unknown,
+  skippedValue: unknown,
+  leaseIds: string[],
+  expectedJobsByLease: ReadonlyMap<string, ReadonlySet<string>>,
+  remainingJobsByLease: ReadonlyMap<string, ReadonlySet<string>>,
+): LeaseCoverageDisposition {
+  const positive = exactJobIdArray(positiveValue);
+  const skipped = exactJobIdArray(skippedValue);
+  if (!positive || !skipped) {
+    return { status: "failed", failure_class: "lease_response_invalid" };
+  }
+  const positiveSet = new Set(positive);
+  const skippedSet = new Set(skipped);
+  if (positive.some((jobId) => skippedSet.has(jobId))) {
+    return { status: "failed", failure_class: "lease_response_invalid" };
+  }
+  const allowed = new Set<string>();
+  const currentlyOpen = new Set<string>();
+  for (const leaseId of leaseIds) {
+    const expected = expectedJobsByLease.get(leaseId);
+    const remaining = remainingJobsByLease.get(leaseId);
+    if (!expected || !remaining) {
+      return { status: "failed", failure_class: "lease_response_invalid" };
+    }
+    for (const jobId of expected) allowed.add(jobId);
+    for (const jobId of remaining) currentlyOpen.add(jobId);
+  }
+  if (
+    positive.some((jobId) => !allowed.has(jobId))
+    || skipped.some((jobId) => !allowed.has(jobId))
+  ) {
+    return { status: "failed", failure_class: "lease_response_invalid" };
+  }
+  const missing = [...currentlyOpen].filter((jobId) => !positiveSet.has(jobId));
+  const skippedOpen = [...currentlyOpen].filter((jobId) => skippedSet.has(jobId));
+  if (missing.length === 0 && skippedOpen.length === 0) return { status: "succeeded" };
+  if (
+    currentlyOpen.size > 0
+    && positiveSet.size === 0
+    && skippedOpen.length === currentlyOpen.size
+  ) {
+    return { status: "rejected", failure_class: "lease_ownership_mismatch" };
+  }
+  return { status: "partial", failure_class: "lease_ownership_partial" };
+}
+
 export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: {
   call: McpCaller;
   spawnLeaf: (task: JsonObject, signal?: AbortSignal) => Promise<LeafExecutionOutcome>;
@@ -1267,6 +1334,20 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
   const tasks = claimData.dispatch_tasks.map((value) => validateLeafTask(value));
   const bindings = tasks.map(expectedBinding);
   if (new Set(bindings.map((binding) => binding.packetId)).size !== bindings.length) throw new Error("claim returned duplicate Pi packet tasks");
+  const allClaimedJobIds = bindings.flatMap((binding) => binding.jobIds);
+  if (new Set(allClaimedJobIds).size !== allClaimedJobIds.length) throw new Error("claim returned duplicate job bindings");
+  const expectedJobsByLease = new Map(
+    bindings.map((binding) => [
+      binding.packetId,
+      new Set(binding.jobIds),
+    ]),
+  );
+  const remainingJobsByLease = new Map(
+    bindings.map((binding) => [
+      binding.packetId,
+      new Set(binding.jobIds),
+    ]),
+  );
   const openLeaseIds = new Set(bindings.map((binding) => binding.packetId));
   let heartbeatStopped = false;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1296,42 +1377,27 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
           },
         }, dependencies.signal);
         const data = asObject(envelope.data, "renew lease data");
-        const renewed = Array.isArray(data.renewed_job_ids) ? data.renewed_job_ids : null;
-        const skipped = Array.isArray(data.skipped_job_ids) ? data.skipped_job_ids : null;
-        if (!renewed || !skipped) {
-          await observeLease(leaseObservation("renew", "failed", leaseIds, {
-            failure_class: "lease_response_invalid",
-          }));
-          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-            reason: "lease_renewal_unconfirmed",
-            recovery: "bounded_ttl",
-          }));
-        } else if (renewed.length > 0 && skipped.length > 0) {
-          await observeLease(leaseObservation("renew", "partial", leaseIds, {
-            failure_class: "lease_ownership_partial",
-          }));
-          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-            reason: "lease_renewal_partially_unconfirmed",
-            recovery: "bounded_ttl",
-          }));
-        } else if (renewed.length === 0 && skipped.length > 0) {
-          await observeLease(leaseObservation("renew", "rejected", leaseIds, {
-            failure_class: "lease_ownership_mismatch",
-          }));
-          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-            reason: "lease_renewal_rejected",
-            recovery: "bounded_ttl",
-          }));
-        } else if (renewed.length === 0) {
-          await observeLease(leaseObservation("renew", "rejected", leaseIds, {
-            failure_class: "lease_ownership_unconfirmed",
-          }));
-          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-            reason: "lease_renewal_unconfirmed",
-            recovery: "bounded_ttl",
-          }));
-        } else {
+        const coverage = classifyLeaseCoverage(
+          data.renewed_job_ids,
+          data.skipped_job_ids,
+          leaseIds,
+          expectedJobsByLease,
+          remainingJobsByLease,
+        );
+        if (coverage.status === "succeeded") {
           await observeLease(leaseObservation("renew", "succeeded", leaseIds));
+        } else {
+          await observeLease(leaseObservation("renew", coverage.status, leaseIds, {
+            failure_class: coverage.failure_class,
+          }));
+          await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+            reason: coverage.status === "failed"
+              ? "lease_renewal_response_invalid"
+              : coverage.status === "rejected"
+                ? "lease_renewal_rejected"
+                : "lease_renewal_partially_unconfirmed",
+            recovery: "bounded_ttl",
+          }));
         }
       } catch {
         await observeLease(leaseObservation("renew", "failed", leaseIds, {
@@ -1373,7 +1439,8 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
       failureClass ??= "leaf_result_invalid";
       continue;
     }
-    let taskFulfilled = true;
+    const leaseId = bindings[index].packetId;
+    const remainingJobs = remainingJobsByLease.get(leaseId)!;
     for (const row of validated.results as JsonObject[]) {
       try {
         await dependencies.call("coc_invoke", {
@@ -1383,13 +1450,13 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
           arguments: { worker_result: row },
         }, dependencies.signal);
         fulfilled += 1;
+        remainingJobs.delete(nonEmpty(row.job_id, "worker result job_id"));
+        if (remainingJobs.size === 0) openLeaseIds.delete(leaseId);
       } catch {
         failureClass ??= "fulfill_rejected";
-        taskFulfilled = false;
         break;
       }
     }
-    if (taskFulfilled) openLeaseIds.delete(bindings[index].packetId);
   }
   // Keep lease renewal active through the bounded fulfillment loop. A slow
   // canonical fulfill is still using the lease; stopping after leaf completion
@@ -1420,46 +1487,28 @@ export async function runCoordinatorLifecycle(taskValue: unknown, dependencies: 
         },
       });
       const data = asObject(envelope.data, "release lease data");
-      const released = Array.isArray(data.released_job_ids) ? data.released_job_ids : null;
-      const skipped = Array.isArray(data.skipped_job_ids) ? data.skipped_job_ids : null;
-      if (!released || !skipped) {
-        await observeLease(leaseObservation("release", "failed", leaseIds, {
-          reason,
-          failure_class: "lease_response_invalid",
-        }));
-        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-          reason: "graceful_release_unconfirmed",
-          recovery: "bounded_ttl",
-        }));
-      } else if (released.length > 0 && skipped.length > 0) {
-        await observeLease(leaseObservation("release", "partial", leaseIds, {
-          reason,
-          failure_class: "lease_ownership_partial",
-        }));
-        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-          reason: "graceful_release_partially_unconfirmed",
-          recovery: "bounded_ttl",
-        }));
-      } else if (released.length === 0 && skipped.length > 0) {
-        await observeLease(leaseObservation("release", "rejected", leaseIds, {
-          reason,
-          failure_class: "lease_ownership_mismatch",
-        }));
-        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-          reason: "wrong_owner_or_closed_lease",
-          recovery: "bounded_ttl",
-        }));
-      } else if (released.length === 0) {
-        await observeLease(leaseObservation("release", "rejected", leaseIds, {
-          reason,
-          failure_class: "lease_ownership_unconfirmed",
-        }));
-        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
-          reason: "graceful_release_unconfirmed",
-          recovery: "bounded_ttl",
-        }));
-      } else {
+      const coverage = classifyLeaseCoverage(
+        data.released_job_ids,
+        data.skipped_job_ids,
+        leaseIds,
+        expectedJobsByLease,
+        remainingJobsByLease,
+      );
+      if (coverage.status === "succeeded") {
         await observeLease(leaseObservation("release", "succeeded", leaseIds, { reason }));
+      } else {
+        await observeLease(leaseObservation("release", coverage.status, leaseIds, {
+          reason,
+          failure_class: coverage.failure_class,
+        }));
+        await observeLease(leaseObservation("ttl_fallback", "ttl_fallback", leaseIds, {
+          reason: coverage.status === "failed"
+            ? "graceful_release_response_invalid"
+            : coverage.status === "rejected"
+              ? "wrong_owner_or_unconfirmed_lease"
+              : "graceful_release_partially_unconfirmed",
+          recovery: "bounded_ttl",
+        }));
       }
     } catch {
       await observeLease(leaseObservation("release", "failed", leaseIds, {

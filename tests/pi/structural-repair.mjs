@@ -77,12 +77,19 @@ function rejects(call, predicate = () => true) {
 function check(label, condition) {
   if (!condition) throw new Error(`structural repair assertion failed: ${label}`);
 }
+const FIXTURE_JOBS_BY_LEASE = new Map([
+  ["packet-1", ["job-1a", "job-1b", "job-1c"]],
+  ["packet-2", ["job-2"]],
+]);
 function leaseLifecycleSuccess(args) {
+  const jobs = (args.arguments?.lease_ids || []).flatMap(
+    (leaseId) => FIXTURE_JOBS_BY_LEASE.get(leaseId) || [],
+  );
   if (args.operation === "progressive.renew_host_work_leases") {
-    return { data: { renewed_job_ids: ["fixture-job"], skipped_job_ids: [] } };
+    return { data: { renewed_job_ids: jobs, skipped_job_ids: [] } };
   }
   if (args.operation === "progressive.release_host_work_leases") {
-    return { data: { released_job_ids: ["fixture-job"], skipped_job_ids: [] } };
+    return { data: { released_job_ids: jobs, skipped_job_ids: [] } };
   }
   return null;
 }
@@ -299,17 +306,12 @@ try {
   let resolveRenewLeaf;
   let leafExecutionCompleted = false;
   let renewDuringFulfill = 0;
-  let renewResponseCount = 0;
   const renewLifecyclePromise = runtime.runCoordinatorLifecycle(coordinatorTask("coord-renew", 1), {
     call: async (_name, args, signal) => {
       if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1] } };
       renewCalls.push({ args, signalAborted: signal?.aborted === true });
       if (args.operation === "progressive.renew_host_work_leases") {
         if (leafExecutionCompleted) renewDuringFulfill += 1;
-        renewResponseCount += 1;
-        if (renewResponseCount > 1) {
-          return { data: { renewed_job_ids: ["job-1a"], skipped_job_ids: ["foreign-job"] } };
-        }
         return { data: { renewed_job_ids: ["job-1a", "job-1b", "job-1c"], skipped_job_ids: [] } };
       }
       if (args.operation === "progressive.fulfill_host_work") {
@@ -344,16 +346,76 @@ try {
     && releaseAfterFulfill.length === 0
     && renewDuringFulfill >= 1
     && renewAudit.some((entry) => entry.phase === "renew" && entry.status === "succeeded")
-    && renewAudit.some((entry) => (
-      entry.phase === "renew"
-      && entry.status === "partial"
-      && entry.failure_class === "lease_ownership_partial"
+    && !renewAudit.some((entry) => entry.phase === "ttl_fallback"));
+
+  const COVERAGE_MODES = ["exact", "subset", "mixed", "foreign", "duplicate", "overlap", "malformed"];
+  function coverageResponse(mode, positiveField, skippedField) {
+    const positive = {
+      exact: ["job-1a", "job-1b", "job-1c"],
+      subset: ["job-1a"],
+      mixed: ["job-1a"],
+      foreign: ["foreign-job"],
+      duplicate: ["job-1a", "job-1a", "job-1b", "job-1c"],
+      overlap: ["job-1a", "job-1b", "job-1c"],
+      malformed: ["job-1a", 7, "job-1b", "job-1c"],
+    }[mode];
+    const skipped = mode === "mixed"
+      ? ["job-1b", "job-1c"]
+      : mode === "overlap" ? ["job-1a"] : [];
+    return { data: { [positiveField]: positive, [skippedField]: skipped } };
+  }
+  function coverageSummary(resultValue, audit, phase) {
+    const disposition = audit.find((entry) => entry.phase === phase);
+    return {
+      resultStatus: resultValue.status,
+      lifecycleStatus: disposition?.status ?? null,
+      failureClass: disposition?.failure_class ?? null,
+      ttlFallback: audit.some((entry) => (
+        entry.phase === "ttl_fallback"
+        && entry.status === "ttl_fallback"
+        && entry.recovery === "bounded_ttl"
+      )),
+    };
+  }
+  async function renewCoverageProbe(mode) {
+    const audit = [];
+    let resolveLeaf;
+    const lifecycle = runtime.runCoordinatorLifecycle(coordinatorTask(`coord-renew-coverage-${mode}`, 1), {
+      call: async (_name, args) => {
+        if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1] } };
+        if (args.operation === "progressive.renew_host_work_leases") {
+          return coverageResponse(mode, "renewed_job_ids", "skipped_job_ids");
+        }
+        if (args.operation === "progressive.fulfill_host_work") return { data: { accepted: true } };
+        throw new Error("renew coverage probe must not release a fulfilled lease");
+      },
+      spawnLeaf: async () => new Promise((resolveExecution) => { resolveLeaf = resolveExecution; }),
+      leaseHeartbeatMs: 1,
+      leaseCallGraceMs: 50,
+      onLeaseLifecycle: (entry) => audit.push(entry),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 4));
+    resolveLeaf(success(result1));
+    const lifecycleResult = await lifecycle;
+    return coverageSummary(lifecycleResult, audit, "renew");
+  }
+  const renewCoverage = {};
+  for (const mode of COVERAGE_MODES) renewCoverage[mode] = await renewCoverageProbe(mode);
+  check("renew response coverage is exact and conservative",
+    renewCoverage.exact.lifecycleStatus === "succeeded"
+    && renewCoverage.exact.ttlFallback === false
+    && renewCoverage.subset.lifecycleStatus === "partial"
+    && renewCoverage.subset.failureClass === "lease_ownership_partial"
+    && renewCoverage.subset.ttlFallback === true
+    && renewCoverage.mixed.lifecycleStatus === "partial"
+    && renewCoverage.mixed.failureClass === "lease_ownership_partial"
+    && renewCoverage.mixed.ttlFallback === true
+    && ["foreign", "duplicate", "overlap", "malformed"].every((mode) => (
+      renewCoverage[mode].lifecycleStatus === "failed"
+      && renewCoverage[mode].failureClass === "lease_response_invalid"
+      && renewCoverage[mode].ttlFallback === true
     ))
-    && renewAudit.some((entry) => (
-      entry.phase === "ttl_fallback"
-      && entry.reason === "lease_renewal_partially_unconfirmed"
-      && entry.recovery === "bounded_ttl"
-    )));
+    && COVERAGE_MODES.every((mode) => renewCoverage[mode].resultStatus === "fulfilled"));
 
   // Interrupt/shutdown gets a separate, non-aborted cleanup grace and exact
   // release. It never reuses the already-aborted leaf signal.
@@ -401,9 +463,7 @@ try {
         if (mode === "wrong-owner") {
           return { data: { released_job_ids: [], skipped_job_ids: ["job-1a", "job-1b", "job-1c"] } };
         }
-        if (mode === "partial-owner") {
-          return { data: { released_job_ids: ["job-1a"], skipped_job_ids: ["job-1b", "job-1c"] } };
-        }
+        if (COVERAGE_MODES.includes(mode)) return coverageResponse(mode, "released_job_ids", "skipped_job_ids");
         throw new Error("raw release transport failure");
       },
       spawnLeaf: async () => failure("process", "leaf_dispatch_failed"),
@@ -414,7 +474,11 @@ try {
     return { lifecycleResult, calls, audit };
   }
   const wrongOwnerRelease = await releaseFailureProbe("wrong-owner");
-  const partialOwnerRelease = await releaseFailureProbe("partial-owner");
+  const releaseCoverage = {};
+  for (const mode of COVERAGE_MODES) {
+    const probe = await releaseFailureProbe(mode);
+    releaseCoverage[mode] = coverageSummary(probe.lifecycleResult, probe.audit, "release");
+  }
   const failedRelease = await releaseFailureProbe("transport");
   check("wrong-owner release fails closed and falls back only to TTL",
     wrongOwnerRelease.lifecycleResult.status === "failed"
@@ -429,18 +493,51 @@ try {
       && entry.recovery === "bounded_ttl"
       && entry.status !== "succeeded"
     )));
-  check("partial release remains unconfirmed and relies on bounded TTL for skipped ownership",
-    partialOwnerRelease.lifecycleResult.status === "failed"
-    && partialOwnerRelease.audit.some((entry) => (
-      entry.phase === "release"
-      && entry.status === "partial"
-      && entry.failure_class === "lease_ownership_partial"
-    ))
-    && partialOwnerRelease.audit.some((entry) => (
-      entry.phase === "ttl_fallback"
-      && entry.reason === "graceful_release_partially_unconfirmed"
-      && entry.recovery === "bounded_ttl"
+  check("release response coverage is exact and conservative",
+    releaseCoverage.exact.lifecycleStatus === "succeeded"
+    && releaseCoverage.exact.ttlFallback === false
+    && releaseCoverage.subset.lifecycleStatus === "partial"
+    && releaseCoverage.subset.failureClass === "lease_ownership_partial"
+    && releaseCoverage.subset.ttlFallback === true
+    && releaseCoverage.mixed.lifecycleStatus === "partial"
+    && releaseCoverage.mixed.failureClass === "lease_ownership_partial"
+    && releaseCoverage.mixed.ttlFallback === true
+    && ["foreign", "duplicate", "overlap", "malformed"].every((mode) => (
+      releaseCoverage[mode].lifecycleStatus === "failed"
+      && releaseCoverage[mode].failureClass === "lease_response_invalid"
+      && releaseCoverage[mode].ttlFallback === true
     )));
+
+  // One row fulfills canonically, the next rejects, and release confirms only
+  // the still-open rows. A skipped already-closed row is not misclassified.
+  const partialFulfillAudit = [];
+  const partialFulfillRelease = await runtime.runCoordinatorLifecycle(coordinatorTask("coord-release-after-partial-fulfill", 1), {
+    call: async (_name, args) => {
+      if (args.operation === "progressive.claim_host_work") return { data: { dispatch_tasks: [task1] } };
+      if (args.operation === "progressive.fulfill_host_work") {
+        if (args.arguments.worker_result.job_id === "job-1a") return { data: { accepted: true } };
+        throw new Error("fixture fulfill rejection");
+      }
+      if (args.operation === "progressive.release_host_work_leases") {
+        return {
+          data: {
+            released_job_ids: ["job-1b", "job-1c"],
+            skipped_job_ids: ["job-1a"],
+          },
+        };
+      }
+      throw new Error("unexpected partial fulfill lifecycle call");
+    },
+    spawnLeaf: async () => success(result1),
+    leaseHeartbeatMs: 1_000,
+    leaseCallGraceMs: 50,
+    onLeaseLifecycle: (entry) => partialFulfillAudit.push(entry),
+  });
+  check("partial fulfill releases only remaining jobs without false TTL fallback",
+    partialFulfillRelease.status === "partial"
+    && partialFulfillRelease.fulfilled_result_count === 1
+    && partialFulfillAudit.some((entry) => entry.phase === "release" && entry.status === "succeeded")
+    && !partialFulfillAudit.some((entry) => entry.phase === "ttl_fallback"));
   check("release transport failure keeps terminal audit without raw error",
     failedRelease.lifecycleResult.status === "failed"
     && failedRelease.audit.some((entry) => (
@@ -637,6 +734,7 @@ try {
       renewDuringFulfill,
       fulfillPreserved: renewLifecycleResult.status === "fulfilled",
       renewAudit,
+      renewCoverage,
       releaseAfterFulfill: releaseAfterFulfill.length,
       interruptRelease: interruptRelease ? {
         signalAborted: interruptRelease.signalAborted,
@@ -644,7 +742,12 @@ try {
       } : null,
       interruptStatus: interruptResult.status,
       wrongOwnerAudit: wrongOwnerRelease.audit,
-      partialOwnerAudit: partialOwnerRelease.audit,
+      releaseCoverage,
+      partialFulfillRelease: {
+        resultStatus: partialFulfillRelease.status,
+        fulfilledResultCount: partialFulfillRelease.fulfilled_result_count,
+        audit: partialFulfillAudit,
+      },
       releaseFailureAudit: failedRelease.audit,
       hardCrashRecoveryClaim: "bounded TTL only; no graceful release receipt exists after abrupt process loss",
     },

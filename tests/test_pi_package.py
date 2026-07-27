@@ -283,18 +283,32 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
     assert lease["renewDuringFulfill"] >= 1
     assert lease["fulfillPreserved"] is True
     assert lease["releaseAfterFulfill"] == 0
-    assert any(
-        entry["phase"] == "renew"
-        and entry["status"] == "partial"
-        and entry["failure_class"] == "lease_ownership_partial"
-        for entry in lease["renewAudit"]
-    )
-    assert any(
-        entry["phase"] == "ttl_fallback"
-        and entry["reason"] == "lease_renewal_partially_unconfirmed"
-        and entry["recovery"] == "bounded_ttl"
-        for entry in lease["renewAudit"]
-    )
+    assert all(entry["status"] == "succeeded" for entry in lease["renewAudit"])
+    assert lease["renewCoverage"]["exact"] == {
+        "resultStatus": "fulfilled",
+        "lifecycleStatus": "succeeded",
+        "failureClass": None,
+        "ttlFallback": False,
+    }
+    assert lease["renewCoverage"]["subset"] == {
+        "resultStatus": "fulfilled",
+        "lifecycleStatus": "partial",
+        "failureClass": "lease_ownership_partial",
+        "ttlFallback": True,
+    }
+    assert lease["renewCoverage"]["mixed"] == {
+        "resultStatus": "fulfilled",
+        "lifecycleStatus": "partial",
+        "failureClass": "lease_ownership_partial",
+        "ttlFallback": True,
+    }
+    for mode in ("foreign", "duplicate", "overlap", "malformed"):
+        assert lease["renewCoverage"][mode] == {
+            "resultStatus": "fulfilled",
+            "lifecycleStatus": "failed",
+            "failureClass": "lease_response_invalid",
+            "ttlFallback": True,
+        }
     assert lease["interruptStatus"] == "failed"
     assert lease["interruptRelease"] == {
         "signalAborted": False,
@@ -325,32 +339,47 @@ def test_pi_leaf_provider_context_failure_isolation_and_terminal_bridge():
             "asset_root_id": "asset-fixture",
             "executor_id": "pi:test",
             "lease_ids": ["packet-1"],
-            "reason": "wrong_owner_or_closed_lease",
+            "reason": "wrong_owner_or_unconfirmed_lease",
             "recovery": "bounded_ttl",
         },
     ]
-    assert lease["partialOwnerAudit"] == [
+    assert lease["releaseCoverage"]["exact"] == {
+        "resultStatus": "failed",
+        "lifecycleStatus": "succeeded",
+        "failureClass": None,
+        "ttlFallback": False,
+    }
+    assert lease["releaseCoverage"]["subset"] == {
+        "resultStatus": "failed",
+        "lifecycleStatus": "partial",
+        "failureClass": "lease_ownership_partial",
+        "ttlFallback": True,
+    }
+    assert lease["releaseCoverage"]["mixed"] == {
+        "resultStatus": "failed",
+        "lifecycleStatus": "partial",
+        "failureClass": "lease_ownership_partial",
+        "ttlFallback": True,
+    }
+    for mode in ("foreign", "duplicate", "overlap", "malformed"):
+        assert lease["releaseCoverage"][mode] == {
+            "resultStatus": "failed",
+            "lifecycleStatus": "failed",
+            "failureClass": "lease_response_invalid",
+            "ttlFallback": True,
+        }
+    assert lease["partialFulfillRelease"]["resultStatus"] == "partial"
+    assert lease["partialFulfillRelease"]["fulfilledResultCount"] == 1
+    assert lease["partialFulfillRelease"]["audit"] == [
         {
             "schema_version": 1,
             "contract_id": "coc.pi-source-lease-lifecycle.v1",
             "phase": "release",
-            "status": "partial",
+            "status": "succeeded",
             "asset_root_id": "asset-fixture",
             "executor_id": "pi:test",
             "lease_ids": ["packet-1"],
-            "reason": "coordinator_failed",
-            "failure_class": "lease_ownership_partial",
-        },
-        {
-            "schema_version": 1,
-            "contract_id": "coc.pi-source-lease-lifecycle.v1",
-            "phase": "ttl_fallback",
-            "status": "ttl_fallback",
-            "asset_root_id": "asset-fixture",
-            "executor_id": "pi:test",
-            "lease_ids": ["packet-1"],
-            "reason": "graceful_release_partially_unconfirmed",
-            "recovery": "bounded_ttl",
+            "reason": "coordinator_partial",
         },
     ]
     assert lease["releaseFailureAudit"] == [
