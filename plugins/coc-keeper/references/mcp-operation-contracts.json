@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:b39e4c6a39564969c739ffd5a05aef038dcf1523a4c9343a1b60efdeff683ac0",
+  "content_sha256": "sha256:888c9c0db64d6459330178a0a63b95112205a75c37d4f41f6ec7d08409d99ad3",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -884,7 +884,7 @@
     },
     "progressive.claim_host_work": {
       "canonical_operation": "progressive.claim_host_work",
-      "description": "Atomically lease up to four exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
+      "description": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context. Canonical operation `progressive.claim_host_work`; the result envelope is authoritative.",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -935,7 +935,7 @@
         "type": "object"
       },
       "needs_campaign": true,
-      "summary": "Atomically lease up to four exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context."
+      "summary": "Atomically lease up to four contract-compatible exact cached-page work groups for bounded host-native source-pack subagents. named_submit returns exact dispatch tasks whose child submits directly; task_return_to_parent returns exact dispatch tasks whose natural completion is strictly fulfilled once by the parent; return_to_parent returns bare coc.source-pack-worker.v1 packets for the lifecycle coordinator. Children never write campaign/module state directly. A capability-advertised lifecycle/source owner may instead compile one returned bare packet in its existing semantic context."
     },
     "progressive.follow_mentions": {
       "canonical_operation": "progressive.follow_mentions",

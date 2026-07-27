@@ -587,6 +587,7 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "validOpeningReturned": True,
         "validOpeningText": "马车在白昼里停到城堡门前。",
         "mismatchedDigestRejected": True,
+        "rawUtf8DigestRejected": True,
         "finalizedArmed": True,
         "earlyMismatch": {
             "armed": True,
@@ -600,17 +601,39 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "arbitraryBeforeExactReturned": True,
         "toolBearingAfterFinalizeTypes": ["toolCall"],
         "finalizedNarrationReturned": True,
-        "redundantMetaReturnedTypes": [],
         "mismatchAfterExactReturned": True,
         "finalizedWake": {
             "appended": 1,
+            "sent": 0,
+            "noModelOpportunity": True,
+            "report": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "suppressed_nonblocking",
+                "player_transcript": "suppressed",
+            },
+        },
+        "failedBackgroundWake": {
+            "appended": 1,
+            "sent": 0,
+            "decideWakeCalls": 0,
+            "noModelOpportunity": True,
+            "report": {
+                "status": "delivered",
+                "append_entry": "delivered",
+                "hidden_continuation": "suppressed_nonblocking",
+                "player_transcript": "suppressed",
+            },
+        },
+        "actionRequiredWake": {
+            "appended": 1,
             "sent": 1,
-            "continuationClass": (
-                "nonblocking_background_after_finalized_output"
-            ),
-            "dispatchClass": "nonblocking_background",
-            "playerTurnEpoch": 1,
-            "digestMatches": True,
+            "continuationClass": "action_required",
+            "dispatchClass": "action_required",
+            "options": {
+                "triggerTurn": True,
+                "deliverAs": "followUp",
+            },
             "report": {
                 "status": "delivered",
                 "append_entry": "delivered",
@@ -729,7 +752,7 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
             "armed": True,
             "earlyContextBeforeExactDelivery": {
                 "appended": 1,
-                "sent": 1,
+                "sent": 0,
                 "continuationClass": (
                     "nonblocking_background_after_finalized_output"
                 ),
@@ -740,13 +763,68 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "report": {
                     "status": "delivered",
                     "append_entry": "delivered",
-                    "hidden_continuation": "delivered",
+                    "hidden_continuation": "suppressed_nonblocking",
                     "player_transcript": "suppressed",
                 },
             },
             "exactVisible": True,
             "redundantSuppressed": True,
             "queuedCustomObserved": True,
+        },
+    }
+
+
+def test_real_pi_gateway_uses_canonical_finalizer_string_digest():
+    result = _node(ROOT / "tests/pi/finalization-gateway.mjs", str(ROOT))
+    assert result == {
+        "piVersion": "0.81.1",
+        "gatewayCalls": [
+            {
+                "name": "coc_invoke",
+                "params": {
+                    "operation": "turn.finalize",
+                    "campaign": "hoyk-pi-grok-fix7-20260727",
+                    "arguments": {},
+                },
+            },
+            {
+                "name": "coc_invoke",
+                "params": {
+                    "operation": "turn.finalize",
+                    "campaign": "hoyk-pi-grok-fix7-20260727",
+                    "arguments": {},
+                },
+            },
+        ],
+        "gatewayEnvelope": {
+            "ok": True,
+            "tool": "turn.finalize",
+            "canonicalOperation": "turn.finalize",
+            "renderedTextExact": True,
+            "renderedDigestExact": True,
+        },
+        "digest": {
+            "receipt": (
+                "sha256:09f98a4af3dd62654cff7d27c7adc1fac2224955463f845"
+                "7eba953b44767a806"
+            ),
+            "canonical": (
+                "sha256:09f98a4af3dd62654cff7d27c7adc1fac2224955463f845"
+                "7eba953b44767a806"
+            ),
+            "rawUtf8": (
+                "sha256:64d5d68441b331cc3a9df159f366c4fc574c12082ba73f9"
+                "a7128d88186553919"
+            ),
+            "canonicalMatchesReceipt": True,
+            "rawUtf8RejectedByContract": True,
+        },
+        "exactVisible": True,
+        "redundantSuppressed": True,
+        "queuedCustomObserved": True,
+        "rawGatewayRejected": {
+            "exactVisible": True,
+            "followUpVisible": True,
         },
     }
 
@@ -813,11 +891,13 @@ def test_pi_projection_uses_task_return_and_repository_produced_leaf_wrappers(mo
     assert retry_contract["interim_terminal_receipt_published"] is False
     assert retry_contract["interim_parent_wake"] is False
     assert canonical["lifecycle"]["pi_parent_terminal_delivery"] == (
-        "append_final_receipt_then_deduped_hidden_followup_with_"
-        "triggerTurn_true"
+        "append_final_receipt_then_wake_only_structured_blocking_or_"
+        "action_required"
     )
+    assert canonical["lifecycle"]["pi_nonblocking_background_parent_wake"] is False
     assert canonical["lifecycle"]["pi_hidden_continuation_source"] == (
-        "final_validated_receipt_only"
+        "final_validated_receipt_plus_structured_blocking_or_action_"
+        "required_dispatch_class"
     )
     assert canonical["result_contract"]["optional_fields"] == [
         "diagnostics", "lease_release",

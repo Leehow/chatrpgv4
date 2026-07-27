@@ -34,6 +34,7 @@ project = _load("coc_module_project_qw", str(SCRIPTS / "coc_module_project.py"))
 worker = _load("coc_module_queue_worker_qw", str(SCRIPTS / "coc_module_queue_worker.py"))
 state = _load("coc_state_qw", str(SCRIPTS / "coc_state.py"))
 toolbox = _load("coc_toolbox_qw", str(SCRIPTS / "coc_toolbox.py"))
+wire = _load("coc_mcp_wire_qw", str(SCRIPTS / "coc_mcp_wire.py"))
 
 
 def _skeleton():
@@ -1662,6 +1663,104 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
     refreshed = assets.list_host_work_requests(tmp_path, "qw-demo")
     assert {row["dispatch_attempts"] for row in refreshed} == {2}
     assert {row["executor_id"] for row in refreshed} == {"host-b"}
+
+
+def test_fix7_heterogeneous_body_contracts_claim_one_bounded_family(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The FIX7 partial-neighbor/deepen topology must not overflow first claim."""
+    monkeypatch.setenv("COC_HOST", "pi")
+    cid = _campaign(tmp_path)
+    skeleton = assets.get_skeleton(tmp_path, "qw-demo")
+    skeleton["locations"].append({
+        "location_id": "annex",
+        "title": "Annex",
+        "parse_state": "named_only",
+        "source_span": {"pdf_index_start": 1, "pdf_index_end": 1},
+    })
+    assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    _clear_queue(tmp_path)
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="partial_neighbor",
+        target_id="cellar",
+        priority=80,
+        reason="FIX7 neighbor prefetch",
+        consumer_refs=_consumer(tmp_path, intent_kind="neighbor_prefetch"),
+    )
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="annex",
+        priority=80,
+        reason="FIX7 active location deepening",
+        consumer_refs=_consumer(tmp_path, intent_kind="scene_enter"),
+    )
+    produced = worker.run_worker_once(tmp_path, parallel=2)
+    assert produced["claimed"] == 2
+    ready = assets.list_host_work_requests(tmp_path, "qw-demo")
+    assert {row["kind"] for row in ready} == {
+        "partial_neighbor", "deepen_location",
+    }
+    assert len({row["work_group_id"] for row in ready}) == 1
+    assert len({
+        assets._compact_canonical_sha256(
+            assets.get_host_work_request(
+                tmp_path, "qw-demo", row["job_id"],
+            )["result_contract"]
+        )
+        for row in ready
+    }) == 2
+
+    claimed, _warnings, _hints = toolbox.TOOLS[
+        "progressive.claim_host_work"
+    ]["handler"](
+        toolbox.Ctx(tmp_path, cid),
+        {
+            "executor_id": "pi:fix7-topology",
+            "limit": 2,
+            "lease_seconds": 600,
+            "result_delivery": "task_return_to_parent",
+        },
+    )
+    assert claimed["ready_group_count"] == 2
+    assert claimed["leased_group_count"] == 1
+    assert claimed["dispatch_task_count"] == 1
+    [task] = claimed["dispatch_tasks"]
+    assert len(task["packet"]["requests"]) == 1
+    claimed_kind = task["packet"]["requests"][0]["kind"]
+    assert claimed_kind in {"partial_neighbor", "deepen_location"}
+
+    envelope = {
+        "ok": True,
+        "tool": "progressive.claim_host_work",
+        "data": claimed,
+        "warnings": [],
+        "hints": [],
+    }
+    projected = wire.project_envelope(
+        "progressive.claim_host_work",
+        envelope,
+        contract_digest="sha256:" + "f" * 64,
+    )
+    assert wire.transport_bytes(projected) <= wire.MAX_INLINE_BYTES
+    assert projected["wire"].get(
+        "claim_dispatch_projection_failed",
+    ) is not True
+    assert projected["data"].get("wire_projection_failed") is not True
+    assert len(projected["data"]["dispatch_tasks"]) == 1
+    assert projected["data"]["dispatch_tasks"][0]["packet"]["packet_id"] == (
+        task["packet"]["packet_id"]
+    )
+    unclaimed = [
+        row for row in assets.list_host_work_requests(tmp_path, "qw-demo")
+        if row["kind"] != claimed_kind
+    ]
+    assert len(unclaimed) == 1
+    assert assets.host_work_operational_class(unclaimed[0]) == "runnable"
 
 
 def test_claim_orders_current_dependency_before_higher_priority_near_term(

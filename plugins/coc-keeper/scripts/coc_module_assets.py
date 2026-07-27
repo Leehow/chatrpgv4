@@ -4979,10 +4979,26 @@ def claim_host_work_requests(
                 continue
             rows.append((path, request))
 
-        grouped: dict[str, list[tuple[Path, dict[str, Any]]]] = {}
+        grouped: dict[
+            tuple[str, str],
+            list[tuple[Path, dict[str, Any]]],
+        ] = {}
         for path, request in rows:
             group_id = str(request.get("work_group_id") or request.get("job_id") or "")
-            grouped.setdefault(group_id, []).append((path, request))
+            result_contract = request.get("result_contract")
+            contract_family = (
+                "sha256:" + _compact_canonical_sha256(result_contract)
+                if isinstance(result_contract, dict)
+                else "missing:" + str(request.get("kind") or "")
+            )
+            # Page-scope coalescing must not merge incompatible closed result
+            # families into one claim packet. The Pi wire can deduplicate exact
+            # repeated hashes, but two different contracts must remain separate
+            # bounded leaves rather than overflow the transport projection.
+            grouped.setdefault(
+                (group_id, contract_family),
+                [],
+            ).append((path, request))
         if max_dispatch_attempts is not None:
             grouped = {
                 group_id: members
@@ -5005,9 +5021,21 @@ def claim_host_work_requests(
                 item[0],
             ),
         )
+        selected_groups: list[
+            tuple[
+                tuple[str, str],
+                list[tuple[Path, dict[str, Any]]],
+            ]
+        ] = []
+        if ordered_groups:
+            selected_family = ordered_groups[0][0][1]
+            selected_groups = [
+                item for item in ordered_groups
+                if item[0][1] == selected_family
+            ][:limit]
 
         packets: list[dict[str, Any]] = []
-        for group_id, members in ordered_groups[:limit]:
+        for (group_id, _contract_family), members in selected_groups:
             lease_material = (
                 f"{executor}:{group_id}:{now.isoformat()}:"
                 + ",".join(str(row[1].get("job_id") or "") for row in members)

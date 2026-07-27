@@ -18,6 +18,12 @@ const { createAssistantMessageEventStream } = await import(path.join(
 const handlers = new Map();
 const openingContinuationGate = new main.OpeningTerminalContinuationGate();
 const digest = (text) => (
+  `sha256:${createHash("sha256").update(
+    JSON.stringify(text),
+    "utf8",
+  ).digest("hex")}`
+);
+const rawTextDigest = (text) => (
   `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`
 );
 main.registerPlayerTranscriptGate({
@@ -450,6 +456,12 @@ async function realEarlyFinalizationLoopProbe() {
         && event.message?.role === "user"
       ) {
         armed = gate.markFinalizedOutputReady(exactText, digest(exactText));
+        // Capture the exact context that an already-queued/older host followUp
+        // would carry. The current producer below must durable-append only.
+        earlyContinuationDetails = gate.coordinatorContinuationContext(
+          "coord-real-early-finalizer-probe",
+          "fulfilled",
+        );
         earlyPublicationReport = await main.publishCoordinatorTerminal(
           {
             appendEntry: (...args) => earlyAppended.push(args),
@@ -468,7 +480,6 @@ async function realEarlyFinalizationLoopProbe() {
             gate.coordinatorContinuationContext(dispatchKey, terminalStatus)
           ),
         );
-        earlyContinuationDetails = earlyPublished[0][0].details;
       }
       if (event.type === "message_end" && event.message.role === "assistant") {
         finals.push(transformed?.message ?? event.message);
@@ -573,6 +584,12 @@ const mismatchedDigestRejected = (
     `sha256:${"0".repeat(64)}`,
   ) === false
 );
+const rawUtf8DigestRejected = (
+  openingContinuationGate.markFinalizedOutputReady(
+    finalizedText,
+    rawTextDigest(finalizedText),
+  ) === false
+);
 const finalizedArmed = openingContinuationGate.markFinalizedOutputReady(
   finalizedText,
   finalizedSha256,
@@ -639,14 +656,43 @@ const finalizedWakeReport = await main.publishCoordinatorTerminal({
     terminalStatus,
   )
 ));
-await emit("message_start", {
-  role: "custom",
-  ...finalizedWakeSent[0][0],
-});
-const redundantMetaResult = await emit("message_end", {
-  role: "assistant",
-  content: [{ type: "text", text: "你接下来想做什么？" }],
-});
+const failedBackgroundSent = [];
+const failedBackgroundAppended = [];
+let failedBackgroundDecideWakeCalls = 0;
+const failedBackgroundReport = await main.publishCoordinatorTerminal({
+  appendEntry: (...args) => failedBackgroundAppended.push(args),
+  sendMessage: (...args) => failedBackgroundSent.push(args),
+}, {
+  ...finalizedWakeReceipt,
+  packet_id: "coord-failed-nonblocking",
+  status: "failed",
+  failure_class: "leaf_dispatch_failed",
+}, new Set(), () => {
+  failedBackgroundDecideWakeCalls += 1;
+  return true;
+}, (dispatchKey, terminalStatus) => (
+  openingContinuationGate.coordinatorContinuationContext(
+    dispatchKey,
+    terminalStatus,
+  )
+));
+const actionRequiredSent = [];
+const actionRequiredAppended = [];
+const actionRequiredReport = await main.publishCoordinatorTerminal({
+  appendEntry: (...args) => actionRequiredAppended.push(args),
+  sendMessage: (...args) => actionRequiredSent.push(args),
+}, {
+  ...finalizedWakeReceipt,
+  packet_id: "coord-action-required",
+  status: "failed",
+  failure_class: "source_action_required",
+}, new Set(), () => true, (dispatchKey) => ({
+  continuation_class: "action_required",
+  dispatch_class: "action_required",
+  action_required: true,
+  player_turn_epoch: 1,
+  dispatch_key: dispatchKey,
+}));
 
 openingContinuationGate.trackOpeningDispatch("coord-blocking-after-finalized");
 openingContinuationGate.markTerminalBlocker();
@@ -816,6 +862,7 @@ process.stdout.write(JSON.stringify({
   validOpeningReturned: validOpeningResult === undefined,
   validOpeningText: validOpening.content[0].text,
   mismatchedDigestRejected,
+  rawUtf8DigestRejected,
   finalizedArmed,
   earlyMismatch: {
     armed: earlyMismatchArmed,
@@ -829,19 +876,28 @@ process.stdout.write(JSON.stringify({
   arbitraryBeforeExactReturned: arbitraryBeforeExact === undefined,
   toolBearingAfterFinalizeTypes: types(toolBearingAfterFinalize.message),
   finalizedNarrationReturned: finalizedNarrationResult === undefined,
-  redundantMetaReturnedTypes: types(redundantMetaResult.message),
   mismatchAfterExactReturned: mismatchAfterExact === undefined,
   finalizedWake: {
     appended: finalizedWakeAppended.length,
     sent: finalizedWakeSent.length,
-    continuationClass:
-      finalizedWakeSent[0][0].details.continuation_class,
-    dispatchClass: finalizedWakeSent[0][0].details.dispatch_class,
-    playerTurnEpoch: finalizedWakeSent[0][0].details.player_turn_epoch,
-    digestMatches:
-      finalizedWakeSent[0][0].details.finalized_rendered_sha256
-        === digest(finalizedText),
+    noModelOpportunity: finalizedWakeSent.length === 0,
     report: finalizedWakeReport,
+  },
+  failedBackgroundWake: {
+    appended: failedBackgroundAppended.length,
+    sent: failedBackgroundSent.length,
+    decideWakeCalls: failedBackgroundDecideWakeCalls,
+    noModelOpportunity: failedBackgroundSent.length === 0,
+    report: failedBackgroundReport,
+  },
+  actionRequiredWake: {
+    appended: actionRequiredAppended.length,
+    sent: actionRequiredSent.length,
+    continuationClass:
+      actionRequiredSent[0][0].details.continuation_class,
+    dispatchClass: actionRequiredSent[0][0].details.dispatch_class,
+    options: actionRequiredSent[0][1],
+    report: actionRequiredReport,
   },
   blockingAfterFinalizedReturned: blockingAfterFinalized === undefined,
   userText: user.content[0].text,

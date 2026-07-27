@@ -67,8 +67,12 @@ function visibleAssistantText(message: AssistantContentMessage): string | null {
   return texts.length > 0 ? texts.join("") : null;
 }
 
-function textSha256(text: string): string {
-  return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
+function canonicalJsonValueSha256(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) {
+    throw new Error("canonical JSON value is not serializable");
+  }
+  return `sha256:${createHash("sha256").update(encoded, "utf8").digest("hex")}`;
 }
 
 function withoutAssistantText<T>(message: T): T {
@@ -181,7 +185,7 @@ export class OpeningTerminalContinuationGate {
   ): boolean {
     if (
       !renderedText
-      || renderedSha256 !== textSha256(renderedText)
+      || renderedSha256 !== canonicalJsonValueSha256(renderedText)
     ) {
       return false;
     }
@@ -295,7 +299,7 @@ export class OpeningTerminalContinuationGate {
       this.nonblockingContinuation = null;
     }
     const finalized = this.finalizedOutput;
-    const visibleSha256 = textSha256(visibleText);
+    const visibleSha256 = canonicalJsonValueSha256(visibleText);
     if (
       finalized?.delivered === false
       && finalized.epoch === this.playerTurnEpoch
@@ -411,36 +415,52 @@ export async function publishCoordinatorTerminal(
   if (dispatchKey && terminalStatus) {
     if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
     else {
-      const shouldWake = await decideWake(dispatchKey);
-      if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
-      else if (!shouldWake) {
+      const context = continuationContext?.(dispatchKey, terminalStatus);
+      const structuredNonblocking = (
+        context?.dispatch_class === "nonblocking_background"
+        && (
+          context?.continuation_class === "nonblocking_background"
+          || context?.continuation_class
+            === "nonblocking_background_after_finalized_output"
+        )
+        && context?.action_required !== true
+      );
+      if (structuredNonblocking) {
         continuedDispatches.add(dispatchKey);
-        continuationStatus = "suppressed_consumed";
-      }
-      else {
-        try {
-          const failureClass = typeof receipt.failure_class === "string"
-            ? receipt.failure_class.trim()
-            : null;
-          const notice = {
-            dispatch_key: dispatchKey,
-            status: terminalStatus,
-            terminal: true,
-            failure_class: failureClass,
-            automatic_retry_remaining: false,
-            ...(continuationContext?.(dispatchKey, terminalStatus) ?? {}),
-          };
-          // Pinned Pi queues followUp while streaming and uses triggerTurn when
-          // idle. display:false keeps this one-shot liveness notice out of TUI.
-          pi.sendMessage({
-            customType: "coc-source-coordinator-terminal-continuation",
-            content: JSON.stringify(notice),
-            display: false,
-            details: notice,
-          }, { triggerTurn: true, deliverAs: "followUp" });
+        continuationStatus = "suppressed_nonblocking";
+      } else {
+        const shouldWake = await decideWake(dispatchKey);
+        if (continuedDispatches.has(dispatchKey)) continuationStatus = "deduplicated";
+        else if (!shouldWake) {
           continuedDispatches.add(dispatchKey);
-          continuationStatus = "delivered";
-        } catch { continuationStatus = "failed"; }
+          continuationStatus = "suppressed_consumed";
+        }
+        else {
+          try {
+            const failureClass = typeof receipt.failure_class === "string"
+              ? receipt.failure_class.trim()
+              : null;
+            const notice = {
+              dispatch_key: dispatchKey,
+              status: terminalStatus,
+              terminal: true,
+              failure_class: failureClass,
+              automatic_retry_remaining: false,
+              ...(context ?? {}),
+            };
+            // Only a structured blocking/action-required terminal creates a
+            // model turn. Ordinary background terminals are durable audit
+            // entries and become visible through the next natural turn.
+            pi.sendMessage({
+              customType: "coc-source-coordinator-terminal-continuation",
+              content: JSON.stringify(notice),
+              display: false,
+              details: notice,
+            }, { triggerTurn: true, deliverAs: "followUp" });
+            continuedDispatches.add(dispatchKey);
+            continuationStatus = "delivered";
+          } catch { continuationStatus = "failed"; }
+        }
       }
     }
   }
@@ -672,7 +692,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       ...launch, signal: launchSignal,
     }),
     (receipt) => {
-      if (receipt.status !== "fulfilled") {
+      const dispatchKey = typeof receipt.packet_id === "string"
+        ? receipt.packet_id.trim()
+        : "";
+      const terminalStatus = typeof receipt.status === "string"
+        ? receipt.status.trim()
+        : "";
+      const continuationContext = (
+        openingContinuationGate.coordinatorContinuationContext(
+          dispatchKey,
+          terminalStatus,
+        )
+      );
+      if (
+        continuationContext.dispatch_class === "blocking_opening"
+        && receipt.status !== "fulfilled"
+      ) {
         openingContinuationGate.markTerminalBlocker();
       }
       return publishCoordinatorTerminal(
@@ -680,12 +715,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         receipt,
         ownedContinuedDispatches,
         (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
-        (dispatchKey, terminalStatus) => (
-          openingContinuationGate.coordinatorContinuationContext(
-            dispatchKey,
-            terminalStatus,
-          )
-        ),
+        () => continuationContext,
       );
     },
     (observation) => {

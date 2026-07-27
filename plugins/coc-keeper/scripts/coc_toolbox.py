@@ -14819,10 +14819,10 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
 
 @tool(
     "progressive.claim_host_work",
-    "Atomically lease up to four exact cached-page work groups for bounded "
-    "host-native source-pack subagents. named_submit returns exact dispatch "
-    "tasks whose child submits directly; task_return_to_parent returns exact "
-    "dispatch tasks whose natural completion is strictly fulfilled once by the "
+    "Atomically lease up to four contract-compatible exact cached-page work "
+    "groups for bounded host-native source-pack subagents. named_submit returns "
+    "exact dispatch tasks whose child submits directly; task_return_to_parent "
+    "returns exact dispatch tasks whose natural completion is strictly fulfilled once by the "
     "parent; return_to_parent returns bare coc.source-pack-worker.v1 packets "
     "for the lifecycle coordinator. Children never write campaign/module state "
     "directly. A capability-advertised lifecycle/source owner may instead "
