@@ -12,7 +12,7 @@ main.registerPlayerTranscriptGate({
     registered.push(handler);
     handlers.set(type, registered);
   },
-}, () => openingContinuationGate.markVisibleAssistantFinal());
+}, () => openingContinuationGate.acceptVisibleAssistantFinal());
 
 async function emit(type, message) {
   let result;
@@ -68,6 +68,19 @@ const narrationFinal = {
   content: [{ type: "text", text: "雨水沿着窗玻璃缓缓滑落。" }],
 };
 const narrationResult = await emit("message_end", narrationFinal);
+
+openingContinuationGate.trackOpeningDispatch("coord-wait-text");
+const waitFinal = {
+  role: "assistant",
+  content: [{ type: "text", text: "解析仍在进行，请稍候。" }],
+};
+const waitResult = await emit("message_end", waitFinal);
+openingContinuationGate.markOpeningProjected();
+const validOpening = {
+  role: "assistant",
+  content: [{ type: "text", text: "马车在白昼里停到城堡门前。" }],
+};
+const validOpeningResult = await emit("message_end", validOpening);
 
 const user = {
   role: "user",
@@ -142,6 +155,11 @@ const unfinishedDeferredBeforeEnd = unfinishedSent.length === 0
   && unfinishedAppended.length === 1;
 openingContinuationGate.markAgentEnd();
 const unfinishedReport = await unfinishedPromise;
+const terminalBlocker = {
+  role: "assistant",
+  content: [{ type: "text", text: "开场资料处理终止，需要重新确认来源边界。" }],
+};
+const terminalBlockerResult = await emit("message_end", terminalBlocker);
 
 const reusedDispatchKey = "coord-opening-session-reuse";
 const staleSent = [];
@@ -177,6 +195,9 @@ process.stdout.write(JSON.stringify({
   toolFinalRole: toolFinalResult.message.role,
   narrationReturned: narrationResult === undefined,
   narrationText: narrationFinal.content[0].text,
+  awaitingWaitReturnedTypes: types(waitResult.message),
+  validOpeningReturned: validOpeningResult === undefined,
+  validOpeningText: validOpening.content[0].text,
   userText: user.content[0].text,
   terminal: {
     appended: terminalAppended.length,
@@ -201,6 +222,7 @@ process.stdout.write(JSON.stringify({
     unfinishedAppended: unfinishedAppended.length,
     unfinishedDeferredBeforeEnd,
     unfinishedReport,
+    terminalBlockerReturned: terminalBlockerResult === undefined,
     sessionReuse: {
       staleSent: staleSent.length,
       staleAppended: staleAppended.length,

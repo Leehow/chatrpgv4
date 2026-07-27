@@ -779,6 +779,26 @@ def test_project_skeleton_refreshes_stale_public_setup_briefing(tmp_path: Path):
     assert campaign["character_creation"]["generated_at"] == generated_at
 
 
+def test_generated_briefing_summary_uses_effective_campaign_era():
+    markdown = project.coc_character_creation_briefing.render_briefing(
+        {
+            "title": "Medieval Campaign",
+            "era": "medieval",
+        },
+        {
+            "title": "Castle Mystery",
+        },
+        {
+            "structure_type": "branching",
+        },
+        {},
+        language="zh-Hans",
+    )
+    assert "**年代**：medieval" in markdown
+    assert "玩家安全信息：medieval" in markdown
+    assert "1920" not in markdown
+
+
 def test_project_skeleton_carries_module_daylight_clock_into_campaign(tmp_path: Path):
     skeleton = json.loads(json.dumps(_skeleton()))
     skeleton["module_identity"]["era"] = "1597 Spain"

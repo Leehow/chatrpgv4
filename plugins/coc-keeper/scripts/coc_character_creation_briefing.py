@@ -163,14 +163,19 @@ def _era_label(value: Any, language: str) -> str:
     return text
 
 
-def _safe_summary(scenario: dict[str, Any], module_meta: dict[str, Any], title: str, language: str) -> str:
+def _safe_summary(
+    scenario: dict[str, Any],
+    module_meta: dict[str, Any],
+    title: str,
+    era: str,
+    language: str,
+) -> str:
     player_safe_summary = scenario.get("player_safe_summary")
     if isinstance(player_safe_summary, str) and player_safe_summary.strip():
         return player_safe_summary.strip()
     player_safe_summary = module_meta.get("player_safe_summary")
     if isinstance(player_safe_summary, str) and player_safe_summary.strip():
         return player_safe_summary.strip()
-    era = _era_label(module_meta.get("era") or "1920s", language)
     structure_type = str(module_meta.get("structure_type") or "")
     if language == "zh-Hans":
         if structure_type == "hybrid_mega":
@@ -263,7 +268,7 @@ def render_briefing(
     era = _era_label(module_meta.get("era") or campaign.get("era") or "1920s", language)
     structure = _structure_label(module_meta.get("structure_type"), language)
     source = _localized_title(_source_label(source_map, scenario), campaign, language)
-    summary = _safe_summary(scenario, module_meta, title, language)
+    summary = _safe_summary(scenario, module_meta, title, era, language)
     flags = _content_flags(module_meta.get("content_flags"), language)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 

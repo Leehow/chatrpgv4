@@ -9,9 +9,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { McpJsonlClient, JsonObject } from "./runtime.ts";
 import {
+  activeTableIdentityMessage,
+  buildActiveTableIdentity,
   buildHudSnapshot,
   formatHudDetail,
   formatHudFooterLines,
+  type ActiveTableIdentity,
   type HudSnapshot,
 } from "./hud-model.ts";
 
@@ -33,6 +36,7 @@ export class CocHudController {
   private campaignId: string | null = null;
   private enabled = true;
   private snapshot: HudSnapshot | null = null;
+  private tableIdentity: ActiveTableIdentity | null = null;
   private refreshing = false;
   private uiCtx: ExtensionContext | null = null;
   private clientFactory: ((ctx: ExtensionContext) => McpJsonlClient) | null = null;
@@ -47,7 +51,12 @@ export class CocHudController {
 
   rememberCampaign(campaign: unknown) {
     if (typeof campaign === "string" && campaign.trim()) {
-      this.campaignId = campaign.trim();
+      const next = campaign.trim();
+      if (next !== this.campaignId) {
+        this.snapshot = null;
+        this.tableIdentity = null;
+      }
+      this.campaignId = next;
     }
   }
 
@@ -57,6 +66,12 @@ export class CocHudController {
 
   getSnapshot(): HudSnapshot | null {
     return this.snapshot;
+  }
+
+  activeTableIdentityContext(): JsonObject | null {
+    return this.tableIdentity
+      ? activeTableIdentityMessage(this.tableIdentity)
+      : null;
   }
 
   async refresh(ctx?: ExtensionContext): Promise<void> {
@@ -70,6 +85,7 @@ export class CocHudController {
     }
     if (this.refreshing) return;
     this.refreshing = true;
+    this.tableIdentity = null;
     try {
       const client = this.clientFactory(ui);
       const campaign = this.campaignId;
@@ -96,9 +112,11 @@ export class CocHudController {
       }
       // clues.query is often payload-projected on coding hosts; scene.context
       // already carries discovered_clues_public for the table HUD.
+      this.tableIdentity = buildActiveTableIdentity(campaign, scene);
       this.snapshot = buildHudSnapshot({ campaignId: campaign, scene, inventory });
       this.applyFooter(ui, this.snapshot);
     } catch (error) {
+      this.tableIdentity = null;
       const message = error instanceof Error ? error.message : String(error);
       this.snapshot = buildHudSnapshot({
         campaignId: this.campaignId,
@@ -266,6 +284,12 @@ export function registerCocHud(
     }
   });
 
+  pi.on("context", (event) => {
+    const identity = hud.activeTableIdentityContext();
+    if (!identity) return;
+    return { messages: [...event.messages, identity] };
+  });
+
   pi.on("tool_result", async (event, ctx) => {
     hud.setUiContext(ctx);
     if (!ctx.hasUI) return;
@@ -273,11 +297,17 @@ export function registerCocHud(
     const toolName = event.toolName;
     const input = (event.input ?? {}) as JsonObject;
     if (toolName === "coc_invoke") {
-      hud.rememberCampaign(input.campaign);
       const details = asDetails(event.details);
       const data = details ? asDetails(details.data) : null;
       const result = data ? asDetails(data.result) : null;
-      hud.rememberCampaign(result?.campaign_id ?? data?.campaign_id);
+      // Model-authored tool arguments cannot silently replace an established
+      // table binding. Auto-bind only while unbound; an actual switch requires
+      // the explicit /hud bind command.
+      if (!hud.currentCampaign()) {
+        hud.rememberCampaign(
+          result?.campaign_id ?? data?.campaign_id ?? input.campaign,
+        );
+      }
       const op = typeof input.operation === "string" ? input.operation : "";
       if (
         op.startsWith("state.") ||

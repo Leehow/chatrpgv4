@@ -850,6 +850,13 @@ def test_setup_tools_reuse_canonical_pre_session_gateway(tmp_path):
     assert started["ok"] is True, started
     assert started["data"]["kind"] == "campaign.quick_start"
     assert started["data"]["result"]["campaign_id"] == "typed-setup"
+    assert not any(
+        "call session.resume" in hint for hint in started["hints"]
+    )
+    assert any(
+        "predates the current host context" in hint
+        for hint in started["hints"]
+    )
     campaign = json.loads(
         (tmp_path / ".coc" / "campaigns" / "typed-setup" / "campaign.json")
         .read_text(encoding="utf-8")

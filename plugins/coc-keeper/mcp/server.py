@@ -561,17 +561,32 @@ def _run_canonical_operation(
         and call_args.get("kind") == "campaign.create"
         else None
     )
+    setup_result = (
+        ((envelope.get("data") or {}).get("result") or {})
+        if isinstance(envelope.get("data"), dict)
+        else {}
+    )
     setup_campaign_id = (
-        str(setup_payload.get("campaign_id") or "").strip()
-        if isinstance(setup_payload, dict)
+        str(setup_result.get("campaign_id") or "").strip()
+        if canonical_name in {"setup.invoke", "setup.quick_start"}
+        and isinstance(setup_result, dict)
         else ""
     )
+    if (
+        canonical_name == "setup.invoke"
+        and isinstance(setup_payload, dict)
+        and setup_campaign_id
+        and setup_campaign_id
+        != str(setup_payload.get("campaign_id") or "").strip()
+    ):
+        setup_campaign_id = ""
     if envelope.get("ok") is True and setup_campaign_id:
-        # A campaign created in this MCP process has no prior recovery context
-        # to rehydrate. Treat it as the active fresh context so its immediate
-        # setup/opening operations are not distracted by a contradictory
-        # session.resume advisory.
+        # A successful setup receipt establishes this campaign in the current
+        # MCP context. Treat it as active so the same-ID setup/opening flow is
+        # not distracted by a contradictory session.resume advisory.
         _PROCESS_ACTIVE_CAMPAIGN = (os.fspath(root), setup_campaign_id)
+        if campaign_id == setup_campaign_id:
+            rehydration_advisory = None
     if (
         canonical_name == "session.resume"
         and campaign_key is not None

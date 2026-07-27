@@ -39,10 +39,75 @@ export interface HudSnapshot {
   error: string | null;
 }
 
+export interface ActiveTableIdentity {
+  schema_version: 1;
+  contract_id: "coc.pi-active-table-identity.v1";
+  campaign_id: string;
+  investigator_ids: string[];
+}
+
+const SAFE_TABLE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
 function asObject(value: unknown): JsonObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
     : null;
+}
+
+/** Build one exact player-safe table binding; never choose one party member. */
+export function buildActiveTableIdentity(
+  campaignIdValue: unknown,
+  sceneValue: unknown,
+): ActiveTableIdentity | null {
+  const campaignId = str(campaignIdValue);
+  const scene = asObject(sceneValue);
+  const party = scene?.party;
+  if (
+    !campaignId
+    || !SAFE_TABLE_ID.test(campaignId)
+    || str(scene?.campaign_id) !== campaignId
+    || !Array.isArray(party)
+    || party.length === 0
+    || party.length > 128
+  ) return null;
+  const investigatorIds: string[] = [];
+  for (const value of party) {
+    const investigatorId = str(value);
+    if (!investigatorId || !SAFE_TABLE_ID.test(investigatorId)) return null;
+    investigatorIds.push(investigatorId);
+  }
+  if (new Set(investigatorIds).size !== investigatorIds.length) return null;
+  return {
+    schema_version: 1,
+    contract_id: "coc.pi-active-table-identity.v1",
+    campaign_id: campaignId,
+    investigator_ids: investigatorIds,
+  };
+}
+
+/** Hidden provider context containing identifiers only, never table content. */
+export function activeTableIdentityMessage(
+  binding: ActiveTableIdentity,
+): JsonObject {
+  return {
+    role: "custom",
+    customType: "coc.pi-active-table-identity",
+    content: [{
+      type: "text",
+      text: (
+        "Active COC table identity. In every coc_invoke call, copy the exact "
+        + "campaign_id and the applicable exact investigator_id from this "
+        + "binding. Never substitute a remembered, generated, or different "
+        + `table identifier.\n${JSON.stringify(binding)}`
+      ),
+    }],
+    display: false,
+    details: {
+      schema_version: 1,
+      contract_id: "coc.pi-active-table-identity.v1",
+    },
+    timestamp: Date.now(),
+  };
 }
 
 function str(value: unknown): string | null {

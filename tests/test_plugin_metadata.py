@@ -1278,6 +1278,10 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "auto-projected opening setup",
         "named submit owns merge",
         "character work continues in parallel",
+        "selected shortest sufficient window must begin there",
+        "downstream arrival or investigation page cannot substitute",
+        "supported civil/day phase, weather, transport, and mission",
+        "never a keyword selector or prose gate",
     ):
         assert phrase in main, phrase
 
@@ -1325,6 +1329,10 @@ def test_preconfirmation_opening_warm_start_uses_a_real_background_task():
         "auto-projected `opening_setup`",
         "naturally needed canonical query",
         "real grok acceptance must use the focused keeper launcher",
+        "shortest sufficient window must begin there",
+        "downstream arrival or investigation page cannot replace",
+        "supported civil/day phase, weather, transport, and mission",
+        "never a keyword selector",
     ):
         assert phrase in profile, phrase
 

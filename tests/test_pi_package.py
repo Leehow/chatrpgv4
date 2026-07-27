@@ -80,6 +80,28 @@ def test_player_safe_hud_model_hides_secrets_and_coding_chrome():
     assert any("物品 2" in line for line in result["footer"])
 
 
+def test_pi_hud_injects_exact_hidden_active_table_identity():
+    result = _node(ROOT / "tests/pi/hud-identity-context.mjs", str(ROOT))
+    assert result == {
+        "ok": True,
+        "hidden": True,
+        "firstBinding": {
+            "schema_version": 1,
+            "contract_id": "coc.pi-active-table-identity.v1",
+            "campaign_id": "campaign-a",
+            "investigator_ids": ["inv-a", "inv-b"],
+        },
+        "driftPreserved": True,
+        "refreshedBinding": {
+            "schema_version": 1,
+            "contract_id": "coc.pi-active-table-identity.v1",
+            "campaign_id": "campaign-b",
+            "investigator_ids": ["inv-c"],
+        },
+        "emptyOmitted": True,
+    }
+
+
 def test_pi_coc_host_prompt_and_wrapper_defaults():
     host_prompt = PLUGIN / "pi" / "prompts" / "host-system.md"
     wrapper = PLUGIN / "pi" / "bin" / "pi-coc"
@@ -527,6 +549,9 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
         "toolFinalRole": "assistant",
         "narrationReturned": True,
         "narrationText": "雨水沿着窗玻璃缓缓滑落。",
+        "awaitingWaitReturnedTypes": [],
+        "validOpeningReturned": True,
+        "validOpeningText": "马车在白昼里停到城堡门前。",
         "userText": "我走近窗边。",
         "terminal": {
             "appended": 2,
@@ -581,6 +606,7 @@ def test_pi_player_transcript_hides_unsettled_and_tool_framing_text():
                 "hidden_continuation": "delivered",
                 "player_transcript": "suppressed",
             },
+            "terminalBlockerReturned": True,
             "sessionReuse": {
                 "staleSent": 0,
                 "staleAppended": 1,

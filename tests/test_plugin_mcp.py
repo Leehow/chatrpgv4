@@ -1481,6 +1481,14 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     })
     assert campaign["ok"] is True, campaign
     assert campaign["data"]["result"]["campaign_id"] == "mcp-custom"
+    assert "context_rehydration" not in campaign
+    assert not any(
+        "call session.resume" in hint for hint in campaign["hints"]
+    )
+    assert any(
+        "predates the current host context" in hint
+        for hint in campaign["hints"]
+    )
 
     investigator = invoke("investigator.create", {
         "investigator_id": "mcp-custom-investigator",

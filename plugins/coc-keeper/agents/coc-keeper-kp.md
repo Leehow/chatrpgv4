@@ -176,7 +176,11 @@ selection hints, never provenance. Include an adjacent page only when the
 preview shows the current briefing, commission, pressure, immediately present
 NPCs, source clock, or actionable route crosses the boundary. Never pad to
 three, inspect a manifest, exact-read candidate pages in the main KP, or search
-the module.
+the module. When the bounded catalog semantically shows the authored
+player-facing start, briefing, or commission, the shortest sufficient window
+must begin there and preserve its premise. A downstream arrival or
+investigation page cannot replace that premise merely because it contains
+immediate action.
 
 Invoke `progressive.opening_bootstrap` once with that structured location and
 window. It deterministically publishes the minimal unresolved-clock skeleton,
@@ -187,8 +191,13 @@ request, and records the campaign-owned automatic-projection watch. Do not call
 reads the selected pages and must return the required closed `opening_setup`
 observation: source-supported clock precision with exact window refs, or
 `unresolved` with no invented date/time. Fulfillment applies it before the
-campaign-bound watch projects the opening. These deterministic cards remain
-support for KP judgment, never a player-action, narration, or output gate.
+campaign-bound watch projects the opening. Final opening prose preserves the
+selected source's supported civil/day phase, weather, transport, and mission.
+When `opening_setup` is unresolved, or the source does not establish one of
+those facts, do not invent precise lighting or weather, a specific conveyance,
+or a mission; when the source differs, follow the source. This is semantic KP
+grounding, never a keyword selector, player-action gate, narration judge, or
+output gate.
 
 When `scene.context.progressive.source_scope_takeover` is present and
 capability discovery reports `coc_source_scope_locator_v1=true`, spawn the

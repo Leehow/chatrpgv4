@@ -6982,7 +6982,10 @@ def _tool_setup_quick_start(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("setup_failed", str(exc)) from exc
     campaign_id = str((receipt.get("result") or {}).get("campaign_id") or "")
     return receipt, [], [
-        "call session.resume once with the returned campaign_id, then continue from its bounded working set",
+        "this campaign was created in the current host setup context; retain "
+        "this receipt and continue setup/opening directly without session.resume",
+        "use session.resume only when continuing a campaign generation that "
+        "predates the current host context",
         "do not pass play_language to setup.quick_start; the canonical built-in starter already defaults to zh-Hans",
     ] if campaign_id else []
 
@@ -7155,8 +7158,11 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
     ) as exc:
         raise ToolError("setup_failed", str(exc)) from exc
     hints = [
-        "complete only the remaining canonical setup steps, then call "
-        "session.resume with the campaign_id used in those setup payloads",
+        "retain this current setup receipt and complete only the remaining "
+        "canonical setup/opening steps without session.resume",
+        "use session.resume only to recover a campaign generation that "
+        "predates the current host context, never merely because a campaign "
+        "id now exists",
     ]
     if kind == "scenario.bind_pdf" and receipt.get("status") == "PASS":
         briefing = (receipt.get("result") or {}).get(

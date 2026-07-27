@@ -102,9 +102,17 @@ export class OpeningTerminalContinuationGate {
   }
 
   markVisibleAssistantFinal(): void {
+    this.acceptVisibleAssistantFinal();
+  }
+
+  acceptVisibleAssistantFinal(): boolean {
+    if ([...this.states.values()].some((state) => state === "awaiting")) {
+      return false;
+    }
     for (const [key, state] of this.states) {
       if (state === "projected") this.states.set(key, "published");
     }
+    return true;
   }
 
   markAgentEnd(): void {
@@ -149,7 +157,7 @@ export class OpeningTerminalContinuationGate {
 
 export function registerPlayerTranscriptGate(
   pi: ExtensionAPI,
-  onVisibleAssistantFinal?: () => void,
+  onVisibleAssistantFinal?: () => boolean | void,
 ): void {
   pi.on("message_start", (event) => {
     hideUnsettledAssistantText(event.message);
@@ -162,7 +170,9 @@ export function registerPlayerTranscriptGate(
     if (!assistant) return;
     if (!assistant.content.some((part) => part.type === "toolCall")) {
       if (assistant.content.some((part) => part.type === "text")) {
-        onVisibleAssistantFinal?.();
+        if (onVisibleAssistantFinal?.() === false) {
+          return { message: withoutAssistantText(event.message) };
+        }
       }
       return;
     }
@@ -577,7 +587,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   registerPlayerTranscriptGate(
     pi,
-    () => openingContinuationGate.markVisibleAssistantFinal(),
+    () => openingContinuationGate.acceptVisibleAssistantFinal(),
   );
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();

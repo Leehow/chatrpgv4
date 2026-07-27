@@ -172,7 +172,11 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    page only when the current briefing, commission, pressure, immediately
    present NPCs, source clock, or actionable route crosses the boundary. Never
    pad to three, exact-read candidate pages in the main KP, inspect a manifest,
-   or search unselected/module-wide source.
+   or search unselected/module-wide source. When the bounded catalog
+   semantically shows the authored player-facing start, briefing, or commission,
+   the selected shortest sufficient window must begin there and preserve its
+   premise. A downstream arrival or investigation page cannot substitute for
+   that premise merely because it contains immediate action.
 
    Invoke `progressive.opening_bootstrap` with the structured
    `{location_id,title}` and selected page indices. This thin canonical
@@ -184,7 +188,12 @@ Do not proactively offer COC mode during ordinary coding or repository work unre
    only the selected pages and returns required `opening_setup`: exact
    source-supported clock precision and refs, or `unresolved` without invented
    date/time. Fulfillment applies that observation and drains only the exact
-   campaign watch.
+   campaign watch. Final opening prose must preserve the selected source's
+   supported civil/day phase, weather, transport, and mission. When
+   `opening_setup` is unresolved, or the source does not establish one of those
+   facts, do not invent precise lighting or weather, a specific conveyance, or a
+   mission; when the source differs, follow the source. This remains
+   semantic KP grounding, never a keyword selector or prose gate.
 
    `prepare_opening` and `opening_bootstrap` are one setup decision for this
    bound scenario generation. Retain the accepted selection, bootstrap
