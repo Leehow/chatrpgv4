@@ -2946,6 +2946,38 @@ def test_mcp_wire_request_deepen_preserves_exact_current_dependency_lifecycle():
             "parent_output_retrieval": False,
         },
     }
+    unrelated_waits = []
+    unrelated_dispatches = []
+    for index in range(6):
+        unrelated_ref = {
+            "operation": "scene.context",
+            "subject": {"kind": "location", "id": f"other-{index}"},
+            "decision_id": f"other-{index}",
+        }
+        unrelated_wait = {
+            **wait,
+            "dependency_id": f"dependency-other-{index}",
+            "job_id": f"job-other-{index}",
+            "work_group_id": f"group-other-{index}",
+            "dependency_ref": unrelated_ref,
+        }
+        unrelated_waits.append(unrelated_wait)
+        unrelated_dispatches.append({
+            **unrelated_wait,
+            "next_host_action": {
+                **dispatch["next_host_action"],
+                "task": {
+                    **exact_task,
+                    "packet": {
+                        **exact_task["packet"],
+                        "packet_id": f"source-other-{index}",
+                        "result_contract": {
+                            "description": "unrelated task detail " * 300,
+                        },
+                    },
+                },
+            },
+        })
     repeated = "source request preview that must not displace control " * 500
     data = {
         "campaign_id": "wire-current-dependency",
@@ -2968,8 +3000,11 @@ def test_mcp_wire_request_deepen_preserves_exact_current_dependency_lifecycle():
                 "target_id": "other-location",
                 "result_contract": {"description": repeated},
             }],
-            "current_dependency_waits": [wait],
-            "current_dependency_dispatches": [dispatch],
+            "current_dependency_waits": [wait, *unrelated_waits],
+            "current_dependency_dispatches": [
+                dispatch,
+                *unrelated_dispatches,
+            ],
         },
     }
     envelope = {
@@ -2995,12 +3030,64 @@ def test_mcp_wire_request_deepen_preserves_exact_current_dependency_lifecycle():
     assert projected["wire"].get("identity_only") is not True
     host_work = projected["data"]["host_work"]
     assert host_work["current_dependency_snapshot_complete"] is True
+    assert host_work["current_dependency_snapshot_scope"] == {
+        "schema_version": 1,
+        "contract_id": "coc.source-current-dependency-snapshot-scope.v1",
+        "kind": "exact_dependency_ref",
+        "campaign_id": "wire-current-dependency",
+        "dependency_ref": dependency_ref,
+    }
     assert host_work["current_dependency_waits"] == [wait]
     assert host_work["current_dependency_dispatches"] == [dispatch]
     assert host_work["current_dependency_dispatches"][0][
         "next_host_action"
     ]["task"] == exact_task
     assert "result_contract" not in host_work["ready_background_requests"][0]
+    ordinary_projection = server.wire_projection._project_source_work_lifecycle(
+        data["host_work"],
+    )
+    assert ordinary_projection["current_dependency_snapshot_complete"] is False
+    assert ordinary_projection["current_dependency_projection_status"] == (
+        "summary_only"
+    )
+    assert ordinary_projection["current_dependency_wait_count"] == 7
+    assert ordinary_projection["current_dependency_dispatch_count"] == 7
+    assert "current_dependency_waits" not in ordinary_projection
+    assert "current_dependency_dispatches" not in ordinary_projection
+
+    oversized = json.loads(json.dumps(envelope))
+    oversized["data"]["host_work"]["current_dependency_dispatches"][0][
+        "next_host_action"
+    ]["task"]["packet"]["exact_control_bytes"] = "x" * 20_000
+    blocked = server.wire_projection.project_envelope(
+        "progressive.request_deepen",
+        oversized,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert server.wire_projection.transport_bytes(blocked) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert blocked["wire"]["current_dependency_projection_blocked"] is True
+    assert blocked["wire"].get("identity_only") is not True
+    assert blocked["data"]["current_dependency_projection_blocker"][
+        "status"
+    ] == "blocked"
+    assert blocked["data"]["host_work"]["current_dependency_waits"] == [{
+        key: wait[key]
+        for key in (
+            "schema_version",
+            "contract_id",
+            "campaign_id",
+            "dependency_id",
+            "job_id",
+            "dependency_ref",
+            "operational_class",
+        )
+    }]
+    assert blocked["data"]["host_work"][
+        "current_dependency_dispatches"
+    ] == []
 
 
 def test_mcp_wire_progressive_status_keeps_coordinator_when_requests_are_large():

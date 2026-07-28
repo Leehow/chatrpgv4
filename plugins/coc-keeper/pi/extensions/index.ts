@@ -338,6 +338,8 @@ type CurrentDependencyWait = {
   deliveryPending: boolean;
   deliveryRetryNeeded: boolean;
   terminalReceipt: JsonObject | null;
+  terminalDelivered: boolean;
+  projectionConfirmed: boolean;
 };
 type CurrentDependencySuppression = {
   epoch: number;
@@ -2471,6 +2473,15 @@ export class OpeningTerminalContinuationGate {
       this.dispatchClasses.delete(wait.dispatchKey);
     }
     this.currentDependencyWaits.delete(dependencyId);
+    if (
+      wait !== undefined
+      && ![...this.currentDependencyWaits.values()].some(
+        (candidate) => candidate.campaignId === wait.campaignId,
+      )
+      && this.currentDependencySuppression?.campaignId === wait.campaignId
+    ) {
+      this.currentDependencySuppression = null;
+    }
   }
 
   private currentDependencySettlementGroupKey(
@@ -2502,8 +2513,18 @@ export class OpeningTerminalContinuationGate {
   observeCurrentDependencySnapshot(
     campaignId: string,
     waits: JsonObject[],
+    snapshotScope: JsonObject | null = null,
   ): void {
     const retained = new Set<string>();
+    const scopedDependencyRef = objectOrNull(
+      snapshotScope?.dependency_ref,
+    );
+    const scopedSettlementGroupKey = scopedDependencyRef === null
+      ? null
+      : this.currentDependencySettlementGroupKey(
+        campaignId,
+        scopedDependencyRef,
+      );
     for (const value of waits) {
       const waitCampaignId = typeof value.campaign_id === "string"
         ? value.campaign_id.trim()
@@ -2550,13 +2571,24 @@ export class OpeningTerminalContinuationGate {
         terminalReceipt: existing?.jobId === jobId
           ? existing.terminalReceipt
           : null,
+        terminalDelivered: existing?.jobId === jobId
+          ? existing.terminalDelivered
+          : false,
+        projectionConfirmed: existing?.jobId === jobId
+          ? existing.projectionConfirmed
+          : false,
       });
     }
     for (const [dependencyId, wait] of this.currentDependencyWaits) {
       if (
         wait.campaignId === campaignId
+        && (
+          scopedSettlementGroupKey === null
+          || wait.settlementGroupKey === scopedSettlementGroupKey
+        )
         && !retained.has(dependencyId)
         && !wait.deliveryPending
+        && !wait.terminalDelivered
       ) {
         this.removeCurrentDependency(dependencyId);
       }
@@ -2572,8 +2604,8 @@ export class OpeningTerminalContinuationGate {
     return (
       wait?.jobId === jobId
       && wait.dispatchKey === dispatchKey
-      && wait.deliveryPending
       && wait.terminalReceipt !== null
+      && (wait.deliveryPending || wait.terminalDelivered)
     );
   }
 
@@ -2595,6 +2627,8 @@ export class OpeningTerminalContinuationGate {
       wait.deliveryPending = false;
       wait.deliveryRetryNeeded = false;
       wait.terminalReceipt = null;
+      wait.terminalDelivered = false;
+      wait.projectionConfirmed = false;
     }
     wait.dispatchKey = dispatchKey;
     this.currentDependencyByDispatch.set(dispatchKey, dependencyId);
@@ -2614,6 +2648,8 @@ export class OpeningTerminalContinuationGate {
     wait.deliveryPending = false;
     wait.deliveryRetryNeeded = false;
     wait.terminalReceipt = null;
+    wait.terminalDelivered = false;
+    wait.projectionConfirmed = false;
     this.currentDependencyByDispatch.delete(dispatchKey);
     this.states.delete(dispatchKey);
     this.dispatchClasses.delete(dispatchKey);
@@ -2623,6 +2659,20 @@ export class OpeningTerminalContinuationGate {
     const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
     if (dependencyId === undefined) return;
     this.removeCurrentDependency(dependencyId);
+  }
+
+  markCurrentDependencyTerminalDelivered(dispatchKey: string): void {
+    const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
+    if (dependencyId === undefined) return;
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    if (
+      wait?.dispatchKey !== dispatchKey
+      || wait.terminalReceipt?.status !== "fulfilled"
+    ) return;
+    wait.deliveryPending = false;
+    wait.deliveryRetryNeeded = false;
+    wait.terminalDelivered = true;
+    this.states.set(dispatchKey, "published");
   }
 
   observeCurrentDependencyTerminalReceipt(
@@ -2687,6 +2737,105 @@ export class OpeningTerminalContinuationGate {
       invocationId,
     };
     this.currentVisibleCampaignId = campaignId;
+  }
+
+  currentDependencyToolError(params: JsonObject): string | null {
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign.trim()
+      : "";
+    const operation = typeof params.operation === "string"
+      ? params.operation.trim()
+      : "";
+    if (!campaignId || !operation) return null;
+    const active = [...this.currentDependencyWaits.values()].filter(
+      (wait) => wait.campaignId === campaignId && wait.terminalDelivered,
+    );
+    if (active.length === 0) return null;
+    const args = objectOrNull(params.arguments) ?? {};
+    const exactRecovery = active.some((wait) => {
+      const subject = objectOrNull(wait.dependencyRef.subject);
+      return (
+        operation === "scene.context"
+        || (
+          operation === "progressive.status"
+          && args.kind === subject?.kind
+          && args.target_id === subject?.id
+        )
+        || (
+          operation === "progressive.request_deepen"
+          && args.kind === subject?.kind
+          && args.target_id === subject?.id
+        )
+      );
+    });
+    if (exactRecovery) return null;
+    const exactConsumerReady = active.some((wait) => (
+      wait.projectionConfirmed
+      && wait.dependencyRef.operation === operation
+    ));
+    if (exactConsumerReady) return null;
+    return (
+      `${operation} is blocked until the fulfilled current dependency is `
+      + "consumed through its exact canonical projection query; do not "
+      + "release or reconstruct source facts from earlier previews"
+    );
+  }
+
+  observeCurrentDependencyConsumerResult(
+    operation: string,
+    params: JsonObject,
+    value: unknown,
+  ): void {
+    const envelope = objectOrNull(value);
+    if (envelope?.ok !== true) return;
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign.trim()
+      : "";
+    if (!campaignId) return;
+    const data = objectOrNull(envelope.data);
+    const args = objectOrNull(params.arguments) ?? {};
+    for (const [dependencyId, wait] of this.currentDependencyWaits) {
+      if (wait.campaignId !== campaignId || !wait.terminalDelivered) continue;
+      const subject = objectOrNull(wait.dependencyRef.subject);
+      const subjectKind = typeof subject?.kind === "string"
+        ? subject.kind
+        : "";
+      const subjectId = typeof subject?.id === "string" ? subject.id : "";
+      if (!subjectKind || !subjectId) continue;
+      if (
+        operation === "progressive.request_deepen"
+        && args.kind === subjectKind
+        && args.target_id === subjectId
+      ) {
+        const status = objectOrNull(data?.status);
+        const merged = Array.isArray(data?.merged_location_ids)
+          ? data.merged_location_ids
+          : [];
+        if (
+          subjectKind === "location"
+          && status?.deep_ready === true
+          && merged.includes(subjectId)
+        ) {
+          wait.projectionConfirmed = true;
+        }
+      }
+      if (operation === "scene.context" && subjectKind === "location") {
+        const scene = objectOrNull(data?.scene);
+        if (
+          data?.active_scene_id === subjectId
+          && ["deep", "body_parsed"].includes(String(scene?.parse_state ?? ""))
+          && scene?.evidence_gap === false
+        ) {
+          wait.projectionConfirmed = true;
+        }
+      }
+      if (
+        wait.projectionConfirmed
+        && wait.dependencyRef.operation === operation
+      ) {
+        this.removeCurrentDependency(dependencyId);
+      }
+    }
   }
 
   queueVisibleAssistantDisposition(
@@ -2868,6 +3017,32 @@ export class OpeningTerminalContinuationGate {
       return;
     }
     const details = value.details as JsonObject;
+    if (
+      details.continuation_class === "blocking_micro"
+      && details.dispatch_class === "blocking_micro"
+      && typeof details.dispatch_key === "string"
+    ) {
+      const dependencyId = this.currentDependencyByDispatch.get(
+        details.dispatch_key,
+      );
+      const wait = dependencyId
+        ? this.currentDependencyWaits.get(dependencyId)
+        : undefined;
+      if (
+        wait?.terminalDelivered === true
+        && details.dependency_id === dependencyId
+        && details.dependency_campaign_id === wait.campaignId
+        && details.dependency_job_id === wait.jobId
+      ) {
+        this.currentDependencySuppression = {
+          epoch: this.playerTurnEpoch,
+          campaignId: wait.campaignId,
+          invocationId: details.dispatch_key,
+        };
+        this.currentVisibleCampaignId = wait.campaignId;
+      }
+      return;
+    }
     const finalized = this.finalizedOutput;
     if (
       details.continuation_class
@@ -2965,11 +3140,24 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const currentSuppression = this.currentDependencySuppression;
-    const suppressCurrentDependency = (
-      currentSuppression?.epoch === this.playerTurnEpoch
-      && currentSuppression.campaignId === this.currentVisibleCampaignId
+    const terminalConsumptionPending = (
+      this.currentVisibleCampaignId !== null
+      && [...this.currentDependencyWaits.values()].some((wait) => (
+        wait.campaignId === this.currentVisibleCampaignId
+        && wait.terminalDelivered
+      ))
     );
-    if (currentSuppression?.epoch === this.playerTurnEpoch) {
+    const suppressCurrentDependency = (
+      terminalConsumptionPending
+      || (
+        currentSuppression?.epoch === this.playerTurnEpoch
+        && currentSuppression.campaignId === this.currentVisibleCampaignId
+      )
+    );
+    if (
+      !terminalConsumptionPending
+      && currentSuppression?.epoch === this.playerTurnEpoch
+    ) {
       this.currentDependencySuppression = null;
     }
     if (suppressCurrentDependency) {
@@ -3353,6 +3541,7 @@ function findCurrentDependencyLifecycle(value: unknown): {
   campaignId: string;
   waits: JsonObject[];
   dispatches: JsonObject[];
+  snapshotScope: JsonObject | null;
 } | null {
   const envelope = objectOrNull(value);
   if (envelope?.ok !== true) return null;
@@ -3380,10 +3569,24 @@ function findCurrentDependencyLifecycle(value: unknown): {
   const dispatches = Array.isArray(projection.current_dependency_dispatches)
     ? projection.current_dependency_dispatches
     : [];
+  const snapshotScope = objectOrNull(
+    projection.current_dependency_snapshot_scope,
+  );
   if (
     !campaignId
     || projection.current_dependency_snapshot_complete !== true
     || waits === null
+  ) return null;
+  if (
+    snapshotScope !== null
+    && (
+      snapshotScope.schema_version !== 1
+      || snapshotScope.contract_id
+        !== "coc.source-current-dependency-snapshot-scope.v1"
+      || snapshotScope.kind !== "exact_dependency_ref"
+      || snapshotScope.campaign_id !== campaignId
+      || objectOrNull(snapshotScope.dependency_ref) === null
+    )
   ) return null;
   const waitById = new Map<string, JsonObject>();
   for (const value of waits) {
@@ -3404,6 +3607,11 @@ function findCurrentDependencyLifecycle(value: unknown): {
       || !jobId
       || waitCampaignId !== campaignId
       || objectOrNull(wait.dependency_ref) === null
+      || (
+        snapshotScope !== null
+        && JSON.stringify(wait.dependency_ref)
+          !== JSON.stringify(snapshotScope.dependency_ref)
+      )
       || waitById.has(dependencyId)
     ) return null;
     waitById.set(dependencyId, wait);
@@ -3437,6 +3645,7 @@ function findCurrentDependencyLifecycle(value: unknown): {
     campaignId,
     waits: [...waitById.values()],
     dispatches: validatedDispatches,
+    snapshotScope,
   };
 }
 
@@ -3483,6 +3692,19 @@ function currentDependencySubmissionRetained(value: unknown): boolean {
   return [
     "activating", "pending", "retrying", "submitted",
   ].includes(String(result?.status ?? ""));
+}
+
+function currentDependencyProjectionBlocked(value: unknown): boolean {
+  const envelope = objectOrNull(value);
+  const data = objectOrNull(envelope?.data);
+  const blocker = objectOrNull(data?.current_dependency_projection_blocker);
+  return (
+    envelope?.ok === true
+    && data?.current_dependency === true
+    && blocker?.status === "blocked"
+    && blocker.contract_id
+      === "coc.source-current-dependency-projection-blocker.v1"
+  );
 }
 
 interface AutoDispatchDeps {
@@ -3884,7 +4106,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           );
         },
         (dispatchKey) => (
-          openingContinuationGate.commitCurrentDependencyDelivery(
+          openingContinuationGate.markCurrentDependencyTerminalDelivered(
             dispatchKey,
           )
         ),
@@ -3948,6 +4170,22 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { /* opening setup audit is best effort */ }
       throw new Error(openingSetupError);
     }
+    if (name === "coc_invoke") {
+      const dependencyError = (
+        openingContinuationGate.currentDependencyToolError(params)
+      );
+      if (dependencyError !== null) {
+        try {
+          pi.appendEntry("coc-source-current-dependency-consumption", {
+            status: "rejected",
+            failure_class: "canonical_projection_required",
+            campaign_id: params.campaign,
+            operation: params.operation,
+          });
+        } catch { /* exact dependency audit is best effort */ }
+        throw new Error(dependencyError);
+      }
+    }
     let value: unknown;
     try {
       value = await client(ctx).callTool(name, params, signal);
@@ -3969,6 +4207,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw error;
     }
     if (name === "coc_invoke") {
+      openingContinuationGate.observeCurrentDependencyConsumerResult(
+        String(params.operation),
+        params,
+        value,
+      );
       const setupVisibleOutput = await canonicalSetupVisibleOutput(
         ctx.cwd,
         params,
@@ -4304,6 +4547,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         openingContinuationGate.observeCurrentDependencySnapshot(
           dependencyLifecycle.campaignId,
           dependencyLifecycle.waits,
+          dependencyLifecycle.snapshotScope,
         );
         if (currentDependencyInvocationConsumes(
           params,
@@ -4365,7 +4609,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               && terminal?.status === "fulfilled"
               && notification?.hidden_continuation !== "failed"
             ) {
-              openingContinuationGate.commitCurrentDependencyDelivery(
+              openingContinuationGate.markCurrentDependencyTerminalDelivered(
                 dispatchKey,
               );
             } else {
@@ -4377,6 +4621,19 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             }
           }
         }
+      }
+      if (
+        currentDependencyProjectionBlocked(value)
+        && params.operation === "progressive.request_deepen"
+        && objectOrNull(
+          objectOrNull(params.arguments)?.current_dependency,
+        ) !== null
+        && invocationCampaignId
+      ) {
+        openingContinuationGate.armCurrentDependencySuppression(
+          _id,
+          invocationCampaignId,
+        );
       }
       void autoDispatchCoordinator(
         autoDispatchDeps(ctx, epoch),
@@ -4540,7 +4797,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           )
         ),
         (dispatchKey) => (
-          openingContinuationGate.commitCurrentDependencyDelivery(
+          openingContinuationGate.markCurrentDependencyTerminalDelivered(
             dispatchKey,
           )
         ),

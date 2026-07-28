@@ -633,7 +633,11 @@ def _project_progressive_status(value: Any) -> Any:
     return projected
 
 
-def _project_source_work_lifecycle(value: Any) -> dict[str, Any]:
+def _project_source_work_lifecycle(
+    value: Any,
+    *,
+    exact_dependency_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Keep exact current-dependency control while dropping bulky previews.
 
     Pi consumes the wait and dispatch rows as a closed lifecycle contract.
@@ -647,7 +651,6 @@ def _project_source_work_lifecycle(value: Any) -> dict[str, Any]:
         (
             "asset_root_id",
             "campaign_id",
-            "current_dependency_snapshot_complete",
             "open_count",
             "open_host_work_count",
             "ready_for_background_count",
@@ -661,8 +664,6 @@ def _project_source_work_lifecycle(value: Any) -> dict[str, Any]:
             "blocking_micro_ready_count",
             "claim_operation",
             "background_takeover",
-            "current_dependency_waits",
-            "current_dependency_dispatches",
             "pi_coordinator_dispatch_status",
             "pi_coordinator_max_attempts",
             "pi_coordinator_retry_exhausted_count",
@@ -698,6 +699,80 @@ def _project_source_work_lifecycle(value: Any) -> dict[str, Any]:
             for row in value[request_field][:4]
             if isinstance(row, dict)
         ]
+    waits = [
+        row for row in value.get("current_dependency_waits") or []
+        if isinstance(row, dict)
+    ]
+    dispatches = [
+        row for row in value.get("current_dependency_dispatches") or []
+        if isinstance(row, dict)
+    ]
+    source_complete = value.get("current_dependency_snapshot_complete") is True
+    if exact_dependency_ref is not None:
+        campaign_id = str(value.get("campaign_id") or "").strip()
+        exact_waits = [
+            deepcopy(row)
+            for row in waits
+            if row.get("dependency_ref") == exact_dependency_ref
+        ]
+        wait_keys = {
+            (str(row.get("dependency_id") or ""), str(row.get("job_id") or ""))
+            for row in exact_waits
+        }
+        exact_dispatches = [
+            deepcopy(row)
+            for row in dispatches
+            if row.get("dependency_ref") == exact_dependency_ref
+            and (
+                str(row.get("dependency_id") or ""),
+                str(row.get("job_id") or ""),
+            ) in wait_keys
+        ]
+        projected.update({
+            "current_dependency_snapshot_scope": {
+                "schema_version": 1,
+                "contract_id": (
+                    "coc.source-current-dependency-snapshot-scope.v1"
+                ),
+                "kind": "exact_dependency_ref",
+                "campaign_id": campaign_id,
+                "dependency_ref": deepcopy(exact_dependency_ref),
+            },
+            "current_dependency_snapshot_complete": source_complete,
+            "current_dependency_waits": exact_waits,
+            "current_dependency_dispatches": exact_dispatches,
+            "current_dependency_projection_status": (
+                "exact"
+                if source_complete and len(exact_waits) == 1
+                else "blocked"
+            ),
+            "current_dependency_projection_reason": (
+                None
+                if source_complete and len(exact_waits) == 1
+                else (
+                    "source_snapshot_incomplete"
+                    if not source_complete
+                    else "exact_wait_identity_not_unique"
+                )
+            ),
+        })
+    elif waits or dispatches:
+        # Ordinary scene/status/deepen observations do not own one settlement
+        # identity. Never copy an unbounded task set or call a truncated prefix
+        # globally complete: the originating exact request owns dispatch.
+        projected.update({
+            "current_dependency_snapshot_complete": False,
+            "current_dependency_projection_status": "summary_only",
+            "current_dependency_wait_count": len(waits),
+            "current_dependency_dispatch_count": len(dispatches),
+        })
+    elif "current_dependency_snapshot_complete" in value:
+        projected.update({
+            "current_dependency_snapshot_complete": source_complete,
+            "current_dependency_waits": [],
+            "current_dependency_dispatches": [],
+            "current_dependency_projection_status": "complete_empty",
+        })
     return projected
 
 
@@ -715,6 +790,7 @@ def _project_request_deepen(value: Any) -> Any:
             "dependency_ref",
             "source_lifecycle",
             "background_takeover",
+            "merged_location_ids",
         ),
     )
     if isinstance(value.get("status"), dict):
@@ -733,8 +809,119 @@ def _project_request_deepen(value: Any) -> Any:
         )
     host_work = value.get("host_work")
     if isinstance(host_work, dict):
-        projected["host_work"] = _project_source_work_lifecycle(host_work)
+        dependency_ref = (
+            value.get("dependency_ref")
+            if value.get("current_dependency") is True
+            and isinstance(value.get("dependency_ref"), dict)
+            else None
+        )
+        projected["host_work"] = _project_source_work_lifecycle(
+            host_work,
+            exact_dependency_ref=dependency_ref,
+        )
+        if (
+            value.get("current_dependency") is True
+            and projected["host_work"].get(
+                "current_dependency_projection_status"
+            ) == "blocked"
+        ):
+            projected["current_dependency_projection_blocker"] = {
+                "schema_version": 1,
+                "contract_id": (
+                    "coc.source-current-dependency-projection-blocker.v1"
+                ),
+                "status": "blocked",
+                "reason": projected["host_work"].get(
+                    "current_dependency_projection_reason"
+                ),
+            }
     return projected
+
+
+def _current_dependency_projection_blocker(
+    value: Any,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    data = value if isinstance(value, dict) else {}
+    host_work = data.get("host_work")
+    campaign_id = (
+        str(host_work.get("campaign_id") or "").strip()
+        if isinstance(host_work, dict)
+        else ""
+    )
+    dependency_ref = data.get("dependency_ref")
+    exact_waits = [
+        _pick(
+            row,
+            (
+                "schema_version",
+                "contract_id",
+                "campaign_id",
+                "dependency_id",
+                "job_id",
+                "dependency_ref",
+                "operational_class",
+            ),
+        )
+        for row in (
+            host_work.get("current_dependency_waits") or []
+            if isinstance(host_work, dict)
+            else []
+        )
+        if isinstance(row, dict)
+        and isinstance(dependency_ref, dict)
+        and row.get("dependency_ref") == dependency_ref
+    ]
+    return {
+        **_pick(
+            data,
+            (
+                "asset_root_id",
+                "kind",
+                "target_id",
+                "current_dependency",
+                "dependency_ref",
+            ),
+        ),
+        **({"campaign_id": campaign_id} if campaign_id else {}),
+        **({
+            "host_work": {
+                "campaign_id": campaign_id,
+                "current_dependency_snapshot_scope": {
+                    "schema_version": 1,
+                    "contract_id": (
+                        "coc.source-current-dependency-snapshot-scope.v1"
+                    ),
+                    "kind": "exact_dependency_ref",
+                    "campaign_id": campaign_id,
+                    "dependency_ref": deepcopy(dependency_ref),
+                },
+                "current_dependency_snapshot_complete": True,
+                "current_dependency_waits": exact_waits,
+                "current_dependency_dispatches": [],
+                "current_dependency_projection_status": "blocked",
+            },
+        } if (
+            campaign_id
+            and len(exact_waits) == 1
+            and isinstance(host_work, dict)
+            and host_work.get("current_dependency_snapshot_complete") is True
+        ) else {}),
+        "current_dependency_projection_blocker": {
+            "schema_version": 1,
+            "contract_id": (
+                "coc.source-current-dependency-projection-blocker.v1"
+            ),
+            "status": "blocked",
+            "reason": reason,
+            "instruction": (
+                "Do not release source-dependent output. Retain the exact "
+                "settlement identity and retry its canonical projection; never "
+                "read files or infer source facts from earlier previews."
+            ),
+        },
+    }
 
 
 def _compact_narrative_opportunity(value: Any) -> dict[str, Any] | None:
@@ -1753,6 +1940,24 @@ def project_envelope(
     if transport_bytes(result) > MAX_INLINE_BYTES:
         result["hints"] = result["hints"][:3]
         result["warnings"] = result["warnings"][:3]
+
+    if (
+        transport_bytes(result) > MAX_INLINE_BYTES
+        and operation == "progressive.request_deepen"
+        and isinstance(data, dict)
+        and data.get("current_dependency") is True
+    ):
+        result["data"] = _current_dependency_projection_blocker(
+            data,
+            reason="exact_dependency_projection_exceeds_transport_budget",
+        )
+        result["wire"]["payload_projected"] = True
+        result["wire"]["current_dependency_projection_blocked"] = True
+        result["warnings"] = [
+            "The exact current-dependency control packet exceeded the bounded "
+            "transport budget; player-visible output remains blocked."
+        ]
+        result["hints"] = []
 
     if transport_bytes(result) > MAX_INLINE_BYTES:
         result["data"] = _decorate_cards(

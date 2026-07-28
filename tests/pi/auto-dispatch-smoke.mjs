@@ -154,6 +154,15 @@ function currentDependencyResult(fixtures, ordinaryTask = null) {
     host_work: {
       campaign_id: campaignId,
       current_dependency_snapshot_complete: true,
+      ...(values.length === 1 ? {
+        current_dependency_snapshot_scope: {
+          schema_version: 1,
+          contract_id: "coc.source-current-dependency-snapshot-scope.v1",
+          kind: "exact_dependency_ref",
+          campaign_id: campaignId,
+          dependency_ref: values[0].wait.dependency_ref,
+        },
+      } : {}),
       current_dependency_waits: values.map((value) => value.wait),
       current_dependency_dispatches: values
         .filter((value) => value.wait.operational_class === "runnable")
@@ -5366,6 +5375,20 @@ async function exerciseFailureDrain(mode) {
     if (params.operation === "progressive.request_deepen") {
       return currentDependencyResult(current);
     }
+    if (params.operation === "scene.context") {
+      return {
+        ok: true,
+        tool: "scene.context",
+        data: {
+          active_scene_id: "later-location",
+          scene: {
+            scene_id: "later-location",
+            parse_state: "deep",
+            evidence_gap: false,
+          },
+        },
+      };
+    }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
@@ -5417,6 +5440,54 @@ async function exerciseFailureDrain(mode) {
     && harness.calls.filter((call) => (
       call.params.operation === "progressive.status"
     )).length === 0);
+  await harness.emit("message_start", {
+    role: "custom",
+    customType: "coc-source-coordinator-terminal-continuation",
+    details: terminal.message.details,
+  });
+  const stalePreview = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{
+      type: "text",
+      text: "旧预览不能在终态通知后直接变成玩家可见事实。",
+    }],
+  });
+  let prematureConsumer = null;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-current-premature-consumer",
+      {
+        operation: "turn.finalize",
+        campaign: "auto-dispatch-fixture",
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) {
+    prematureConsumer = error;
+  }
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-canonical-consumer",
+    {
+      operation: "scene.context",
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const canonicalRelease = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "来自当前深层场景投影的事实。" }],
+  });
+  check("terminal delivery waits for exact canonical consumption",
+    stalePreview.content.every((part) => part.type !== "text")
+    && prematureConsumer instanceof Error
+    && prematureConsumer.message.includes("canonical projection")
+    && canonicalRelease.content.some((part) => part.type === "text"));
   await harness.shutdown();
 }
 
