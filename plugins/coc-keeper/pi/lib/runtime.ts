@@ -950,6 +950,7 @@ export type CoordinatorLifecycleObservation =
     superseded_by?: string;
     failure_class:
       | "coordinator_superseded"
+      | "coordinator_ownership_lost"
       | "coordinator_activation_failed"
       | "coordinator_process_failed"
       | "coordinator_result_invalid"
@@ -964,6 +965,7 @@ export class CoordinatorDispatchManager {
     task: JsonObject;
     context: PrivateLaunchContext;
     signal?: AbortSignal;
+    beforeLaunch?: () => boolean;
   }>();
   private closing = false;
   private states = new Map<string, {
@@ -1013,7 +1015,7 @@ export class CoordinatorDispatchManager {
   private fail(
     key: string,
     failureStage: "dispatch" | "activation" | "process" | "framing" | "shutdown",
-    failureClass: "coordinator_superseded" | "coordinator_activation_failed" | "coordinator_process_failed" | "coordinator_result_invalid" | "coordinator_shutdown",
+    failureClass: "coordinator_superseded" | "coordinator_ownership_lost" | "coordinator_activation_failed" | "coordinator_process_failed" | "coordinator_result_invalid" | "coordinator_shutdown",
     supersededBy?: string,
   ): boolean {
     const observation: CoordinatorLifecycleObservation = {
@@ -1093,6 +1095,7 @@ export class CoordinatorDispatchManager {
     key: string,
     context: PrivateLaunchContext,
     signal?: AbortSignal,
+    beforeLaunch?: () => boolean,
   ): JsonObject {
     const queueIdentity = this.queueIdentity(task, key);
     // Packets within one exact queue identity are wakeups whose fixed claim
@@ -1113,7 +1116,14 @@ export class CoordinatorDispatchManager {
         pending_queue_count: this.pending.size,
       };
     }
-    this.pending.set(queueIdentity, { queueIdentity, key, task, context, signal });
+    this.pending.set(queueIdentity, {
+      queueIdentity,
+      key,
+      task,
+      context,
+      signal,
+      beforeLaunch,
+    });
     this.states.set(key, { status: "pending" });
     return {
       status: "pending",
@@ -1144,11 +1154,16 @@ export class CoordinatorDispatchManager {
     context: PrivateLaunchContext,
     signal?: AbortSignal,
     attempt = 1,
+    beforeLaunch?: () => boolean,
   ): Promise<JsonObject> {
     if (this.closing) throw new Error("Pi source coordinator manager is closing");
     if (signal?.aborted) {
       this.fail(key, "activation", "coordinator_activation_failed");
       throw new Error("Pi source coordinator dispatch aborted before activation");
+    }
+    if (beforeLaunch?.() === false) {
+      this.fail(key, "dispatch", "coordinator_ownership_lost");
+      throw new Error("Pi source coordinator dispatch ownership was superseded");
     }
     let run: ChildRun;
     try { run = this.launch(task, context, signal); }
@@ -1211,7 +1226,14 @@ export class CoordinatorDispatchManager {
           failure_class: "fulfill_rejected",
         });
         try {
-          await this.launchNow(task, key, context, signal, nextAttempt);
+          await this.launchNow(
+            task,
+            key,
+            context,
+            signal,
+            nextAttempt,
+            beforeLaunch,
+          );
         } catch {
           if (!this.terminalKeys.has(key)) {
             this.fail(
@@ -1257,20 +1279,37 @@ export class CoordinatorDispatchManager {
       task: JsonObject;
       context: PrivateLaunchContext;
       signal?: AbortSignal;
+      beforeLaunch?: () => boolean;
     };
     this.pending.delete(pending.queueIdentity);
-    try { await this.launchNow(pending.task, pending.key, pending.context, pending.signal); }
+    try {
+      await this.launchNow(
+        pending.task,
+        pending.key,
+        pending.context,
+        pending.signal,
+        1,
+        pending.beforeLaunch,
+      );
+    }
     catch { /* launchNow records one bounded terminal failure */ }
   }
-  async submit(taskValue: unknown, context: PrivateLaunchContext, signal?: AbortSignal): Promise<JsonObject> {
+  async submit(
+    taskValue: unknown,
+    context: PrivateLaunchContext,
+    signal?: AbortSignal,
+    beforeLaunch?: () => boolean,
+  ): Promise<JsonObject> {
     if (this.closing) throw new Error("Pi source coordinator manager is closing");
     const task = validateCoordinatorTask(taskValue);
     const packet = asObject(task.packet, "coordinator packet");
     const key = nonEmpty(packet.packet_id, "packet_id");
     const previous = this.states.get(key);
     if (previous) return this.previousReceipt(key, previous);
-    if (this.active) return this.queuePending(task, key, context, signal);
-    return this.launchNow(task, key, context, signal);
+    if (this.active) {
+      return this.queuePending(task, key, context, signal, beforeLaunch);
+    }
+    return this.launchNow(task, key, context, signal, 1, beforeLaunch);
   }
   waitForTerminal(key: string, signal?: AbortSignal): Promise<JsonObject> {
     const terminal = this.terminalState(key);

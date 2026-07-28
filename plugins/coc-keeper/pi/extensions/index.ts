@@ -521,12 +521,15 @@ export class OpeningTerminalContinuationGate {
     ) {
       return false;
     }
-    const locationId = location.location_id.trim();
-    const title = location.title.trim();
+    const locationId = location.location_id;
+    const title = location.title;
+    const titleLength = Array.from(title).length;
     return (
-      OPENING_START_LOCATION_ID.test(locationId)
-      && title.length >= 1
-      && title.length <= 240
+      locationId === locationId.trim()
+      && title === title.trim()
+      && OPENING_START_LOCATION_ID.test(locationId)
+      && titleLength >= 1
+      && titleLength <= 240
     );
   }
 
@@ -1399,6 +1402,43 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  openingSetupDispatchOwned(
+    invocationId: string,
+    params: JsonObject,
+    dispatchKey: string,
+  ): boolean {
+    const attempt = this.openingSetupAttempts.get(invocationId);
+    const state = typeof params.campaign === "string"
+      ? this.openingSetupStates.get(params.campaign)
+      : undefined;
+    return (
+      attempt !== undefined
+      && attempt.attemptClass === "route"
+      && attempt.operation === "progressive.opening_bootstrap"
+      && params.operation === attempt.operation
+      && params.campaign === attempt.campaignId
+      && this.attemptMatchesState(attempt, state)
+      && attempt.dispatchIdentity === dispatchKey
+      && state.dispatchIdentity === dispatchKey
+    );
+  }
+
+  releaseOpeningSetupDispatchOwnership(
+    invocationId: string,
+    dispatchKey: string,
+  ): void {
+    const attempt = this.finalizeOpeningSetupAttempt(invocationId);
+    this.recordOpeningSetupAudit({
+      status: "ignored",
+      reason: "opening_dispatch_ownership_lost",
+      invocation_id: invocationId,
+      campaign_id: attempt?.campaignId,
+      generation: attempt?.generation,
+      revision: attempt?.revision,
+      dispatch_key: dispatchKey,
+    });
+  }
+
   completeOpeningSetupRouteAttempt(
     invocationId: string,
     params: JsonObject,
@@ -2001,6 +2041,8 @@ interface AutoDispatchDeps {
 interface AutoDispatchOptions {
   waitForTerminal?: boolean;
   signal?: AbortSignal;
+  submissionOwner?: () => boolean;
+  onSubmissionOwnershipLost?: () => void;
 }
 
 // Toolbox results may carry a background_takeover whose next_host_action asks
@@ -2020,6 +2062,15 @@ async function autoDispatchCoordinator(
   const boundedFailure = (entry: JsonObject): JsonObject => {
     deps.audit(entry);
     return entry;
+  };
+  const submissionOwned = (dispatchKey?: string): JsonObject | null => {
+    if (options.submissionOwner?.() !== false) return null;
+    options.onSubmissionOwnershipLost?.();
+    return boundedFailure({
+      status: "ownership_lost",
+      failure_class: "opening_dispatch_ownership_lost",
+      ...(dispatchKey ? { dispatch_key: dispatchKey } : {}),
+    });
   };
   if (!deps.isCurrent()) {
     return boundedFailure({
@@ -2042,6 +2093,8 @@ async function autoDispatchCoordinator(
       ? { status: "capability_check_failed", failure_class: "capability_check_failed" }
       : { status: "session_closed", failure_class: "session_closed" });
   }
+  const postCapabilityOwnership = submissionOwned();
+  if (postCapabilityOwnership !== null) return postCapabilityOwnership;
   if (!deps.isCurrent()) {
     return boundedFailure({
       status: "session_closed",
@@ -2063,6 +2116,8 @@ async function autoDispatchCoordinator(
     });
   }
   const active = deps.activeManager();
+  const preExistingOwnership = submissionOwned(key);
+  if (preExistingOwnership !== null) return preExistingOwnership;
   if (active?.state(key)) {
     return options.waitForTerminal
       ? await active.waitForTerminal(key, options.signal)
@@ -2090,13 +2145,22 @@ async function autoDispatchCoordinator(
       failure_class: "session_closed",
     });
   }
+  // No await may occur between this final exact-attempt ownership check and
+  // manager.submit. In the JS event loop this makes validation + submission
+  // one synchronous owner action; later terminal awaits are projection-gated.
+  const preSubmitOwnership = submissionOwned(key);
+  if (preSubmitOwnership !== null) return preSubmitOwnership;
   const ownedManager = deps.manager();
+  const beforeManagerLaunch = options.submissionOwner
+    ? () => submissionOwned(key) === null
+    : undefined;
   let submitted: JsonObject;
   try {
     submitted = await ownedManager.submit(
       exactTask,
       launch,
       options.signal,
+      beforeManagerLaunch,
     );
   } catch {
     const existing = ownedManager.state(key);
@@ -2563,7 +2627,24 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               autoDispatchDeps(ctx, epoch),
               name,
               value,
-              { waitForTerminal: true, signal },
+              {
+                waitForTerminal: true,
+                signal,
+                submissionOwner: () => (
+                  openingContinuationGate.openingSetupDispatchOwned(
+                    _id,
+                    params,
+                    dispatchKey,
+                  )
+                ),
+                onSubmissionOwnershipLost: () => {
+                  openingContinuationGate.releaseOpeningSetupDispatchOwnership(
+                    _id,
+                    dispatchKey,
+                  );
+                  flushOpeningSetupAudits();
+                },
+              },
             );
           } catch {
             if (signal?.aborted) {

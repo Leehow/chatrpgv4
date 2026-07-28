@@ -494,7 +494,7 @@ async function nextTurn() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function mainExtensionHarness(responseForCall) {
+function mainExtensionHarness(responseForCall, options = {}) {
   const registered = new Map();
   const handlers = new Map();
   const appended = [];
@@ -524,7 +524,7 @@ function mainExtensionHarness(responseForCall) {
     close: async () => {},
   };
   main.default(fakePi, {
-    coordinatorEnabled: async () => true,
+    coordinatorEnabled: options.coordinatorEnabled ?? (async () => true),
     createClient: () => fakeClient,
     launchCoordinator: (task) => {
       const key = task.packet.packet_id;
@@ -2083,7 +2083,52 @@ async function exerciseFailureDrain(mode) {
       opening_pdf_indices: [0],
     }),
     bootstrapCard({
+      start_location: { location_id: " opening", title: "Opening" },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening ", title: "Opening" },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: {
+        location_id: "a".repeat(129),
+        title: "Opening",
+      },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "开场", title: "Opening" },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: 7, title: "Opening" },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
       start_location: { location_id: "opening", title: " " },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: " Opening" },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening " },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: {
+        location_id: "opening",
+        title: "O".repeat(241),
+      },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: {
+        location_id: "opening",
+        title: "😀".repeat(241),
+      },
       opening_pdf_indices: [0],
     }),
     bootstrapCard(
@@ -2170,7 +2215,7 @@ async function exerciseFailureDrain(mode) {
         next_operation: bootstrapCard({
           start_location: {
             location_id: "opening.valid-1",
-            title: "Valid Opening",
+            title: "有效开场😀",
           },
           opening_pdf_indices: [4, 5, 6],
         }),
@@ -2495,6 +2540,230 @@ async function exerciseFailureDrain(mode) {
     && retry.message.details.next_operation?.operation
       === "progressive.opening_bootstrap"
     && retry.options?.triggerTurn === true);
+  await harness.shutdown();
+}
+
+// Dispatch ownership is revalidated after the asynchronous capability check.
+// A concurrent contract-invalid result can supersede the admitted bootstrap
+// while enabled() is pending; the old packet must never reach launch.
+{
+  const campaignId = "gateway-enabled-race";
+  const task = coordinatorTask("gateway-enabled-race-task", { campaignId });
+  const enabled = deferredValue();
+  const invalidation = deferredValue();
+  let enabledChecks = 0;
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult(campaignId);
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return invalidation.promise;
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, {
+    coordinatorEnabled: async () => {
+      enabledChecks += 1;
+      return enabled.promise;
+    },
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness, campaignId);
+  const invalidationParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: campaignId,
+        investigator_ids: ["enabled-race-investigator"],
+      },
+    },
+  };
+  const invalidationPending = harness.registered.get("coc_invoke").execute(
+    "gateway-enabled-race-invalid",
+    invalidationParams,
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const bootstrapPending = harness.registered.get("coc_invoke").execute(
+    "gateway-enabled-race-bootstrap",
+    bootstrapOpeningParams(campaignId),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  check("capability race reaches deferred enabled ownership window",
+    enabledChecks === 1 && harness.launches.length === 0);
+  invalidation.resolve({
+    ok: false,
+    error: {
+      code: "opening_source_contract_invalid",
+      details: {
+        ...openingSetupGate(null, campaignId),
+        phase: "opening_source_contract_invalid",
+        next_operation: null,
+      },
+    },
+  });
+  await invalidationPending;
+  enabled.resolve(true);
+  const rejected = JSON.parse((await bootstrapPending).content[0].text);
+  const visibleBlocker = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "stale bootstrap prose" }],
+  });
+  const retrySuppressed = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "second stale bootstrap prose" }],
+  });
+  const retry = harness.sent.findLast((entry) => (
+    entry.message?.customType === "coc-opening-setup-route"
+  ));
+  check("post-enabled ownership loss launches zero coordinators",
+    rejected.ok === false
+    && rejected.data.coordinator_terminal.failure_class
+      === "opening_dispatch_ownership_lost"
+    && harness.launches.length === 0
+    && harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.reason === "opening_dispatch_ownership_lost"
+      && entry.value.invocation_id === "gateway-enabled-race-bootstrap"
+    )));
+  check("ownership race retains blocker and exact current recovery route",
+    visibleBlocker.content.some((part) => (
+      part.type === "text"
+      && part.text.includes("开场资料解析失败")
+    ))
+    && !retrySuppressed.content.some((part) => part.type === "text")
+    && retry?.message?.details?.campaign_id === campaignId
+    && retry.message.details.phase === "opening_source_contract_invalid"
+    && retry.message.details.next_operation?.operation
+      === "progressive.prepare_opening");
+  await harness.shutdown();
+}
+
+// If another coordinator is active, submit only queues the opening packet.
+// The same exact owner guard travels with that pending item and is checked at
+// its later real launch, including after revision invalidation.
+{
+  const campaignId = "gateway-pending-race";
+  const activeTask = coordinatorTask("gateway-pending-active", { campaignId });
+  const openingTask = coordinatorTask("gateway-pending-opening", {
+    campaignId,
+  });
+  const invalidation = deferredValue();
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return directTakeoverResult(activeTask);
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult(campaignId);
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return invalidation.promise;
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(openingTask);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "gateway-pending-active-call",
+    {
+      operation: "progressive.request_deepen",
+      campaign: campaignId,
+      arguments: {
+        kind: "location",
+        target_id: "later-location",
+        title: "Later location",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  check("pending ownership race starts one unrelated active coordinator",
+    harness.launches.join(",") === activeTask.packet.packet_id);
+  await armOpeningBootstrapRoute(harness, campaignId);
+  const invalidationParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: campaignId,
+        investigator_ids: ["pending-race-investigator"],
+      },
+    },
+  };
+  const invalidationPending = harness.registered.get("coc_invoke").execute(
+    "gateway-pending-invalid",
+    invalidationParams,
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const bootstrapPending = harness.registered.get("coc_invoke").execute(
+    "gateway-pending-bootstrap",
+    bootstrapOpeningParams(campaignId),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  check("opening packet is pending without an early prompt launch",
+    harness.launches.join(",") === activeTask.packet.packet_id);
+  invalidation.resolve({
+    ok: false,
+    error: {
+      code: "opening_source_contract_invalid",
+      details: {
+        ...openingSetupGate(null, campaignId),
+        phase: "opening_source_contract_invalid",
+        next_operation: null,
+      },
+    },
+  });
+  await invalidationPending;
+  harness.controls.get(activeTask.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(activeTask.packet.packet_id),
+  );
+  const blocked = JSON.parse((await bootstrapPending).content[0].text);
+  check("pending packet revalidates at real launch and remains zero-launch",
+    harness.launches.join(",") === activeTask.packet.packet_id
+    && blocked.ok === false
+    && blocked.data.coordinator_terminal.failure_class
+      === "coordinator_ownership_lost"
+    && harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.reason === "opening_dispatch_ownership_lost"
+      && entry.value.invocation_id === "gateway-pending-bootstrap"
+    )));
   await harness.shutdown();
 }
 
