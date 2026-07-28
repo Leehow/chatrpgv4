@@ -2894,6 +2894,115 @@ def test_mcp_wire_scene_context_uses_typed_recovery_index_before_identity_only()
     assert dispatch["direct_submit_parent_calls_fulfill_host_work"] is False
 
 
+def test_mcp_wire_request_deepen_preserves_exact_current_dependency_lifecycle():
+    server = _load_server()
+    dependency_ref = {
+        "operation": "turn.finalize",
+        "subject": {"kind": "location", "id": "drixstead"},
+        "decision_id": "turn-depart-drix-001",
+    }
+    wait = {
+        "schema_version": 1,
+        "contract_id": "coc.source-current-dependency-wait.v1",
+        "campaign_id": "wire-current-dependency",
+        "dependency_id": "dependency-drixstead",
+        "job_id": "job-drixstead",
+        "work_group_id": "group-drixstead",
+        "dependency_ref": dependency_ref,
+        "operational_class": "runnable",
+        "dispatch_attempts": 0,
+    }
+    exact_task = {
+        "schema_version": 1,
+        "contract_id": "coc.pi-source-coordinator-task.v1",
+        "instruction_ref": "/plugin/coc-source-coordinator.md",
+        "model_policy": "inherit_parent",
+        "packet": {
+            "schema_version": 1,
+            "packet_id": "source-current-dependency-drixstead",
+            "campaign_id": "wire-current-dependency",
+            "asset_root_id": "source-root",
+            "claim_operation": {
+                "operation": "progressive.claim_host_work",
+                "prefilled_arguments": {
+                    "current_dependency_claim": {
+                        "campaign_id": "wire-current-dependency",
+                        "dependency_id": "dependency-drixstead",
+                        "job_id": "job-drixstead",
+                        "dependency_ref": dependency_ref,
+                    },
+                },
+            },
+        },
+    }
+    dispatch = {
+        **wait,
+        "next_host_action": {
+            "schema_version": 1,
+            "action": "invoke_coc_dispatch_source_work",
+            "task": exact_task,
+            "parent_waits": False,
+            "parent_result_polls": 0,
+            "parent_output_retrieval": False,
+        },
+    }
+    repeated = "source request preview that must not displace control " * 500
+    data = {
+        "campaign_id": "wire-current-dependency",
+        "asset_root_id": "source-root",
+        "kind": "location",
+        "target_id": "drixstead",
+        "status": {"deep_ready": False, "preview": repeated},
+        "current_dependency": True,
+        "dependency_ref": dependency_ref,
+        "host_work": {
+            "asset_root_id": "source-root",
+            "campaign_id": "wire-current-dependency",
+            "current_dependency_snapshot_complete": True,
+            "open_host_work_count": 2,
+            "ready_for_background_count": 2,
+            "blocking_micro_ready_count": 1,
+            "ready_background_requests": [{
+                "job_id": "job-ordinary",
+                "kind": "deepen_location",
+                "target_id": "other-location",
+                "result_contract": {"description": repeated},
+            }],
+            "current_dependency_waits": [wait],
+            "current_dependency_dispatches": [dispatch],
+        },
+    }
+    envelope = {
+        "ok": True,
+        "tool": "progressive.request_deepen",
+        "data": data,
+        "warnings": [],
+        "hints": [],
+    }
+    assert server.wire_projection.transport_bytes(envelope) > (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    projected = server.wire_projection.project_envelope(
+        "progressive.request_deepen",
+        envelope,
+        contract_digest=server.CONTRACTS["content_sha256"],
+        argument_schemas=server.INVOKE_ARGUMENT_SCHEMAS,
+    )
+    assert server.wire_projection.transport_bytes(projected) <= (
+        server.wire_projection.MAX_INLINE_BYTES
+    )
+    assert projected["wire"]["payload_projected"] is True
+    assert projected["wire"].get("identity_only") is not True
+    host_work = projected["data"]["host_work"]
+    assert host_work["current_dependency_snapshot_complete"] is True
+    assert host_work["current_dependency_waits"] == [wait]
+    assert host_work["current_dependency_dispatches"] == [dispatch]
+    assert host_work["current_dependency_dispatches"][0][
+        "next_host_action"
+    ]["task"] == exact_task
+    assert "result_contract" not in host_work["ready_background_requests"][0]
+
+
 def test_mcp_wire_progressive_status_keeps_coordinator_when_requests_are_large():
     server = _load_server()
     coordinator = server.toolbox._source_coordinator_dispatch(

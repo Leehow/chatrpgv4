@@ -375,8 +375,45 @@ function bootstrapOpeningParams(campaignId) {
   };
 }
 
-function beginBackgroundOpeningRoute(gate, campaignId, prefix) {
-  bindOpeningRoute(gate, campaignId, `${prefix}-bind`);
+function beginBackgroundOpeningRoute(
+  gate,
+  campaignId,
+  prefix,
+  bindBriefing = null,
+) {
+  if (bindBriefing === null) {
+    bindOpeningRoute(gate, campaignId, `${prefix}-bind`);
+  } else {
+    const bindParams = {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "scenario.bind_pdf",
+        payload: {
+          campaign_id: campaignId,
+          scenario_id: `scenario-${campaignId}`,
+          title: `Scenario ${campaignId}`,
+          source_bundle_path: `/fixture/${campaignId}/source-bundle`,
+        },
+      },
+    };
+    const bindInvocationId = `${prefix}-bind`;
+    const bindError = gate.openingSetupToolError(
+      "coc_invoke",
+      bindParams,
+      bindInvocationId,
+    );
+    if (bindError !== null) {
+      throw new Error(`opening bind was not admitted: ${bindError}`);
+    }
+    gate.observeOpeningSetupInvocation(
+      "setup.invoke",
+      bindParams,
+      boundOpeningSetupResult(campaignId),
+      bindInvocationId,
+      bindBriefing,
+    );
+  }
   prepareOpeningRoute(gate, campaignId, `${prefix}-prepare`);
   const params = bootstrapOpeningParams(campaignId);
   const task = coordinatorTask(`${prefix}-task`, { campaignId });
@@ -4755,6 +4792,97 @@ async function exerciseFailureDrain(mode) {
   check("fulfilled background forbids duplicate bootstrap",
     duplicateBootstrapRejected && bootstrapCalls === 1);
   await harness.shutdown();
+}
+
+// The bind receipt owns the setup generation's exact player-safe briefing.
+// A later sparse progressive rerender may stay a valid canonical receipt, but
+// it cannot replace those already accepted bytes in player-visible output.
+{
+  const campaignId = "bind-briefing-first";
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.markAgentStart();
+  const bindText = "绑定回执中的玩家安全开卡序章。";
+  const bindBriefing = {
+    campaignId,
+    sourceKind: "scenario.bind_pdf",
+    publicSetupSha256: "a".repeat(64),
+    text: bindText,
+    textSha256: "",
+  };
+  // canonicalJsonValueSha256 is intentionally private; reproduce the exact
+  // JSON-value hash used by the gate for this closed test value.
+  bindBriefing.textSha256 = (
+    `sha256:${createHash("sha256").update(
+      JSON.stringify(bindText),
+      "utf8",
+    ).digest("hex")}`
+  );
+  beginBackgroundOpeningRoute(
+    gate,
+    campaignId,
+    "bind-briefing-first",
+    bindBriefing,
+  );
+  const renderParams = {
+    operation: "setup.invoke",
+    campaign: campaignId,
+    arguments: {
+      kind: "campaign.render_briefing",
+      payload: { campaign_id: campaignId, language: "zh-Hans" },
+    },
+  };
+  const renderInvocationId = "bind-briefing-first-rerender";
+  check("same-generation canonical rerender remains mechanically admitted",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      renderParams,
+      renderInvocationId,
+    ) === null);
+  const sparseText = "稀疏 progressive module 的 unknown 通用序章。";
+  const sparseBriefing = {
+    campaignId,
+    sourceKind: "campaign.render_briefing",
+    publicSetupSha256: "b".repeat(64),
+    text: sparseText,
+    textSha256: (
+      `sha256:${createHash("sha256").update(
+        JSON.stringify(sparseText),
+        "utf8",
+      ).digest("hex")}`
+    ),
+  };
+  const observed = gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    renderParams,
+    {
+      ok: true,
+      tool: "setup.invoke",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "campaign.render_briefing",
+        result: {
+          campaign_id: campaignId,
+          briefing_path: (
+            `.coc/campaigns/${campaignId}/assets/character-creation/`
+            + "progressive-module-briefing.md"
+          ),
+          public_setup_sha256: "b".repeat(64),
+        },
+      },
+    },
+    renderInvocationId,
+    sparseBriefing,
+  );
+  const visible = gate.acceptVisibleAssistantFinal(sparseText);
+  check("bind receipt bytes survive sparse same-generation rerender",
+    observed.accepted === true
+    && replacementIs(visible, bindText)
+    && gate.takeOpeningSetupAudits().some((entry) => (
+      entry.reason === "bind_briefing_owns_setup_generation"
+      && entry.retained_public_setup_sha256 === "a".repeat(64)
+      && entry.ignored_public_setup_sha256 === "b".repeat(64)
+    )));
 }
 
 // The main KP gateway never owns private source-work leases. All four

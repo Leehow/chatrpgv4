@@ -307,6 +307,7 @@ type OpeningSetupState = {
   bootstrapRetryCard: JsonObject | null;
   continuationReleaseOwner: "route" | "terminal" | null;
   backgroundTerminalReceipt: JsonObject | null;
+  bindBriefing: CanonicalSetupVisibleOutput | null;
 };
 type OpeningSetupAttempt = {
   invocationId: string;
@@ -1296,6 +1297,7 @@ export class OpeningTerminalContinuationGate {
       bootstrapRetryCard: null,
       continuationReleaseOwner: null,
       backgroundTerminalReceipt: null,
+      bindBriefing: null,
     };
     this.openingSetupStates.set(campaignId, state);
     this.openingSetupContinuationQueued.delete(campaignId);
@@ -1556,6 +1558,7 @@ export class OpeningTerminalContinuationGate {
           && canonicalVisibleOutput.textSha256
             === canonicalJsonValueSha256(canonicalVisibleOutput.text)
         ) {
+          initialized.bindBriefing = { ...canonicalVisibleOutput };
           this.authorizeOpeningSetupVisibleOutput(
             initialized,
             attempt,
@@ -1695,12 +1698,36 @@ export class OpeningTerminalContinuationGate {
         operation === "setup.invoke"
         && setupArgs?.kind === "campaign.link_investigator"
       );
-      const canonicalVisibleText = this.canonicalCharacterSetupVisibleText(
+      let canonicalVisibleText = this.canonicalCharacterSetupVisibleText(
         operation,
         params,
         envelope,
         canonicalVisibleOutput,
       );
+      const retainedBindBriefing = (
+        setupArgs?.kind === "campaign.render_briefing"
+        && canonicalVisibleText !== null
+        && state.bindBriefing !== null
+        && state.bindBriefing.campaignId === attempt.campaignId
+        && state.bindBriefing.textSha256
+          === canonicalJsonValueSha256(state.bindBriefing.text)
+      )
+        ? state.bindBriefing
+        : null;
+      if (retainedBindBriefing !== null) {
+        canonicalVisibleText = retainedBindBriefing.text;
+        this.recordOpeningSetupAudit({
+          status: "retained",
+          reason: "bind_briefing_owns_setup_generation",
+          campaign_id: attempt.campaignId,
+          generation: state.generation,
+          invocation_id: invocationId,
+          ignored_public_setup_sha256:
+            canonicalVisibleOutput?.publicSetupSha256,
+          retained_public_setup_sha256:
+            retainedBindBriefing.publicSetupSha256,
+        });
+      }
       const acceptedCharacterResult = canonicalVisibleText !== null;
       if (linkAttempt && acceptedCharacterResult) {
         state.characterSetupComplete = true;
@@ -1729,6 +1756,11 @@ export class OpeningTerminalContinuationGate {
           (
             canonicalVisibleOutput === null
               ? `${operation}:${String(setupArgs?.kind ?? operation)}`
+              : retainedBindBriefing !== null
+                ? (
+                  `${retainedBindBriefing.sourceKind}:`
+                  + retainedBindBriefing.publicSetupSha256
+                )
               : (
                 `${canonicalVisibleOutput.sourceKind}:`
                 + canonicalVisibleOutput.publicSetupSha256

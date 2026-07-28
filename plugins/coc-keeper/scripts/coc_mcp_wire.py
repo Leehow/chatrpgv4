@@ -528,10 +528,13 @@ def _compact_scene(
             "operation_opportunities",
             "keeper_mechanics",
             "exit_ready",
-            "progressive",
             "drilldown_refs",
         ),
     )
+    if isinstance(value.get("progressive"), dict):
+        projected["progressive"] = _project_source_work_lifecycle(
+            value["progressive"]
+        )
     if tight:
         projected["npcs_present"] = [
             _compact_npc(row)
@@ -626,17 +629,55 @@ def _project_progressive_status(value: Any) -> Any:
         )
     host_work = value.get("host_work")
     if isinstance(host_work, dict):
-        projected["host_work"] = _pick(
-            host_work,
-            (
-                "open_count",
-                "ready_for_background_count",
-                "leased_count",
-                "needs_source_window_count",
-                "claim_operation",
-            ),
-        )
-        projected["host_work"]["requests"] = [
+        projected["host_work"] = _project_source_work_lifecycle(host_work)
+    return projected
+
+
+def _project_source_work_lifecycle(value: Any) -> dict[str, Any]:
+    """Keep exact current-dependency control while dropping bulky previews.
+
+    Pi consumes the wait and dispatch rows as a closed lifecycle contract.
+    Losing either one turns a blocking micro-dependency into ordinary model
+    prose, so these fields take precedence over source request previews.
+    """
+    if not isinstance(value, dict):
+        return {}
+    projected = _pick(
+        value,
+        (
+            "asset_root_id",
+            "campaign_id",
+            "current_dependency_snapshot_complete",
+            "open_count",
+            "open_host_work_count",
+            "ready_for_background_count",
+            "runnable_count",
+            "leased_count",
+            "needs_source_window_count",
+            "awaiting_scope_count",
+            "awaiting_cache_count",
+            "stale_count",
+            "stranded_ready_count",
+            "blocking_micro_ready_count",
+            "claim_operation",
+            "background_takeover",
+            "current_dependency_waits",
+            "current_dependency_dispatches",
+            "pi_coordinator_dispatch_status",
+            "pi_coordinator_max_attempts",
+            "pi_coordinator_retry_exhausted_count",
+            "automatic_retry_remaining",
+        ),
+    )
+    request_field = next(
+        (
+            field for field in ("requests", "ready_background_requests")
+            if isinstance(value.get(field), list)
+        ),
+        None,
+    )
+    if request_field is not None:
+        projected[request_field] = [
             _pick(
                 row,
                 (
@@ -646,15 +687,53 @@ def _project_progressive_status(value: Any) -> Any:
                     "requested_pdf_indices",
                     "source_aspect",
                     "deadline_class",
+                    "work_level",
+                    "dependency_ref",
                     "work_group_id",
                     "dispatch_state",
                     "dispatch_attempts",
                     "cached_scope_complete",
                 ),
             )
-            for row in (host_work.get("requests") or [])[:4]
+            for row in value[request_field][:4]
             if isinstance(row, dict)
         ]
+    return projected
+
+
+def _project_request_deepen(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return deepcopy(value)
+    projected = _pick(
+        value,
+        (
+            "campaign_id",
+            "asset_root_id",
+            "kind",
+            "target_id",
+            "current_dependency",
+            "dependency_ref",
+            "source_lifecycle",
+            "background_takeover",
+        ),
+    )
+    if isinstance(value.get("status"), dict):
+        projected["status"] = _pick(
+            value["status"],
+            (
+                "kind",
+                "entity_id",
+                "exists",
+                "parse_state",
+                "evidence_gap",
+                "deep_ready",
+                "title",
+                "ingest_timing",
+            ),
+        )
+    host_work = value.get("host_work")
+    if isinstance(host_work, dict):
+        projected["host_work"] = _project_source_work_lifecycle(host_work)
     return projected
 
 
@@ -1527,6 +1606,8 @@ def project_envelope(
         projector = lambda value: _compact_scene(value, tight=True)
     elif operation == "progressive.status":
         projector = _project_progressive_status
+    elif operation == "progressive.request_deepen":
+        projector = _project_request_deepen
     elif operation == "actions.advise":
         projector = _project_actions
     elif operation == "npc.reaction":

@@ -88,7 +88,8 @@ export class CocHudController {
   private enabled = true;
   private snapshot: HudSnapshot | null = null;
   private tableIdentity: ActiveTableIdentity | null = null;
-  private refreshing = false;
+  private refreshRequested = false;
+  private refreshPromise: Promise<void> | null = null;
   private uiCtx: ExtensionContext | null = null;
   private clientFactory: ((ctx: ExtensionContext) => McpJsonlClient) | null = null;
 
@@ -129,53 +130,76 @@ export class CocHudController {
     const ui = ctx ?? this.uiCtx;
     if (!ui?.hasUI || !this.enabled) return;
     if (!this.clientFactory) return;
-    if (!this.campaignId) {
-      this.snapshot = null;
-      this.applyFooter(ui, null);
-      return;
-    }
-    if (this.refreshing) return;
-    this.refreshing = true;
-    this.tableIdentity = null;
-    try {
-      const client = this.clientFactory(ui);
-      const campaign = this.campaignId;
-      const sceneEnv = await client.callTool("coc_invoke", {
-        operation: "scene.context",
-        campaign,
-        arguments: {},
-      });
-      const scene = envelopeData(sceneEnv);
-      const party = Array.isArray(scene.party) ? scene.party : [];
-      const investigator = typeof party[0] === "string" ? party[0] : null;
-      let inventory: JsonObject | undefined;
-      if (investigator) {
-        try {
-          const invEnv = await client.callTool("coc_invoke", {
-            operation: "state.inventory_list",
-            campaign,
-            arguments: { investigator },
-          });
-          inventory = envelopeData(invEnv);
-        } catch {
-          inventory = undefined;
+    this.refreshRequested = true;
+    if (this.refreshPromise === null) {
+      this.refreshPromise = (async () => {
+        while (this.refreshRequested) {
+          this.refreshRequested = false;
+          const activeUi = ctx ?? this.uiCtx;
+          if (!activeUi?.hasUI || !this.enabled) continue;
+          if (!this.campaignId) {
+            this.snapshot = null;
+            this.tableIdentity = null;
+            this.applyFooter(activeUi, null);
+            continue;
+          }
+          const campaign = this.campaignId;
+          this.tableIdentity = null;
+          try {
+            const client = this.clientFactory!(activeUi);
+            const sceneEnv = await client.callTool("coc_invoke", {
+              operation: "scene.context",
+              campaign,
+              arguments: {},
+            });
+            const scene = envelopeData(sceneEnv);
+            const party = Array.isArray(scene.party) ? scene.party : [];
+            const investigator = typeof party[0] === "string" ? party[0] : null;
+            let inventory: JsonObject | undefined;
+            if (investigator) {
+              try {
+                const invEnv = await client.callTool("coc_invoke", {
+                  operation: "state.inventory_list",
+                  campaign,
+                  arguments: { investigator },
+                });
+                inventory = envelopeData(invEnv);
+              } catch {
+                inventory = undefined;
+              }
+            }
+            // A model/tool result may bind a newer campaign while this exact
+            // read is in flight. Its queued refresh owns publication.
+            if (campaign !== this.campaignId) continue;
+            // clues.query is often payload-projected on coding hosts;
+            // scene.context already carries discovered_clues_public.
+            this.tableIdentity = buildActiveTableIdentity(campaign, scene);
+            this.snapshot = buildHudSnapshot({
+              campaignId: campaign,
+              scene,
+              inventory,
+            });
+            this.applyFooter(activeUi, this.snapshot);
+          } catch (error) {
+            if (campaign !== this.campaignId) continue;
+            this.tableIdentity = null;
+            const message = hudRefreshErrorMessage(error);
+            this.snapshot = buildHudSnapshot({
+              campaignId: campaign,
+              error: message,
+            });
+            this.applyFooter(activeUi, this.snapshot);
+          }
         }
-      }
-      // clues.query is often payload-projected on coding hosts; scene.context
-      // already carries discovered_clues_public for the table HUD.
-      this.tableIdentity = buildActiveTableIdentity(campaign, scene);
-      this.snapshot = buildHudSnapshot({ campaignId: campaign, scene, inventory });
-      this.applyFooter(ui, this.snapshot);
-    } catch (error) {
-      this.tableIdentity = null;
-      const message = hudRefreshErrorMessage(error);
-      this.snapshot = buildHudSnapshot({
-        campaignId: this.campaignId,
-        error: message,
-      });
-      this.applyFooter(ui, this.snapshot);
+      })();
+    }
+    const activeRefresh = this.refreshPromise;
+    try {
+      await activeRefresh;
     } finally {
-      this.refreshing = false;
+      if (this.refreshPromise === activeRefresh) {
+        this.refreshPromise = null;
+      }
     }
   }
 

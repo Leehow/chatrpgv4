@@ -217,6 +217,101 @@ await hudCommand.handler("bind campaign-empty", ctx);
 const empty = await contextHandler({ messages: [] }, ctx);
 if (empty !== undefined) throw new Error("empty party identity did not fail closed");
 
+// A slow pre-link refresh must not cause the canonical link-triggered refresh
+// to be dropped. This is the R8 ordering: empty party read in flight, then the
+// setup.invoke link receipt arrives before the first read returns.
+const coalescedHandlers = new Map();
+const coalescedCommands = new Map();
+const coalescedPi = {
+  registerCommand(name, command) {
+    coalescedCommands.set(name, command);
+  },
+  registerShortcut() {},
+  on(type, handler) {
+    const rows = coalescedHandlers.get(type) || [];
+    rows.push(handler);
+    coalescedHandlers.set(type, rows);
+  },
+};
+let releasePreLink;
+const preLinkGate = new Promise((resolve) => {
+  releasePreLink = resolve;
+});
+let sceneReads = 0;
+const coalescedClient = {
+  async callTool(_name, args) {
+    if (args.operation === "scene.context") {
+      sceneReads += 1;
+      if (sceneReads === 1) {
+        await preLinkGate;
+        return {
+          data: {
+            campaign_id: "campaign-r8",
+            party: [],
+            party_investigators: [],
+          },
+        };
+      }
+      return {
+        data: {
+          campaign_id: "campaign-r8",
+          party: ["aedric-hunter"],
+          party_investigators: [{
+            investigator_id: "aedric-hunter",
+            name: "Aedric",
+          }],
+        },
+      };
+    }
+    if (args.operation === "state.inventory_list") {
+      return { data: { items: [], weapons: [] } };
+    }
+    throw new Error(`unexpected operation ${args.operation}`);
+  },
+};
+const coalescedHud = registerCocHud(coalescedPi, () => coalescedClient);
+const bindR8 = coalescedCommands.get("hud").handler(
+  "bind campaign-r8",
+  ctx,
+);
+await Promise.resolve();
+for (const handler of coalescedHandlers.get("tool_result") || []) {
+  await handler({
+    toolName: "coc_invoke",
+    input: {
+      operation: "setup.invoke",
+      campaign: "campaign-r8",
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: "campaign-r8",
+          investigator_ids: ["aedric-hunter"],
+        },
+      },
+    },
+    details: {
+      ok: true,
+      data: {
+        result: {
+          campaign_id: "campaign-r8",
+          investigator_ids: ["aedric-hunter"],
+        },
+      },
+    },
+  }, ctx);
+}
+releasePreLink();
+await bindR8;
+const linkedSnapshot = coalescedHud.getSnapshot();
+if (
+  sceneReads !== 2
+  || linkedSnapshot?.investigators?.[0]?.id !== "aedric-hunter"
+) {
+  throw new Error(
+    `link refresh was not coalesced: ${JSON.stringify({ sceneReads, linkedSnapshot })}`,
+  );
+}
+
 process.stdout.write(JSON.stringify({
   ok: true,
   hidden: firstMessage.display === false,
@@ -225,5 +320,6 @@ process.stdout.write(JSON.stringify({
   authoritativeResume: true,
   refreshedBinding,
   emptyOmitted: empty === undefined,
+  linkRefreshCoalesced: true,
   setupErrorClassified: true,
 }));

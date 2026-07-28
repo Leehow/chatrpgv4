@@ -201,6 +201,7 @@ def test_pi_hud_injects_exact_hidden_active_table_identity():
             "investigator_ids": ["inv-c"],
         },
         "emptyOmitted": True,
+        "linkRefreshCoalesced": True,
         "setupErrorClassified": True,
     }
 
