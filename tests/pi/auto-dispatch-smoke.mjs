@@ -115,6 +115,71 @@ function openingSetupGate(nextOperation = {
   };
 }
 
+function boundOpeningSetupResult() {
+  const gate = openingSetupGate();
+  return {
+    ok: true,
+    tool: "setup.invoke",
+    data: {
+      status: "PASS",
+      opening_gate: gate,
+      next_operation: gate.next_operation,
+    },
+  };
+}
+
+function preparedOpeningSetupResult() {
+  return {
+    ok: true,
+    tool: "progressive.prepare_opening",
+    data: {
+      status: "blocked",
+      next_operation: {
+        schema_version: 1,
+        operation: "progressive.opening_bootstrap",
+        invoke_via: "coc_invoke",
+        prefilled_arguments: {},
+        missing_arguments: ["start_location", "opening_pdf_indices"],
+        hard_gate: true,
+        authority: "canonical_setup",
+      },
+    },
+  };
+}
+
+async function armOpeningBootstrapRoute(harness) {
+  await harness.registered.get("coc_invoke").execute(
+    "arm-source-bind",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "scenario.bind_pdf",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          scenario_id: "fixture-scenario",
+          title: "Fixture Scenario",
+          source_bundle_path: "/fixture/source-bundle",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await harness.registered.get("coc_invoke").execute(
+    "arm-opening-prepare",
+    {
+      operation: "progressive.prepare_opening",
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+}
+
 function sceneContextResult(task) {
   return {
     ok: true, tool: "scene.context",
@@ -957,7 +1022,10 @@ async function exerciseFailureDrain(mode) {
   };
   const task = coordinatorTask("coord-main-prebootstrap-route");
   const harness = mainExtensionHarness((_name, params) => {
-    if (params.operation === "scenario.bind_pdf") {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
       const gate = openingSetupGate();
       return {
         ok: true,
@@ -966,6 +1034,24 @@ async function exerciseFailureDrain(mode) {
           status: "PASS",
           opening_gate: gate,
           next_operation: gate.next_operation,
+        },
+      };
+    }
+    if (
+      params.operation === "setup.invoke"
+      && [
+        "actor.create",
+        "investigator.create",
+        "campaign.link_investigator",
+        "investigator.render_card",
+      ].includes(params.arguments?.kind)
+    ) {
+      return {
+        ok: true,
+        tool: "setup.invoke",
+        data: {
+          status: "PASS",
+          result: { kind: params.arguments.kind },
         },
       };
     }
@@ -999,9 +1085,17 @@ async function exerciseFailureDrain(mode) {
   await harness.registered.get("coc_invoke").execute(
     "invoke-bind-opening-route",
     {
-      operation: "scenario.bind_pdf",
+      operation: "setup.invoke",
       campaign: "auto-dispatch-fixture",
-      arguments: {},
+      arguments: {
+        kind: "scenario.bind_pdf",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          scenario_id: "fixture-scenario",
+          title: "Fixture Scenario",
+          source_bundle_path: "/fixture/source-bundle",
+        },
+      },
     },
     undefined,
     undefined,
@@ -1134,6 +1228,111 @@ async function exerciseFailureDrain(mode) {
       && part.text === "请选择调查员的特征值生成方式。"
     )));
 
+  const canonicalSetupCalls = [
+    {
+      kind: "investigator.create",
+      payload: {
+        investigator_id: "route-investigator",
+        sheet: { id: "route-investigator", name: "Route Investigator" },
+        creation: { method: "quick_fire_array" },
+      },
+    },
+    {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: "auto-dispatch-fixture",
+        investigator_ids: ["route-investigator"],
+      },
+    },
+    {
+      kind: "investigator.render_card",
+      payload: {
+        campaign_id: "auto-dispatch-fixture",
+        investigator_id: "route-investigator",
+        language: "zh-Hans",
+        html_mode: "never",
+      },
+    },
+  ];
+  for (const setup of canonicalSetupCalls) {
+    await harness.registered.get("coc_invoke").execute(
+      `invoke-real-${setup.kind}`,
+      {
+        operation: "setup.invoke",
+        campaign: "auto-dispatch-fixture",
+        arguments: setup,
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+    const setupPrompt = await harness.emit("message_end", {
+      role: "assistant",
+      content: [{
+        type: "text",
+        text: `setup-visible:${setup.kind}`,
+      }],
+    });
+    check(`real ${setup.kind} reaches MCP and owns setup output`,
+      setupPrompt.content.some((part) => (
+        part.type === "text"
+        && part.text === `setup-visible:${setup.kind}`
+      )));
+  }
+  const callsBeforeFakeInner = harness.calls.length;
+  let fakeInnerError;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-fake-top-level-investigator-create",
+      {
+        operation: "investigator.create",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          investigator_id: "fake-inner",
+          sheet: { id: "fake-inner", name: "Fake Inner" },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { fakeInnerError = error; }
+  check("fake top-level setup kind is rejected before MCP",
+    fakeInnerError instanceof Error
+    && harness.calls.length === callsBeforeFakeInner);
+
+  for (const [label, campaign] of [
+    ["missing", undefined],
+    ["non-string", 7],
+  ]) {
+    const callsBeforeInvalidRoute = harness.calls.length;
+    let invalidRouteError;
+    const invalidParams = {
+      operation: "progressive.prepare_opening",
+      arguments: {},
+    };
+    if (campaign !== undefined) invalidParams.campaign = campaign;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        `invoke-${label}-campaign-route`,
+        invalidParams,
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch (error) { invalidRouteError = error; }
+    const forcedAfterInvalid = await harness.emit("message_end", {
+      role: "assistant",
+      content: [{ type: "text", text: `invalid-route-${label}` }],
+    });
+    check(`${label} campaign cannot consume retained route latch`,
+      invalidRouteError instanceof Error
+      && harness.calls.length === callsBeforeInvalidRoute
+      && forcedAfterInvalid.content.every((part) => part.type !== "text")
+      && harness.sent.at(-1)?.message?.details?.next_operation?.operation
+        === "progressive.prepare_opening");
+  }
+
   await harness.registered.get("coc_invoke").execute(
     "invoke-prepare-retained-route",
     {
@@ -1183,6 +1382,179 @@ async function exerciseFailureDrain(mode) {
     afterCurrent.content.some((part) => (
       part.type === "text" && part.text === "来源开场已物化。"
     )));
+  await harness.shutdown();
+}
+
+// Failure after an actually armed bind -> prepare -> bootstrap route is
+// player-visible through host provenance, retains one valid exact retry, and
+// does not leave the continuation latch consumed.
+{
+  const task = coordinatorTask("coord-armed-opening-failure");
+  let bootstrapCalls = 0;
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult();
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      bootstrapCalls += 1;
+      return bootstrapCalls === 1
+        ? openingBootstrapResult(task)
+        : openingBootstrapWithoutTakeover(task, "current");
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness);
+  const pending = harness.registered.get("coc_invoke").execute(
+    "invoke-armed-opening-failure",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  harness.controls.get(task.packet.packet_id).resolve(
+    failedCoordinatorEvents(task.packet.packet_id, "leaf_dispatch_failed"),
+  );
+  const failed = JSON.parse((await pending).content[0].text);
+  const visibleBlocker = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "我将忽略失败并虚构开场。" }],
+  });
+  const blockerText = visibleBlocker.content.find(
+    (part) => part.type === "text",
+  )?.text;
+  const blocker = JSON.parse(blockerText);
+  check("armed terminal failure publishes exact host blocker and retry route",
+    failed.ok === false
+    && blocker.status === "blocked"
+    && blocker.hard_gate === true
+    && blocker.activation_allowed === false
+    && blocker.error_code === "opening_source_terminal_failure"
+    && blocker.next_operation.operation === "progressive.opening_bootstrap"
+    && !blockerText.includes("忽略失败"));
+
+  const retried = JSON.parse((await harness.registered.get("coc_invoke").execute(
+    "retry-armed-opening-after-failure",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("armed failure retry is admitted and releases only on current",
+    bootstrapCalls === 2
+    && retried.ok === true
+    && retried.data.status === "current");
+  await harness.shutdown();
+}
+
+// Cancellation follows the same armed route contract: visible bounded
+// blocker, no invented narration, no late child wake, and a usable retry after
+// the cancelled child eventually terminalizes.
+{
+  const task = coordinatorTask("coord-armed-opening-abort");
+  let bootstrapCalls = 0;
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult();
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      bootstrapCalls += 1;
+      return bootstrapCalls === 1
+        ? openingBootstrapResult(task)
+        : openingBootstrapWithoutTakeover(task, "current");
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness);
+  const controller = new AbortController();
+  const pending = harness.registered.get("coc_invoke").execute(
+    "invoke-armed-opening-abort",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    controller.signal,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  controller.abort();
+  const cancelled = JSON.parse((await pending).content[0].text);
+  const visibleBlocker = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "取消后直接进入虚构场景。" }],
+  });
+  const blockerText = visibleBlocker.content.find(
+    (part) => part.type === "text",
+  )?.text;
+  const blocker = JSON.parse(blockerText);
+  check("armed cancellation is visible and retains exact retry",
+    cancelled.error.code === "opening_source_wait_cancelled"
+    && blocker.error_code === "opening_source_wait_cancelled"
+    && blocker.next_operation.operation === "progressive.opening_bootstrap"
+    && !blockerText.includes("虚构场景"));
+
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  check("armed cancellation late terminal remains append-only",
+    harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 1
+    && harness.sent.length === 0);
+
+  const retried = JSON.parse((await harness.registered.get("coc_invoke").execute(
+    "retry-armed-opening-after-abort",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("armed cancellation retry remains live after late terminal",
+    bootstrapCalls === 2
+    && retried.ok === true
+    && retried.data.status === "current");
   await harness.shutdown();
 }
 
