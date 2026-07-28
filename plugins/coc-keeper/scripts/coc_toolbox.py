@@ -1212,6 +1212,35 @@ _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS = frozenset({
 })
 
 
+def _pi_opening_source_contract_error_gate(
+    campaign_id: str,
+    *,
+    code: str,
+    message: str,
+    asset_root_id: str | None = None,
+) -> dict[str, Any]:
+    """Keep a persisted Pi source binding fail-closed when it cannot resolve."""
+    return {
+        "schema_version": 1,
+        "status": "blocked",
+        "hard_gate": True,
+        "activation_allowed": False,
+        "phase": "opening_source_contract_invalid",
+        "campaign_id": str(campaign_id),
+        **({"asset_root_id": asset_root_id} if asset_root_id else {}),
+        "source_contract_error": {
+            "code": str(code),
+            "message": str(message),
+        },
+        "next_operation": None,
+        "instruction": (
+            "the persisted source-bound opening contract is invalid; do not "
+            "resume, rediscover, rebind, inspect live-play state, mutate play, "
+            "or narrate an opening until the source contract is repaired"
+        ),
+    }
+
+
 def _pi_opening_setup_gate(
     root: Path, campaign_id: str | None,
 ) -> dict[str, Any] | None:
@@ -1221,11 +1250,50 @@ def _pi_opening_setup_gate(
     campaign_dir = root / ".coc" / "campaigns" / str(campaign_id)
     if not campaign_dir.is_dir():
         return None
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    try:
+        loaded_scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        loaded_scenario = {}
+    except (json.JSONDecodeError, OSError) as exc:
+        return _pi_opening_source_contract_error_gate(
+            str(campaign_id),
+            code="opening_scenario_metadata_invalid",
+            message=str(exc),
+        )
+    if not isinstance(loaded_scenario, dict):
+        return _pi_opening_source_contract_error_gate(
+            str(campaign_id),
+            code="opening_scenario_metadata_invalid",
+            message="campaign scenario metadata must be an object",
+        )
+    scenario = loaded_scenario
+    persisted_root_id = str(
+        scenario.get("progressive_asset_root_id")
+        or scenario.get("source_cache_asset_root_id")
+        or ""
+    ).strip()
+    scenario_source = (
+        scenario.get("source")
+        if isinstance(scenario.get("source"), dict)
+        else {}
+    )
+    has_persisted_source_binding = bool(
+        persisted_root_id
+        or str(scenario_source.get("bundle_sha256") or "").strip()
+    )
     try:
         root_info = coc_module_project.resolve_opening_preparation_root(
             root, str(campaign_id),
         )
-    except coc_module_project.OpeningPreparationError:
+    except coc_module_project.OpeningPreparationError as exc:
+        if has_persisted_source_binding:
+            return _pi_opening_source_contract_error_gate(
+                str(campaign_id),
+                code=exc.code,
+                message=exc.message,
+                asset_root_id=persisted_root_id or None,
+            )
         return None
     asset_root_id = str(root_info["asset_root_id"])
     binding = coc_module_project.current_opening_projection_source_binding(
@@ -1248,14 +1316,6 @@ def _pi_opening_setup_gate(
             )
         ):
             return None
-    scenario = {}
-    scenario_path = campaign_dir / "scenario" / "scenario.json"
-    try:
-        loaded = json.loads(scenario_path.read_text(encoding="utf-8"))
-        if isinstance(loaded, dict):
-            scenario = loaded
-    except (json.JSONDecodeError, OSError):
-        pass
     watch = (
         scenario.get("opening_projection_watch")
         if isinstance(scenario.get("opening_projection_watch"), dict)
@@ -1307,6 +1367,13 @@ def _pi_opening_setup_gate(
 def _pi_opening_setup_operation_allowed(
     name: str, args: dict[str, Any],
 ) -> bool:
+    if name == "rules.roll_dice":
+        return (
+            set(args) == {"expression", "decision_id", "reason"}
+            and args.get("expression") == "3D6"
+            and args.get("reason") == "Quick-Fire investigator Luck"
+            and bool(str(args.get("decision_id") or "").strip())
+        )
     if name in _PI_OPENING_SETUP_ALLOWED_OPERATIONS:
         return True
     return (

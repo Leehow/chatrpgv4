@@ -93,6 +93,28 @@ function openingBootstrapWithoutTakeover(task, status = "queued") {
   return value;
 }
 
+function openingSetupGate(nextOperation = {
+  schema_version: 1,
+  operation: "progressive.prepare_opening",
+  invoke_via: "coc_invoke",
+  prefilled_arguments: {},
+  missing_arguments: [],
+  hard_gate: true,
+  authority: "canonical_setup",
+}) {
+  return {
+    schema_version: 1,
+    status: "blocked",
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_selection",
+    campaign_id: "auto-dispatch-fixture",
+    asset_root_id: "asset-fixture",
+    next_operation: nextOperation,
+    instruction: "invoke the exact retained opening setup card",
+  };
+}
+
 function sceneContextResult(task) {
   return {
     ok: true, tool: "scene.context",
@@ -916,6 +938,293 @@ async function exerciseFailureDrain(mode) {
       entry.dispatch_key === overflow.packet.packet_id
       && entry.status === "completed"
     )).length === 1);
+}
+
+// A successful source bind arms the Pi host boundary before bootstrap. The
+// model cannot detour through discovery/OCR or publish tool-free invented
+// opening prose; only a structured character-setup result may authorize a
+// setup prompt. The retained card advances exactly and clears only after a
+// canonical current opening result.
+{
+  const bootstrapCard = {
+    schema_version: 1,
+    operation: "progressive.opening_bootstrap",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: {},
+    missing_arguments: ["start_location", "opening_pdf_indices"],
+    hard_gate: true,
+    authority: "canonical_setup",
+  };
+  const task = coordinatorTask("coord-main-prebootstrap-route");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "scenario.bind_pdf") {
+      const gate = openingSetupGate();
+      return {
+        ok: true,
+        tool: "setup.invoke",
+        data: {
+          status: "PASS",
+          opening_gate: gate,
+          next_operation: gate.next_operation,
+        },
+      };
+    }
+    if (params.operation === "setup.investigator_contract") {
+      return {
+        ok: true,
+        tool: "setup.investigator_contract",
+        data: { status: "PASS", result: { payload_schema: {} } },
+      };
+    }
+    if (params.operation === "rules.roll_dice") {
+      return {
+        ok: true,
+        tool: "rules.roll_dice",
+        data: { expression: "3D6", rolls: [3, 4, 5], total: 12 },
+      };
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return {
+        ok: true,
+        tool: "progressive.prepare_opening",
+        data: { status: "blocked", next_operation: bootstrapCard },
+      };
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapWithoutTakeover(task, "current");
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-bind-opening-route",
+    {
+      operation: "scenario.bind_pdf",
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const callsAfterBind = harness.calls.length;
+  let discoverError;
+  let ocrError;
+  let sceneError;
+  let nonCreationDiceError;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "discover-during-opening-gate",
+      {},
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { discoverError = error; }
+  try {
+    await harness.registered.get("coc_progressive_ocr").execute(
+      "ocr-during-opening-gate",
+      { operation: "status" },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { ocrError = error; }
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "scene-during-opening-gate",
+      {
+        operation: "scene.context",
+        campaign: "auto-dispatch-fixture",
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { sceneError = error; }
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "non-creation-dice-during-opening-gate",
+      {
+        operation: "rules.roll_dice",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          expression: "3D6",
+          decision_id: "not-creation-dice",
+          reason: "ordinary random event",
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { nonCreationDiceError = error; }
+  check("pre-bootstrap host gate blocks discover OCR and play detours",
+    discoverError instanceof Error
+    && ocrError instanceof Error
+    && sceneError instanceof Error
+    && nonCreationDiceError instanceof Error
+    && discoverError.message.includes('"operation":"progressive.prepare_opening"')
+    && ocrError.message.includes('"operation":"progressive.prepare_opening"')
+    && sceneError.message.includes('"operation":"progressive.prepare_opening"')
+    && nonCreationDiceError.message.includes(
+      '"operation":"progressive.prepare_opening"',
+    )
+    && harness.calls.length === callsAfterBind);
+
+  const invented = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "你站在一条并不存在于来源中的街道上。" }],
+  });
+  const forcedRoute = harness.sent.at(-1);
+  check("unproven pre-bootstrap final is suppressed and exact route is forced",
+    invented.content.every((part) => part.type !== "text")
+    && forcedRoute?.message?.customType === "coc-opening-setup-route"
+    && forcedRoute?.message?.details?.next_operation?.operation
+      === "progressive.prepare_opening"
+    && forcedRoute?.options?.triggerTurn === true
+    && forcedRoute?.options?.deliverAs === "followUp");
+
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-quick-fire-luck-during-opening",
+    {
+      operation: "rules.roll_dice",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        expression: "3D6",
+        decision_id: "quick-fire-luck-during-opening",
+        reason: "Quick-Fire investigator Luck",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const luckPrompt = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "幸运骰结果为 12，幸运值为 60。" }],
+  });
+  check("exact Quick-Fire Luck recipe has setup output provenance",
+    luckPrompt.content.some((part) => (
+      part.type === "text" && part.text === "幸运骰结果为 12，幸运值为 60。"
+    )));
+
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-character-contract-during-opening",
+    {
+      operation: "setup.investigator_contract",
+      campaign: "auto-dispatch-fixture",
+      arguments: { campaign_id: "auto-dispatch-fixture" },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const characterPrompt = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{
+      type: "text",
+      text: "请选择调查员的特征值生成方式。",
+    }],
+  });
+  check("structured character setup provenance permits its player prompt",
+    characterPrompt.content.some((part) => (
+      part.type === "text"
+      && part.text === "请选择调查员的特征值生成方式。"
+    )));
+
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-prepare-retained-route",
+    {
+      operation: "progressive.prepare_opening",
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  let rediscoverAfterPrepare;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "rediscover-after-prepare",
+      {},
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { rediscoverAfterPrepare = error; }
+  check("prepare advances retained route to exact opening bootstrap",
+    rediscoverAfterPrepare instanceof Error
+    && rediscoverAfterPrepare.message.includes(
+      '"operation":"progressive.opening_bootstrap"',
+    ));
+
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-opening",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const afterCurrent = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "来源开场已物化。" }],
+  });
+  check("canonical current opening releases pre-bootstrap transcript gate",
+    afterCurrent.content.some((part) => (
+      part.type === "text" && part.text === "来源开场已物化。"
+    )));
+  await harness.shutdown();
+}
+
+// The main KP gateway never owns private source-work leases. All four
+// lifecycle methods remain available only to the isolated coordinator.
+{
+  const harness = mainExtensionHarness(() => {
+    throw new Error("private lifecycle reached main MCP client");
+  });
+  await harness.start();
+  const callsBeforePrivate = harness.calls.length;
+  const rejected = [];
+  for (const operation of [
+    "progressive.claim_host_work",
+    "progressive.fulfill_host_work",
+    "progressive.renew_host_work_leases",
+    "progressive.release_host_work_leases",
+  ]) {
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        `invoke-private-${operation}`,
+        {
+          operation,
+          campaign: "auto-dispatch-fixture",
+          arguments: {},
+        },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch (error) {
+      rejected.push(error);
+    }
+  }
+  check("main KP rejects every private source lease lifecycle operation",
+    rejected.length === 4
+    && rejected.every((error) => (
+      error instanceof Error
+      && error.message.includes("private source coordinator lifecycle")
+    ))
+    && harness.calls.length === callsBeforePrivate);
+  await harness.shutdown();
 }
 
 // V4 host path: the original opening_bootstrap tool call is the only provider

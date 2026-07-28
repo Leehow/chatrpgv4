@@ -35,8 +35,17 @@ const invokeSchema = {
 } as const;
 const dispatchSchema = { type: "object", properties: { task: { type: "object", additionalProperties: true } }, required: ["task"], additionalProperties: false } as const;
 const PRIVATE_LEASE_OPERATIONS = new Set([
+  "progressive.claim_host_work",
+  "progressive.fulfill_host_work",
   "progressive.renew_host_work_leases",
   "progressive.release_host_work_leases",
+]);
+const OPENING_SETUP_CHARACTER_OPERATIONS = new Set([
+  "setup.investigator_contract",
+  "actor.create",
+  "investigator.create",
+  "campaign.link_investigator",
+  "investigator.render_card",
 ]);
 const ocrSchema = {
   type: "object",
@@ -52,6 +61,13 @@ const ocrSchema = {
 function result(value: JsonObject) { return { content: [{ type: "text" as const, text: JSON.stringify(value) }], details: value }; }
 type AssistantContentPart = { type: string; [key: string]: unknown };
 type AssistantContentMessage = { role: "assistant"; content: AssistantContentPart[] };
+
+function exactKeysMatch(value: JsonObject, expected: string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const required = [...expected].sort();
+  return actual.length === required.length
+    && actual.every((key, index) => key === required[index]);
+}
 
 function assistantContentMessage(value: unknown): AssistantContentMessage | null {
   if (!value || typeof value !== "object") return null;
@@ -130,6 +146,16 @@ type QueuedVisibleAssistantDisposition = {
   disposition: VisibleAssistantDisposition;
   dispatchKey?: string;
 };
+type OpeningSetupRoute = {
+  schema_version: 1;
+  status: "blocked";
+  hard_gate: true;
+  activation_allowed: false;
+  phase: string;
+  campaign_id: string;
+  next_operation: JsonObject | null;
+  instruction: string;
+};
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
@@ -156,6 +182,195 @@ export class OpeningTerminalContinuationGate {
     dispatchKey: string;
     renderedSha256: string;
   } | null = null;
+  private openingSetupRoute: OpeningSetupRoute | null = null;
+  private openingSetupVisibleOutputAuthorized = false;
+  private openingSetupContinuationQueued = false;
+
+  private quickFireLuckInvocation(params: JsonObject): boolean {
+    const args = objectOrNull(params.arguments);
+    return (
+      args !== null
+      && exactKeysMatch(
+        args,
+        ["expression", "decision_id", "reason"],
+      )
+      && args.expression === "3D6"
+      && args.reason === "Quick-Fire investigator Luck"
+      && typeof args.decision_id === "string"
+      && args.decision_id.trim().length > 0
+    );
+  }
+
+  private openingSetupCharacterInvocation(params: JsonObject): boolean {
+    const operation = String(params.operation ?? "");
+    return OPENING_SETUP_CHARACTER_OPERATIONS.has(operation)
+      || (
+        operation === "rules.roll_dice"
+        && this.quickFireLuckInvocation(params)
+      );
+  }
+
+  private exactOpeningSetupRouteInvocation(
+    route: OpeningSetupRoute,
+    params: JsonObject,
+  ): boolean {
+    const card = route.next_operation;
+    if (
+      card === null
+      || card.operation !== params.operation
+      || (
+        typeof params.campaign === "string"
+        && params.campaign !== route.campaign_id
+      )
+    ) {
+      return false;
+    }
+    const args = objectOrNull(params.arguments);
+    const prefilled = objectOrNull(card.prefilled_arguments);
+    const missing = Array.isArray(card.missing_arguments)
+      ? card.missing_arguments
+      : null;
+    if (
+      args === null
+      || prefilled === null
+      || missing === null
+      || missing.some((key) => typeof key !== "string" || !key)
+    ) {
+      return false;
+    }
+    const expectedKeys = [
+      ...Object.keys(prefilled),
+      ...(missing as string[]),
+    ];
+    if (!exactKeysMatch(args, expectedKeys)) return false;
+    return Object.entries(prefilled).every(([key, value]) => (
+      canonicalJsonValueSha256(args[key])
+      === canonicalJsonValueSha256(value)
+    ));
+  }
+
+  private retainOpeningSetupGate(gate: JsonObject): void {
+    if (
+      gate.hard_gate !== true
+      || gate.activation_allowed !== false
+      || typeof gate.phase !== "string"
+      || !gate.phase
+      || typeof gate.campaign_id !== "string"
+      || !gate.campaign_id
+    ) {
+      return;
+    }
+    const nextOperation = gate.next_operation === null
+      ? null
+      : objectOrNull(gate.next_operation);
+    if (gate.next_operation !== null && nextOperation === null) return;
+    this.openingSetupRoute = {
+      schema_version: 1,
+      status: "blocked",
+      hard_gate: true,
+      activation_allowed: false,
+      phase: gate.phase,
+      campaign_id: gate.campaign_id,
+      next_operation: nextOperation,
+      instruction: typeof gate.instruction === "string"
+        ? gate.instruction
+        : "invoke the exact retained canonical setup route",
+    };
+    this.openingSetupContinuationQueued = false;
+  }
+
+  observeOpeningSetupInvocation(
+    operation: string,
+    params: JsonObject,
+    value: unknown,
+  ): void {
+    const envelope = objectOrNull(value);
+    const data = objectOrNull(envelope?.data);
+    const error = objectOrNull(envelope?.error);
+    const details = objectOrNull(error?.details);
+    const returnedGate = objectOrNull(data?.opening_gate)
+      ?? (
+        details?.hard_gate === true
+          ? details
+          : null
+      );
+    if (returnedGate !== null) this.retainOpeningSetupGate(returnedGate);
+
+    const returnedNext = objectOrNull(data?.next_operation);
+    if (
+      this.openingSetupRoute !== null
+      && returnedNext?.hard_gate === true
+      && typeof returnedNext.operation === "string"
+    ) {
+      this.openingSetupRoute = {
+        ...this.openingSetupRoute,
+        phase: "opening_bootstrap_required",
+        next_operation: returnedNext,
+        instruction: (
+          "invoke this exact retained canonical opening bootstrap card; "
+          + "do not rediscover, run main-KP OCR, or narrate an opening first"
+        ),
+      };
+      this.openingSetupContinuationQueued = false;
+    }
+
+    const currentOpening = (
+      operation === "progressive.opening_bootstrap"
+      && envelope?.ok === true
+      && (data?.status === "complete" || data?.status === "current")
+    );
+    if (currentOpening) this.clearOpeningSetupRoute();
+
+    if (
+      this.openingSetupRoute !== null
+      && envelope?.ok === true
+      && this.openingSetupCharacterInvocation(params)
+    ) {
+      this.openingSetupVisibleOutputAuthorized = true;
+    }
+  }
+
+  openingSetupToolError(name: string, params: JsonObject): string | null {
+    const route = this.openingSetupRoute;
+    if (route === null) return null;
+    if (name === "coc_discover" || name === "coc_progressive_ocr") {
+      return (
+        `${name} is unavailable while the Pi opening setup hard gate is active; `
+        + `follow this exact retained route: ${JSON.stringify(route)}`
+      );
+    }
+    if (name !== "coc_invoke") return null;
+    if (this.openingSetupCharacterInvocation(params)) return null;
+    const operation = String(params.operation ?? "");
+    if (this.exactOpeningSetupRouteInvocation(route, params)) {
+      this.openingSetupContinuationQueued = true;
+      return null;
+    }
+    return (
+      `${operation || "coc_invoke"} is unavailable while the Pi opening setup `
+      + `hard gate is active; follow this exact retained route: `
+      + JSON.stringify(route)
+    );
+  }
+
+  requiredOpeningSetupContinuation(): OpeningSetupRoute | null {
+    if (
+      this.openingSetupRoute === null
+      || this.openingSetupRoute.next_operation === null
+      || this.openingSetupVisibleOutputAuthorized
+      || this.openingSetupContinuationQueued
+    ) {
+      return null;
+    }
+    this.openingSetupContinuationQueued = true;
+    return this.openingSetupRoute;
+  }
+
+  clearOpeningSetupRoute(): void {
+    this.openingSetupRoute = null;
+    this.openingSetupVisibleOutputAuthorized = false;
+    this.openingSetupContinuationQueued = false;
+  }
 
   trackOpeningDispatch(dispatchKey: string): void {
     if (dispatchKey) {
@@ -217,6 +432,7 @@ export class OpeningTerminalContinuationGate {
 
   markAgentStart(): void {
     this.agentActive = true;
+    this.openingSetupVisibleOutputAuthorized = false;
   }
 
   markOpeningProjected(dispatchKey?: string): void {
@@ -389,6 +605,13 @@ export class OpeningTerminalContinuationGate {
     // this method. Streaming starts/updates and tool-bearing finals cannot
     // consume host provenance.
     const disposition = this.queuedVisibleDispositions.shift()?.disposition;
+    if (this.openingSetupRoute !== null) {
+      if (this.openingSetupVisibleOutputAuthorized) {
+        this.openingSetupVisibleOutputAuthorized = false;
+      } else {
+        return false;
+      }
+    }
     if (disposition === "projected_opening") {
       for (const [key, state] of this.states) {
         if (state === "projected") this.states.set(key, "published");
@@ -483,6 +706,7 @@ export class OpeningTerminalContinuationGate {
     this.playerTurnEpoch = 0;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
+    this.clearOpeningSetupRoute();
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
     this.synchronousOpeningWaits.clear();
@@ -1069,8 +1293,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       } catch { /* private boundary audit is best effort */ }
       throw new Error("canonical operation is reserved for the private source coordinator lifecycle");
     }
+    const openingSetupError = openingContinuationGate.openingSetupToolError(
+      name,
+      params,
+    );
+    if (openingSetupError !== null) {
+      try {
+        pi.appendEntry("coc-opening-setup-route", {
+          status: "rejected",
+          failure_class: "opening_setup_incomplete",
+          tool: name,
+        });
+      } catch { /* opening setup audit is best effort */ }
+      throw new Error(openingSetupError);
+    }
     const value = await client(ctx).callTool(name, params, signal);
     if (name === "coc_invoke") {
+      openingContinuationGate.observeOpeningSetupInvocation(
+        String(params.operation),
+        params,
+        value,
+      );
       if (String(params.operation) === "progressive.opening_bootstrap") {
         const task = findAutoDispatchTask(value);
         const packet = task ? objectOrNull(task.packet) : null;
@@ -1202,6 +1445,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 )
               ) {
                 openingContinuationGate.markOpeningProjected(dispatchKey);
+                openingContinuationGate.clearOpeningSetupRoute();
                 return result(resolvedBlockingOpeningEnvelope(
                   value,
                   terminalState,
@@ -1337,7 +1581,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     name: "coc_progressive_ocr", label: "Progressive OCR",
     description: "Run configured external Progressive OCR status/fast/enhance/export.", parameters: ocrSchema,
     ...compactToolRenderers("coc_progressive_ocr"),
-    async execute(_id: string, params: JsonObject, signal: AbortSignal | undefined) { return result(await runOcr(params, signal)); },
+    async execute(_id: string, params: JsonObject, signal: AbortSignal | undefined) {
+      const openingSetupError = openingContinuationGate.openingSetupToolError(
+        "coc_progressive_ocr",
+        params,
+      );
+      if (openingSetupError !== null) throw new Error(openingSetupError);
+      return result(await runOcr(params, signal));
+    },
   });
   // Game table HUD replaces the coding-agent token/path footer in TUI sessions.
   registerCocHud(pi, (ctx) => client(ctx));
@@ -1345,9 +1596,27 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   registerCocWelcome(pi, (ctx) => client(ctx), agentDir);
   registerPlayerTranscriptGate(
     pi,
-    (visibleText) => (
-      openingContinuationGate.acceptVisibleAssistantFinal(visibleText)
-    ),
+    (visibleText) => {
+      const decision = openingContinuationGate.acceptVisibleAssistantFinal(
+        visibleText,
+      );
+      if (decision === false) {
+        const route = (
+          openingContinuationGate.requiredOpeningSetupContinuation()
+        );
+        if (route !== null) {
+          try {
+            pi.sendMessage({
+              customType: "coc-opening-setup-route",
+              content: JSON.stringify(route),
+              display: false,
+              details: route,
+            }, { triggerTurn: true, deliverAs: "followUp" });
+          } catch { /* exact route remains retained for the next natural turn */ }
+        }
+      }
+      return decision;
+    },
     (message) => openingContinuationGate.observeMessageStart(message),
   );
   pi.on("agent_start", () => {

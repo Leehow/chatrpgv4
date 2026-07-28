@@ -12767,6 +12767,64 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     assert retained_next_operation["missing_arguments"] == []
     assert world_path.read_bytes() == world_before
 
+    luck = _run(ws, "rules.roll_dice", {
+        "expression": "3D6",
+        "decision_id": "quick-fire-opening-setup-luck",
+        "reason": "Quick-Fire investigator Luck",
+    })
+    assert luck["ok"] is True, luck
+    assert 3 <= luck["data"]["total"] <= 18
+    quick_fire = _run(ws, "setup.invoke", {
+        "kind": "investigator.create",
+        "payload": {
+            "investigator_id": "opening-quick-fire",
+            "sheet": {
+                "id": "opening-quick-fire",
+                "name": "Opening Quick Fire",
+                "age": 29,
+                "skills": {
+                    "Credit Rating": 20,
+                    "Spot Hidden": 60,
+                },
+            },
+            "creation": {
+                "method": "quick_fire_array",
+                "characteristic_assignment_order": [
+                    "DEX", "INT", "POW", "EDU",
+                    "CON", "SIZ", "APP", "STR",
+                ],
+                "luck_roll_total": luck["data"]["total"],
+            },
+        },
+    })
+    assert quick_fire["ok"] is True, quick_fire
+    stored_quick_fire = json.loads(
+        (
+            ws["workspace"] / ".coc" / "investigators"
+            / "opening-quick-fire" / "character.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert stored_quick_fire["derived"]["Luck"] == luck["data"]["total"] * 5
+    assert sorted(stored_quick_fire["characteristics"].values()) == [
+        40, 50, 50, 50, 60, 60, 70, 80,
+    ]
+
+    wrong_creation_dice = _run(ws, "rules.roll_dice", {
+        "expression": "3D6",
+        "decision_id": "not-the-canonical-creation-recipe",
+        "reason": "ordinary random event",
+    })
+    assert wrong_creation_dice["ok"] is False
+    assert wrong_creation_dice["error"]["code"] == "opening_setup_incomplete"
+    played_check = _run(ws, "rules.roll", {
+        "actor_id": "opening-quick-fire",
+        "skill": "Spot Hidden",
+        "target": 60,
+        "decision_id": "must-not-play-before-opening",
+    })
+    assert played_check["ok"] is False
+    assert played_check["error"]["code"] == "opening_setup_incomplete"
+
     prepared = _run(ws, "progressive.prepare_opening")
     assert prepared["ok"] is True, prepared
     bootstrap = prepared["data"]["next_operation"]
@@ -12783,6 +12841,38 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     monkeypatch.setenv("COC_HOST", "pi")
     released = _run(ws, "scene.map")
     assert released["ok"] is True, released
+
+
+def test_pi_bound_source_contract_drift_remains_a_hard_play_gate(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    scenario_path = ws["campaign_dir"] / "scenario" / "scenario.json"
+    scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario["source_cache_asset_root_id"] = "missing-opening-root"
+    _write_json(scenario_path, scenario)
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+
+    blocked = _run(ws, "state.move_scene", {
+        "scene_id": "invented-after-drift",
+        "decision_id": "must-not-move-after-source-drift",
+        "reason": "source authority is unavailable",
+    })
+
+    assert blocked["ok"] is False, blocked
+    assert blocked["error"]["code"] == "opening_setup_incomplete"
+    details = blocked["error"]["details"]
+    assert details["hard_gate"] is True
+    assert details["activation_allowed"] is False
+    assert details["phase"] == "opening_source_contract_invalid"
+    assert details["asset_root_id"] == "missing-opening-root"
+    assert details["source_contract_error"]["code"] == (
+        "opening_identity_missing"
+    )
+    assert details["next_operation"] is None
+    assert world_path.read_bytes() == world_before
 
 
 def test_prepare_opening_is_strict_read_only_and_skips_recovery(
