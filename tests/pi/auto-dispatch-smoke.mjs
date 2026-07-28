@@ -101,22 +101,22 @@ function openingSetupGate(nextOperation = {
   missing_arguments: [],
   hard_gate: true,
   authority: "canonical_setup",
-}) {
+}, campaignId = "auto-dispatch-fixture") {
   return {
     schema_version: 1,
     status: "blocked",
     hard_gate: true,
     activation_allowed: false,
     phase: "opening_selection",
-    campaign_id: "auto-dispatch-fixture",
+    campaign_id: campaignId,
     asset_root_id: "asset-fixture",
     next_operation: nextOperation,
     instruction: "invoke the exact retained opening setup card",
   };
 }
 
-function boundOpeningSetupResult() {
-  const gate = openingSetupGate();
+function boundOpeningSetupResult(campaignId = "auto-dispatch-fixture") {
+  const gate = openingSetupGate(undefined, campaignId);
   return {
     ok: true,
     tool: "setup.invoke",
@@ -145,6 +145,28 @@ function preparedOpeningSetupResult() {
       },
     },
   };
+}
+
+function staleCharacterSetupResult(kind) {
+  const gate = openingSetupGate();
+  return {
+    ok: true,
+    tool: "setup.invoke",
+    data: {
+      status: "PASS",
+      result: { kind },
+      opening_gate: gate,
+      next_operation: gate.next_operation,
+    },
+  };
+}
+
+function deferredValue() {
+  let resolveValue;
+  const promise = new Promise((resolve) => {
+    resolveValue = resolve;
+  });
+  return { promise, resolve: resolveValue };
 }
 
 async function armOpeningBootstrapRoute(harness) {
@@ -1383,6 +1405,269 @@ async function exerciseFailureDrain(mode) {
       part.type === "text" && part.text === "来源开场已物化。"
     )));
   await harness.shutdown();
+}
+
+// Live-race regression: setup operations launched beside prepare/bootstrap may
+// return later with the older opening_selection receipt. Per-campaign route
+// progression is structural and monotonic, so those stale receipts can still
+// authorize character setup output but can never replace the retained
+// opening_bootstrap card.
+{
+  const task = coordinatorTask("coord-monotonic-opening-race");
+  const prepared = deferredValue();
+  const created = deferredValue();
+  const linked = deferredValue();
+  const bootstrapped = deferredValue();
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult();
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return prepared.promise;
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return created.promise;
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return linked.promise;
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return bootstrapped.promise;
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "monotonic-bind",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "scenario.bind_pdf",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          scenario_id: "fixture-scenario",
+          title: "Fixture Scenario",
+          source_bundle_path: "/fixture/source-bundle",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+
+  const preparePending = harness.registered.get("coc_invoke").execute(
+    "monotonic-prepare",
+    {
+      operation: "progressive.prepare_opening",
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const createPending = harness.registered.get("coc_invoke").execute(
+    "monotonic-create",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "investigator.create",
+        payload: {
+          investigator_id: "monotonic-investigator",
+          sheet: {
+            id: "monotonic-investigator",
+            name: "Monotonic Investigator",
+          },
+          creation: { method: "quick_fire_array" },
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  prepared.resolve(preparedOpeningSetupResult());
+  await preparePending;
+  created.resolve(staleCharacterSetupResult("investigator.create"));
+  await createPending;
+  let afterCreateStale;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "monotonic-after-create",
+      {},
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { afterCreateStale = error; }
+  check("late investigator create cannot downgrade bootstrap route",
+    afterCreateStale instanceof Error
+    && afterCreateStale.message.includes(
+      '"operation":"progressive.opening_bootstrap"',
+    )
+    && !afterCreateStale.message.includes(
+      '"operation":"progressive.prepare_opening"',
+    ));
+
+  const bootstrapPending = harness.registered.get("coc_invoke").execute(
+    "monotonic-bootstrap",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const linkPending = harness.registered.get("coc_invoke").execute(
+    "monotonic-link",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          investigator_ids: ["monotonic-investigator"],
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  linked.resolve(staleCharacterSetupResult("campaign.link_investigator"));
+  await linkPending;
+  let afterLinkStale;
+  try {
+    await harness.registered.get("coc_discover").execute(
+      "monotonic-after-link",
+      {},
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { afterLinkStale = error; }
+  check("late campaign link cannot downgrade in-flight bootstrap route",
+    afterLinkStale instanceof Error
+    && afterLinkStale.message.includes(
+      '"operation":"progressive.opening_bootstrap"',
+    )
+    && !afterLinkStale.message.includes(
+      '"operation":"progressive.prepare_opening"',
+    ));
+
+  bootstrapped.resolve(openingBootstrapWithoutTakeover(task, "current"));
+  const current = JSON.parse((await bootstrapPending).content[0].text);
+  check("monotonic route still clears only on canonical current opening",
+    current.ok === true && current.data.status === "current");
+  await harness.shutdown();
+}
+
+// Route progress and clearing are campaign-local even when two source binds
+// complete in the same Pi session.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    { operation: "setup.invoke", campaign: "campaign-a", arguments: {} },
+    boundOpeningSetupResult("campaign-a"),
+  );
+  gate.observeOpeningSetupInvocation(
+    "progressive.prepare_opening",
+    {
+      operation: "progressive.prepare_opening",
+      campaign: "campaign-a",
+      arguments: {},
+    },
+    preparedOpeningSetupResult(),
+  );
+  gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    { operation: "setup.invoke", campaign: "campaign-b", arguments: {} },
+    boundOpeningSetupResult("campaign-b"),
+  );
+  gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    {
+      operation: "setup.invoke",
+      campaign: "campaign-a",
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: "campaign-a",
+          investigator_ids: ["inv-a"],
+        },
+      },
+    },
+    {
+      ...staleCharacterSetupResult("campaign.link_investigator"),
+      data: {
+        ...staleCharacterSetupResult("campaign.link_investigator").data,
+        opening_gate: openingSetupGate(undefined, "campaign-a"),
+        next_operation: openingSetupGate(
+          undefined,
+          "campaign-a",
+        ).next_operation,
+      },
+    },
+  );
+  const routeA = gate.openingSetupToolError("coc_invoke", {
+    operation: "scene.context",
+    campaign: "campaign-a",
+    arguments: {},
+  });
+  const routeB = gate.openingSetupToolError("coc_invoke", {
+    operation: "scene.context",
+    campaign: "campaign-b",
+    arguments: {},
+  });
+  check("campaign-local routes retain independent monotonic phases",
+    routeA?.includes('"operation":"progressive.opening_bootstrap"')
+    && routeB?.includes('"operation":"progressive.prepare_opening"'));
+
+  gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "campaign-a",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    openingBootstrapWithoutTakeover(
+      coordinatorTask("coord-campaign-a-current"),
+      "current",
+    ),
+  );
+  check("current opening clears only its retained campaign route",
+    gate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "campaign-a",
+      arguments: {},
+    }) === null
+    && gate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "campaign-b",
+      arguments: {},
+    })?.includes('"operation":"progressive.prepare_opening"'));
 }
 
 // Failure after an actually armed bind -> prepare -> bootstrap route is

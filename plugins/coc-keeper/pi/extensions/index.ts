@@ -185,11 +185,46 @@ export class OpeningTerminalContinuationGate {
     dispatchKey: string;
     renderedSha256: string;
   } | null = null;
-  private openingSetupRoute: OpeningSetupRoute | null = null;
-  private openingSetupVisibleOutputAuthorized = false;
-  private openingSetupContinuationQueued = false;
-  private openingSetupTerminalBlocker: OpeningSetupTerminalBlocker | null = null;
+  private readonly openingSetupRoutes = new Map<string, OpeningSetupRoute>();
+  private activeOpeningSetupCampaignId: string | null = null;
+  private readonly openingSetupVisibleOutputAuthorized = new Set<string>();
+  private readonly openingSetupContinuationQueued = new Set<string>();
+  private readonly openingSetupTerminalBlockers = new Map<
+    string,
+    OpeningSetupTerminalBlocker
+  >();
   private deliveredOpeningSetupTerminalBlocker: JsonObject | null = null;
+
+  private openingSetupRouteRank(route: OpeningSetupRoute): number {
+    if (route.phase === "opening_source_contract_invalid") return 3;
+    if (
+      route.phase === "opening_source_materialization"
+      || route.next_operation === null
+    ) {
+      return 2;
+    }
+    if (route.next_operation.operation === "progressive.opening_bootstrap") {
+      return 2;
+    }
+    if (route.next_operation.operation === "progressive.prepare_opening") {
+      return 1;
+    }
+    return 0;
+  }
+
+  private activeOpeningSetupRoute(): OpeningSetupRoute | null {
+    if (this.activeOpeningSetupCampaignId === null) return null;
+    return this.openingSetupRoutes.get(this.activeOpeningSetupCampaignId)
+      ?? null;
+  }
+
+  private openingSetupRouteForParams(
+    params: JsonObject,
+  ): OpeningSetupRoute | null {
+    return typeof params.campaign === "string"
+      ? this.openingSetupRoutes.get(params.campaign) ?? null
+      : this.activeOpeningSetupRoute();
+  }
 
   private quickFireLuckInvocation(params: JsonObject): boolean {
     const args = objectOrNull(params.arguments);
@@ -320,7 +355,7 @@ export class OpeningTerminalContinuationGate {
     ));
   }
 
-  private retainOpeningSetupGate(gate: JsonObject): void {
+  private retainOpeningSetupGate(gate: JsonObject): OpeningSetupRoute | null {
     if (
       gate.hard_gate !== true
       || gate.activation_allowed !== false
@@ -329,13 +364,13 @@ export class OpeningTerminalContinuationGate {
       || typeof gate.campaign_id !== "string"
       || !gate.campaign_id
     ) {
-      return;
+      return null;
     }
     const nextOperation = gate.next_operation === null
       ? null
       : objectOrNull(gate.next_operation);
-    if (gate.next_operation !== null && nextOperation === null) return;
-    this.openingSetupRoute = {
+    if (gate.next_operation !== null && nextOperation === null) return null;
+    const incoming: OpeningSetupRoute = {
       schema_version: 1,
       status: "blocked",
       hard_gate: true,
@@ -347,7 +382,18 @@ export class OpeningTerminalContinuationGate {
         ? gate.instruction
         : "invoke the exact retained canonical setup route",
     };
-    this.openingSetupContinuationQueued = false;
+    const existing = this.openingSetupRoutes.get(incoming.campaign_id);
+    this.activeOpeningSetupCampaignId = incoming.campaign_id;
+    if (
+      existing !== undefined
+      && this.openingSetupRouteRank(incoming)
+        <= this.openingSetupRouteRank(existing)
+    ) {
+      return existing;
+    }
+    this.openingSetupRoutes.set(incoming.campaign_id, incoming);
+    this.openingSetupContinuationQueued.delete(incoming.campaign_id);
+    return incoming;
   }
 
   observeOpeningSetupInvocation(
@@ -365,24 +411,44 @@ export class OpeningTerminalContinuationGate {
           ? details
           : null
       );
-    if (returnedGate !== null) this.retainOpeningSetupGate(returnedGate);
+    const campaignId = typeof params.campaign === "string"
+      ? params.campaign
+      : null;
+    if (
+      returnedGate !== null
+      && (
+        campaignId === null
+        || returnedGate.campaign_id === campaignId
+      )
+    ) {
+      this.retainOpeningSetupGate(returnedGate);
+    }
+    if (
+      campaignId !== null
+      && this.openingSetupRoutes.has(campaignId)
+    ) {
+      this.activeOpeningSetupCampaignId = campaignId;
+    }
 
     const returnedNext = objectOrNull(data?.next_operation);
+    const currentRoute = campaignId === null
+      ? null
+      : this.openingSetupRoutes.get(campaignId) ?? null;
     if (
-      this.openingSetupRoute !== null
+      operation === "progressive.prepare_opening"
+      && currentRoute !== null
       && returnedNext?.hard_gate === true
-      && typeof returnedNext.operation === "string"
+      && returnedNext.operation === "progressive.opening_bootstrap"
     ) {
-      this.openingSetupRoute = {
-        ...this.openingSetupRoute,
+      this.retainOpeningSetupGate({
+        ...currentRoute,
         phase: "opening_bootstrap_required",
         next_operation: returnedNext,
         instruction: (
           "invoke this exact retained canonical opening bootstrap card; "
           + "do not rediscover, run main-KP OCR, or narrate an opening first"
         ),
-      };
-      this.openingSetupContinuationQueued = false;
+      });
     }
 
     const currentOpening = (
@@ -390,10 +456,10 @@ export class OpeningTerminalContinuationGate {
       && envelope?.ok === true
       && (data?.status === "complete" || data?.status === "current")
     );
-    if (currentOpening) this.clearOpeningSetupRoute();
+    if (currentOpening) this.clearOpeningSetupRoute(campaignId);
     else if (
       envelope?.ok !== true
-      && this.openingSetupRoute?.next_operation?.operation === operation
+      && currentRoute?.next_operation?.operation === operation
     ) {
       this.markOpeningSetupTerminalBlocker(
         envelope ?? failedBlockingOpeningEnvelope(
@@ -403,24 +469,30 @@ export class OpeningTerminalContinuationGate {
           },
           "opening_setup_route_result_invalid",
         ),
+        undefined,
+        campaignId,
       );
     }
 
+    const retainedRoute = campaignId === null
+      ? null
+      : this.openingSetupRoutes.get(campaignId) ?? null;
     if (
-      this.openingSetupRoute !== null
+      retainedRoute !== null
       && envelope?.ok === true
       && this.openingSetupCharacterInvocation(
         params,
-        this.openingSetupRoute,
+        retainedRoute,
       )
     ) {
-      this.openingSetupVisibleOutputAuthorized = true;
+      this.openingSetupVisibleOutputAuthorized.add(retainedRoute.campaign_id);
     }
   }
 
   openingSetupToolError(name: string, params: JsonObject): string | null {
-    const route = this.openingSetupRoute;
+    const route = this.openingSetupRouteForParams(params);
     if (route === null) return null;
+    this.activeOpeningSetupCampaignId = route.campaign_id;
     if (name === "coc_discover" || name === "coc_progressive_ocr") {
       return (
         `${name} is unavailable while the Pi opening setup hard gate is active; `
@@ -431,14 +503,14 @@ export class OpeningTerminalContinuationGate {
     if (this.openingSetupCharacterInvocation(params, route)) return null;
     const operation = String(params.operation ?? "");
     if (this.exactOpeningSetupRouteInvocation(route, params)) {
-      this.openingSetupContinuationQueued = true;
+      this.openingSetupContinuationQueued.add(route.campaign_id);
       return null;
     }
     if (route.next_operation?.operation === operation) {
       // A malformed attempt at the required route must not consume the one
       // exact continuation opportunity. The corrected retained card can be
       // forced again after this rejected call.
-      this.openingSetupContinuationQueued = false;
+      this.openingSetupContinuationQueued.delete(route.campaign_id);
     }
     return (
       `${operation || "coc_invoke"} is unavailable while the Pi opening setup `
@@ -448,31 +520,50 @@ export class OpeningTerminalContinuationGate {
   }
 
   requiredOpeningSetupContinuation(): OpeningSetupRoute | null {
+    const route = this.activeOpeningSetupRoute();
     if (
-      this.openingSetupRoute === null
-      || this.openingSetupRoute.next_operation === null
-      || this.openingSetupVisibleOutputAuthorized
-      || this.openingSetupContinuationQueued
+      route === null
+      || route.next_operation === null
+      || this.openingSetupVisibleOutputAuthorized.has(route.campaign_id)
+      || this.openingSetupContinuationQueued.has(route.campaign_id)
     ) {
       return null;
     }
-    this.openingSetupContinuationQueued = true;
-    return this.openingSetupRoute;
+    this.openingSetupContinuationQueued.add(route.campaign_id);
+    return route;
   }
 
-  clearOpeningSetupRoute(): void {
-    this.openingSetupRoute = null;
-    this.openingSetupVisibleOutputAuthorized = false;
-    this.openingSetupContinuationQueued = false;
-    this.openingSetupTerminalBlocker = null;
+  clearOpeningSetupRoute(campaignId?: string | null): void {
+    if (campaignId) {
+      this.openingSetupRoutes.delete(campaignId);
+      this.openingSetupVisibleOutputAuthorized.delete(campaignId);
+      this.openingSetupContinuationQueued.delete(campaignId);
+      this.openingSetupTerminalBlockers.delete(campaignId);
+      if (this.activeOpeningSetupCampaignId === campaignId) {
+        this.activeOpeningSetupCampaignId = (
+          this.openingSetupRoutes.keys().next().value ?? null
+        );
+      }
+      return;
+    }
+    this.openingSetupRoutes.clear();
+    this.activeOpeningSetupCampaignId = null;
+    this.openingSetupVisibleOutputAuthorized.clear();
+    this.openingSetupContinuationQueued.clear();
+    this.openingSetupTerminalBlockers.clear();
     this.deliveredOpeningSetupTerminalBlocker = null;
   }
 
   markOpeningSetupTerminalBlocker(
     envelope: JsonObject,
     dispatchKey?: string,
+    campaignId?: string | null,
   ): void {
-    if (this.openingSetupRoute === null) return;
+    const route = campaignId
+      ? this.openingSetupRoutes.get(campaignId) ?? null
+      : this.activeOpeningSetupRoute();
+    if (route === null) return;
+    this.activeOpeningSetupCampaignId = route.campaign_id;
     const error = objectOrNull(envelope.error);
     const data = objectOrNull(envelope.data);
     const terminal = objectOrNull(data?.coordinator_terminal);
@@ -485,13 +576,13 @@ export class OpeningTerminalContinuationGate {
       hard_gate: true,
       activation_allowed: false,
       phase: "opening_source_terminal_blocker",
-      campaign_id: this.openingSetupRoute.campaign_id,
+      campaign_id: route.campaign_id,
       failure_class: failureClass,
       error_code: typeof error?.code === "string"
         ? error.code
         : "opening_source_terminal_failure",
       ...(dispatchKey ? { dispatch_key: dispatchKey } : {}),
-      next_operation: this.openingSetupRoute.next_operation,
+      next_operation: route.next_operation,
       instruction: (
         "开场来源处理未完成，游戏尚未开始。保留当前来源证据，并仅按 "
         + "next_operation 的精确卡片重试或恢复；不要虚构开场。"
@@ -502,7 +593,7 @@ export class OpeningTerminalContinuationGate {
       || blocker.error_code === "opening_projection_cancelled"
       || blocker.failure_class === "coordinator_wait_cancelled"
     );
-    this.openingSetupTerminalBlocker = {
+    this.openingSetupTerminalBlockers.set(route.campaign_id, {
       visibleText: cancelled
         ? (
           "开场资料解析已取消，游戏尚未开始。系统保留了当前进度；"
@@ -513,9 +604,9 @@ export class OpeningTerminalContinuationGate {
           + "你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
         ),
       details: blocker,
-    };
-    this.openingSetupContinuationQueued = false;
-    this.openingSetupVisibleOutputAuthorized = false;
+    });
+    this.openingSetupContinuationQueued.delete(route.campaign_id);
+    this.openingSetupVisibleOutputAuthorized.delete(route.campaign_id);
     if (!this.queuedVisibleDispositions.some((queued) => (
       queued.disposition === "terminal_blocker"
       && (dispatchKey === undefined || queued.dispatchKey === dispatchKey)
@@ -529,13 +620,17 @@ export class OpeningTerminalContinuationGate {
     envelope: JsonObject,
     dispatchKey?: string,
   ): void {
+    const route = this.openingSetupRouteForParams(params);
     if (
-      this.openingSetupRoute?.next_operation?.operation
-      !== params.operation
+      route?.next_operation?.operation !== params.operation
     ) {
       return;
     }
-    this.markOpeningSetupTerminalBlocker(envelope, dispatchKey);
+    this.markOpeningSetupTerminalBlocker(
+      envelope,
+      dispatchKey,
+      route.campaign_id,
+    );
   }
 
   takeDeliveredOpeningSetupTerminalBlocker(): JsonObject | null {
@@ -604,7 +699,7 @@ export class OpeningTerminalContinuationGate {
 
   markAgentStart(): void {
     this.agentActive = true;
-    this.openingSetupVisibleOutputAuthorized = false;
+    this.openingSetupVisibleOutputAuthorized.clear();
   }
 
   markOpeningProjected(dispatchKey?: string): void {
@@ -777,21 +872,25 @@ export class OpeningTerminalContinuationGate {
     // this method. Streaming starts/updates and tool-bearing finals cannot
     // consume host provenance.
     const disposition = this.queuedVisibleDispositions.shift()?.disposition;
+    const route = this.activeOpeningSetupRoute();
+    const terminalBlocker = route === null
+      ? null
+      : this.openingSetupTerminalBlockers.get(route.campaign_id) ?? null;
     if (
       disposition === "terminal_blocker"
-      && this.openingSetupTerminalBlocker !== null
+      && terminalBlocker !== null
     ) {
-      const replacementText = this.openingSetupTerminalBlocker.visibleText;
+      const replacementText = terminalBlocker.visibleText;
       this.deliveredOpeningSetupTerminalBlocker = (
-        this.openingSetupTerminalBlocker.details
+        terminalBlocker.details
       );
-      this.openingSetupTerminalBlocker = null;
+      this.openingSetupTerminalBlockers.delete(route!.campaign_id);
       this.nonblockingContinuation = null;
       return { replacementText };
     }
-    if (this.openingSetupRoute !== null) {
-      if (this.openingSetupVisibleOutputAuthorized) {
-        this.openingSetupVisibleOutputAuthorized = false;
+    if (route !== null) {
+      if (this.openingSetupVisibleOutputAuthorized.has(route.campaign_id)) {
+        this.openingSetupVisibleOutputAuthorized.delete(route.campaign_id);
       } else {
         return false;
       }
@@ -1672,7 +1771,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 )
               ) {
                 openingContinuationGate.markOpeningProjected(dispatchKey);
-                openingContinuationGate.clearOpeningSetupRoute();
+                openingContinuationGate.clearOpeningSetupRoute(
+                  typeof params.campaign === "string"
+                    ? params.campaign
+                    : null,
+                );
                 return result(resolvedBlockingOpeningEnvelope(
                   value,
                   terminalState,
