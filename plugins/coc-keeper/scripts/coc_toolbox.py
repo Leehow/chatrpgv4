@@ -10983,7 +10983,11 @@ def _source_coordinator_dispatch(
         ).strip()
         if (
             set(current_dependency_claim)
-            != {"dependency_id", "job_id", "dependency_ref"}
+            != {
+                "campaign_id", "dependency_id", "job_id", "dependency_ref",
+            }
+            or str(current_dependency_claim.get("campaign_id") or "")
+            != campaign_id
             or str(current_dependency_claim.get("job_id") or "")
             != expected_job_id
         ):
@@ -10997,6 +11001,7 @@ def _source_coordinator_dispatch(
         expected_dependency_id = (
             coc_module_project.coc_module_assets
             .current_dependency_projection_id(
+                campaign_id,
                 asset_root_id,
                 canonical_ref,
             )
@@ -11010,6 +11015,7 @@ def _source_coordinator_dispatch(
         ):
             raise ValueError("current dependency claim identity drift")
         current_dependency_claim = {
+            "campaign_id": campaign_id,
             "dependency_id": expected_dependency_id,
             "job_id": expected_job_id,
             "dependency_ref": canonical_ref,
@@ -11606,6 +11612,7 @@ def _source_parent_flat_fanout_dispatch(
 
 
 def _current_dependency_wait_projection(
+    campaign_id: str,
     asset_root_id: str,
     request: dict[str, Any],
     operational_class: str,
@@ -11617,7 +11624,9 @@ def _current_dependency_wait_projection(
     return {
         "schema_version": 1,
         "contract_id": "coc.source-current-dependency-wait.v1",
+        "campaign_id": campaign_id,
         "dependency_id": assets_mod.current_dependency_projection_id(
+            campaign_id,
             asset_root_id,
             dependency_ref,
         ),
@@ -11689,6 +11698,7 @@ def _source_host_work_projection(
     ]
     current_dependency_waits = [
         _current_dependency_wait_projection(
+            str(ctx.campaign_id),
             asset_root_id,
             row,
             operational_class,
@@ -11725,6 +11735,8 @@ def _source_host_work_projection(
     ]
     projection: dict[str, Any] = {
         "asset_root_id": asset_root_id,
+        "campaign_id": str(ctx.campaign_id),
+        "current_dependency_snapshot_complete": True,
         "open_host_work_count": len(open_rows),
         "open_host_work": compact_host_work[:3],
         "ready_for_background_count": len(ready_background),
@@ -11752,6 +11764,7 @@ def _source_host_work_projection(
         for request in pi_current_ready:
             wait = waits_by_job_id[str(request["job_id"])]
             claim = {
+                "campaign_id": wait["campaign_id"],
                 "dependency_id": wait["dependency_id"],
                 "job_id": wait["job_id"],
                 "dependency_ref": deepcopy(wait["dependency_ref"]),
@@ -15453,6 +15466,7 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
             ),
             "properties": {
                 "dependency_id": {"type": "string", "required": True},
+                "campaign_id": {"type": "string", "required": True},
                 "job_id": {"type": "string", "required": True},
                 "dependency_ref": {
                     "type": "object",
@@ -15483,7 +15497,10 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
                 or requested_delivery != "task_return_to_parent"
                 or not isinstance(private_claim, dict)
                 or set(private_claim)
-                != {"dependency_id", "job_id", "dependency_ref"}
+                != {
+                    "campaign_id", "dependency_id", "job_id",
+                    "dependency_ref",
+                }
             ):
                 raise assets_mod.ModuleAssetsError(
                     "current_dependency_claim is reserved for one exact "
@@ -15494,12 +15511,14 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
                 private_claim.get("dependency_ref")
             )
             dependency_id = assets_mod.current_dependency_projection_id(
+                str(ctx.campaign_id),
                 root_id,
                 canonical_ref,
             )
             expected_executor = f"source-current-dependency:{dependency_id}"
             if (
                 not job_id
+                or private_claim.get("campaign_id") != str(ctx.campaign_id)
                 or private_claim.get("dependency_id") != dependency_id
                 or str(args.get("executor_id") or "") != expected_executor
                 or args.get("limit", 1) != 1

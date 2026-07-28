@@ -333,7 +333,7 @@ export function validateCoordinatorTask(input: unknown): JsonObject {
     );
     exactKeys(
       binding,
-      ["dependency_id", "job_id", "dependency_ref"],
+      ["campaign_id", "dependency_id", "job_id", "dependency_ref"],
       "current dependency claim",
     );
     const dependencyRef = asObject(
@@ -359,6 +359,8 @@ export function validateCoordinatorTask(input: unknown): JsonObject {
     if (
       identityFields.length !== 1
       || maxLeaves !== 1
+      || nonEmpty(binding.campaign_id, "current dependency campaign_id")
+        !== packet.campaign_id
       || nonEmpty(binding.job_id, "current dependency job_id")
         !== binding.job_id
       || !nonEmpty(
@@ -373,6 +375,7 @@ export function validateCoordinatorTask(input: unknown): JsonObject {
     const expectedDependencyId = (
       "source-dependency-"
       + createHash("sha256").update(jsonCanonical({
+        campaign_id: nonEmpty(packet.campaign_id, "campaign_id"),
         asset_root_id: nonEmpty(packet.asset_root_id, "asset_root_id"),
         dependency_ref: dependencyRef,
       })).digest("hex").slice(0, 20)
@@ -1142,6 +1145,48 @@ export class CoordinatorDispatchManager {
     }
     return null;
   }
+  private notificationNeedsRetry(state: {
+    status: string;
+    terminal_receipt?: JsonObject;
+    notification?: JsonObject;
+  }): boolean {
+    return (
+      state.status === "completed"
+      && state.terminal_receipt !== undefined
+      && this.onTerminal !== undefined
+      && (
+        state.notification?.status === "failed"
+        || state.notification?.hidden_continuation === "failed"
+      )
+    );
+  }
+  private async retryTerminalNotification(
+    key: string,
+    receipt: JsonObject,
+  ): Promise<JsonObject> {
+    try {
+      const delivered = await this.onTerminal?.(receipt);
+      const notification = delivered && typeof delivered === "object"
+        ? asObject(delivered, "terminal notification result")
+        : { status: "delivered" };
+      this.states.set(key, {
+        status: "completed",
+        terminal_receipt: receipt,
+        notification,
+      });
+    } catch {
+      this.states.set(key, {
+        status: "completed",
+        terminal_receipt: receipt,
+        notification: {
+          status: "failed",
+          failure_class: "notification_callback_failed",
+        },
+      });
+    }
+    this.settleTerminalWaiters(key);
+    return this.previousReceipt(key, this.states.get(key)!);
+  }
   private settleTerminalWaiters(key: string): void {
     const terminal = this.terminalState(key);
     if (!terminal) return;
@@ -1314,20 +1359,7 @@ export class CoordinatorDispatchManager {
       }
       if (!this.complete(key, receipt)) return;
       if (!this.onTerminal) return;
-      try {
-        const delivered = await this.onTerminal(receipt);
-        const notification = delivered && typeof delivered === "object"
-          ? asObject(delivered, "terminal notification result")
-          : { status: "delivered" };
-        this.states.set(key, { status: "completed", terminal_receipt: receipt, notification });
-      } catch {
-        this.states.set(key, {
-          status: "completed",
-          terminal_receipt: receipt,
-          notification: { status: "failed", failure_class: "notification_callback_failed" },
-        });
-      }
-      this.settleTerminalWaiters(key);
+      await this.retryTerminalNotification(key, receipt);
     }, () => {
       this.fail(key, "process", "coordinator_process_failed");
     }).finally(() => {
@@ -1364,13 +1396,30 @@ export class CoordinatorDispatchManager {
     context: PrivateLaunchContext,
     signal?: AbortSignal,
     beforeLaunch?: () => boolean,
+    retryTerminalFailure = false,
   ): Promise<JsonObject> {
     if (this.closing) throw new Error("Pi source coordinator manager is closing");
     const task = validateCoordinatorTask(taskValue);
     const packet = asObject(task.packet, "coordinator packet");
     const key = nonEmpty(packet.packet_id, "packet_id");
     const previous = this.states.get(key);
-    if (previous) return this.previousReceipt(key, previous);
+    if (previous) {
+      if (previous.status === "terminal_failure" && retryTerminalFailure) {
+        this.states.delete(key);
+        this.terminalKeys.delete(key);
+      } else {
+        if (
+          this.notificationNeedsRetry(previous)
+          && previous.terminal_receipt !== undefined
+        ) {
+          return await this.retryTerminalNotification(
+            key,
+            previous.terminal_receipt,
+          );
+        }
+        return this.previousReceipt(key, previous);
+      }
+    }
     if (this.active) {
       return this.queuePending(task, key, context, signal, beforeLaunch);
     }

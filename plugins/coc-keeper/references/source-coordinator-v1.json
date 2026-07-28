@@ -290,8 +290,9 @@
   },
   "current_dependency_projection": {
     "contract_id": "coc.source-current-dependency-wait.v1",
-    "identity": "sha256_of_existing_asset_root_id_plus_canonical_typed_dependency_ref",
+    "identity": "sha256_of_existing_campaign_id_plus_asset_root_id_plus_canonical_typed_dependency_ref",
     "persisted_state_added": false,
+    "authoritative_snapshot_marker": "current_dependency_snapshot_complete",
     "projected_from": "every_open_current_dependency_host_work_row_without_preview_truncation",
     "operational_classes": [
       "awaiting_scope",
@@ -302,8 +303,12 @@
     ],
     "pi_dispatch": "one_repository_produced_private_exact_job_task_per_runnable_current_dependency",
     "ordinary_background_separation": true,
-    "release_authority": "only_the_same_dependency_id_job_id_dispatch_identity_with_fulfilled_terminal",
+    "submission_transaction": "provisional_dispatch_binding_commits_only_for_retained_manager_submission_and_rolls_back_on_capability_validation_or_submit_failure",
+    "reconciliation": "complete_campaign_scoped_projection_prunes_absent_closed_waits_without_touching_other_campaigns",
+    "release_authority": "only_the_same_campaign_dependency_id_job_id_dispatch_identity_with_fulfilled_terminal_and_successfully_queued_hidden_continuation",
+    "delivery_failure": "rollback_exact_ephemeral_wait_and_retry_same_terminal_notification_from_next_exact_projection",
     "stale_unrelated_or_failed_terminal_effect": "append_only_no_release_no_wake",
+    "visible_suppression": "one_exact_current_dependency_invocation_final_in_the_same_user_epoch_and_campaign_only",
     "session_state": "ephemeral_host_gate_only"
   },
   "failure_policy": {

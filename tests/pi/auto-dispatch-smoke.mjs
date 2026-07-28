@@ -73,6 +73,7 @@ function directTakeoverResult(task) {
 }
 
 function currentDependencyFixture(packetId, {
+  campaignId = "auto-dispatch-fixture",
   jobId = `job-${packetId}`,
   decisionId = "current-arrival-details",
   operationalClass = "runnable",
@@ -86,6 +87,7 @@ function currentDependencyFixture(packetId, {
   const dependencyId = `source-dependency-${createHash("sha256").update(
     JSON.stringify({
       asset_root_id: assetRootId,
+      campaign_id: campaignId,
       dependency_ref: {
         decision_id: decisionId,
         operation: "scene.context",
@@ -94,11 +96,13 @@ function currentDependencyFixture(packetId, {
     }),
   ).digest("hex").slice(0, 20)}`;
   const binding = {
+    campaign_id: campaignId,
     dependency_id: dependencyId,
     job_id: jobId,
     dependency_ref: dependencyRef,
   };
   const task = coordinatorTask(packetId, {
+    campaignId,
     assetRootId,
     executorId: `source-current-dependency:${dependencyId}`,
   });
@@ -131,8 +135,13 @@ function currentDependencyFixture(packetId, {
 
 function currentDependencyResult(fixtures, ordinaryTask = null) {
   const values = Array.isArray(fixtures) ? fixtures : [fixtures];
+  const campaignId = values[0]?.wait.campaign_id
+    ?? ordinaryTask?.packet?.campaign_id
+    ?? "auto-dispatch-fixture";
   const data = {
     host_work: {
+      campaign_id: campaignId,
+      current_dependency_snapshot_complete: true,
       current_dependency_waits: values.map((value) => value.wait),
       current_dependency_dispatches: values
         .filter((value) => value.wait.operational_class === "runnable")
@@ -145,6 +154,31 @@ function currentDependencyResult(fixtures, ordinaryTask = null) {
     tool: "progressive.request_deepen",
     data,
   };
+}
+
+function invokeCurrentDependency(
+  harness,
+  invocationId,
+  campaignId = "auto-dispatch-fixture",
+) {
+  return harness.registered.get("coc_invoke").execute(
+    invocationId,
+    {
+      operation: "progressive.request_deepen",
+      campaign: campaignId,
+      arguments: {
+        kind: "location",
+        target_id: "later-location",
+        current_dependency: {
+          operation: "scene.context",
+          decision_id: "current-arrival-details",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
 }
 
 function openingBootstrapResult(task) {
@@ -657,6 +691,9 @@ function mainExtensionHarness(responseForCall, options = {}) {
   const sendFailuresByType = new Map(
     Object.entries(options.sendFailuresByType ?? {}),
   );
+  const activationFailuresByKey = new Map(
+    Object.entries(options.activationFailuresByKey ?? {}),
+  );
   const fakePi = {
     registerTool: (tool) => registered.set(tool.name, tool),
     registerCommand: () => {},
@@ -692,6 +729,20 @@ function mainExtensionHarness(responseForCall, options = {}) {
     launchCoordinator: (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
+      const activationFailures = Number(
+        activationFailuresByKey.get(key) ?? 0,
+      );
+      if (activationFailures > 0) {
+        activationFailuresByKey.set(key, activationFailures - 1);
+        return {
+          child: {},
+          activation: Promise.reject(
+            new Error(`injected activation failure: ${key}`),
+          ),
+          completion: new Promise(() => {}),
+          terminate: async () => {},
+        };
+      }
       if (options.immediateCoordinatorEvents !== undefined) {
         const events = typeof options.immediateCoordinatorEvents === "function"
           ? options.immediateCoordinatorEvents(task)
@@ -5122,14 +5173,25 @@ for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
     { decisionId: "current-multi-second" },
   );
   const gate = new main.OpeningTerminalContinuationGate();
-  gate.observeCurrentDependencyWaits([first.wait, second.wait]);
+  gate.observeCurrentDependencySnapshot(
+    "auto-dispatch-fixture",
+    [first.wait, second.wait],
+  );
+  gate.observeCurrentVisibleInvocation(
+    "current-multi-invocation",
+    "auto-dispatch-fixture",
+  );
+  gate.armCurrentDependencySuppression(
+    "current-multi-invocation",
+    "auto-dispatch-fixture",
+  );
   check("multiple current dependency dispatches bind independently",
-    gate.bindCurrentDependencyDispatch(
+    gate.prepareCurrentDependencyDispatch(
       first.wait.dependency_id,
       first.wait.job_id,
       first.task.packet.packet_id,
     )
-    && gate.bindCurrentDependencyDispatch(
+    && gate.prepareCurrentDependencyDispatch(
       second.wait.dependency_id,
       second.wait.job_id,
       second.task.packet.packet_id,
@@ -5152,18 +5214,93 @@ for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
   );
   check("first exact terminal consumes only its own dependency",
     firstContext.dependency_id === first.wait.dependency_id
-    && gate.decideWake(first.task.packet.packet_id) === false
-    && gate.acceptVisibleAssistantFinal("另一个依赖仍未完成。") === false);
+    && gate.decideWake(first.task.packet.packet_id) === false);
+  gate.armCurrentDependencySuppression(
+    "current-multi-second-invocation",
+    "auto-dispatch-fixture",
+  );
+  check("remaining exact dependent invocation is suppressed",
+    gate.acceptVisibleAssistantFinal("另一个依赖仍未完成。") === false);
   const secondContext = gate.coordinatorContinuationContext(
     second.task.packet.packet_id,
     "fulfilled",
   );
-  check("last exact terminal releases the dependency gate once",
+  check("last exact terminal retains delivery ownership until commit",
     secondContext.dependency_id === second.wait.dependency_id
     && gate.decideWake(second.task.packet.packet_id) === true);
+  gate.commitCurrentDependencyDelivery(second.task.packet.packet_id);
   gate.reset();
   check("session reset drops only ephemeral dependency waits",
     gate.acceptVisibleAssistantFinal("新会话不继承旧等待。") === true);
+}
+
+// Campaign identity is part of the exact dependency projection. Two campaigns
+// sharing one module and one locally stable dependency_ref remain independent.
+{
+  const first = currentDependencyFixture(
+    "coord-current-campaign-a",
+    { campaignId: "campaign-a", decisionId: "shared-decision" },
+  );
+  const second = currentDependencyFixture(
+    "coord-current-campaign-b",
+    { campaignId: "campaign-b", decisionId: "shared-decision" },
+  );
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.observeCurrentDependencySnapshot("campaign-a", [first.wait]);
+  gate.observeCurrentDependencySnapshot("campaign-b", [second.wait]);
+  const bound = (
+    gate.prepareCurrentDependencyDispatch(
+      first.wait.dependency_id,
+      first.wait.job_id,
+      first.task.packet.packet_id,
+    )
+    && gate.prepareCurrentDependencyDispatch(
+      second.wait.dependency_id,
+      second.wait.job_id,
+      second.task.packet.packet_id,
+    )
+  );
+  const firstContext = gate.coordinatorContinuationContext(
+    first.task.packet.packet_id,
+    "fulfilled",
+  );
+  check("same module and dependency_ref remain campaign-distinct",
+    first.wait.dependency_id !== second.wait.dependency_id
+    && bound
+    && firstContext.dependency_campaign_id === "campaign-a"
+    && gate.decideWake(first.task.packet.packet_id) === false);
+  const secondContext = gate.coordinatorContinuationContext(
+    second.task.packet.packet_id,
+    "fulfilled",
+  );
+  check("cross-campaign terminals consume only their exact wait",
+    secondContext.dependency_campaign_id === "campaign-b"
+    && gate.decideWake(second.task.packet.packet_id) === true);
+  gate.commitCurrentDependencyDelivery(second.task.packet.packet_id);
+}
+
+// A complete empty projection is authoritative for only its campaign and
+// prunes a closed/out-of-band fulfilled wait and its stale dispatch identity.
+{
+  const current = currentDependencyFixture("coord-current-closed-snapshot");
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.observeCurrentDependencySnapshot(
+    "auto-dispatch-fixture",
+    [current.wait],
+  );
+  gate.prepareCurrentDependencyDispatch(
+    current.wait.dependency_id,
+    current.wait.job_id,
+    current.task.packet.packet_id,
+  );
+  gate.observeCurrentDependencySnapshot("auto-dispatch-fixture", []);
+  const stale = gate.coordinatorContinuationContext(
+    current.task.packet.packet_id,
+    "fulfilled",
+  );
+  check("authoritative empty snapshot prunes only closed current waits",
+    stale.dispatch_class === "nonblocking_background"
+    && gate.acceptVisibleAssistantFinal("已关闭依赖不再形成全局门。") === true);
 }
 
 // Ordinary ready work starts separately and never gains the exact dependency
@@ -5219,6 +5356,182 @@ for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
       ordinaryTask.packet.claim_operation.prefilled_arguments,
       "current_dependency_claim",
     ));
+  await harness.shutdown();
+}
+
+// Capability and activation/submit failure roll back only provisional dispatch
+// ownership. The durable wait remains retryable from the next exact projection.
+{
+  const current = currentDependencyFixture("coord-current-capability-retry");
+  let enabled = false;
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return currentDependencyResult(current);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, { coordinatorEnabled: async () => enabled });
+  await harness.start();
+  const invoke = () => invokeCurrentDependency(
+    harness,
+    "invoke-current-capability-retry",
+  );
+  await invoke();
+  const withheld = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "能力不可用时也不能泄漏依赖事实。" }],
+  });
+  check("capability unavailable retains wait without phantom dispatch",
+    harness.launches.length === 0
+    && withheld.content.every((part) => part.type !== "text")
+    && harness.appended.some((entry) => (
+      entry.name === "coc-source-coordinator-auto-dispatch"
+      && entry.value?.status === "capability_unavailable"
+    )));
+  enabled = true;
+  await invoke();
+  check("next exact projection retries after capability recovery",
+    harness.launches.join(",") === current.task.packet.packet_id);
+  await harness.shutdown();
+}
+
+{
+  const current = currentDependencyFixture("coord-current-submit-retry");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return currentDependencyResult(current);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, {
+    activationFailuresByKey: {
+      [current.task.packet.packet_id]: 1,
+    },
+  });
+  await harness.start();
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-submit-fails",
+  );
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-submit-retries",
+  );
+  check("activation submit failure re-admits the same exact task",
+    harness.launches.join(",") === [
+      current.task.packet.packet_id,
+      current.task.packet.packet_id,
+    ].join(",")
+    && harness.controls.has(current.task.packet.packet_id));
+  await harness.shutdown();
+}
+
+// Hidden continuation delivery is the commit point for the last exact wait.
+// A send failure rolls back the in-memory release; the same projection retries
+// notification without launching or leasing source work twice.
+{
+  const current = currentDependencyFixture("coord-current-send-retry");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return currentDependencyResult(current);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, {
+    sendFailuresByType: {
+      "coc-source-coordinator-terminal-continuation": 1,
+    },
+  });
+  await harness.start();
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-send-fails",
+  );
+  harness.controls.get(current.task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(current.task.packet.packet_id),
+  );
+  for (const handler of harness.handlers.get("agent_end") || []) {
+    await handler({ reason: "current-send-failure" }, harness.ctx);
+  }
+  await nextTurn();
+  await nextTurn();
+  check("failed hidden send retains exact dependency delivery ownership",
+    harness.sent.every((entry) => (
+      entry.message?.customType
+        !== "coc-source-coordinator-terminal-continuation"
+    )));
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-send-retry",
+  );
+  await nextTurn();
+  const delivered = harness.sent.filter((entry) => (
+    entry.message?.customType
+      === "coc-source-coordinator-terminal-continuation"
+  ));
+  check("same exact terminal notification retries and commits once",
+    delivered.length === 1
+    && harness.launches.length === 1
+    && delivered[0].message.details.dependency_id
+      === current.wait.dependency_id);
+  await harness.shutdown();
+}
+
+// Suppression belongs to the current-dependent invocation's user epoch and
+// campaign. Another campaign in the same agent turn, or a later unrelated user
+// epoch, remains visible without any prose classifier.
+{
+  const current = currentDependencyFixture(
+    "coord-current-output-owner",
+    { campaignId: "campaign-a" },
+  );
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "progressive.request_deepen"
+      && params.campaign === "campaign-a"
+    ) return currentDependencyResult(current);
+    return { ok: true, tool: params.operation, data: {} };
+  }, { coordinatorEnabled: async () => false });
+  await harness.start();
+  await invokeCurrentDependency(
+    harness,
+    "invoke-current-owner-a",
+    "campaign-a",
+  );
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-unrelated-campaign-b",
+    {
+      operation: "scene.context",
+      campaign: "campaign-b",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const otherCampaign = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "B 战役的独立可见输出。" }],
+  });
+  await harness.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "规则外问题。" }],
+  });
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-unrelated-new-epoch-a",
+    {
+      operation: "rules.build_scale",
+      campaign: "campaign-a",
+      arguments: { build: 1 },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const laterUnrelated = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "后续独立规则说明。" }],
+  });
+  check("other-campaign and later unrelated output remain visible",
+    otherCampaign.content.some((part) => part.type === "text")
+    && laterUnrelated.content.some((part) => part.type === "text"));
   await harness.shutdown();
 }
 

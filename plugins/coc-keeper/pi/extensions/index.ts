@@ -217,9 +217,16 @@ type OpeningBackgroundSubmissionDisposition =
   | { status: "terminal"; receipt: JsonObject }
   | { status: "stale" };
 type CurrentDependencyWait = {
+  campaignId: string;
   jobId: string;
   dependencyRef: JsonObject;
   dispatchKey: string | null;
+  deliveryPending: boolean;
+};
+type CurrentDependencySuppression = {
+  epoch: number;
+  campaignId: string;
+  invocationId: string;
 };
 const MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN = 32;
 const OPENING_START_LOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -239,6 +246,8 @@ export class OpeningTerminalContinuationGate {
     CurrentDependencyWait
   >();
   private readonly currentDependencyByDispatch = new Map<string, string>();
+  private currentDependencySuppression: CurrentDependencySuppression | null = null;
+  private currentVisibleCampaignId: string | null = null;
   private agentActive = false;
   private queuedVisibleDispositions: QueuedVisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
@@ -2094,8 +2103,25 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
-  observeCurrentDependencyWaits(waits: JsonObject[]): void {
+  private removeCurrentDependency(dependencyId: string): void {
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    if (wait?.dispatchKey) {
+      this.currentDependencyByDispatch.delete(wait.dispatchKey);
+      this.states.delete(wait.dispatchKey);
+      this.dispatchClasses.delete(wait.dispatchKey);
+    }
+    this.currentDependencyWaits.delete(dependencyId);
+  }
+
+  observeCurrentDependencySnapshot(
+    campaignId: string,
+    waits: JsonObject[],
+  ): void {
+    const retained = new Set<string>();
     for (const value of waits) {
+      const waitCampaignId = typeof value.campaign_id === "string"
+        ? value.campaign_id.trim()
+        : "";
       const dependencyId = typeof value.dependency_id === "string"
         ? value.dependency_id.trim()
         : "";
@@ -2103,7 +2129,14 @@ export class OpeningTerminalContinuationGate {
         ? value.job_id.trim()
         : "";
       const dependencyRef = objectOrNull(value.dependency_ref);
-      if (!dependencyId || !jobId || dependencyRef === null) continue;
+      if (
+        !campaignId
+        || waitCampaignId !== campaignId
+        || !dependencyId
+        || !jobId
+        || dependencyRef === null
+      ) continue;
+      retained.add(dependencyId);
       const existing = this.currentDependencyWaits.get(dependencyId);
       if (existing?.jobId !== jobId && existing?.dispatchKey) {
         this.currentDependencyByDispatch.delete(existing.dispatchKey);
@@ -2111,16 +2144,25 @@ export class OpeningTerminalContinuationGate {
         this.dispatchClasses.delete(existing.dispatchKey);
       }
       this.currentDependencyWaits.set(dependencyId, {
+        campaignId,
         jobId,
         dependencyRef,
         dispatchKey: existing?.jobId === jobId
           ? existing.dispatchKey
           : null,
+        deliveryPending: existing?.jobId === jobId
+          ? existing.deliveryPending
+          : false,
       });
+    }
+    for (const [dependencyId, wait] of this.currentDependencyWaits) {
+      if (wait.campaignId === campaignId && !retained.has(dependencyId)) {
+        this.removeCurrentDependency(dependencyId);
+      }
     }
   }
 
-  bindCurrentDependencyDispatch(
+  prepareCurrentDependencyDispatch(
     dependencyId: string,
     jobId: string,
     dispatchKey: string,
@@ -2135,12 +2177,65 @@ export class OpeningTerminalContinuationGate {
       this.currentDependencyByDispatch.delete(wait.dispatchKey);
       this.states.delete(wait.dispatchKey);
       this.dispatchClasses.delete(wait.dispatchKey);
+      wait.deliveryPending = false;
     }
     wait.dispatchKey = dispatchKey;
     this.currentDependencyByDispatch.set(dispatchKey, dependencyId);
     this.states.set(dispatchKey, "awaiting");
     this.dispatchClasses.set(dispatchKey, "blocking_micro");
     return true;
+  }
+
+  rollbackCurrentDependencySubmission(
+    dependencyId: string,
+    jobId: string,
+    dispatchKey: string,
+  ): void {
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    if (wait?.jobId !== jobId || wait.dispatchKey !== dispatchKey) return;
+    wait.dispatchKey = null;
+    wait.deliveryPending = false;
+    this.currentDependencyByDispatch.delete(dispatchKey);
+    this.states.delete(dispatchKey);
+    this.dispatchClasses.delete(dispatchKey);
+  }
+
+  commitCurrentDependencyDelivery(dispatchKey: string): void {
+    const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
+    if (dependencyId === undefined) return;
+    this.removeCurrentDependency(dependencyId);
+  }
+
+  rollbackCurrentDependencyDelivery(dispatchKey: string): void {
+    const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
+    if (dependencyId === undefined) return;
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    if (wait?.dispatchKey !== dispatchKey || !wait.deliveryPending) return;
+    wait.deliveryPending = false;
+    this.states.set(dispatchKey, "awaiting");
+    this.dispatchClasses.set(dispatchKey, "blocking_micro");
+  }
+
+  observeCurrentVisibleInvocation(
+    invocationId: string,
+    campaignId: string,
+  ): void {
+    if (invocationId && campaignId) {
+      this.currentVisibleCampaignId = campaignId;
+    }
+  }
+
+  armCurrentDependencySuppression(
+    invocationId: string,
+    campaignId: string,
+  ): void {
+    if (!invocationId || !campaignId) return;
+    this.currentDependencySuppression = {
+      epoch: this.playerTurnEpoch,
+      campaignId,
+      invocationId,
+    };
+    this.currentVisibleCampaignId = campaignId;
   }
 
   queueVisibleAssistantDisposition(
@@ -2228,6 +2323,8 @@ export class OpeningTerminalContinuationGate {
     this.playerTurnEpoch += 1;
     this.finalizedOutput = null;
     this.nonblockingContinuation = null;
+    this.currentDependencySuppression = null;
+    this.currentVisibleCampaignId = null;
   }
 
   coordinatorContinuationContext(
@@ -2282,6 +2379,7 @@ export class OpeningTerminalContinuationGate {
         && dependencyWait !== undefined
           ? {
             dependency_id: dependencyId,
+            dependency_campaign_id: dependencyWait.campaignId,
             dependency_job_id: dependencyWait.jobId,
             dependency_ref: dependencyWait.dependencyRef,
           }
@@ -2403,7 +2501,15 @@ export class OpeningTerminalContinuationGate {
         }
       }
     }
-    if (this.currentDependencyWaits.size > 0) {
+    const currentSuppression = this.currentDependencySuppression;
+    const suppressCurrentDependency = (
+      currentSuppression?.epoch === this.playerTurnEpoch
+      && currentSuppression.campaignId === this.currentVisibleCampaignId
+    );
+    if (currentSuppression?.epoch === this.playerTurnEpoch) {
+      this.currentDependencySuppression = null;
+    }
+    if (suppressCurrentDependency) {
       this.nonblockingContinuation = null;
       return false;
     }
@@ -2480,8 +2586,15 @@ export class OpeningTerminalContinuationGate {
       );
       decision.resolve(shouldWake);
       this.pending.delete(key);
-      this.states.delete(key);
-      this.dispatchClasses.delete(key);
+      const currentDependencyId = this.currentDependencyByDispatch.get(key);
+      const deliveryPending = currentDependencyId !== undefined
+        && this.currentDependencyWaits.get(
+          currentDependencyId,
+        )?.deliveryPending === true;
+      if (!deliveryPending) {
+        this.states.delete(key);
+        this.dispatchClasses.delete(key);
+      }
     }
   }
 
@@ -2494,13 +2607,11 @@ export class OpeningTerminalContinuationGate {
       dependencyId !== undefined
       && dependencyWait?.dispatchKey === dispatchKey
     ) {
-      this.currentDependencyByDispatch.delete(dispatchKey);
-      this.currentDependencyWaits.delete(dependencyId);
-      if (this.currentDependencyWaits.size > 0) {
-        this.states.delete(dispatchKey);
-        this.dispatchClasses.delete(dispatchKey);
+      if (this.currentDependencyWaits.size > 1) {
+        this.removeCurrentDependency(dependencyId);
         return false;
       }
+      dependencyWait.deliveryPending = true;
     }
     // Source work may finish while character creation is still active. Keep
     // that terminal receipt append-only; the retained projection card becomes
@@ -2571,6 +2682,8 @@ export class OpeningTerminalContinuationGate {
     this.dispatchClasses.clear();
     this.currentDependencyWaits.clear();
     this.currentDependencyByDispatch.clear();
+    this.currentDependencySuppression = null;
+    this.currentVisibleCampaignId = null;
   }
 }
 
@@ -2627,6 +2740,7 @@ export async function publishCoordinatorTerminal(
     terminalStatus: string,
   ) => JsonObject,
   onWakeDeliveryFailure?: (dispatchKey: string) => void,
+  onWakeDeliverySuccess?: (dispatchKey: string) => void,
 ): Promise<JsonObject> {
   let appendStatus = "delivered";
   try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
@@ -2689,6 +2803,7 @@ export async function publishCoordinatorTerminal(
               display: false,
               details: notice,
             }, { triggerTurn: true, deliverAs: "followUp" });
+            onWakeDeliverySuccess?.(dispatchKey);
             continuedDispatches.add(dispatchKey);
             continuationStatus = "delivered";
           } catch {
@@ -2765,6 +2880,7 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
 }
 
 function findCurrentDependencyLifecycle(value: unknown): {
+  campaignId: string;
   waits: JsonObject[];
   dispatches: JsonObject[];
 } | null {
@@ -2785,13 +2901,20 @@ function findCurrentDependencyLifecycle(value: unknown): {
   )) as JsonObject[];
   if (candidates.length !== 1) return null;
   const projection = candidates[0];
+  const campaignId = typeof projection.campaign_id === "string"
+    ? projection.campaign_id.trim()
+    : "";
   const waits = Array.isArray(projection.current_dependency_waits)
     ? projection.current_dependency_waits
     : null;
   const dispatches = Array.isArray(projection.current_dependency_dispatches)
     ? projection.current_dependency_dispatches
     : [];
-  if (waits === null) return null;
+  if (
+    !campaignId
+    || projection.current_dependency_snapshot_complete !== true
+    || waits === null
+  ) return null;
   const waitById = new Map<string, JsonObject>();
   for (const value of waits) {
     const wait = objectOrNull(value);
@@ -2801,11 +2924,15 @@ function findCurrentDependencyLifecycle(value: unknown): {
     const jobId = typeof wait?.job_id === "string"
       ? wait.job_id.trim()
       : "";
+    const waitCampaignId = typeof wait?.campaign_id === "string"
+      ? wait.campaign_id.trim()
+      : "";
     if (
       wait?.schema_version !== 1
       || wait.contract_id !== "coc.source-current-dependency-wait.v1"
       || !dependencyId
       || !jobId
+      || waitCampaignId !== campaignId
       || objectOrNull(wait.dependency_ref) === null
       || waitById.has(dependencyId)
     ) return null;
@@ -2823,20 +2950,71 @@ function findCurrentDependencyLifecycle(value: unknown): {
     const wait = waitById.get(dependencyId);
     const action = objectOrNull(dispatch?.next_host_action);
     const task = objectOrNull(action?.task);
+    const packet = objectOrNull(task?.packet);
     if (
       wait === undefined
+      || dispatch?.campaign_id !== campaignId
       || wait.job_id !== jobId
       || JSON.stringify(wait.dependency_ref)
         !== JSON.stringify(dispatch?.dependency_ref)
       || action?.action !== "invoke_coc_dispatch_source_work"
       || task?.contract_id !== "coc.pi-source-coordinator-task.v1"
+      || packet?.campaign_id !== campaignId
     ) return null;
     validatedDispatches.push(dispatch);
   }
   return {
+    campaignId,
     waits: [...waitById.values()],
     dispatches: validatedDispatches,
   };
+}
+
+function currentDependencyInvocationConsumes(
+  params: JsonObject,
+  lifecycle: {
+    campaignId: string;
+    waits: JsonObject[];
+  },
+): boolean {
+  const campaignId = typeof params.campaign === "string"
+    ? params.campaign.trim()
+    : "";
+  const operation = typeof params.operation === "string"
+    ? params.operation.trim()
+    : "";
+  if (!campaignId || campaignId !== lifecycle.campaignId || !operation) {
+    return false;
+  }
+  const args = objectOrNull(params.arguments) ?? {};
+  const declared = objectOrNull(args.current_dependency);
+  if (operation === "progressive.request_deepen" && declared !== null) {
+    return lifecycle.waits.some((wait) => {
+      const dependencyRef = objectOrNull(wait.dependency_ref);
+      const subject = objectOrNull(dependencyRef?.subject);
+      return (
+        dependencyRef?.operation === declared.operation
+        && subject?.kind === args.kind
+        && subject?.id === args.target_id
+        && ["settlement_id", "decision_id", "source_scope_signature"].some(
+          (field) => (
+            typeof declared[field] === "string"
+            && declared[field] === dependencyRef?.[field]
+          ),
+        )
+      );
+    });
+  }
+  return lifecycle.waits.some((wait) => (
+    objectOrNull(wait.dependency_ref)?.operation === operation
+  ));
+}
+
+function currentDependencySubmissionRetained(value: unknown): boolean {
+  const result = objectOrNull(value);
+  return [
+    "activating", "pending", "retrying", "submitted",
+  ].includes(String(result?.status ?? ""));
 }
 
 interface AutoDispatchDeps {
@@ -2895,7 +3073,9 @@ async function autoDispatchCoordinator(
         status: "capability_unavailable",
         failure_class: "coordinator_capability_unavailable",
       };
-      if (options.waitForTerminal) return boundedFailure(unavailable);
+      if (options.waitForTerminal || options.exactTask) {
+        return boundedFailure(unavailable);
+      }
       return null;
     }
   }
@@ -2929,7 +3109,7 @@ async function autoDispatchCoordinator(
   const active = deps.activeManager();
   const preExistingOwnership = submissionOwned(key);
   if (preExistingOwnership !== null) return preExistingOwnership;
-  if (active?.state(key)) {
+  if (active?.state(key) && !options.exactTask) {
     return options.waitForTerminal
       ? await active.waitForTerminal(key, options.signal)
       : null;
@@ -2972,6 +3152,7 @@ async function autoDispatchCoordinator(
       launch,
       options.signal,
       beforeManagerLaunch,
+      options.exactTask !== undefined,
     );
   } catch {
     const existing = ownedManager.state(key);
@@ -3222,8 +3403,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ownedContinuedDispatches,
         (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
         () => continuationContext,
-        (dispatchKey) => (
+        (dispatchKey) => {
           openingContinuationGate.releaseOpeningTerminalContinuation(
+            dispatchKey,
+          );
+          openingContinuationGate.rollbackCurrentDependencyDelivery(
+            dispatchKey,
+          );
+        },
+        (dispatchKey) => (
+          openingContinuationGate.commitCurrentDependencyDelivery(
             dispatchKey,
           )
         ),
@@ -3623,11 +3812,39 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && objectOrNull(params.arguments)?.defer_initial_progressive_on_enter === true
       );
       if (projectedOpening) openingContinuationGate.markOpeningProjected();
+      const invocationCampaignId = typeof params.campaign === "string"
+        ? params.campaign.trim()
+        : "";
+      if (envelope?.ok === true && invocationCampaignId) {
+        openingContinuationGate.observeCurrentVisibleInvocation(
+          _id,
+          invocationCampaignId,
+        );
+        if (
+          operation === "progressive.request_deepen"
+          && objectOrNull(params.arguments)?.current_dependency !== undefined
+        ) {
+          openingContinuationGate.armCurrentDependencySuppression(
+            _id,
+            invocationCampaignId,
+          );
+        }
+      }
       const dependencyLifecycle = findCurrentDependencyLifecycle(value);
       if (dependencyLifecycle !== null) {
-        openingContinuationGate.observeCurrentDependencyWaits(
+        openingContinuationGate.observeCurrentDependencySnapshot(
+          dependencyLifecycle.campaignId,
           dependencyLifecycle.waits,
         );
+        if (currentDependencyInvocationConsumes(
+          params,
+          dependencyLifecycle,
+        )) {
+          openingContinuationGate.armCurrentDependencySuppression(
+            _id,
+            dependencyLifecycle.campaignId,
+          );
+        }
         for (const dispatch of dependencyLifecycle.dispatches) {
           const dependencyId = String(dispatch.dependency_id ?? "").trim();
           const jobId = String(dispatch.job_id ?? "").trim();
@@ -3639,7 +3856,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             : "";
           if (
             task === null
-            || !openingContinuationGate.bindCurrentDependencyDispatch(
+            || !openingContinuationGate.prepareCurrentDependencyDispatch(
               dependencyId,
               jobId,
               dispatchKey,
@@ -3655,12 +3872,32 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             } catch { /* exact dependency audit is best effort */ }
             continue;
           }
-          await autoDispatchCoordinator(
+          const submission = await autoDispatchCoordinator(
             autoDispatchDeps(ctx, epoch),
             name,
             value,
             { exactTask: task },
           );
+          if (!currentDependencySubmissionRetained(submission)) {
+            const retained = objectOrNull(submission);
+            const terminal = objectOrNull(retained?.terminal_receipt);
+            const notification = objectOrNull(retained?.notification);
+            if (
+              retained?.status === "completed"
+              && terminal?.status === "fulfilled"
+              && notification?.hidden_continuation !== "failed"
+            ) {
+              openingContinuationGate.commitCurrentDependencyDelivery(
+                dispatchKey,
+              );
+            } else {
+              openingContinuationGate.rollbackCurrentDependencySubmission(
+                dependencyId,
+                jobId,
+                dispatchKey,
+              );
+            }
+          }
         }
       }
       void autoDispatchCoordinator(

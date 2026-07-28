@@ -12191,6 +12191,8 @@ def test_request_deepen_marks_only_explicit_current_dependency_blocking_micro(
     assert len(waits) == 1
     wait = waits[0]
     assert wait["contract_id"] == "coc.source-current-dependency-wait.v1"
+    assert data["host_work"]["current_dependency_snapshot_complete"] is True
+    assert wait["campaign_id"] == ws["campaign_id"]
     assert wait["job_id"] == request["job_id"]
     assert wait["dependency_ref"] == data["dependency_ref"]
     assert wait["operational_class"] == "runnable"
@@ -12206,10 +12208,12 @@ def test_request_deepen_marks_only_explicit_current_dependency_blocking_micro(
         "max_dispatch_attempts"
     ] == 2
     assert task["packet"]["max_leaves"] == 1
+    assert task["packet"]["campaign_id"] == ws["campaign_id"]
     private_claim = task["packet"]["claim_operation"][
         "prefilled_arguments"
     ]["current_dependency_claim"]
     assert private_claim == {
+        "campaign_id": ws["campaign_id"],
         "dependency_id": wait["dependency_id"],
         "job_id": wait["job_id"],
         "dependency_ref": wait["dependency_ref"],
@@ -12217,6 +12221,12 @@ def test_request_deepen_marks_only_explicit_current_dependency_blocking_micro(
     assert task["packet"]["claim_operation"]["prefilled_arguments"][
         "executor_id"
     ] == f"source-current-dependency:{wait['dependency_id']}"
+    other_campaign_id = assets.current_dependency_projection_id(
+        "other-campaign",
+        ws["asset_root_id"],
+        wait["dependency_ref"],
+    )
+    assert other_campaign_id != wait["dependency_id"]
 
 
 def _materialize_one_r19_host_work(ws: dict) -> None:
@@ -12429,6 +12439,7 @@ def test_pi_current_dependency_dispatch_is_exact_and_separate_from_ordinary(
     ]
     assert exact_task["packet"]["max_leaves"] == 1
     assert exact_claim["current_dependency_claim"] == {
+        "campaign_id": ws["campaign_id"],
         "dependency_id": dispatch["dependency_id"],
         "job_id": dispatch["job_id"],
         "dependency_ref": dispatch["dependency_ref"],

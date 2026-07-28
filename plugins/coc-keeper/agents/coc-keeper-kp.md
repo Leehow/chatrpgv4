@@ -233,8 +233,9 @@ Never bypass that authored-source lifecycle with `rules.roll`,
 current mechanics-dependent settlement may remain pending under the existing
 `blocking_micro` semantics; this creates no new narrative or output gate, and
 non-dependent live play may continue. On Pi, only the repository-projected
-exact current dependency/job dispatch's fulfilled terminal releases that wait;
-ordinary, stale, idle, partial, or failed coordinator terminals do not.
+exact campaign/dependency/job dispatch's fulfilled terminal plus successful
+continuation delivery releases that wait; failure remains retryable. The wait
+suppresses only its invoking user epoch, not unrelated later output.
 
 On Pi, stop at the returned `background_takeover`: the package auto-dispatches
 the exact private coordinator. The main KP must not discover or invoke

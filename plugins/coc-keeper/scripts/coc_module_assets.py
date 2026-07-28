@@ -280,13 +280,16 @@ def validate_host_work_dependency_ref(value: Any) -> dict[str, Any]:
 
 
 def current_dependency_projection_id(
+    campaign_id: str,
     asset_root_id: str,
     dependency_ref: Any,
 ) -> str:
     """Derive one stable audit/wait identity without persisting new state."""
+    campaign = _require_id(campaign_id, "campaign_id")
     root_id = _require_id(asset_root_id, "asset_root_id")
     canonical = validate_host_work_dependency_ref(dependency_ref)
     material = {
+        "campaign_id": campaign,
         "asset_root_id": root_id,
         "dependency_ref": canonical,
     }

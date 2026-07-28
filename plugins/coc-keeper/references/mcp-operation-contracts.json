@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:de41b7526dbe3db445f2634ba05d262b89cb2cd54e97b7e41b61cdc5fde75d1f",
+  "content_sha256": "sha256:9be6ae5c2e84bd0572d6289cafb022b0a789191e33b059206048256bd9a6d06e",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -896,6 +896,9 @@
             "additionalProperties": false,
             "description": "private Pi coordinator binding produced by the repository; main KP callers must omit it",
             "properties": {
+              "campaign_id": {
+                "type": "string"
+              },
               "dependency_id": {
                 "type": "string"
               },
