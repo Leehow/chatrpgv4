@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -88,6 +89,72 @@ def test_pi_package_metadata_exposes_bounded_opening_preview_compatibility():
     }
 
 
+def test_real_canonical_briefing_receipt_owns_exact_pi_visible_bytes(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_HOST", "pi")
+    server = _load_mcp_server()
+    created = server._call_tool("coc_invoke", {
+        "operation": "setup.invoke",
+        "root": os.fspath(tmp_path),
+        "arguments": {
+            "kind": "campaign.create",
+            "payload": {
+                "campaign_id": "pi-visible-briefing",
+                "title": "Pi Visible Briefing",
+                "play_language": "zh-Hans",
+            },
+        },
+    })
+    assert created["ok"] is True, created
+    params = {
+        "operation": "setup.invoke",
+        "campaign": "pi-visible-briefing",
+        "arguments": {
+            "kind": "campaign.render_briefing",
+            "payload": {
+                "campaign_id": "pi-visible-briefing",
+                "language": "zh-Hans",
+            },
+        },
+    }
+    rendered = server._call_tool("coc_invoke", {
+        **params,
+        "root": os.fspath(tmp_path),
+    })
+    assert rendered["ok"] is True, rendered
+    text = (
+        tmp_path / rendered["data"]["result"]["briefing_path"]
+    ).read_text(encoding="utf-8")
+    fixture = tmp_path / "pi-visible-provenance.json"
+    fixture.write_text(json.dumps({
+        "workspace": os.fspath(tmp_path),
+        "params": params,
+        "envelope": rendered,
+        "expected_text_sha256": (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    text,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+        ),
+    }), encoding="utf-8")
+    result = _node(
+        ROOT / "tests/pi/setup-visible-provenance.mjs",
+        str(ROOT),
+        str(fixture),
+    )
+    assert result["ok"] is True
+    assert result["sourceKind"] == "campaign.render_briefing"
+    assert result["publicSetupSha256"] == rendered["data"]["result"][
+        "public_setup_sha256"
+    ]
+
+
 def test_coc_tools_register_compact_tui_renderers():
     result = _node(ROOT / "tests/pi/tool-render-smoke.mjs", str(ROOT))
     assert "setup.inspect" in result["callSummary"]
@@ -109,6 +176,7 @@ def test_player_safe_hud_model_hides_secrets_and_coding_chrome():
     assert result["clueCount"] == 2
     assert result["itemCount"] == 2
     assert result["prelinkOpeningHidden"] is True
+    assert result["operationalErrorVisible"] is True
     assert any("托马斯" in line for line in result["footer"])
     assert any("物品 2" in line for line in result["footer"])
 
@@ -133,6 +201,7 @@ def test_pi_hud_injects_exact_hidden_active_table_identity():
             "investigator_ids": ["inv-c"],
         },
         "emptyOmitted": True,
+        "setupErrorClassified": True,
     }
 
 

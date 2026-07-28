@@ -1642,11 +1642,18 @@ export function formatCanonicalToolFailure(
 export class CanonicalToolError extends Error {
   readonly toolName: string;
   readonly code: string;
-  constructor(toolName: string, code: string, message: string) {
+  readonly details: JsonObject | null;
+  constructor(
+    toolName: string,
+    code: string,
+    message: string,
+    details: JsonObject | null = null,
+  ) {
     super(message);
     this.name = "CanonicalToolError";
     this.toolName = toolName;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -1836,7 +1843,14 @@ export class McpJsonlClient {
         ? errorValue.code.trim()
         : "";
       const message = formatCanonicalToolFailure(name, result, envelope);
-      if (code) throw new CanonicalToolError(name, code, message);
+      const details = (
+        errorValue?.details
+        && typeof errorValue.details === "object"
+        && !Array.isArray(errorValue.details)
+      ) ? errorValue.details as JsonObject : null;
+      if (code) {
+        throw new CanonicalToolError(name, code, message, details);
+      }
       throw new Error(message);
     }
 

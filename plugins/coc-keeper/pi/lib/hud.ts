@@ -7,7 +7,11 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { McpJsonlClient, JsonObject } from "./runtime.ts";
+import {
+  CanonicalToolError,
+  type McpJsonlClient,
+  type JsonObject,
+} from "./runtime.ts";
 import {
   activeTableIdentityMessage,
   buildActiveTableIdentity,
@@ -19,6 +23,53 @@ import {
 } from "./hud-model.ts";
 
 const WIDGET_HINT = "coc-hud-hint";
+
+function setupGateIsOrdinaryOnboarding(
+  error: CanonicalToolError,
+): boolean {
+  if (error.code !== "opening_setup_incomplete") return false;
+  const details = error.details;
+  if (
+    details?.hard_gate !== true
+    || details.activation_allowed !== false
+  ) {
+    return false;
+  }
+  if (details.phase === "opening_selection") return true;
+  return (
+    details.phase === "opening_source_materialization"
+    && details.source_lifecycle_status === "pending"
+  );
+}
+
+export function hudRefreshErrorMessage(error: unknown): string | null {
+  if (
+    error instanceof CanonicalToolError
+    && setupGateIsOrdinaryOnboarding(error)
+  ) {
+    return null;
+  }
+  if (error instanceof CanonicalToolError) {
+    const phase = typeof error.details?.phase === "string"
+      ? error.details.phase
+      : null;
+    const lifecycle = typeof error.details?.source_lifecycle_status === "string"
+      ? error.details.source_lifecycle_status
+      : null;
+    const sourceContract = asDetails(
+      error.details?.source_contract_error,
+    );
+    const sourceCode = typeof sourceContract?.code === "string"
+      ? sourceContract.code
+      : null;
+    return [
+      `COC 操作失败 (${error.code})`,
+      sourceCode ?? lifecycle ?? phase,
+    ].filter(Boolean).join(": ");
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return `COC 连接失败: ${message.slice(0, 96)}`;
+}
 
 function envelopeData(envelope: JsonObject): JsonObject {
   const data = envelope.data;
@@ -117,10 +168,10 @@ export class CocHudController {
       this.applyFooter(ui, this.snapshot);
     } catch (error) {
       this.tableIdentity = null;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = hudRefreshErrorMessage(error);
       this.snapshot = buildHudSnapshot({
         campaignId: this.campaignId,
-        error: message.slice(0, 120),
+        error: message,
       });
       this.applyFooter(ui, this.snapshot);
     } finally {

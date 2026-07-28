@@ -22,9 +22,20 @@ const runtime = await import(path.join(root, "plugins/coc-keeper/pi/lib/runtime.
 const { findAutoDispatchTask, autoDispatchCoordinator } = main.__test;
 const instruction = path.join(root, "plugins/coc-keeper/agents/coc-source-coordinator.md");
 const problems = [];
+const safeCharacterSetupPrompt = (
+  "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
+);
 
 function check(label, condition) {
   if (!condition) problems.push(label);
+}
+
+function replacementIs(decision, expected) {
+  return (
+    decision !== null
+    && typeof decision === "object"
+    && decision.replacementText === expected
+  );
 }
 
 function coordinatorTask(packetId = "coord-auto-1", {
@@ -1374,7 +1385,19 @@ async function exerciseFailureDrain(mode) {
               campaign_id: payload.campaign_id,
               investigator_ids: payload.investigator_ids,
             }
-            : { kind },
+            : kind === "investigator.create"
+              ? { investigator_id: payload.investigator_id }
+              : kind === "actor.create"
+                ? {
+                  campaign_id: payload.campaign_id,
+                  actor_id: payload.actor_id,
+                  ruleset_id: "fixture",
+                }
+              : {
+                campaign_id: payload.campaign_id,
+                investigator_id: payload.investigator_id,
+                markdown_path: ".coc/fixture/card.md",
+              },
         },
       };
     }
@@ -1382,7 +1405,15 @@ async function exerciseFailureDrain(mode) {
       return {
         ok: true,
         tool: "setup.investigator_contract",
-        data: { status: "PASS", result: { payload_schema: {} } },
+        data: {
+          schema_version: 1,
+          status: "PASS",
+          kind: "investigator.contract",
+          result: {
+            ruleset_id: "coc7",
+            payload_schema: { type: "object" },
+          },
+        },
       };
     }
     if (params.operation === "rules.roll_dice") {
@@ -1731,7 +1762,7 @@ async function exerciseFailureDrain(mode) {
   check("structured character setup provenance permits its player prompt",
     characterPrompt.content.some((part) => (
       part.type === "text"
-      && part.text === "请选择调查员的特征值生成方式。"
+      && part.text === "请选择调查员的特征值生成方式，并继续确认职业与技能。"
     )));
 
   const canonicalSetupCalls = [
@@ -1786,7 +1817,11 @@ async function exerciseFailureDrain(mode) {
     check(`real ${setup.kind} reaches MCP and owns setup output`,
       setupPrompt.content.some((part) => (
         part.type === "text"
-        && part.text === `setup-visible:${setup.kind}`
+        && part.text === (
+          setup.kind === "campaign.link_investigator"
+            ? "调查员已正式加入战役。"
+            : "调查员资料已创建；请确认后加入战役。"
+        )
       )));
   }
   let wrongOpeningFinalizationRejected = false;
@@ -2091,7 +2126,12 @@ async function exerciseFailureDrain(mode) {
     }, "current-before-link-scene")?.includes(
       '"phase":"opening_current_character_setup_required"',
     )
-    && gate.acceptVisibleAssistantFinal("继续完善调查员。") === true);
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal(
+        "公元1135年的冬夜，你已经站在舍伯恩修道院门前。",
+      ),
+      safeCharacterSetupPrompt,
+    ));
   gate.markAgentStart();
   const linkParams = {
     operation: "setup.invoke",
@@ -2115,7 +2155,10 @@ async function exerciseFailureDrain(mode) {
   );
   check("exact link receipt is visible before retained table-opening evidence",
     linked === undefined
-    && gate.acceptVisibleAssistantFinal("调查员已正式加入。") === true
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal("模型自拟的链接说明。"),
+      "调查员已正式加入战役。",
+    )
     && gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
       campaign: "current-before-link",
@@ -2150,14 +2193,21 @@ async function exerciseFailureDrain(mode) {
       opening_pdf_indices: [0],
     },
   };
-  check("terminal before link cannot wake or execute retained projection",
+  const prematureOpening = (
+    "公元1135年的冬夜，你抵达舍伯恩；石墙外积雪齐踝，"
+    + "远处修道院的钟声正报出午夜。"
+  );
+  check("terminal before link suppresses arbitrary era time place prose",
     gate.decideWake(task.packet.packet_id) === false
     && gate.openingSetupToolError(
       "coc_invoke",
       projectionParams,
       "terminal-before-link-project",
     )?.includes("campaign.link_investigator")
-    && gate.acceptVisibleAssistantFinal("继续自然完成背景与技能。") === true);
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal(prematureOpening),
+      safeCharacterSetupPrompt,
+    ));
   const incompleteCreateError = gate.openingSetupToolError(
     "coc_invoke",
     {
@@ -2181,7 +2231,11 @@ async function exerciseFailureDrain(mode) {
   check("fulfilled terminal keeps projection private during character setup",
     incompleteCreateError?.includes("campaign.link_investigator")
     && !incompleteCreateError.includes("progressive.project_opening")
-    && gate.requiredOpeningSetupContinuation() === null);
+    && gate.requiredOpeningSetupContinuation() === null
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal(prematureOpening),
+      safeCharacterSetupPrompt,
+    ));
   const briefingParams = {
     operation: "setup.invoke",
     campaign: "terminal-before-link",
@@ -2222,9 +2276,13 @@ async function exerciseFailureDrain(mode) {
     },
     "terminal-before-link-briefing",
   );
-  check("briefing receipt does not release retained projection",
-    briefed.accepted === true
-    && gate.requiredOpeningSetupContinuation() === null);
+  check("fabricated briefing envelope grants no visible provenance",
+    briefed.accepted === false
+    && gate.requiredOpeningSetupContinuation() === null
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal(prematureOpening),
+      safeCharacterSetupPrompt,
+    ));
   const createParams = {
     operation: "setup.invoke",
     campaign: "terminal-before-link",
@@ -2261,7 +2319,11 @@ async function exerciseFailureDrain(mode) {
   );
   check("create success does not release opening before exact link",
     created.accepted === true
-    && gate.requiredOpeningSetupContinuation() === null);
+    && gate.requiredOpeningSetupContinuation() === null
+    && replacementIs(
+      gate.acceptVisibleAssistantFinal(prematureOpening),
+      "调查员资料已创建；请确认后加入战役。",
+    ));
 
   const linkParams = {
     operation: "setup.invoke",
@@ -2324,7 +2386,10 @@ async function exerciseFailureDrain(mode) {
     ),
   );
   check("exact link prose remains visible before projection route",
-    gate.acceptVisibleAssistantFinal("调查员链接回执已确认。") === true);
+    replacementIs(
+      gate.acceptVisibleAssistantFinal("调查员链接回执已确认。"),
+      "调查员已正式加入战役。",
+    ));
   const route = gate.requiredOpeningSetupContinuation();
   check("terminal-before-link releases one exact projection route after link",
     route?.next_operation?.operation === "progressive.project_opening");
@@ -2362,7 +2427,10 @@ async function exerciseFailureDrain(mode) {
     ),
   );
   check("terminal-owner link receipt remains visible",
-    gate.acceptVisibleAssistantFinal("调查员链接完成。") === true);
+    replacementIs(
+      gate.acceptVisibleAssistantFinal("调查员链接完成。"),
+      "调查员已正式加入战役。",
+    ));
   gate.markAgentEnd();
   gate.observeOpeningCoordinatorTerminal({
     packet_id: task.packet.packet_id,
@@ -2408,7 +2476,7 @@ async function exerciseFailureDrain(mode) {
 }
 
 // A launch/submission failure after the exact bootstrap attempt uses the same
-// retry phase and does not revoke natural character-creation dialogue.
+// retry phase and preserves the fixed player-safe character-setup prompt.
 {
   const gate = new main.OpeningTerminalContinuationGate();
   const { params, task, invocationId } = beginBackgroundOpeningRoute(
@@ -2429,9 +2497,11 @@ async function exerciseFailureDrain(mode) {
   check("submit failure exposes bounded blocker",
     typeof blocker === "object"
     && blocker.replacementText.includes("开场资料解析失败"));
-  check("submit retry phase preserves natural character dialogue",
-    gate.acceptVisibleAssistantFinal("继续讨论调查员的信念与重要之人。")
-      === true);
+  check("submit retry phase preserves safe character prompt",
+    replacementIs(
+      gate.acceptVisibleAssistantFinal("继续讨论调查员的信念与重要之人。"),
+      safeCharacterSetupPrompt,
+    ));
 }
 
 // A late setup receipt from campaign A is owned by its original agent turn.
@@ -4480,7 +4550,7 @@ async function exerciseFailureDrain(mode) {
   check("terminal send failure retains one exact projection route retry",
     retry.content.some((part) => (
       part.type === "text"
-      && part.text === "终态发送失败后的精确投影重试。"
+      && part.text === "调查员已正式加入战役。"
     ))
     && harness.sent.filter((entry) => (
       entry.message?.customType
@@ -4576,10 +4646,10 @@ async function exerciseFailureDrain(mode) {
     role: "assistant",
     content: [{ type: "text", text: "后台重试待定，我们继续完善调查员背景。" }],
   });
-  check("terminal retry phase preserves natural multi-round character setup",
+  check("terminal retry phase preserves safe multi-round character setup",
     retryCharacterRound.content.some((part) => (
       part.type === "text"
-      && part.text === "后台重试待定，我们继续完善调查员背景。"
+      && part.text === safeCharacterSetupPrompt
     )));
 
   const retried = JSON.parse((await harness.registered.get("coc_invoke").execute(
@@ -4655,7 +4725,7 @@ async function exerciseFailureDrain(mode) {
     && submitted.data.status === "queued"
     && characterPrompt.content.some((part) => (
       part.type === "text"
-      && part.text === "后台解析中，我们继续创建调查员。"
+      && part.text === safeCharacterSetupPrompt
     ))
     && harness.controls.get(task.packet.packet_id).terminated === false);
 
@@ -4826,9 +4896,9 @@ async function exerciseFailureDrain(mode) {
       role: "assistant",
       content: [{ type: "text", text: `自然开卡对话 ${index + 1}` }],
     });
-    check(`background parsing permits natural character round ${index + 1}`,
+    check(`background parsing emits safe character round ${index + 1}`,
       visible.content.some((part) => (
-        part.type === "text" && part.text === `自然开卡对话 ${index + 1}`
+        part.type === "text" && part.text === safeCharacterSetupPrompt
       )));
   }
 
@@ -4880,7 +4950,7 @@ async function exerciseFailureDrain(mode) {
   });
   check("link receipt is visible then live play remains blocked",
     linkVisible.content.some((part) => (
-      part.type === "text" && part.text === "调查员已创建并加入本次游戏。"
+      part.type === "text" && part.text === "调查员已正式加入战役。"
     ))
     && sceneBlocked
     && harness.calls.length === callsBeforeScene

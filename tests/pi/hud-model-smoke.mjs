@@ -132,26 +132,16 @@ if (
 if (!prelinkSerialized.includes("尚未开桌")) {
   throw new Error(`pre-link HUD omitted onboarding boundary: ${prelinkSerialized}`);
 }
-const retainedRouteError = buildHudSnapshot({
-  campaignId: "opening-route-blocked",
-  error: (
-    "MUST_NOT_SHOW_RETAINED_ROUTE "
-    + '{"phase":"opening_character_setup_required"}'
-  ),
+const operationalError = buildHudSnapshot({
+  campaignId: "missing-campaign",
+  error: "COC 操作失败 (setup_failed)",
 });
-const retainedRouteUi = JSON.stringify({
-  footer: formatHudFooterLines(retainedRouteError, 120),
-  sheet: formatHudDetail("sheet", retainedRouteError),
-  time: formatHudDetail("time", retainedRouteError),
-  inventory: formatHudDetail("inv", retainedRouteError),
-  clues: formatHudDetail("clues", retainedRouteError),
+const operationalErrorUi = JSON.stringify({
+  footer: formatHudFooterLines(operationalError, 120),
+  sheet: formatHudDetail("sheet", operationalError),
 });
-if (
-  retainedRouteUi.includes("MUST_NOT_SHOW_RETAINED_ROUTE")
-  || retainedRouteUi.includes("opening_character_setup_required")
-  || !retainedRouteUi.includes("尚未开桌")
-) {
-  throw new Error(`setup HUD leaked retained route error: ${retainedRouteUi}`);
+if (!operationalErrorUi.includes("setup_failed")) {
+  throw new Error(`HUD concealed operational failure: ${operationalErrorUi}`);
 }
 
 process.stdout.write(JSON.stringify({
@@ -160,4 +150,5 @@ process.stdout.write(JSON.stringify({
   clueCount: snap.clues.length,
   itemCount: snap.items.length,
   prelinkOpeningHidden: true,
+  operationalErrorVisible: true,
 }));

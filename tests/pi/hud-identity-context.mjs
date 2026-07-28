@@ -3,9 +3,54 @@ import path from "node:path";
 import process from "node:process";
 
 const root = path.resolve(process.argv[2] || process.cwd());
-const { registerCocHud } = await import(
+const { hudRefreshErrorMessage, registerCocHud } = await import(
   path.join(root, "plugins/coc-keeper/pi/lib/hud.ts")
 );
+const { CanonicalToolError } = await import(
+  path.join(root, "plugins/coc-keeper/pi/lib/runtime.ts")
+);
+
+const setupOnboarding = new CanonicalToolError(
+  "coc_invoke",
+  "opening_setup_incomplete",
+  "MUST_NOT_SHOW_RETAINED_ROUTE",
+  {
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_materialization",
+    source_lifecycle_status: "pending",
+  },
+);
+if (hudRefreshErrorMessage(setupOnboarding) !== null) {
+  throw new Error("ordinary setup route was exposed as a HUD failure");
+}
+const terminalSetup = new CanonicalToolError(
+  "coc_invoke",
+  "opening_setup_incomplete",
+  "terminal details",
+  {
+    hard_gate: true,
+    activation_allowed: false,
+    phase: "opening_source_materialization",
+    source_lifecycle_status: "refused_terminal",
+  },
+);
+if (!hudRefreshErrorMessage(terminalSetup)?.includes("refused_terminal")) {
+  throw new Error("terminal setup failure was hidden as onboarding");
+}
+const invalidCampaign = new CanonicalToolError(
+  "coc_invoke",
+  "setup_failed",
+  "unknown campaign",
+);
+if (!hudRefreshErrorMessage(invalidCampaign)?.includes("setup_failed")) {
+  throw new Error("invalid campaign failure was hidden");
+}
+if (!hudRefreshErrorMessage(new Error("MCP child exited"))?.includes(
+  "MCP child exited",
+)) {
+  throw new Error("generic transport failure was hidden");
+}
 
 const handlers = new Map();
 const commands = new Map();
@@ -180,4 +225,5 @@ process.stdout.write(JSON.stringify({
   authoritativeResume: true,
   refreshedBinding,
   emptyOmitted: empty === undefined,
+  setupErrorClassified: true,
 }));

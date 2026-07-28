@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
@@ -106,6 +106,115 @@ function canonicalJsonValueSha256(value: unknown): string {
   return `sha256:${createHash("sha256").update(encoded, "utf8").digest("hex")}`;
 }
 
+type CanonicalSetupVisibleOutput = {
+  campaignId: string;
+  sourceKind: "scenario.bind_pdf" | "campaign.render_briefing";
+  publicSetupSha256: string;
+  text: string;
+  textSha256: string;
+};
+
+const MAX_CANONICAL_SETUP_VISIBLE_BYTES = 64 * 1024;
+const SAFE_CHARACTER_SETUP_PROMPT = (
+  "请继续确认调查员的职业、特征与技能；调查员正式加入战役后再开始场景。"
+);
+
+/**
+ * Resolve exact player-safe briefing bytes only from a successful canonical
+ * setup receipt. The setup digest binds the public source inputs; the exact
+ * returned path binds the one file this host may release.
+ */
+export async function canonicalSetupVisibleOutput(
+  workspaceRoot: string,
+  params: JsonObject,
+  value: unknown,
+): Promise<CanonicalSetupVisibleOutput | null> {
+  if (params.operation !== "setup.invoke") return null;
+  const args = objectOrNull(params.arguments);
+  const payload = objectOrNull(args?.payload);
+  const kind = args?.kind;
+  if (
+    (kind !== "scenario.bind_pdf" && kind !== "campaign.render_briefing")
+    || payload === null
+    || typeof payload.campaign_id !== "string"
+    || payload.campaign_id !== params.campaign
+  ) {
+    return null;
+  }
+  const envelope = objectOrNull(value);
+  const data = objectOrNull(envelope?.data);
+  const resultData = objectOrNull(data?.result);
+  const briefing = kind === "scenario.bind_pdf"
+    ? objectOrNull(resultData?.character_creation_briefing)
+    : resultData;
+  const briefingPath = typeof briefing?.briefing_path === "string"
+    ? briefing.briefing_path.trim()
+    : "";
+  const publicSetupSha256 = typeof briefing?.public_setup_sha256 === "string"
+    ? briefing.public_setup_sha256.trim()
+    : "";
+  if (
+    envelope?.ok !== true
+    || envelope.tool !== "setup.invoke"
+    || data?.schema_version !== 1
+    || data.status !== "PASS"
+    || data.kind !== kind
+    || resultData === null
+    || resultData.campaign_id !== params.campaign
+    || !briefingPath
+    || isAbsolute(briefingPath)
+    || !/^[0-9a-f]{64}$/.test(publicSetupSha256)
+  ) {
+    return null;
+  }
+  const root = resolve(workspaceRoot);
+  const expectedRoot = resolve(
+    root,
+    ".coc",
+    "campaigns",
+    String(params.campaign),
+    "assets",
+    "character-creation",
+  );
+  const candidate = resolve(root, briefingPath);
+  if (
+    candidate === expectedRoot
+    || !candidate.startsWith(`${expectedRoot}${sep}`)
+  ) {
+    return null;
+  }
+  let canonicalRoot: string;
+  let canonicalCandidate: string;
+  try {
+    [canonicalRoot, canonicalCandidate] = await Promise.all([
+      realpath(expectedRoot),
+      realpath(candidate),
+    ]);
+  } catch {
+    return null;
+  }
+  if (!canonicalCandidate.startsWith(`${canonicalRoot}${sep}`)) return null;
+  let text: string;
+  try {
+    text = await readFile(canonicalCandidate, "utf8");
+  } catch {
+    return null;
+  }
+  if (
+    !text
+    || Buffer.byteLength(text, "utf8") > MAX_CANONICAL_SETUP_VISIBLE_BYTES
+  ) {
+    return null;
+  }
+  return {
+    campaignId: String(params.campaign),
+    sourceKind: kind,
+    publicSetupSha256,
+    text,
+    textSha256: canonicalJsonValueSha256(text),
+  };
+}
+
 function withoutAssistantText<T>(message: T): T {
   const assistant = assistantContentMessage(message);
   if (!assistant) return message;
@@ -155,7 +264,10 @@ type VisibleAssistantDisposition =
   | "terminal_blocker";
 type VisibleAssistantFinalDecision =
   | boolean
-  | { replacementText: string };
+  | {
+      replacementText: string;
+      triggerSetupContinuation?: boolean;
+    };
 type QueuedVisibleAssistantDisposition = {
   disposition: VisibleAssistantDisposition;
   dispatchKey?: string;
@@ -279,6 +391,9 @@ export class OpeningTerminalContinuationGate {
     revision: number;
     agentTurn: number;
     invocationId: string;
+    replacementText: string;
+    replacementTextSha256: string;
+    source: string;
   } | null = null;
   private readonly openingSetupContinuationQueued = new Set<string>();
   private readonly openingSetupTerminalBlockers = new Map<
@@ -324,6 +439,39 @@ export class OpeningTerminalContinuationGate {
       && authorization.revision === state.revision
       && authorization.agentTurn === this.openingSetupAgentTurn
     );
+  }
+
+  private authorizeOpeningSetupVisibleOutput(
+    state: OpeningSetupState,
+    attempt: OpeningSetupAttempt,
+    replacementText: string,
+    source: string,
+  ): void {
+    if (
+      !replacementText
+      || attempt.agentTurn !== this.openingSetupAgentTurn
+      || this.openingSetupTurnCampaignAmbiguous
+      || this.openingSetupTurnCampaignId !== attempt.campaignId
+    ) {
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "late_ambiguous_or_empty_setup_output",
+        campaign_id: attempt.campaignId,
+        invocation_id: attempt.invocationId,
+        source,
+      });
+      return;
+    }
+    this.openingSetupVisibleOutputAuthorization = {
+      campaignId: attempt.campaignId,
+      generation: state.generation,
+      revision: state.revision,
+      agentTurn: attempt.agentTurn,
+      invocationId: attempt.invocationId,
+      replacementText,
+      replacementTextSha256: canonicalJsonValueSha256(replacementText),
+      source,
+    };
   }
 
   private pendingBindExists(): boolean {
@@ -567,6 +715,136 @@ export class OpeningTerminalContinuationGate {
       && linkedIds.length === requestedIds.length
       && linkedIds.every((value, index) => value === requestedIds[index])
     );
+  }
+
+  private exactCanonicalCharacterSetupReceipt(
+    operation: string,
+    params: JsonObject,
+    envelope: JsonObject | null,
+    canonicalVisibleOutput: CanonicalSetupVisibleOutput | null,
+  ): boolean {
+    if (envelope?.ok !== true || envelope.tool !== operation) return false;
+    const data = objectOrNull(envelope.data);
+    const args = objectOrNull(params.arguments);
+    if (data === null || args === null) return false;
+    if (operation === "setup.investigator_contract") {
+      const result = objectOrNull(data.result);
+      return (
+        data.schema_version === 1
+        && data.status === "PASS"
+        && data.kind === "investigator.contract"
+        && result !== null
+        && typeof result.ruleset_id === "string"
+        && objectOrNull(result.payload_schema) !== null
+      );
+    }
+    if (operation === "rules.roll_dice") {
+      const rolls = data.rolls;
+      return (
+        args.expression === "3D6"
+        && data.expression === args.expression
+        && Array.isArray(rolls)
+        && rolls.length === 3
+        && rolls.every((roll) => (
+          Number.isInteger(roll) && Number(roll) >= 1 && Number(roll) <= 6
+        ))
+        && Number.isInteger(data.total)
+        && data.total === rolls.reduce(
+          (sum, roll) => sum + Number(roll),
+          0,
+        )
+        && typeof data.roll_id === "string"
+        && data.roll_id.trim().length > 0
+      );
+    }
+    if (operation !== "setup.invoke") return false;
+    const kind = args.kind;
+    const payload = objectOrNull(args.payload);
+    const result = objectOrNull(data.result);
+    if (
+      typeof kind !== "string"
+      || payload === null
+      || data.schema_version !== 1
+      || data.status !== "PASS"
+      || data.kind !== kind
+      || result === null
+    ) {
+      return false;
+    }
+    if (kind === "campaign.link_investigator") {
+      return this.exactCanonicalLinkReceipt(params, envelope);
+    }
+    if (kind === "campaign.render_briefing") {
+      return (
+        canonicalVisibleOutput !== null
+        && canonicalVisibleOutput.campaignId === params.campaign
+        && canonicalVisibleOutput.sourceKind === kind
+        && result.campaign_id === params.campaign
+        && canonicalVisibleOutput.textSha256
+          === canonicalJsonValueSha256(canonicalVisibleOutput.text)
+      );
+    }
+    if (kind === "investigator.create") {
+      return (
+        typeof payload.investigator_id === "string"
+        && result.investigator_id === payload.investigator_id
+      );
+    }
+    if (kind === "actor.create") {
+      return (
+        result.campaign_id === params.campaign
+        && result.actor_id === payload.actor_id
+        && typeof result.ruleset_id === "string"
+      );
+    }
+    if (kind === "investigator.render_card") {
+      return (
+        result.campaign_id === params.campaign
+        && result.investigator_id === payload.investigator_id
+        && typeof result.markdown_path === "string"
+      );
+    }
+    return false;
+  }
+
+  private canonicalCharacterSetupVisibleText(
+    operation: string,
+    params: JsonObject,
+    envelope: JsonObject | null,
+    canonicalVisibleOutput: CanonicalSetupVisibleOutput | null,
+  ): string | null {
+    if (
+      !this.exactCanonicalCharacterSetupReceipt(
+        operation,
+        params,
+        envelope,
+        canonicalVisibleOutput,
+      )
+    ) {
+      return null;
+    }
+    if (canonicalVisibleOutput !== null) {
+      return canonicalVisibleOutput.text;
+    }
+    if (operation === "setup.investigator_contract") {
+      return "请选择调查员的特征值生成方式，并继续确认职业与技能。";
+    }
+    if (operation === "rules.roll_dice") {
+      const data = objectOrNull(envelope?.data);
+      const total = Number(data?.total);
+      return `幸运骰结果为 ${total}，幸运值为 ${total * 5}。`;
+    }
+    const args = objectOrNull(params.arguments);
+    if (args?.kind === "campaign.link_investigator") {
+      return "调查员已正式加入战役。";
+    }
+    if (args?.kind === "investigator.create" || args?.kind === "actor.create") {
+      return "调查员资料已创建；请确认后加入战役。";
+    }
+    if (args?.kind === "investigator.render_card") {
+      return "调查员角色卡已生成。";
+    }
+    return null;
   }
 
   private exactOpeningSetupRouteInvocation(
@@ -1198,6 +1476,7 @@ export class OpeningTerminalContinuationGate {
     params: JsonObject,
     value: unknown,
     invocationId = "",
+    canonicalVisibleOutput: CanonicalSetupVisibleOutput | null = null,
   ): OpeningSetupObservationDisposition {
     const attempt = this.openingSetupAttempts.get(invocationId);
     if (attempt === undefined) {
@@ -1265,12 +1544,27 @@ export class OpeningTerminalContinuationGate {
         && route.phase === "opening_selection"
         && this.exactPrepareCard(route.next_operation)
       ) {
-        this.initializeOpeningSetupState(
+        const initialized = this.initializeOpeningSetupState(
           attempt.campaignId,
           route,
           "selection",
           attempt,
         );
+        if (
+          canonicalVisibleOutput?.campaignId === attempt.campaignId
+          && canonicalVisibleOutput.sourceKind === "scenario.bind_pdf"
+          && canonicalVisibleOutput.textSha256
+            === canonicalJsonValueSha256(canonicalVisibleOutput.text)
+        ) {
+          this.authorizeOpeningSetupVisibleOutput(
+            initialized,
+            attempt,
+            canonicalVisibleOutput.text,
+            (
+              `scenario.bind_pdf:${canonicalVisibleOutput.publicSetupSha256}`
+            ),
+          );
+        }
         this.finalizeOpeningSetupAttempt(invocationId);
         return {
           accepted: true,
@@ -1401,9 +1695,13 @@ export class OpeningTerminalContinuationGate {
         operation === "setup.invoke"
         && setupArgs?.kind === "campaign.link_investigator"
       );
-      const acceptedCharacterResult = linkAttempt
-        ? this.exactCanonicalLinkReceipt(params, envelope)
-        : envelope?.ok === true;
+      const canonicalVisibleText = this.canonicalCharacterSetupVisibleText(
+        operation,
+        params,
+        envelope,
+        canonicalVisibleOutput,
+      );
+      const acceptedCharacterResult = canonicalVisibleText !== null;
       if (linkAttempt && acceptedCharacterResult) {
         state.characterSetupComplete = true;
         if (state.phase === "ready") {
@@ -1423,26 +1721,20 @@ export class OpeningTerminalContinuationGate {
           invocation_id: invocationId,
         });
       }
-      if (
-        acceptedCharacterResult
-        && attempt.agentTurn === this.openingSetupAgentTurn
-        && !this.openingSetupTurnCampaignAmbiguous
-        && this.openingSetupTurnCampaignId === attempt.campaignId
-      ) {
-        this.openingSetupVisibleOutputAuthorization = {
-          campaignId: attempt.campaignId,
-          generation: state.generation,
-          revision: state.revision,
-          agentTurn: attempt.agentTurn,
-          invocationId,
-        };
-      } else if (acceptedCharacterResult) {
-        this.recordOpeningSetupAudit({
-          status: "ignored",
-          reason: "late_or_ambiguous_setup_output",
-          campaign_id: attempt.campaignId,
-          invocation_id: invocationId,
-        });
+      if (acceptedCharacterResult) {
+        this.authorizeOpeningSetupVisibleOutput(
+          state,
+          attempt,
+          canonicalVisibleText,
+          (
+            canonicalVisibleOutput === null
+              ? `${operation}:${String(setupArgs?.kind ?? operation)}`
+              : (
+                `${canonicalVisibleOutput.sourceKind}:`
+                + canonicalVisibleOutput.publicSetupSha256
+              )
+          ),
+        );
       }
       return {
         accepted: acceptedCharacterResult,
@@ -2598,24 +2890,11 @@ export class OpeningTerminalContinuationGate {
       this.openingSetupStates.size > 0
       || this.pendingBindExists()
     ) {
-      const naturalCharacterSetupAllowed = (
-        openingState !== null
-        && !openingState.characterSetupComplete
-        && this.characterSetupAllowed(openingState)
-      );
-      if (
-        !naturalCharacterSetupAllowed
-        && (
-          openingState === null
-          || !this.openingSetupAuthorizationMatches(openingState)
-        )
-      ) {
-        return false;
-      }
       if (
         openingState !== null
         && this.openingSetupAuthorizationMatches(openingState)
       ) {
+        const authorization = this.openingSetupVisibleOutputAuthorization!;
         this.openingSetupVisibleOutputAuthorization = null;
         if (
           openingState.characterSetupComplete
@@ -2626,7 +2905,32 @@ export class OpeningTerminalContinuationGate {
             openingState.generation,
           );
         }
+        if (
+          authorization.replacementText === visibleText
+          && authorization.replacementTextSha256
+            === canonicalJsonValueSha256(visibleText)
+        ) {
+          return true;
+        }
+        return {
+          replacementText: authorization.replacementText,
+          triggerSetupContinuation: true,
+        };
       }
+      if (
+        openingState !== null
+        && !openingState.characterSetupComplete
+        && this.characterSetupAllowed(openingState)
+      ) {
+        // Character creation remains available, but arbitrary model prose
+        // cannot acquire source authority from the phase alone. A successful
+        // canonical setup receipt above exact-replaces its one owned output.
+        return {
+          replacementText: SAFE_CHARACTER_SETUP_PROMPT,
+          triggerSetupContinuation: true,
+        };
+      }
+      return false;
     }
     const currentSuppression = this.currentDependencySuppression;
     const suppressCurrentDependency = (
@@ -3633,12 +3937,18 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw error;
     }
     if (name === "coc_invoke") {
+      const setupVisibleOutput = await canonicalSetupVisibleOutput(
+        ctx.cwd,
+        params,
+        value,
+      );
       const openingObservation = (
         openingContinuationGate.observeOpeningSetupInvocation(
           String(params.operation),
           params,
           value,
           _id,
+          setupVisibleOutput,
         )
       );
       flushOpeningSetupAudits();
@@ -4132,7 +4442,14 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           );
         } catch { /* hidden structured blocker audit is best effort */ }
       }
-      if (decision === false || decision === true) {
+      if (
+        decision === false
+        || decision === true
+        || (
+          typeof decision === "object"
+          && decision.triggerSetupContinuation === true
+        )
+      ) {
         const route = (
           openingContinuationGate.requiredOpeningSetupContinuation()
         );

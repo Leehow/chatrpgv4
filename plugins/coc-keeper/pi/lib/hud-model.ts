@@ -249,14 +249,15 @@ export function buildHudSnapshot(input: {
 
 /** 1–3 footer lines for the editor bottom (replaces coding token footer). */
 export function formatHudFooterLines(snapshot: HudSnapshot, width: number): string[] {
+  if (snapshot.error) {
+    return [clip(`COC · ${snapshot.campaignId} · ${snapshot.error}`, width)];
+  }
+
   const inv = snapshot.investigators[0];
   if (!inv) {
     return [
       clip("COC · 无调查员 · 尚未开桌 · /hud 展开", width),
     ];
-  }
-  if (snapshot.error) {
-    return [clip(`COC · ${snapshot.campaignId} · ${snapshot.error}`, width)];
   }
   const who = [
     inv.name,
@@ -284,10 +285,10 @@ export function formatHudFooterLines(snapshot: HudSnapshot, width: number): stri
 }
 
 export function formatHudDetail(kind: "sheet" | "time" | "inv" | "clues", snapshot: HudSnapshot): string[] {
+  if (snapshot.error) return [`错误: ${snapshot.error}`];
   if (!snapshot.investigators.length) {
     return ["（尚未开桌；调查员尚未加入战役）"];
   }
-  if (snapshot.error) return [`错误: ${snapshot.error}`];
   if (kind === "sheet") {
     const lines: string[] = [];
     for (const inv of snapshot.investigators) {
