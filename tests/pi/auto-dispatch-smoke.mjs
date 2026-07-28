@@ -67,6 +67,13 @@ function openingBootstrapResult(task) {
     ok: true, tool: "progressive.opening_bootstrap",
     data: {
       status: "queued",
+      asset_root_id: task.packet.asset_root_id,
+      source_file_sha256: "a".repeat(64),
+      start_location: {
+        location_id: "opening",
+        title: "Opening",
+      },
+      opening_pdf_indices: [0],
       source_work: {
         status: "queued",
         background_takeover: takeover(task),
@@ -121,6 +128,21 @@ function coordinatorReceipt(packetId) {
 
 function coordinatorEvents(packetId) {
   const receipt = coordinatorReceipt(packetId);
+  return coordinatorEventsForReceipt(receipt);
+}
+
+function fulfilledCoordinatorEvents(packetId) {
+  return coordinatorEventsForReceipt({
+    ...coordinatorReceipt(packetId),
+    status: "fulfilled",
+    claimed_packet_count: 1,
+    leaf_task_count: 1,
+    fulfilled_result_count: 1,
+  });
+}
+
+function coordinatorEventsForReceipt(receipt) {
+  const packetId = receipt.packet_id;
   const toolCallId = `call-${packetId}`;
   return [
     {
@@ -285,6 +307,101 @@ async function nextTurn() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function mainExtensionHarness(responseForCall) {
+  const registered = new Map();
+  const handlers = new Map();
+  const appended = [];
+  const sent = [];
+  const calls = [];
+  const launches = [];
+  const controls = new Map();
+  const fakePi = {
+    registerTool: (tool) => registered.set(tool.name, tool),
+    registerCommand: () => {},
+    registerShortcut: () => {},
+    on: (name, handler) => {
+      const values = handlers.get(name) || [];
+      values.push(handler);
+      handlers.set(name, values);
+    },
+    appendEntry: (name, value) => appended.push({ name, value }),
+    sendMessage: (message, options) => sent.push({ message, options }),
+    setActiveTools: () => {},
+    getThinkingLevel: () => "off",
+  };
+  const fakeClient = {
+    callTool: async (name, params) => {
+      calls.push({ name, params });
+      return responseForCall(name, params);
+    },
+    close: async () => {},
+  };
+  main.default(fakePi, {
+    coordinatorEnabled: async () => true,
+    createClient: () => fakeClient,
+    launchCoordinator: (task) => {
+      const key = task.packet.packet_id;
+      launches.push(key);
+      let resolveCompletion;
+      let rejectCompletion;
+      const completion = new Promise((resolve, reject) => {
+        resolveCompletion = resolve;
+        rejectCompletion = reject;
+      });
+      const control = {
+        resolve: (events) => resolveCompletion(events),
+        reject: () => rejectCompletion(new Error("raw child failure")),
+        terminated: false,
+      };
+      controls.set(key, control);
+      return {
+        child: {},
+        activation: Promise.resolve({ type: "agent_start" }),
+        completion,
+        terminate: async () => { control.terminated = true; },
+      };
+    },
+  });
+  const ctx = {
+    cwd: root,
+    mode: "rpc",
+    model: { provider: "offline", id: "offline" },
+    sessionManager: {
+      getSessionId: () => "blocking-opening-extension",
+      getEntries: () => [],
+    },
+    hasUI: false,
+  };
+  return {
+    registered,
+    handlers,
+    appended,
+    sent,
+    calls,
+    launches,
+    controls,
+    ctx,
+    async start() {
+      await handlers.get("session_start").at(-1)(
+        { reason: "startup" },
+        ctx,
+      );
+      for (const handler of handlers.get("agent_start") || []) {
+        await handler({ reason: "tool-test" }, ctx);
+      }
+    },
+    async shutdown() {
+      for (const handler of handlers.get("agent_end") || []) {
+        await handler({ reason: "tool-test" }, ctx);
+      }
+      await handlers.get("session_shutdown").at(-1)(
+        { reason: "quit" },
+        ctx,
+      );
+    },
+  };
+}
+
 async function exerciseFailureDrain(mode) {
   const prefix = `coord-drain-${mode}`;
   const taskA = coordinatorTask(`${prefix}-a`);
@@ -436,6 +553,42 @@ async function exerciseFailureDrain(mode) {
   check("production opening duplicate stays silent", audit.length === 1
     && audit[0].status === "submitted"
     && audit[0].dispatch_key === task.packet.packet_id);
+}
+
+// The manager exposes a durable-terminal wait that does not resolve at child
+// activation/submission or before the terminal notification callback settles.
+{
+  const task = coordinatorTask("coord-opening-terminal-wait");
+  const queue = realManagerHarness();
+  let settled = false;
+  const waiting = autoDispatchCoordinator(
+    queue.deps,
+    "coc_invoke",
+    openingBootstrapResult(task),
+    { waitForTerminal: true },
+  ).then((terminal) => {
+    settled = true;
+    return terminal;
+  });
+  await nextTurn();
+  check("blocking opening wait remains pending after submission",
+    settled === false
+    && queue.manager.state(task.packet.packet_id)?.status === "submitted");
+  queue.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  const terminal = await waiting;
+  check("blocking opening wait resolves at durable fulfilled terminal",
+    terminal?.status === "completed"
+    && terminal.terminal_receipt?.status === "fulfilled"
+    && terminal.notification?.status === "delivered"
+    && queue.lifecycle.filter((entry) => (
+      entry.dispatch_key === task.packet.packet_id
+      && entry.status === "completed"
+    )).length === 1
+    && queue.notifications.filter((key) => (
+      key === task.packet.packet_id
+    )).length === 1);
 }
 
 // A source_work envelope contaminated by any sibling takeover is not a
@@ -744,6 +897,234 @@ async function exerciseFailureDrain(mode) {
       entry.dispatch_key === overflow.packet.packet_id
       && entry.status === "completed"
     )).length === 1);
+}
+
+// V4 host path: the original opening_bootstrap tool call is the only provider
+// continuation. It remains unresolved until durable terminal publication and
+// one canonical current-projection check both finish.
+{
+  const task = coordinatorTask("coord-main-opening-success");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    if (params.operation === "progressive.project_opening") {
+      return {
+        ok: true,
+        tool: "progressive.project_opening",
+        data: {
+          status: "current",
+          asset_root_id: task.packet.asset_root_id,
+          start_location_id: "opening",
+        },
+      };
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  let settled = false;
+  const pendingResult = harness.registered.get("coc_invoke").execute(
+    "invoke-opening-success",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  ).then((value) => {
+    settled = true;
+    return value;
+  });
+  await nextTurn();
+  check("main opening does not return in-flight bootstrap to provider",
+    settled === false
+    && harness.calls.length === 1
+    && harness.calls[0].params.operation === "progressive.opening_bootstrap"
+    && harness.sent.length === 0);
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  const toolResult = await pendingResult;
+  const envelope = JSON.parse(toolResult.content[0].text);
+  check("main opening returns only terminal current projection",
+    envelope.ok === true
+    && envelope.data.status === "current"
+    && envelope.data.source_dependency_terminal === true
+    && envelope.data.source_work.status === "fulfilled"
+    && envelope.data.source_work.terminal === true
+    && !Object.hasOwn(envelope.data.source_work, "background_takeover")
+    && envelope.data.coordinator_terminal.terminal_receipt.status === "fulfilled"
+    && envelope.data.coordinator_terminal.notification.hidden_continuation
+      === "suppressed_consumed"
+    && envelope.data.opening_projection.status === "current");
+  check("main opening performs one canonical projection opportunity",
+    harness.calls.length === 2
+    && harness.calls[1].params.operation === "progressive.project_opening"
+    && harness.calls[1].params.arguments.asset_root_id === task.packet.asset_root_id
+    && harness.calls[1].params.arguments.source_file_sha256 === "a".repeat(64)
+    && harness.calls[1].params.arguments.start_location_id === "opening"
+    && JSON.stringify(harness.calls[1].params.arguments.opening_pdf_indices)
+      === "[0]");
+  check("waiting opening terminal creates no competing continuation wake",
+    harness.sent.length === 0
+    && harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 1
+    && harness.appended.some((entry) => (
+      entry.name === "coc-source-coordinator-auto-dispatch"
+      && entry.value.status === "submitted"
+    )));
+  await nextTurn();
+  await harness.shutdown();
+}
+
+// Terminal source failure releases no projection call or invented opening.
+{
+  const task = coordinatorTask("coord-main-opening-failure");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  let settled = false;
+  const pendingResult = harness.registered.get("coc_invoke").execute(
+    "invoke-opening-failure",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  ).then((value) => {
+    settled = true;
+    return value;
+  });
+  await nextTurn();
+  check("failed opening still waits for terminal source outcome",
+    settled === false && harness.calls.length === 1 && harness.sent.length === 0);
+  harness.controls.get(task.packet.packet_id).resolve(
+    failedCoordinatorEvents(
+      task.packet.packet_id,
+      "leaf_dispatch_failed",
+    ),
+  );
+  const toolResult = await pendingResult;
+  const envelope = JSON.parse(toolResult.content[0].text);
+  check("failed opening fails closed without projection",
+    envelope.ok === false
+    && envelope.error.code === "opening_source_terminal_failure"
+    && envelope.data.status === "terminal_failure"
+    && envelope.data.projection_ready === false
+    && envelope.data.activation_allowed === false
+    && envelope.data.coordinator_terminal.terminal_receipt.failure_class
+      === "leaf_dispatch_failed"
+    && envelope.data.coordinator_terminal.notification.hidden_continuation
+      === "suppressed_consumed"
+    && harness.calls.length === 1);
+  check("failed opening has one durable terminal and no duplicate wake",
+    harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 1
+    && harness.sent.length === 0);
+  await nextTurn();
+  await harness.shutdown();
+}
+
+// A malformed blocking takeover is a terminal host failure, never an
+// in-flight envelope handed to the provider for improvisation.
+{
+  const task = coordinatorTask("coord-main-opening-invalid");
+  delete task.packet.packet_id;
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  const toolResult = await harness.registered.get("coc_invoke").execute(
+    "invoke-opening-invalid",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const envelope = JSON.parse(toolResult.content[0].text);
+  check("invalid opening takeover fails closed before provider continuation",
+    envelope.ok === false
+    && envelope.error.code === "opening_coordinator_task_invalid"
+    && envelope.data.projection_ready === false
+    && harness.launches.length === 0
+    && harness.calls.length === 1
+    && harness.sent.length === 0);
+  await harness.shutdown();
+}
+
+// Noncritical source deepening remains fire-and-forget and does not inherit
+// the opening hard wait.
+{
+  const task = coordinatorTask("coord-main-deepen-background");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return directTakeoverResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  const toolResult = await harness.registered.get("coc_invoke").execute(
+    "invoke-deepen-background",
+    {
+      operation: "progressive.request_deepen",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "location",
+        target_id: "later-location",
+        title: "Later location",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const envelope = JSON.parse(toolResult.content[0].text);
+  await nextTurn();
+  check("noncritical deepening returns while coordinator is active",
+    envelope.ok === true
+    && harness.launches.join(",") === task.packet.packet_id
+    && harness.controls.has(task.packet.packet_id)
+    && harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 0);
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  check("noncritical deepening terminal stays append-only",
+    harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 1
+    && harness.sent.length === 0);
+  await harness.shutdown();
 }
 
 // Actual extension lifecycle: a capability read that resolves after shutdown

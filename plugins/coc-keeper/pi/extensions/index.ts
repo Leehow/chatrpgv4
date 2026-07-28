@@ -17,6 +17,7 @@ import {
   safeEnv,
   spawnPiChild,
   validateCoordinatorTask,
+  type ChildRun,
   type JsonObject,
   type PrivateLaunchContext,
 } from "../lib/runtime.ts";
@@ -136,6 +137,7 @@ export class OpeningTerminalContinuationGate {
     promise: Promise<boolean>;
     resolve: (shouldWake: boolean) => void;
   }>();
+  private readonly synchronousOpeningWaits = new Set<string>();
   private agentActive = false;
   private queuedVisibleDispositions: VisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
@@ -158,6 +160,21 @@ export class OpeningTerminalContinuationGate {
       // so later terminal continuations can distinguish this blocking opening
       // from an unrelated background coordinator completion.
       this.dispatchClasses.set(dispatchKey, "blocking_opening");
+    }
+  }
+
+  beginSynchronousOpeningWait(dispatchKey: string): void {
+    this.trackOpeningDispatch(dispatchKey);
+    if (dispatchKey) this.synchronousOpeningWaits.add(dispatchKey);
+  }
+
+  endSynchronousOpeningWait(dispatchKey: string): void {
+    this.synchronousOpeningWaits.delete(dispatchKey);
+  }
+
+  markSynchronousOpeningTerminalConsumed(dispatchKey: string): void {
+    if (this.states.get(dispatchKey) === "awaiting") {
+      this.states.set(dispatchKey, "published");
     }
   }
 
@@ -200,7 +217,9 @@ export class OpeningTerminalContinuationGate {
       this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
         (disposition) => disposition !== "operational_wait",
       );
-      this.queueVisibleAssistantDisposition("terminal_blocker");
+      if (!this.queuedVisibleDispositions.includes("terminal_blocker")) {
+        this.queueVisibleAssistantDisposition("terminal_blocker");
+      }
     }
   }
 
@@ -376,6 +395,10 @@ export class OpeningTerminalContinuationGate {
   }
 
   decideWake(dispatchKey: string): boolean | Promise<boolean> {
+    // A blocking opening whose original coc_invoke call is still waiting owns
+    // the provider continuation. Publishing its durable terminal receipt must
+    // never create a competing hidden follow-up turn.
+    if (this.synchronousOpeningWaits.has(dispatchKey)) return false;
     const state = this.states.get(dispatchKey);
     if (state === "published") {
       this.states.delete(dispatchKey);
@@ -406,6 +429,7 @@ export class OpeningTerminalContinuationGate {
     this.nonblockingContinuation = null;
     for (const decision of this.pending.values()) decision.resolve(false);
     this.pending.clear();
+    this.synchronousOpeningWaits.clear();
     this.states.clear();
     this.dispatchClasses.clear();
   }
@@ -594,27 +618,55 @@ interface AutoDispatchDeps {
   audit(entry: JsonObject): void;
 }
 
+interface AutoDispatchOptions {
+  waitForTerminal?: boolean;
+  signal?: AbortSignal;
+}
+
 // Toolbox results may carry a background_takeover whose next_host_action asks
 // the KP to call coc_dispatch_source_work. Fulfillment must not depend on KP
-// discipline, so the host submits that exact task itself, fire-and-forget.
-async function autoDispatchCoordinator(deps: AutoDispatchDeps, toolName: string, value: unknown): Promise<void> {
-  if (toolName !== "coc_invoke") return;
+// discipline, so the host submits that exact task itself. Ordinary source
+// deepening remains fire-and-forget; only the exact blocking opening path asks
+// this owner to await its durable terminal state.
+async function autoDispatchCoordinator(
+  deps: AutoDispatchDeps,
+  toolName: string,
+  value: unknown,
+  options: AutoDispatchOptions = {},
+): Promise<JsonObject | null> {
+  if (toolName !== "coc_invoke") return null;
   const task = findAutoDispatchTask(value);
-  if (!task) return;
+  if (!task) return null;
+  const boundedFailure = (entry: JsonObject): JsonObject => {
+    deps.audit(entry);
+    return entry;
+  };
   if (!deps.isCurrent()) {
-    deps.audit({ status: "session_closed", failure_class: "session_closed" });
-    return;
+    return boundedFailure({
+      status: "session_closed",
+      failure_class: "session_closed",
+    });
   }
-  try { if (!(await deps.enabled())) return; }
+  try {
+    if (!(await deps.enabled())) {
+      const unavailable = {
+        status: "capability_unavailable",
+        failure_class: "coordinator_capability_unavailable",
+      };
+      if (options.waitForTerminal) return boundedFailure(unavailable);
+      return null;
+    }
+  }
   catch {
-    deps.audit(deps.isCurrent()
+    return boundedFailure(deps.isCurrent()
       ? { status: "capability_check_failed", failure_class: "capability_check_failed" }
       : { status: "session_closed", failure_class: "session_closed" });
-    return;
   }
   if (!deps.isCurrent()) {
-    deps.audit({ status: "session_closed", failure_class: "session_closed" });
-    return;
+    return boundedFailure({
+      status: "session_closed",
+      failure_class: "session_closed",
+    });
   }
   let exactTask: JsonObject;
   let key: string;
@@ -625,29 +677,164 @@ async function autoDispatchCoordinator(deps: AutoDispatchDeps, toolName: string,
     key = nonEmpty(packet.packet_id, "packet_id");
     workspaceRoot = resolve(nonEmpty(packet.workspace_root, "workspace_root"));
   } catch {
-    deps.audit({ status: "validation_failed", failure_class: "coordinator_task_invalid" });
-    return;
+    return boundedFailure({
+      status: "validation_failed",
+      failure_class: "coordinator_task_invalid",
+    });
   }
   const active = deps.activeManager();
-  if (active?.state(key)) return;
+  if (active?.state(key)) {
+    return options.waitForTerminal
+      ? await active.waitForTerminal(key, options.signal)
+      : null;
+  }
   const launch = deps.launchContext();
   if (!launch) {
-    deps.audit({ status: "launch_context_unavailable", dispatch_key: key, failure_class: "launch_context_unavailable" });
-    return;
+    return boundedFailure({
+      status: "launch_context_unavailable",
+      dispatch_key: key,
+      failure_class: "launch_context_unavailable",
+    });
   }
   if (workspaceRoot !== resolve(launch.cwd)) {
-    deps.audit({ status: "workspace_drift", dispatch_key: key, failure_class: "workspace_drift" });
-    return;
+    return boundedFailure({
+      status: "workspace_drift",
+      dispatch_key: key,
+      failure_class: "workspace_drift",
+    });
   }
   if (!deps.isCurrent()) {
-    deps.audit({ status: "session_closed", dispatch_key: key, failure_class: "session_closed" });
-    return;
+    return boundedFailure({
+      status: "session_closed",
+      dispatch_key: key,
+      failure_class: "session_closed",
+    });
   }
+  const ownedManager = deps.manager();
   try {
-    deps.audit(await deps.manager().submit(exactTask, launch));
+    const submitted = await ownedManager.submit(
+      exactTask,
+      launch,
+      options.signal,
+    );
+    deps.audit(submitted);
+    if (!options.waitForTerminal) return submitted;
+    if (!ownedManager.state(key)) {
+      return {
+        ...submitted,
+        failure_class: typeof submitted.failure_class === "string"
+          ? submitted.failure_class
+          : "coordinator_not_retained",
+      };
+    }
+    return await ownedManager.waitForTerminal(key, options.signal);
   } catch {
-    deps.audit({ status: "submit_failed", dispatch_key: key, failure_class: "coordinator_submit_failed" });
+    const existing = ownedManager.state(key);
+    if (options.waitForTerminal && existing) {
+      return await ownedManager.waitForTerminal(key, options.signal);
+    }
+    return boundedFailure({
+      status: "submit_failed",
+      dispatch_key: key,
+      failure_class: "coordinator_submit_failed",
+    });
   }
+}
+
+function blockingOpeningProjectionCall(
+  originalParams: JsonObject,
+  bootstrapValue: unknown,
+): JsonObject {
+  const envelope = asObject(bootstrapValue, "opening bootstrap result");
+  const data = asObject(envelope.data, "opening bootstrap data");
+  const start = asObject(data.start_location, "opening start_location");
+  const pages = data.opening_pdf_indices;
+  if (
+    !Array.isArray(pages)
+    || pages.length === 0
+    || pages.some((page) => !Number.isInteger(page) || (page as number) < 0)
+  ) {
+    throw new Error("opening bootstrap returned invalid opening_pdf_indices");
+  }
+  return {
+    operation: "progressive.project_opening",
+    ...(typeof originalParams.root === "string"
+      ? { root: originalParams.root }
+      : {}),
+    ...(typeof originalParams.campaign === "string"
+      ? { campaign: originalParams.campaign }
+      : {}),
+    arguments: {
+      asset_root_id: nonEmpty(data.asset_root_id, "opening asset_root_id"),
+      source_file_sha256: nonEmpty(
+        data.source_file_sha256,
+        "opening source_file_sha256",
+      ),
+      start_location_id: nonEmpty(
+        start.location_id,
+        "opening start_location.location_id",
+      ),
+      opening_pdf_indices: [...pages],
+    },
+  };
+}
+
+function resolvedBlockingOpeningEnvelope(
+  bootstrapValue: unknown,
+  terminalState: JsonObject,
+  projectionValue: unknown,
+): JsonObject {
+  const bootstrap = asObject(bootstrapValue, "opening bootstrap result");
+  const bootstrapData = asObject(
+    bootstrap.data,
+    "opening bootstrap data",
+  );
+  const sourceWork = objectOrNull(bootstrapData.source_work) ?? {};
+  const {
+    background_takeover: _consumedTakeover,
+    ...terminalSourceWork
+  } = sourceWork;
+  const projection = asObject(projectionValue, "opening projection result");
+  const projectionData = asObject(
+    projection.data,
+    "opening projection data",
+  );
+  return {
+    ...bootstrap,
+    data: {
+      ...bootstrapData,
+      status: projectionData.status,
+      source_dependency_terminal: true,
+      source_work: {
+        ...terminalSourceWork,
+        status: "fulfilled",
+        terminal: true,
+      },
+      coordinator_terminal: terminalState,
+      opening_projection: projectionData,
+    },
+  };
+}
+
+function failedBlockingOpeningEnvelope(
+  terminalState: JsonObject,
+  code = "opening_source_terminal_failure",
+): JsonObject {
+  return {
+    ok: false,
+    tool: "progressive.opening_bootstrap",
+    error: {
+      code,
+      message: "blocking opening source dependency did not produce a current projection",
+    },
+    data: {
+      status: "terminal_failure",
+      source_dependency_terminal: true,
+      projection_ready: false,
+      activation_allowed: false,
+      coordinator_terminal: terminalState,
+    },
+  };
 }
 
 async function runOcr(params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
@@ -727,6 +914,11 @@ interface MainExtensionOverrides {
   coordinatorEnabled?: () => Promise<boolean>;
   createClient?: (ctx: ExtensionContext) => McpJsonlClient;
   createManager?: () => CoordinatorDispatchManager;
+  launchCoordinator?: (
+    task: JsonObject,
+    context: PrivateLaunchContext,
+    signal?: AbortSignal,
+  ) => ChildRun;
 }
 
 export default function mainExtension(pi: ExtensionAPI, overrides: MainExtensionOverrides = {}) {
@@ -750,10 +942,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
     if (!isCurrent(epoch)) throw new Error("Pi source coordinator session is closed");
     const ownedContinuedDispatches = continuedCoordinatorDispatches;
     return manager ??= overrides.createManager?.() ?? new CoordinatorDispatchManager(
-    (exactTask, launch, launchSignal) => spawnPiChild({
-      role: "coordinator", task: exactTask,
-      ...launch, signal: launchSignal,
-    }),
+    (exactTask, launch, launchSignal) => (
+      overrides.launchCoordinator?.(exactTask, launch, launchSignal)
+      ?? spawnPiChild({
+        role: "coordinator", task: exactTask,
+        ...launch, signal: launchSignal,
+      })
+    ),
     (receipt) => {
       const dispatchKey = typeof receipt.packet_id === "string"
         ? receipt.packet_id.trim()
@@ -825,11 +1020,103 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const dispatchKey = typeof packet?.packet_id === "string"
           ? packet.packet_id.trim()
           : "";
+        const bootstrapEnvelope = objectOrNull(value);
+        const bootstrapData = objectOrNull(bootstrapEnvelope?.data);
+        const bootstrapSourceWork = objectOrNull(
+          bootstrapData?.source_work,
+        );
+        if (
+          !dispatchKey
+          && objectOrNull(bootstrapSourceWork?.background_takeover)
+        ) {
+          const terminalFailure = {
+            status: "terminal_failure",
+            failure_class: "coordinator_task_invalid",
+          };
+          try {
+            pi.appendEntry(
+              "coc-source-coordinator-auto-dispatch",
+              terminalFailure,
+            );
+          } catch { /* audit is best effort */ }
+          return result(failedBlockingOpeningEnvelope(
+            terminalFailure,
+            "opening_coordinator_task_invalid",
+          ));
+        }
         if (dispatchKey) {
-          openingContinuationGate.trackOpeningDispatch(dispatchKey);
+          openingContinuationGate.beginSynchronousOpeningWait(dispatchKey);
           openingContinuationGate.queueVisibleAssistantDisposition(
             "operational_wait",
           );
+          let terminalState: JsonObject | null = null;
+          try {
+            terminalState = await autoDispatchCoordinator(
+              autoDispatchDeps(ctx, epoch),
+              name,
+              value,
+              { waitForTerminal: true, signal },
+            );
+          } finally {
+            openingContinuationGate.endSynchronousOpeningWait(dispatchKey);
+          }
+          const terminalReceipt = objectOrNull(
+            terminalState?.terminal_receipt,
+          );
+          const terminalNotification = objectOrNull(
+            terminalState?.notification,
+          );
+          if (
+            terminalState?.status === "completed"
+            && terminalReceipt?.status === "fulfilled"
+            && terminalNotification?.status === "delivered"
+            && isCurrent(epoch)
+          ) {
+            try {
+              const projectionValue = await client(ctx).callTool(
+                "coc_invoke",
+                blockingOpeningProjectionCall(params, value),
+                signal,
+              );
+              const projectionEnvelope = objectOrNull(projectionValue);
+              const projectionData = objectOrNull(projectionEnvelope?.data);
+              if (
+                projectionEnvelope?.ok === true
+                && (
+                  projectionData?.status === "complete"
+                  || projectionData?.status === "current"
+                )
+              ) {
+                openingContinuationGate.markOpeningProjected();
+                return result(resolvedBlockingOpeningEnvelope(
+                  value,
+                  terminalState,
+                  projectionValue,
+                ));
+              }
+            } catch {
+              // The source terminal remains durable, but no projection or
+              // invented opening is released when canonical projection fails.
+            }
+            openingContinuationGate.markTerminalBlocker();
+            openingContinuationGate.markSynchronousOpeningTerminalConsumed(
+              dispatchKey,
+            );
+            return result(failedBlockingOpeningEnvelope(
+              terminalState,
+              "opening_projection_not_current",
+            ));
+          }
+          openingContinuationGate.markTerminalBlocker();
+          openingContinuationGate.markSynchronousOpeningTerminalConsumed(
+            dispatchKey,
+          );
+          return result(failedBlockingOpeningEnvelope(
+            terminalState ?? {
+              status: "terminal_failure",
+              failure_class: "coordinator_terminal_missing",
+            },
+          ));
         }
       }
       const envelope = objectOrNull(value);

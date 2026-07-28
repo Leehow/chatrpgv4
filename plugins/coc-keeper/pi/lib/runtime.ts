@@ -975,6 +975,11 @@ export class CoordinatorDispatchManager {
     notification?: JsonObject;
   }>();
   private terminalKeys = new Set<string>();
+  private terminalWaiters = new Map<string, Set<{
+    resolve: (state: JsonObject) => void;
+    signal?: AbortSignal;
+    abort?: () => void;
+  }>>();
   private readonly launch: (task: JsonObject, context: PrivateLaunchContext, signal?: AbortSignal) => ChildRun;
   private readonly onTerminal?: (receipt: JsonObject) => JsonObject | void | Promise<JsonObject | void>;
   private readonly onLifecycle?: (observation: CoordinatorLifecycleObservation) => void | Promise<void>;
@@ -1020,6 +1025,7 @@ export class CoordinatorDispatchManager {
     };
     if (!this.observeOnce(observation)) return false;
     this.states.set(key, observation);
+    this.settleTerminalWaiters(key);
     return true;
   }
   private complete(key: string, receipt: JsonObject): boolean {
@@ -1034,6 +1040,7 @@ export class CoordinatorDispatchManager {
       terminal_receipt: receipt,
       notification: { status: this.onTerminal ? "pending" : "not_configured" },
     });
+    if (!this.onTerminal) this.settleTerminalWaiters(key);
     return true;
   }
   private previousReceipt(key: string, previous: {
@@ -1053,6 +1060,33 @@ export class CoordinatorDispatchManager {
       ...(previous.terminal_receipt ? { terminal_receipt: previous.terminal_receipt } : {}),
       ...(previous.notification ? { notification: previous.notification } : {}),
     };
+  }
+  private terminalState(key: string): JsonObject | null {
+    const state = this.states.get(key);
+    if (!state) return null;
+    if (state.status === "terminal_failure") {
+      return this.previousReceipt(key, state);
+    }
+    if (
+      state.status === "completed"
+      && state.notification?.status !== "pending"
+    ) {
+      return this.previousReceipt(key, state);
+    }
+    return null;
+  }
+  private settleTerminalWaiters(key: string): void {
+    const terminal = this.terminalState(key);
+    if (!terminal) return;
+    const waiters = this.terminalWaiters.get(key);
+    if (!waiters) return;
+    this.terminalWaiters.delete(key);
+    for (const waiter of waiters) {
+      if (waiter.signal && waiter.abort) {
+        waiter.signal.removeEventListener("abort", waiter.abort);
+      }
+      waiter.resolve(terminal);
+    }
   }
   private queuePending(
     task: JsonObject,
@@ -1206,6 +1240,7 @@ export class CoordinatorDispatchManager {
           notification: { status: "failed", failure_class: "notification_callback_failed" },
         });
       }
+      this.settleTerminalWaiters(key);
     }, () => {
       this.fail(key, "process", "coordinator_process_failed");
     }).finally(() => {
@@ -1236,6 +1271,42 @@ export class CoordinatorDispatchManager {
     if (previous) return this.previousReceipt(key, previous);
     if (this.active) return this.queuePending(task, key, context, signal);
     return this.launchNow(task, key, context, signal);
+  }
+  waitForTerminal(key: string, signal?: AbortSignal): Promise<JsonObject> {
+    const terminal = this.terminalState(key);
+    if (terminal) return Promise.resolve(terminal);
+    if (signal?.aborted) {
+      return Promise.reject(
+        new Error("Pi source coordinator terminal wait aborted"),
+      );
+    }
+    return new Promise<JsonObject>((resolveTerminal, rejectTerminal) => {
+      const waiter: {
+        resolve: (state: JsonObject) => void;
+        signal?: AbortSignal;
+        abort?: () => void;
+      } = {
+        resolve: resolveTerminal,
+        signal,
+      };
+      if (signal) {
+        waiter.abort = () => {
+          const waiters = this.terminalWaiters.get(key);
+          waiters?.delete(waiter);
+          if (waiters?.size === 0) this.terminalWaiters.delete(key);
+          rejectTerminal(
+            new Error("Pi source coordinator terminal wait aborted"),
+          );
+        };
+        signal.addEventListener("abort", waiter.abort, { once: true });
+      }
+      const waiters = this.terminalWaiters.get(key) ?? new Set();
+      waiters.add(waiter);
+      this.terminalWaiters.set(key, waiters);
+      // A terminal transition may have raced between the first read and
+      // waiter registration.
+      this.settleTerminalWaiters(key);
+    });
   }
   state(key: string) { return this.states.get(key); }
   activeCount() { return this.active ? 1 : 0; }
