@@ -285,7 +285,7 @@
     "pi_nonblocking_background_parent_wake": false,
     "pi_hidden_continuation_source": "final_validated_receipt_plus_structured_blocking_opening_or_exact_current_dependency_dispatch_identity",
     "pi_terminal_authority": "exact_deterministic_lifecycle_tool_result_with_deep_equal_terminal_echo",
-    "pi_notification_failure_effect": "retain_completed_receipt_and_record_bounded_delivery_status",
+    "pi_notification_failure_effect": "retain_exact_completed_receipt_in_existing_ephemeral_wait_and_retry_only_at_safe_post_tool_lifecycle_boundary",
     "pi_shutdown_ownership": "closing_gate_and_exact_owned_run_cleanup"
   },
   "current_dependency_projection": {
@@ -304,11 +304,12 @@
     "pi_dispatch": "one_repository_produced_private_exact_job_task_per_runnable_current_dependency",
     "ordinary_background_separation": true,
     "submission_transaction": "provisional_dispatch_binding_commits_only_for_retained_manager_submission_and_rolls_back_on_capability_validation_or_submit_failure",
-    "reconciliation": "complete_campaign_scoped_projection_prunes_absent_closed_waits_without_touching_other_campaigns",
+    "reconciliation": "complete_campaign_scoped_projection_prunes_absent_closed_waits_without_touching_other_campaigns_or_absent_delivery_pending_rows",
+    "terminal_grouping": "campaign_plus_canonical_operation_plus_exact_decision_or_settlement_identity",
     "release_authority": "only_the_same_campaign_dependency_id_job_id_dispatch_identity_with_fulfilled_terminal_and_successfully_queued_hidden_continuation",
-    "delivery_failure": "rollback_exact_ephemeral_wait_and_retry_same_terminal_notification_from_next_exact_projection",
+    "delivery_failure": "retain_exact_ephemeral_wait_and_fulfilled_terminal_receipt_then_retry_notification_at_agent_end_without_manager_resubmit_relaunch_or_release",
     "stale_unrelated_or_failed_terminal_effect": "append_only_no_release_no_wake",
-    "visible_suppression": "one_exact_current_dependency_invocation_final_in_the_same_user_epoch_and_campaign_only",
+    "visible_suppression": "one_explicitly_declared_exact_current_dependency_invocation_final_in_the_same_user_epoch_and_campaign_only_without_operation_name_guessing",
     "session_state": "ephemeral_host_gate_only"
   },
   "failure_policy": {

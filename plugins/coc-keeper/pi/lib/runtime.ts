@@ -1145,22 +1145,7 @@ export class CoordinatorDispatchManager {
     }
     return null;
   }
-  private notificationNeedsRetry(state: {
-    status: string;
-    terminal_receipt?: JsonObject;
-    notification?: JsonObject;
-  }): boolean {
-    return (
-      state.status === "completed"
-      && state.terminal_receipt !== undefined
-      && this.onTerminal !== undefined
-      && (
-        state.notification?.status === "failed"
-        || state.notification?.hidden_continuation === "failed"
-      )
-    );
-  }
-  private async retryTerminalNotification(
+  private async publishTerminalNotification(
     key: string,
     receipt: JsonObject,
   ): Promise<JsonObject> {
@@ -1359,7 +1344,7 @@ export class CoordinatorDispatchManager {
       }
       if (!this.complete(key, receipt)) return;
       if (!this.onTerminal) return;
-      await this.retryTerminalNotification(key, receipt);
+      await this.publishTerminalNotification(key, receipt);
     }, () => {
       this.fail(key, "process", "coordinator_process_failed");
     }).finally(() => {
@@ -1408,15 +1393,6 @@ export class CoordinatorDispatchManager {
         this.states.delete(key);
         this.terminalKeys.delete(key);
       } else {
-        if (
-          this.notificationNeedsRetry(previous)
-          && previous.terminal_receipt !== undefined
-        ) {
-          return await this.retryTerminalNotification(
-            key,
-            previous.terminal_receipt,
-          );
-        }
         return this.previousReceipt(key, previous);
       }
     }

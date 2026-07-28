@@ -220,8 +220,11 @@ type CurrentDependencyWait = {
   campaignId: string;
   jobId: string;
   dependencyRef: JsonObject;
+  settlementGroupKey: string;
   dispatchKey: string | null;
   deliveryPending: boolean;
+  deliveryRetryNeeded: boolean;
+  terminalReceipt: JsonObject | null;
 };
 type CurrentDependencySuppression = {
   epoch: number;
@@ -2113,6 +2116,32 @@ export class OpeningTerminalContinuationGate {
     this.currentDependencyWaits.delete(dependencyId);
   }
 
+  private currentDependencySettlementGroupKey(
+    campaignId: string,
+    dependencyRef: JsonObject,
+  ): string | null {
+    const operation = typeof dependencyRef.operation === "string"
+      ? dependencyRef.operation.trim()
+      : "";
+    const identity: Array<[string, string]> = [];
+    for (
+      const field of [
+        "decision_id", "settlement_id", "source_scope_signature",
+      ]
+    ) {
+      const value = typeof dependencyRef[field] === "string"
+        ? dependencyRef[field].trim()
+        : "";
+      if (value) identity.push([field, value]);
+    }
+    if (!campaignId || !operation || identity.length !== 1) return null;
+    return canonicalJsonValueSha256({
+      campaign_id: campaignId,
+      operation,
+      settlement_identity: identity[0],
+    });
+  }
+
   observeCurrentDependencySnapshot(
     campaignId: string,
     waits: JsonObject[],
@@ -2129,12 +2158,16 @@ export class OpeningTerminalContinuationGate {
         ? value.job_id.trim()
         : "";
       const dependencyRef = objectOrNull(value.dependency_ref);
+      const settlementGroupKey = dependencyRef === null
+        ? null
+        : this.currentDependencySettlementGroupKey(campaignId, dependencyRef);
       if (
         !campaignId
         || waitCampaignId !== campaignId
         || !dependencyId
         || !jobId
         || dependencyRef === null
+        || settlementGroupKey === null
       ) continue;
       retained.add(dependencyId);
       const existing = this.currentDependencyWaits.get(dependencyId);
@@ -2147,19 +2180,44 @@ export class OpeningTerminalContinuationGate {
         campaignId,
         jobId,
         dependencyRef,
+        settlementGroupKey,
         dispatchKey: existing?.jobId === jobId
           ? existing.dispatchKey
           : null,
         deliveryPending: existing?.jobId === jobId
           ? existing.deliveryPending
           : false,
+        deliveryRetryNeeded: existing?.jobId === jobId
+          ? existing.deliveryRetryNeeded
+          : false,
+        terminalReceipt: existing?.jobId === jobId
+          ? existing.terminalReceipt
+          : null,
       });
     }
     for (const [dependencyId, wait] of this.currentDependencyWaits) {
-      if (wait.campaignId === campaignId && !retained.has(dependencyId)) {
+      if (
+        wait.campaignId === campaignId
+        && !retained.has(dependencyId)
+        && !wait.deliveryPending
+      ) {
         this.removeCurrentDependency(dependencyId);
       }
     }
+  }
+
+  currentDependencyDeliveryPending(
+    dependencyId: string,
+    jobId: string,
+    dispatchKey: string,
+  ): boolean {
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    return (
+      wait?.jobId === jobId
+      && wait.dispatchKey === dispatchKey
+      && wait.deliveryPending
+      && wait.terminalReceipt !== null
+    );
   }
 
   prepareCurrentDependencyDispatch(
@@ -2178,6 +2236,8 @@ export class OpeningTerminalContinuationGate {
       this.states.delete(wait.dispatchKey);
       this.dispatchClasses.delete(wait.dispatchKey);
       wait.deliveryPending = false;
+      wait.deliveryRetryNeeded = false;
+      wait.terminalReceipt = null;
     }
     wait.dispatchKey = dispatchKey;
     this.currentDependencyByDispatch.set(dispatchKey, dependencyId);
@@ -2195,6 +2255,8 @@ export class OpeningTerminalContinuationGate {
     if (wait?.jobId !== jobId || wait.dispatchKey !== dispatchKey) return;
     wait.dispatchKey = null;
     wait.deliveryPending = false;
+    wait.deliveryRetryNeeded = false;
+    wait.terminalReceipt = null;
     this.currentDependencyByDispatch.delete(dispatchKey);
     this.states.delete(dispatchKey);
     this.dispatchClasses.delete(dispatchKey);
@@ -2206,14 +2268,46 @@ export class OpeningTerminalContinuationGate {
     this.removeCurrentDependency(dependencyId);
   }
 
+  observeCurrentDependencyTerminalReceipt(
+    dispatchKey: string,
+    receipt: JsonObject,
+  ): void {
+    const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
+    if (dependencyId === undefined || receipt.status !== "fulfilled") return;
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    if (wait?.dispatchKey !== dispatchKey) return;
+    wait.terminalReceipt = receipt;
+  }
+
   rollbackCurrentDependencyDelivery(dispatchKey: string): void {
     const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
     if (dependencyId === undefined) return;
     const wait = this.currentDependencyWaits.get(dependencyId);
     if (wait?.dispatchKey !== dispatchKey || !wait.deliveryPending) return;
-    wait.deliveryPending = false;
+    wait.deliveryRetryNeeded = wait.terminalReceipt !== null;
     this.states.set(dispatchKey, "awaiting");
     this.dispatchClasses.set(dispatchKey, "blocking_micro");
+  }
+
+  takeCurrentDependencyDeliveryRetries(): Array<{
+    dispatchKey: string;
+    receipt: JsonObject;
+  }> {
+    const retries: Array<{ dispatchKey: string; receipt: JsonObject }> = [];
+    for (const wait of this.currentDependencyWaits.values()) {
+      if (
+        wait.dispatchKey === null
+        || !wait.deliveryPending
+        || !wait.deliveryRetryNeeded
+        || wait.terminalReceipt === null
+      ) continue;
+      wait.deliveryRetryNeeded = false;
+      retries.push({
+        dispatchKey: wait.dispatchKey,
+        receipt: wait.terminalReceipt,
+      });
+    }
+    return retries;
   }
 
   observeCurrentVisibleInvocation(
@@ -2607,7 +2701,11 @@ export class OpeningTerminalContinuationGate {
       dependencyId !== undefined
       && dependencyWait?.dispatchKey === dispatchKey
     ) {
-      if (this.currentDependencyWaits.size > 1) {
+      const sameSettlementWaits = [...this.currentDependencyWaits.values()]
+        .filter((wait) => (
+          wait.settlementGroupKey === dependencyWait.settlementGroupKey
+        ));
+      if (sameSettlementWaits.length > 1) {
         this.removeCurrentDependency(dependencyId);
         return false;
       }
@@ -2741,10 +2839,13 @@ export async function publishCoordinatorTerminal(
   ) => JsonObject,
   onWakeDeliveryFailure?: (dispatchKey: string) => void,
   onWakeDeliverySuccess?: (dispatchKey: string) => void,
+  appendTerminalReceipt = true,
 ): Promise<JsonObject> {
-  let appendStatus = "delivered";
-  try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
-  catch { appendStatus = "failed"; }
+  let appendStatus = appendTerminalReceipt ? "delivered" : "retained";
+  if (appendTerminalReceipt) {
+    try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
+    catch { appendStatus = "failed"; }
+  }
   const dispatchKey = typeof receipt.packet_id === "string" ? receipt.packet_id.trim() : "";
   const terminalStatus = typeof receipt.status === "string" ? receipt.status.trim() : "";
   let continuationStatus = "failed";
@@ -2816,7 +2917,7 @@ export async function publishCoordinatorTerminal(
       }
     }
   }
-  const status = appendStatus === "delivered" && continuationStatus !== "failed"
+  const status = appendStatus !== "failed" && continuationStatus !== "failed"
     ? "delivered"
     : appendStatus === "failed" && continuationStatus === "failed" ? "failed" : "partial";
   return {
@@ -3005,9 +3106,7 @@ function currentDependencyInvocationConsumes(
       );
     });
   }
-  return lifecycle.waits.some((wait) => (
-    objectOrNull(wait.dependency_ref)?.operation === operation
-  ));
+  return false;
 }
 
 function currentDependencySubmissionRetained(value: unknown): boolean {
@@ -3391,6 +3490,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ? receipt.status.trim()
         : "";
       openingContinuationGate.observeOpeningCoordinatorTerminal(receipt);
+      openingContinuationGate.observeCurrentDependencyTerminalReceipt(
+        dispatchKey,
+        receipt,
+      );
       const continuationContext = (
         openingContinuationGate.coordinatorContinuationContext(
           dispatchKey,
@@ -3820,15 +3923,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           _id,
           invocationCampaignId,
         );
-        if (
-          operation === "progressive.request_deepen"
-          && objectOrNull(params.arguments)?.current_dependency !== undefined
-        ) {
-          openingContinuationGate.armCurrentDependencySuppression(
-            _id,
-            invocationCampaignId,
-          );
-        }
       }
       const dependencyLifecycle = findCurrentDependencyLifecycle(value);
       if (dependencyLifecycle !== null) {
@@ -3856,7 +3950,16 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             : "";
           if (
             task === null
-            || !openingContinuationGate.prepareCurrentDependencyDispatch(
+            || openingContinuationGate.currentDependencyDeliveryPending(
+              dependencyId,
+              jobId,
+              dispatchKey,
+            )
+          ) {
+            continue;
+          }
+          if (
+            !openingContinuationGate.prepareCurrentDependencyDispatch(
               dependencyId,
               jobId,
               dispatchKey,
@@ -4023,8 +4126,45 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   pi.on("agent_start", () => {
     openingContinuationGate.markAgentStart();
   });
-  pi.on("agent_end", () => {
+  pi.on("agent_end", async () => {
     openingContinuationGate.markAgentEnd();
+    // Resolving a pending terminal wake resumes its original publisher in the
+    // preceding microtask. Let that send commit or mark an exact retry before
+    // claiming retries at this post-tool lifecycle boundary.
+    await Promise.resolve();
+    const ownedContinuedDispatches = continuedCoordinatorDispatches;
+    for (
+      const retry of openingContinuationGate
+        .takeCurrentDependencyDeliveryRetries()
+    ) {
+      const terminalStatus = typeof retry.receipt.status === "string"
+        ? retry.receipt.status.trim()
+        : "";
+      const continuationContext = (
+        openingContinuationGate.coordinatorContinuationContext(
+          retry.dispatchKey,
+          terminalStatus,
+        )
+      );
+      await publishCoordinatorTerminal(
+        pi,
+        retry.receipt,
+        ownedContinuedDispatches,
+        (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
+        () => continuationContext,
+        (dispatchKey) => (
+          openingContinuationGate.rollbackCurrentDependencyDelivery(
+            dispatchKey,
+          )
+        ),
+        (dispatchKey) => (
+          openingContinuationGate.commitCurrentDependencyDelivery(
+            dispatchKey,
+          )
+        ),
+        false,
+      );
+    }
   });
   const kpActiveTools = [
     "coc_capabilities",
