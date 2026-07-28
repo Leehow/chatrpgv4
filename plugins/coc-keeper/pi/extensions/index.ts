@@ -155,6 +155,10 @@ type OpeningSetupRoute = {
   next_operation: JsonObject | null;
   instruction: string;
 };
+type OpeningSetupTerminalBlocker = {
+  visibleText: string;
+  details: JsonObject;
+};
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
@@ -184,7 +188,8 @@ export class OpeningTerminalContinuationGate {
   private openingSetupRoute: OpeningSetupRoute | null = null;
   private openingSetupVisibleOutputAuthorized = false;
   private openingSetupContinuationQueued = false;
-  private openingSetupTerminalBlockerText: string | null = null;
+  private openingSetupTerminalBlocker: OpeningSetupTerminalBlocker | null = null;
+  private deliveredOpeningSetupTerminalBlocker: JsonObject | null = null;
 
   private quickFireLuckInvocation(params: JsonObject): boolean {
     const args = objectOrNull(params.arguments);
@@ -459,7 +464,8 @@ export class OpeningTerminalContinuationGate {
     this.openingSetupRoute = null;
     this.openingSetupVisibleOutputAuthorized = false;
     this.openingSetupContinuationQueued = false;
-    this.openingSetupTerminalBlockerText = null;
+    this.openingSetupTerminalBlocker = null;
+    this.deliveredOpeningSetupTerminalBlocker = null;
   }
 
   markOpeningSetupTerminalBlocker(
@@ -491,7 +497,23 @@ export class OpeningTerminalContinuationGate {
         + "next_operation 的精确卡片重试或恢复；不要虚构开场。"
       ),
     };
-    this.openingSetupTerminalBlockerText = JSON.stringify(blocker);
+    const cancelled = (
+      blocker.error_code === "opening_source_wait_cancelled"
+      || blocker.error_code === "opening_projection_cancelled"
+      || blocker.failure_class === "coordinator_wait_cancelled"
+    );
+    this.openingSetupTerminalBlocker = {
+      visibleText: cancelled
+        ? (
+          "开场资料解析已取消，游戏尚未开始。系统保留了当前进度；"
+          + "你可以稍后重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
+        )
+        : (
+          "开场资料解析失败，游戏尚未开始。系统保留了当前进度；"
+          + "你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
+        ),
+      details: blocker,
+    };
     this.openingSetupContinuationQueued = false;
     this.openingSetupVisibleOutputAuthorized = false;
     if (!this.queuedVisibleDispositions.some((queued) => (
@@ -514,6 +536,12 @@ export class OpeningTerminalContinuationGate {
       return;
     }
     this.markOpeningSetupTerminalBlocker(envelope, dispatchKey);
+  }
+
+  takeDeliveredOpeningSetupTerminalBlocker(): JsonObject | null {
+    const details = this.deliveredOpeningSetupTerminalBlocker;
+    this.deliveredOpeningSetupTerminalBlocker = null;
+    return details;
   }
 
   trackOpeningDispatch(dispatchKey: string): void {
@@ -751,10 +779,13 @@ export class OpeningTerminalContinuationGate {
     const disposition = this.queuedVisibleDispositions.shift()?.disposition;
     if (
       disposition === "terminal_blocker"
-      && this.openingSetupTerminalBlockerText !== null
+      && this.openingSetupTerminalBlocker !== null
     ) {
-      const replacementText = this.openingSetupTerminalBlockerText;
-      this.openingSetupTerminalBlockerText = null;
+      const replacementText = this.openingSetupTerminalBlocker.visibleText;
+      this.deliveredOpeningSetupTerminalBlocker = (
+        this.openingSetupTerminalBlocker.details
+      );
+      this.openingSetupTerminalBlocker = null;
       this.nonblockingContinuation = null;
       return { replacementText };
     }
@@ -1796,6 +1827,17 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       const decision = openingContinuationGate.acceptVisibleAssistantFinal(
         visibleText,
       );
+      const deliveredBlocker = (
+        openingContinuationGate.takeDeliveredOpeningSetupTerminalBlocker()
+      );
+      if (deliveredBlocker !== null) {
+        try {
+          pi.appendEntry(
+            "coc-opening-setup-terminal-blocker",
+            deliveredBlocker,
+          );
+        } catch { /* hidden structured blocker audit is best effort */ }
+      }
       if (decision === false) {
         const route = (
           openingContinuationGate.requiredOpeningSetupContinuation()

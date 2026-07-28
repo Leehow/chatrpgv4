@@ -1437,15 +1437,28 @@ async function exerciseFailureDrain(mode) {
   const blockerText = visibleBlocker.content.find(
     (part) => part.type === "text",
   )?.text;
-  const blocker = JSON.parse(blockerText);
-  check("armed terminal failure publishes exact host blocker and retry route",
+  const hiddenBlocker = harness.appended.find((entry) => (
+    entry.name === "coc-opening-setup-terminal-blocker"
+  ))?.value;
+  check("armed terminal failure publishes exact Chinese prose only",
     failed.ok === false
-    && blocker.status === "blocked"
-    && blocker.hard_gate === true
-    && blocker.activation_allowed === false
-    && blocker.error_code === "opening_source_terminal_failure"
-    && blocker.next_operation.operation === "progressive.opening_bootstrap"
+    && blockerText === (
+      "开场资料解析失败，游戏尚未开始。系统保留了当前进度；"
+      + "你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
+    )
+    && !/[{}]/.test(blockerText)
+    && !blockerText.includes("schema_version")
+    && !blockerText.includes("failure_class")
+    && !blockerText.includes("next_operation")
+    && !blockerText.includes("progressive.opening_bootstrap")
     && !blockerText.includes("忽略失败"));
+  check("armed terminal failure keeps retry details hidden and inspectable",
+    hiddenBlocker.status === "blocked"
+    && hiddenBlocker.hard_gate === true
+    && hiddenBlocker.activation_allowed === false
+    && hiddenBlocker.error_code === "opening_source_terminal_failure"
+    && hiddenBlocker.next_operation.operation
+      === "progressive.opening_bootstrap");
 
   const retried = JSON.parse((await harness.registered.get("coc_invoke").execute(
     "retry-armed-opening-after-failure",
@@ -1519,12 +1532,25 @@ async function exerciseFailureDrain(mode) {
   const blockerText = visibleBlocker.content.find(
     (part) => part.type === "text",
   )?.text;
-  const blocker = JSON.parse(blockerText);
-  check("armed cancellation is visible and retains exact retry",
+  const hiddenBlocker = harness.appended.find((entry) => (
+    entry.name === "coc-opening-setup-terminal-blocker"
+  ))?.value;
+  check("armed cancellation is exact Chinese prose without machine labels",
     cancelled.error.code === "opening_source_wait_cancelled"
-    && blocker.error_code === "opening_source_wait_cancelled"
-    && blocker.next_operation.operation === "progressive.opening_bootstrap"
+    && blockerText === (
+      "开场资料解析已取消，游戏尚未开始。系统保留了当前进度；"
+      + "你可以稍后重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
+    )
+    && !/[{}]/.test(blockerText)
+    && !blockerText.includes("error_code")
+    && !blockerText.includes("dispatch_key")
+    && !blockerText.includes("next_operation")
+    && !blockerText.includes("progressive.opening_bootstrap")
     && !blockerText.includes("虚构场景"));
+  check("armed cancellation retains hidden exact retry details",
+    hiddenBlocker.error_code === "opening_source_wait_cancelled"
+    && hiddenBlocker.next_operation.operation
+      === "progressive.opening_bootstrap");
 
   harness.controls.get(task.packet.packet_id).resolve(
     fulfilledCoordinatorEvents(task.packet.packet_id),
