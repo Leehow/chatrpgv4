@@ -254,13 +254,17 @@ recorded isolated Pi 0.81.1 claim -> nested leaves -> exact fulfillment probe
 used `openai/gpt-5.6-luna`
 (`tests/pi/real-lifecycle-probe.mjs`, engineering-probe only). It is not
 provider evidence for the configured `xai/grok-4.5` Keeper. Typed-thinking
-framing has component coverage, but the requested live Grok run uses thinking
-`off` for speed and spoiler containment. Grok promotion remains pending the
-lead's fresh provider-authenticated lifecycle run. Neither that future probe
-nor the existing component suite alone establishes product parity or
-window-equivalent play acceptance. The dispatch tool still fails closed
-whenever the capability flag is absent; there is no production environment
-bypass.
+framing has component coverage. The repository `pi-coc` wrapper forwards an
+explicit `--thinking off` unchanged, but Pi 0.81.1's bundled
+`xai/grok-4.5` model declares `thinkingLevelMap.off=null`; Pi therefore clamps
+that unsupported request to `low` and may stream typed thinking blocks. True
+Grok thinking-off is an upstream model/provider capability boundary, not a
+repository adapter mode, and must not be claimed from the launch argument
+alone. Grok promotion remains pending the lead's fresh provider-authenticated
+lifecycle run. Neither that future probe nor the existing component suite
+alone establishes product parity or window-equivalent play acceptance. The
+dispatch tool still fails closed whenever the capability flag is absent; there
+is no production environment bypass.
 
 POSIX child shutdown targets the private process group with SIGTERM followed by
 a bounded SIGKILL escalation. Windows uses direct-child termination and remains

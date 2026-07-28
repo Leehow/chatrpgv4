@@ -94,9 +94,70 @@ const secretOnly = buildHudSnapshot({
 });
 if (secretOnly.clues.length !== 0) throw new Error("undiscovered clue projected");
 
+const prelink = buildHudSnapshot({
+  campaignId: "opening-before-link",
+  scene: {
+    active_scene_id: "MUST_NOT_SHOW_OPENING_PLACE",
+    turn_number: 0,
+    time: { display: "MUST_NOT_SHOW_OPENING_TIME" },
+    scene: { location_tags: ["MUST_NOT_SHOW_OPENING_TAG"] },
+    party_investigators: [],
+    discovered_clue_count: 1,
+    discovered_clues_public: [{
+      clue_id: "MUST_NOT_SHOW_OPENING_CLUE",
+      discovered: true,
+      player_safe_summary: "MUST_NOT_SHOW_OPENING_TEXT",
+    }],
+  },
+  inventory: {
+    items: [{ item_id: "MUST_NOT_SHOW_OPENING_ITEM", label: "OPENING ITEM" }],
+  },
+});
+const prelinkSerialized = JSON.stringify({
+  snapshot: prelink,
+  footer: formatHudFooterLines(prelink, 120),
+  time: formatHudDetail("time", prelink),
+  inventory: formatHudDetail("inv", prelink),
+  clues: formatHudDetail("clues", prelink),
+});
+if (
+  prelink.timeDisplay !== null
+  || prelink.placeDisplay !== null
+  || prelink.turn !== null
+  || prelink.items.length !== 0
+  || prelink.clues.length !== 0
+  || prelink.clueCount !== 0
+  || /MUST_NOT_SHOW|OPENING ITEM/.test(prelinkSerialized)
+) throw new Error(`pre-link HUD leaked opening projection: ${prelinkSerialized}`);
+if (!prelinkSerialized.includes("尚未开桌")) {
+  throw new Error(`pre-link HUD omitted onboarding boundary: ${prelinkSerialized}`);
+}
+const retainedRouteError = buildHudSnapshot({
+  campaignId: "opening-route-blocked",
+  error: (
+    "MUST_NOT_SHOW_RETAINED_ROUTE "
+    + '{"phase":"opening_character_setup_required"}'
+  ),
+});
+const retainedRouteUi = JSON.stringify({
+  footer: formatHudFooterLines(retainedRouteError, 120),
+  sheet: formatHudDetail("sheet", retainedRouteError),
+  time: formatHudDetail("time", retainedRouteError),
+  inventory: formatHudDetail("inv", retainedRouteError),
+  clues: formatHudDetail("clues", retainedRouteError),
+});
+if (
+  retainedRouteUi.includes("MUST_NOT_SHOW_RETAINED_ROUTE")
+  || retainedRouteUi.includes("opening_character_setup_required")
+  || !retainedRouteUi.includes("尚未开桌")
+) {
+  throw new Error(`setup HUD leaked retained route error: ${retainedRouteUi}`);
+}
+
 process.stdout.write(JSON.stringify({
   ok: true,
   footer: lines,
   clueCount: snap.clues.length,
   itemCount: snap.items.length,
+  prelinkOpeningHidden: true,
 }));

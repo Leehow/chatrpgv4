@@ -2158,6 +2158,110 @@ async function exerciseFailureDrain(mode) {
       "terminal-before-link-project",
     )?.includes("campaign.link_investigator")
     && gate.acceptVisibleAssistantFinal("继续自然完成背景与技能。") === true);
+  const incompleteCreateError = gate.openingSetupToolError(
+    "coc_invoke",
+    {
+      operation: "setup.invoke",
+      campaign: "terminal-before-link",
+      arguments: {
+        kind: "investigator.create",
+        payload: {
+          campaign_id: "terminal-before-link",
+          investigator_id: "terminal-before-link-investigator",
+          sheet: { name: "Incomplete" },
+          creation: {
+            characteristic_assignment_order: ["DEX"],
+            luck_roll_total: 9,
+          },
+        },
+      },
+    },
+    "terminal-before-link-incomplete-create",
+  );
+  check("fulfilled terminal keeps projection private during character setup",
+    incompleteCreateError?.includes("campaign.link_investigator")
+    && !incompleteCreateError.includes("progressive.project_opening")
+    && gate.requiredOpeningSetupContinuation() === null);
+  const briefingParams = {
+    operation: "setup.invoke",
+    campaign: "terminal-before-link",
+    arguments: {
+      kind: "campaign.render_briefing",
+      payload: {
+        campaign_id: "terminal-before-link",
+        language: "zh-Hans",
+      },
+    },
+  };
+  check("canonical player-safe briefing remains admitted after terminal",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      briefingParams,
+      "terminal-before-link-briefing",
+    ) === null);
+  const briefed = gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    briefingParams,
+    {
+      ok: true,
+      tool: "setup.invoke",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "campaign.render_briefing",
+        result: {
+          campaign_id: "terminal-before-link",
+          briefing_path: (
+            ".coc/campaigns/terminal-before-link/assets/character-creation/"
+            + "briefing.md"
+          ),
+          language: "zh-Hans",
+          public_setup_sha256: "b".repeat(64),
+        },
+      },
+    },
+    "terminal-before-link-briefing",
+  );
+  check("briefing receipt does not release retained projection",
+    briefed.accepted === true
+    && gate.requiredOpeningSetupContinuation() === null);
+  const createParams = {
+    operation: "setup.invoke",
+    campaign: "terminal-before-link",
+    arguments: {
+      kind: "investigator.create",
+      payload: {
+        investigator_id: "terminal-before-link-investigator",
+        sheet: { name: "Exact Character" },
+      },
+    },
+  };
+  check("canonical create remains admitted after fulfilled terminal",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      createParams,
+      "terminal-before-link-create",
+    ) === null);
+  const created = gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    createParams,
+    {
+      ok: true,
+      tool: "setup.invoke",
+      data: {
+        schema_version: 1,
+        status: "PASS",
+        kind: "investigator.create",
+        result: {
+          investigator_id: "terminal-before-link-investigator",
+        },
+      },
+    },
+    "terminal-before-link-create",
+  );
+  check("create success does not release opening before exact link",
+    created.accepted === true
+    && gate.requiredOpeningSetupContinuation() === null);
 
   const linkParams = {
     operation: "setup.invoke",

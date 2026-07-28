@@ -108,6 +108,7 @@ def test_player_safe_hud_model_hides_secrets_and_coding_chrome():
     assert result["ok"] is True
     assert result["clueCount"] == 2
     assert result["itemCount"] == 2
+    assert result["prelinkOpeningHidden"] is True
     assert any("托马斯" in line for line in result["footer"])
     assert any("物品 2" in line for line in result["footer"])
 

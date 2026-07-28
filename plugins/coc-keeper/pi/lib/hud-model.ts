@@ -229,36 +229,42 @@ export function buildHudSnapshot(input: {
   }
   const declaredCount = num(scene.discovered_clue_count);
   const clueCount = Math.max(declaredCount ?? 0, clues.length);
+  const tableReady = investigators.length > 0;
 
   return {
     campaignId: input.campaignId,
-    timeDisplay,
-    placeDisplay,
-    turn: num(scene.turn_number),
+    // Sparse opening projection can exist before an investigator is linked.
+    // Until the authoritative party is non-empty, the HUD is onboarding
+    // chrome only: do not surface opening place/time, inventory, or clues.
+    timeDisplay: tableReady ? timeDisplay : null,
+    placeDisplay: tableReady ? placeDisplay : null,
+    turn: tableReady ? num(scene.turn_number) : null,
     investigators,
-    items,
-    clues,
-    clueCount,
+    items: tableReady ? items : [],
+    clues: tableReady ? clues : [],
+    clueCount: tableReady ? clueCount : 0,
     error: input.error ?? null,
   };
 }
 
 /** 1–3 footer lines for the editor bottom (replaces coding token footer). */
 export function formatHudFooterLines(snapshot: HudSnapshot, width: number): string[] {
+  const inv = snapshot.investigators[0];
+  if (!inv) {
+    return [
+      clip("COC · 无调查员 · 尚未开桌 · /hud 展开", width),
+    ];
+  }
   if (snapshot.error) {
     return [clip(`COC · ${snapshot.campaignId} · ${snapshot.error}`, width)];
   }
-
-  const inv = snapshot.investigators[0];
-  const who = inv
-    ? [
-        inv.name,
-        inv.occupation,
-        inv.hp ? `HP ${inv.hp}` : null,
-        inv.san ? `SAN ${inv.san}` : null,
-        inv.luck != null ? `运 ${inv.luck}` : null,
-      ].filter(Boolean).join(" · ")
-    : "无调查员";
+  const who = [
+    inv.name,
+    inv.occupation,
+    inv.hp ? `HP ${inv.hp}` : null,
+    inv.san ? `SAN ${inv.san}` : null,
+    inv.luck != null ? `运 ${inv.luck}` : null,
+  ].filter(Boolean).join(" · ");
 
   const where = [
     snapshot.timeDisplay,
@@ -278,9 +284,11 @@ export function formatHudFooterLines(snapshot: HudSnapshot, width: number): stri
 }
 
 export function formatHudDetail(kind: "sheet" | "time" | "inv" | "clues", snapshot: HudSnapshot): string[] {
+  if (!snapshot.investigators.length) {
+    return ["（尚未开桌；调查员尚未加入战役）"];
+  }
   if (snapshot.error) return [`错误: ${snapshot.error}`];
   if (kind === "sheet") {
-    if (!snapshot.investigators.length) return ["（无调查员）"];
     const lines: string[] = [];
     for (const inv of snapshot.investigators) {
       lines.push(`${inv.name}${inv.occupation ? ` · ${inv.occupation}` : ""}`);

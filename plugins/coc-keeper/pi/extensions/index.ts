@@ -642,6 +642,41 @@ export class OpeningTerminalContinuationGate {
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
   }
 
+  private retainOpeningProjectionUntilCharacterLink(
+    state: OpeningSetupState,
+  ): void {
+    state.phase = "projection";
+    state.route = {
+      ...state.route,
+      phase: "opening_character_setup_required",
+      next_operation: null,
+      instruction: (
+        "opening source work is fulfilled, but its projection card remains "
+        + "private until the old setup order completes: render the public "
+        + "briefing, create the investigator, then record the exact canonical "
+        + "campaign.link_investigator receipt"
+      ),
+    };
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
+  private armOpeningProjectionRoute(state: OpeningSetupState): void {
+    if (state.projectionCard === null) return;
+    state.phase = "projection";
+    state.route = {
+      ...state.route,
+      phase: "opening_projection_required",
+      next_operation: state.projectionCard,
+      instruction: (
+        "character creation and the exact canonical investigator link are "
+        + "current; invoke this exact retained projection card before live play"
+      ),
+    };
+    state.continuationReleaseOwner = null;
+    this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+  }
+
   private exactTableOpeningReceipt(
     envelope: JsonObject | null,
   ): boolean {
@@ -1373,6 +1408,11 @@ export class OpeningTerminalContinuationGate {
         state.characterSetupComplete = true;
         if (state.phase === "ready") {
           this.armOpeningEvidenceRoute(state);
+        } else if (
+          state.phase === "projection"
+          && state.backgroundTerminalReceipt?.status === "fulfilled"
+        ) {
+          this.armOpeningProjectionRoute(state);
         }
         this.recordOpeningSetupAudit({
           status: "transitioned",
@@ -2039,18 +2079,11 @@ export class OpeningTerminalContinuationGate {
       receipt.status === "fulfilled"
       && state.projectionCard !== null
     ) {
-      state.phase = "projection";
-      state.continuationReleaseOwner = null;
-      state.route = {
-        ...state.route,
-        phase: "opening_projection_required",
-        next_operation: state.projectionCard,
-        instruction: (
-          "background opening source work is fulfilled; invoke this exact "
-          + "retained projection card before any live-play operation"
-        ),
-      };
-      this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+      if (state.characterSetupComplete) {
+        this.armOpeningProjectionRoute(state);
+      } else {
+        this.retainOpeningProjectionUntilCharacterLink(state);
+      }
       this.recordOpeningSetupAudit({
         status: "transitioned",
         transition: "opening_background_fulfilled",
