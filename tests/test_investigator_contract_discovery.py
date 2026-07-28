@@ -53,6 +53,7 @@ def _query(workspace: Path, campaign_id: str = "contract-campaign") -> dict:
 
 def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
     return {
+        "campaign_id": "contract-campaign",
         "investigator_id": investigator_id,
         "sheet": {
             "id": investigator_id,
@@ -135,6 +136,13 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         "Deterministic Quick Fire input",
         "Complete legacy sheet input",
     ]
+    assert schema["oneOf"][0]["required"] == [
+        "campaign_id",
+        "investigator_id",
+        "sheet",
+        "creation",
+    ]
+    assert "campaign_id" not in schema["oneOf"][1]["properties"]
     defs = schema["$defs"]
     assert defs["quick_fire_sheet"]["not"]["anyOf"] == [
         {"required": ["characteristics"]},
@@ -440,3 +448,97 @@ def test_quick_fire_create_rejects_unreceipted_or_mismatched_luck(
     assert not (tmp_path / ".coc" / "investigators" / "mismatched-luck").exists()
     assert not (tmp_path / ".coc" / "investigators" / "wrong-recipe-luck").exists()
     assert not (tmp_path / ".coc" / "investigators" / "wrong-campaign-luck").exists()
+
+
+def test_quick_fire_create_binds_declared_current_campaign_at_runtime_gateway(
+    tmp_path: Path,
+) -> None:
+    from runtime.engine import session as runtime_session
+
+    _create_campaign(tmp_path, campaign_id="receipt-campaign-a")
+    _create_campaign(tmp_path, campaign_id="declared-campaign-b")
+    luck = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "receipt-campaign-a",
+        {
+            "expression": "3D6",
+            "decision_id": "cross-campaign-quick-fire-luck",
+            "reason": "Quick-Fire investigator Luck",
+            "seed": 31,
+        },
+    )
+    assert luck["ok"] is True
+
+    missing_declaration = _quick_fire_payload("missing-campaign-declaration")
+    missing_declaration.pop("campaign_id")
+    missing_declaration["creation"]["luck_roll_total"] = luck["data"]["total"]
+    missing_declaration["creation"]["luck_roll_receipt"] = {
+        "campaign_id": "receipt-campaign-a",
+        "decision_id": "cross-campaign-quick-fire-luck",
+        "roll_id": luck["data"]["roll_id"],
+    }
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match="campaign_id must be a stable safe id",
+    ):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": missing_declaration,
+            },
+        )
+
+    cross_campaign = _quick_fire_payload("cross-campaign-direct")
+    cross_campaign["campaign_id"] = "declared-campaign-b"
+    cross_campaign["creation"]["luck_roll_total"] = luck["data"]["total"]
+    cross_campaign["creation"]["luck_roll_receipt"] = {
+        "campaign_id": "receipt-campaign-a",
+        "decision_id": "cross-campaign-quick-fire-luck",
+        "roll_id": luck["data"]["roll_id"],
+    }
+    operation = {
+        "schema_version": 1,
+        "kind": "investigator.create",
+        "payload": cross_campaign,
+    }
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match="must equal the declared current campaign_id",
+    ):
+        coc_runtime_ops.execute_setup_operation(tmp_path, operation=operation)
+    with pytest.raises(
+        ValueError,
+        match="must equal the declared current campaign_id",
+    ):
+        runtime_session.setup_workspace_operation(tmp_path, operation)
+
+    matching = _quick_fire_payload("matching-campaign-session")
+    matching["campaign_id"] = "receipt-campaign-a"
+    matching["creation"]["luck_roll_total"] = luck["data"]["total"]
+    matching["creation"]["luck_roll_receipt"] = {
+        "campaign_id": "receipt-campaign-a",
+        "decision_id": "cross-campaign-quick-fire-luck",
+        "roll_id": luck["data"]["roll_id"],
+    }
+    passed = runtime_session.setup_workspace_operation(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "kind": "investigator.create",
+            "payload": matching,
+        },
+    )
+    assert passed["status"] == "PASS"
+    assert not (
+        tmp_path / ".coc" / "investigators" / "cross-campaign-direct"
+    ).exists()
+    assert not (
+        tmp_path / ".coc" / "investigators" / "missing-campaign-declaration"
+    ).exists()
+    assert (
+        tmp_path / ".coc" / "investigators" / "matching-campaign-session"
+        / "character.json"
+    ).is_file()

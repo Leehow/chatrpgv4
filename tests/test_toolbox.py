@@ -12793,6 +12793,7 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     quick_fire = _run(ws, "setup.invoke", {
         "kind": "investigator.create",
         "payload": {
+            "campaign_id": ws["campaign_id"],
             "investigator_id": "opening-quick-fire",
             "sheet": {
                 "id": "opening-quick-fire",

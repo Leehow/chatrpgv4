@@ -2379,6 +2379,7 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
         "schema_version": 1,
         "kind": "investigator.create",
         "payload": {
+            "campaign_id": "quick-fire",
             "investigator_id": "quick-fire-inv",
             "sheet": {
                 "id": "quick-fire-inv",

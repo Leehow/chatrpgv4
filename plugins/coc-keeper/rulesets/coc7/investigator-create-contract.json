@@ -18,11 +18,16 @@
         "title": "Deterministic Quick Fire input",
         "type": "object",
         "required": [
+          "campaign_id",
           "investigator_id",
           "sheet",
           "creation"
         ],
         "properties": {
+          "campaign_id": {
+            "$ref": "#/$defs/safe_id",
+            "description": "Current campaign that owns this Quick Fire creation and its canonical Luck receipt."
+          },
           "investigator_id": {
             "$ref": "#/$defs/safe_id"
           },

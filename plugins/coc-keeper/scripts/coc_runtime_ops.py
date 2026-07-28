@@ -203,6 +203,8 @@ def _canonical_sha256(value: Any) -> str:
 def _validate_quick_fire_luck_receipt(
     root: Path,
     creation: dict[str, Any] | None,
+    *,
+    current_campaign_id: str,
 ) -> None:
     """Bind deterministic Quick Fire Luck to one current campaign roll.
 
@@ -226,6 +228,11 @@ def _validate_quick_fire_luck_receipt(
             "with exactly campaign_id, decision_id, and roll_id"
         )
     campaign_id = _id(reference.get("campaign_id"), "luck_roll_receipt.campaign_id")
+    if campaign_id != current_campaign_id:
+        raise RuntimeOperationError(
+            "luck_roll_receipt.campaign_id must equal the declared current "
+            "campaign_id"
+        )
     decision_id = reference.get("decision_id")
     roll_id = reference.get("roll_id")
     if not isinstance(decision_id, str) or not decision_id.strip():
@@ -3744,7 +3751,7 @@ def execute_setup_operation(
             "state_refs": [str(created.relative_to(root))],
         }
     if kind == "investigator.create":
-        allowed = {"investigator_id", "sheet", "creation"}
+        allowed = {"campaign_id", "investigator_id", "sheet", "creation"}
         if set(payload) - allowed or not {"investigator_id", "sheet"} <= set(payload):
             raise RuntimeOperationError("investigator.create has unsupported or missing fields")
         investigator_id = _id(payload.get("investigator_id"), "investigator_id")
@@ -3754,7 +3761,34 @@ def execute_setup_operation(
             creation is not None and not isinstance(creation, dict)
         ):
             raise RuntimeOperationError("investigator.create requires object sheet/creation")
-        _validate_quick_fire_luck_receipt(root, creation)
+        quick_fire_materialization = (
+            isinstance(creation, dict)
+            and (
+                creation.get("characteristic_assignment_order") is not None
+                or creation.get("luck_roll_total") is not None
+            )
+        )
+        if quick_fire_materialization:
+            current_campaign_id = _id(
+                payload.get("campaign_id"),
+                "campaign_id",
+            )
+            campaign_dir = root / ".coc" / "campaigns" / current_campaign_id
+            if not campaign_dir.is_dir():
+                raise FileNotFoundError(
+                    f"unknown campaign: {current_campaign_id}"
+                )
+            coc_state.load_campaign_state(campaign_dir)
+            _validate_quick_fire_luck_receipt(
+                root,
+                creation,
+                current_campaign_id=current_campaign_id,
+            )
+        elif "campaign_id" in payload:
+            raise RuntimeOperationError(
+                "investigator.create campaign_id is supported only for "
+                "deterministic Quick Fire creation"
+            )
         try:
             sheet = coc_character.materialize_quick_fire_create_sheet(
                 sheet, creation,

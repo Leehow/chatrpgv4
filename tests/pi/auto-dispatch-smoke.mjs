@@ -1586,6 +1586,7 @@ async function exerciseFailureDrain(mode) {
     {
       kind: "investigator.create",
       payload: {
+        campaign_id: "auto-dispatch-fixture",
         investigator_id: "route-investigator",
         sheet: { id: "route-investigator", name: "Route Investigator" },
         creation: {
@@ -3890,6 +3891,7 @@ async function exerciseFailureDrain(mode) {
         arguments: {
           kind: "investigator.create",
           payload: {
+            campaign_id: campaignId,
             investigator_id: "fabricated-luck",
             sheet: {
               id: "fabricated-luck",
@@ -3921,6 +3923,7 @@ async function exerciseFailureDrain(mode) {
       arguments: {
         kind: "investigator.create",
         payload: {
+          campaign_id: campaignId,
           investigator_id: investigatorId,
           sheet: {
             id: investigatorId,

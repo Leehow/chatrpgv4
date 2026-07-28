@@ -48,7 +48,8 @@ const OPENING_SETUP_CHARACTER_KINDS = new Set([
   "investigator.render_card",
 ]);
 // These setup handlers require an already-resolvable canonical campaign.
-// campaign.create and investigator.create are intentionally pre-campaign.
+// campaign.create and complete-sheet investigator.create are intentionally
+// pre-campaign; deterministic Quick Fire creation is route-bound below.
 const EXISTING_CAMPAIGN_SETUP_KINDS = new Set([
   "actor.create",
   "campaign.link_investigator",
@@ -417,7 +418,7 @@ export class OpeningTerminalContinuationGate {
       const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
       return (
         keys.every((key) => (
-          ["investigator_id", "sheet", "creation"].includes(key)
+          ["campaign_id", "investigator_id", "sheet", "creation"].includes(key)
         ))
         && ["investigator_id", "sheet"].every((key) => keys.includes(key))
         && typeof payload.investigator_id === "string"
@@ -429,7 +430,8 @@ export class OpeningTerminalContinuationGate {
         && (
           !quickFireMaterialization
           || (
-            luckReceipt !== null
+            payload.campaign_id === route.campaign_id
+            && luckReceipt !== null
             && exactKeysMatch(
               luckReceipt,
               ["campaign_id", "decision_id", "roll_id"],
@@ -440,6 +442,10 @@ export class OpeningTerminalContinuationGate {
             && typeof luckReceipt.roll_id === "string"
             && luckReceipt.roll_id.trim().length > 0
           )
+        )
+        && (
+          quickFireMaterialization
+          || payload.campaign_id === undefined
         )
       );
     }

@@ -45,10 +45,12 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   `creation.characteristic_assignment_order` as the eight unique canonical
   characteristic keys in descending array-slot order, and
   `creation.luck_roll_total` as the authoritative 3D6 total. Also submit
+  top-level `payload.campaign_id` as the current campaign and
   `creation.luck_roll_receipt` with the current `campaign_id`, the same stable
   `decision_id`, and the exact returned `roll_id`; creation revalidates that
-  campaign's immutable `rules.roll_dice` source receipt and rejects an
-  unreceipted or mismatched total. Omit
+  the independently declared current campaign and the receipt campaign match,
+  then revalidates that campaign's immutable `rules.roll_dice` source receipt
+  and rejects an unreceipted, cross-campaign, or mismatched total. Omit
   `sheet.characteristics` and `sheet.derived`; `investigator.create` copies the
   configured `[80,70,60,60,50,50,50,40]` array, multiplies Luck by five, and
   derives HP/MP/SAN/DB/Build/MOV deterministically. The Keeper still owns the
