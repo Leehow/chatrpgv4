@@ -12767,6 +12767,22 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
     assert retained_next_operation["missing_arguments"] == []
     assert world_path.read_bytes() == world_before
 
+    briefing = _run(ws, "setup.invoke", {
+        "kind": "campaign.render_briefing",
+        "payload": {
+            "campaign_id": ws["campaign_id"],
+            "language": "zh-Hans",
+        },
+    })
+    assert briefing["ok"] is True, briefing
+    assert briefing["data"]["schema_version"] == 1
+    assert briefing["data"]["status"] == "PASS"
+    assert briefing["data"]["kind"] == "campaign.render_briefing"
+    assert briefing["data"]["result"]["campaign_id"] == ws["campaign_id"]
+    assert (
+        ws["workspace"] / briefing["data"]["result"]["briefing_path"]
+    ).is_file()
+
     luck = _run(ws, "rules.roll_dice", {
         "expression": "3D6",
         "decision_id": "quick-fire-opening-setup-luck",

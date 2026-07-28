@@ -1208,6 +1208,7 @@ _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS = frozenset({
     "actor.create",
     "investigator.create",
     "campaign.link_investigator",
+    "campaign.render_briefing",
     "investigator.render_card",
 })
 

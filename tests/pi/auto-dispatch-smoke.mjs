@@ -169,6 +169,27 @@ function staleCharacterSetupResult(kind) {
   };
 }
 
+function canonicalLinkSetupResult(
+  campaignId,
+  investigatorIds,
+  overrides = {},
+) {
+  return {
+    ok: true,
+    tool: "setup.invoke",
+    data: {
+      schema_version: 1,
+      status: "PASS",
+      kind: "campaign.link_investigator",
+      result: {
+        campaign_id: campaignId,
+        investigator_ids: investigatorIds,
+      },
+      ...overrides,
+    },
+  };
+}
+
 function observeOwnedOpeningInvocation(gate, invocationId, params, value) {
   const admissionError = gate.openingSetupToolError(
     "coc_invoke",
@@ -231,6 +252,54 @@ function bootstrapOpeningParams(campaignId) {
       opening_pdf_indices: [0],
     },
   };
+}
+
+function beginBackgroundOpeningRoute(gate, campaignId, prefix) {
+  bindOpeningRoute(gate, campaignId, `${prefix}-bind`);
+  prepareOpeningRoute(gate, campaignId, `${prefix}-prepare`);
+  const params = bootstrapOpeningParams(campaignId);
+  const task = coordinatorTask(`${prefix}-task`, { campaignId });
+  const invocationId = `${prefix}-bootstrap`;
+  const admissionError = gate.openingSetupToolError(
+    "coc_invoke",
+    params,
+    invocationId,
+  );
+  if (admissionError !== null) {
+    throw new Error(`opening bootstrap was not admitted: ${admissionError}`);
+  }
+  const observed = gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    params,
+    openingBootstrapResult(task),
+    invocationId,
+  );
+  if (
+    !observed.dispatchAllowed
+    || !gate.beginOpeningBackground(
+      invocationId,
+      params,
+      task.packet.packet_id,
+      {
+        operation: "progressive.project_opening",
+        campaign: campaignId,
+        arguments: {
+          asset_root_id: task.packet.asset_root_id,
+          source_file_sha256: "a".repeat(64),
+          start_location_id: "opening",
+          opening_pdf_indices: [0],
+        },
+      },
+    )
+    || !gate.markOpeningBackgroundSubmitted(
+      invocationId,
+      params,
+      task.packet.packet_id,
+    )
+  ) {
+    throw new Error("opening background phase did not start");
+  }
+  return { params, task, invocationId };
 }
 
 function deferredValue() {
@@ -1142,12 +1211,21 @@ async function exerciseFailureDrain(mode) {
         "investigator.render_card",
       ].includes(params.arguments?.kind)
     ) {
+      const kind = params.arguments.kind;
+      const payload = params.arguments.payload;
       return {
         ok: true,
         tool: "setup.invoke",
         data: {
+          schema_version: 1,
           status: "PASS",
-          result: { kind: params.arguments.kind },
+          kind,
+          result: kind === "campaign.link_investigator"
+            ? {
+              campaign_id: payload.campaign_id,
+              investigator_ids: payload.investigator_ids,
+            }
+            : { kind },
         },
       };
     }
@@ -1276,6 +1354,75 @@ async function exerciseFailureDrain(mode) {
     && forcedRoute?.options?.triggerTurn === true
     && forcedRoute?.options?.deliverAs === "followUp");
 
+  const callsBeforeEarlyCharacter = harness.calls.length;
+  let earlyCharacterError;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-character-before-background",
+      {
+        operation: "setup.investigator_contract",
+        campaign: "auto-dispatch-fixture",
+        arguments: { campaign_id: "auto-dispatch-fixture" },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { earlyCharacterError = error; }
+  check("selection phase rejects character setup before exact source route",
+    earlyCharacterError instanceof Error
+    && harness.calls.length === callsBeforeEarlyCharacter
+    && earlyCharacterError.message.includes(
+      '"operation":"progressive.prepare_opening"',
+    ));
+
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-prepare-retained-route",
+    {
+      operation: "progressive.prepare_opening",
+      campaign: "auto-dispatch-fixture",
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const callsBeforeBootstrapCharacter = harness.calls.length;
+  let bootstrapCharacterError;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-character-before-bootstrap",
+      {
+        operation: "setup.investigator_contract",
+        campaign: "auto-dispatch-fixture",
+        arguments: { campaign_id: "auto-dispatch-fixture" },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { bootstrapCharacterError = error; }
+  check("bootstrap phase rejects character setup before background attempt",
+    bootstrapCharacterError instanceof Error
+    && harness.calls.length === callsBeforeBootstrapCharacter
+    && bootstrapCharacterError.message.includes(
+      '"operation":"progressive.opening_bootstrap"',
+    ));
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-opening",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+
   await harness.registered.get("coc_invoke").execute(
     "invoke-quick-fire-luck-during-opening",
     {
@@ -1375,121 +1522,23 @@ async function exerciseFailureDrain(mode) {
         && part.text === `setup-visible:${setup.kind}`
       )));
   }
-  const callsBeforeFakeInner = harness.calls.length;
-  let fakeInnerError;
-  try {
-    await harness.registered.get("coc_invoke").execute(
-      "invoke-fake-top-level-investigator-create",
-      {
-        operation: "investigator.create",
-        campaign: "auto-dispatch-fixture",
-        arguments: {
-          investigator_id: "fake-inner",
-          sheet: { id: "fake-inner", name: "Fake Inner" },
-        },
-      },
-      undefined,
-      undefined,
-      harness.ctx,
-    );
-  } catch (error) { fakeInnerError = error; }
-  check("fake top-level setup kind is rejected before MCP",
-    fakeInnerError instanceof Error
-    && harness.calls.length === callsBeforeFakeInner);
-
-  for (const [label, campaign] of [
-    ["missing", undefined],
-    ["non-string", 7],
-  ]) {
-    const callsBeforeInvalidRoute = harness.calls.length;
-    let invalidRouteError;
-    const invalidParams = {
-      operation: "progressive.prepare_opening",
-      arguments: {},
-    };
-    if (campaign !== undefined) invalidParams.campaign = campaign;
-    try {
-      await harness.registered.get("coc_invoke").execute(
-        `invoke-${label}-campaign-route`,
-        invalidParams,
-        undefined,
-        undefined,
-        harness.ctx,
-      );
-    } catch (error) { invalidRouteError = error; }
-    const forcedAfterInvalid = await harness.emit("message_end", {
-      role: "assistant",
-      content: [{ type: "text", text: `invalid-route-${label}` }],
-    });
-    check(`${label} campaign cannot consume retained route latch`,
-      invalidRouteError instanceof Error
-      && harness.calls.length === callsBeforeInvalidRoute
-      && forcedAfterInvalid.content.every((part) => part.type !== "text")
-      && harness.sent.at(-1)?.message?.details?.next_operation?.operation
-        === "progressive.prepare_opening");
-  }
-
-  await harness.registered.get("coc_invoke").execute(
-    "invoke-prepare-retained-route",
-    {
-      operation: "progressive.prepare_opening",
-      campaign: "auto-dispatch-fixture",
-      arguments: {},
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  let rediscoverAfterPrepare;
-  try {
-    await harness.registered.get("coc_discover").execute(
-      "rediscover-after-prepare",
-      {},
-      undefined,
-      undefined,
-      harness.ctx,
-    );
-  } catch (error) { rediscoverAfterPrepare = error; }
-  check("prepare advances retained route to exact opening bootstrap",
-    rediscoverAfterPrepare instanceof Error
-    && rediscoverAfterPrepare.message.includes(
-      '"operation":"progressive.opening_bootstrap"',
-    ));
-
-  await harness.registered.get("coc_invoke").execute(
-    "invoke-current-opening",
-    {
-      operation: "progressive.opening_bootstrap",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        start_location: { location_id: "opening", title: "Opening" },
-        opening_pdf_indices: [0],
-      },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
   const afterCurrent = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "来源开场已物化。" }],
   });
-  check("canonical current opening releases pre-bootstrap transcript gate",
+  check("current opening releases only after exact canonical link receipt",
     afterCurrent.content.some((part) => (
       part.type === "text" && part.text === "来源开场已物化。"
     )));
   await harness.shutdown();
 }
 
-// Live-race regression: setup operations launched beside prepare/bootstrap may
-// return later with the older opening_selection receipt. Per-campaign route
-// progression is structural and monotonic, so those stale receipts can still
-// authorize character setup output but can never replace the retained
-// opening_bootstrap card.
+// Initial prepare/bootstrap phases are route-exclusive even under concurrent
+// model calls. Character setup begins only after the background-attempt
+// boundary, including the already-current source case.
 {
   const task = coordinatorTask("coord-monotonic-opening-race");
   const prepared = deferredValue();
-  const created = deferredValue();
   const linked = deferredValue();
   const bootstrapped = deferredValue();
   const harness = mainExtensionHarness((_name, params) => {
@@ -1501,12 +1550,6 @@ async function exerciseFailureDrain(mode) {
     }
     if (params.operation === "progressive.prepare_opening") {
       return prepared.promise;
-    }
-    if (
-      params.operation === "setup.invoke"
-      && params.arguments?.kind === "investigator.create"
-    ) {
-      return created.promise;
     }
     if (
       params.operation === "setup.invoke"
@@ -1551,49 +1594,34 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   );
-  const createPending = harness.registered.get("coc_invoke").execute(
-    "monotonic-create",
-    {
-      operation: "setup.invoke",
-      campaign: "auto-dispatch-fixture",
-      arguments: {
-        kind: "investigator.create",
-        payload: {
-          investigator_id: "monotonic-investigator",
-          sheet: {
-            id: "monotonic-investigator",
-            name: "Monotonic Investigator",
+  let createBeforePrepareRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "monotonic-create",
+      {
+        operation: "setup.invoke",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          kind: "investigator.create",
+          payload: {
+            investigator_id: "monotonic-investigator",
+            sheet: {
+              id: "monotonic-investigator",
+              name: "Monotonic Investigator",
+            },
+            creation: { method: "quick_fire_array" },
           },
-          creation: { method: "quick_fire_array" },
         },
       },
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  prepared.resolve(preparedOpeningSetupResult());
-  await preparePending;
-  created.resolve(staleCharacterSetupResult("investigator.create"));
-  await createPending;
-  let afterCreateStale;
-  try {
-    await harness.registered.get("coc_discover").execute(
-      "monotonic-after-create",
-      {},
       undefined,
       undefined,
       harness.ctx,
     );
-  } catch (error) { afterCreateStale = error; }
-  check("late investigator create cannot downgrade bootstrap route",
-    afterCreateStale instanceof Error
-    && afterCreateStale.message.includes(
-      '"operation":"progressive.opening_bootstrap"',
-    )
-    && !afterCreateStale.message.includes(
-      '"operation":"progressive.prepare_opening"',
-    ));
+  } catch { createBeforePrepareRejected = true; }
+  prepared.resolve(preparedOpeningSetupResult());
+  await preparePending;
+  check("concurrent investigator create cannot bypass prepare",
+    createBeforePrepareRejected);
 
   const bootstrapPending = harness.registered.get("coc_invoke").execute(
     "monotonic-bootstrap",
@@ -1609,8 +1637,31 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   );
+  let linkBeforeBootstrapRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "monotonic-link-before-bootstrap",
+      {
+        operation: "setup.invoke",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          kind: "campaign.link_investigator",
+          payload: {
+            campaign_id: "auto-dispatch-fixture",
+            investigator_ids: ["monotonic-investigator"],
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { linkBeforeBootstrapRejected = true; }
+
+  bootstrapped.resolve(openingBootstrapWithoutTakeover(task, "current"));
+  const current = JSON.parse((await bootstrapPending).content[0].text);
   const linkPending = harness.registered.get("coc_invoke").execute(
-    "monotonic-link",
+    "monotonic-link-after-current",
     {
       operation: "setup.invoke",
       campaign: "auto-dispatch-fixture",
@@ -1626,31 +1677,15 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   );
-  linked.resolve(staleCharacterSetupResult("campaign.link_investigator"));
+  linked.resolve(canonicalLinkSetupResult(
+    "auto-dispatch-fixture",
+    ["monotonic-investigator"],
+  ));
   await linkPending;
-  let afterLinkStale;
-  try {
-    await harness.registered.get("coc_discover").execute(
-      "monotonic-after-link",
-      {},
-      undefined,
-      undefined,
-      harness.ctx,
-    );
-  } catch (error) { afterLinkStale = error; }
-  check("late campaign link cannot downgrade in-flight bootstrap route",
-    afterLinkStale instanceof Error
-    && afterLinkStale.message.includes(
-      '"operation":"progressive.opening_bootstrap"',
-    )
-    && !afterLinkStale.message.includes(
-      '"operation":"progressive.prepare_opening"',
-    ));
-
-  bootstrapped.resolve(openingBootstrapWithoutTakeover(task, "current"));
-  const current = JSON.parse((await bootstrapPending).content[0].text);
-  check("monotonic route still clears only on canonical current opening",
-    current.ok === true && current.data.status === "current");
+  check("current source remains gated until exact link receipt",
+    linkBeforeBootstrapRejected
+    && current.ok === true
+    && current.data.status === "current");
   await harness.shutdown();
 }
 
@@ -1684,12 +1719,14 @@ async function exerciseFailureDrain(mode) {
       "current",
     ),
   );
-  check("current opening clears only its retained campaign route",
+  check("current opening stays character-gated only for its campaign",
     gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
       campaign: "campaign-a",
       arguments: {},
-    }, "campaign-local-after-current-a") === null
+    }, "campaign-local-after-current-a")?.includes(
+      '"phase":"opening_current_character_setup_required"',
+    )
     && gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
       campaign: "campaign-b",
@@ -1699,12 +1736,278 @@ async function exerciseFailureDrain(mode) {
     ));
 }
 
+// A bootstrap that is already current satisfies only the source predicate.
+// The gate remains active until one exact canonical link receipt is shown.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  bindOpeningRoute(gate, "current-before-link", "current-before-link-bind");
+  prepareOpeningRoute(
+    gate,
+    "current-before-link",
+    "current-before-link-prepare",
+  );
+  observeOwnedOpeningInvocation(
+    gate,
+    "current-before-link-bootstrap",
+    bootstrapOpeningParams("current-before-link"),
+    openingBootstrapWithoutTakeover(
+      coordinatorTask("current-before-link-task", {
+        campaignId: "current-before-link",
+      }),
+      "current",
+    ),
+  );
+  check("immediate current keeps live tools gated before link",
+    gate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "current-before-link",
+      arguments: {},
+    }, "current-before-link-scene")?.includes(
+      '"phase":"opening_current_character_setup_required"',
+    )
+    && gate.acceptVisibleAssistantFinal("继续完善调查员。") === true);
+  gate.markAgentStart();
+  const linkParams = {
+    operation: "setup.invoke",
+    campaign: "current-before-link",
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: "current-before-link",
+        investigator_ids: ["current-before-link-investigator"],
+      },
+    },
+  };
+  const linked = observeOwnedOpeningInvocation(
+    gate,
+    "current-before-link-link",
+    linkParams,
+    canonicalLinkSetupResult(
+      "current-before-link",
+      ["current-before-link-investigator"],
+    ),
+  );
+  check("exact link receipt is visible before immediate-current release",
+    linked === undefined
+    && gate.acceptVisibleAssistantFinal("调查员已正式加入。") === true
+    && gate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "current-before-link",
+      arguments: {},
+    }, "current-before-link-released") === null);
+}
+
+// Terminal fulfillment before link is append-only. Projection remains
+// retained, malformed ok:true link receipts cannot complete setup, and the
+// exact current link exposes one projection route.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  const { task } = beginBackgroundOpeningRoute(
+    gate,
+    "terminal-before-link",
+    "terminal-before-link",
+  );
+  gate.markAgentStart();
+  gate.observeOpeningCoordinatorTerminal({
+    packet_id: task.packet.packet_id,
+    status: "fulfilled",
+  });
+  const projectionParams = {
+    operation: "progressive.project_opening",
+    campaign: "terminal-before-link",
+    arguments: {
+      asset_root_id: task.packet.asset_root_id,
+      source_file_sha256: "a".repeat(64),
+      start_location_id: "opening",
+      opening_pdf_indices: [0],
+    },
+  };
+  check("terminal before link cannot wake or execute retained projection",
+    gate.decideWake(task.packet.packet_id) === false
+    && gate.openingSetupToolError(
+      "coc_invoke",
+      projectionParams,
+      "terminal-before-link-project",
+    )?.includes("campaign.link_investigator")
+    && gate.acceptVisibleAssistantFinal("继续自然完成背景与技能。") === true);
+
+  const linkParams = {
+    operation: "setup.invoke",
+    campaign: "terminal-before-link",
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: "terminal-before-link",
+        investigator_ids: ["terminal-before-link-investigator"],
+      },
+    },
+  };
+  const malformedReceipts = [
+    canonicalLinkSetupResult(
+      "wrong-campaign",
+      ["terminal-before-link-investigator"],
+    ),
+    canonicalLinkSetupResult("terminal-before-link", []),
+    canonicalLinkSetupResult(
+      "terminal-before-link",
+      ["terminal-before-link-investigator"],
+      { kind: "investigator.create" },
+    ),
+    canonicalLinkSetupResult(
+      "terminal-before-link",
+      ["terminal-before-link-investigator"],
+      { schema_version: 2 },
+    ),
+  ];
+  for (const [index, receipt] of malformedReceipts.entries()) {
+    const invocationId = `terminal-before-link-malformed-${index}`;
+    check(`malformed link receipt ${index} is admitted only as an attempt`,
+      gate.openingSetupToolError(
+        "coc_invoke",
+        linkParams,
+        invocationId,
+      ) === null);
+    const observed = gate.observeOpeningSetupInvocation(
+      "setup.invoke",
+      linkParams,
+      receipt,
+      invocationId,
+    );
+    check(`malformed link receipt ${index} cannot complete setup`,
+      observed.accepted === false
+      && gate.openingSetupToolError(
+        "coc_invoke",
+        projectionParams,
+        `terminal-before-link-project-${index}`,
+      )?.includes("campaign.link_investigator"));
+  }
+  gate.markAgentStart();
+  observeOwnedOpeningInvocation(
+    gate,
+    "terminal-before-link-exact",
+    linkParams,
+    canonicalLinkSetupResult(
+      "terminal-before-link",
+      ["terminal-before-link-investigator"],
+    ),
+  );
+  check("exact link prose remains visible before projection route",
+    gate.acceptVisibleAssistantFinal("调查员链接回执已确认。") === true);
+  const route = gate.requiredOpeningSetupContinuation();
+  check("terminal-before-link releases one exact projection route after link",
+    route?.next_operation?.operation === "progressive.project_opening");
+}
+
+// If no agent turn owns the fulfilled terminal after link, the terminal wake
+// claims the same release token and carries the exact route itself. A failed
+// projection restores the original bootstrap retry card.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  const { task } = beginBackgroundOpeningRoute(
+    gate,
+    "terminal-release-owner",
+    "terminal-release-owner",
+  );
+  const linkParams = {
+    operation: "setup.invoke",
+    campaign: "terminal-release-owner",
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: "terminal-release-owner",
+        investigator_ids: ["terminal-release-owner-investigator"],
+      },
+    },
+  };
+  gate.markAgentStart();
+  observeOwnedOpeningInvocation(
+    gate,
+    "terminal-release-owner-link",
+    linkParams,
+    canonicalLinkSetupResult(
+      "terminal-release-owner",
+      ["terminal-release-owner-investigator"],
+    ),
+  );
+  check("terminal-owner link receipt remains visible",
+    gate.acceptVisibleAssistantFinal("调查员链接完成。") === true);
+  gate.markAgentEnd();
+  gate.observeOpeningCoordinatorTerminal({
+    packet_id: task.packet.packet_id,
+    status: "fulfilled",
+  });
+  const context = gate.coordinatorContinuationContext(
+    task.packet.packet_id,
+    "fulfilled",
+  );
+  check("terminal owner carries route and suppresses route followup",
+    context.opening_setup_route?.next_operation?.operation
+      === "progressive.project_opening"
+    && gate.decideWake(task.packet.packet_id) === true
+    && gate.requiredOpeningSetupContinuation() === null);
+  const projectParams = {
+    operation: "progressive.project_opening",
+    campaign: "terminal-release-owner",
+    arguments: {
+      asset_root_id: task.packet.asset_root_id,
+      source_file_sha256: "a".repeat(64),
+      start_location_id: "opening",
+      opening_pdf_indices: [0],
+    },
+  };
+  const projectFailure = {
+    ok: false,
+    error: { code: "opening_projection_not_current" },
+  };
+  observeOwnedOpeningInvocation(
+    gate,
+    "terminal-release-owner-project",
+    projectParams,
+    projectFailure,
+  );
+  check("failed projection restores exact bootstrap retry",
+    gate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "terminal-release-owner",
+      arguments: {},
+    }, "terminal-release-owner-scene")?.includes(
+      '"operation":"progressive.opening_bootstrap"',
+    ));
+}
+
+// A launch/submission failure after the exact bootstrap attempt uses the same
+// retry phase and does not revoke natural character-creation dialogue.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  const { params, task, invocationId } = beginBackgroundOpeningRoute(
+    gate,
+    "submit-failure-character",
+    "submit-failure-character",
+  );
+  gate.markOpeningSetupRouteAttemptFailure(
+    invocationId,
+    params,
+    {
+      ok: false,
+      error: { code: "opening_source_background_start_failed" },
+    },
+    task.packet.packet_id,
+  );
+  const blocker = gate.acceptVisibleAssistantFinal("提交失败后虚构开场。");
+  check("submit failure exposes bounded blocker",
+    typeof blocker === "object"
+    && blocker.replacementText.includes("开场资料解析失败"));
+  check("submit retry phase preserves natural character dialogue",
+    gate.acceptVisibleAssistantFinal("继续讨论调查员的信念与重要之人。")
+      === true);
+}
+
 // A late setup receipt from campaign A is owned by its original agent turn.
 // It cannot switch transcript ownership or authorize arbitrary campaign B
 // prose while B's exact bootstrap remains outstanding.
 {
   const gate = new main.OpeningTerminalContinuationGate();
-  bindOpeningRoute(gate, "campaign-a", "cross-output-bind-a");
+  beginBackgroundOpeningRoute(gate, "campaign-a", "cross-output-a");
   bindOpeningRoute(gate, "campaign-b", "cross-output-bind-b");
   gate.markAgentStart();
   const lateAParams = {
@@ -1788,14 +2091,16 @@ async function exerciseFailureDrain(mode) {
     boundOpeningSetupResult("bind-generation"),
     "bind-generation-old",
   );
-  check("retired-generation bind result cannot re-arm a current campaign",
+  check("retired-generation bind cannot bypass current character boundary",
     gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
       campaign: "bind-generation",
       arguments: {},
-    }, "bind-generation-probe") === null
+    }, "bind-generation-probe")?.includes(
+      '"phase":"opening_current_character_setup_required"',
+    )
     && gate.takeOpeningSetupAudits().some((entry) => (
-      entry.reason === "unowned_result"
+      entry.reason === "late_bind_outside_current_route_generation"
       && entry.invocation_id === "bind-generation-old"
     )));
 }
@@ -2012,32 +2317,10 @@ async function exerciseFailureDrain(mode) {
       },
     },
   };
-  const wrongBootstrapGate = openingSetupGate({
-    operation: "progressive.opening_bootstrap",
-    invoke_via: "coc_invoke",
-    prefilled_arguments: {
-      tag: "wrong",
-      start_location: { location_id: "wrong" },
-      opening_pdf_indices: [99],
-    },
-    missing_arguments: [],
-    hard_gate: true,
-    authority: "canonical_setup",
-  }, "transition");
-  observeOwnedOpeningInvocation(
-    gate,
-    "transition-unrelated",
+  const unrelatedError = gate.openingSetupToolError(
+    "coc_invoke",
     unrelatedParams,
-    {
-      ok: true,
-      data: {
-        status: "PASS",
-        opening_gate: {
-          ...wrongBootstrapGate,
-          phase: "opening_bootstrap_required",
-        },
-      },
-    },
+    "transition-unrelated",
   );
   const beforePrepare = gate.openingSetupToolError("coc_invoke", {
     operation: "scene.context",
@@ -2045,8 +2328,8 @@ async function exerciseFailureDrain(mode) {
     arguments: {},
   }, "transition-before-prepare");
   check("unrelated setup result cannot promote the opening route",
-    beforePrepare?.includes('"operation":"progressive.prepare_opening"')
-    && !beforePrepare.includes('"tag":"wrong"'));
+    unrelatedError?.includes('"operation":"progressive.prepare_opening"')
+    && beforePrepare?.includes('"operation":"progressive.prepare_opening"'));
   prepareOpeningRoute(gate, "transition", "transition-prepare");
   const afterPrepare = gate.openingSetupToolError("coc_invoke", {
     operation: "scene.context",
@@ -2317,7 +2600,7 @@ async function exerciseFailureDrain(mode) {
 // admissible again after terminal cleanup.
 {
   const gate = new main.OpeningTerminalContinuationGate();
-  bindOpeningRoute(gate, "attempt-cleanup", "attempt-cleanup-bind");
+  beginBackgroundOpeningRoute(gate, "attempt-cleanup", "attempt-cleanup");
   const characterParams = {
     operation: "setup.invoke",
     campaign: "attempt-cleanup",
@@ -2359,7 +2642,7 @@ async function exerciseFailureDrain(mode) {
   const admittedIds = [];
   for (
     let index = 0;
-    index < main.__test.MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN;
+    index < main.__test.MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN - 1;
     index += 1
   ) {
     const invocationId = `attempt-cap-${index}`;
@@ -2417,17 +2700,7 @@ async function exerciseFailureDrain(mode) {
       oldBootstrapParams,
       "recovery-old-bootstrap",
     ) === null);
-  const invalidationParams = {
-    operation: "setup.invoke",
-    campaign: "recovery",
-    arguments: {
-      kind: "campaign.link_investigator",
-      payload: {
-        campaign_id: "recovery",
-        investigator_ids: ["inv-recovery"],
-      },
-    },
-  };
+  const invalidationParams = bootstrapOpeningParams("recovery");
   check("source revalidation attempt is admitted at bootstrap revision",
     gate.openingSetupToolError(
       "coc_invoke",
@@ -2435,7 +2708,7 @@ async function exerciseFailureDrain(mode) {
       "recovery-invalid",
     ) === null);
   gate.observeOpeningSetupInvocation(
-    "setup.invoke",
+    "progressive.opening_bootstrap",
     invalidationParams,
     {
       ok: false,
@@ -2814,45 +3087,6 @@ async function exerciseFailureDrain(mode) {
         === "progressive.prepare_opening"
       && !Object.hasOwn(bound.data.next_operation, "schema_version"));
 
-    const linkArgs = {
-      kind: "campaign.link_investigator",
-      payload: {
-        campaign_id: campaignId,
-        investigator_ids: [investigatorId],
-      },
-    };
-    const callsBeforeMissingLink = harness.calls.length;
-    let missingLinkRejected = false;
-    try {
-      await harness.registered.get("coc_invoke").execute(
-        "r12-real-link-missing",
-        { operation: "setup.invoke", arguments: linkArgs },
-        undefined,
-        undefined,
-        harness.ctx,
-      );
-    } catch {
-      missingLinkRejected = true;
-    }
-    const linked = JSON.parse((await harness.registered.get(
-      "coc_invoke",
-    ).execute(
-      "r12-real-link-corrected",
-      {
-        operation: "setup.invoke",
-        campaign: campaignId,
-        arguments: linkArgs,
-      },
-      undefined,
-      undefined,
-      harness.ctx,
-    )).content[0].text);
-    check("real toolbox link rejects missing outer before mutation then succeeds",
-      missingLinkRejected
-      && harness.calls.length === callsBeforeMissingLink + 1
-      && linked.ok === true
-      && linked.data.status === "PASS");
-
     const prepared = JSON.parse((await harness.registered.get(
       "coc_invoke",
     ).execute(
@@ -2910,6 +3144,50 @@ async function exerciseFailureDrain(mode) {
       && harness.calls.at(-1).params.operation
         === "progressive.opening_bootstrap"
       && harness.launches.length === 0);
+
+    const linkArgs = {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: campaignId,
+        investigator_ids: [investigatorId],
+      },
+    };
+    const callsBeforeMissingLink = harness.calls.length;
+    let missingLinkRejected = false;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        "r12-real-link-missing",
+        { operation: "setup.invoke", arguments: linkArgs },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch {
+      missingLinkRejected = true;
+    }
+    const linked = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-link-corrected",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: linkArgs,
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("real toolbox link waits for background attempt and then succeeds",
+      missingLinkRejected
+      && harness.calls.length === callsBeforeMissingLink + 1
+      && linked.ok === true
+      && linked.data.schema_version === 1
+      && linked.data.status === "PASS"
+      && linked.data.kind === "campaign.link_investigator"
+      && linked.data.result.campaign_id === campaignId
+      && JSON.stringify(linked.data.result.investigator_ids)
+        === JSON.stringify([investigatorId]));
     await harness.shutdown();
   } finally {
     rmSync(workspace, { recursive: true, force: true });
@@ -2944,17 +3222,10 @@ async function exerciseFailureDrain(mode) {
       params.operation === "setup.invoke"
       && params.arguments?.kind === "campaign.link_investigator"
     ) {
-      const gate = openingSetupGate(undefined, campaignId);
-      return {
-        ok: true,
-        tool: "setup.invoke",
-        data: {
-          status: "PASS",
-          result: { kind: "campaign.link_investigator" },
-          opening_gate: gate,
-          next_operation: gate.next_operation,
-        },
-      };
+      return canonicalLinkSetupResult(
+        campaignId,
+        params.arguments.payload.investigator_ids,
+      );
     }
     if (params.operation === "progressive.prepare_opening") {
       return {
@@ -3048,17 +3319,6 @@ async function exerciseFailureDrain(mode) {
     harness.ctx,
   );
   await harness.registered.get("coc_invoke").execute(
-    "live-grok-corrected-link",
-    {
-      operation: "setup.invoke",
-      campaign: campaignId,
-      arguments: linkArgs,
-    },
-    undefined,
-    undefined,
-    harness.ctx,
-  );
-  await harness.registered.get("coc_invoke").execute(
     "live-grok-corrected-prepare",
     {
       operation: "progressive.prepare_opening",
@@ -3111,18 +3371,32 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   )).content[0].text);
+  const correctedLink = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "live-grok-corrected-link",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: linkArgs,
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
   check("corrected live Grok setup advances only the exact retained route",
     wrongBootstrapRejected
-    && beforeWrongBootstrap === 3
+    && beforeWrongBootstrap === 2
     && harness.calls.length === 4
     && harness.calls.map((call) => call.params.operation).join(",") === [
       "setup.invoke",
-      "setup.invoke",
       "progressive.prepare_opening",
       "progressive.opening_bootstrap",
+      "setup.invoke",
     ].join(",")
     && correctedBootstrap.ok === true
     && correctedBootstrap.data.status === "current"
+    && correctedLink.data.kind === "campaign.link_investigator"
     && harness.launches.length === 0);
   await harness.shutdown();
 }
@@ -3194,6 +3468,7 @@ async function exerciseFailureDrain(mode) {
   const enabled = deferredValue();
   const invalidation = deferredValue();
   let enabledChecks = 0;
+  let bootstrapCalls = 0;
   const harness = mainExtensionHarness((_name, params) => {
     if (
       params.operation === "setup.invoke"
@@ -3204,14 +3479,11 @@ async function exerciseFailureDrain(mode) {
     if (params.operation === "progressive.prepare_opening") {
       return preparedOpeningSetupResult();
     }
-    if (
-      params.operation === "setup.invoke"
-      && params.arguments?.kind === "campaign.link_investigator"
-    ) {
-      return invalidation.promise;
-    }
     if (params.operation === "progressive.opening_bootstrap") {
-      return openingBootstrapResult(task);
+      bootstrapCalls += 1;
+      return bootstrapCalls === 1
+        ? invalidation.promise
+        : openingBootstrapResult(task);
     }
     throw new Error(`unexpected operation ${params.operation}`);
   }, {
@@ -3222,17 +3494,7 @@ async function exerciseFailureDrain(mode) {
   });
   await harness.start();
   await armOpeningBootstrapRoute(harness, campaignId);
-  const invalidationParams = {
-    operation: "setup.invoke",
-    campaign: campaignId,
-    arguments: {
-      kind: "campaign.link_investigator",
-      payload: {
-        campaign_id: campaignId,
-        investigator_ids: ["enabled-race-investigator"],
-      },
-    },
-  };
+  const invalidationParams = bootstrapOpeningParams(campaignId);
   const invalidationPending = harness.registered.get("coc_invoke").execute(
     "gateway-enabled-race-invalid",
     invalidationParams,
@@ -3308,6 +3570,7 @@ async function exerciseFailureDrain(mode) {
     campaignId,
   });
   const invalidation = deferredValue();
+  let bootstrapCalls = 0;
   const harness = mainExtensionHarness((_name, params) => {
     if (params.operation === "progressive.request_deepen") {
       return directTakeoverResult(activeTask);
@@ -3321,14 +3584,11 @@ async function exerciseFailureDrain(mode) {
     if (params.operation === "progressive.prepare_opening") {
       return preparedOpeningSetupResult();
     }
-    if (
-      params.operation === "setup.invoke"
-      && params.arguments?.kind === "campaign.link_investigator"
-    ) {
-      return invalidation.promise;
-    }
     if (params.operation === "progressive.opening_bootstrap") {
-      return openingBootstrapResult(openingTask);
+      bootstrapCalls += 1;
+      return bootstrapCalls === 1
+        ? invalidation.promise
+        : openingBootstrapResult(openingTask);
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
@@ -3352,17 +3612,7 @@ async function exerciseFailureDrain(mode) {
   check("pending ownership race starts one unrelated active coordinator",
     harness.launches.join(",") === activeTask.packet.packet_id);
   await armOpeningBootstrapRoute(harness, campaignId);
-  const invalidationParams = {
-    operation: "setup.invoke",
-    campaign: campaignId,
-    arguments: {
-      kind: "campaign.link_investigator",
-      payload: {
-        campaign_id: campaignId,
-        investigator_ids: ["pending-race-investigator"],
-      },
-    },
-  };
+  const invalidationParams = bootstrapOpeningParams(campaignId);
   const invalidationPending = harness.registered.get("coc_invoke").execute(
     "gateway-pending-invalid",
     invalidationParams,
@@ -3487,6 +3737,16 @@ async function exerciseFailureDrain(mode) {
     && hiddenBlocker.error_code === "opening_source_terminal_failure"
     && hiddenBlocker.next_operation.operation
       === "progressive.opening_bootstrap");
+
+  const retryCharacterRound = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "后台重试待定，我们继续完善调查员背景。" }],
+  });
+  check("terminal retry phase preserves natural multi-round character setup",
+    retryCharacterRound.content.some((part) => (
+      part.type === "text"
+      && part.text === "后台重试待定，我们继续完善调查员背景。"
+    )));
 
   const retried = JSON.parse((await harness.registered.get("coc_invoke").execute(
     "retry-armed-opening-after-failure",
@@ -3667,11 +3927,10 @@ async function exerciseFailureDrain(mode) {
       params.operation === "setup.invoke"
       && params.arguments?.kind === "campaign.link_investigator"
     ) {
-      return {
-        ok: true,
-        tool: "setup.invoke",
-        data: { status: "PASS", result: { investigator_ids: ["phase-inv"] } },
-      };
+      return canonicalLinkSetupResult(
+        "auto-dispatch-fixture",
+        ["phase-inv"],
+      );
     }
     if (params.operation === "progressive.project_opening") {
       return {
@@ -3756,6 +4015,10 @@ async function exerciseFailureDrain(mode) {
     undefined,
     harness.ctx,
   );
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
   const linkVisible = await harness.emit("message_end", {
     role: "assistant",
     content: [{ type: "text", text: "调查员已创建并加入本次游戏。" }],
@@ -3789,19 +4052,25 @@ async function exerciseFailureDrain(mode) {
     && harness.calls.length === callsBeforeScene
     && openingHidden.content.every((part) => part.type !== "text"));
 
-  harness.controls.get(task.packet.packet_id).resolve(
-    fulfilledCoordinatorEvents(task.packet.packet_id),
-  );
   for (const handler of harness.handlers.get("agent_end") || []) {
     await handler({ reason: "phase-terminal" }, harness.ctx);
   }
   await nextTurn();
   await nextTurn();
-  check("fulfilled background wakes exactly once after character completion",
-    harness.sent.filter((entry) => (
+  const projectionTriggers = harness.sent.filter((entry) => (
+    entry.options?.triggerTurn === true
+    && [
+      "coc-opening-setup-route",
+      "coc-source-coordinator-terminal-continuation",
+    ].includes(entry.message?.customType)
+  ));
+  check("terminal-after-link race releases one route or wake, never both",
+    projectionTriggers.length === 1
+    && projectionTriggers[0].message.customType === "coc-opening-setup-route"
+    && harness.sent.filter((entry) => (
       entry.message?.customType
         === "coc-source-coordinator-terminal-continuation"
-    )).length === 1);
+    )).length === 0);
 
   for (const handler of harness.handlers.get("agent_start") || []) {
     await handler({ reason: "phase-project" }, harness.ctx);
@@ -3840,7 +4109,7 @@ async function exerciseFailureDrain(mode) {
     && harness.sent.filter((entry) => (
       entry.message?.customType
         === "coc-source-coordinator-terminal-continuation"
-    )).length === 1);
+    )).length === 0);
   await harness.shutdown();
 }
 

@@ -181,13 +181,17 @@ type OpeningSetupState = {
   phase:
     | "selection"
     | "bootstrap"
+    | "submitting"
     | "materializing"
+    | "retry"
     | "projection"
+    | "ready"
     | "contract_invalid";
   dispatchIdentity: string | null;
   characterSetupComplete: boolean;
   projectionCard: JsonObject | null;
   bootstrapRetryCard: JsonObject | null;
+  continuationReleaseOwner: "route" | "terminal" | null;
 };
 type OpeningSetupAttempt = {
   invocationId: string;
@@ -411,12 +415,18 @@ export class OpeningTerminalContinuationGate {
       );
     }
     if (args.kind === "campaign.link_investigator") {
+      const investigatorIds = payload.investigator_ids;
       return exactKeysMatch(
         payload,
         ["campaign_id", "investigator_ids"],
       )
         && payload.campaign_id === route.campaign_id
-        && Array.isArray(payload.investigator_ids);
+        && Array.isArray(investigatorIds)
+        && investigatorIds.length > 0
+        && investigatorIds.every((value) => (
+          typeof value === "string" && value.trim().length > 0
+        ))
+        && new Set(investigatorIds).size === investigatorIds.length;
     }
     if (args.kind === "campaign.render_briefing") {
       const keys = Object.keys(payload);
@@ -443,10 +453,21 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private characterSetupAllowed(state: OpeningSetupState): boolean {
+    return [
+      "materializing",
+      "retry",
+      "projection",
+      "ready",
+    ].includes(state.phase);
+  }
+
   private openingSetupCharacterInvocation(
     params: JsonObject,
-    route: OpeningSetupRoute,
+    state: OpeningSetupState,
   ): boolean {
+    if (!this.characterSetupAllowed(state)) return false;
+    const route = state.route;
     const operation = String(params.operation ?? "");
     if (params.campaign !== route.campaign_id) return false;
     if (operation === "setup.investigator_contract") {
@@ -460,6 +481,34 @@ export class OpeningTerminalContinuationGate {
         operation === "rules.roll_dice"
         && this.quickFireLuckInvocation(params)
       );
+  }
+
+  private exactCanonicalLinkReceipt(
+    params: JsonObject,
+    envelope: JsonObject | null,
+  ): boolean {
+    const args = objectOrNull(params.arguments);
+    const payload = objectOrNull(args?.payload);
+    const data = objectOrNull(envelope?.data);
+    const result = objectOrNull(data?.result);
+    const requestedIds = payload?.investigator_ids;
+    const linkedIds = result?.investigator_ids;
+    return (
+      envelope?.ok === true
+      && params.operation === "setup.invoke"
+      && args?.kind === "campaign.link_investigator"
+      && data?.schema_version === 1
+      && data.status === "PASS"
+      && data.kind === "campaign.link_investigator"
+      && result !== null
+      && exactKeysMatch(result, ["campaign_id", "investigator_ids"])
+      && result.campaign_id === params.campaign
+      && result.campaign_id === payload?.campaign_id
+      && Array.isArray(requestedIds)
+      && Array.isArray(linkedIds)
+      && linkedIds.length === requestedIds.length
+      && linkedIds.every((value, index) => value === requestedIds[index])
+    );
   }
 
   private exactOpeningSetupRouteInvocation(
@@ -820,6 +869,7 @@ export class OpeningTerminalContinuationGate {
       characterSetupComplete: false,
       projectionCard: null,
       bootstrapRetryCard: null,
+      continuationReleaseOwner: null,
     };
     this.openingSetupStates.set(campaignId, state);
     this.openingSetupContinuationQueued.delete(campaignId);
@@ -836,6 +886,7 @@ export class OpeningTerminalContinuationGate {
       revision: state.revision + 1,
       phase: "contract_invalid" as const,
       dispatchIdentity: null,
+      continuationReleaseOwner: null,
     };
     this.openingSetupStates.set(state.route.campaign_id, next);
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
@@ -934,18 +985,27 @@ export class OpeningTerminalContinuationGate {
       return null;
     }
     this.noteOpeningSetupTurnCampaign(campaignId);
-    if (this.openingSetupCharacterInvocation(params, state.route)) {
+    if (this.exactOpeningSetupRouteInvocation(state.route, params)) {
+      if (
+        state.phase === "projection"
+        && !state.characterSetupComplete
+      ) {
+        return (
+          "progressive.project_opening remains retained until the exact "
+          + "canonical campaign.link_investigator receipt is current"
+        );
+      }
+      this.registerOpeningSetupAttempt(invocationId, params, "route", state);
+      this.openingSetupContinuationQueued.add(campaignId);
+      return null;
+    }
+    if (this.openingSetupCharacterInvocation(params, state)) {
       this.registerOpeningSetupAttempt(
         invocationId,
         params,
         "character",
         state,
       );
-      return null;
-    }
-    if (this.exactOpeningSetupRouteInvocation(state.route, params)) {
-      this.registerOpeningSetupAttempt(invocationId, params, "route", state);
-      this.openingSetupContinuationQueued.add(campaignId);
       return null;
     }
     if (state.route.next_operation?.operation === params.operation) {
@@ -1162,11 +1222,14 @@ export class OpeningTerminalContinuationGate {
     if (attempt.attemptClass === "character") {
       this.finalizeOpeningSetupAttempt(invocationId);
       const setupArgs = objectOrNull(params.arguments);
-      if (
-        envelope?.ok === true
-        && operation === "setup.invoke"
+      const linkAttempt = (
+        operation === "setup.invoke"
         && setupArgs?.kind === "campaign.link_investigator"
-      ) {
+      );
+      const acceptedCharacterResult = linkAttempt
+        ? this.exactCanonicalLinkReceipt(params, envelope)
+        : envelope?.ok === true;
+      if (linkAttempt && acceptedCharacterResult) {
         state.characterSetupComplete = true;
         this.recordOpeningSetupAudit({
           status: "transitioned",
@@ -1178,7 +1241,7 @@ export class OpeningTerminalContinuationGate {
         });
       }
       if (
-        envelope?.ok === true
+        acceptedCharacterResult
         && attempt.agentTurn === this.openingSetupAgentTurn
         && !this.openingSetupTurnCampaignAmbiguous
         && this.openingSetupTurnCampaignId === attempt.campaignId
@@ -1190,7 +1253,7 @@ export class OpeningTerminalContinuationGate {
           agentTurn: attempt.agentTurn,
           invocationId,
         };
-      } else if (envelope?.ok === true) {
+      } else if (acceptedCharacterResult) {
         this.recordOpeningSetupAudit({
           status: "ignored",
           reason: "late_or_ambiguous_setup_output",
@@ -1199,9 +1262,9 @@ export class OpeningTerminalContinuationGate {
         });
       }
       return {
-        accepted: envelope?.ok === true,
+        accepted: acceptedCharacterResult,
         dispatchAllowed: false,
-        reason: envelope?.ok === true
+        reason: acceptedCharacterResult
           ? "character_setup_result"
           : "character_setup_failed",
       };
@@ -1236,6 +1299,7 @@ export class OpeningTerminalContinuationGate {
           dispatchIdentity: null,
           projectionCard: null,
           bootstrapRetryCard: null,
+          continuationReleaseOwner: null,
         };
         this.openingSetupStates.set(attempt.campaignId, next);
         this.openingSetupVisibleOutputAuthorization = null;
@@ -1299,11 +1363,27 @@ export class OpeningTerminalContinuationGate {
         && (data?.status === "complete" || data?.status === "current")
       ) {
         this.finalizeOpeningSetupAttempt(invocationId);
-        this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
+        if (state.characterSetupComplete) {
+          this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
+        } else {
+          state.phase = "ready";
+          state.route = {
+            ...state.route,
+            phase: "opening_current_character_setup_required",
+            next_operation: null,
+            instruction: (
+              "opening source projection is current; complete the exact "
+              + "canonical investigator link before any live play"
+            ),
+          };
+          state.continuationReleaseOwner = null;
+        }
         return {
           accepted: true,
           dispatchAllowed: false,
-          reason: "opening_bootstrap_current",
+          reason: state.characterSetupComplete
+            ? "opening_bootstrap_current"
+            : "opening_bootstrap_current_waiting_for_character",
         };
       }
       this.finalizeOpeningSetupAttempt(invocationId);
@@ -1327,12 +1407,31 @@ export class OpeningTerminalContinuationGate {
         envelope?.ok === true
         && (data?.status === "complete" || data?.status === "current")
       ) {
-        this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
+        if (state.characterSetupComplete) {
+          this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
+        } else {
+          state.phase = "ready";
+          state.route = {
+            ...state.route,
+            phase: "opening_current_character_setup_required",
+            next_operation: null,
+            instruction: (
+              "opening source projection is current; complete the exact "
+              + "canonical investigator link before any live play"
+            ),
+          };
+          state.continuationReleaseOwner = null;
+        }
         return {
           accepted: true,
           dispatchAllowed: false,
-          reason: "opening_projection_current",
+          reason: state.characterSetupComplete
+            ? "opening_projection_current"
+            : "opening_projection_current_waiting_for_character",
         };
+      }
+      if (state.bootstrapRetryCard !== null) {
+        this.restoreBackgroundRetryRoute(state);
       }
       this.markOpeningSetupTerminalBlocker(
         envelope ?? failedBlockingOpeningEnvelope(
@@ -1360,6 +1459,15 @@ export class OpeningTerminalContinuationGate {
     };
   }
 
+  private claimOpeningContinuationRelease(
+    state: OpeningSetupState,
+    owner: "route" | "terminal",
+  ): boolean {
+    if (state.continuationReleaseOwner !== null) return false;
+    state.continuationReleaseOwner = owner;
+    return true;
+  }
+
   requiredOpeningSetupContinuation(): OpeningSetupRoute | null {
     const state = this.openingSetupStateForTranscript();
     if (
@@ -1371,6 +1479,7 @@ export class OpeningTerminalContinuationGate {
       )
       || this.openingSetupContinuationQueued.has(state.route.campaign_id)
       || this.openingSetupAuthorizationMatches(state)
+      || !this.claimOpeningContinuationRelease(state, "route")
     ) {
       return null;
     }
@@ -1503,6 +1612,7 @@ export class OpeningTerminalContinuationGate {
       details: blocker,
     });
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
+    state.continuationReleaseOwner = null;
     this.openingSetupVisibleOutputAuthorization = null;
     if (!this.queuedVisibleDispositions.some((queued) => (
       queued.disposition === "terminal_blocker"
@@ -1557,7 +1667,7 @@ export class OpeningTerminalContinuationGate {
       });
       return;
     }
-    if (state.phase === "materializing") {
+    if (["submitting", "materializing", "projection"].includes(state.phase)) {
       this.restoreBackgroundRetryRoute(state);
     }
     this.markOpeningSetupTerminalBlocker(
@@ -1630,7 +1740,8 @@ export class OpeningTerminalContinuationGate {
     ) {
       return false;
     }
-    state.phase = "materializing";
+    state.phase = "submitting";
+    state.continuationReleaseOwner = null;
     state.bootstrapRetryCard = state.route.next_operation;
     state.projectionCard = {
       operation: "progressive.project_opening",
@@ -1662,6 +1773,54 @@ export class OpeningTerminalContinuationGate {
     return true;
   }
 
+  markOpeningBackgroundSubmitted(
+    invocationId: string,
+    params: JsonObject,
+    dispatchKey: string,
+  ): boolean {
+    const attempt = this.openingSetupAttempts.get(invocationId);
+    const state = typeof params.campaign === "string"
+      ? this.openingSetupStates.get(params.campaign)
+      : undefined;
+    if (
+      state !== undefined
+      && (
+        (
+          state.phase === "projection"
+          && state.dispatchIdentity === dispatchKey
+        )
+        || (
+          state.phase === "retry"
+          && state.bootstrapRetryCard !== null
+        )
+      )
+    ) {
+      return true;
+    }
+    if (
+      attempt === undefined
+      || state === undefined
+      || attempt.attemptClass !== "route"
+      || !this.attemptMatchesState(attempt, state)
+      || attempt.dispatchIdentity !== dispatchKey
+      || state.dispatchIdentity !== dispatchKey
+      || state.phase !== "submitting"
+    ) {
+      return false;
+    }
+    state.phase = "materializing";
+    this.recordOpeningSetupAudit({
+      status: "transitioned",
+      transition: "opening_background_submitted",
+      campaign_id: attempt.campaignId,
+      generation: state.generation,
+      revision: state.revision,
+      invocation_id: invocationId,
+      dispatch_key: dispatchKey,
+    });
+    return true;
+  }
+
   observeOpeningCoordinatorTerminal(receipt: JsonObject): void {
     const dispatchKey = typeof receipt.packet_id === "string"
       ? receipt.packet_id.trim()
@@ -1670,7 +1829,10 @@ export class OpeningTerminalContinuationGate {
     const state = [...this.openingSetupStates.values()].find(
       (candidate) => candidate.dispatchIdentity === dispatchKey,
     );
-    if (state === undefined || state.phase !== "materializing") return;
+    if (
+      state === undefined
+      || !["submitting", "materializing"].includes(state.phase)
+    ) return;
     const attempt = [...this.openingSetupAttempts.values()].find(
       (candidate) => candidate.dispatchIdentity === dispatchKey,
     );
@@ -1682,6 +1844,7 @@ export class OpeningTerminalContinuationGate {
       && state.projectionCard !== null
     ) {
       state.phase = "projection";
+      state.continuationReleaseOwner = null;
       state.route = {
         ...state.route,
         phase: "opening_projection_required",
@@ -1715,7 +1878,7 @@ export class OpeningTerminalContinuationGate {
   }
 
   private restoreBackgroundRetryRoute(state: OpeningSetupState): void {
-    state.phase = "bootstrap";
+    state.phase = "retry";
     state.route = {
       ...state.route,
       phase: "opening_bootstrap_required",
@@ -1727,6 +1890,7 @@ export class OpeningTerminalContinuationGate {
     };
     state.dispatchIdentity = null;
     state.projectionCard = null;
+    state.continuationReleaseOwner = null;
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
   }
 
@@ -1839,6 +2003,9 @@ export class OpeningTerminalContinuationGate {
   ): JsonObject {
     const dispatchClass = this.dispatchClasses.get(dispatchKey)
       ?? "nonblocking_background";
+    const openingState = [...this.openingSetupStates.values()].find(
+      (candidate) => candidate.dispatchIdentity === dispatchKey,
+    );
     const finalized = this.finalizedOutput;
     // Terminal publication may race ahead of the exact assistant message_end.
     // Carry the armed provenance into Pi's queued followUp now; the consumer
@@ -1863,6 +2030,13 @@ export class OpeningTerminalContinuationGate {
       dispatch_class: dispatchClass,
       player_turn_epoch: this.playerTurnEpoch,
       dispatch_key: dispatchKey,
+      ...(
+        dispatchClass === "blocking_opening"
+        && openingState?.route.next_operation !== null
+        && openingState?.route.next_operation !== undefined
+          ? { opening_setup_route: openingState.route }
+          : {}
+      ),
     };
   }
 
@@ -1945,10 +2119,7 @@ export class OpeningTerminalContinuationGate {
       const naturalCharacterSetupAllowed = (
         openingState !== null
         && !openingState.characterSetupComplete
-        && (
-          openingState.phase === "materializing"
-          || openingState.phase === "projection"
-        )
+        && this.characterSetupAllowed(openingState)
       );
       if (
         !naturalCharacterSetupAllowed
@@ -1964,6 +2135,15 @@ export class OpeningTerminalContinuationGate {
         && this.openingSetupAuthorizationMatches(openingState)
       ) {
         this.openingSetupVisibleOutputAuthorization = null;
+        if (
+          openingState.characterSetupComplete
+          && openingState.phase === "ready"
+        ) {
+          this.clearOpeningSetupRoute(
+            openingState.route.campaign_id,
+            openingState.generation,
+          );
+        }
       }
     }
     if (disposition === "projected_opening") {
@@ -2021,7 +2201,23 @@ export class OpeningTerminalContinuationGate {
   markAgentEnd(): void {
     this.agentActive = false;
     for (const [key, decision] of this.pending) {
-      decision.resolve(this.states.get(key) !== "published");
+      const openingState = [...this.openingSetupStates.values()].find(
+        (candidate) => candidate.dispatchIdentity === key,
+      );
+      const shouldWake = (
+        this.states.get(key) !== "published"
+        && (
+          openingState === undefined
+          || (
+            openingState.characterSetupComplete
+            && this.claimOpeningContinuationRelease(
+              openingState,
+              "terminal",
+            )
+          )
+        )
+      );
+      decision.resolve(shouldWake);
       this.pending.delete(key);
       this.states.delete(key);
     }
@@ -2041,6 +2237,13 @@ export class OpeningTerminalContinuationGate {
       this.states.set(dispatchKey, "published");
       return false;
     }
+    if (
+      openingState !== undefined
+      && openingState.continuationReleaseOwner !== null
+    ) {
+      this.states.set(dispatchKey, "published");
+      return false;
+    }
     const state = this.states.get(dispatchKey);
     if (state === "published") {
       this.states.delete(dispatchKey);
@@ -2051,6 +2254,15 @@ export class OpeningTerminalContinuationGate {
       || !this.agentActive
     ) {
       this.states.delete(dispatchKey);
+      if (
+        openingState !== undefined
+        && !this.claimOpeningContinuationRelease(
+          openingState,
+          "terminal",
+        )
+      ) {
+        return false;
+      }
       return true;
     }
     const existing = this.pending.get(dispatchKey);
@@ -2596,12 +2808,6 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
           terminalStatus,
         )
       );
-      if (
-        continuationContext.dispatch_class === "blocking_opening"
-        && receipt.status !== "fulfilled"
-      ) {
-        openingContinuationGate.markTerminalBlocker(dispatchKey);
-      }
       return publishCoordinatorTerminal(
         pi,
         receipt,
@@ -2881,6 +3087,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             const terminal = submission ?? {
               status: "capability_unavailable",
               failure_class: "coordinator_capability_unavailable",
+              dispatch_key: dispatchKey,
+            };
+            openingContinuationGate.markOpeningSetupRouteAttemptFailure(
+              _id,
+              params,
+              failedBlockingOpeningEnvelope(
+                terminal,
+                "opening_source_background_start_failed",
+              ),
+              dispatchKey,
+            );
+            flushOpeningSetupAudits();
+            return result(failedBlockingOpeningEnvelope(
+              terminal,
+              "opening_source_background_start_failed",
+            ));
+          }
+          if (!openingContinuationGate.markOpeningBackgroundSubmitted(
+            _id,
+            params,
+            dispatchKey,
+          )) {
+            const terminal = {
+              status: "contract_violation",
+              failure_class: "opening_background_submission_stale",
               dispatch_key: dispatchKey,
             };
             openingContinuationGate.markOpeningSetupRouteAttemptFailure(

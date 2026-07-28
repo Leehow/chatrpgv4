@@ -1579,9 +1579,14 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         "campaign_id": "mcp-custom",
         "language": "zh-Hans",
     })
-    assert rerendered["ok"] is False, rerendered
-    assert rerendered["error"]["code"] == "opening_setup_incomplete"
-    assert rerendered["error"]["details"]["next_operation"] == next_operation
+    assert rerendered["ok"] is True, rerendered
+    assert rerendered["data"]["status"] == "PASS"
+    assert rerendered["data"]["kind"] == "campaign.render_briefing"
+    assert rerendered["data"]["result"]["campaign_id"] == "mcp-custom"
+    assert (
+        tmp_path / rerendered["data"]["result"]["briefing_path"]
+    ).is_file()
+    assert rerendered["data"]["next_operation"] == next_operation
 
     rebound = invoke("scenario.bind_pdf", {
         "campaign_id": "mcp-custom",
