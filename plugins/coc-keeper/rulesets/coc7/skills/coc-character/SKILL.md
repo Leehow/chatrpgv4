@@ -44,7 +44,11 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   submit `creation.method="quick_fire_array"`,
   `creation.characteristic_assignment_order` as the eight unique canonical
   characteristic keys in descending array-slot order, and
-  `creation.luck_roll_total` as the authoritative 3D6 total. Omit
+  `creation.luck_roll_total` as the authoritative 3D6 total. Also submit
+  `creation.luck_roll_receipt` with the current `campaign_id`, the same stable
+  `decision_id`, and the exact returned `roll_id`; creation revalidates that
+  campaign's immutable `rules.roll_dice` source receipt and rejects an
+  unreceipted or mismatched total. Omit
   `sheet.characteristics` and `sheet.derived`; `investigator.create` copies the
   configured `[80,70,60,60,50,50,50,40]` array, multiplies Luck by five, and
   derives HP/MP/SAN/DB/Build/MOV deterministically. The Keeper still owns the
@@ -55,8 +59,9 @@ Temporary campaign-specific investigator state lives under `.coc/campaigns/<camp
   containing exactly `expression="3D6"`, a stable creation-scoped
   `decision_id`, and `reason="Quick-Fire investigator Luck"`. Reuse the same
   `decision_id` value on retry. Apply the COC7 creation formula to the
-  authoritative returned total as `creation.luck_roll_total`; the setup rules
-  layer performs `Luck = total × 5`. Do not call `rules.roll`,
+  authoritative returned total as `creation.luck_roll_total`, and retain the
+  returned `roll_id` in `creation.luck_roll_receipt`; the setup rules layer
+  verifies the source receipt and performs `Luck = total × 5`. Do not call `rules.roll`,
   invent `rules.roll_expression`, browse the `setup` or `rules` catalogs, omit
   `decision_id`, or send the unsupported expression `3D6*5`. This exact dice
   recipe preserves deterministic rolls; investigator concept, characteristic

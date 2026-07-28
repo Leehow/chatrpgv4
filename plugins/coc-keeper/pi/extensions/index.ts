@@ -406,6 +406,15 @@ export class OpeningTerminalContinuationGate {
     }
     if (args.kind === "investigator.create") {
       const keys = Object.keys(payload);
+      const creation = objectOrNull(payload.creation);
+      const quickFireMaterialization = (
+        creation !== null
+        && (
+          creation.characteristic_assignment_order !== undefined
+          || creation.luck_roll_total !== undefined
+        )
+      );
+      const luckReceipt = objectOrNull(creation?.luck_roll_receipt);
       return (
         keys.every((key) => (
           ["investigator_id", "sheet", "creation"].includes(key)
@@ -415,7 +424,22 @@ export class OpeningTerminalContinuationGate {
         && objectOrNull(payload.sheet) !== null
         && (
           payload.creation === undefined
-          || objectOrNull(payload.creation) !== null
+          || creation !== null
+        )
+        && (
+          !quickFireMaterialization
+          || (
+            luckReceipt !== null
+            && exactKeysMatch(
+              luckReceipt,
+              ["campaign_id", "decision_id", "roll_id"],
+            )
+            && luckReceipt.campaign_id === route.campaign_id
+            && typeof luckReceipt.decision_id === "string"
+            && luckReceipt.decision_id.trim().length > 0
+            && typeof luckReceipt.roll_id === "string"
+            && luckReceipt.roll_id.trim().length > 0
+          )
         )
       );
     }
@@ -1014,6 +1038,32 @@ export class OpeningTerminalContinuationGate {
         state,
       );
       return null;
+    }
+    if (
+      operation === "rules.roll_dice"
+      && this.characterSetupAllowed(state)
+    ) {
+      const args = objectOrNull(params.arguments);
+      const decisionId = (
+        typeof args?.decision_id === "string"
+        && args.decision_id.trim().length > 0
+      )
+        ? args.decision_id
+        : `quick-fire-luck-${campaignId}`;
+      return (
+        "rules.roll_dice is restricted to the exact Quick-Fire Luck creation "
+        + "recipe while character creation overlaps opening parsing; retry "
+        + "this retained call without changing its arguments: "
+        + JSON.stringify({
+          operation: "rules.roll_dice",
+          campaign: campaignId,
+          arguments: {
+            expression: "3D6",
+            decision_id: decisionId,
+            reason: "Quick-Fire investigator Luck",
+          },
+        })
+      );
     }
     if (state.route.next_operation?.operation === params.operation) {
       this.openingSetupContinuationQueued.delete(campaignId);

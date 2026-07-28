@@ -73,6 +73,11 @@ def _quick_fire_payload(investigator_id: str = "quick-fire-inv") -> dict:
                 "STR",
             ],
             "luck_roll_total": 12,
+            "luck_roll_receipt": {
+                "campaign_id": "contract-campaign",
+                "decision_id": "contract-quick-fire-luck",
+                "roll_id": "toolbox-contract-campaign-000001",
+            },
         },
     }
 
@@ -139,8 +144,17 @@ def test_coc7_contract_query_returns_identity_and_independent_branch_schema(
         "type": "integer",
         "minimum": 3,
         "maximum": 18,
-        "description": "Authoritative 3D6 total. The runtime multiplies it by five.",
+        "description": (
+            "Authoritative 3D6 total. The runtime binds it to "
+            "luck_roll_receipt and multiplies it by five."
+        ),
     }
+    assert defs["quick_fire_creation"]["required"] == [
+        "method",
+        "characteristic_assignment_order",
+        "luck_roll_total",
+        "luck_roll_receipt",
+    ]
     assert defs["complete_sheet"]["required"] == [
         "id",
         "name",
@@ -276,7 +290,23 @@ def test_coc7_actor_create_stays_unsupported_and_quick_fire_still_creates(
             },
         )
 
+    luck = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "contract-campaign",
+        {
+            "expression": "3D6",
+            "decision_id": "contract-quick-fire-luck",
+            "reason": "Quick-Fire investigator Luck",
+            "seed": 17,
+        },
+    )
+    assert luck["ok"] is True
     payload = _quick_fire_payload()
+    payload["creation"]["luck_roll_total"] = luck["data"]["total"]
+    payload["creation"]["luck_roll_receipt"]["roll_id"] = (
+        luck["data"]["roll_id"]
+    )
     receipt = coc_runtime_ops.execute_setup_operation(
         tmp_path,
         operation={
@@ -306,3 +336,107 @@ def test_coc7_actor_create_stays_unsupported_and_quick_fire_still_creates(
         70,
         80,
     ]
+
+
+def test_quick_fire_create_rejects_unreceipted_or_mismatched_luck(
+    tmp_path: Path,
+) -> None:
+    _create_campaign(tmp_path)
+    luck = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "contract-campaign",
+        {
+            "expression": "3D6",
+            "decision_id": "bound-quick-fire-luck",
+            "reason": "Quick-Fire investigator Luck",
+            "seed": 23,
+        },
+    )
+    assert luck["ok"] is True
+
+    ordinary = coc_toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "contract-campaign",
+        {
+            "expression": "3D6",
+            "decision_id": "ordinary-random-3d6",
+            "reason": "ordinary random event",
+            "seed": 29,
+        },
+    )
+    assert ordinary["ok"] is True
+
+    unreceipted = _quick_fire_payload("unreceipted-luck")
+    unreceipted["creation"].pop("luck_roll_receipt")
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match="requires luck_roll_receipt",
+    ):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": unreceipted,
+            },
+        )
+
+    mismatched = _quick_fire_payload("mismatched-luck")
+    mismatched["creation"]["luck_roll_total"] = luck["data"]["total"] + 1
+    mismatched["creation"]["luck_roll_receipt"] = {
+        "campaign_id": "contract-campaign",
+        "decision_id": "bound-quick-fire-luck",
+        "roll_id": luck["data"]["roll_id"],
+    }
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match="does not match the exact campaign",
+    ):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": mismatched,
+            },
+        )
+    wrong_recipe = _quick_fire_payload("wrong-recipe-luck")
+    wrong_recipe["creation"]["luck_roll_total"] = ordinary["data"]["total"]
+    wrong_recipe["creation"]["luck_roll_receipt"] = {
+        "campaign_id": "contract-campaign",
+        "decision_id": "ordinary-random-3d6",
+        "roll_id": ordinary["data"]["roll_id"],
+    }
+    with pytest.raises(
+        coc_runtime_ops.RuntimeOperationError,
+        match="does not match the exact campaign",
+    ):
+        coc_runtime_ops.execute_setup_operation(
+            tmp_path,
+            operation={
+                "schema_version": 1,
+                "kind": "investigator.create",
+                "payload": wrong_recipe,
+            },
+        )
+
+    wrong_campaign = _quick_fire_payload("wrong-campaign-luck")
+    wrong_campaign["creation"]["luck_roll_total"] = luck["data"]["total"]
+    wrong_campaign["creation"]["luck_roll_receipt"] = {
+        "campaign_id": "different-campaign",
+        "decision_id": "bound-quick-fire-luck",
+        "roll_id": luck["data"]["roll_id"],
+    }
+    rejected = coc_toolbox.run_tool(
+        "setup.invoke",
+        tmp_path,
+        "contract-campaign",
+        {"kind": "investigator.create", "payload": wrong_campaign},
+    )
+    assert rejected["error"]["code"] == "invalid_param"
+    assert not (tmp_path / ".coc" / "investigators" / "unreceipted-luck").exists()
+    assert not (tmp_path / ".coc" / "investigators" / "mismatched-luck").exists()
+    assert not (tmp_path / ".coc" / "investigators" / "wrong-recipe-luck").exists()
+    assert not (tmp_path / ".coc" / "investigators" / "wrong-campaign-luck").exists()

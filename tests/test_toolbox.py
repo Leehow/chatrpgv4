@@ -12810,6 +12810,11 @@ def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
                     "CON", "SIZ", "APP", "STR",
                 ],
                 "luck_roll_total": luck["data"]["total"],
+                "luck_roll_receipt": {
+                    "campaign_id": ws["campaign_id"],
+                    "decision_id": "quick-fire-opening-setup-luck",
+                    "roll_id": luck["data"]["roll_id"],
+                },
             },
         },
     })

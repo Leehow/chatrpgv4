@@ -218,7 +218,8 @@
         "required": [
           "method",
           "characteristic_assignment_order",
-          "luck_roll_total"
+          "luck_roll_total",
+          "luck_roll_receipt"
         ],
         "properties": {
           "method": {
@@ -247,7 +248,35 @@
             "type": "integer",
             "minimum": 3,
             "maximum": 18,
-            "description": "Authoritative 3D6 total. The runtime multiplies it by five."
+            "description": "Authoritative 3D6 total. The runtime binds it to luck_roll_receipt and multiplies it by five."
+          },
+          "luck_roll_receipt": {
+            "type": "object",
+            "required": [
+              "campaign_id",
+              "decision_id",
+              "roll_id"
+            ],
+            "properties": {
+              "campaign_id": {
+                "$ref": "#/$defs/safe_id",
+                "description": "Current campaign that owns the canonical rules.roll_dice source receipt."
+              },
+              "decision_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Stable decision_id used by the exact Quick-Fire Luck roll."
+              },
+              "roll_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Exact roll_id returned by the canonical rules.roll_dice receipt."
+              }
+            },
+            "additionalProperties": false,
+            "description": "Compact reference to the current campaign's immutable Quick-Fire Luck source receipt."
           }
         },
         "additionalProperties": true

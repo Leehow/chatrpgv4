@@ -1262,7 +1262,12 @@ async function exerciseFailureDrain(mode) {
       return {
         ok: true,
         tool: "rules.roll_dice",
-        data: { expression: "3D6", rolls: [3, 4, 5], total: 12 },
+        data: {
+          expression: "3D6",
+          rolls: [3, 4, 5],
+          total: 12,
+          roll_id: "toolbox-auto-dispatch-fixture-000001",
+        },
       };
     }
     if (params.operation === "progressive.prepare_opening") {
@@ -1500,6 +1505,35 @@ async function exerciseFailureDrain(mode) {
     harness.ctx,
   );
 
+  const callsBeforeLuckNearMiss = harness.calls.length;
+  let luckNearMiss;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "invoke-quick-fire-luck-near-miss",
+      {
+        operation: "rules.roll_dice",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          expression: "3D6",
+          decision_id: "quick-fire-luck-during-opening",
+          reason: "Quick Fire Luck 3D6 total",
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { luckNearMiss = error; }
+  check("Quick-Fire Luck near miss returns exact retained recipe before MCP",
+    luckNearMiss instanceof Error
+    && luckNearMiss.message.includes(
+      '"decision_id":"quick-fire-luck-during-opening"',
+    )
+    && luckNearMiss.message.includes(
+      '"reason":"Quick-Fire investigator Luck"',
+    )
+    && harness.calls.length === callsBeforeLuckNearMiss);
+
   await harness.registered.get("coc_invoke").execute(
     "invoke-quick-fire-luck-during-opening",
     {
@@ -1554,7 +1588,19 @@ async function exerciseFailureDrain(mode) {
       payload: {
         investigator_id: "route-investigator",
         sheet: { id: "route-investigator", name: "Route Investigator" },
-        creation: { method: "quick_fire_array" },
+        creation: {
+          method: "quick_fire_array",
+          characteristic_assignment_order: [
+            "DEX", "INT", "POW", "EDU",
+            "CON", "SIZ", "APP", "STR",
+          ],
+          luck_roll_total: 12,
+          luck_roll_receipt: {
+            campaign_id: "auto-dispatch-fixture",
+            decision_id: "quick-fire-luck-during-opening",
+            roll_id: "toolbox-auto-dispatch-fixture-000001",
+          },
+        },
       },
     },
     {
@@ -3734,6 +3780,241 @@ async function exerciseFailureDrain(mode) {
       && entry.value.reason === "opening_dispatch_ownership_lost"
       && entry.value.invocation_id === "gateway-pending-bootstrap"
     )));
+  await harness.shutdown();
+}
+
+// A fulfilled background terminal may race immediately ahead of Quick-Fire
+// creation. Exact chargen mechanics remain available, fabricated Luck is
+// rejected, and projection still waits for the exact canonical link receipt.
+{
+  const task = coordinatorTask("fulfilled-before-chargen-luck");
+  const campaignId = "auto-dispatch-fixture";
+  const investigatorId = "fulfilled-chargen-investigator";
+  const luckDecisionId = "fulfilled-before-chargen-luck-roll";
+  const luckRollId = "toolbox-auto-dispatch-fixture-000009";
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult(campaignId);
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    if (params.operation === "rules.roll_dice") {
+      return {
+        ok: true,
+        tool: "rules.roll_dice",
+        data: {
+          expression: "3D6",
+          rolls: [2, 3, 4],
+          total: 9,
+          roll_id: luckRollId,
+        },
+      };
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "investigator.create"
+    ) {
+      return {
+        ok: true,
+        tool: "setup.invoke",
+        data: {
+          schema_version: 1,
+          status: "PASS",
+          kind: "investigator.create",
+          result: { investigator_id: investigatorId },
+        },
+      };
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return canonicalLinkSetupResult(campaignId, [investigatorId]);
+    }
+    if (params.operation === "progressive.project_opening") {
+      return {
+        ok: true,
+        tool: "progressive.project_opening",
+        data: { status: "current" },
+      };
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness, campaignId);
+  const queued = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "fulfilled-chargen-bootstrap",
+    bootstrapOpeningParams(campaignId),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+
+  const luck = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "fulfilled-chargen-luck",
+    {
+      operation: "rules.roll_dice",
+      campaign: campaignId,
+      arguments: {
+        expression: "3D6",
+        decision_id: luckDecisionId,
+        reason: "Quick-Fire investigator Luck",
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const callsBeforeFabricated = harness.calls.length;
+  let fabricatedLuckRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "fulfilled-chargen-fabricated-create",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: {
+          kind: "investigator.create",
+          payload: {
+            investigator_id: "fabricated-luck",
+            sheet: {
+              id: "fabricated-luck",
+              name: "Fabricated Luck",
+            },
+            creation: {
+              method: "quick_fire_array",
+              characteristic_assignment_order: [
+                "DEX", "INT", "POW", "EDU",
+                "CON", "SIZ", "APP", "STR",
+              ],
+              luck_roll_total: 11,
+            },
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { fabricatedLuckRejected = true; }
+  const created = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "fulfilled-chargen-create",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "investigator.create",
+        payload: {
+          investigator_id: investigatorId,
+          sheet: {
+            id: investigatorId,
+            name: "Fulfilled Chargen Investigator",
+          },
+          creation: {
+            method: "quick_fire_array",
+            characteristic_assignment_order: [
+              "DEX", "INT", "POW", "EDU",
+              "CON", "SIZ", "APP", "STR",
+            ],
+            luck_roll_total: luck.data.total,
+            luck_roll_receipt: {
+              campaign_id: campaignId,
+              decision_id: luckDecisionId,
+              roll_id: luck.data.roll_id,
+            },
+          },
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "调查员创建完成。" }],
+  });
+  const callsBeforeOpeningLeak = harness.calls.length;
+  let openingLeakRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "fulfilled-chargen-scene-before-link",
+      {
+        operation: "scene.context",
+        campaign: campaignId,
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { openingLeakRejected = true; }
+  const linked = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "fulfilled-chargen-link",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: campaignId,
+          investigator_ids: [investigatorId],
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const projected = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "fulfilled-chargen-project",
+    {
+      operation: "progressive.project_opening",
+      campaign: campaignId,
+      arguments: {
+        asset_root_id: task.packet.asset_root_id,
+        source_file_sha256: "a".repeat(64),
+        start_location_id: "opening",
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("fulfilled-before-chargen keeps exact Luck create link projection order",
+    queued.data.status === "queued"
+    && luck.data.total === 9
+    && fabricatedLuckRejected
+    && harness.calls.length >= callsBeforeFabricated + 3
+    && created.data.status === "PASS"
+    && openingLeakRejected
+    && harness.calls.length >= callsBeforeOpeningLeak + 2
+    && linked.data.status === "PASS"
+    && projected.data.status === "current"
+    && harness.calls.filter((call) => (
+      call.params.operation === "progressive.project_opening"
+    )).length === 1);
   await harness.shutdown();
 }
 

@@ -7319,7 +7319,8 @@ def _tool_setup_investigator_contract(ctx: Ctx, args: dict[str, Any]):
                 "validation to that campaign's ruleset; "
                 "investigator.create requires investigator_id/sheet and optionally "
                 "creation; Quick Fire may omit sheet characteristics/derived when "
-                "creation supplies characteristic_assignment_order and luck_roll_total; "
+                "creation supplies characteristic_assignment_order, luck_roll_total, "
+                "and the current campaign's exact luck_roll_receipt; "
                 "campaign.link_investigator requires exactly "
                 "campaign_id/investigator_ids; scenario.bind_pdf requires "
                 "campaign_id/scenario_id/title/source_bundle_path and optionally "
@@ -7402,6 +7403,27 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
     payload_campaign_id = str(
         payload.get("campaign_id") or ctx.campaign_id or ""
     ).strip()
+    if kind == "investigator.create":
+        creation = payload.get("creation")
+        if isinstance(creation, dict) and (
+            creation.get("characteristic_assignment_order") is not None
+            or creation.get("luck_roll_total") is not None
+        ):
+            luck_reference = creation.get("luck_roll_receipt")
+            referenced_campaign = (
+                str(luck_reference.get("campaign_id") or "").strip()
+                if isinstance(luck_reference, dict)
+                else ""
+            )
+            if (
+                not ctx.campaign_id
+                or referenced_campaign != ctx.campaign_id
+            ):
+                raise ToolError(
+                    "invalid_param",
+                    "Quick Fire investigator.create luck_roll_receipt.campaign_id "
+                    "must equal the current top-level campaign",
+                )
     opening_setup_gate = _pi_opening_setup_gate(
         ctx.root, payload_campaign_id or None,
     )

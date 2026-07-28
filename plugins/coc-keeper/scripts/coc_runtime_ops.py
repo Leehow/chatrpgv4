@@ -171,6 +171,196 @@ def _read_object(path: Path) -> dict[str, Any]:
     return value
 
 
+_QUICK_FIRE_ROLL_RECEIPT_FIELDS = frozenset({
+    "schema_version",
+    "tool",
+    "decision_id",
+    "fingerprint",
+    "operation",
+    "resolution",
+    "roll_id",
+    "roll_record",
+    "data",
+    "warnings",
+    "hints",
+    "log_prefix_size",
+    "log_prefix_sha256",
+    "integrity_digest",
+})
+
+
+def _canonical_sha256(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _validate_quick_fire_luck_receipt(
+    root: Path,
+    creation: dict[str, Any] | None,
+) -> None:
+    """Bind deterministic Quick Fire Luck to one current campaign roll.
+
+    The canonical dice tool already freezes a source receipt before returning.
+    Investigator creation consumes only a compact reference and revalidates
+    the immutable receipt plus its one durable roll row; callers cannot submit
+    an otherwise plausible 3D6 total.
+    """
+    if not isinstance(creation, dict):
+        return
+    assignment = creation.get("characteristic_assignment_order")
+    luck_total = creation.get("luck_roll_total")
+    if assignment is None and luck_total is None:
+        return
+    reference = creation.get("luck_roll_receipt")
+    if not isinstance(reference, dict) or set(reference) != {
+        "campaign_id", "decision_id", "roll_id",
+    }:
+        raise RuntimeOperationError(
+            "deterministic Quick Fire creation requires luck_roll_receipt "
+            "with exactly campaign_id, decision_id, and roll_id"
+        )
+    campaign_id = _id(reference.get("campaign_id"), "luck_roll_receipt.campaign_id")
+    decision_id = reference.get("decision_id")
+    roll_id = reference.get("roll_id")
+    if not isinstance(decision_id, str) or not decision_id.strip():
+        raise RuntimeOperationError(
+            "luck_roll_receipt.decision_id must be a non-empty string"
+        )
+    if not isinstance(roll_id, str) or not roll_id.strip():
+        raise RuntimeOperationError(
+            "luck_roll_receipt.roll_id must be a non-empty string"
+        )
+    campaign_dir = root / ".coc" / "campaigns" / campaign_id
+    campaign_path = campaign_dir / "campaign.json"
+    receipt_path = campaign_dir / "save" / "roll-operation-receipts.json"
+    rolls_path = campaign_dir / "logs" / "rolls.jsonl"
+    coc_root = root / ".coc"
+    if (
+        not campaign_path.is_file()
+        or not _target_kind_is_safe(coc_root, campaign_path)
+        or not receipt_path.is_file()
+        or not _target_kind_is_safe(coc_root, receipt_path)
+        or not rolls_path.is_file()
+        or not _target_kind_is_safe(coc_root, rolls_path)
+    ):
+        raise RuntimeOperationError(
+            "Quick Fire Luck source receipt is unavailable for the referenced "
+            f"campaign: {campaign_id}"
+        )
+    document = _read_object(receipt_path)
+    if (
+        set(document) != {
+            "schema_version", "receipts", "pending_side_effects", "luck_spends",
+        }
+        or document.get("schema_version") != 6
+        or not isinstance(document.get("receipts"), dict)
+        or not isinstance(document.get("pending_side_effects"), dict)
+        or not isinstance(document.get("luck_spends"), dict)
+    ):
+        raise RuntimeOperationError(
+            "Quick Fire Luck source receipt document is invalid"
+        )
+    by_tool = document["receipts"].get("rules.roll_dice")
+    receipt = (
+        by_tool.get(decision_id)
+        if isinstance(by_tool, dict)
+        else None
+    )
+    operation = receipt.get("operation") if isinstance(receipt, dict) else None
+    resolution = receipt.get("resolution") if isinstance(receipt, dict) else None
+    data = receipt.get("data") if isinstance(receipt, dict) else None
+    record = receipt.get("roll_record") if isinstance(receipt, dict) else None
+    payload = record.get("payload") if isinstance(record, dict) else None
+    rolls = data.get("rolls") if isinstance(data, dict) else None
+    expected_operation = {
+        "expression": "3D6",
+        "reason": "Quick-Fire investigator Luck",
+    }
+    expected_resolution = {
+        "expression": "3D6",
+        "count": 3,
+        "sides": 6,
+        "modifier": 0,
+    }
+    receipt_body = (
+        {key: deepcopy(value) for key, value in receipt.items()
+         if key != "integrity_digest"}
+        if isinstance(receipt, dict)
+        else None
+    )
+    valid = bool(
+        isinstance(receipt, dict)
+        and set(receipt) == set(_QUICK_FIRE_ROLL_RECEIPT_FIELDS)
+        and receipt.get("schema_version") == 5
+        and receipt.get("tool") == "rules.roll_dice"
+        and receipt.get("decision_id") == decision_id
+        and receipt.get("roll_id") == roll_id
+        and operation == expected_operation
+        and resolution == expected_resolution
+        and receipt.get("fingerprint") == _canonical_sha256({
+            "tool": "rules.roll_dice",
+            "operation": expected_operation,
+        })
+        and receipt.get("integrity_digest") == _canonical_sha256(receipt_body)
+        and isinstance(data, dict)
+        and isinstance(record, dict)
+        and isinstance(payload, dict)
+        and data.get("expression") == "3D6"
+        and data.get("count") == 3
+        and data.get("sides") == 6
+        and data.get("modifier") == 0
+        and data.get("reason") == "Quick-Fire investigator Luck"
+        and data.get("roll_id") == roll_id
+        and isinstance(rolls, list)
+        and len(rolls) == 3
+        and all(
+            isinstance(face, int)
+            and not isinstance(face, bool)
+            and 1 <= face <= 6
+            for face in rolls
+        )
+        and isinstance(data.get("total"), int)
+        and not isinstance(data.get("total"), bool)
+        and data.get("total") == sum(rolls)
+        and data.get("total") == luck_total
+        and record.get("roll_id") == roll_id
+        and record.get("visibility") == "public"
+        and record.get("event_type") == "roll"
+        and all(record.get(key) == value for key, value in data.items())
+        and all(payload.get(key) == value for key, value in data.items())
+        and payload.get("die_expression") == "3D6"
+        and payload.get("individual_faces") == rolls
+        and payload.get("final_total") == luck_total
+        and payload.get("roll") == luck_total
+    )
+    if not valid:
+        raise RuntimeOperationError(
+            "Quick Fire Luck source receipt does not match the exact "
+            "campaign, 3D6 recipe, roll_id, and luck_roll_total"
+        )
+    try:
+        roll_rows = [
+            json.loads(line)
+            for line in rolls_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeOperationError(
+            "Quick Fire Luck roll log is unreadable"
+        ) from exc
+    if [row for row in roll_rows if row.get("roll_id") == roll_id] != [record]:
+        raise RuntimeOperationError(
+            "Quick Fire Luck roll log does not contain exactly the referenced "
+            "authoritative roll"
+        )
+
+
 def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
@@ -3564,6 +3754,7 @@ def execute_setup_operation(
             creation is not None and not isinstance(creation, dict)
         ):
             raise RuntimeOperationError("investigator.create requires object sheet/creation")
+        _validate_quick_fire_luck_receipt(root, creation)
         try:
             sheet = coc_character.materialize_quick_fire_create_sheet(
                 sheet, creation,

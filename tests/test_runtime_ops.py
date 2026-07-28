@@ -36,6 +36,10 @@ module_project = _load(
     "coc_module_project_runtime_ops_test",
     REPO / "plugins" / "coc-keeper" / "scripts" / "coc_module_project.py",
 )
+toolbox = _load(
+    "coc_toolbox_runtime_ops_test",
+    REPO / "plugins" / "coc-keeper" / "scripts" / "coc_toolbox.py",
+)
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -2359,6 +2363,18 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
         "kind": "campaign.create",
         "payload": {"campaign_id": "quick-fire", "title": "Quick Fire"},
     })
+    luck = toolbox.run_tool(
+        "rules.roll_dice",
+        tmp_path,
+        "quick-fire",
+        {
+            "expression": "3D6",
+            "decision_id": "runtime-ops-quick-fire-luck",
+            "reason": "Quick-Fire investigator Luck",
+            "seed": 19,
+        },
+    )
+    assert luck["ok"] is True
     receipt = ops.execute_setup_operation(tmp_path, operation={
         "schema_version": 1,
         "kind": "investigator.create",
@@ -2376,7 +2392,12 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
                     "DEX", "INT", "POW", "EDU",
                     "CON", "SIZ", "APP", "STR",
                 ],
-                "luck_roll_total": 12,
+                "luck_roll_total": luck["data"]["total"],
+                "luck_roll_receipt": {
+                    "campaign_id": "quick-fire",
+                    "decision_id": "runtime-ops-quick-fire-luck",
+                    "roll_id": luck["data"]["roll_id"],
+                },
             },
         },
     })
@@ -2389,7 +2410,7 @@ def test_investigator_create_materializes_quick_fire_numbers_before_write(tmp_pa
     assert sorted(stored["characteristics"].values()) == [
         40, 50, 50, 50, 60, 60, 70, 80,
     ]
-    assert stored["derived"]["Luck"] == 60
+    assert stored["derived"]["Luck"] == luck["data"]["total"] * 5
     assert stored["derived"]["DB"] == "none"
 
 
