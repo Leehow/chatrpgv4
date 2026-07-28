@@ -67,7 +67,8 @@
       "prefilled_arguments": [
         "executor_id",
         "limit",
-        "result_delivery"
+        "result_delivery",
+        "current_dependency_claim"
       ],
       "result_delivery_values": [
         "return_to_parent",
@@ -83,7 +84,10 @@
           "result_delivery": "task_return_to_parent",
           "claim_result_field": "dispatch_tasks",
           "task_contract": "coc.pi-source-pack-task.v1",
-          "repository_produced_wrappers_only": true
+          "repository_produced_wrappers_only": true,
+          "optional_private_exact_claim_field": "current_dependency_claim",
+          "private_exact_claim_cardinality": 1,
+          "main_keeper_may_supply_private_exact_claim": false
         }
       },
       "limit_minimum": 1,
@@ -277,12 +281,30 @@
     "pi_leaf_failure_collection": "indexed_all_settled",
     "pi_interim_retry_terminal_delivery": false,
     "pi_interim_retry_parent_wake": false,
-    "pi_parent_terminal_delivery": "append_final_receipt_then_wake_only_structured_blocking_opening",
+    "pi_parent_terminal_delivery": "append_final_receipt_then_wake_only_structured_blocking_opening_or_exact_fulfilled_current_dependency",
     "pi_nonblocking_background_parent_wake": false,
-    "pi_hidden_continuation_source": "final_validated_receipt_plus_structured_blocking_opening_dispatch_class",
+    "pi_hidden_continuation_source": "final_validated_receipt_plus_structured_blocking_opening_or_exact_current_dependency_dispatch_identity",
     "pi_terminal_authority": "exact_deterministic_lifecycle_tool_result_with_deep_equal_terminal_echo",
     "pi_notification_failure_effect": "retain_completed_receipt_and_record_bounded_delivery_status",
     "pi_shutdown_ownership": "closing_gate_and_exact_owned_run_cleanup"
+  },
+  "current_dependency_projection": {
+    "contract_id": "coc.source-current-dependency-wait.v1",
+    "identity": "sha256_of_existing_asset_root_id_plus_canonical_typed_dependency_ref",
+    "persisted_state_added": false,
+    "projected_from": "every_open_current_dependency_host_work_row_without_preview_truncation",
+    "operational_classes": [
+      "awaiting_scope",
+      "awaiting_cache",
+      "runnable",
+      "leased",
+      "stale"
+    ],
+    "pi_dispatch": "one_repository_produced_private_exact_job_task_per_runnable_current_dependency",
+    "ordinary_background_separation": true,
+    "release_authority": "only_the_same_dependency_id_job_id_dispatch_identity_with_fulfilled_terminal",
+    "stale_unrelated_or_failed_terminal_effect": "append_only_no_release_no_wake",
+    "session_state": "ephemeral_host_gate_only"
   },
   "failure_policy": {
     "authority": "prompt_first_advisory",
@@ -317,7 +339,7 @@
         "interim_terminal_receipt_published": false,
         "interim_parent_wake": false,
         "final_terminal_receipt_published_once": true,
-        "final_hidden_continuation": "only_for_structured_blocking_opening_receipt_derived_deduplicated_triggerTurn_true"
+        "final_hidden_continuation": "only_for_structured_blocking_opening_or_exact_fulfilled_current_dependency_receipt_derived_deduplicated_triggerTurn_true"
       }
     },
     "required_failure_classes": [

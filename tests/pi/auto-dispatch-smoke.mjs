@@ -72,22 +72,79 @@ function directTakeoverResult(task) {
   };
 }
 
-function blockingMicroTakeoverResult(task) {
-  const value = directTakeoverResult(task);
-  value.data.background_takeover.play_boundary = {
-    player_action_gate: false,
-    narrative_gate: false,
-    output_gate: false,
-    nondependent_play_may_continue: true,
-    blocking_micro_applies_only_to_current_dependent_settlement: true,
-    current_dependent_settlement_waits_for_terminal: true,
-    current_dependencies: [{
-      operation: "scene.context",
-      subject: { kind: "location", id: "later-location" },
-      decision_id: "current-arrival-details",
-    }],
+function currentDependencyFixture(packetId, {
+  jobId = `job-${packetId}`,
+  decisionId = "current-arrival-details",
+  operationalClass = "runnable",
+} = {}) {
+  const dependencyRef = {
+    operation: "scene.context",
+    subject: { kind: "location", id: "later-location" },
+    decision_id: decisionId,
   };
-  return value;
+  const assetRootId = "asset-auto";
+  const dependencyId = `source-dependency-${createHash("sha256").update(
+    JSON.stringify({
+      asset_root_id: assetRootId,
+      dependency_ref: {
+        decision_id: decisionId,
+        operation: "scene.context",
+        subject: { id: "later-location", kind: "location" },
+      },
+    }),
+  ).digest("hex").slice(0, 20)}`;
+  const binding = {
+    dependency_id: dependencyId,
+    job_id: jobId,
+    dependency_ref: dependencyRef,
+  };
+  const task = coordinatorTask(packetId, {
+    assetRootId,
+    executorId: `source-current-dependency:${dependencyId}`,
+  });
+  task.packet.max_leaves = 1;
+  task.packet.claim_operation.prefilled_arguments.limit = 1;
+  task.packet.claim_operation.prefilled_arguments.current_dependency_claim = (
+    binding
+  );
+  const wait = {
+    schema_version: 1,
+    contract_id: "coc.source-current-dependency-wait.v1",
+    ...binding,
+    work_group_id: jobId,
+    operational_class: operationalClass,
+    dispatch_attempts: 0,
+  };
+  const dispatch = {
+    ...wait,
+    next_host_action: {
+      schema_version: 1,
+      action: "invoke_coc_dispatch_source_work",
+      task,
+      parent_waits: false,
+      parent_result_polls: 0,
+      parent_output_retrieval: false,
+    },
+  };
+  return { task, wait, dispatch };
+}
+
+function currentDependencyResult(fixtures, ordinaryTask = null) {
+  const values = Array.isArray(fixtures) ? fixtures : [fixtures];
+  const data = {
+    host_work: {
+      current_dependency_waits: values.map((value) => value.wait),
+      current_dependency_dispatches: values
+        .filter((value) => value.wait.operational_class === "runnable")
+        .map((value) => value.dispatch),
+    },
+  };
+  if (ordinaryTask !== null) data.background_takeover = takeover(ordinaryTask);
+  return {
+    ok: true,
+    tool: "progressive.request_deepen",
+    data,
+  };
 }
 
 function openingBootstrapResult(task) {
@@ -4946,13 +5003,14 @@ async function exerciseFailureDrain(mode) {
   await harness.shutdown();
 }
 
-// Noncritical source deepening remains fire-and-forget and does not inherit
-// the opening hard wait.
+// One exact current dependency suppresses only source-dependent output and
+// resumes from its own fulfilled terminal.
 {
-  const task = coordinatorTask("coord-current-dependent-deepen");
+  const current = currentDependencyFixture("coord-current-dependent-deepen");
+  const { task } = current;
   const harness = mainExtensionHarness((_name, params) => {
     if (params.operation === "progressive.request_deepen") {
-      return blockingMicroTakeoverResult(task);
+      return currentDependencyResult(current);
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
@@ -5005,6 +5063,162 @@ async function exerciseFailureDrain(mode) {
     && harness.calls.filter((call) => (
       call.params.operation === "progressive.status"
     )).length === 0);
+  await harness.shutdown();
+}
+
+// Awaiting-scope/cache dependencies are durable output waits even before an
+// exact dispatch exists. Session teardown clears only the in-memory gate.
+for (const operationalClass of ["awaiting_scope", "awaiting_cache"]) {
+  const current = currentDependencyFixture(
+    `coord-current-${operationalClass}`,
+    { operationalClass },
+  );
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return currentDependencyResult(current);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    `invoke-current-${operationalClass}`,
+    {
+      operation: "progressive.request_deepen",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "location",
+        target_id: "later-location",
+        title: "Later location",
+        current_dependency: {
+          operation: "scene.context",
+          decision_id: "current-arrival-details",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const premature = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "不能提前释放的来源事实。" }],
+  });
+  check(`${operationalClass} suppresses output before exact dispatch`,
+    premature.content.every((part) => part.type !== "text")
+    && harness.launches.length === 0);
+  await harness.shutdown();
+}
+
+// Several exact waits retain their own terminal identities. Unrelated and
+// failed terminals cannot release them, and only the last exact fulfillment
+// asks for one wake.
+{
+  const first = currentDependencyFixture(
+    "coord-current-multi-first",
+    { decisionId: "current-multi-first" },
+  );
+  const second = currentDependencyFixture(
+    "coord-current-multi-second",
+    { decisionId: "current-multi-second" },
+  );
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.observeCurrentDependencyWaits([first.wait, second.wait]);
+  check("multiple current dependency dispatches bind independently",
+    gate.bindCurrentDependencyDispatch(
+      first.wait.dependency_id,
+      first.wait.job_id,
+      first.task.packet.packet_id,
+    )
+    && gate.bindCurrentDependencyDispatch(
+      second.wait.dependency_id,
+      second.wait.job_id,
+      second.task.packet.packet_id,
+    ));
+  const staleContext = gate.coordinatorContinuationContext(
+    "coord-unrelated-background",
+    "fulfilled",
+  );
+  const failedContext = gate.coordinatorContinuationContext(
+    first.task.packet.packet_id,
+    "failed",
+  );
+  check("unrelated and failed terminals stay nonblocking append-only",
+    staleContext.dispatch_class === "nonblocking_background"
+    && failedContext.dispatch_class === "nonblocking_background"
+    && gate.acceptVisibleAssistantFinal("仍不能释放依赖事实。") === false);
+  const firstContext = gate.coordinatorContinuationContext(
+    first.task.packet.packet_id,
+    "fulfilled",
+  );
+  check("first exact terminal consumes only its own dependency",
+    firstContext.dependency_id === first.wait.dependency_id
+    && gate.decideWake(first.task.packet.packet_id) === false
+    && gate.acceptVisibleAssistantFinal("另一个依赖仍未完成。") === false);
+  const secondContext = gate.coordinatorContinuationContext(
+    second.task.packet.packet_id,
+    "fulfilled",
+  );
+  check("last exact terminal releases the dependency gate once",
+    secondContext.dependency_id === second.wait.dependency_id
+    && gate.decideWake(second.task.packet.packet_id) === true);
+  gate.reset();
+  check("session reset drops only ephemeral dependency waits",
+    gate.acceptVisibleAssistantFinal("新会话不继承旧等待。") === true);
+}
+
+// Ordinary ready work starts separately and never gains the exact dependency
+// selector or terminal authority.
+{
+  const current = currentDependencyFixture("coord-current-mixed-ready");
+  const ordinaryTask = coordinatorTask("coord-ordinary-mixed-ready");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.request_deepen") {
+      return currentDependencyResult(current, ordinaryTask);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await harness.registered.get("coc_invoke").execute(
+    "invoke-current-mixed-ready",
+    {
+      operation: "progressive.request_deepen",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "location",
+        target_id: "later-location",
+        title: "Later location",
+        current_dependency: {
+          operation: "scene.context",
+          decision_id: "current-arrival-details",
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  await nextTurn();
+  const submitted = harness.appended.filter((entry) => (
+    entry.name === "coc-source-coordinator-auto-dispatch"
+    && ["submitted", "pending"].includes(entry.value?.status)
+  ));
+  check("mixed ready exact current task submits",
+    submitted.some((entry) => (
+      entry.value?.dispatch_key === current.task.packet.packet_id
+    )));
+  check("mixed ready ordinary task retains an independent queued submission",
+    submitted.some((entry) => (
+      entry.value?.dispatch_key === ordinaryTask.packet.packet_id
+    )));
+  check("mixed ready exact task retains its private selector",
+    current.task.packet.claim_operation.prefilled_arguments
+      .current_dependency_claim?.job_id === current.wait.job_id);
+  check("mixed ready ordinary task has no private selector",
+    !Object.hasOwn(
+      ordinaryTask.packet.claim_operation.prefilled_arguments,
+      "current_dependency_claim",
+    ));
   await harness.shutdown();
 }
 

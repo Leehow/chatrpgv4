@@ -10950,6 +10950,7 @@ def _source_coordinator_dispatch(
     asset_root_id: str,
     ready_background: list[dict[str, Any]],
     claim_result_delivery: str = "return_to_parent",
+    current_dependency_claim: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the exact prompt packet for one host-native source coordinator.
 
@@ -10968,6 +10969,51 @@ def _source_coordinator_dispatch(
         if str(row.get("work_group_id") or row.get("job_id") or "")
     })
     max_leaves = min(4, len(group_ids))
+    if current_dependency_claim is not None:
+        if claim_result_delivery != "task_return_to_parent":
+            raise ValueError(
+                "current dependency claim requires private Pi task return"
+            )
+        if len(ready_background) != 1 or max_leaves != 1:
+            raise ValueError(
+                "current dependency claim must bind one exact runnable job"
+            )
+        expected_job_id = str(
+            ready_background[0].get("job_id") or ""
+        ).strip()
+        if (
+            set(current_dependency_claim)
+            != {"dependency_id", "job_id", "dependency_ref"}
+            or str(current_dependency_claim.get("job_id") or "")
+            != expected_job_id
+        ):
+            raise ValueError("current dependency claim job binding drift")
+        canonical_ref = (
+            coc_module_project.coc_module_assets
+            .validate_host_work_dependency_ref(
+                current_dependency_claim.get("dependency_ref")
+            )
+        )
+        expected_dependency_id = (
+            coc_module_project.coc_module_assets
+            .current_dependency_projection_id(
+                asset_root_id,
+                canonical_ref,
+            )
+        )
+        if (
+            current_dependency_claim.get("dependency_id")
+            != expected_dependency_id
+            or ready_background[0].get("work_level")
+            != "current_dependency"
+            or ready_background[0].get("dependency_ref") != canonical_ref
+        ):
+            raise ValueError("current dependency claim identity drift")
+        current_dependency_claim = {
+            "dependency_id": expected_dependency_id,
+            "job_id": expected_job_id,
+            "dependency_ref": canonical_ref,
+        }
     packet_material = {
         "campaign_id": campaign_id,
         "asset_root_id": asset_root_id,
@@ -10983,6 +11029,10 @@ def _source_coordinator_dispatch(
             }
             for group_id in group_ids
         ],
+        **(
+            {"current_dependency_claim": current_dependency_claim}
+            if current_dependency_claim is not None else {}
+        ),
     }
     packet_digest = hashlib.sha256(
         json.dumps(
@@ -10995,6 +11045,20 @@ def _source_coordinator_dispatch(
     executor_digest = hashlib.sha256(
         f"{campaign_id}:{asset_root_id}".encode("utf-8")
     ).hexdigest()[:20]
+    executor_id = (
+        f"source-current-dependency:{current_dependency_claim['dependency_id']}"
+        if current_dependency_claim is not None
+        else f"source-coordinator:{executor_digest}"
+    )
+    claim_arguments = {
+        "executor_id": executor_id,
+        "limit": max_leaves,
+        "result_delivery": claim_result_delivery,
+        **(
+            {"current_dependency_claim": current_dependency_claim}
+            if current_dependency_claim is not None else {}
+        ),
+    }
     packet = {
         "schema_version": 1,
         "contract_id": "coc.source-coordinator.v1",
@@ -11008,11 +11072,7 @@ def _source_coordinator_dispatch(
         "claim_operation": {
             "operation": "progressive.claim_host_work",
             "invoke_via": "canonical_typed_operation_gateway",
-            "prefilled_arguments": {
-                "executor_id": f"source-coordinator:{executor_digest}",
-                "limit": max_leaves,
-                "result_delivery": claim_result_delivery,
-            },
+            "prefilled_arguments": claim_arguments,
             "missing_arguments": [],
             "authority": "advisory",
             "hard_gate": False,
@@ -11085,6 +11145,7 @@ def _pi_source_coordinator_dispatch(
     campaign_id: str,
     asset_root_id: str,
     ready_background: list[dict[str, Any]],
+    current_dependency_claim: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Project the same closed coordinator packet for the Pi Package."""
     dispatch = _source_coordinator_dispatch(
@@ -11093,6 +11154,7 @@ def _pi_source_coordinator_dispatch(
         asset_root_id=asset_root_id,
         ready_background=ready_background,
         claim_result_delivery="task_return_to_parent",
+        current_dependency_claim=current_dependency_claim,
     )
     codex_task = dispatch.pop("codex_task")
     dispatch["packet"]["claim_operation"]["prefilled_arguments"][
@@ -11543,6 +11605,34 @@ def _source_parent_flat_fanout_dispatch(
     }
 
 
+def _current_dependency_wait_projection(
+    asset_root_id: str,
+    request: dict[str, Any],
+    operational_class: str,
+) -> dict[str, Any]:
+    assets_mod = coc_module_project.coc_module_assets
+    dependency_ref = assets_mod.validate_host_work_dependency_ref(
+        request.get("dependency_ref")
+    )
+    return {
+        "schema_version": 1,
+        "contract_id": "coc.source-current-dependency-wait.v1",
+        "dependency_id": assets_mod.current_dependency_projection_id(
+            asset_root_id,
+            dependency_ref,
+        ),
+        "job_id": str(request.get("job_id") or ""),
+        "work_group_id": str(
+            request.get("work_group_id")
+            or request.get("job_id")
+            or ""
+        ),
+        "dependency_ref": dependency_ref,
+        "operational_class": operational_class,
+        "dispatch_attempts": int(request.get("dispatch_attempts") or 0),
+    }
+
+
 def _source_host_work_projection(
     ctx: Ctx,
     asset_root_id: str,
@@ -11594,14 +11684,38 @@ def _source_host_work_projection(
         row for row in ready_candidates
         if row not in retry_exhausted
     ]
-    blocking_micro_dependencies = [
-        deepcopy(row.get("dependency_ref"))
-        for row in ready_background
-        if row.get("deadline_class") == "blocking_micro"
-        and isinstance(row.get("dependency_ref"), dict)
-    ]
     operational_classes = [
         assets_mod.host_work_operational_class(row) for row in open_rows
+    ]
+    current_dependency_waits = [
+        _current_dependency_wait_projection(
+            asset_root_id,
+            row,
+            operational_class,
+        )
+        for row, operational_class in zip(
+            open_rows,
+            operational_classes,
+            strict=True,
+        )
+        if execution_owner != "opening_source_coordinator"
+        and row.get("work_level") == "current_dependency"
+        and isinstance(row.get("dependency_ref"), dict)
+    ]
+    waits_by_job_id = {
+        str(wait["job_id"]): wait
+        for wait in current_dependency_waits
+    }
+    pi_current_ready = [
+        row for row in ready_background
+        if host_adapter == "pi"
+        and execution_owner != "opening_source_coordinator"
+        and row.get("work_level") == "current_dependency"
+        and str(row.get("job_id") or "") in waits_by_job_id
+    ]
+    dispatch_ready_background = [
+        row for row in ready_background
+        if row not in pi_current_ready
     ]
     awaiting_scope = [
         row for row, operational_class in zip(
@@ -11631,7 +11745,36 @@ def _source_host_work_projection(
             for row in ready_background
         ),
         "ready_background_requests": ready_background[:4],
+        "current_dependency_waits": current_dependency_waits,
     }
+    if pi_current_ready:
+        current_dispatches: list[dict[str, Any]] = []
+        for request in pi_current_ready:
+            wait = waits_by_job_id[str(request["job_id"])]
+            claim = {
+                "dependency_id": wait["dependency_id"],
+                "job_id": wait["job_id"],
+                "dependency_ref": deepcopy(wait["dependency_ref"]),
+            }
+            coordinator = _pi_source_coordinator_dispatch(
+                workspace_root=str(ctx.root),
+                campaign_id=str(ctx.campaign_id),
+                asset_root_id=asset_root_id,
+                ready_background=[request],
+                current_dependency_claim=claim,
+            )
+            current_dispatches.append({
+                **deepcopy(wait),
+                "next_host_action": {
+                    "schema_version": 1,
+                    "action": "invoke_coc_dispatch_source_work",
+                    "task": coordinator["pi_task"],
+                    "parent_waits": False,
+                    "parent_result_polls": 0,
+                    "parent_output_retrieval": False,
+                },
+            })
+        projection["current_dependency_dispatches"] = current_dispatches
     if retry_exhausted:
         projection.update({
             "pi_coordinator_dispatch_status": "retry_exhausted",
@@ -11677,11 +11820,11 @@ def _source_host_work_projection(
             request=locator_request,
             target_label=target_label,
         )
-    if not ready_background:
+    if not dispatch_ready_background:
         return projection
     ready_group_count = len({
         str(row.get("work_group_id") or row.get("job_id"))
-        for row in ready_background
+        for row in dispatch_ready_background
     })
     if (
         ready_group_count == 1
@@ -11722,7 +11865,7 @@ def _source_host_work_projection(
                 workspace_root=str(ctx.root),
                 campaign_id=str(ctx.campaign_id),
                 asset_root_id=asset_root_id,
-                ready_background=ready_background,
+                ready_background=dispatch_ready_background,
             )
             route = {
                 "dispatch_mode": "coordinator_fanout",
@@ -11780,7 +11923,7 @@ def _source_host_work_projection(
             workspace_root=str(ctx.root),
             campaign_id=str(ctx.campaign_id),
             asset_root_id=asset_root_id,
-            ready_background=ready_background,
+            ready_background=dispatch_ready_background,
         )
         route = {
             "dispatch_mode": "coordinator_fanout",
@@ -11827,19 +11970,24 @@ def _source_host_work_projection(
             "output_gate": False,
             "nondependent_play_may_continue": True,
             "blocking_micro_applies_only_to_current_dependent_settlement": True,
-            **({
-                "current_dependent_settlement_waits_for_terminal": True,
-                "current_dependencies": blocking_micro_dependencies[:4],
-                "terminal_consumption": (
-                    "passively await one host terminal notice without polling "
-                    "or output retrieval, then consume through the next "
-                    "naturally needed canonical query"
-                ),
-            } if blocking_micro_dependencies else {}),
         },
     }
     projection["background_takeover"] = takeover
     return projection
+
+
+def _attach_source_host_projection(
+    ctx: Ctx,
+    result: dict[str, Any],
+    asset_root_id: str,
+) -> dict[str, Any]:
+    projection = _source_host_work_projection(ctx, asset_root_id)
+    result["host_work"] = projection
+    for field in ("background_takeover", "source_scope_takeover"):
+        if projection.get(field) is not None:
+            result[field] = projection[field]
+    return projection
+
 
 def _scene_contract_projection(
     ctx: Ctx, active_id: str | None, world: dict[str, Any]
@@ -15178,6 +15326,7 @@ def _tool_progressive_register_source_bundle(ctx: Ctx, args: dict[str, Any]):
             "source_identity_mismatch",
             "source bundle resolved to a different progressive asset root",
         )
+    _attach_source_host_projection(ctx, result, root_id)
     return result, [], [
         "reviewed pages are now cached; claim background host work again so its "
         "exact cached_page_refs refresh without reopening the PDF",
@@ -15240,6 +15389,8 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
         raise ToolError("invalid_param", str(exc)) from exc
     except coc_module_project.coc_module_assets.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc
+    root_id = str(result.get("asset_root_id") or "")
+    _attach_source_host_projection(ctx, result, root_id)
     return result, [], [
         "the exact scope is attached and the old awaiting_scope row is superseded; "
         "continue play while the existing background_takeover handles the replacement",
@@ -15294,6 +15445,23 @@ def _tool_progressive_resolve_source_scope(ctx: Ctx, args: dict[str, Any]):
                 "return to a lifecycle coordinator"
             ),
         },
+        "current_dependency_claim": {
+            "type": "object",
+            "desc": (
+                "private Pi coordinator binding produced by the repository; "
+                "main KP callers must omit it"
+            ),
+            "properties": {
+                "dependency_id": {"type": "string", "required": True},
+                "job_id": {"type": "string", "required": True},
+                "dependency_ref": {
+                    "type": "object",
+                    "required": True,
+                    "additionalProperties": True,
+                },
+            },
+            "additionalProperties": False,
+        },
     },
 )
 def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
@@ -15307,6 +15475,60 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
         requested_delivery = str(
             args.get("result_delivery") or "named_submit"
         )
+        private_claim = args.get("current_dependency_claim")
+        exact_job_id = None
+        if private_claim is not None:
+            if (
+                str(os.environ.get("COC_HOST") or "").lower() != "pi"
+                or requested_delivery != "task_return_to_parent"
+                or not isinstance(private_claim, dict)
+                or set(private_claim)
+                != {"dependency_id", "job_id", "dependency_ref"}
+            ):
+                raise assets_mod.ModuleAssetsError(
+                    "current_dependency_claim is reserved for one exact "
+                    "private Pi coordinator task"
+                )
+            job_id = str(private_claim.get("job_id") or "").strip()
+            canonical_ref = assets_mod.validate_host_work_dependency_ref(
+                private_claim.get("dependency_ref")
+            )
+            dependency_id = assets_mod.current_dependency_projection_id(
+                root_id,
+                canonical_ref,
+            )
+            expected_executor = f"source-current-dependency:{dependency_id}"
+            if (
+                not job_id
+                or private_claim.get("dependency_id") != dependency_id
+                or str(args.get("executor_id") or "") != expected_executor
+                or args.get("limit", 1) != 1
+            ):
+                raise assets_mod.ModuleAssetsError(
+                    "private current dependency claim identity drift"
+                )
+            open_request = next(
+                (
+                    row for row in assets_mod.list_host_work_requests(
+                        ctx.root,
+                        root_id,
+                        include_closed=False,
+                        limit=None,
+                    )
+                    if str(row.get("job_id") or "") == job_id
+                ),
+                None,
+            )
+            if (
+                not isinstance(open_request, dict)
+                or open_request.get("work_level") != "current_dependency"
+                or open_request.get("dependency_ref") != canonical_ref
+            ):
+                raise assets_mod.ModuleAssetsError(
+                    "private current dependency claim no longer owns its "
+                    "exact open typed request"
+                )
+            exact_job_id = job_id
         packet_delivery = (
             "return_to_parent"
             if requested_delivery == "task_return_to_parent"
@@ -15321,6 +15543,7 @@ def _tool_progressive_claim_host_work(ctx: Ctx, args: dict[str, Any]):
             cached_only=True,
             result_delivery=packet_delivery,
             max_dispatch_attempts=args.get("max_dispatch_attempts"),
+            exact_job_id=exact_job_id,
         )
     except assets_mod.ModuleAssetsError as exc:
         raise ToolError("invalid_param", str(exc)) from exc

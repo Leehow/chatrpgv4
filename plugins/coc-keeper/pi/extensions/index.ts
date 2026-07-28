@@ -216,6 +216,11 @@ type OpeningBackgroundSubmissionDisposition =
   | { status: "submitted" }
   | { status: "terminal"; receipt: JsonObject }
   | { status: "stale" };
+type CurrentDependencyWait = {
+  jobId: string;
+  dependencyRef: JsonObject;
+  dispatchKey: string | null;
+};
 const MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN = 32;
 const OPENING_START_LOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
@@ -229,6 +234,11 @@ export class OpeningTerminalContinuationGate {
     promise: Promise<boolean>;
     resolve: (shouldWake: boolean) => void;
   }>();
+  private readonly currentDependencyWaits = new Map<
+    string,
+    CurrentDependencyWait
+  >();
+  private readonly currentDependencyByDispatch = new Map<string, string>();
   private agentActive = false;
   private queuedVisibleDispositions: QueuedVisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
@@ -2084,23 +2094,53 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
-  trackBlockingMicroDispatch(dispatchKey: string): void {
-    if (!dispatchKey) return;
-    this.states.set(dispatchKey, "awaiting");
-    this.dispatchClasses.set(dispatchKey, "blocking_micro");
-    this.queueVisibleAssistantDisposition("operational_wait", dispatchKey);
+  observeCurrentDependencyWaits(waits: JsonObject[]): void {
+    for (const value of waits) {
+      const dependencyId = typeof value.dependency_id === "string"
+        ? value.dependency_id.trim()
+        : "";
+      const jobId = typeof value.job_id === "string"
+        ? value.job_id.trim()
+        : "";
+      const dependencyRef = objectOrNull(value.dependency_ref);
+      if (!dependencyId || !jobId || dependencyRef === null) continue;
+      const existing = this.currentDependencyWaits.get(dependencyId);
+      if (existing?.jobId !== jobId && existing?.dispatchKey) {
+        this.currentDependencyByDispatch.delete(existing.dispatchKey);
+        this.states.delete(existing.dispatchKey);
+        this.dispatchClasses.delete(existing.dispatchKey);
+      }
+      this.currentDependencyWaits.set(dependencyId, {
+        jobId,
+        dependencyRef,
+        dispatchKey: existing?.jobId === jobId
+          ? existing.dispatchKey
+          : null,
+      });
+    }
   }
 
-  releaseBlockingMicroDispatch(dispatchKey: string): void {
-    if (this.dispatchClasses.get(dispatchKey) !== "blocking_micro") return;
-    this.states.delete(dispatchKey);
-    this.dispatchClasses.delete(dispatchKey);
-    this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
-      (queued) => !(
-        queued.disposition === "operational_wait"
-        && queued.dispatchKey === dispatchKey
-      ),
-    );
+  bindCurrentDependencyDispatch(
+    dependencyId: string,
+    jobId: string,
+    dispatchKey: string,
+  ): boolean {
+    const wait = this.currentDependencyWaits.get(dependencyId);
+    if (
+      wait === undefined
+      || wait.jobId !== jobId
+      || !dispatchKey
+    ) return false;
+    if (wait.dispatchKey && wait.dispatchKey !== dispatchKey) {
+      this.currentDependencyByDispatch.delete(wait.dispatchKey);
+      this.states.delete(wait.dispatchKey);
+      this.dispatchClasses.delete(wait.dispatchKey);
+    }
+    wait.dispatchKey = dispatchKey;
+    this.currentDependencyByDispatch.set(dispatchKey, dependencyId);
+    this.states.set(dispatchKey, "awaiting");
+    this.dispatchClasses.set(dispatchKey, "blocking_micro");
+    return true;
   }
 
   queueVisibleAssistantDisposition(
@@ -2194,8 +2234,21 @@ export class OpeningTerminalContinuationGate {
     dispatchKey: string,
     terminalStatus: string,
   ): JsonObject {
-    const dispatchClass = this.dispatchClasses.get(dispatchKey)
-      ?? "nonblocking_background";
+    const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
+    const dependencyWait = dependencyId
+      ? this.currentDependencyWaits.get(dependencyId)
+      : undefined;
+    const exactCurrentDependency = (
+      dependencyId !== undefined
+      && dependencyWait?.dispatchKey === dispatchKey
+      && terminalStatus === "fulfilled"
+    );
+    const recordedClass = this.dispatchClasses.get(dispatchKey);
+    const dispatchClass = (
+      recordedClass === "blocking_micro" && !exactCurrentDependency
+        ? "nonblocking_background"
+        : recordedClass ?? "nonblocking_background"
+    );
     const openingState = [...this.openingSetupStates.values()].find(
       (candidate) => candidate.dispatchIdentity === dispatchKey,
     );
@@ -2223,6 +2276,17 @@ export class OpeningTerminalContinuationGate {
       dispatch_class: dispatchClass,
       player_turn_epoch: this.playerTurnEpoch,
       dispatch_key: dispatchKey,
+      ...(
+        dispatchClass === "blocking_micro"
+        && dependencyId !== undefined
+        && dependencyWait !== undefined
+          ? {
+            dependency_id: dependencyId,
+            dependency_job_id: dependencyWait.jobId,
+            dependency_ref: dependencyWait.dependencyRef,
+          }
+          : {}
+      ),
       ...(
         dispatchClass === "blocking_opening"
         && openingState?.route.next_operation !== null
@@ -2339,6 +2403,10 @@ export class OpeningTerminalContinuationGate {
         }
       }
     }
+    if (this.currentDependencyWaits.size > 0) {
+      this.nonblockingContinuation = null;
+      return false;
+    }
     if (disposition === "projected_opening") {
       for (const [key, state] of this.states) {
         if (state === "projected") this.states.set(key, "published");
@@ -2418,6 +2486,22 @@ export class OpeningTerminalContinuationGate {
   }
 
   decideWake(dispatchKey: string): boolean | Promise<boolean> {
+    const dependencyId = this.currentDependencyByDispatch.get(dispatchKey);
+    const dependencyWait = dependencyId
+      ? this.currentDependencyWaits.get(dependencyId)
+      : undefined;
+    if (
+      dependencyId !== undefined
+      && dependencyWait?.dispatchKey === dispatchKey
+    ) {
+      this.currentDependencyByDispatch.delete(dispatchKey);
+      this.currentDependencyWaits.delete(dependencyId);
+      if (this.currentDependencyWaits.size > 0) {
+        this.states.delete(dispatchKey);
+        this.dispatchClasses.delete(dispatchKey);
+        return false;
+      }
+    }
     // Source work may finish while character creation is still active. Keep
     // that terminal receipt append-only; the retained projection card becomes
     // the exact continuation after the investigator is durably linked.
@@ -2485,6 +2569,8 @@ export class OpeningTerminalContinuationGate {
     this.pending.clear();
     this.states.clear();
     this.dispatchClasses.clear();
+    this.currentDependencyWaits.clear();
+    this.currentDependencyByDispatch.clear();
   }
 }
 
@@ -2678,15 +2764,79 @@ function findAutoDispatchTask(value: unknown): JsonObject | null {
     : null;
 }
 
-function blockingMicroAutoDispatchTask(value: unknown): JsonObject | null {
-  const takeover = findAutoDispatchTakeover(value);
-  const boundary = objectOrNull(takeover?.play_boundary);
-  if (
-    boundary?.current_dependent_settlement_waits_for_terminal !== true
-  ) {
-    return null;
+function findCurrentDependencyLifecycle(value: unknown): {
+  waits: JsonObject[];
+  dispatches: JsonObject[];
+} | null {
+  const envelope = objectOrNull(value);
+  if (envelope?.ok !== true) return null;
+  const data = objectOrNull(envelope.data);
+  const sceneContext = objectOrNull(data?.scene_context);
+  const candidates = [
+    objectOrNull(data?.host_work),
+    objectOrNull(data?.progressive),
+    objectOrNull(sceneContext?.progressive),
+  ].filter((candidate) => (
+    candidate !== null
+    && (
+      Array.isArray(candidate.current_dependency_waits)
+      || Array.isArray(candidate.current_dependency_dispatches)
+    )
+  )) as JsonObject[];
+  if (candidates.length !== 1) return null;
+  const projection = candidates[0];
+  const waits = Array.isArray(projection.current_dependency_waits)
+    ? projection.current_dependency_waits
+    : null;
+  const dispatches = Array.isArray(projection.current_dependency_dispatches)
+    ? projection.current_dependency_dispatches
+    : [];
+  if (waits === null) return null;
+  const waitById = new Map<string, JsonObject>();
+  for (const value of waits) {
+    const wait = objectOrNull(value);
+    const dependencyId = typeof wait?.dependency_id === "string"
+      ? wait.dependency_id.trim()
+      : "";
+    const jobId = typeof wait?.job_id === "string"
+      ? wait.job_id.trim()
+      : "";
+    if (
+      wait?.schema_version !== 1
+      || wait.contract_id !== "coc.source-current-dependency-wait.v1"
+      || !dependencyId
+      || !jobId
+      || objectOrNull(wait.dependency_ref) === null
+      || waitById.has(dependencyId)
+    ) return null;
+    waitById.set(dependencyId, wait);
   }
-  return findAutoDispatchTask(value);
+  const validatedDispatches: JsonObject[] = [];
+  for (const value of dispatches) {
+    const dispatch = objectOrNull(value);
+    const dependencyId = typeof dispatch?.dependency_id === "string"
+      ? dispatch.dependency_id.trim()
+      : "";
+    const jobId = typeof dispatch?.job_id === "string"
+      ? dispatch.job_id.trim()
+      : "";
+    const wait = waitById.get(dependencyId);
+    const action = objectOrNull(dispatch?.next_host_action);
+    const task = objectOrNull(action?.task);
+    if (
+      wait === undefined
+      || wait.job_id !== jobId
+      || JSON.stringify(wait.dependency_ref)
+        !== JSON.stringify(dispatch?.dependency_ref)
+      || action?.action !== "invoke_coc_dispatch_source_work"
+      || task?.contract_id !== "coc.pi-source-coordinator-task.v1"
+    ) return null;
+    validatedDispatches.push(dispatch);
+  }
+  return {
+    waits: [...waitById.values()],
+    dispatches: validatedDispatches,
+  };
 }
 
 interface AutoDispatchDeps {
@@ -2703,6 +2853,7 @@ interface AutoDispatchOptions {
   signal?: AbortSignal;
   submissionOwner?: () => boolean;
   onSubmissionOwnershipLost?: () => void;
+  exactTask?: JsonObject;
 }
 
 // Toolbox results may carry a background_takeover whose next_host_action asks
@@ -2717,7 +2868,7 @@ async function autoDispatchCoordinator(
   options: AutoDispatchOptions = {},
 ): Promise<JsonObject | null> {
   if (toolName !== "coc_invoke") return null;
-  const task = findAutoDispatchTask(value);
+  const task = options.exactTask ?? findAutoDispatchTask(value);
   if (!task) return null;
   const boundedFailure = (entry: JsonObject): JsonObject => {
     deps.audit(entry);
@@ -3472,28 +3623,51 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         && objectOrNull(params.arguments)?.defer_initial_progressive_on_enter === true
       );
       if (projectedOpening) openingContinuationGate.markOpeningProjected();
-      const blockingMicroTask = blockingMicroAutoDispatchTask(value);
-      if (blockingMicroTask !== null) {
-        const packet = objectOrNull(blockingMicroTask.packet);
-        const dispatchKey = typeof packet?.packet_id === "string"
-          ? packet.packet_id.trim()
-          : "";
-        openingContinuationGate.trackBlockingMicroDispatch(dispatchKey);
-        const submission = await autoDispatchCoordinator(
-          autoDispatchDeps(ctx, epoch),
-          name,
-          value,
+      const dependencyLifecycle = findCurrentDependencyLifecycle(value);
+      if (dependencyLifecycle !== null) {
+        openingContinuationGate.observeCurrentDependencyWaits(
+          dependencyLifecycle.waits,
         );
-        if (submission?.status !== "submitted") {
-          openingContinuationGate.releaseBlockingMicroDispatch(dispatchKey);
+        for (const dispatch of dependencyLifecycle.dispatches) {
+          const dependencyId = String(dispatch.dependency_id ?? "").trim();
+          const jobId = String(dispatch.job_id ?? "").trim();
+          const action = objectOrNull(dispatch.next_host_action);
+          const task = objectOrNull(action?.task);
+          const packet = objectOrNull(task?.packet);
+          const dispatchKey = typeof packet?.packet_id === "string"
+            ? packet.packet_id.trim()
+            : "";
+          if (
+            task === null
+            || !openingContinuationGate.bindCurrentDependencyDispatch(
+              dependencyId,
+              jobId,
+              dispatchKey,
+            )
+          ) {
+            try {
+              pi.appendEntry("coc-source-current-dependency-dispatch", {
+                status: "identity_rejected",
+                dependency_id: dependencyId,
+                job_id: jobId,
+                dispatch_key: dispatchKey,
+              });
+            } catch { /* exact dependency audit is best effort */ }
+            continue;
+          }
+          await autoDispatchCoordinator(
+            autoDispatchDeps(ctx, epoch),
+            name,
+            value,
+            { exactTask: task },
+          );
         }
-      } else {
-        void autoDispatchCoordinator(
-          autoDispatchDeps(ctx, epoch),
-          name,
-          value,
-        ).catch(() => {});
       }
+      void autoDispatchCoordinator(
+        autoDispatchDeps(ctx, epoch),
+        name,
+        value,
+      ).catch(() => {});
     }
     return result(value);
   };
@@ -3648,6 +3822,7 @@ export const __test = {
   piCoordinatorEnabled,
   runOcr,
   findAutoDispatchTask,
+  findCurrentDependencyLifecycle,
   autoDispatchCoordinator,
   MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,
 };

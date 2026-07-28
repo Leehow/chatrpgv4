@@ -697,6 +697,9 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "claim_result_field": "dispatch_tasks",
         "task_contract": "coc.pi-source-pack-task.v1",
         "repository_produced_wrappers_only": True,
+        "optional_private_exact_claim_field": "current_dependency_claim",
+        "private_exact_claim_cardinality": 1,
+        "main_keeper_may_supply_private_exact_claim": False,
     }
     assert contract["packet"]["leaf_worker"]["prompt_binding_by_transport"] == {
         "bare_packet_coordinator": (
@@ -717,12 +720,13 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
     assert lifecycle["pi_interim_retry_terminal_delivery"] is False
     assert lifecycle["pi_interim_retry_parent_wake"] is False
     assert lifecycle["pi_parent_terminal_delivery"] == (
-        "append_final_receipt_then_wake_only_structured_blocking_opening"
+        "append_final_receipt_then_wake_only_structured_blocking_opening_or_"
+        "exact_fulfilled_current_dependency"
     )
     assert lifecycle["pi_nonblocking_background_parent_wake"] is False
     assert lifecycle["pi_hidden_continuation_source"] == (
-        "final_validated_receipt_plus_structured_blocking_opening_dispatch_"
-        "class"
+        "final_validated_receipt_plus_structured_blocking_opening_or_exact_"
+        "current_dependency_dispatch_identity"
     )
     assert contract["authority"]["max_nesting_depth"] == 2
     result_contract = contract["result_contract"]
@@ -819,8 +823,8 @@ def test_codex_source_coordinator_is_prompt_first_bounded_and_cursor_fail_closed
         "interim_parent_wake": False,
         "final_terminal_receipt_published_once": True,
         "final_hidden_continuation": (
-            "only_for_structured_blocking_opening_receipt_derived_"
-            "deduplicated_triggerTurn_true"
+            "only_for_structured_blocking_opening_or_exact_fulfilled_current_"
+            "dependency_receipt_derived_deduplicated_triggerTurn_true"
         ),
     }
 

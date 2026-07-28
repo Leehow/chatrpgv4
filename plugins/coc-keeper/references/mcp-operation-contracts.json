@@ -1,5 +1,5 @@
 {
-  "content_sha256": "sha256:50da4790da43fda0c3723f362d963c4e2df50aeda209482e405de1f1e1146241",
+  "content_sha256": "sha256:de41b7526dbe3db445f2634ba05d262b89cb2cd54e97b7e41b61cdc5fde75d1f",
   "kind": "mcp_operation_contracts",
   "listed_hotset": [
     "session.resume",
@@ -891,6 +891,23 @@
           "campaign": {
             "description": "Campaign id. Required for campaign-bound operations.",
             "type": "string"
+          },
+          "current_dependency_claim": {
+            "additionalProperties": false,
+            "description": "private Pi coordinator binding produced by the repository; main KP callers must omit it",
+            "properties": {
+              "dependency_id": {
+                "type": "string"
+              },
+              "dependency_ref": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "job_id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "executor_id": {
             "description": "stable host/session executor id used for leases and recovery",

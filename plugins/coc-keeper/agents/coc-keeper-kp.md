@@ -232,7 +232,9 @@ Never bypass that authored-source lifecycle with `rules.roll`,
 `rules.opposed`, `rules.damage`, copied stub values, or a generic profile. The
 current mechanics-dependent settlement may remain pending under the existing
 `blocking_micro` semantics; this creates no new narrative or output gate, and
-non-dependent live play may continue.
+non-dependent live play may continue. On Pi, only the repository-projected
+exact current dependency/job dispatch's fulfilled terminal releases that wait;
+ordinary, stale, idle, partial, or failed coordinator terminals do not.
 
 On Pi, stop at the returned `background_takeover`: the package auto-dispatches
 the exact private coordinator. The main KP must not discover or invoke

@@ -567,9 +567,9 @@ waiting. Ordinary `progressive.request_deepen` omits `current_dependency`, so
 nondependent play continues. If the action truly depends, pass exactly
 `current_dependency={operation,decision_id}`; the tool binds the subject and
 reuses `work_level=current_dependency` / `deadline_class=blocking_micro`.
-Release no dependent travel, weather, snow, location, handout, or secret claim
-until the one host terminal notice. Never poll, retrieve child output, or gate
-unrelated play.
+Keep dependent facts pending across scope/cache replacement. That
+dependency/job dispatch's fulfilled terminal releases them; other terminals do
+not. Never poll, retrieve output, or gate unrelated play.
 
 On Grok, the source child submits the complete outer result itself through its
 named submit-only MCP, whose server validates and merges without the main KP.

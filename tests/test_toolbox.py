@@ -10931,6 +10931,7 @@ def _opening_component_workspace(
     *,
     extra_pdf_indices: tuple[int, ...] = (),
     page_body: str | None = None,
+    source_page_count: int | None = None,
 ) -> dict:
     workspace = tmp_path / "opening-workspace"
     campaign_id = "opening-component"
@@ -10973,7 +10974,7 @@ def _opening_component_workspace(
             "title": "Opening Component",
             "path": str(pdf),
             "file_sha256": file_sha,
-            "page_count": max(page_indices) + 1,
+            "page_count": source_page_count or max(page_indices) + 1,
         },
         "pages": pages,
     }), encoding="utf-8")
@@ -12186,17 +12187,316 @@ def test_request_deepen_marks_only_explicit_current_dependency_blocking_micro(
     assert request["work_level"] == "current_dependency"
     assert request["deadline_class"] == "blocking_micro"
     assert request["dependency_ref"] == data["dependency_ref"]
-    boundary = data["background_takeover"]["play_boundary"]
-    assert boundary["nondependent_play_may_continue"] is True
-    assert boundary[
-        "current_dependent_settlement_waits_for_terminal"
-    ] is True
-    assert boundary["current_dependencies"] == [data["dependency_ref"]]
-    assert "without polling" in boundary["terminal_consumption"]
-    task = data["background_takeover"]["next_host_action"]["task"]
+    waits = data["host_work"]["current_dependency_waits"]
+    assert len(waits) == 1
+    wait = waits[0]
+    assert wait["contract_id"] == "coc.source-current-dependency-wait.v1"
+    assert wait["job_id"] == request["job_id"]
+    assert wait["dependency_ref"] == data["dependency_ref"]
+    assert wait["operational_class"] == "runnable"
+    assert "background_takeover" not in data
+    dispatches = data["host_work"]["current_dependency_dispatches"]
+    assert len(dispatches) == 1
+    dispatch = dispatches[0]
+    assert dispatch["dependency_id"] == wait["dependency_id"]
+    assert dispatch["job_id"] == wait["job_id"]
+    assert dispatch["dependency_ref"] == wait["dependency_ref"]
+    task = dispatch["next_host_action"]["task"]
     assert task["packet"]["claim_operation"]["prefilled_arguments"][
         "max_dispatch_attempts"
     ] == 2
+    assert task["packet"]["max_leaves"] == 1
+    private_claim = task["packet"]["claim_operation"][
+        "prefilled_arguments"
+    ]["current_dependency_claim"]
+    assert private_claim == {
+        "dependency_id": wait["dependency_id"],
+        "job_id": wait["job_id"],
+        "dependency_ref": wait["dependency_ref"],
+    }
+    assert task["packet"]["claim_operation"]["prefilled_arguments"][
+        "executor_id"
+    ] == f"source-current-dependency:{wait['dependency_id']}"
+
+
+def _materialize_one_r19_host_work(ws: dict) -> None:
+    worker = coc_toolbox.coc_module_project._load_sibling(
+        "coc_module_queue_worker_r19_tests",
+        "coc_module_queue_worker.py",
+    )
+    materialized = worker.run_worker_once(ws["workspace"], parallel=1)
+    assert materialized["claimed"] == 1, materialized
+
+
+def test_current_dependency_wait_survives_awaiting_scope_replacement(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path)
+    ws["skeleton"]["locations"].append({
+        "location_id": "unscoped-destination",
+        "title": "Unscoped Destination",
+        "parse_state": "toc_only",
+    })
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.ensure_stub(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "unscoped-destination",
+        title="Unscoped Destination",
+    )
+
+    requested = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "unscoped-destination",
+        "title": "Unscoped Destination",
+        "current_dependency": {
+            "operation": "scene.context",
+            "decision_id": "settle-unscoped-arrival",
+        },
+    })
+    assert requested["ok"] is True, requested
+    _materialize_one_r19_host_work(ws)
+    context = _run(ws, "scene.context")
+    first_waits = context["data"]["progressive"]["current_dependency_waits"]
+    assert len(first_waits) == 1
+    first_wait = first_waits[0]
+    assert first_wait["operational_class"] == "awaiting_scope"
+    assert "current_dependency_dispatches" not in context["data"]["progressive"]
+    assert "background_takeover" not in context["data"]["progressive"]
+
+    resolved = _run(ws, "progressive.resolve_source_scope", {
+        "job_id": first_wait["job_id"],
+        "kind": "location",
+        "target_id": "unscoped-destination",
+        "pdf_indices": [0],
+    })
+    assert resolved["ok"] is True, resolved
+    replacement_waits = resolved["data"]["host_work"][
+        "current_dependency_waits"
+    ]
+    assert len(replacement_waits) == 1
+    replacement_wait = replacement_waits[0]
+    assert replacement_wait["dependency_id"] == first_wait["dependency_id"]
+    assert replacement_wait["dependency_ref"] == first_wait["dependency_ref"]
+    assert replacement_wait["job_id"] != first_wait["job_id"]
+    assert replacement_wait["operational_class"] == "runnable"
+    dispatch = resolved["data"]["host_work"][
+        "current_dependency_dispatches"
+    ][0]
+    assert dispatch["dependency_id"] == first_wait["dependency_id"]
+    assert dispatch["job_id"] == replacement_wait["job_id"]
+
+
+def test_current_dependency_wait_survives_awaiting_cache_registration(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path, source_page_count=2)
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    assets.ensure_stub(
+        ws["workspace"],
+        ws["asset_root_id"],
+        "location",
+        "uncached-destination",
+        title="Uncached Destination",
+        source_scope={"source_page_indices": [1]},
+    )
+
+    requested = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "uncached-destination",
+        "title": "Uncached Destination",
+        "current_dependency": {
+            "operation": "scene.context",
+            "decision_id": "settle-uncached-arrival",
+        },
+    })
+    assert requested["ok"] is True, requested
+    _materialize_one_r19_host_work(ws)
+    context = _run(ws, "scene.context")
+    first_wait = context["data"]["progressive"][
+        "current_dependency_waits"
+    ][0]
+    assert first_wait["operational_class"] == "awaiting_cache"
+    assert "current_dependency_dispatches" not in context["data"]["progressive"]
+
+    bundle = tmp_path / "accepted-page-1"
+    bundle.mkdir()
+    page = b"# Destination\n\nAccepted later source detail.\n"
+    (bundle / "page-0001.md").write_bytes(page)
+    (bundle / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "producer": "codex-pdf-skill",
+        "source": {
+            "source_id": "pdf:opening-component",
+            "title": "Opening Component",
+            "path": str(ws["workspace"] / "opening-module.pdf"),
+            "file_sha256": ws["file_sha256"],
+            "page_count": 2,
+        },
+        "pages": [{
+            "pdf_index": 1,
+            "markdown_path": "page-0001.md",
+            "text_sha256": hashlib.sha256(page).hexdigest(),
+            "review_state": "manual_accepted",
+            "parse_confidence": 0.99,
+            "grep_anchors": ["Accepted later source detail."],
+        }],
+        "assets": [],
+    }), encoding="utf-8")
+    registered = _run(ws, "progressive.register_source_bundle", {
+        "source_bundle_path": str(bundle),
+    })
+    assert registered["ok"] is True, registered
+    refreshed_wait = registered["data"]["host_work"][
+        "current_dependency_waits"
+    ][0]
+    assert refreshed_wait["dependency_id"] == first_wait["dependency_id"]
+    assert refreshed_wait["job_id"] == first_wait["job_id"]
+    assert refreshed_wait["operational_class"] == "runnable"
+    dispatch = registered["data"]["host_work"][
+        "current_dependency_dispatches"
+    ][0]
+    assert dispatch["dependency_id"] == first_wait["dependency_id"]
+    assert dispatch["job_id"] == first_wait["job_id"]
+
+
+def test_pi_current_dependency_dispatch_is_exact_and_separate_from_ordinary(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(1, 2))
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    for target_id, pdf_index in (("ordinary", 1), ("current", 2)):
+        assets.ensure_stub(
+            ws["workspace"],
+            ws["asset_root_id"],
+            "location",
+            target_id,
+            title=target_id.title(),
+            source_scope={"source_page_indices": [pdf_index]},
+        )
+    ordinary = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "ordinary",
+        "title": "Ordinary",
+    })
+    assert ordinary["ok"] is True, ordinary
+    _materialize_one_r19_host_work(ws)
+    current = _run(ws, "progressive.request_deepen", {
+        "kind": "location",
+        "target_id": "current",
+        "title": "Current",
+        "current_dependency": {
+            "operation": "scene.context",
+            "decision_id": "settle-current-only",
+        },
+    })
+    assert current["ok"] is True, current
+    _materialize_one_r19_host_work(ws)
+    context = _run(ws, "scene.context")
+    progressive = context["data"]["progressive"]
+    ordinary_task = progressive["background_takeover"][
+        "next_host_action"
+    ]["task"]
+    ordinary_claim = ordinary_task["packet"]["claim_operation"][
+        "prefilled_arguments"
+    ]
+    assert "current_dependency_claim" not in ordinary_claim
+    assert ordinary_task["packet"]["max_leaves"] == 1
+
+    dispatch = progressive["current_dependency_dispatches"][0]
+    exact_task = dispatch["next_host_action"]["task"]
+    exact_claim = exact_task["packet"]["claim_operation"][
+        "prefilled_arguments"
+    ]
+    assert exact_task["packet"]["max_leaves"] == 1
+    assert exact_claim["current_dependency_claim"] == {
+        "dependency_id": dispatch["dependency_id"],
+        "job_id": dispatch["job_id"],
+        "dependency_ref": dispatch["dependency_ref"],
+    }
+
+    monkeypatch.setenv("COC_HOST", "codex")
+    rejected = _run(ws, "progressive.claim_host_work", exact_claim)
+    assert rejected["ok"] is False
+    assert rejected["error"]["code"] == "invalid_param"
+    monkeypatch.setenv("COC_HOST", "pi")
+    claimed = _run(ws, "progressive.claim_host_work", exact_claim)
+    assert claimed["ok"] is True, claimed
+    assert claimed["data"]["dispatch_task_count"] == 1
+    packet = claimed["data"]["dispatch_tasks"][0]["packet"]
+    assert [request["job_id"] for request in packet["requests"]] == [
+        dispatch["job_id"],
+    ]
+    rows = assets.list_host_work_requests(
+        ws["workspace"], ws["asset_root_id"], limit=None,
+    )
+    by_target = {row["target_id"]: row for row in rows}
+    assert by_target["current"]["dispatch_state"] == "leased"
+    assert by_target["ordinary"]["dispatch_state"] == "ready"
+
+
+def test_current_dependency_wait_projection_is_not_truncated_with_ready_preview(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
+    monkeypatch.setenv("COC_HOST", "pi")
+    ws = _opening_component_workspace(tmp_path, extra_pdf_indices=(1,))
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    assets = coc_toolbox.coc_module_project.coc_module_assets
+    result = None
+    for index in range(5):
+        target_id = f"current-{index}"
+        assets.ensure_stub(
+            ws["workspace"],
+            ws["asset_root_id"],
+            "location",
+            target_id,
+            title=target_id,
+            source_scope={"source_page_indices": [1]},
+        )
+        result = _run(ws, "progressive.request_deepen", {
+            "kind": "location",
+            "target_id": target_id,
+            "title": target_id,
+            "current_dependency": {
+                "operation": "scene.context",
+                "decision_id": f"settle-current-{index}",
+            },
+        })
+        assert result["ok"] is True, result
+        _materialize_one_r19_host_work(ws)
+    assert result is not None
+    context = _run(ws, "scene.context")
+    host_work = context["data"]["progressive"]
+    assert len(host_work["ready_background_requests"]) == 4
+    assert len(host_work["current_dependency_waits"]) == 5
+    assert len(host_work["current_dependency_dispatches"]) == 5
+    assert len({
+        wait["dependency_id"]
+        for wait in host_work["current_dependency_waits"]
+    }) == 5
 
 
 def test_opening_bootstrap_is_idempotent_and_auto_projects_exact_watch(

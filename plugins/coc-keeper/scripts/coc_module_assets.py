@@ -279,6 +279,30 @@ def validate_host_work_dependency_ref(value: Any) -> dict[str, Any]:
     }
 
 
+def current_dependency_projection_id(
+    asset_root_id: str,
+    dependency_ref: Any,
+) -> str:
+    """Derive one stable audit/wait identity without persisting new state."""
+    root_id = _require_id(asset_root_id, "asset_root_id")
+    canonical = validate_host_work_dependency_ref(dependency_ref)
+    material = {
+        "asset_root_id": root_id,
+        "dependency_ref": canonical,
+    }
+    return (
+        "source-dependency-"
+        + hashlib.sha256(
+            json.dumps(
+                material,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()[:20]
+    )
+
+
 def validate_host_work_contract(
     work_level: Any,
     dependency_ref: Any = None,
@@ -4889,6 +4913,7 @@ def claim_host_work_requests(
     cached_only: bool = True,
     result_delivery: str = "named_submit",
     max_dispatch_attempts: int | None = None,
+    exact_job_id: str | None = None,
 ) -> dict[str, Any]:
     """Atomically lease bounded source-page work groups for host subagents.
 
@@ -4925,6 +4950,15 @@ def claim_host_work_requests(
         raise ModuleAssetsError(
             "max_dispatch_attempts must be null or an integer from 1 through 100"
         )
+    if exact_job_id is not None:
+        if (
+            not isinstance(exact_job_id, str)
+            or not exact_job_id
+            or exact_job_id != exact_job_id.strip()
+        ):
+            raise ModuleAssetsError(
+                "exact_job_id must be one non-empty job id"
+            )
 
     module_root = _module_dir(workspace, asset_root_id)
     work_dir = module_root / "host-work"
@@ -4976,6 +5010,11 @@ def claim_host_work_requests(
             if changed:
                 _write_json(path, request)
             if host_work_operational_class(request) != "runnable":
+                continue
+            if (
+                exact_job_id is not None
+                and str(request.get("job_id") or "") != exact_job_id
+            ):
                 continue
             rows.append((path, request))
 

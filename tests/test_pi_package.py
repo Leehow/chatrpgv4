@@ -890,6 +890,11 @@ def test_pi_projection_uses_task_return_and_repository_produced_leaf_wrappers(mo
     variation = canonical["packet"]["claim_operation"]["transport_variations"]["pi_private_lifecycle"]
     assert variation["result_delivery"] == task["packet"]["claim_operation"]["prefilled_arguments"]["result_delivery"]
     assert variation["claim_result_field"] == "dispatch_tasks"
+    assert variation["optional_private_exact_claim_field"] == (
+        "current_dependency_claim"
+    )
+    assert variation["private_exact_claim_cardinality"] == 1
+    assert variation["main_keeper_may_supply_private_exact_claim"] is False
     retry_contract = canonical["failure_policy"][
         "manager_automatic_retry_by_adapter"
     ]["pi_private_lifecycle"]
@@ -913,12 +918,13 @@ def test_pi_projection_uses_task_return_and_repository_produced_leaf_wrappers(mo
     assert retry_contract["interim_terminal_receipt_published"] is False
     assert retry_contract["interim_parent_wake"] is False
     assert canonical["lifecycle"]["pi_parent_terminal_delivery"] == (
-        "append_final_receipt_then_wake_only_structured_blocking_opening"
+        "append_final_receipt_then_wake_only_structured_blocking_opening_or_"
+        "exact_fulfilled_current_dependency"
     )
     assert canonical["lifecycle"]["pi_nonblocking_background_parent_wake"] is False
     assert canonical["lifecycle"]["pi_hidden_continuation_source"] == (
-        "final_validated_receipt_plus_structured_blocking_opening_dispatch_"
-        "class"
+        "final_validated_receipt_plus_structured_blocking_opening_or_exact_"
+        "current_dependency_dispatch_identity"
     )
     assert canonical["result_contract"]["optional_fields"] == [
         "diagnostics", "lease_release",

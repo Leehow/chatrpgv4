@@ -326,6 +326,71 @@ export function validateCoordinatorTask(input: unknown): JsonObject {
   if (claim.operation !== "progressive.claim_host_work" || prefilled.result_delivery !== "task_return_to_parent") throw new Error("Pi coordinator claim must use task_return_to_parent");
   nonEmpty(prefilled.executor_id, "claim executor_id");
   if (prefilled.limit !== maxLeaves) throw new Error("Pi coordinator claim limit drift");
+  if (prefilled.current_dependency_claim !== undefined) {
+    const binding = asObject(
+      prefilled.current_dependency_claim,
+      "current dependency claim",
+    );
+    exactKeys(
+      binding,
+      ["dependency_id", "job_id", "dependency_ref"],
+      "current dependency claim",
+    );
+    const dependencyRef = asObject(
+      binding.dependency_ref,
+      "current dependency ref",
+    );
+    const subject = asObject(
+      dependencyRef.subject,
+      "current dependency subject",
+    );
+    exactKeys(subject, ["kind", "id"], "current dependency subject");
+    const identityFields = [
+      "settlement_id", "decision_id", "source_scope_signature",
+    ].filter((field) => (
+      typeof dependencyRef[field] === "string"
+      && String(dependencyRef[field]).trim().length > 0
+    ));
+    exactKeys(
+      dependencyRef,
+      ["operation", "subject", ...identityFields],
+      "current dependency ref",
+    );
+    if (
+      identityFields.length !== 1
+      || maxLeaves !== 1
+      || nonEmpty(binding.job_id, "current dependency job_id")
+        !== binding.job_id
+      || !nonEmpty(
+        dependencyRef.operation,
+        "current dependency operation",
+      )
+      || !nonEmpty(subject.kind, "current dependency subject.kind")
+      || !nonEmpty(subject.id, "current dependency subject.id")
+    ) {
+      throw new Error("current dependency claim shape drift");
+    }
+    const expectedDependencyId = (
+      "source-dependency-"
+      + createHash("sha256").update(jsonCanonical({
+        asset_root_id: nonEmpty(packet.asset_root_id, "asset_root_id"),
+        dependency_ref: dependencyRef,
+      })).digest("hex").slice(0, 20)
+    );
+    if (
+      binding.dependency_id !== expectedDependencyId
+      || prefilled.executor_id
+        !== `source-current-dependency:${expectedDependencyId}`
+    ) {
+      throw new Error("current dependency claim identity drift");
+    }
+  } else if (
+    String(prefilled.executor_id).startsWith(
+      "source-current-dependency:",
+    )
+  ) {
+    throw new Error("current dependency executor lacks its exact binding");
+  }
   const fulfill = asObject(packet.fulfill_operation, "fulfill operation");
   if (fulfill.operation !== "progressive.fulfill_host_work") throw new Error("invalid coordinator fulfill operation");
   if (packet.failure_policy !== undefined) {
