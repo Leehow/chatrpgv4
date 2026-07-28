@@ -126,6 +126,10 @@ type VisibleAssistantDisposition =
 type VisibleAssistantFinalDecision =
   | boolean
   | { replacementText: string };
+type QueuedVisibleAssistantDisposition = {
+  disposition: VisibleAssistantDisposition;
+  dispatchKey?: string;
+};
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
@@ -139,7 +143,7 @@ export class OpeningTerminalContinuationGate {
   }>();
   private readonly synchronousOpeningWaits = new Set<string>();
   private agentActive = false;
-  private queuedVisibleDispositions: VisibleAssistantDisposition[] = [];
+  private queuedVisibleDispositions: QueuedVisibleAssistantDisposition[] = [];
   private playerTurnEpoch = 0;
   private finalizedOutput: {
     epoch: number;
@@ -165,11 +169,32 @@ export class OpeningTerminalContinuationGate {
 
   beginSynchronousOpeningWait(dispatchKey: string): void {
     this.trackOpeningDispatch(dispatchKey);
-    if (dispatchKey) this.synchronousOpeningWaits.add(dispatchKey);
+    if (dispatchKey) {
+      this.synchronousOpeningWaits.add(dispatchKey);
+      this.queueVisibleAssistantDisposition("operational_wait", dispatchKey);
+    }
   }
 
   endSynchronousOpeningWait(dispatchKey: string): void {
     this.synchronousOpeningWaits.delete(dispatchKey);
+  }
+
+  cancelSynchronousOpeningWait(dispatchKey: string): void {
+    this.synchronousOpeningWaits.delete(dispatchKey);
+    if (this.states.get(dispatchKey) === "awaiting") {
+      // "published" is the consumed terminal-wake marker. A late child
+      // terminal sees it and cannot create a new provider turn.
+      this.states.set(dispatchKey, "published");
+    }
+    this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
+      (queued) => !(
+        queued.dispatchKey === dispatchKey
+        && (
+          queued.disposition === "operational_wait"
+          || queued.disposition === "terminal_blocker"
+        )
+      ),
+    );
   }
 
   markSynchronousOpeningTerminalConsumed(dispatchKey: string): void {
@@ -180,11 +205,13 @@ export class OpeningTerminalContinuationGate {
 
   queueVisibleAssistantDisposition(
     disposition: VisibleAssistantDisposition,
+    dispatchKey?: string,
   ): void {
+    const queued = { disposition, dispatchKey };
     if (disposition === "operational_wait") {
-      this.queuedVisibleDispositions.push(disposition);
+      this.queuedVisibleDispositions.push(queued);
     } else {
-      this.queuedVisibleDispositions.unshift(disposition);
+      this.queuedVisibleDispositions.unshift(queued);
     }
   }
 
@@ -192,14 +219,25 @@ export class OpeningTerminalContinuationGate {
     this.agentActive = true;
   }
 
-  markOpeningProjected(): void {
+  markOpeningProjected(dispatchKey?: string): void {
     for (const [key, state] of this.states) {
-      if (state === "awaiting") this.states.set(key, "projected");
+      if (
+        state === "awaiting"
+        && (dispatchKey === undefined || key === dispatchKey)
+      ) {
+        this.states.set(key, "projected");
+      }
     }
     this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
-      (disposition) => disposition !== "operational_wait",
+      (queued) => !(
+        queued.disposition === "operational_wait"
+        && (
+          dispatchKey === undefined
+          || queued.dispatchKey === dispatchKey
+        )
+      ),
     );
-    this.queueVisibleAssistantDisposition("projected_opening");
+    this.queueVisibleAssistantDisposition("projected_opening", dispatchKey);
   }
 
   markIndependentVisibleOutput(): void {
@@ -208,17 +246,35 @@ export class OpeningTerminalContinuationGate {
     }
   }
 
-  markTerminalBlocker(): void {
+  markTerminalBlocker(dispatchKey?: string): void {
     // A structured blocking terminal is always player-visible. It may arrive
     // after an unrelated nonblocking wake was queued, so revoke that narrow
     // suppression token instead of globally hiding later assistant output.
     this.nonblockingContinuation = null;
-    if ([...this.states.values()].some((state) => state === "awaiting")) {
+    if ([...this.states].some(([key, state]) => (
+      state === "awaiting"
+      && (dispatchKey === undefined || key === dispatchKey)
+    ))) {
       this.queuedVisibleDispositions = this.queuedVisibleDispositions.filter(
-        (disposition) => disposition !== "operational_wait",
+        (queued) => !(
+          queued.disposition === "operational_wait"
+          && (
+            dispatchKey === undefined
+            || queued.dispatchKey === dispatchKey
+          )
+        ),
       );
-      if (!this.queuedVisibleDispositions.includes("terminal_blocker")) {
-        this.queueVisibleAssistantDisposition("terminal_blocker");
+      if (!this.queuedVisibleDispositions.some((queued) => (
+        queued.disposition === "terminal_blocker"
+        && (
+          dispatchKey === undefined
+          || queued.dispatchKey === dispatchKey
+        )
+      ))) {
+        this.queueVisibleAssistantDisposition(
+          "terminal_blocker",
+          dispatchKey,
+        );
       }
     }
   }
@@ -332,7 +388,7 @@ export class OpeningTerminalContinuationGate {
     // Only the transcript gate's confirmed tool-free assistant final reaches
     // this method. Streaming starts/updates and tool-bearing finals cannot
     // consume host provenance.
-    const disposition = this.queuedVisibleDispositions.shift();
+    const disposition = this.queuedVisibleDispositions.shift()?.disposition;
     if (disposition === "projected_opening") {
       for (const [key, state] of this.states) {
         if (state === "projected") this.states.set(key, "published");
@@ -711,23 +767,13 @@ async function autoDispatchCoordinator(
     });
   }
   const ownedManager = deps.manager();
+  let submitted: JsonObject;
   try {
-    const submitted = await ownedManager.submit(
+    submitted = await ownedManager.submit(
       exactTask,
       launch,
       options.signal,
     );
-    deps.audit(submitted);
-    if (!options.waitForTerminal) return submitted;
-    if (!ownedManager.state(key)) {
-      return {
-        ...submitted,
-        failure_class: typeof submitted.failure_class === "string"
-          ? submitted.failure_class
-          : "coordinator_not_retained",
-      };
-    }
-    return await ownedManager.waitForTerminal(key, options.signal);
   } catch {
     const existing = ownedManager.state(key);
     if (options.waitForTerminal && existing) {
@@ -739,6 +785,17 @@ async function autoDispatchCoordinator(
       failure_class: "coordinator_submit_failed",
     });
   }
+  deps.audit(submitted);
+  if (!options.waitForTerminal) return submitted;
+  if (!ownedManager.state(key)) {
+    return {
+      ...submitted,
+      failure_class: typeof submitted.failure_class === "string"
+        ? submitted.failure_class
+        : "coordinator_not_retained",
+    };
+  }
+  return await ownedManager.waitForTerminal(key, options.signal);
 }
 
 function blockingOpeningProjectionCall(
@@ -966,7 +1023,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         continuationContext.dispatch_class === "blocking_opening"
         && receipt.status !== "fulfilled"
       ) {
-        openingContinuationGate.markTerminalBlocker();
+        openingContinuationGate.markTerminalBlocker(dispatchKey);
       }
       return publishCoordinatorTerminal(
         pi,
@@ -1025,6 +1082,9 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const bootstrapSourceWork = objectOrNull(
           bootstrapData?.source_work,
         );
+        const bootstrapSourceStatus = String(
+          bootstrapSourceWork?.status ?? bootstrapData?.status ?? "",
+        );
         if (
           !dispatchKey
           && objectOrNull(bootstrapSourceWork?.background_takeover)
@@ -1044,11 +1104,31 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
             "opening_coordinator_task_invalid",
           ));
         }
+        if (
+          !dispatchKey
+          && (
+            bootstrapSourceStatus === "queued"
+            || bootstrapSourceStatus === "coalesced"
+          )
+        ) {
+          const terminalFailure = {
+            status: "terminal_failure",
+            failure_class: "coordinator_task_not_materialized",
+            source_status: bootstrapSourceStatus,
+          };
+          try {
+            pi.appendEntry(
+              "coc-source-coordinator-auto-dispatch",
+              terminalFailure,
+            );
+          } catch { /* audit is best effort */ }
+          return result(failedBlockingOpeningEnvelope(
+            terminalFailure,
+            "opening_coordinator_task_not_materialized",
+          ));
+        }
         if (dispatchKey) {
           openingContinuationGate.beginSynchronousOpeningWait(dispatchKey);
-          openingContinuationGate.queueVisibleAssistantDisposition(
-            "operational_wait",
-          );
           let terminalState: JsonObject | null = null;
           try {
             terminalState = await autoDispatchCoordinator(
@@ -1057,9 +1137,44 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               value,
               { waitForTerminal: true, signal },
             );
-          } finally {
-            openingContinuationGate.endSynchronousOpeningWait(dispatchKey);
+          } catch {
+            if (signal?.aborted) {
+              openingContinuationGate.cancelSynchronousOpeningWait(
+                dispatchKey,
+              );
+              return result(failedBlockingOpeningEnvelope(
+                {
+                  status: "terminal_failure",
+                  failure_class: "coordinator_wait_cancelled",
+                  dispatch_key: dispatchKey,
+                },
+                "opening_source_wait_cancelled",
+              ));
+            }
+            openingContinuationGate.cancelSynchronousOpeningWait(dispatchKey);
+            return result(failedBlockingOpeningEnvelope(
+              {
+                status: "terminal_failure",
+                failure_class: "coordinator_terminal_wait_failed",
+                dispatch_key: dispatchKey,
+              },
+              "opening_source_terminal_wait_failed",
+            ));
           }
+          if (signal?.aborted) {
+            openingContinuationGate.cancelSynchronousOpeningWait(
+              dispatchKey,
+            );
+            return result(failedBlockingOpeningEnvelope(
+              {
+                status: "terminal_failure",
+                failure_class: "coordinator_wait_cancelled",
+                dispatch_key: dispatchKey,
+              },
+              "opening_source_wait_cancelled",
+            ));
+          }
+          openingContinuationGate.endSynchronousOpeningWait(dispatchKey);
           const terminalReceipt = objectOrNull(
             terminalState?.terminal_receipt,
           );
@@ -1087,7 +1202,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                   || projectionData?.status === "current"
                 )
               ) {
-                openingContinuationGate.markOpeningProjected();
+                openingContinuationGate.markOpeningProjected(dispatchKey);
                 return result(resolvedBlockingOpeningEnvelope(
                   value,
                   terminalState,
@@ -1095,10 +1210,23 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
                 ));
               }
             } catch {
+              if (signal?.aborted) {
+                openingContinuationGate.cancelSynchronousOpeningWait(
+                  dispatchKey,
+                );
+                return result(failedBlockingOpeningEnvelope(
+                  {
+                    status: "terminal_failure",
+                    failure_class: "opening_projection_cancelled",
+                    dispatch_key: dispatchKey,
+                  },
+                  "opening_projection_cancelled",
+                ));
+              }
               // The source terminal remains durable, but no projection or
               // invented opening is released when canonical projection fails.
             }
-            openingContinuationGate.markTerminalBlocker();
+            openingContinuationGate.markTerminalBlocker(dispatchKey);
             openingContinuationGate.markSynchronousOpeningTerminalConsumed(
               dispatchKey,
             );
@@ -1107,7 +1235,7 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               "opening_projection_not_current",
             ));
           }
-          openingContinuationGate.markTerminalBlocker();
+          openingContinuationGate.markTerminalBlocker(dispatchKey);
           openingContinuationGate.markSynchronousOpeningTerminalConsumed(
             dispatchKey,
           );

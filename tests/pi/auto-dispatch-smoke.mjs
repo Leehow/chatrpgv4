@@ -82,6 +82,17 @@ function openingBootstrapResult(task) {
   };
 }
 
+function openingBootstrapWithoutTakeover(task, status = "queued") {
+  const value = openingBootstrapResult(task);
+  value.data.status = status;
+  value.data.source_work = {
+    status,
+    job_id: `job-${task.packet.packet_id}`,
+    work_level: "current_dependency",
+  };
+  return value;
+}
+
 function sceneContextResult(task) {
   return {
     ok: true, tool: "scene.context",
@@ -389,6 +400,14 @@ function mainExtensionHarness(responseForCall) {
       for (const handler of handlers.get("agent_start") || []) {
         await handler({ reason: "tool-test" }, ctx);
       }
+    },
+    async emit(name, message) {
+      let current = message;
+      for (const handler of handlers.get(name) || []) {
+        const updated = await handler({ message: current }, ctx);
+        if (updated?.message) current = updated.message;
+      }
+      return current;
     },
     async shutdown() {
       for (const handler of handlers.get("agent_end") || []) {
@@ -1039,6 +1058,147 @@ async function exerciseFailureDrain(mode) {
     )).length === 1
     && harness.sent.length === 0);
   await nextTurn();
+  await harness.shutdown();
+}
+
+// Aborting the per-call wait consumes only that opening owner. The next real
+// user epoch remains visible, and a late child terminal cannot wake the model.
+{
+  const task = coordinatorTask("coord-main-opening-abort");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  const controller = new AbortController();
+  const pendingResult = harness.registered.get("coc_invoke").execute(
+    "invoke-opening-abort",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    controller.signal,
+    undefined,
+    harness.ctx,
+  );
+  await nextTurn();
+  check("abort fixture reaches active synchronous wait",
+    harness.controls.has(task.packet.packet_id)
+    && harness.calls.length === 1
+    && harness.sent.length === 0);
+  controller.abort();
+  const cancelled = JSON.parse((await pendingResult).content[0].text);
+  check("aborted opening returns bounded not-playable cancellation",
+    cancelled.ok === false
+    && cancelled.error.code === "opening_source_wait_cancelled"
+    && cancelled.data.projection_ready === false
+    && cancelled.data.activation_allowed === false);
+
+  await harness.emit("message_start", {
+    role: "user",
+    content: [{ type: "text", text: "这是取消后的新回合。" }],
+  });
+  const nextAssistant = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "新回合的有效叙事保持可见。" }],
+  });
+  check("aborted wait does not suppress next real user epoch",
+    nextAssistant.content.some((part) => (
+      part.type === "text"
+      && part.text === "新回合的有效叙事保持可见。"
+    )));
+
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  check("late terminal after abort is append-only and never wakes provider",
+    harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 1
+    && harness.sent.length === 0
+    && harness.calls.length === 1);
+  await harness.shutdown();
+}
+
+// Canonical queued/coalesced output can legitimately precede takeover-card
+// materialization. It is unresolved and must fail closed instead of escaping.
+{
+  const task = coordinatorTask("coord-main-opening-no-takeover");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapWithoutTakeover(task, "queued");
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  const toolResult = await harness.registered.get("coc_invoke").execute(
+    "invoke-opening-no-takeover",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const envelope = JSON.parse(toolResult.content[0].text);
+  check("queued opening without takeover fails closed",
+    envelope.ok === false
+    && envelope.error.code === "opening_coordinator_task_not_materialized"
+    && envelope.data.projection_ready === false
+    && envelope.data.activation_allowed === false
+    && envelope.data.coordinator_terminal.source_status === "queued"
+    && harness.launches.length === 0
+    && harness.calls.length === 1
+    && harness.sent.length === 0);
+  await harness.shutdown();
+}
+
+// A genuinely current opening needs no takeover and remains a legitimate
+// terminal/current response.
+{
+  const task = coordinatorTask("coord-main-opening-current");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapWithoutTakeover(task, "current");
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  const toolResult = await harness.registered.get("coc_invoke").execute(
+    "invoke-opening-current",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        start_location: { location_id: "opening", title: "Opening" },
+        opening_pdf_indices: [0],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const envelope = JSON.parse(toolResult.content[0].text);
+  check("current opening without takeover remains legitimate",
+    envelope.ok === true
+    && envelope.data.status === "current"
+    && envelope.data.source_work.status === "current"
+    && harness.launches.length === 0
+    && harness.calls.length === 1
+    && harness.sent.length === 0);
   await harness.shutdown();
 }
 
