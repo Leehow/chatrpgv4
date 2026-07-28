@@ -178,6 +178,13 @@ type OpeningSetupAttempt = {
   agentTurn: number;
   dispatchIdentity: string | null;
 };
+type OpeningSetupObservationDisposition = {
+  accepted: boolean;
+  dispatchAllowed: boolean;
+  reason: string;
+};
+const MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN = 32;
+const OPENING_START_LOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 export class OpeningTerminalContinuationGate {
   private readonly states = new Map<string, "awaiting" | "projected" | "published">();
@@ -263,6 +270,70 @@ export class OpeningTerminalContinuationGate {
       && authorization.revision === state.revision
       && authorization.agentTurn === this.openingSetupAgentTurn
     );
+  }
+
+  private pendingBindExists(): boolean {
+    return [...this.openingSetupAttempts.values()].some(
+      (attempt) => attempt.attemptClass === "bind",
+    );
+  }
+
+  private pendingBindExistsForCampaign(campaignId: string): boolean {
+    return [...this.openingSetupAttempts.values()].some((attempt) => (
+      attempt.attemptClass === "bind"
+      && attempt.campaignId === campaignId
+    ));
+  }
+
+  private pruneOpeningSetupCampaign(campaignId: string): void {
+    if (this.openingSetupStates.has(campaignId)) return;
+    if ([...this.openingSetupAttempts.values()].some(
+      (attempt) => attempt.campaignId === campaignId,
+    )) {
+      return;
+    }
+    this.openingSetupLatestIssuedGeneration.delete(campaignId);
+    this.openingSetupRetiredGeneration.delete(campaignId);
+    this.openingSetupContinuationQueued.delete(campaignId);
+    this.openingSetupTerminalBlockers.delete(campaignId);
+  }
+
+  private finalizeOpeningSetupAttempt(
+    invocationId: string,
+    releaseContinuation = true,
+  ): OpeningSetupAttempt | null {
+    const attempt = this.openingSetupAttempts.get(invocationId) ?? null;
+    if (attempt === null) return null;
+    this.openingSetupAttempts.delete(invocationId);
+    if (releaseContinuation && attempt.attemptClass === "route") {
+      this.openingSetupContinuationQueued.delete(attempt.campaignId);
+    }
+    this.pruneOpeningSetupCampaign(attempt.campaignId);
+    return attempt;
+  }
+
+  private supersedeOpeningSetupRevisionAttempts(
+    state: OpeningSetupState,
+    exceptInvocationId: string,
+  ): void {
+    for (const attempt of [...this.openingSetupAttempts.values()]) {
+      if (
+        attempt.invocationId !== exceptInvocationId
+        && attempt.campaignId === state.route.campaign_id
+        && attempt.generation === state.generation
+        && attempt.revision === state.revision
+      ) {
+        this.finalizeOpeningSetupAttempt(attempt.invocationId);
+        this.recordOpeningSetupAudit({
+          status: "ignored",
+          reason: "superseded_attempt_revision",
+          campaign_id: attempt.campaignId,
+          invocation_id: attempt.invocationId,
+          generation: attempt.generation,
+          revision: attempt.revision,
+        });
+      }
+    }
   }
 
   private quickFireLuckInvocation(params: JsonObject): boolean {
@@ -440,6 +511,40 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private validOpeningStartLocation(value: unknown): boolean {
+    const location = objectOrNull(value);
+    if (
+      location === null
+      || !exactKeysMatch(location, ["location_id", "title"])
+      || typeof location.location_id !== "string"
+      || typeof location.title !== "string"
+    ) {
+      return false;
+    }
+    const locationId = location.location_id.trim();
+    const title = location.title.trim();
+    return (
+      OPENING_START_LOCATION_ID.test(locationId)
+      && title.length >= 1
+      && title.length <= 240
+    );
+  }
+
+  private validOpeningPdfIndices(value: unknown): boolean {
+    if (
+      !Array.isArray(value)
+      || value.length < 1
+      || value.length > 3
+      || value.some((row) => !Number.isInteger(row) || row < 0)
+      || new Set(value).size !== value.length
+    ) {
+      return false;
+    }
+    return value.every((row, index) => (
+      index === 0 || row === value[index - 1] + 1
+    ));
+  }
+
   private exactBootstrapCard(card: JsonObject | null): boolean {
     if (
       card === null
@@ -466,12 +571,24 @@ export class OpeningTerminalContinuationGate {
       return false;
     }
     const combined = [...Object.keys(prefilled), ...(missing as string[])];
-    return (
+    if (
       combined.length === 2
       && new Set(combined).size === 2
       && combined.includes("start_location")
       && combined.includes("opening_pdf_indices")
-    );
+    ) {
+      return (
+        (
+          !Object.hasOwn(prefilled, "start_location")
+          || this.validOpeningStartLocation(prefilled.start_location)
+        )
+        && (
+          !Object.hasOwn(prefilled, "opening_pdf_indices")
+          || this.validOpeningPdfIndices(prefilled.opening_pdf_indices)
+        )
+      );
+    }
+    return false;
   }
 
   private recoveryRoute(campaignId: string): OpeningSetupRoute {
@@ -532,7 +649,7 @@ export class OpeningTerminalContinuationGate {
       ?? ++this.openingSetupGenerationSequence;
     const generation = state?.generation
       ?? `${campaignId}:${generationSequence}`;
-    if (state === null) {
+    if (state === null && attemptClass === "bind") {
       this.openingSetupLatestIssuedGeneration.set(
         campaignId,
         generationSequence,
@@ -580,11 +697,17 @@ export class OpeningTerminalContinuationGate {
   }
 
   private unboundAttemptIsFresh(attempt: OpeningSetupAttempt): boolean {
-    return (
+    const newerThanRetired = (
       attempt.generationSequence !== null
       && attempt.generationSequence > (
         this.openingSetupRetiredGeneration.get(attempt.campaignId) ?? 0
       )
+    );
+    if (!newerThanRetired) return false;
+    if (attempt.attemptClass !== "bind") return true;
+    return attempt.generationSequence === (
+      this.openingSetupLatestIssuedGeneration.get(attempt.campaignId)
+      ?? -1
     );
   }
 
@@ -645,7 +768,13 @@ export class OpeningTerminalContinuationGate {
   ): string | null {
     if (name === "coc_discover" || name === "coc_progressive_ocr") {
       const state = this.openingSetupStateForTranscript();
-      if (state === null && this.openingSetupStates.size === 0) return null;
+      if (
+        state === null
+        && this.openingSetupStates.size === 0
+        && !this.pendingBindExists()
+      ) {
+        return null;
+      }
       const route = state?.route ?? null;
       return (
         `${name} is unavailable while the Pi opening setup hard gate is active; `
@@ -669,8 +798,28 @@ export class OpeningTerminalContinuationGate {
       });
       return "Pi opening setup invocation identity was already admitted";
     }
+    const campaignAttemptCount = [...this.openingSetupAttempts.values()]
+      .filter((attempt) => attempt.campaignId === campaignId).length;
+    if (campaignAttemptCount >= MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN) {
+      this.recordOpeningSetupAudit({
+        status: "rejected",
+        reason: "campaign_attempt_limit",
+        campaign_id: campaignId,
+        attempt_limit: MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,
+      });
+      return "Pi opening setup has too many concurrent campaign attempts";
+    }
     const state = this.openingSetupStates.get(campaignId) ?? null;
     if (state === null) {
+      if (
+        this.pendingBindExistsForCampaign(campaignId)
+        && !this.scenarioBindInvocation(params)
+      ) {
+        return (
+          "Pi opening setup is waiting for the newest admitted scenario bind "
+          + `for campaign ${campaignId}`
+        );
+      }
       this.registerOpeningSetupAttempt(
         invocationId,
         params,
@@ -709,7 +858,7 @@ export class OpeningTerminalContinuationGate {
     params: JsonObject,
     value: unknown,
     invocationId = "",
-  ): void {
+  ): OpeningSetupObservationDisposition {
     const attempt = this.openingSetupAttempts.get(invocationId);
     if (attempt === undefined) {
       this.recordOpeningSetupAudit({
@@ -718,7 +867,11 @@ export class OpeningTerminalContinuationGate {
         operation,
         invocation_id: invocationId,
       });
-      return;
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "unowned_result",
+      };
     }
     const envelope = objectOrNull(value);
     const data = objectOrNull(envelope?.data);
@@ -731,29 +884,37 @@ export class OpeningTerminalContinuationGate {
       || params.campaign !== attempt.campaignId
       || this.resultCampaignMismatch(attempt, envelope, returnedGate)
     ) {
-      this.openingSetupAttempts.delete(invocationId);
+      this.finalizeOpeningSetupAttempt(invocationId);
       this.recordOpeningSetupAudit({
         status: "ignored",
         reason: "invocation_or_campaign_mismatch",
         campaign_id: attempt.campaignId,
         invocation_id: invocationId,
       });
-      return;
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "invocation_or_campaign_mismatch",
+      };
     }
 
     if (attempt.attemptClass === "bind") {
-      this.openingSetupAttempts.delete(invocationId);
       if (
         this.openingSetupStates.has(attempt.campaignId)
         || !this.unboundAttemptIsFresh(attempt)
       ) {
+        this.finalizeOpeningSetupAttempt(invocationId);
         this.recordOpeningSetupAudit({
           status: "ignored",
           reason: "late_bind_outside_current_route_generation",
           campaign_id: attempt.campaignId,
           invocation_id: invocationId,
         });
-        return;
+        return {
+          accepted: false,
+          dispatchAllowed: false,
+          reason: "late_bind_outside_current_route_generation",
+        };
       }
       const route = returnedGate === null
         ? null
@@ -770,6 +931,12 @@ export class OpeningTerminalContinuationGate {
           "selection",
           attempt,
         );
+        this.finalizeOpeningSetupAttempt(invocationId);
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "bind_opening_selection",
+        };
       } else if (
         returnedGate?.phase === "opening_source_contract_invalid"
       ) {
@@ -791,8 +958,25 @@ export class OpeningTerminalContinuationGate {
           attempt.campaignId,
           invalid,
         );
+        this.finalizeOpeningSetupAttempt(invocationId);
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "bind_source_contract_invalid",
+        };
       }
-      return;
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "bind_result_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "bind_result_invalid",
+      };
     }
 
     let state = this.openingSetupStates.get(attempt.campaignId);
@@ -801,7 +985,6 @@ export class OpeningTerminalContinuationGate {
       && this.unboundAttemptIsFresh(attempt)
       && returnedGate?.phase === "opening_source_contract_invalid"
     ) {
-      this.openingSetupAttempts.delete(invocationId);
       state = this.initializeOpeningSetupState(
         attempt.campaignId,
         this.recoveryRoute(attempt.campaignId),
@@ -817,10 +1000,15 @@ export class OpeningTerminalContinuationGate {
         attempt.campaignId,
         state,
       );
-      return;
+      this.finalizeOpeningSetupAttempt(invocationId);
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "source_contract_invalid",
+      };
     }
     if (!this.attemptMatchesState(attempt, state)) {
-      this.openingSetupAttempts.delete(invocationId);
+      this.finalizeOpeningSetupAttempt(invocationId);
       this.recordOpeningSetupAudit({
         status: "ignored",
         reason: "stale_generation_or_revision",
@@ -831,11 +1019,16 @@ export class OpeningTerminalContinuationGate {
         current_generation: state?.generation,
         current_revision: state?.revision,
       });
-      return;
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "stale_generation_or_revision",
+      };
     }
 
     if (returnedGate?.phase === "opening_source_contract_invalid") {
-      this.openingSetupAttempts.delete(invocationId);
+      this.supersedeOpeningSetupRevisionAttempts(state, invocationId);
+      this.finalizeOpeningSetupAttempt(invocationId);
       const invalid = this.transitionContractInvalid(state, attempt);
       this.markOpeningSetupTerminalBlocker(
         envelope ?? failedBlockingOpeningEnvelope(
@@ -846,11 +1039,15 @@ export class OpeningTerminalContinuationGate {
         attempt.campaignId,
         invalid,
       );
-      return;
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "source_contract_invalid",
+      };
     }
 
     if (attempt.attemptClass === "character") {
-      this.openingSetupAttempts.delete(invocationId);
+      this.finalizeOpeningSetupAttempt(invocationId);
       if (
         envelope?.ok === true
         && attempt.agentTurn === this.openingSetupAgentTurn
@@ -872,18 +1069,28 @@ export class OpeningTerminalContinuationGate {
           invocation_id: invocationId,
         });
       }
-      return;
+      return {
+        accepted: envelope?.ok === true,
+        dispatchAllowed: false,
+        reason: envelope?.ok === true
+          ? "character_setup_result"
+          : "character_setup_failed",
+      };
     }
 
     if (attempt.attemptClass !== "route") {
-      this.openingSetupAttempts.delete(invocationId);
-      return;
+      this.finalizeOpeningSetupAttempt(invocationId);
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "non_route_result",
+      };
     }
     if (operation === "progressive.prepare_opening") {
-      this.openingSetupAttempts.delete(invocationId);
-      this.openingSetupContinuationQueued.delete(attempt.campaignId);
       const nextCard = objectOrNull(data?.next_operation);
       if (envelope?.ok === true && this.exactBootstrapCard(nextCard)) {
+        this.supersedeOpeningSetupRevisionAttempts(state, invocationId);
+        this.finalizeOpeningSetupAttempt(invocationId);
         const next: OpeningSetupState = {
           ...state,
           route: {
@@ -912,8 +1119,19 @@ export class OpeningTerminalContinuationGate {
           to_revision: next.revision,
           invocation_id: invocationId,
         });
-        return;
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "opening_prepare_accepted",
+        };
       }
+      this.finalizeOpeningSetupAttempt(invocationId);
+      this.recordOpeningSetupAudit({
+        status: "ignored",
+        reason: "opening_prepare_result_invalid",
+        campaign_id: attempt.campaignId,
+        invocation_id: invocationId,
+      });
       this.markOpeningSetupTerminalBlocker(
         envelope ?? failedBlockingOpeningEnvelope(
           { status: "terminal_failure", failure_class: "prepare_result_invalid" },
@@ -923,7 +1141,11 @@ export class OpeningTerminalContinuationGate {
         attempt.campaignId,
         state,
       );
-      return;
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "opening_prepare_result_invalid",
+      };
     }
 
     if (operation === "progressive.opening_bootstrap") {
@@ -935,16 +1157,25 @@ export class OpeningTerminalContinuationGate {
       if (dispatchIdentity) {
         attempt.dispatchIdentity = dispatchIdentity;
         state.dispatchIdentity = dispatchIdentity;
-        return;
+        return {
+          accepted: true,
+          dispatchAllowed: true,
+          reason: "opening_bootstrap_dispatch_accepted",
+        };
       }
-      this.openingSetupAttempts.delete(invocationId);
       if (
         envelope?.ok === true
         && (data?.status === "complete" || data?.status === "current")
       ) {
+        this.finalizeOpeningSetupAttempt(invocationId);
         this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
-        return;
+        return {
+          accepted: true,
+          dispatchAllowed: false,
+          reason: "opening_bootstrap_current",
+        };
       }
+      this.finalizeOpeningSetupAttempt(invocationId);
       this.markOpeningSetupTerminalBlocker(
         envelope ?? failedBlockingOpeningEnvelope(
           { status: "terminal_failure", failure_class: "bootstrap_result_invalid" },
@@ -953,7 +1184,18 @@ export class OpeningTerminalContinuationGate {
         attempt.campaignId,
         state,
       );
+      return {
+        accepted: false,
+        dispatchAllowed: false,
+        reason: "opening_bootstrap_result_invalid",
+      };
     }
+    this.finalizeOpeningSetupAttempt(invocationId);
+    return {
+      accepted: false,
+      dispatchAllowed: false,
+      reason: "route_operation_unhandled",
+    };
   }
 
   requiredOpeningSetupContinuation(): OpeningSetupRoute | null {
@@ -990,6 +1232,11 @@ export class OpeningTerminalContinuationGate {
         this.openingSetupLatestIssuedGeneration.get(campaignId)
           ?? state.generationSequence,
       );
+      for (const attempt of [...this.openingSetupAttempts.values()]) {
+        if (attempt.campaignId === campaignId) {
+          this.finalizeOpeningSetupAttempt(attempt.invocationId);
+        }
+      }
       this.openingSetupStates.delete(campaignId);
       this.openingSetupContinuationQueued.delete(campaignId);
       this.openingSetupTerminalBlockers.delete(campaignId);
@@ -998,6 +1245,7 @@ export class OpeningTerminalContinuationGate {
       ) {
         this.openingSetupVisibleOutputAuthorization = null;
       }
+      this.pruneOpeningSetupCampaign(campaignId);
       return;
     }
     this.openingSetupStates.clear();
@@ -1114,23 +1362,27 @@ export class OpeningTerminalContinuationGate {
     const failureDetails = objectOrNull(failureError?.details);
     const returnedGate = objectOrNull(failureData?.opening_gate)
       ?? (failureDetails?.hard_gate === true ? failureDetails : null);
-    if (
-      attempt === undefined
-      || attempt.attemptClass !== "route"
-      || !this.attemptMatchesState(attempt, state)
-      || attempt.operation !== params.operation
-      || params.campaign !== attempt.campaignId
-      || this.resultCampaignMismatch(
+    const identityMatches = (
+      attempt !== undefined
+      && attempt.attemptClass === "route"
+      && this.attemptMatchesState(attempt, state)
+      && attempt.operation === params.operation
+      && params.campaign === attempt.campaignId
+      && !this.resultCampaignMismatch(
         attempt,
         failureEnvelope,
         returnedGate,
       )
-      || (
+      && (
         dispatchKey !== undefined
-        && attempt.dispatchIdentity !== null
-        && attempt.dispatchIdentity !== dispatchKey
+        ? attempt.dispatchIdentity === dispatchKey
+        : true
       )
-    ) {
+    );
+    if (attempt !== undefined) {
+      this.finalizeOpeningSetupAttempt(invocationId);
+    }
+    if (!identityMatches || attempt === undefined || state === undefined) {
       this.recordOpeningSetupAudit({
         status: "ignored",
         reason: "failed_attempt_identity_mismatch",
@@ -1139,7 +1391,6 @@ export class OpeningTerminalContinuationGate {
       });
       return;
     }
-    this.openingSetupAttempts.delete(invocationId);
     this.markOpeningSetupTerminalBlocker(
       envelope,
       dispatchKey,
@@ -1157,14 +1408,21 @@ export class OpeningTerminalContinuationGate {
     const state = typeof params.campaign === "string"
       ? this.openingSetupStates.get(params.campaign)
       : undefined;
-    if (
+    const identityMatches = (
       attempt === undefined
-      || attempt.attemptClass !== "route"
-      || attempt.operation !== "progressive.opening_bootstrap"
-      || !this.attemptMatchesState(attempt, state)
-      || attempt.dispatchIdentity !== dispatchKey
-      || state.dispatchIdentity !== dispatchKey
-    ) {
+      ? false
+      : (
+        attempt.attemptClass === "route"
+        && attempt.operation === "progressive.opening_bootstrap"
+        && this.attemptMatchesState(attempt, state)
+        && attempt.dispatchIdentity === dispatchKey
+        && state.dispatchIdentity === dispatchKey
+      )
+    );
+    if (attempt !== undefined) {
+      this.finalizeOpeningSetupAttempt(invocationId);
+    }
+    if (!identityMatches || attempt === undefined || state === undefined) {
       this.recordOpeningSetupAudit({
         status: "ignored",
         reason: "current_attempt_identity_mismatch",
@@ -1173,7 +1431,6 @@ export class OpeningTerminalContinuationGate {
       });
       return false;
     }
-    this.openingSetupAttempts.delete(invocationId);
     this.clearOpeningSetupRoute(attempt.campaignId, state.generation);
     return true;
   }
@@ -1440,7 +1697,10 @@ export class OpeningTerminalContinuationGate {
       this.nonblockingContinuation = null;
       return { replacementText };
     }
-    if (this.openingSetupStates.size > 0) {
+    if (
+      this.openingSetupStates.size > 0
+      || this.pendingBindExists()
+    ) {
       if (
         openingState === null
         || !this.openingSetupAuthorizationMatches(openingState)
@@ -2176,11 +2436,13 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
       throw error;
     }
     if (name === "coc_invoke") {
-      openingContinuationGate.observeOpeningSetupInvocation(
-        String(params.operation),
-        params,
-        value,
-        _id,
+      const openingObservation = (
+        openingContinuationGate.observeOpeningSetupInvocation(
+          String(params.operation),
+          params,
+          value,
+          _id,
+        )
       );
       flushOpeningSetupAudits();
       if (String(params.operation) === "progressive.opening_bootstrap") {
@@ -2197,6 +2459,29 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         const bootstrapSourceStatus = String(
           bootstrapSourceWork?.status ?? bootstrapData?.status ?? "",
         );
+        if (
+          (
+            task !== null
+            && dispatchKey
+            && !openingObservation.dispatchAllowed
+          )
+          || (
+            !openingObservation.accepted
+            && task === null
+            && !objectOrNull(bootstrapSourceWork?.background_takeover)
+            && bootstrapSourceStatus !== "queued"
+            && bootstrapSourceStatus !== "coalesced"
+          )
+        ) {
+          return result(failedBlockingOpeningEnvelope(
+            {
+              status: "contract_violation",
+              failure_class: "opening_bootstrap_result_rejected",
+              observer_reason: openingObservation.reason,
+            },
+            "opening_bootstrap_result_rejected",
+          ));
+        }
         if (
           !dispatchKey
           && objectOrNull(bootstrapSourceWork?.background_takeover)
@@ -2585,4 +2870,10 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
   });
 }
 
-export const __test = { piCoordinatorEnabled, runOcr, findAutoDispatchTask, autoDispatchCoordinator };
+export const __test = {
+  piCoordinatorEnabled,
+  runOcr,
+  findAutoDispatchTask,
+  autoDispatchCoordinator,
+  MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN,
+};

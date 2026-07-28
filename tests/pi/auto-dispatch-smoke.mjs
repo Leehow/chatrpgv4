@@ -233,16 +233,19 @@ function deferredValue() {
   return { promise, resolve: resolveValue };
 }
 
-async function armOpeningBootstrapRoute(harness) {
+async function armOpeningBootstrapRoute(
+  harness,
+  campaignId = "auto-dispatch-fixture",
+) {
   await harness.registered.get("coc_invoke").execute(
-    "arm-source-bind",
+    `arm-source-bind-${campaignId}`,
     {
       operation: "setup.invoke",
-      campaign: "auto-dispatch-fixture",
+      campaign: campaignId,
       arguments: {
         kind: "scenario.bind_pdf",
         payload: {
-          campaign_id: "auto-dispatch-fixture",
+          campaign_id: campaignId,
           scenario_id: "fixture-scenario",
           title: "Fixture Scenario",
           source_bundle_path: "/fixture/source-bundle",
@@ -254,10 +257,10 @@ async function armOpeningBootstrapRoute(harness) {
     harness.ctx,
   );
   await harness.registered.get("coc_invoke").execute(
-    "arm-opening-prepare",
+    `arm-opening-prepare-${campaignId}`,
     {
       operation: "progressive.prepare_opening",
-      campaign: "auto-dispatch-fixture",
+      campaign: campaignId,
       arguments: {},
     },
     undefined,
@@ -1785,8 +1788,78 @@ async function exerciseFailureDrain(mode) {
       arguments: {},
     }, "bind-generation-probe") === null
     && gate.takeOpeningSetupAudits().some((entry) => (
-      entry.reason === "late_bind_outside_current_route_generation"
+      entry.reason === "unowned_result"
       && entry.invocation_id === "bind-generation-old"
+    )));
+}
+
+// Same-campaign source intent is ordered when calls start, not when responses
+// arrive. If the old bind resolves first it is ignored and the transcript
+// remains fail-closed until the newest issued bind resolves.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  gate.markAgentStart();
+  const bindParams = (source) => ({
+    operation: "setup.invoke",
+    campaign: "bind-order",
+    arguments: {
+      kind: "scenario.bind_pdf",
+      payload: {
+        campaign_id: "bind-order",
+        scenario_id: `scenario-${source}`,
+        title: `Scenario ${source}`,
+        source_bundle_path: `/fixture/${source}/source-bundle`,
+      },
+    },
+  });
+  const oldParams = bindParams("old");
+  const newParams = bindParams("new");
+  check("both ordered bind generations are admitted at call initiation",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      oldParams,
+      "bind-order-old",
+    ) === null
+    && gate.openingSetupToolError(
+      "coc_invoke",
+      newParams,
+      "bind-order-new",
+    ) === null);
+  const oldGate = openingSetupGate(undefined, "bind-order");
+  oldGate.instruction = "OLD";
+  gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    oldParams,
+    {
+      ok: true,
+      data: { status: "PASS", opening_gate: oldGate },
+    },
+    "bind-order-old",
+  );
+  const pendingDiscover = gate.openingSetupToolError("coc_discover", {});
+  check("old-first response cannot publish or arm while newest bind is pending",
+    gate.acceptVisibleAssistantFinal("OLD source prose") === false
+    && pendingDiscover?.includes("opening setup hard gate is active"));
+  const newGate = openingSetupGate(undefined, "bind-order");
+  newGate.instruction = "NEW";
+  gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    newParams,
+    {
+      ok: true,
+      data: { status: "PASS", opening_gate: newGate },
+    },
+    "bind-order-new",
+  );
+  check("newest issued bind owns the retained source route",
+    gate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "bind-order",
+      arguments: {},
+    }, "bind-order-probe")?.includes('"instruction":"NEW"')
+    && gate.takeOpeningSetupAudits().some((entry) => (
+      entry.reason === "late_bind_outside_current_route_generation"
+      && entry.invocation_id === "bind-order-old"
     )));
 }
 
@@ -1798,6 +1871,7 @@ async function exerciseFailureDrain(mode) {
   prepareOpeningRoute(gate, "identity-a", "identity-prepare-a");
   bindOpeningRoute(gate, "identity-b", "identity-bind-b");
   prepareOpeningRoute(gate, "identity-b", "identity-prepare-b");
+  gate.markAgentStart();
   const paramsB = bootstrapOpeningParams("identity-b");
   check("campaign B bootstrap attempt is admitted",
     gate.openingSetupToolError(
@@ -1823,6 +1897,9 @@ async function exerciseFailureDrain(mode) {
     },
     "identity-bootstrap-b",
   );
+  check("mismatched current releases B's exact continuation latch",
+    gate.acceptVisibleAssistantFinal("wrong current prose") === false
+    && gate.requiredOpeningSetupContinuation()?.campaign_id === "identity-b");
   check("campaign A current envelope cannot clear campaign B",
     gate.openingSetupToolError("coc_invoke", {
       operation: "scene.context",
@@ -1975,6 +2052,141 @@ async function exerciseFailureDrain(mode) {
     && !afterPrepare.includes('"tag":"wrong"'));
 }
 
+// A prepare result may prefill either bootstrap argument only when the value
+// satisfies the canonical Python contract. Wrong types/ranges/order remain at
+// selection and are audited instead of poisoning the retained route.
+{
+  const bootstrapCard = (prefilled_arguments, missing_arguments = []) => ({
+    schema_version: 1,
+    operation: "progressive.opening_bootstrap",
+    invoke_via: "coc_invoke",
+    prefilled_arguments,
+    missing_arguments,
+    hard_gate: true,
+    authority: "canonical_setup",
+  });
+  const invalidCards = [
+    bootstrapCard({
+      start_location: "not-object",
+      opening_pdf_indices: "not-array",
+    }),
+    bootstrapCard({
+      start_location: {
+        location_id: "opening",
+        title: "Opening",
+        extra: true,
+      },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "bad id", title: "Opening" },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: " " },
+      opening_pdf_indices: [0],
+    }),
+    bootstrapCard(
+      { start_location: { location_id: "opening", title: "Opening" } },
+      ["opening_pdf_indices", "opening_pdf_indices"],
+    ),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening" },
+      opening_pdf_indices: [],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening" },
+      opening_pdf_indices: [0, 1, 2, 3],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening" },
+      opening_pdf_indices: [-1],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening" },
+      opening_pdf_indices: [0.5],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening" },
+      opening_pdf_indices: [0, 0],
+    }),
+    bootstrapCard({
+      start_location: { location_id: "opening", title: "Opening" },
+      opening_pdf_indices: [0, 2],
+    }),
+  ];
+  for (const [index, card] of invalidCards.entries()) {
+    const campaignId = `typed-card-invalid-${index}`;
+    const gate = new main.OpeningTerminalContinuationGate();
+    bindOpeningRoute(gate, campaignId, `${campaignId}-bind`);
+    const params = {
+      operation: "progressive.prepare_opening",
+      campaign: campaignId,
+      arguments: {},
+    };
+    check(`typed card ${index} prepare attempt admitted`,
+      gate.openingSetupToolError(
+        "coc_invoke",
+        params,
+        `${campaignId}-prepare`,
+      ) === null);
+    gate.observeOpeningSetupInvocation(
+      "progressive.prepare_opening",
+      params,
+      {
+        ok: true,
+        data: { status: "blocked", next_operation: card },
+      },
+      `${campaignId}-prepare`,
+    );
+    check(`typed card ${index} cannot poison retained bootstrap route`,
+      gate.openingSetupToolError("coc_invoke", {
+        operation: "scene.context",
+        campaign: campaignId,
+        arguments: {},
+      }, `${campaignId}-probe`)?.includes(
+        '"operation":"progressive.prepare_opening"',
+      )
+      && gate.takeOpeningSetupAudits().some((entry) => (
+        entry.reason === "opening_prepare_result_invalid"
+      )));
+  }
+
+  const validGate = new main.OpeningTerminalContinuationGate();
+  bindOpeningRoute(validGate, "typed-card-valid", "typed-card-valid-bind");
+  const validParams = {
+    operation: "progressive.prepare_opening",
+    campaign: "typed-card-valid",
+    arguments: {},
+  };
+  observeOwnedOpeningInvocation(
+    validGate,
+    "typed-card-valid-prepare",
+    validParams,
+    {
+      ok: true,
+      data: {
+        status: "blocked",
+        next_operation: bootstrapCard({
+          start_location: {
+            location_id: "opening.valid-1",
+            title: "Valid Opening",
+          },
+          opening_pdf_indices: [4, 5, 6],
+        }),
+      },
+    },
+  );
+  check("canonical prefilled bootstrap values remain admissible",
+    validGate.openingSetupToolError("coc_invoke", {
+      operation: "scene.context",
+      campaign: "typed-card-valid",
+      arguments: {},
+    }, "typed-card-valid-probe")?.includes(
+      '"operation":"progressive.opening_bootstrap"',
+    ));
+}
+
 // The coordinator packet id is part of the admitted bootstrap attempt. A late
 // terminal from another dispatch cannot fail, complete, or clear this route.
 {
@@ -2020,8 +2232,24 @@ async function exerciseFailureDrain(mode) {
     }, "dispatch-probe")?.includes(
       '"operation":"progressive.opening_bootstrap"',
     ));
+  check("wrong dispatch releases the latch for an exact retry",
+    gate.acceptVisibleAssistantFinal("wrong dispatch prose") === false
+    && gate.requiredOpeningSetupContinuation()?.next_operation?.operation
+      === "progressive.opening_bootstrap");
+  check("replacement dispatch attempt is admitted",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      params,
+      "dispatch-bootstrap-retry",
+    ) === null);
+  gate.observeOpeningSetupInvocation(
+    "progressive.opening_bootstrap",
+    params,
+    openingBootstrapResult(task),
+    "dispatch-bootstrap-retry",
+  );
   gate.markOpeningSetupRouteAttemptFailure(
-    "dispatch-bootstrap",
+    "dispatch-bootstrap-retry",
     params,
     {
       ok: false,
@@ -2037,6 +2265,97 @@ async function exerciseFailureDrain(mode) {
         + "你可以重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
     && gate.takeDeliveredOpeningSetupTerminalBlocker()?.dispatch_key
       === task.packet.packet_id);
+}
+
+// Every terminal attempt path releases its invocation identity, including
+// non-route transport failure. Concurrent attempts are capped and become
+// admissible again after terminal cleanup.
+{
+  const gate = new main.OpeningTerminalContinuationGate();
+  bindOpeningRoute(gate, "attempt-cleanup", "attempt-cleanup-bind");
+  const characterParams = {
+    operation: "setup.invoke",
+    campaign: "attempt-cleanup",
+    arguments: {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: "attempt-cleanup",
+        investigator_ids: ["cleanup-investigator"],
+      },
+    },
+  };
+  check("character attempt is admitted before transport failure",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      characterParams,
+      "attempt-cleanup-reuse",
+    ) === null);
+  gate.markOpeningSetupRouteAttemptFailure(
+    "attempt-cleanup-reuse",
+    characterParams,
+    {
+      ok: false,
+      error: { code: "canonical_route_call_failed" },
+    },
+  );
+  check("failed non-route attempt identity can be reused",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      characterParams,
+      "attempt-cleanup-reuse",
+    ) === null);
+  gate.observeOpeningSetupInvocation(
+    "setup.invoke",
+    characterParams,
+    staleCharacterSetupResult("campaign.link_investigator"),
+    "attempt-cleanup-reuse",
+  );
+
+  const admittedIds = [];
+  for (
+    let index = 0;
+    index < main.__test.MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN;
+    index += 1
+  ) {
+    const invocationId = `attempt-cap-${index}`;
+    check(`attempt cap slot ${index} is admitted`,
+      gate.openingSetupToolError(
+        "coc_invoke",
+        characterParams,
+        invocationId,
+      ) === null);
+    admittedIds.push(invocationId);
+  }
+  check("attempt cap rejects one excess concurrent invocation",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      characterParams,
+      "attempt-cap-overflow",
+    )?.includes("too many concurrent"));
+  for (const invocationId of admittedIds) {
+    gate.markOpeningSetupRouteAttemptFailure(
+      invocationId,
+      characterParams,
+      {
+        ok: false,
+        error: { code: "canonical_route_call_failed" },
+      },
+    );
+  }
+  check("terminal cleanup reopens bounded attempt capacity",
+    gate.openingSetupToolError(
+      "coc_invoke",
+      characterParams,
+      "attempt-cap-overflow",
+    ) === null);
+  gate.markOpeningSetupRouteAttemptFailure(
+    "attempt-cap-overflow",
+    characterParams,
+    {
+      ok: false,
+      error: { code: "canonical_route_call_failed" },
+    },
+  );
 }
 
 // Contract invalidity creates a new revision with one explicit prepare-based
@@ -2116,9 +2435,67 @@ async function exerciseFailureDrain(mode) {
     ));
   check("stale current and explicit recovery transitions are audited",
     gate.takeOpeningSetupAudits().some((entry) => (
-      entry.reason === "stale_generation_or_revision"
+      entry.reason === "superseded_attempt_revision"
       && entry.invocation_id === "recovery-old-bootstrap"
     )));
+}
+
+// A bootstrap packet rejected by the observer cannot bypass that decision in
+// the gateway. It launches no coordinator and releases the exact retry latch.
+{
+  const campaignId = "gateway-packet-b";
+  const wrongTask = coordinatorTask("gateway-packet-a", {
+    campaignId: "gateway-packet-a",
+  });
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult(campaignId);
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(wrongTask);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness, campaignId);
+  const rejected = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "gateway-wrong-packet",
+    bootstrapOpeningParams(campaignId),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  const hiddenFinal = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "wrong campaign packet prose" }],
+  });
+  const retry = harness.sent.findLast((entry) => (
+    entry.message?.customType === "coc-opening-setup-route"
+  ));
+  check("observer rejection prevents wrong-campaign coordinator launch",
+    rejected.ok === false
+    && rejected.error.code === "opening_bootstrap_result_rejected"
+    && harness.launches.length === 0
+    && !hiddenFinal.content.some((part) => part.type === "text")
+    && harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+      && entry.value.reason === "invocation_or_campaign_mismatch"
+      && entry.value.invocation_id === "gateway-wrong-packet"
+    )));
+  check("wrong-campaign packet releases the exact bootstrap retry latch",
+    retry?.message?.details?.campaign_id === campaignId
+    && retry.message.details.next_operation?.operation
+      === "progressive.opening_bootstrap"
+    && retry.options?.triggerTurn === true);
+  await harness.shutdown();
 }
 
 // Failure after an actually armed bind -> prepare -> bootstrap route is
@@ -2459,12 +2836,20 @@ async function exerciseFailureDrain(mode) {
 {
   const task = coordinatorTask("coord-main-opening-failure");
   const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
     if (params.operation === "progressive.opening_bootstrap") {
       return openingBootstrapResult(task);
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
+  await armOpeningBootstrapRoute(harness);
   let settled = false;
   const pendingResult = harness.registered.get("coc_invoke").execute(
     "invoke-opening-failure",
@@ -2485,7 +2870,7 @@ async function exerciseFailureDrain(mode) {
   });
   await nextTurn();
   check("failed opening still waits for terminal source outcome",
-    settled === false && harness.calls.length === 1 && harness.sent.length === 0);
+    settled === false && harness.calls.length === 3 && harness.sent.length === 0);
   harness.controls.get(task.packet.packet_id).resolve(
     failedCoordinatorEvents(
       task.packet.packet_id,
@@ -2504,7 +2889,7 @@ async function exerciseFailureDrain(mode) {
       === "leaf_dispatch_failed"
     && envelope.data.coordinator_terminal.notification.hidden_continuation
       === "suppressed_consumed"
-    && harness.calls.length === 1);
+    && harness.calls.length === 3);
   check("failed opening has one durable terminal and no duplicate wake",
     harness.appended.filter((entry) => (
       entry.name === "coc-source-coordinator-terminal"
@@ -2519,12 +2904,20 @@ async function exerciseFailureDrain(mode) {
 {
   const task = coordinatorTask("coord-main-opening-abort");
   const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
     if (params.operation === "progressive.opening_bootstrap") {
       return openingBootstrapResult(task);
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
+  await armOpeningBootstrapRoute(harness);
   const controller = new AbortController();
   const pendingResult = harness.registered.get("coc_invoke").execute(
     "invoke-opening-abort",
@@ -2543,7 +2936,7 @@ async function exerciseFailureDrain(mode) {
   await nextTurn();
   check("abort fixture reaches active synchronous wait",
     harness.controls.has(task.packet.packet_id)
-    && harness.calls.length === 1
+    && harness.calls.length === 3
     && harness.sent.length === 0);
   controller.abort();
   const cancelled = JSON.parse((await pendingResult).content[0].text);
@@ -2561,10 +2954,13 @@ async function exerciseFailureDrain(mode) {
     role: "assistant",
     content: [{ type: "text", text: "新回合的有效叙事保持可见。" }],
   });
-  check("aborted wait does not suppress next real user epoch",
+  check("aborted wait keeps the next user epoch behind the opening blocker",
     nextAssistant.content.some((part) => (
       part.type === "text"
-      && part.text === "新回合的有效叙事保持可见。"
+      && part.text === (
+        "开场资料解析已取消，游戏尚未开始。系统保留了当前进度；"
+        + "你可以稍后重试原来的开场步骤，在资料就绪前不会自行编写剧情。"
+      )
     )));
 
   harness.controls.get(task.packet.packet_id).resolve(
@@ -2577,7 +2973,7 @@ async function exerciseFailureDrain(mode) {
       entry.name === "coc-source-coordinator-terminal"
     )).length === 1
     && harness.sent.length === 0
-    && harness.calls.length === 1);
+    && harness.calls.length === 3);
   await harness.shutdown();
 }
 
@@ -2586,12 +2982,20 @@ async function exerciseFailureDrain(mode) {
 {
   const task = coordinatorTask("coord-main-opening-no-takeover");
   const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
     if (params.operation === "progressive.opening_bootstrap") {
       return openingBootstrapWithoutTakeover(task, "queued");
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
+  await armOpeningBootstrapRoute(harness);
   let rejection;
   try {
     await harness.registered.get("coc_invoke").execute(
@@ -2622,7 +3026,7 @@ async function exerciseFailureDrain(mode) {
     && audit.value.source_status === "queued"
     && !Object.hasOwn(audit.value, "source_dependency_terminal")
     && harness.launches.length === 0
-    && harness.calls.length === 1
+    && harness.calls.length === 3
     && harness.sent.length === 0);
   await harness.shutdown();
 }
@@ -2632,12 +3036,20 @@ async function exerciseFailureDrain(mode) {
 {
   const task = coordinatorTask("coord-main-opening-current");
   const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
     if (params.operation === "progressive.opening_bootstrap") {
       return openingBootstrapWithoutTakeover(task, "current");
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
+  await armOpeningBootstrapRoute(harness);
   const toolResult = await harness.registered.get("coc_invoke").execute(
     "invoke-opening-current",
     {
@@ -2658,7 +3070,7 @@ async function exerciseFailureDrain(mode) {
     && envelope.data.status === "current"
     && envelope.data.source_work.status === "current"
     && harness.launches.length === 0
-    && harness.calls.length === 1
+    && harness.calls.length === 3
     && harness.sent.length === 0);
   await harness.shutdown();
 }
@@ -2669,12 +3081,20 @@ async function exerciseFailureDrain(mode) {
   const task = coordinatorTask("coord-main-opening-invalid");
   delete task.packet.packet_id;
   const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
     if (params.operation === "progressive.opening_bootstrap") {
       return openingBootstrapResult(task);
     }
     throw new Error(`unexpected operation ${params.operation}`);
   });
   await harness.start();
+  await armOpeningBootstrapRoute(harness);
   let rejection;
   try {
     await harness.registered.get("coc_invoke").execute(
@@ -2704,7 +3124,7 @@ async function exerciseFailureDrain(mode) {
     && audit?.value?.status === "contract_violation"
     && !Object.hasOwn(audit.value, "source_dependency_terminal")
     && harness.launches.length === 0
-    && harness.calls.length === 1
+    && harness.calls.length === 3
     && harness.sent.length === 0);
   await harness.shutdown();
 }
