@@ -291,11 +291,11 @@ function beginBackgroundOpeningRoute(gate, campaignId, prefix) {
         },
       },
     )
-    || !gate.markOpeningBackgroundSubmitted(
+    || gate.markOpeningBackgroundSubmitted(
       invocationId,
       params,
       task.packet.packet_id,
-    )
+    ).status !== "submitted"
   ) {
     throw new Error("opening background phase did not start");
   }
@@ -579,6 +579,9 @@ function mainExtensionHarness(responseForCall, options = {}) {
   const calls = [];
   const launches = [];
   const controls = new Map();
+  const sendFailuresByType = new Map(
+    Object.entries(options.sendFailuresByType ?? {}),
+  );
   const fakePi = {
     registerTool: (tool) => registered.set(tool.name, tool),
     registerCommand: () => {},
@@ -589,7 +592,15 @@ function mainExtensionHarness(responseForCall, options = {}) {
       handlers.set(name, values);
     },
     appendEntry: (name, value) => appended.push({ name, value }),
-    sendMessage: (message, options) => sent.push({ message, options }),
+    sendMessage: (message, sendOptions) => {
+      const customType = String(message?.customType ?? "");
+      const remaining = Number(sendFailuresByType.get(customType) ?? 0);
+      if (remaining > 0) {
+        sendFailuresByType.set(customType, remaining - 1);
+        throw new Error(`injected send failure: ${customType}`);
+      }
+      sent.push({ message, options: sendOptions });
+    },
     setActiveTools: () => {},
     getThinkingLevel: () => "off",
   };
@@ -606,6 +617,17 @@ function mainExtensionHarness(responseForCall, options = {}) {
     launchCoordinator: (task) => {
       const key = task.packet.packet_id;
       launches.push(key);
+      if (options.immediateCoordinatorEvents !== undefined) {
+        const events = typeof options.immediateCoordinatorEvents === "function"
+          ? options.immediateCoordinatorEvents(task)
+          : options.immediateCoordinatorEvents;
+        return {
+          child: {},
+          activation: Promise.resolve({ type: "agent_start" }),
+          completion: Promise.resolve(events),
+          terminate: async () => {},
+        };
+      }
       let resolveCompletion;
       let rejectCompletion;
       const completion = new Promise((resolve, reject) => {
@@ -1276,6 +1298,61 @@ async function exerciseFailureDrain(mode) {
     harness.ctx,
   );
   const callsAfterBind = harness.calls.length;
+  let fakeTopLevelRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "fake-top-level-investigator-create",
+      {
+        operation: "investigator.create",
+        campaign: "auto-dispatch-fixture",
+        arguments: {
+          investigator_id: "fake-top-level",
+          sheet: { id: "fake-top-level", name: "Fake Top Level" },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch { fakeTopLevelRejected = true; }
+  let malformedRouteCampaignsRejected = 0;
+  for (const campaign of [undefined, 7]) {
+    const params = {
+      operation: "progressive.prepare_opening",
+      arguments: {},
+    };
+    if (campaign !== undefined) params.campaign = campaign;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        `malformed-route-campaign-${String(campaign)}`,
+        params,
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch { malformedRouteCampaignsRejected += 1; }
+  }
+  let retainedAfterMalformed;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "scene-after-malformed-route-campaign",
+      {
+        operation: "scene.context",
+        campaign: "auto-dispatch-fixture",
+        arguments: {},
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch (error) { retainedAfterMalformed = error; }
+  check("hostile setup shapes are rejected before MCP without consuming route",
+    fakeTopLevelRejected
+    && malformedRouteCampaignsRejected === 2
+    && harness.calls.length === callsAfterBind
+    && retainedAfterMalformed?.message.includes(
+      '"operation":"progressive.prepare_opening"',
+    ));
   let discoverError;
   let ocrError;
   let sceneError;
@@ -3657,6 +3734,171 @@ async function exerciseFailureDrain(mode) {
       && entry.value.reason === "opening_dispatch_ownership_lost"
       && entry.value.invocation_id === "gateway-pending-bootstrap"
     )));
+  await harness.shutdown();
+}
+
+// A failed hidden route delivery must release both the route latch and owner
+// so the identical retained route can be delivered exactly once on retry.
+{
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, {
+    sendFailuresByType: { "coc-opening-setup-route": 1 },
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness);
+  const first = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "第一次路由发送失败。" }],
+  });
+  const second = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "第二次重试同一路由。" }],
+  });
+  check("route send failure releases exact retained route for one retry",
+    first.content.every((part) => part.type !== "text")
+    && second.content.every((part) => part.type !== "text")
+    && harness.sent.filter((entry) => (
+      entry.message?.customType === "coc-opening-setup-route"
+    )).length === 1);
+  await harness.shutdown();
+}
+
+// Failure after an actually armed bind -> prepare -> bootstrap route is
+// player-visible through host provenance, retains one valid exact retry, and
+// does not leave the continuation latch consumed.
+{
+  const task = coordinatorTask("terminal-before-submit-gateway");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, {
+    immediateCoordinatorEvents: failedCoordinatorEvents(
+      task.packet.packet_id,
+      "leaf_dispatch_failed",
+    ),
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness);
+  const terminal = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "terminal-before-submit-bootstrap",
+    bootstrapOpeningParams("auto-dispatch-fixture"),
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("real gateway terminal-before-submit never reports queued success",
+    terminal.ok === false
+    && terminal.error.code === "opening_source_terminal_failure"
+    && terminal.data.source_dependency_terminal === true
+    && terminal.data.coordinator_terminal.packet_id === task.packet.packet_id
+    && terminal.data.coordinator_terminal.status === "failed"
+    && harness.appended.filter((entry) => (
+      entry.name === "coc-source-coordinator-terminal"
+    )).length === 1);
+  await harness.shutdown();
+}
+
+// A failed terminal continuation delivery releases the terminal owner. The
+// fulfilled projection route then remains available for one natural retry.
+{
+  const task = coordinatorTask("terminal-send-retry");
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) return boundOpeningSetupResult();
+    if (params.operation === "progressive.prepare_opening") {
+      return preparedOpeningSetupResult();
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapResult(task);
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      return canonicalLinkSetupResult(
+        "auto-dispatch-fixture",
+        ["terminal-send-investigator"],
+      );
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  }, {
+    sendFailuresByType: {
+      "coc-source-coordinator-terminal-continuation": 1,
+    },
+  });
+  await harness.start();
+  await armOpeningBootstrapRoute(harness);
+  await harness.registered.get("coc_invoke").execute(
+    "terminal-send-bootstrap",
+    bootstrapOpeningParams("auto-dispatch-fixture"),
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await harness.registered.get("coc_invoke").execute(
+    "terminal-send-link",
+    {
+      operation: "setup.invoke",
+      campaign: "auto-dispatch-fixture",
+      arguments: {
+        kind: "campaign.link_investigator",
+        payload: {
+          campaign_id: "auto-dispatch-fixture",
+          investigator_ids: ["terminal-send-investigator"],
+        },
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  for (const handler of harness.handlers.get("agent_end") || []) {
+    await handler({ reason: "terminal-send-idle" }, harness.ctx);
+  }
+  harness.controls.get(task.packet.packet_id).resolve(
+    fulfilledCoordinatorEvents(task.packet.packet_id),
+  );
+  await nextTurn();
+  await nextTurn();
+  const retry = await harness.emit("message_end", {
+    role: "assistant",
+    content: [{ type: "text", text: "终态发送失败后的精确投影重试。" }],
+  });
+  check("terminal send failure retains one exact projection route retry",
+    retry.content.some((part) => (
+      part.type === "text"
+      && part.text === "终态发送失败后的精确投影重试。"
+    ))
+    && harness.sent.filter((entry) => (
+      entry.message?.customType
+        === "coc-source-coordinator-terminal-continuation"
+    )).length === 0
+    && harness.sent.filter((entry) => (
+      entry.message?.customType === "coc-opening-setup-route"
+      && entry.message?.details?.next_operation?.operation
+        === "progressive.project_opening"
+    )).length === 1);
   await harness.shutdown();
 }
 

@@ -192,6 +192,7 @@ type OpeningSetupState = {
   projectionCard: JsonObject | null;
   bootstrapRetryCard: JsonObject | null;
   continuationReleaseOwner: "route" | "terminal" | null;
+  backgroundTerminalReceipt: JsonObject | null;
 };
 type OpeningSetupAttempt = {
   invocationId: string;
@@ -209,6 +210,10 @@ type OpeningSetupObservationDisposition = {
   dispatchAllowed: boolean;
   reason: string;
 };
+type OpeningBackgroundSubmissionDisposition =
+  | { status: "submitted" }
+  | { status: "terminal"; receipt: JsonObject }
+  | { status: "stale" };
 const MAX_OPENING_SETUP_ATTEMPTS_PER_CAMPAIGN = 32;
 const OPENING_START_LOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
@@ -870,6 +875,7 @@ export class OpeningTerminalContinuationGate {
       projectionCard: null,
       bootstrapRetryCard: null,
       continuationReleaseOwner: null,
+      backgroundTerminalReceipt: null,
     };
     this.openingSetupStates.set(campaignId, state);
     this.openingSetupContinuationQueued.delete(campaignId);
@@ -887,6 +893,7 @@ export class OpeningTerminalContinuationGate {
       phase: "contract_invalid" as const,
       dispatchIdentity: null,
       continuationReleaseOwner: null,
+      backgroundTerminalReceipt: null,
     };
     this.openingSetupStates.set(state.route.campaign_id, next);
     this.openingSetupContinuationQueued.delete(state.route.campaign_id);
@@ -1300,6 +1307,7 @@ export class OpeningTerminalContinuationGate {
           projectionCard: null,
           bootstrapRetryCard: null,
           continuationReleaseOwner: null,
+          backgroundTerminalReceipt: null,
         };
         this.openingSetupStates.set(attempt.campaignId, next);
         this.openingSetupVisibleOutputAuthorization = null;
@@ -1466,6 +1474,33 @@ export class OpeningTerminalContinuationGate {
     if (state.continuationReleaseOwner !== null) return false;
     state.continuationReleaseOwner = owner;
     return true;
+  }
+
+  releaseOpeningSetupContinuation(
+    route: OpeningSetupRoute,
+    owner: "route" | "terminal",
+  ): void {
+    const state = this.openingSetupStates.get(route.campaign_id);
+    if (
+      state === undefined
+      || state.route !== route
+      || state.continuationReleaseOwner !== owner
+    ) {
+      return;
+    }
+    state.continuationReleaseOwner = null;
+    if (owner === "route") {
+      this.openingSetupContinuationQueued.delete(route.campaign_id);
+    }
+  }
+
+  releaseOpeningTerminalContinuation(dispatchKey: string): void {
+    const state = [...this.openingSetupStates.values()].find(
+      (candidate) => candidate.dispatchIdentity === dispatchKey,
+    );
+    if (state !== undefined) {
+      this.releaseOpeningSetupContinuation(state.route, "terminal");
+    }
   }
 
   requiredOpeningSetupContinuation(): OpeningSetupRoute | null {
@@ -1742,6 +1777,7 @@ export class OpeningTerminalContinuationGate {
     }
     state.phase = "submitting";
     state.continuationReleaseOwner = null;
+    state.backgroundTerminalReceipt = null;
     state.bootstrapRetryCard = state.route.next_operation;
     state.projectionCard = {
       operation: "progressive.project_opening",
@@ -1777,36 +1813,34 @@ export class OpeningTerminalContinuationGate {
     invocationId: string,
     params: JsonObject,
     dispatchKey: string,
-  ): boolean {
+  ): OpeningBackgroundSubmissionDisposition {
     const attempt = this.openingSetupAttempts.get(invocationId);
     const state = typeof params.campaign === "string"
       ? this.openingSetupStates.get(params.campaign)
       : undefined;
-    if (
-      state !== undefined
-      && (
-        (
-          state.phase === "projection"
-          && state.dispatchIdentity === dispatchKey
-        )
-        || (
-          state.phase === "retry"
-          && state.bootstrapRetryCard !== null
-        )
-      )
-    ) {
-      return true;
-    }
     if (
       attempt === undefined
       || state === undefined
       || attempt.attemptClass !== "route"
       || !this.attemptMatchesState(attempt, state)
       || attempt.dispatchIdentity !== dispatchKey
-      || state.dispatchIdentity !== dispatchKey
+    ) {
+      return { status: "stale" };
+    }
+    const terminalReceipt = state.backgroundTerminalReceipt;
+    if (
+      terminalReceipt !== null
+      && terminalReceipt.packet_id === dispatchKey
+      && ["projection", "retry"].includes(state.phase)
+    ) {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      return { status: "terminal", receipt: terminalReceipt };
+    }
+    if (
+      state.dispatchIdentity !== dispatchKey
       || state.phase !== "submitting"
     ) {
-      return false;
+      return { status: "stale" };
     }
     state.phase = "materializing";
     this.recordOpeningSetupAudit({
@@ -1818,7 +1852,7 @@ export class OpeningTerminalContinuationGate {
       invocation_id: invocationId,
       dispatch_key: dispatchKey,
     });
-    return true;
+    return { status: "submitted" };
   }
 
   observeOpeningCoordinatorTerminal(receipt: JsonObject): void {
@@ -1836,7 +1870,8 @@ export class OpeningTerminalContinuationGate {
     const attempt = [...this.openingSetupAttempts.values()].find(
       (candidate) => candidate.dispatchIdentity === dispatchKey,
     );
-    if (attempt !== undefined) {
+    state.backgroundTerminalReceipt = receipt;
+    if (attempt !== undefined && state.phase !== "submitting") {
       this.finalizeOpeningSetupAttempt(attempt.invocationId);
     }
     if (
@@ -2344,6 +2379,7 @@ export async function publishCoordinatorTerminal(
     dispatchKey: string,
     terminalStatus: string,
   ) => JsonObject,
+  onWakeDeliveryFailure?: (dispatchKey: string) => void,
 ): Promise<JsonObject> {
   let appendStatus = "delivered";
   try { pi.appendEntry("coc-source-coordinator-terminal", receipt); }
@@ -2403,7 +2439,12 @@ export async function publishCoordinatorTerminal(
             }, { triggerTurn: true, deliverAs: "followUp" });
             continuedDispatches.add(dispatchKey);
             continuationStatus = "delivered";
-          } catch { continuationStatus = "failed"; }
+          } catch {
+            continuationStatus = "failed";
+            try {
+              onWakeDeliveryFailure?.(dispatchKey);
+            } catch { /* delivery rollback is best effort */ }
+          }
         }
       }
     }
@@ -2682,6 +2723,40 @@ function failedBlockingOpeningEnvelope(
   };
 }
 
+function terminalBlockingOpeningEnvelope(
+  bootstrapValue: unknown,
+  terminalReceipt: JsonObject,
+  submission: JsonObject,
+): JsonObject {
+  const bootstrap = asObject(bootstrapValue, "opening bootstrap result");
+  const bootstrapData = asObject(
+    bootstrap.data,
+    "opening bootstrap data",
+  );
+  const sourceWork = objectOrNull(bootstrapData.source_work) ?? {};
+  const {
+    background_takeover: _privateTakeover,
+    ...publicSourceWork
+  } = sourceWork;
+  return {
+    ...bootstrap,
+    data: {
+      ...bootstrapData,
+      status: "source_terminal",
+      source_work: {
+        ...publicSourceWork,
+        status: "fulfilled",
+        terminal: true,
+      },
+      source_dependency_terminal: true,
+      projection_ready: false,
+      activation_allowed: false,
+      coordinator_submission: submission,
+      coordinator_terminal: terminalReceipt,
+    },
+  };
+}
+
 async function runOcr(params: JsonObject, signal?: AbortSignal): Promise<JsonObject> {
   exactKeys(params, ["operation", "source_path", "corpus_path", "pages", "output_path", "quality"], "OCR request");
   const operation = nonEmpty(params.operation, "operation");
@@ -2814,6 +2889,11 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
         ownedContinuedDispatches,
         (dispatchKey) => openingContinuationGate.decideWake(dispatchKey),
         () => continuationContext,
+        (dispatchKey) => (
+          openingContinuationGate.releaseOpeningTerminalContinuation(
+            dispatchKey,
+          )
+        ),
       );
     },
     (observation) => {
@@ -3104,11 +3184,28 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               "opening_source_background_start_failed",
             ));
           }
-          if (!openingContinuationGate.markOpeningBackgroundSubmitted(
-            _id,
-            params,
-            dispatchKey,
-          )) {
+          const backgroundSubmission = (
+            openingContinuationGate.markOpeningBackgroundSubmitted(
+              _id,
+              params,
+              dispatchKey,
+            )
+          );
+          if (backgroundSubmission.status === "terminal") {
+            flushOpeningSetupAudits();
+            if (backgroundSubmission.receipt.status !== "fulfilled") {
+              return result(failedBlockingOpeningEnvelope(
+                backgroundSubmission.receipt,
+                "opening_source_terminal_failure",
+              ));
+            }
+            return result(terminalBlockingOpeningEnvelope(
+              value,
+              backgroundSubmission.receipt,
+              submission,
+            ));
+          }
+          if (backgroundSubmission.status === "stale") {
             const terminal = {
               status: "contract_violation",
               failure_class: "opening_background_submission_stale",
@@ -3285,7 +3382,12 @@ export default function mainExtension(pi: ExtensionAPI, overrides: MainExtension
               display: false,
               details: route,
             }, { triggerTurn: true, deliverAs: "followUp" });
-          } catch { /* exact route remains retained for the next natural turn */ }
+          } catch {
+            openingContinuationGate.releaseOpeningSetupContinuation(
+              route,
+              "route",
+            );
+          }
         }
       }
       return decision;
