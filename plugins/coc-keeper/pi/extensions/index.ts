@@ -46,8 +46,9 @@ const OPENING_SETUP_CHARACTER_KINDS = new Set([
   "campaign.link_investigator",
   "investigator.render_card",
 ]);
-const CAMPAIGN_BOUND_SETUP_KINDS = new Set([
-  "campaign.create",
+// These setup handlers require an already-resolvable canonical campaign.
+// campaign.create and investigator.create are intentionally pre-campaign.
+const EXISTING_CAMPAIGN_SETUP_KINDS = new Set([
   "actor.create",
   "campaign.link_investigator",
   "scenario.bind_pdf",
@@ -643,12 +644,12 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
-  private campaignBoundSetupError(params: JsonObject): string | null {
+  private existingCampaignSetupError(params: JsonObject): string | null {
     if (params.operation !== "setup.invoke") return null;
     const args = objectOrNull(params.arguments);
     const payload = objectOrNull(args?.payload);
     const kind = typeof args?.kind === "string" ? args.kind : "";
-    if (!CAMPAIGN_BOUND_SETUP_KINDS.has(kind)) return null;
+    if (!EXISTING_CAMPAIGN_SETUP_KINDS.has(kind)) return null;
     const outerCampaign = typeof params.campaign === "string"
       ? params.campaign
       : "";
@@ -677,6 +678,22 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private setupInvocationCampaignId(params: JsonObject): string | null {
+    if (typeof params.campaign === "string" && params.campaign.length > 0) {
+      return params.campaign;
+    }
+    if (params.operation !== "setup.invoke") return null;
+    const args = objectOrNull(params.arguments);
+    if (args?.kind !== "campaign.create") return null;
+    const payload = objectOrNull(args.payload);
+    return (
+      typeof payload?.campaign_id === "string"
+      && payload.campaign_id.length > 0
+    )
+      ? payload.campaign_id
+      : null;
+  }
+
   private noteOpeningSetupTurnCampaign(campaignId: string): void {
     if (this.openingSetupTurnCampaignId === null) {
       this.openingSetupTurnCampaignId = campaignId;
@@ -693,7 +710,10 @@ export class OpeningTerminalContinuationGate {
     attemptClass: OpeningSetupAttempt["attemptClass"],
     state: OpeningSetupState | null,
   ): void {
-    const campaignId = String(params.campaign);
+    const campaignId = this.setupInvocationCampaignId(params);
+    if (campaignId === null) {
+      throw new Error("opening setup attempt campaign identity is unavailable");
+    }
     const generationSequence = state?.generationSequence
       ?? ++this.openingSetupGenerationSequence;
     const generation = state?.generation
@@ -831,12 +851,10 @@ export class OpeningTerminalContinuationGate {
       );
     }
     if (name !== "coc_invoke") return null;
-    const setupOwnershipError = this.campaignBoundSetupError(params);
+    const setupOwnershipError = this.existingCampaignSetupError(params);
     if (setupOwnershipError !== null) return setupOwnershipError;
     const operation = String(params.operation ?? "");
-    const campaignId = typeof params.campaign === "string"
-      ? params.campaign
-      : null;
+    const campaignId = this.setupInvocationCampaignId(params);
     if (campaignId === null) {
       if (OWNED_OPENING_ROUTE_OPERATIONS.has(operation)) {
         return (
@@ -947,7 +965,7 @@ export class OpeningTerminalContinuationGate {
       ?? (details?.hard_gate === true ? details : null);
     if (
       attempt.operation !== operation
-      || params.campaign !== attempt.campaignId
+      || this.setupInvocationCampaignId(params) !== attempt.campaignId
       || this.resultCampaignMismatch(attempt, envelope, returnedGate)
     ) {
       this.finalizeOpeningSetupAttempt(invocationId);
@@ -1071,6 +1089,14 @@ export class OpeningTerminalContinuationGate {
         accepted: true,
         dispatchAllowed: false,
         reason: "source_contract_invalid",
+      };
+    }
+    if (state === undefined && attempt.attemptClass === "probe") {
+      this.finalizeOpeningSetupAttempt(invocationId);
+      return {
+        accepted: true,
+        dispatchAllowed: false,
+        reason: "non_route_result",
       };
     }
     if (!this.attemptMatchesState(attempt, state)) {

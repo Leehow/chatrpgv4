@@ -3,6 +3,16 @@
 // and autoDispatchCoordinator submits it through the shared manager path
 // without ever throwing back into the KP's tool result.
 import "./_lib/preload-embedded-pi.mjs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 
@@ -2491,7 +2501,6 @@ async function exerciseFailureDrain(mode) {
 // omission and mismatch for the complete canonical campaign-bound set.
 {
   const campaignBoundKinds = [
-    ["campaign.create", { title: "Campaign" }],
     ["actor.create", { actor_id: "actor", sheet: {} }],
     ["campaign.link_investigator", { investigator_ids: ["investigator"] }],
     [
@@ -2575,6 +2584,282 @@ async function exerciseFailureDrain(mode) {
       && harness.calls.at(-1).params.campaign === campaignId);
   }
   await harness.shutdown();
+}
+
+// The existing-campaign preflight must not rewrite the canonical pre-campaign
+// create route. Exercise the main gateway against the real toolbox in a fresh
+// workspace, then prove bind/link gain strict outer identity only after create.
+{
+  const workspace = mkdtempSync(path.join(tmpdir(), "chatrpgv4-r12-"));
+  const campaignId = "r12-real-toolbox";
+  const investigatorId = "r12-real-investigator";
+  const callRealToolbox = (_name, params) => {
+    const argv = [
+      "run",
+      "--frozen",
+      "python",
+      "plugins/coc-keeper/scripts/coc_toolbox.py",
+      "setup.invoke",
+      "--root",
+      workspace,
+    ];
+    if (typeof params.campaign === "string") {
+      argv.push("--campaign", params.campaign);
+    }
+    argv.push("--json", JSON.stringify(params.arguments));
+    const completed = spawnSync("uv", argv, {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PYTHONDONTWRITEBYTECODE: "1",
+      },
+    });
+    if (!completed.stdout.trim()) {
+      throw new Error(
+        `real toolbox probe produced no JSON: ${completed.stderr.trim()}`,
+      );
+    }
+    return JSON.parse(completed.stdout);
+  };
+  const harness = mainExtensionHarness(callRealToolbox);
+  try {
+    await harness.start();
+    const created = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-create",
+      {
+        operation: "setup.invoke",
+        arguments: {
+          kind: "campaign.create",
+          payload: {
+            campaign_id: campaignId,
+            title: "R12 Real Toolbox",
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("payload-only campaign.create reaches real toolbox without unknown campaign",
+      created.ok === true
+      && created.data.status === "PASS"
+      && existsSync(path.join(
+        workspace,
+        ".coc",
+        "campaigns",
+        campaignId,
+        "campaign.json",
+      ))
+      && !harness.appended.some((entry) => (
+        entry.name === "coc-opening-setup-route-audit"
+        && entry.value.invocation_id === "r12-real-create"
+        && entry.value.reason === "unowned_result"
+      )));
+
+    const forcedCampaignId = "r12-forced-nonexistent";
+    const forcedOuter = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-forced-outer",
+      {
+        operation: "setup.invoke",
+        campaign: forcedCampaignId,
+        arguments: {
+          kind: "campaign.create",
+          payload: {
+            campaign_id: forcedCampaignId,
+            title: "Must remain pre-campaign",
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("forcing outer campaign on create retains canonical unknown_campaign",
+      forcedOuter.ok === false
+      && forcedOuter.error.code === "unknown_campaign"
+      && !existsSync(path.join(
+        workspace,
+        ".coc",
+        "campaigns",
+        forcedCampaignId,
+      )));
+
+    const investigatorSheet = {
+      schema_version: 1,
+      id: investigatorId,
+      name: "R12 Investigator",
+      characteristics: {
+        STR: 50,
+        CON: 50,
+        SIZ: 50,
+        DEX: 50,
+        APP: 50,
+        INT: 50,
+        POW: 50,
+        EDU: 50,
+      },
+      derived: {
+        HP: 10,
+        SAN: 50,
+        MP: 10,
+        Luck: 60,
+        DB: "none",
+        Build: 0,
+        MOV: 8,
+      },
+      skills: { "Credit Rating": 20 },
+      player_facing_sheet_zh: {
+        display_name: "R12 调查员",
+        era: "1920s",
+        nationality: "中国",
+        occupation: "记者",
+        characteristics: {
+          力量: { key: "STR", value: 50 },
+          教育: { key: "EDU", value: 50 },
+        },
+        derived: { 生命值: 10, 理智: 50 },
+        skills: [],
+        backstory_summary: "一名追查异常事件的记者。",
+      },
+    };
+    const investigator = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-investigator",
+      {
+        operation: "setup.invoke",
+        arguments: {
+          kind: "investigator.create",
+          payload: {
+            investigator_id: investigatorId,
+            sheet: investigatorSheet,
+          },
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("real toolbox probe creates reusable investigator",
+      investigator.ok === true);
+
+    const pdfPath = path.join(workspace, "r12-source.pdf");
+    const bundlePath = path.join(workspace, "r12-source-bundle");
+    const pdf = Buffer.from("%PDF host-owned R12 setup fixture");
+    const markdown = Buffer.from(
+      "# R12 Module\n\nAccepted host source page.\n",
+    );
+    writeFileSync(pdfPath, pdf);
+    mkdirSync(bundlePath);
+    writeFileSync(path.join(bundlePath, "page-0000.md"), markdown);
+    writeFileSync(path.join(bundlePath, "manifest.json"), JSON.stringify({
+      schema_version: 1,
+      producer: "codex-pdf-skill",
+      source: {
+        source_id: "pdf:r12-module",
+        title: "R12 Module",
+        path: pdfPath,
+        file_sha256: createHash("sha256").update(pdf).digest("hex"),
+        page_count: 1,
+      },
+      pages: [{
+        pdf_index: 0,
+        markdown_path: "page-0000.md",
+        text_sha256: createHash("sha256").update(markdown).digest("hex"),
+        review_state: "manual_accepted",
+        parse_confidence: 0.99,
+        grep_anchors: ["Accepted host source page."],
+      }],
+    }));
+    const bindArgs = {
+      kind: "scenario.bind_pdf",
+      payload: {
+        campaign_id: campaignId,
+        scenario_id: "r12-module",
+        title: "R12 Module",
+        source_bundle_path: bundlePath,
+        compile_now: false,
+      },
+    };
+    const callsBeforeMissingBind = harness.calls.length;
+    let missingBindRejected = false;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        "r12-real-bind-missing",
+        { operation: "setup.invoke", arguments: bindArgs },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch {
+      missingBindRejected = true;
+    }
+    const bound = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-bind-corrected",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: bindArgs,
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("real toolbox bind rejects missing outer before mutation then succeeds",
+      missingBindRejected
+      && harness.calls.length === callsBeforeMissingBind + 1
+      && bound.ok === true
+      && bound.data.status === "PASS");
+
+    const linkArgs = {
+      kind: "campaign.link_investigator",
+      payload: {
+        campaign_id: campaignId,
+        investigator_ids: [investigatorId],
+      },
+    };
+    const callsBeforeMissingLink = harness.calls.length;
+    let missingLinkRejected = false;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        "r12-real-link-missing",
+        { operation: "setup.invoke", arguments: linkArgs },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch {
+      missingLinkRejected = true;
+    }
+    const linked = JSON.parse((await harness.registered.get(
+      "coc_invoke",
+    ).execute(
+      "r12-real-link-corrected",
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: linkArgs,
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    )).content[0].text);
+    check("real toolbox link rejects missing outer before mutation then succeeds",
+      missingLinkRejected
+      && harness.calls.length === callsBeforeMissingLink + 1
+      && linked.ok === true
+      && linked.data.status === "PASS");
+    await harness.shutdown();
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
 }
 
 // Reproduce the live Grok call shape at the real Pi gateway: payload-only
