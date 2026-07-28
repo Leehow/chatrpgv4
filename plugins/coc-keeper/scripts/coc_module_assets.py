@@ -996,9 +996,10 @@ def _validate_entity_pack(
     """Validate meaning-bearing structures before a host pack becomes durable."""
     body_source_page_indices = doc.get("body_source_page_indices")
     if body_source_page_indices is not None:
-        if str(doc.get("parse_state") or "") != "named_only":
+        if str(doc.get("parse_state") or "") not in {"named_only", "toc_only"}:
             raise ModuleAssetsError(
-                "body_source_page_indices is valid only on a named_only locator stub"
+                "body_source_page_indices is valid only on a named_only/toc_only "
+                "locator stub"
             )
         if (
             not isinstance(body_source_page_indices, list)
@@ -6155,7 +6156,7 @@ def ensure_stub(
     existing = get_entity(workspace, asset_root_id, kind, entity_id)
     if existing is not None:
         scope_updated = False
-        if str(existing.get("parse_state") or "") == "named_only":
+        if str(existing.get("parse_state") or "") in {"named_only", "toc_only"}:
             current_indices = set(_source_indices(existing, field=f"{kind} stub"))
             combined_indices = sorted(current_indices | inherited_indices)
             current_body_indices = list(

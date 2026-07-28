@@ -5003,6 +5003,11 @@ def resolve_source_scope(
         or str(request.get("target_id") or "") != target_id
     ):
         raise ModuleProjectError("source-scope job target does not match")
+    if coc_module_assets._job_aspect(job_kind) != "body":
+        raise ModuleProjectError(
+            "resolve_source_scope accepts body jobs only; mechanics scope must "
+            "come from the canonical mechanics locator"
+        )
     if coc_module_assets.host_work_operational_class(request) not in {
         "awaiting_scope", "legacy_unowned",
     }:

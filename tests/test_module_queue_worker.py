@@ -205,6 +205,16 @@ def _campaign(tmp_path: Path, asset_root: str = "qw-demo") -> str:
     cid = "qw-camp"
     state.create_campaign(tmp_path, cid, "QW Camp", play_language="zh-Hans")
     project.project_opening_deep(tmp_path, cid, asset_root)
+    # Most queue tests exercise host-work lifecycle rather than scope
+    # discovery. Mark the fixture's cellar page as an already located body
+    # window; identity-only behavior is covered by dedicated regressions.
+    assets.ensure_stub(
+        tmp_path,
+        asset_root,
+        "location",
+        "cellar",
+        body_source_scope={"source_page_indices": [1]},
+    )
     return cid
 
 
@@ -315,6 +325,13 @@ def test_revision_bundle_bind_deepen_projects_immutable_path_to_pi_preload(
         },
     )
     assert published["ok"] is True, published
+    assets.ensure_stub(
+        tmp_path,
+        asset_root_id,
+        "location",
+        "cellar",
+        body_source_scope={"source_page_indices": [1]},
+    )
     _clear_queue(tmp_path, asset_root_id)
     requested = toolbox.run_tool(
         "progressive.request_deepen", tmp_path, campaign_id,
@@ -1072,6 +1089,13 @@ def test_exact_scope_waits_for_cache_then_becomes_runnable(tmp_path: Path):
         "source_page_indices": [3],
     })
     assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    assets.ensure_stub(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "chapel",
+        body_source_scope={"source_page_indices": [3]},
+    )
     _clear_queue(tmp_path)
     assets.enqueue_job(
         tmp_path,
@@ -1237,6 +1261,7 @@ def test_wider_stub_scope_supersedes_open_host_request(tmp_path: Path):
         "location",
         "cellar",
         source_scope={"source_page_indices": [2]},
+        body_source_scope={"source_page_indices": [1, 2]},
     )
     assert widened["entity"]["source_page_indices"] == [1, 2]
     repeated = assets.enqueue_job(
@@ -1379,7 +1404,7 @@ def test_complete_deep_pack_reconciles_covered_stale_partial_request(
     assert json.loads(deep_request_path.read_text(encoding="utf-8"))["status"] == "fulfilled"
 
 
-def test_dynamic_mention_stub_narrows_host_work_to_inherited_source_page(
+def test_dynamic_mention_stub_keeps_identity_scope_out_of_body_work(
     tmp_path: Path,
 ):
     _campaign(tmp_path)
@@ -1407,9 +1432,10 @@ def test_dynamic_mention_stub_narrows_host_work_to_inherited_source_page(
     request = json.loads(
         Path(out["results"][0]["host_work_request"]).read_text(encoding="utf-8")
     )
-    assert request["requested_pdf_indices"] == [1]
-    assert request["cached_scope_complete"] is True
-    assert [row["pdf_index"] for row in request["cached_page_refs"]] == [1]
+    assert request["requested_pdf_indices"] == []
+    assert request["dispatch_state"] == "awaiting_scope"
+    assert request["cached_scope_complete"] is None
+    assert request["cached_page_refs"] == []
 
 
 def test_current_dependency_body_deepen_rejects_named_only_mention_scope(
@@ -1468,7 +1494,171 @@ def test_current_dependency_body_deepen_rejects_named_only_mention_scope(
     assert replacement["work_level"] == "current_dependency"
 
 
-def test_host_work_unions_skeleton_profile_and_context_mention_pages(
+def test_ordinary_enter_cannot_prepoison_later_exact_body_dependency(
+    tmp_path: Path,
+):
+    campaign_id = _campaign(tmp_path)
+    skeleton = assets.get_skeleton(tmp_path, "qw-demo")
+    assert skeleton is not None
+    skeleton["locations"].append({
+        "location_id": "drixte-village",
+        "title": "Drixte Village",
+        "parse_state": "named_only",
+        "source_page_indices": [1],
+    })
+    assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    _clear_queue(tmp_path)
+
+    entered = project.on_enter_scene(
+        tmp_path, campaign_id, "drixte-village",
+    )
+    assert any("enqueue" in action for action in entered["actions"])
+    ordinary = worker.run_worker_once(tmp_path, parallel=1)
+    ordinary_request = json.loads(
+        Path(ordinary["results"][0]["host_work_request"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert ordinary_request["work_level"] == "near_term"
+    assert ordinary_request["dispatch_state"] == "awaiting_scope"
+    assert ordinary_request["requested_pdf_indices"] == []
+    assert assets.claim_host_work_requests(
+        tmp_path,
+        "qw-demo",
+        executor_id="ordinary-body-must-not-dispatch",
+    )["packets"] == []
+
+    dependency_ref = {
+        "operation": "scene.context",
+        "subject": {"kind": "location", "id": "drixte-village"},
+        "decision_id": "settle-drixte-arrival",
+    }
+    exact = project.request_deepen(
+        tmp_path,
+        campaign_id,
+        kind="location",
+        target_id="drixte-village",
+        reason="player arrives and observes",
+        dependency_ref=dependency_ref,
+    )
+    assert exact["status"]["deep_ready"] is False
+    if assets.list_queue(tmp_path, "qw-demo")["pending"]:
+        worker.run_worker_once(tmp_path, parallel=1)
+    requests = [
+        row for row in assets.list_host_work_requests(
+            tmp_path, "qw-demo", include_closed=True, limit=None,
+        )
+        if row["target_id"] == "drixte-village"
+        and row.get("status") not in assets.HOST_WORK_CLOSED_STATUSES
+    ]
+    assert requests
+    assert all(row["requested_pdf_indices"] == [] for row in requests)
+    current = [
+        row for row in requests
+        if row["work_level"] == "current_dependency"
+    ]
+    assert len(current) == 1
+    assert current[0]["dependency_ref"] == dependency_ref
+    assert current[0]["operational_class"] == "awaiting_scope"
+
+
+def test_toc_only_body_locator_persists_and_materializes_replacement(
+    tmp_path: Path,
+):
+    campaign_id = _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    assets.put_entity(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "archive",
+        {
+            "parse_state": "toc_only",
+            "title": "Archive",
+            "source_page_indices": [1],
+        },
+    )
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="deepen_location",
+        target_id="archive",
+        work_level="current_dependency",
+        dependency_ref={
+            "operation": "scene.context",
+            "subject": {"kind": "location", "id": "archive"},
+            "decision_id": "settle-archive-arrival",
+        },
+        consumer_refs=_consumer(tmp_path, intent_kind="scene_enter"),
+    )
+    first = worker.run_worker_once(tmp_path, parallel=1)
+    first_request = json.loads(
+        Path(first["results"][0]["host_work_request"]).read_text(encoding="utf-8")
+    )
+    assert first_request["dispatch_state"] == "awaiting_scope"
+
+    resolved = project.resolve_source_scope(
+        tmp_path,
+        campaign_id,
+        job_id=first_request["job_id"],
+        kind="location",
+        target_id="archive",
+        source_bundle_path=None,
+        pdf_indices=[0],
+    )
+    assert resolved["stub"]["entity"]["parse_state"] == "toc_only"
+    assert resolved["stub"]["entity"]["source_page_indices"] == [0, 1]
+    assert resolved["stub"]["entity"]["body_source_page_indices"] == [0]
+    assert resolved["replacement"]["requested_pdf_indices"] == [0]
+    assert (
+        resolved["replacement"]["dependency_ref"]
+        == first_request["dependency_ref"]
+    )
+
+
+def test_source_scope_resolution_rejects_mechanics_as_body_scope(
+    tmp_path: Path,
+):
+    campaign_id = _campaign(tmp_path)
+    _clear_queue(tmp_path)
+    assets.ensure_stub(
+        tmp_path,
+        "qw-demo",
+        "npc",
+        "keeper",
+        source_scope={"source_page_indices": [1]},
+    )
+    assets.enqueue_job(
+        tmp_path,
+        "qw-demo",
+        kind="resolve_npc_mechanics",
+        target_id="keeper",
+        consumer_refs=_consumer(tmp_path, intent_kind="mechanics"),
+    )
+    first = worker.run_worker_once(tmp_path, parallel=1)
+    first_request = json.loads(
+        Path(first["results"][0]["host_work_request"]).read_text(encoding="utf-8")
+    )
+    assert first_request["dispatch_state"] == "awaiting_scope"
+
+    with pytest.raises(project.ModuleProjectError, match="body jobs only"):
+        project.resolve_source_scope(
+            tmp_path,
+            campaign_id,
+            job_id=first_request["job_id"],
+            kind="npc",
+            target_id="keeper",
+            source_bundle_path=None,
+            pdf_indices=[0],
+        )
+    unchanged = assets.get_entity(
+        tmp_path, "qw-demo", "npc", "keeper",
+    )
+    assert unchanged is not None
+    assert "body_source_page_indices" not in unchanged
+
+
+def test_host_work_preserves_identity_union_without_blessing_body_scope(
     tmp_path: Path,
 ):
     _campaign(tmp_path)
@@ -1485,7 +1675,7 @@ def test_host_work_unions_skeleton_profile_and_context_mention_pages(
         "source_span": {"pdf_index_start": 1, "pdf_index_end": 1},
     }]
     assets.put_skeleton(tmp_path, "qw-demo", skeleton)
-    assets.ensure_stub(
+    stub = assets.ensure_stub(
         tmp_path,
         "qw-demo",
         "npc",
@@ -1509,12 +1699,12 @@ def test_host_work_unions_skeleton_profile_and_context_mention_pages(
     request = json.loads(
         Path(out["results"][0]["host_work_request"]).read_text(encoding="utf-8")
     )
-    assert request["requested_source_scope"] == {
-        "source_page_indices": [1, 2, 3],
-    }
-    assert request["requested_pdf_indices"] == [1, 2, 3]
-    assert request["cached_scope_complete"] is True
-    assert [row["pdf_index"] for row in request["cached_page_refs"]] == [1, 2, 3]
+    assert stub["entity"]["source_page_indices"] == [1, 2, 3]
+    assert request["requested_source_scope"] == {}
+    assert request["requested_pdf_indices"] == []
+    assert request["dispatch_state"] == "awaiting_scope"
+    assert request["cached_scope_complete"] is None
+    assert request["cached_page_refs"] == []
 
 
 def test_worker_merges_standalone_npc_and_threat_into_live_ir(tmp_path: Path):
@@ -1665,6 +1855,13 @@ def test_host_work_claim_coalesces_page_group_and_recovers_expired_lease(
         "source_page_indices": [1],
     })
     assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    assets.ensure_stub(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "annex",
+        body_source_scope={"source_page_indices": [1]},
+    )
     _clear_queue(tmp_path)
     for target_id in ("cellar", "annex"):
         assets.enqueue_job(
@@ -1736,6 +1933,13 @@ def test_fix7_heterogeneous_body_contracts_claim_one_bounded_family(
         "source_span": {"pdf_index_start": 1, "pdf_index_end": 1},
     })
     assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    assets.ensure_stub(
+        tmp_path,
+        "qw-demo",
+        "location",
+        "annex",
+        body_source_scope={"source_page_indices": [1]},
+    )
     _clear_queue(tmp_path)
     assets.enqueue_job(
         tmp_path,
@@ -1848,6 +2052,14 @@ def test_claim_selects_one_urgent_family_per_original_group_before_limit(
         },
     ])
     assets.put_skeleton(tmp_path, "qw-demo", skeleton)
+    for target_id, pdf_index in (("annex", 1), ("porch", 0), ("loft", 0)):
+        assets.ensure_stub(
+            tmp_path,
+            "qw-demo",
+            "location",
+            target_id,
+            body_source_scope={"source_page_indices": [pdf_index]},
+        )
     _clear_queue(tmp_path)
     requests = (
         ("partial_neighbor", "cellar", "neighbor_prefetch"),
@@ -2078,7 +2290,11 @@ def test_superseded_entity_request_cannot_write_pack_after_lock_wait(
     assert not thread.is_alive()
     assert len(errors) == 1
     assert "superseded" in str(errors[0])
-    assert assets.get_entity(tmp_path, "qw-demo", "location", "cellar") is None
+    unchanged = assets.get_entity(
+        tmp_path, "qw-demo", "location", "cellar",
+    )
+    assert unchanged is not None
+    assert unchanged["parse_state"] == "named_only"
 
 
 def test_claim_then_fulfillment_cannot_resurrect_leased_state(
