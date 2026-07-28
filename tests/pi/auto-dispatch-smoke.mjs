@@ -2485,6 +2485,310 @@ async function exerciseFailureDrain(mode) {
     )));
 }
 
+// Every setup.invoke kind whose canonical payload owns campaign state must
+// bind that payload to the main-gateway campaign before the backend sees it.
+// The live provider failure omitted this outer identity, so exercise both
+// omission and mismatch for the complete canonical campaign-bound set.
+{
+  const campaignBoundKinds = [
+    ["campaign.create", { title: "Campaign" }],
+    ["actor.create", { actor_id: "actor", sheet: {} }],
+    ["campaign.link_investigator", { investigator_ids: ["investigator"] }],
+    [
+      "scenario.bind_pdf",
+      {
+        scenario_id: "scenario",
+        title: "Scenario",
+        source_bundle_path: "/fixture/source-bundle",
+      },
+    ],
+    ["campaign.render_briefing", {}],
+    [
+      "investigator.render_card",
+      { investigator_id: "investigator" },
+    ],
+  ];
+  const harness = mainExtensionHarness(() => ({
+    ok: true,
+    tool: "setup.invoke",
+    data: { status: "PASS" },
+  }));
+  await harness.start();
+  for (const [index, [kind, rest]] of campaignBoundKinds.entries()) {
+    const campaignId = `campaign-bound-${index}`;
+    const args = {
+      kind,
+      payload: { campaign_id: campaignId, ...rest },
+    };
+    const before = harness.calls.length;
+    let missingOuter = null;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        `campaign-bound-missing-${index}`,
+        { operation: "setup.invoke", arguments: args },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch (error) {
+      missingOuter = error;
+    }
+    let mismatchedOuter = null;
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        `campaign-bound-mismatch-${index}`,
+        {
+          operation: "setup.invoke",
+          campaign: `${campaignId}-wrong`,
+          arguments: args,
+        },
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch (error) {
+      mismatchedOuter = error;
+    }
+    check(`${kind} rejects missing and mismatched outer campaign pre-mutation`,
+      missingOuter instanceof Error
+      && mismatchedOuter instanceof Error
+      && missingOuter.message.includes(
+        `"campaign":"${campaignId}"`,
+      )
+      && mismatchedOuter.message.includes(
+        `"campaign":"${campaignId}"`,
+      )
+      && harness.calls.length === before);
+    await harness.registered.get("coc_invoke").execute(
+      `campaign-bound-corrected-${index}`,
+      {
+        operation: "setup.invoke",
+        campaign: campaignId,
+        arguments: args,
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+    check(`${kind} admits exact outer and payload campaign identity`,
+      harness.calls.length === before + 1
+      && harness.calls.at(-1).params.campaign === campaignId);
+  }
+  await harness.shutdown();
+}
+
+// Reproduce the live Grok call shape at the real Pi gateway: payload-only
+// bind/link followed by stateless prepare/bootstrap. Every malformed call is
+// rejected before canonical mutation. The corrected exact route can then
+// advance, including retained prefilled bootstrap provenance.
+{
+  const campaignId = "live-grok-ownership-shape";
+  const task = coordinatorTask("live-grok-ownership-shape-task", {
+    campaignId,
+  });
+  const retainedBootstrapCard = {
+    schema_version: 1,
+    operation: "progressive.opening_bootstrap",
+    invoke_via: "coc_invoke",
+    prefilled_arguments: { opening_pdf_indices: [3, 4] },
+    missing_arguments: ["start_location"],
+    hard_gate: true,
+    authority: "canonical_setup",
+  };
+  const harness = mainExtensionHarness((_name, params) => {
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "scenario.bind_pdf"
+    ) {
+      return boundOpeningSetupResult(campaignId);
+    }
+    if (
+      params.operation === "setup.invoke"
+      && params.arguments?.kind === "campaign.link_investigator"
+    ) {
+      const gate = openingSetupGate(undefined, campaignId);
+      return {
+        ok: true,
+        tool: "setup.invoke",
+        data: {
+          status: "PASS",
+          result: { kind: "campaign.link_investigator" },
+          opening_gate: gate,
+          next_operation: gate.next_operation,
+        },
+      };
+    }
+    if (params.operation === "progressive.prepare_opening") {
+      return {
+        ok: true,
+        tool: "progressive.prepare_opening",
+        data: {
+          status: "blocked",
+          next_operation: retainedBootstrapCard,
+        },
+      };
+    }
+    if (params.operation === "progressive.opening_bootstrap") {
+      return openingBootstrapWithoutTakeover(task, "current");
+    }
+    throw new Error(`unexpected operation ${params.operation}`);
+  });
+  await harness.start();
+  const bindArgs = {
+    kind: "scenario.bind_pdf",
+    payload: {
+      campaign_id: campaignId,
+      scenario_id: "live-grok-scenario",
+      title: "Live Grok scenario",
+      source_bundle_path: "/fixture/live-grok/source-bundle",
+    },
+  };
+  const linkArgs = {
+    kind: "campaign.link_investigator",
+    payload: {
+      campaign_id: campaignId,
+      investigator_ids: ["live-grok-investigator"],
+    },
+  };
+  const statelessCalls = [
+    {
+      operation: "setup.invoke",
+      arguments: bindArgs,
+    },
+    {
+      operation: "progressive.prepare_opening",
+      campaign: campaignId,
+      arguments: {},
+    },
+    {
+      operation: "setup.invoke",
+      arguments: linkArgs,
+    },
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: campaignId,
+      arguments: {
+        start_location: {
+          location_id: "opening",
+          title: "Opening",
+        },
+        opening_pdf_indices: [3, 4],
+      },
+    },
+  ];
+  let rejectedStateless = 0;
+  for (const [index, params] of statelessCalls.entries()) {
+    try {
+      await harness.registered.get("coc_invoke").execute(
+        `live-grok-stateless-${index}`,
+        params,
+        undefined,
+        undefined,
+        harness.ctx,
+      );
+    } catch {
+      rejectedStateless += 1;
+    }
+  }
+  check("live Grok malformed setup shape is wholly pre-execution",
+    rejectedStateless === statelessCalls.length
+    && harness.calls.length === 0
+    && harness.launches.length === 0
+    && !harness.appended.some((entry) => (
+      entry.name === "coc-opening-setup-route-audit"
+    )));
+
+  await harness.registered.get("coc_invoke").execute(
+    "live-grok-corrected-bind",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: bindArgs,
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await harness.registered.get("coc_invoke").execute(
+    "live-grok-corrected-link",
+    {
+      operation: "setup.invoke",
+      campaign: campaignId,
+      arguments: linkArgs,
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  await harness.registered.get("coc_invoke").execute(
+    "live-grok-corrected-prepare",
+    {
+      operation: "progressive.prepare_opening",
+      campaign: campaignId,
+      arguments: {},
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  );
+  const beforeWrongBootstrap = harness.calls.length;
+  let wrongBootstrapRejected = false;
+  try {
+    await harness.registered.get("coc_invoke").execute(
+      "live-grok-wrong-bootstrap",
+      {
+        operation: "progressive.opening_bootstrap",
+        campaign: campaignId,
+        arguments: {
+          start_location: {
+            location_id: "opening",
+            title: "Opening",
+          },
+          opening_pdf_indices: [3],
+        },
+      },
+      undefined,
+      undefined,
+      harness.ctx,
+    );
+  } catch {
+    wrongBootstrapRejected = true;
+  }
+  const correctedBootstrap = JSON.parse((await harness.registered.get(
+    "coc_invoke",
+  ).execute(
+    "live-grok-corrected-bootstrap",
+    {
+      operation: "progressive.opening_bootstrap",
+      campaign: campaignId,
+      arguments: {
+        start_location: {
+          location_id: "opening",
+          title: "Opening",
+        },
+        opening_pdf_indices: [3, 4],
+      },
+    },
+    undefined,
+    undefined,
+    harness.ctx,
+  )).content[0].text);
+  check("corrected live Grok setup advances only the exact retained route",
+    wrongBootstrapRejected
+    && beforeWrongBootstrap === 3
+    && harness.calls.length === 4
+    && harness.calls.map((call) => call.params.operation).join(",") === [
+      "setup.invoke",
+      "setup.invoke",
+      "progressive.prepare_opening",
+      "progressive.opening_bootstrap",
+    ].join(",")
+    && correctedBootstrap.ok === true
+    && correctedBootstrap.data.status === "current"
+    && harness.launches.length === 0);
+  await harness.shutdown();
+}
+
 // A bootstrap packet rejected by the observer cannot bypass that decision in
 // the gateway. It launches no coordinator and releases the exact retry latch.
 {

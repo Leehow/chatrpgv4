@@ -46,6 +46,18 @@ const OPENING_SETUP_CHARACTER_KINDS = new Set([
   "campaign.link_investigator",
   "investigator.render_card",
 ]);
+const CAMPAIGN_BOUND_SETUP_KINDS = new Set([
+  "campaign.create",
+  "actor.create",
+  "campaign.link_investigator",
+  "scenario.bind_pdf",
+  "campaign.render_briefing",
+  "investigator.render_card",
+]);
+const OWNED_OPENING_ROUTE_OPERATIONS = new Set([
+  "progressive.prepare_opening",
+  "progressive.opening_bootstrap",
+]);
 const ocrSchema = {
   type: "object",
   properties: {
@@ -631,6 +643,40 @@ export class OpeningTerminalContinuationGate {
     );
   }
 
+  private campaignBoundSetupError(params: JsonObject): string | null {
+    if (params.operation !== "setup.invoke") return null;
+    const args = objectOrNull(params.arguments);
+    const payload = objectOrNull(args?.payload);
+    const kind = typeof args?.kind === "string" ? args.kind : "";
+    if (!CAMPAIGN_BOUND_SETUP_KINDS.has(kind)) return null;
+    const outerCampaign = typeof params.campaign === "string"
+      ? params.campaign
+      : "";
+    const payloadCampaign = typeof payload?.campaign_id === "string"
+      ? payload.campaign_id
+      : "";
+    if (
+      outerCampaign.trim().length > 0
+      && payloadCampaign.trim().length > 0
+      && outerCampaign === payloadCampaign
+    ) {
+      return null;
+    }
+    const retained = payloadCampaign
+      ? {
+        operation: "setup.invoke",
+        campaign: payloadCampaign,
+        arguments: args,
+      }
+      : null;
+    return (
+      `${kind || "campaign-bound setup.invoke"} requires a non-empty top-level `
+      + "campaign exactly equal to arguments.payload.campaign_id before "
+      + "canonical execution; retry only this corrected call: "
+      + JSON.stringify(retained)
+    );
+  }
+
   private noteOpeningSetupTurnCampaign(campaignId: string): void {
     if (this.openingSetupTurnCampaignId === null) {
       this.openingSetupTurnCampaignId = campaignId;
@@ -785,10 +831,19 @@ export class OpeningTerminalContinuationGate {
       );
     }
     if (name !== "coc_invoke") return null;
+    const setupOwnershipError = this.campaignBoundSetupError(params);
+    if (setupOwnershipError !== null) return setupOwnershipError;
+    const operation = String(params.operation ?? "");
     const campaignId = typeof params.campaign === "string"
       ? params.campaign
       : null;
     if (campaignId === null) {
+      if (OWNED_OPENING_ROUTE_OPERATIONS.has(operation)) {
+        return (
+          `${operation} requires a top-level campaign and an owned exact Pi `
+          + "opening route before canonical execution"
+        );
+      }
       if (this.openingSetupStates.size === 0) return null;
       return "campaign-bound Pi opening setup requires the exact campaign id";
     }
@@ -814,6 +869,14 @@ export class OpeningTerminalContinuationGate {
     }
     const state = this.openingSetupStates.get(campaignId) ?? null;
     if (state === null) {
+      if (OWNED_OPENING_ROUTE_OPERATIONS.has(operation)) {
+        return (
+          `${operation} has no owned Pi opening route for campaign `
+          + `${campaignId}; invoke the corrected campaign-bound `
+          + "scenario.bind_pdf call first and follow its exact retained "
+          + "progressive.prepare_opening card"
+        );
+      }
       if (
         this.pendingBindExistsForCampaign(campaignId)
         && !this.scenarioBindInvocation(params)
