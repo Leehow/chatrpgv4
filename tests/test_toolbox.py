@@ -11999,12 +11999,9 @@ def test_request_deepen_returns_pi_auto_dispatch_takeover_after_local_materializ
         tmp_path,
         extra_pdf_indices=(1, 2),
     )
-    published = _run(ws, "progressive.publish_skeleton", {
-        "asset_root_id": ws["asset_root_id"],
-        "source_file_sha256": ws["file_sha256"],
-        "skeleton": ws["skeleton"],
-    })
-    assert published["ok"] is True, published
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
     assets = coc_toolbox.coc_module_project.coc_module_assets
     assets.ensure_stub(
         ws["workspace"],
@@ -12222,6 +12219,11 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
         "lifecycle_states": ["leased"],
     }
 
+    # This component regression constructs a pre-existing pending turn to test
+    # coordinator lease release. The Pi main-KP gate now correctly forbids
+    # creating such a played turn before opening, so create the synthetic
+    # pending manifest outside the Pi host surface.
+    monkeypatch.setenv("COC_HOST", "codex")
     journaled = _run(ws, "state.journal", {
         "summary": "本轮已结算，后台来源工作随后完成。",
         "player_action": "结束本轮",
@@ -12229,6 +12231,7 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
         "decision_id": "journal-before-source-fulfillment",
     })
     assert journaled["ok"] is True, journaled
+    monkeypatch.setenv("COC_HOST", "pi")
     renewed = _run(ws, "progressive.renew_host_work_leases", {
         "asset_root_id": ws["asset_root_id"],
         "executor_id": "pending-finalize-source-test",
@@ -12268,10 +12271,12 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
     assert "lease_id" not in request
     assert "executor_id" not in request
 
+    monkeypatch.setenv("COC_HOST", "codex")
     _finalize_pending_turn_for_test(
         ws,
         decision_id="finalize-before-source-retakeover",
     )
+    monkeypatch.setenv("COC_HOST", "pi")
     recovery = _run(ws, "progressive.project_opening", {})
     assert recovery["ok"] is True, recovery
     assert recovery["data"]["status"] == "source_recovery_ready"
@@ -12288,24 +12293,12 @@ def test_leased_opening_defers_fulfill_and_releases_after_turn_journal(
     )
 
     context = _run(ws, "scene.context")
-    assert context["ok"] is True, context
-    assert context["data"]["progressive"]["background_takeover"] == takeover
-    repeated_context = _run(ws, "scene.context")
-    assert repeated_context["ok"] is True, repeated_context
-    assert (
-        repeated_context["data"]["progressive"]["background_takeover"]
-        == takeover
+    assert context["ok"] is False, context
+    assert context["error"]["code"] == "opening_setup_incomplete"
+    assert context["error"]["details"]["phase"] == (
+        "opening_source_materialization"
     )
-    coalesced = _run(ws, "progressive.request_opening_pack", {
-        "asset_root_id": ws["asset_root_id"],
-        "source_file_sha256": ws["file_sha256"],
-        "start_location_id": "opening",
-        "opening_pdf_indices": [0],
-        "request_purpose": assets.FOREGROUND_OPENING_PURPOSE,
-    })
-    assert coalesced["ok"] is True, coalesced
-    assert coalesced["data"]["job_id"] == packet["requests"][0]["job_id"]
-    assert coalesced["data"]["status"] == "coalesced"
+    assert context["error"]["details"]["next_operation"] is None
 
 
 def test_opening_setup_source_clock_preserves_relative_precision(
@@ -12736,6 +12729,62 @@ def _publish_and_project_opening_component(ws: dict, *, pack: dict | None = None
     return published, projected
 
 
+def test_pi_bound_source_hard_gates_play_until_opening_projection_is_current(
+    tmp_path: Path, monkeypatch,
+):
+    ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "pi")
+    world_path = ws["campaign_dir"] / "save" / "world-state.json"
+    world_before = world_path.read_bytes()
+
+    blocked_calls = [
+        ("session.begin", {"decision_id": "must-not-begin"}),
+        ("scene.map", {}),
+        (
+            "state.move_scene",
+            {
+                "scene_id": "invented-intro",
+                "decision_id": "must-not-move",
+                "reason": "must not improvise before source opening",
+            },
+        ),
+    ]
+    retained_next_operation = None
+    for operation, arguments in blocked_calls:
+        blocked = _run(ws, operation, arguments)
+        assert blocked["ok"] is False, blocked
+        assert blocked["error"]["code"] == "opening_setup_incomplete"
+        details = blocked["error"]["details"]
+        assert details["hard_gate"] is True
+        assert details["activation_allowed"] is False
+        assert details["phase"] == "opening_selection"
+        if retained_next_operation is None:
+            retained_next_operation = details["next_operation"]
+        assert details["next_operation"] == retained_next_operation
+    assert retained_next_operation["operation"] == (
+        "progressive.prepare_opening"
+    )
+    assert retained_next_operation["missing_arguments"] == []
+    assert world_path.read_bytes() == world_before
+
+    prepared = _run(ws, "progressive.prepare_opening")
+    assert prepared["ok"] is True, prepared
+    bootstrap = prepared["data"]["next_operation"]
+    assert bootstrap["operation"] == "progressive.opening_bootstrap"
+    assert bootstrap["missing_arguments"] == [
+        "start_location", "opening_pdf_indices",
+    ]
+    assert bootstrap["hard_gate"] is True
+
+    # Component setup uses the canonical projection helpers directly; once
+    # source-backed projection is current the same Pi play query is released.
+    monkeypatch.setenv("COC_HOST", "codex")
+    _publish_and_project_opening_component(ws)
+    monkeypatch.setenv("COC_HOST", "pi")
+    released = _run(ws, "scene.map")
+    assert released["ok"] is True, released
+
+
 def test_prepare_opening_is_strict_read_only_and_skips_recovery(
     tmp_path: Path, monkeypatch,
 ):
@@ -12945,14 +12994,12 @@ def test_missing_skeleton_page_catalog_is_complete_bounded_and_fail_closed(
     )
     assert data["anchors_declared"] is True
     assert data["encoded_data_bytes"] <= data["encoded_data_budget_bytes"]
-    assert any(
-        card["operation"] == "progressive.publish_skeleton"
-        for card in data["mutation_cards"]
+    assert data["next_operation"]["operation"] == (
+        "progressive.opening_bootstrap"
     )
-    assert data["blocking"] == [{
-        "code": "opening_skeleton_missing",
-        "entity_id": ws["asset_root_id"],
-    }]
+    assert data["next_operation"]["hard_gate"] is True
+    assert data["blocking_total"] == 1
+    assert data["blocking_omitted_count"] == 1
 
     invalid = _run(ws, "progressive.prepare_opening", {
         "opening_pdf_indices": [0, 2],
@@ -14778,6 +14825,7 @@ def _requested_partial_opening(
 ) -> tuple[dict, str]:
     monkeypatch.setenv("COC_DISABLE_QUEUE_WORKER", "1")
     ws = _opening_component_workspace(tmp_path)
+    monkeypatch.setenv("COC_HOST", "codex")
     published = _run(ws, "progressive.publish_skeleton", {
         "asset_root_id": ws["asset_root_id"],
         "source_file_sha256": ws["file_sha256"],
@@ -14797,6 +14845,7 @@ def _requested_partial_opening(
         "coc_module_queue_worker.py",
     )
     assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    monkeypatch.setenv("COC_HOST", "pi")
     return ws, requested["data"]["job_id"]
 
 
@@ -14939,6 +14988,7 @@ def test_pi_host_warns_when_keeper_races_claim_and_hand_pack_fulfill(
     assets.put_entity(
         ws["workspace"], ws["asset_root_id"], "location", "opening", changed,
     )
+    monkeypatch.setenv("COC_HOST", "codex")
     replacement = _run(ws, "progressive.request_opening_pack", {
         "asset_root_id": ws["asset_root_id"],
         "source_file_sha256": ws["file_sha256"],
@@ -14953,6 +15003,7 @@ def test_pi_host_warns_when_keeper_races_claim_and_hand_pack_fulfill(
         "coc_module_queue_worker.py",
     )
     assert worker.run_worker_once(ws["workspace"], parallel=1)["claimed"] == 1
+    monkeypatch.setenv("COC_HOST", "pi")
     forwarded = _run(ws, "progressive.fulfill_host_work", {
         "worker_result": {
             "job_id": replacement["data"]["job_id"],

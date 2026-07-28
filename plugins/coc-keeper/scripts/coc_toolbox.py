@@ -1168,6 +1168,11 @@ def _error_recovery_hints(code: str) -> list[str]:
         "turn_pending_finalization": [
             "state.journal already committed for this turn — call turn.finalize NOW; no further state mutations are allowed until this turn is finalized"
         ],
+        "opening_setup_incomplete": [
+            "follow error.details.next_operation exactly when present; this is "
+            "a hard setup gate, so do not rediscover, resume, rebind, inspect "
+            "live-play state, or narrate an opening first",
+        ],
     }
     return list(hints.get(code, ["the keeper may continue with a different in-fiction approach or corrected tool arguments"]))
 
@@ -1188,6 +1193,126 @@ _SOURCE_LIFECYCLE_DURING_PENDING_FINALIZATION = frozenset({
     "progressive.renew_host_work_leases",
     "progressive.release_host_work_leases",
 })
+
+_PI_OPENING_SETUP_ALLOWED_OPERATIONS = frozenset({
+    "progressive.prepare_opening",
+    "progressive.opening_bootstrap",
+    "progressive.project_opening",
+    "progressive.claim_host_work",
+    "progressive.fulfill_host_work",
+    "progressive.renew_host_work_leases",
+    "progressive.release_host_work_leases",
+    "setup.investigator_contract",
+})
+_PI_OPENING_SETUP_ALLOWED_SETUP_KINDS = frozenset({
+    "actor.create",
+    "investigator.create",
+    "campaign.link_investigator",
+    "investigator.render_card",
+})
+
+
+def _pi_opening_setup_gate(
+    root: Path, campaign_id: str | None,
+) -> dict[str, Any] | None:
+    """Return the persisted Pi opening gate until source projection is fresh."""
+    if str(os.environ.get("COC_HOST") or "").lower() != "pi" or not campaign_id:
+        return None
+    campaign_dir = root / ".coc" / "campaigns" / str(campaign_id)
+    if not campaign_dir.is_dir():
+        return None
+    try:
+        root_info = coc_module_project.resolve_opening_preparation_root(
+            root, str(campaign_id),
+        )
+    except coc_module_project.OpeningPreparationError:
+        return None
+    asset_root_id = str(root_info["asset_root_id"])
+    binding = coc_module_project.current_opening_projection_source_binding(
+        campaign_dir,
+    )
+    receipt = coc_module_project.current_opening_projection_receipt(campaign_dir)
+    if isinstance(binding, dict) and isinstance(receipt, dict):
+        source_scope = binding.get("source_scope")
+        start_location_id = str(binding.get("start_location_id") or "")
+        if (
+            binding.get("asset_root_id") == asset_root_id
+            and start_location_id
+            and isinstance(source_scope, dict)
+            and coc_module_project.opening_projection_state_is_fresh(
+                root,
+                campaign_dir,
+                asset_root_id,
+                start_location_id,
+                source_scope,
+            )
+        ):
+            return None
+    scenario = {}
+    scenario_path = campaign_dir / "scenario" / "scenario.json"
+    try:
+        loaded = json.loads(scenario_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            scenario = loaded
+    except (json.JSONDecodeError, OSError):
+        pass
+    watch = (
+        scenario.get("opening_projection_watch")
+        if isinstance(scenario.get("opening_projection_watch"), dict)
+        else None
+    )
+    if watch is not None:
+        return {
+            "schema_version": 1,
+            "status": "blocked",
+            "hard_gate": True,
+            "activation_allowed": False,
+            "phase": "opening_source_materialization",
+            "campaign_id": str(campaign_id),
+            "asset_root_id": asset_root_id,
+            "source_lifecycle_status": str(watch.get("status") or "pending"),
+            "next_operation": None,
+            "instruction": (
+                "retain the accepted opening_bootstrap receipt and wait for its "
+                "host terminal lifecycle; do not rebind, rediscover, resume, "
+                "poll, move a scene, or narrate an opening"
+            ),
+        }
+    next_operation = _opening_card("progressive.prepare_opening", {}, [])
+    next_operation.update({
+        "hard_gate": True,
+        "authority": "canonical_setup",
+        "reason": (
+            "Select the shortest sufficient source opening before any live-play "
+            "operation."
+        ),
+    })
+    return {
+        "schema_version": 1,
+        "status": "blocked",
+        "hard_gate": True,
+        "activation_allowed": False,
+        "phase": "opening_selection",
+        "campaign_id": str(campaign_id),
+        "asset_root_id": asset_root_id,
+        "next_operation": next_operation,
+        "instruction": (
+            "invoke this exact progressive.prepare_opening card now; do not "
+            "rebind, rediscover, resume, inspect scene/play APIs, or narrate an "
+            "opening first"
+        ),
+    }
+
+
+def _pi_opening_setup_operation_allowed(
+    name: str, args: dict[str, Any],
+) -> bool:
+    if name in _PI_OPENING_SETUP_ALLOWED_OPERATIONS:
+        return True
+    return (
+        name == "setup.invoke"
+        and str(args.get("kind") or "") in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS
+    )
 
 
 def _opening_projection_pacing_available(
@@ -1242,6 +1367,21 @@ def run_tool(name: str, root: Path, campaign_id: str | None, args: dict[str, Any
 
     def execute_transaction(ctx: Ctx) -> dict[str, Any]:
         try:
+            opening_setup_gate = _pi_opening_setup_gate(
+                ctx.root, ctx.campaign_id,
+            )
+            if (
+                opening_setup_gate is not None
+                and not _pi_opening_setup_operation_allowed(name, args)
+            ):
+                raise ToolError(
+                    "opening_setup_incomplete",
+                    (
+                        f"{name} is unavailable until the source-bound opening "
+                        "projection is current"
+                    ),
+                    details=opening_setup_gate,
+                )
             rules_capability = _RULE_TOOL_CAPABILITIES.get(name)
             if rules_capability is not None:
                 _rules_resolver(ctx, rules_capability)
@@ -7191,6 +7331,24 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
     payload = args.get("payload")
     if not isinstance(payload, dict):
         raise ToolError("invalid_param", "setup.invoke payload must be an object")
+    payload_campaign_id = str(
+        payload.get("campaign_id") or ctx.campaign_id or ""
+    ).strip()
+    opening_setup_gate = _pi_opening_setup_gate(
+        ctx.root, payload_campaign_id or None,
+    )
+    if (
+        opening_setup_gate is not None
+        and kind not in _PI_OPENING_SETUP_ALLOWED_SETUP_KINDS
+    ):
+        raise ToolError(
+            "opening_setup_incomplete",
+            (
+                f"setup.invoke kind {kind!r} is unavailable until the "
+                "source-bound opening projection is current"
+            ),
+            details=opening_setup_gate,
+        )
     try:
         receipt = coc_runtime_ops.execute_setup_operation(
             ctx.root,
@@ -7231,6 +7389,28 @@ def _tool_setup_invoke(ctx: Ctx, args: dict[str, Any]):
                     "call campaign.render_briefing only if a bind receipt lacks "
                     "that path or player-safe public setup metadata later changes",
                 ]
+            )
+    opening_setup_gate = _pi_opening_setup_gate(
+        ctx.root, payload_campaign_id or None,
+    )
+    if receipt.get("status") == "PASS" and opening_setup_gate is not None:
+        receipt = deepcopy(receipt)
+        receipt["opening_gate"] = opening_setup_gate
+        next_operation = opening_setup_gate.get("next_operation")
+        if isinstance(next_operation, dict):
+            receipt["next_operation"] = deepcopy(next_operation)
+            hints.insert(
+                0,
+                "opening setup is hard-gated: invoke data.next_operation "
+                "exactly before any live-play discovery, read, mutation, "
+                "session.resume, rebind, or opening narration",
+            )
+        else:
+            hints.insert(
+                0,
+                "opening source materialization is already running; retain its "
+                "bootstrap receipt and wait for the host terminal lifecycle "
+                "without polling, rebinding, resuming, or entering play",
             )
     return receipt, [], hints
 
@@ -13442,6 +13622,34 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
                 }
                 for ref in scope["page_refs"]
             ]
+        bootstrap_prefill: dict[str, Any] = {}
+        bootstrap_missing = ["start_location", "opening_pdf_indices"]
+        if pages_arg is not None:
+            bootstrap_prefill["opening_pdf_indices"] = list(pages_arg)
+            bootstrap_missing = ["start_location"]
+        next_operation = _opening_card(
+            "progressive.opening_bootstrap",
+            bootstrap_prefill,
+            bootstrap_missing,
+        )
+        next_operation.update({
+            "hard_gate": True,
+            "authority": "canonical_setup",
+            "selection_contract": {
+                "start_location": {
+                    "location_id": "source-grounded stable id",
+                    "title": "source-grounded table-language title",
+                },
+                "opening_pdf_indices": (
+                    "shortest sufficient contiguous 1..3-page authored opening"
+                ),
+            },
+            "reason": (
+                "After semantic selection from this bounded catalog, bootstrap "
+                "the exact opening before any live-play operation."
+            ),
+        })
+        data["next_operation"] = next_operation
         publish_card = _opening_card(
             "progressive.publish_skeleton",
             {"asset_root_id": root_id, "source_file_sha256": root_info["file_sha256"]},
@@ -13719,9 +13927,11 @@ def _tool_progressive_prepare_opening(ctx: Ctx, args: dict[str, Any]):
     if data.get("opening_page_candidates") and pages_arg is None:
         hints.append(
             "opening_page_candidates is the bounded complete cached selection "
-            "catalog: semantically choose a contiguous 1..3-page authored "
-            "opening, then make the one selected prepare_opening call; never "
-            "guess page indices or scan beyond this catalog"
+            "catalog: semantically choose a structured source-grounded start "
+            "and the shortest sufficient contiguous 1..3-page authored opening, "
+            "then invoke data.next_operation as progressive.opening_bootstrap "
+            "exactly once; never guess page indices, scan beyond this catalog, "
+            "publish a skeleton separately, or enter live play first"
         )
     return data, [], hints
 

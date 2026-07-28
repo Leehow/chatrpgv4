@@ -1462,7 +1462,7 @@ def test_coc_invoke_never_uses_plugin_storage_as_campaign_root(monkeypatch):
 
 def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     server = _load_server()
-    monkeypatch.setenv("COC_HOST", "grok")
+    monkeypatch.setenv("COC_HOST", "pi")
     monkeypatch.setattr(server, "_PROCESS_ACTIVE_CAMPAIGN", None)
 
     inspected = server._call_tool("coc_invoke", {
@@ -1520,6 +1520,13 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     assert linked["data"]["result"]["investigator_ids"] == [
         "mcp-custom-investigator",
     ]
+    cross_kind_field = invoke("campaign.render_briefing", {
+        "campaign_id": "mcp-custom",
+        "html_mode": "never",
+    })
+    assert cross_kind_field["ok"] is False
+    assert cross_kind_field["error"]["code"] == "setup_failed"
+
     bundle = _custom_setup_source_bundle(tmp_path)
     bound = invoke("scenario.bind_pdf", {
         "campaign_id": "mcp-custom",
@@ -1540,6 +1547,14 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         and "do not rerender" in hint
         for hint in bound["hints"]
     )
+    next_operation = bound["data"]["next_operation"]
+    assert next_operation == bound["data"]["opening_gate"]["next_operation"]
+    assert next_operation["operation"] == "progressive.prepare_opening"
+    assert next_operation["invoke_via"] == "coc_invoke"
+    assert next_operation["prefilled_arguments"] == {}
+    assert next_operation["missing_arguments"] == []
+    assert next_operation["hard_gate"] is True
+    assert bound["data"]["opening_gate"]["activation_allowed"] is False
     assert (
         tmp_path
         / ".coc"
@@ -1555,15 +1570,44 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
         "campaign": "mcp-custom",
         "arguments": {},
     })
-    assert fresh_status["ok"] is True, fresh_status
+    assert fresh_status["ok"] is False, fresh_status
+    assert fresh_status["error"]["code"] == "opening_setup_incomplete"
+    assert fresh_status["error"]["details"]["next_operation"] == next_operation
     assert "context_rehydration" not in fresh_status
 
     rerendered = invoke("campaign.render_briefing", {
         "campaign_id": "mcp-custom",
         "language": "zh-Hans",
     })
-    assert rerendered["ok"] is True, rerendered
-    assert rerendered["data"]["result"]["briefing_path"] == briefing_path
+    assert rerendered["ok"] is False, rerendered
+    assert rerendered["error"]["code"] == "opening_setup_incomplete"
+    assert rerendered["error"]["details"]["next_operation"] == next_operation
+
+    rebound = invoke("scenario.bind_pdf", {
+        "campaign_id": "mcp-custom",
+        "scenario_id": "custom-mcp-module",
+        "title": "Custom MCP Module",
+        "source_bundle_path": os.fspath(bundle),
+        "compile_now": True,
+    })
+    assert rebound["ok"] is False, rebound
+    assert rebound["error"]["code"] == "opening_setup_incomplete"
+    assert rebound["error"]["details"]["next_operation"] == next_operation
+
+    prepared = server._call_tool("coc_invoke", {
+        "operation": "progressive.prepare_opening",
+        "root": os.fspath(tmp_path),
+        "campaign": "mcp-custom",
+        "arguments": {},
+    })
+    assert prepared["ok"] is True, prepared
+    bootstrap = prepared["data"]["next_operation"]
+    assert bootstrap["operation"] == "progressive.opening_bootstrap"
+    assert bootstrap["invoke_via"] == "coc_invoke"
+    assert bootstrap["missing_arguments"] == [
+        "start_location", "opening_pdf_indices",
+    ]
+    assert bootstrap["hard_gate"] is True
 
     rendered_card = invoke("investigator.render_card", {
         "campaign_id": "mcp-custom",
@@ -1574,13 +1618,7 @@ def test_coc_invoke_runs_existing_custom_setup_gateway(monkeypatch, tmp_path):
     assert rendered_card["ok"] is True, rendered_card
     markdown_path = rendered_card["data"]["result"]["markdown_path"]
     assert (tmp_path / markdown_path).is_file()
-
-    cross_kind_field = invoke("campaign.render_briefing", {
-        "campaign_id": "mcp-custom",
-        "html_mode": "never",
-    })
-    assert cross_kind_field["ok"] is False
-    assert cross_kind_field["error"]["code"] == "setup_failed"
+    assert rendered_card["data"]["next_operation"] == next_operation
 
     invalid = invoke("campaign.create", {
         "campaign_id": "must-not-exist",
